@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Bedbank Core Operations',
-  description: 'Enterprise hotel distribution and reservation operations platform.',
+  title: 'Atlas Getaways | Wholesale Hotel Search',
+  description: 'Live wholesale hotel availability, net rates, and reservation management for Atlas Getaways.',
   generator: 'v0.app',
   icons: {
     icon: [
