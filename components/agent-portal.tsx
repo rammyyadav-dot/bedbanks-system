@@ -1,0 +1,34 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { ArrowRight, BedDouble, CalendarDays, CheckCircle2, ChevronDown, Clock3, Download, MapPin, Search, SlidersHorizontal, Users, WalletCards } from 'lucide-react'
+
+const inventory = [
+  { id: 'HTL-000182', name: 'Jumeirah Beach Hotel', city: 'Dubai, UAE', rating: '5.0', price: 820, rooms: 12, badge: 'Best value', color: 'cyan' },
+  { id: 'HTL-000241', name: 'The St. Regis Abu Dhabi', city: 'Abu Dhabi, UAE', rating: '4.9', price: 690, rooms: 8, badge: 'Instant confirm', color: 'blue' },
+  { id: 'HTL-000319', name: 'Waldorf Astoria Ras Al Khaimah', city: 'Ras Al Khaimah, UAE', rating: '4.8', price: 540, rooms: 6, badge: 'Limited rooms', color: 'amber' },
+]
+
+const bookings = [
+  { ref: 'UWB-48291', hotel: 'Jumeirah Beach Hotel', guest: 'M. Al Mansoori', dates: '18 Sep — 21 Sep 2026', status: 'Confirmed', amount: 'AED 2,460' },
+  { ref: 'UWB-48276', hotel: 'The St. Regis Abu Dhabi', guest: 'S. Rahman', dates: '22 Sep — 25 Sep 2026', status: 'On request', amount: 'AED 2,070' },
+  { ref: 'UWB-48198', hotel: 'Waldorf Astoria RAK', guest: 'A. Patel', dates: '03 Oct — 07 Oct 2026', status: 'Confirmed', amount: 'AED 2,160' },
+]
+
+export function AgentPortal() {
+  const [query, setQuery] = useState('Dubai')
+  const [searched, setSearched] = useState(false)
+  const [toast, setToast] = useState('')
+  const results = useMemo(() => inventory.filter((hotel) => !query || `${hotel.name} ${hotel.city}`.toLowerCase().includes(query.toLowerCase())), [query])
+  const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
+
+  return <div className="agent-shell">
+    <header className="agent-topbar"><div className="agent-brand"><span className="agent-brand-mark"><BedDouble size={18} /></span><span><strong>UAE Wholesale Bazaar</strong><small>AGENCY RESERVATION PORTAL</small></span></div><div className="agent-top-actions"><span className="agent-credit"><WalletCards size={15} /> Available credit <strong>AED 184,290</strong></span><button className="agent-icon-button" aria-label="Notifications"><Clock3 size={17} /></button><span className="agent-user">JD</span></div></header>
+    <main className="agent-content">
+      <div className="agent-welcome"><div><span className="agent-kicker">ATLAS GETAWAYS · AGT-093</span><h1>Find your next stay.</h1><p>Live wholesale availability across the UAE, with instant confirmation and net rates.</p></div><button className="agent-outline" onClick={() => notify('Help center opened')}>Need help?</button></div>
+      <section className="agent-search-card"><div className="agent-search-heading"><div><span className="agent-kicker">LIVE INVENTORY</span><h2>Search hotels</h2></div><button className="agent-filter" onClick={() => notify('Advanced filters ready')}><SlidersHorizontal size={15} /> Filters</button></div><div className="agent-search-grid"><label className="agent-field wide"><span>DESTINATION</span><div><MapPin size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="City, hotel or GIATA code" /></div></label><label className="agent-field"><span>CHECK-IN</span><div><CalendarDays size={15} /><input value="18 Sep 2026" readOnly /></div></label><label className="agent-field"><span>CHECK-OUT</span><div><CalendarDays size={15} /><input value="21 Sep 2026" readOnly /></div></label><label className="agent-field"><span>GUESTS</span><div><Users size={15} /><input value="2 adults · 1 room" readOnly /></div></label><button className="agent-search-button" onClick={() => { setSearched(true); notify(`Found ${results.length * 24} properties`) }}><Search size={16} /> Search</button></div><div className="agent-search-meta"><span>{searched ? `${results.length * 24} properties found` : 'Search across 100+ UAE destinations'}</span><span>All rates shown in AED · net rates</span></div></section>
+      <section className="agent-section"><div className="agent-section-heading"><div><span className="agent-kicker">RECOMMENDED INVENTORY</span><h2>Hotels in {query || 'all destinations'}</h2></div><button className="agent-link" onClick={() => notify('Full results opened')}>View all results <ArrowRight size={14} /></button></div><div className="agent-hotel-grid">{results.map((hotel) => <article className="agent-hotel-card" key={hotel.id}><div className={`agent-hotel-image ${hotel.color}`}><span>{hotel.badge}</span><strong>{hotel.name.slice(0, 1)}</strong></div><div className="agent-hotel-body"><div className="agent-hotel-title"><div><h3>{hotel.name}</h3><p>{hotel.city} · {hotel.rating} / 5</p></div><CheckCircle2 size={17} /></div><div className="agent-hotel-footer"><span>From <strong>AED {hotel.price}</strong> <small>/ night</small></span><button onClick={() => notify(`${hotel.name} selected`)}>Select <ArrowRight size={14} /></button></div></div></article>)}</div></section>
+      <section className="agent-section booking-section"><div className="agent-section-heading"><div><span className="agent-kicker">RESERVATION DESK</span><h2>Recent bookings</h2></div><button className="agent-link" onClick={() => notify('Bookings workspace opened')}>Manage bookings <ArrowRight size={14} /></button></div><div className="agent-booking-table"><div className="agent-booking-header"><span>REFERENCE</span><span>PROPERTY / GUEST</span><span>STAY DATES</span><span>STATUS</span><span>AMOUNT</span><span /></div>{bookings.map((booking) => <div className="agent-booking-row" key={booking.ref}><span className="agent-ref">{booking.ref}</span><span><strong>{booking.hotel}</strong><small>{booking.guest}</small></span><span>{booking.dates}</span><span><em className={booking.status === 'Confirmed' ? 'confirmed' : 'request'}>{booking.status}</em></span><strong>{booking.amount}</strong><button aria-label={`Download voucher for ${booking.ref}`} onClick={() => notify(`Voucher ${booking.ref} downloaded`)}><Download size={15} /></button></div>)}</div></section>
+    </main>{toast && <div className="agent-toast">{toast}</div>}
+  </div>
+}
