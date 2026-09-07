@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import {
-  Bell, CalendarDays, Check, ChevronDown, CircleHelp, Filter, Hotel, MapPin,
+  Bell, CalendarDays, Check, ChevronDown, CircleHelp, Filter, MapPin,
   Search, SlidersHorizontal, Star, Users, X,
 } from 'lucide-react'
 
@@ -31,7 +31,7 @@ export function AgentPortal() {
 
   return <div className="hotel-results-app">
     <header className="hotel-topbar">
-      <div className="hotel-brand"><span><Hotel size={17} /></span><div><strong>atlas</strong><small>WHOLESALE TRAVEL</small></div></div>
+      <div className="hotel-brand"><span className="hotel-brand-mark" aria-hidden="true">f</span><div><strong>fBeds</strong><small>WHOLESALE TRAVEL</small></div></div>
       <div className="hotel-top-search"><Search size={15} /><input aria-label="Global search" placeholder="Search hotels, bookings or guests" /><kbd>⌘ K</kbd></div>
       <div className="hotel-top-actions"><span className="hotel-live"><i /> LIVE INVENTORY</span><button onClick={() => notify('You have 3 new notifications')} aria-label="Notifications"><Bell size={17} /><b /></button><button onClick={() => notify('Help center opened')} aria-label="Help"><CircleHelp size={17} /></button><span className="hotel-avatar">JD</span><span className="hotel-user-name">Jordan Davis <ChevronDown size={13} /></span></div>
     </header>
