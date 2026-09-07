@@ -1,5 +1,3 @@
-Below is a **production-oriented README.md** you can replace the current v0-generated README with. I’ve kept the v0 workflow, but reframed the repository as the **FBEDS enterprise B2B bedbank platform**, with clear architecture, environments, development rules, security, testing, and roadmap.
-
 ````markdown
 # FBEDS — Enterprise B2B Bedbank Platform
 
@@ -12,8 +10,6 @@ Below is a **production-oriented README.md** you can replace the current v0-gene
 FBEDS is an enterprise-grade B2B bedbank platform designed to connect hotels, DMCs, suppliers, travel agencies, tour operators, and other travel distribution partners through a centralized hotel inventory, contracting, pricing, search, booking, and financial platform.
 
 The platform is being developed with an AI-assisted engineering workflow using **Next.js, v0, GitHub, Copilot/Codex/Cursor, TypeScript, PostgreSQL/Prisma and AWS**.
-
----
 
 # 1. Product Vision
 
@@ -46,7 +42,6 @@ FBEDS aims to provide a modern wholesale hotel distribution platform capable of 
 
 The long-term objective is to build an enterprise platform comparable in functional scope to modern global B2B accommodation distribution platforms.
 
----
 
 # 2. Platform Architecture
 
