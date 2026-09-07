@@ -180,6 +180,29 @@ See [docs/ROADMAP.md](./docs/ROADMAP.md) for detailed phase breakdown.
 - All sensitive data must be properly encrypted
 - See [README.md](./README.md#-security) for security principles
 
+# FBEDS AI DEVELOPMENT RULES
+
+1. Never delete existing functionality without approval.
+2. Never expose secrets.
+3. Never commit .env files.
+4. PostgreSQL is the production database.
+5. Prisma is the ORM.
+6. NestJS is the backend framework.
+7. Next.js is the frontend.
+8. All APIs use /api/v1.
+9. All tenant-owned data must be tenant isolated.
+10. Never trust tenantId supplied by the browser.
+11. Use RBAC for protected operations.
+12. Financial amounts use Decimal/NUMERIC.
+13. Use soft deletion for business entities.
+14. All important mutations create audit events.
+15. Write tests for security-sensitive functionality.
+16. Run type-check before completing a task.
+17. Run tests before completing a task.
+18. Do not introduce microservices unless specifically approved.
+19. Do not change architecture without approval.
+20. Explain breaking changes before implementing them.
+
 ## 📝 License
 Private - FBEDS Platform
 
