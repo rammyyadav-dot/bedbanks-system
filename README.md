@@ -10,13 +10,13 @@ FBEDS is an enterprise-grade B2B bedbank platform designed to connect hotels, DM
 
 The platform is being developed with an AI-assisted engineering workflow using **Next.js, TypeScript, PostgreSQL/Prisma, pnpm monorepo, Turbo, and AWS**.
 
-## 📋 Quick Start
+# Quick Start
 
-### Prerequisites
+# Prerequisites
 - Node.js 20.0.0 or higher
 - pnpm 9.0.0 or higher
 
-### Installation
+# Installation
 
 ```bash
 # Install pnpm
@@ -26,7 +26,7 @@ npm install -g pnpm
 pnpm install
 ```
 
-### Development
+# Development
 
 ```bash
 # Start all apps in development mode
@@ -37,7 +37,7 @@ cd apps/agent
 pnpm dev
 ```
 
-### Build
+# Build
 
 ```bash
 # Build all apps and packages
@@ -74,9 +74,8 @@ bedbanks-system/
 
 See [docs/MONOREPO.md](./docs/MONOREPO.md) for detailed monorepo documentation.
 
-## 🏗️ Architecture
+## Bedbanks System Architecture
 
-```
 ┌─────────────────────────────────────────────┐
 │           CloudFront / WAF                   │
 └──────────────────┬──────────────────────────┘
@@ -110,7 +109,6 @@ See [docs/MONOREPO.md](./docs/MONOREPO.md) for detailed monorepo documentation.
                     ┌────▼───┐
                     │   S3   │
                     └────────┘
-```
 
 ## 📚 Documentation
 
@@ -121,13 +119,13 @@ See [docs/MONOREPO.md](./docs/MONOREPO.md) for detailed monorepo documentation.
 
 ## 🚀 Development Roadmap
 
-### Phase 0: Foundation ✅
+# Phase 0: Foundation ✅
 - [x] Monorepo setup (pnpm + Turbo)
 - [x] Frontend application (Agent Portal)
 - [ ] CI/CD pipeline setup
 - [ ] ESLint + Prettier configuration
 
-### Phase 1: Backend Foundation ⏳
+# Phase 1: Backend Foundation ⏳
 - [ ] Backend API (NestJS)
 - [ ] Authentication (Cognito/JWT)
 - [ ] Authorization (RBAC)
@@ -163,13 +161,13 @@ See [docs/ROADMAP.md](./docs/ROADMAP.md) for detailed phase breakdown.
 - Turbo 2.0+
 - TypeScript
 
-**Backend (Coming):**
+**Backend (Building):**
 - Node.js
-- NestJS or Express
+- NestJS
 - Prisma ORM
 
 **Database:**
-- PostgreSQL (Aurora in production)
+- PostgreSQL ( AWS Aurora in production)
 
 **Infrastructure:**
 - AWS (ECS/Fargate, ALB, RDS, etc.)
@@ -183,13 +181,9 @@ See [docs/ROADMAP.md](./docs/ROADMAP.md) for detailed phase breakdown.
 - See [README.md](./README.md#-security) for security principles
 
 ## 📝 License
-
 Private - FBEDS Platform
 
 ## 👥 Team
-
 Maintained by the FBEDS engineering team.
-
----
 
 **Next Step:** See [docs/MONOREPO.md](./docs/MONOREPO.md) for development guide.
