@@ -1,0 +1,14 @@
+{
+  "name": "@bedbanks/types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FBEDS Shared TypeScript Types",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "devDependencies": {
+    "typescript": "workspace:*"
+  }
+}
