@@ -1,10 +1,35 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Build outputs
+.next/
+dist/
+build/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
 # v0 runtime files
 __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 
 # Common ignores
-node_modules
-.next/
-.env*.local
 .DS_Store
+.turbo

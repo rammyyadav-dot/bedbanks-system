@@ -1,0 +1,13 @@
+{
+  "name": "@bedbanks/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FBEDS Shared Configuration",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "workspace:*"
+  }
+}
