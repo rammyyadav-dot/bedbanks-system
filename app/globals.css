@@ -150,7 +150,8 @@ body { letter-spacing: -0.01em; }
 .hotel-results-toolbar > div { font-size: 11px; }
 .hotel-results-toolbar small { font-size: 9px; }
 .hotel-card-list { gap: 9px; }
-.hotel-result-card { display: grid; grid-template-columns: 178px minmax(0, 1fr) 132px; min-height: 150px; border-radius: 4px; box-shadow: 0 3px 12px rgba(21,21,21,.045); }
+.hotel-result-card { display: block; min-height: 150px; border-radius: 4px; box-shadow: 0 3px 12px rgba(21,21,21,.045); }
+.hotel-card-main { display: grid; grid-template-columns: 178px minmax(0, 1fr) 132px; min-height: 150px; }
 .hotel-thumb { min-height: 150px; }
 .hotel-result-info { padding: 12px 14px; }
 .hotel-result-title h2 { font-size: 14px; }
@@ -163,4 +164,5 @@ body { letter-spacing: -0.01em; }
 .hotel-room-button { min-width: 104px; height: 31px; font-size: 10px; }
 .hotel-modal { border-radius: 5px; }
 @media (max-width: 900px) { .hotel-result-layout { grid-template-columns: 1fr; } .hotel-filters { position: static; } }
-@media (max-width: 650px) { .hotel-main { padding: 18px 14px 45px; } .hotel-page-heading { display: block; } .hotel-help { margin-top: 12px; } .hotel-search-row { grid-template-columns: 1fr 1fr; } .hotel-search-row label.wide, .hotel-search-button { grid-column: 1 / -1; } .hotel-result-card { grid-template-columns: 112px minmax(0, 1fr); } .hotel-thumb { min-height: 122px; } .hotel-result-price { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #e8e8e3; padding: 9px 12px; flex-direction: row; align-items: center; justify-content: space-between; text-align: left; } }
+@media (max-width: 650px) { .hotel-main { padding: 18px 14px 45px; } .hotel-page-heading { display: block; } .hotel-help { margin-top: 12px; } .hotel-search-row { grid-template-columns: 1fr 1fr; } .hotel-search-row label.wide, .hotel-search-button { grid-column: 1 / -1; } .hotel-card-main { grid-template-columns: 112px minmax(0, 1fr); } .hotel-thumb { min-height: 122px; } .hotel-result-price { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #e8e8e3; padding: 9px 12px; flex-direction: row; align-items: center; justify-content: space-between; text-align: left; } }
+.hotel-flag { display: inline-grid; place-items: center; width: 22px; height: 16px; border-radius: 2px; background: #ff9933; color: #0D0D0D; font-size: 8px; font-weight: 800; flex: 0 0 auto; }
