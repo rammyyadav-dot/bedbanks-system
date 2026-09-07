@@ -5,11 +5,13 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--card-foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --radius-sm: .35rem; --radius-md: .45rem; --radius-lg: .6rem; --font-sans: 'Geist', 'Geist Fallback'; --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--card-foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --radius-sm: 0; --radius-md: 0; --radius-lg: 0; --font-sans: 'Barlow Semi Condensed', sans-serif; --font-mono: 'Barlow Semi Condensed', sans-serif; --font-heading: 'Montserrat', sans-serif;
 }
-:root { color-scheme: light; --background: oklch(.965 .012 220); --foreground: oklch(.20 .035 228); --card: oklch(1 0 0); --card-foreground: oklch(.20 .035 228); --primary: oklch(.61 .16 194); --primary-foreground: oklch(1 0 0); --muted: oklch(.94 .012 220); --muted-foreground: oklch(.50 .035 224); --border: oklch(.88 .018 220); --input: oklch(.88 .018 220); --ring: oklch(.61 .16 194); --accent: oklch(.92 .035 195); --accent-foreground: oklch(.25 .05 220); --radius: .55rem; }
+:root { color-scheme: light; --background: #FFFFFF; --foreground: #1A1A1A; --card: #FFFFFF; --card-foreground: #1A1A1A; --primary: #DF251B; --primary-foreground: #FFFFFF; --muted: #F8F9FA; --muted-foreground: #4A4A4A; --border: #E5E5E5; --input: #E5E5E5; --ring: #DF251B; --accent: #F8F9FA; --accent-foreground: #1A1A1A; --radius: 0; }
 * { border-color: var(--border); }
-body { @apply bg-background text-foreground antialiased; font-family: Arial, sans-serif; }
+body { @apply bg-background text-foreground antialiased; font-family: 'Barlow Semi Condensed', sans-serif; }
+h1, h2, h3, h4, h5, h6, strong, .brand, .hotel-brand, .metric-value { font-family: 'Montserrat', sans-serif; }
+button, input { font-family: 'Barlow Semi Condensed', sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 .agent-shell { min-height: 100vh; background: #f3f7f9; color: #18313d; }

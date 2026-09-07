@@ -1,10 +1,10 @@
 import { Analytics } from '@vercel/analytics/next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Barlow_Semi_Condensed, Montserrat } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
-const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
-const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
+const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-montserrat', weight: ['400', '500', '600', '700', '800'] })
+const barlow = Barlow_Semi_Condensed({ subsets: ['latin'], variable: '--font-barlow', weight: ['400', '500', '600', '700'] })
 
 export const metadata: Metadata = {
   title: 'Atlas Getaways | Wholesale Hotel Search',
@@ -43,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable} bg-background`}>
+    <html lang="en" className={`${montserrat.variable} ${barlow.variable} bg-background`}>
       <body className="antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
