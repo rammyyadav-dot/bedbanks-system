@@ -1,0 +1,236 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== MULTI-TENANCY ====================
+
+model Tenant {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  tier      String   @default("standard") // standard, pro, enterprise
+  status    String   @default("active") // active, suspended, archived
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  memberships Membership[]
+  settings    TenantSettings?
+  hotels      HotelMaster[]
+  apiClients  ApiClient[]
+  bookings    Booking[]
+  wallets     Wallet[]
+  ledgers     LedgerEntry[]
+  auditEvents AuditEvent[]
+
+  @@index([code])
+  @@index([status])
+}
+
+model TenantSettings {
+  tenantId String   @id
+  settings Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ==================== USERS & AUTH ====================
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  displayName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  memberships Membership[]
+  auditEvents AuditEvent[]
+
+  @@index([email])
+}
+
+model Membership {
+  tenantId String
+  userId   String
+  roleId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@id([tenantId, userId])
+  @@index([userId])
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships      Membership[]
+  rolePermissions  RolePermission[]
+
+  @@index([key])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@index([key])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// ==================== INVENTORY & HOTELS ====================
+
+model HotelMaster {
+  id            String   @id @default(uuid())
+  tenantId      String
+  giataCode     String
+  name          String
+  city          String?
+  countryCode   String?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@index([tenantId, status])
+  @@index([giataCode])
+}
+
+// ==================== BOOKINGS ====================
+
+model Booking {
+  id             String   @id @default(uuid())
+  tenantId       String
+  hotelId        String
+  confirmationId String   @unique
+  guestName      String
+  checkInDate    DateTime
+  checkOutDate   DateTime
+  roomCount      Int
+  totalRate      Decimal  @db.Decimal(18, 2)
+  markup         Decimal  @db.Decimal(18, 2) @default(0)
+  tax            Decimal  @db.Decimal(18, 2) @default(0)
+  finalPrice     Decimal  @db.Decimal(18, 2)
+  status         String   @default("pending") // pending, confirmed, cancelled, completed
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotel  HotelMaster @relation(fields: [hotelId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([confirmationId])
+  @@index([checkInDate, checkOutDate])
+}
+
+// ==================== WALLET & LEDGER ====================
+
+model Wallet {
+  id        String   @id @default(uuid())
+  tenantId  String   @unique
+  balance   Decimal  @db.Decimal(18, 2) @default(0)
+  currency  String   @default("USD")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ledgerEntries  LedgerEntry[]
+
+  @@index([tenantId])
+}
+
+model LedgerEntry {
+  id             String   @id @default(uuid())
+  tenantId       String
+  walletId       String
+  amount         Decimal  @db.Decimal(18, 2)
+  type           String   // credit, debit
+  description    String
+  bookingId      String?  // Reference to booking if applicable
+  referenceId    String?  // External transaction ID (e.g., payment provider)
+  idempotencyKey String?  // For idempotency
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([idempotencyKey], map: "idx_unique_idempotency")
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([walletId])
+  @@index([referenceId])
+}
+
+// ==================== API CLIENTS & INTEGRATIONS ====================
+
+model ApiClient {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  clientId  String   @unique
+  status    String   @default("active")
+  lastSeenAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+}
+
+// ==================== AUDIT & COMPLIANCE ====================
+
+model AuditEvent {
+  id            String   @id @default(uuid())
+  tenantId      String
+  actorUserId   String?
+  action        String
+  resourceType  String
+  resourceId    String?
+  details       Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([resourceType, resourceId])
+}
