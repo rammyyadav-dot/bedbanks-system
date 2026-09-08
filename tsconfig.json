@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -20,19 +24,37 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./packages/*/src"],
-      "@ui/*": ["./packages/ui/src/*"],
-      "@types/*": ["./packages/types/src/*"],
-      "@validation/*": ["./packages/validation/src/*"],
-      "@config/*": ["./packages/config/src/*"]
-    }
+      "@/*": [
+        "./*"
+      ],
+      "@ui/*": [
+        "./packages/ui/src/*"
+      ],
+      "@types/*": [
+        "./packages/types/src/*"
+      ],
+      "@validation/*": [
+        "./packages/validation/src/*"
+      ],
+      "@config/*": [
+        "./packages/config/src/*"
+      ]
+    },
+    "allowJs": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": [],
-  "references": [
-    { "path": "./apps/agent" },
-    { "path": "./packages/ui" },
-    { "path": "./packages/types" },
-    { "path": "./packages/validation" },
-    { "path": "./packages/config" }
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
   ]
 }
