@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "lint": "next lint",
+    "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "echo 'No tests configured'",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
