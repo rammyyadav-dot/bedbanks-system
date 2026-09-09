@@ -5,17 +5,17 @@ export interface AppConfig {
     host: string;
     prefix: string;
   };
+  database: {
+    url: string;
+  };
 }
 
 /**
  * Centralized configuration factory for @nestjs/config.
  *
- * P0-B intentionally only wires up process-level API config (port, host,
- * prefix, environment). Database (DATABASE_URL), Redis, and other
- * infrastructure config are NOT read here yet — that's P0-C's job. This
- * shape is deliberately structured (nested objects, not flat) so P0-C can
- * add a `database` key here without touching anything that already
- * depends on `configuration()`.
+ * P0-B only wired up process-level API config. P0-C adds `database.url`
+ * here, in the shape the original P0-B comment anticipated — nothing
+ * that already depended on `configuration()` needed to change.
  */
 export default (): AppConfig => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -23,5 +23,8 @@ export default (): AppConfig => ({
     port: parseInt(process.env.API_PORT ?? '3001', 10),
     host: process.env.API_HOST ?? '0.0.0.0',
     prefix: process.env.API_PREFIX ?? 'api/v1',
+  },
+  database: {
+    url: process.env.DATABASE_URL ?? '',
   },
 });

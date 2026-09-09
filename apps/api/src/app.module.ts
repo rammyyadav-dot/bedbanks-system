@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -13,6 +14,7 @@ import { HealthModule } from './health/health.module';
       validate,
       envFilePath: ['.env', '.env.local'],
     }),
+    DatabaseModule,
     HealthModule,
   ],
 })
