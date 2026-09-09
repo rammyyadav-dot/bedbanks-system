@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   Min,
   validateSync,
@@ -34,6 +35,15 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   API_PREFIX: string = 'api/v1';
+
+  // Required, no default — a database URL can't have a generic safe
+  // fallback the way a port number can. Startup should fail loudly
+  // here rather than the app running and every query failing later.
+  @IsUrl(
+    { protocols: ['postgresql', 'postgres'], require_tld: false },
+    { message: 'DATABASE_URL must be a valid postgresql:// connection string' },
+  )
+  DATABASE_URL: string;
 }
 
 /**
