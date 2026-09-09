@@ -1,18 +1,15 @@
 import type { Metadata } from 'next'
-import { AdminShell } from '@/components/admin-shell'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Admin · Bedbanks',
-  description: 'Administration interface for Bedbanks',
+  title: 'FBEDS Admin Console',
+  description: 'Enterprise administration console for the FBEDS B2B hotel distribution platform.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="antialiased">
-        <AdminShell>{children}</AdminShell>
-      </body>
+      <body className="antialiased">{children}</body>
     </html>
   )
 }

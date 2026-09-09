@@ -1,5 +1,5 @@
-import { BedbankDashboard } from '@/components/bedbank-dashboard'
+import { redirect } from 'next/navigation'
 
-export default function AdminHome() {
-  return <BedbankDashboard />
+export default function RootPage() {
+  redirect('/dashboard')
 }

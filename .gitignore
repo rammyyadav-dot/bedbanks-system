@@ -34,3 +34,5 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 .DS_Store
 .turbo
+tsconfig.tsbuildinfo
+next-env.d.ts
