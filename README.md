@@ -3,10 +3,10 @@
 > **Repository:** `bedbanks-system`  
 > **Product:** FBEDS  
 > **Platform:** B2B Hotel Bedbank / Wholesale Hotel Distribution  
-> **Status:** Active Development / MVP → Enterprise Production  
-> **Primary Domain:** `yourbedbank.com`
+> **Status:** Active Development / Full → Enterprise Production  
+> **Primary Domain:** `fbeds.com`
 
-FBEDS is an enterprise-grade B2B bedbank platform designed to connect hotels, DMCs, suppliers, travel agencies, tour operators, and other travel distribution partners through a centralized hotel inventory, booking, and financial system.
+FBEDS is a full enterprise-grade B2B bedbank platform designed to connect hotels, DMCs, suppliers, travel agencies, tour operators, and other travel distribution partners through a centralized hotel inventory, booking, and financial system.
 
 The platform is being developed with an AI-assisted engineering workflow using **Next.js, TypeScript, PostgreSQL/Prisma, pnpm monorepo, Turbo, and AWS**.
 
@@ -59,9 +59,9 @@ pnpm build
 bedbanks-system/
 ├── apps/
 │   ├── agent/         # Agent portal (Next.js)
-│   ├── api/           # Backend API (coming)
-│   ├── admin/         # Admin console (coming)
-│   └── supplier/      # Supplier extranet (coming)
+│   ├── api/           # Backend API (in Process)
+│   ├── admin/         # Admin console (Building)
+│   └── supplier/      # Supplier extranet (in Development)
 ├── packages/
 │   ├── ui/            # Shared UI components
 │   ├── types/         # Shared TypeScript types
