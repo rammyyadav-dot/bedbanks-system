@@ -1,17 +1,11 @@
 {
-  "name": "bedbanks-system",
+  "name": "my-project",
   "version": "0.1.0",
-  "description": "FBEDS — Enterprise B2B Bedbank Platform",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "lint": "eslint .",
-    "type-check": "tsc --noEmit",
-    "test": "echo 'No tests configured'",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\""
+    "start": "next start"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -32,12 +26,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "postcss": "^8.5",
-    "prettier": "^3.1.0",
     "tailwindcss": "^4.3.3",
     "typescript": "5.7.3"
-  },
-  "engines": {
-    "node": ">=20.0.0",
-    "pnpm": ">=9.0.0"
   }
 }
