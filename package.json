@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @bedbanks/agent-portal dev",
-    "build": "pnpm --filter @bedbanks/website build",
+    "build": "pnpm --filter @bedbanks/agent-portal build && rm -rf .next && cp -a apps/agent/.next .next",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "echo 'No tests configured'",
