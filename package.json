@@ -5,8 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "pnpm --filter @bedbanks/agent-portal dev",
+    "build": "pnpm --filter @bedbanks/agent-portal build",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "echo 'No tests configured'",
