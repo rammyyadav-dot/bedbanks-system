@@ -30,9 +30,16 @@
 .command-section { padding: 12px 9px 10px; }
 .command-section > small { display: block; padding: 0 8px 8px; color: #81979c; font: 9px 'Courier New', monospace; letter-spacing: 1px; }
 .command-section button { width: 100%; display: flex; align-items: center; gap: 9px; padding: 10px 8px; border: 0; background: transparent; border-radius: 4px; color: #365560; font-size: 11px; text-align: left; }
-.command-section button:hover { background: #f1f7f8; color: #138c9a; }
+.command-section button:hover, .command-section button.selected { background: #f1f7f8; color: #138c9a; }
 .command-section button span:last-child { margin-left: auto; color: #9aadb1; font: 10px 'Courier New', monospace; }
+.command-item-icon { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid #cfe2e5; border-radius: 4px; color: #159cab; background: #f4fbfb; font: 10px 'Courier New', monospace; }
+.command-item-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.command-item-copy strong { color: #294b56; font-size: 11px; font-weight: 600; }
+.command-item-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #82979d; font-size: 9px; }
+.command-section button em { margin-left: auto; color: #8aa0a6; font: 8px 'Courier New', monospace; font-style: normal; letter-spacing: .5px; }
 .command-dot { width: 6px; height: 6px; border-radius: 50%; background: #18bed0; }
+.command-empty { display: flex; flex-direction: column; gap: 6px; padding: 28px 14px; color: #365560; font-size: 11px; }
+.command-empty small { color: #82979d; font-size: 10px; }
 .command-foot { display: flex; justify-content: space-between; padding: 10px 14px; border-top: 1px solid #e5eef0; color: #93a6aa; font: 9px 'Courier New', monospace; }
 @media (max-width: 760px) { .enterprise-topbar { gap: 10px; }.shell-breadcrumb { min-width: 0; }.shell-breadcrumb span, .shell-breadcrumb b { display: none; }.command-trigger { display: none; }.shell-actions { margin-left: auto; }.production-status, .collapse-button { display: none; }.shell-overlay { display: block; position: fixed; inset: 0; z-index: 19; border: 0; background: #0d263166; }.enterprise-shell.sidebar-collapsed .enterprise-sidebar { width: 246px; }.enterprise-shell.sidebar-collapsed .enterprise-sidebar .brand-copy, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .context-copy, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .shell-caption, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .nav-label, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .security-note span, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .session-copy { display: block; } }
 
