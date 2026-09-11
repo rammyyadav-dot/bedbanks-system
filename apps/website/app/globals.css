@@ -14,6 +14,9 @@
   --color-trust: #10b981;
   --color-trust-soft: #ecfdf5;
   --color-warning: #ff9f1c;
+  --color-ink: #1f2937;
+  --color-ink-muted: #6b7280;
+  --color-coral-soft: #fda4af;
 }
 
 :root { color-scheme: light; }
