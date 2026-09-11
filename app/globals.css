@@ -2,7 +2,39 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
-@custom-variant dark (&:is(.dark *));
+
+/* FBEDS control-plane enrichment */
+.enterprise-sidebar { transition: width 180ms ease, transform 180ms ease; }
+.enterprise-shell.sidebar-collapsed .enterprise-sidebar { width: 76px; }
+.enterprise-shell.sidebar-collapsed .brand-copy, .enterprise-shell.sidebar-collapsed .context-copy, .enterprise-shell.sidebar-collapsed .shell-caption, .enterprise-shell.sidebar-collapsed .nav-label, .enterprise-shell.sidebar-collapsed .security-note span, .enterprise-shell.sidebar-collapsed .session-copy { display: none; }
+.enterprise-shell.sidebar-collapsed .enterprise-brand, .enterprise-shell.sidebar-collapsed .context-button, .enterprise-shell.sidebar-collapsed .enterprise-nav a, .enterprise-shell.sidebar-collapsed .session-user { justify-content: center; }
+.enterprise-shell.sidebar-collapsed .enterprise-nav a { padding-inline: 12px; }
+.enterprise-shell.sidebar-collapsed .context-button { padding: 9px 6px; }
+.enterprise-shell.sidebar-collapsed .collapse-button { transform: rotate(180deg); }
+.enterprise-topbar { gap: 18px; }
+.shell-breadcrumb { min-width: 170px; }
+.command-trigger { margin-inline: auto; width: min(420px, 34vw); height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #f7fafb; border: 1px solid #dbe6e9; border-radius: 4px; color: #7b949b; font-size: 10px; text-align: left; }
+.command-trigger span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-trigger kbd, .command-input kbd { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 1px solid #d3e0e3; border-radius: 3px; background: #fff; color: #82979d; font: 9px 'Courier New', monospace; }
+.shell-actions { display: flex; align-items: center; gap: 13px; }
+.production-status { display: inline-flex; align-items: center; gap: 6px; color: #4c8178; font: 9px 'Courier New', monospace; border-right: 1px solid #dce7ea; padding-right: 14px; }
+.production-status i, .top-icon i { width: 6px; height: 6px; border-radius: 50%; background: #22c4a5; display: inline-block; }
+.top-icon { position: relative; border: 0; background: transparent; color: #718a92; display: grid; place-items: center; padding: 3px; }
+.top-icon i { position: absolute; top: 0; right: 0; width: 5px; height: 5px; background: #e6ad43; border: 1px solid #fff; }
+.collapse-button { border: 0; background: transparent; color: #8aa0a6; font-size: 10px; padding: 4px; }
+.shell-overlay { display: none; }
+.command-backdrop { position: fixed; inset: 0; z-index: 50; background: #0d263166; display: grid; place-items: start center; padding-top: 110px; }
+.command-dialog { width: min(560px, calc(100vw - 28px)); overflow: hidden; background: #fff; border: 1px solid #c9dadd; border-radius: 7px; box-shadow: 0 24px 70px #0d263140; }
+.command-input { display: flex; align-items: center; gap: 9px; padding: 14px; border-bottom: 1px solid #e5eef0; color: #18a4b2; }
+.command-input input { flex: 1; border: 0; outline: 0; color: #18313d; font-size: 13px; }
+.command-section { padding: 12px 9px 10px; }
+.command-section > small { display: block; padding: 0 8px 8px; color: #81979c; font: 9px 'Courier New', monospace; letter-spacing: 1px; }
+.command-section button { width: 100%; display: flex; align-items: center; gap: 9px; padding: 10px 8px; border: 0; background: transparent; border-radius: 4px; color: #365560; font-size: 11px; text-align: left; }
+.command-section button:hover { background: #f1f7f8; color: #138c9a; }
+.command-section button span:last-child { margin-left: auto; color: #9aadb1; font: 10px 'Courier New', monospace; }
+.command-dot { width: 6px; height: 6px; border-radius: 50%; background: #18bed0; }
+.command-foot { display: flex; justify-content: space-between; padding: 10px 14px; border-top: 1px solid #e5eef0; color: #93a6aa; font: 9px 'Courier New', monospace; }
+@media (max-width: 760px) { .enterprise-topbar { gap: 10px; }.shell-breadcrumb { min-width: 0; }.shell-breadcrumb span, .shell-breadcrumb b { display: none; }.command-trigger { display: none; }.shell-actions { margin-left: auto; }.production-status, .collapse-button { display: none; }.shell-overlay { display: block; position: fixed; inset: 0; z-index: 19; border: 0; background: #0d263166; }.enterprise-shell.sidebar-collapsed .enterprise-sidebar { width: 246px; }.enterprise-shell.sidebar-collapsed .enterprise-sidebar .brand-copy, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .context-copy, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .shell-caption, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .nav-label, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .security-note span, .enterprise-shell.sidebar-collapsed .enterprise-sidebar .session-copy { display: block; } }
 
 @theme inline {
   --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--card-foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --radius-sm: .35rem; --radius-md: .45rem; --radius-lg: .6rem; --font-sans: 'Geist', 'Geist Fallback'; --font-mono: 'Geist Mono', 'Geist Mono Fallback';
