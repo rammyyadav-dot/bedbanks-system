@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: var(--font-inter), Arial, sans-serif;
+  --color-background: #ffffff;
+  --color-foreground: #1f2937;
+  --color-muted: #f9fafb;
+  --color-panel: #f3f4f6;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+  --color-brand: #d90429;
+  --color-brand-dark: #b80323;
+  --color-brand-soft: #fff1f3;
+  --color-trust: #10b981;
+  --color-trust-soft: #ecfdf5;
+  --color-warning: #ff9f1c;
+  --color-ink: #1f2937;
+  --color-ink-muted: #6b7280;
+  --color-coral-soft: #fda4af;
+}
+
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #fff; color: #1f2937; }
+::selection { background: #fee2e7; color: #1f2937; }
+:focus-visible { outline: 3px solid #10b981; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+.site-shell { min-height: 100vh; overflow: hidden; }
+.container-wide { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
+.eyebrow { color: #d90429; font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.grid-lines { background-image: linear-gradient(to right, rgba(31,41,55,.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(31,41,55,.055) 1px, transparent 1px); background-size: 48px 48px; }
+.network-line { stroke-dasharray: 5 8; animation: dash 18s linear infinite; }
+@keyframes dash { to { stroke-dashoffset: -260; } }
