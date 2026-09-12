@@ -1,4 +1,6 @@
-# FBEDS API — Database Migrations (P0-C)
+# FBEDS — Database Migrations
+
+> **Schema location:** `prisma/schema.prisma` lives at the **repository root**, not under `apps/api/`. All commands below are still run from `apps/api` (e.g. `pnpm --filter @bedbanks/api prisma:migrate:dev`) — the scripts in `apps/api/package.json` already point `--schema` at `../../prisma/schema.prisma`, so you don't need to pass that flag yourself.
 
 ## Local development
 

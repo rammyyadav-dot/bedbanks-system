@@ -4,28 +4,54 @@
 
 This is a pnpm monorepo using Turbo for build orchestration. It's organized into applications and shared packages.
 
-## Directory Structure
+## Target Directory Structure
+
+This is the corrected, canonical target structure — the one to build
+toward, not necessarily what exists in full today (see "Current status"
+below for what's actually built vs. planned).
 
 ```
 bedbanks-system/
 ├── apps/
-│   ├── agent/          # B2B Agent Portal (Next.js)
-│   ├── api/            # Backend API (to be created)
-│   ├── admin/          # Admin Portal (to be created)
-│   └── supplier/       # Supplier Extranet (to be created)
+│   ├── website/         # PUBLIC fBeds website (marketing/public-facing) — planned, not yet scaffolded
+│   ├── agent/            # B2B Agent Portal (Next.js) — built
+│   ├── admin/              # Admin Console / control plane (Next.js) — built
+│   └── api/                  # Backend API (NestJS) — built
 │
 ├── packages/
-│   ├── ui/             # Shared UI Components
-│   ├── types/          # Shared TypeScript Types
-│   ├── validation/     # Zod Validation Schemas
-│   └── config/         # Shared Configuration
+│   ├── ui/               # Shared UI Components
+│   ├── types/              # Shared TypeScript Types
+│   ├── validation/           # Zod Validation Schemas
+│   └── config/                 # Shared Configuration
 │
-├── docs/               # Documentation
-├── .github/            # GitHub Actions & CI/CD
-├── pnpm-workspace.yaml # Workspace configuration
-├── turbo.json          # Turbo build configuration
-└── tsconfig.json       # Root TypeScript configuration
+├── prisma/                # Prisma schema + migrations — lives at REPO ROOT,
+│                             not nested under apps/api/. Multiple future
+│                             services may need the same schema/generated
+│                             client, not just the API app.
+│
+├── docs/                  # Documentation
+├── .github/                # GitHub Actions & CI/CD
+├── pnpm-workspace.yaml       # Workspace configuration
+├── turbo.json                  # Turbo build configuration
+└── tsconfig.json                 # Root TypeScript configuration
 ```
+
+**`apps/supplier` (supplier extranet)** is not in the current target
+tree — it may return as a later phase once supplier integrations are
+actually being built; not tracked as "planned" right now to avoid
+scaffolding something with no near-term owner.
+
+## Current Status (update this section as phases land)
+
+| App/Package | Status |
+|---|---|
+| `apps/agent` | Built — agent portal UI, mock data |
+| `apps/admin` | Built — 20 modules, 29 routes, mock data, authenticated (P0-D) |
+| `apps/api` | Built — NestJS foundation (P0-B), Prisma/Postgres (P0-C), authentication (P0-D) |
+| `apps/website` | Not yet scaffolded — separate task |
+| `prisma/` | At repo root as of P0-D (moved from `apps/api/prisma/`) |
+| `packages/ui` | Built — shared Button + design tokens |
+| `packages/types`, `packages/validation`, `packages/config` | Scaffolded, mostly empty — populate as needed |
 
 ## Getting Started
 
@@ -39,113 +65,13 @@ npm install -g pnpm
 pnpm install
 ```
 
-### Development
+### Database
+
+Prisma schema and migrations live at `prisma/` (repo root). Commands
+are run via the `apps/api` package scripts, which already point at the
+correct schema path — see `prisma/MIGRATIONS.md` for the full workflow.
 
 ```bash
-# Run all apps in development mode
-pnpm dev
-
-# Run specific app
-cd apps/agent
-pnpm dev
+pnpm --filter @bedbanks/api prisma:migrate:dev
+pnpm --filter @bedbanks/api db:seed
 ```
-
-### Building
-
-```bash
-# Build all packages and apps (respects dependency order)
-pnpm build
-
-# Build specific workspace
-cd packages/ui
-pnpm build
-```
-
-### Scripts
-
-Available scripts in root `package.json`:
-
-- `pnpm dev` - Start all apps in development mode (parallel)
-- `pnpm build` - Build all packages and apps
-- `pnpm lint` - Run linting across all workspaces
-- `pnpm type-check` - Run TypeScript type checking
-- `pnpm test` - Run tests across all workspaces
-- `pnpm format` - Format code with Prettier
-
-## Workspace Dependencies
-
-### Using Workspace Protocol
-
-When one package depends on another in the same monorepo, use the `workspace:*` protocol:
-
-```json
-{
-  "dependencies": {
-    "@bedbanks/types": "workspace:*",
-    "react": "workspace:*"
-  }
-}
-```
-
-### Internal Imports
-
-Use path aliases defined in `tsconfig.json`:
-
-```typescript
-// Import from ui package
-import { Button } from '@ui/components/Button'
-
-// Import from types package
-import type { Hotel } from '@types/domain/hotel'
-
-// Import from validation package
-import { hotelSchema } from '@validation/schemas/hotel'
-
-// Import from config package
-import { API_BASE_URL } from '@config/constants'
-```
-
-## Turbo Build Pipeline
-
-Turbo orchestrates builds with dependency awareness:
-
-- **build**: Depends on all dependency builds completing first
-- **dev**: Runs all apps in parallel (no caching)
-- **lint**: Caches results for faster re-runs
-- **type-check**: Runs TypeScript type checking
-- **test**: Runs tests with output caching
-
-## Adding New Workspaces
-
-### Adding a new app
-
-```bash
-mkdir apps/new-app
-cd apps/new-app
-# Create package.json and src/
-```
-
-### Adding a new package
-
-```bash
-mkdir packages/new-package
-cd packages/new-package
-# Create package.json and src/
-```
-
-Both will be automatically included by pnpm due to the workspace configuration.
-
-## Tips
-
-- Always run scripts from the monorepo root unless working in a specific workspace
-- Turbo caches build artifacts - use `pnpm build --force` to rebuild without cache
-- TypeScript path aliases enable IDE autocomplete across packages
-- Each workspace has its own `tsconfig.json` that extends the root
-
-## Next Steps
-
-1. ✅ Monorepo foundation established
-2. ⬜ Backend API setup (Phase 1)
-3. ⬜ Database & Prisma schema (Phase 2)
-4. ⬜ Authentication & Authorization (Phase 3)
-5. ⬜ Business logic implementation (Phase 4+)
