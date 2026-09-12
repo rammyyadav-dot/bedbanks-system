@@ -1,3 +1,6 @@
-minimumReleaseAgeExclude:
-  - '@next/*'
-  - next
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+allowBuilds:
+  '@scarf/scarf': true

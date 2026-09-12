@@ -1,0 +1,22 @@
+# FBEDS Codeowners
+# This file defines who should review code in different areas
+
+# Root configuration
+/pnpm-workspace.yaml @rammyyadav-dot
+/turbo.json @rammyyadav-dot
+/tsconfig.json @rammyyadav-dot
+
+# Applications
+/apps/agent/ @rammyyadav-dot
+/apps/api/ @rammyyadav-dot
+/apps/admin/ @rammyyadav-dot
+/apps/supplier/ @rammyyadav-dot
+
+# Shared packages
+/packages/ui/ @rammyyadav-dot
+/packages/types/ @rammyyadav-dot
+/packages/validation/ @rammyyadav-dot
+/packages/config/ @rammyyadav-dot
+
+# CI/CD
+/.github/workflows/ @rammyyadav-dot

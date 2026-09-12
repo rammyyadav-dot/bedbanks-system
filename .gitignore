@@ -1,27 +1,47 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
 
-# dependencies
-/node_modules
+# Build outputs
+.next/
+dist/
+build/
+.turbo/
+coverage/
 
-# next.js
-/.next/
-/out/
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
 
-# production
-/build
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
-# debug
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
+.DS_Store
+.turbo
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# Debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
