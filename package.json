@@ -5,10 +5,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @bedbanks/agent-portal dev",
+    "dev": "pnpm --filter @bedbanks/website dev",
+    "dev:agent": "pnpm --filter @bedbanks/agent-portal dev",
+    "dev:admin": "pnpm --filter @bedbanks/admin-console dev",
+    "dev:api": "pnpm --filter @bedbanks/api dev",
     "build": "pnpm --filter @bedbanks/website build",
-    "lint": "eslint .",
-    "type-check": "tsc --noEmit",
+    "build:all": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "type-check": "pnpm -r --if-present type-check",
     "test": "echo 'No tests configured'",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\""
