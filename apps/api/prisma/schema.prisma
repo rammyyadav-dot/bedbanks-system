@@ -1,15 +1,24 @@
-// FBEDS — P0-C Prisma schema
+// FBEDS — Prisma schema
 //
-// Scope discipline: this is the IDENTITY FOUNDATION only.
-//   - Tenant, User, Membership — who exists and who belongs where
+// Scope discipline: identity + authentication foundation.
+//   - Tenant, User, Membership — who exists and who belongs where (P0-C)
+//   - Status (Tenant/User) — minimal lifecycle only: ACTIVE/SUSPENDED.
+//     Not a general workflow state machine — don't overbuild this.
+//   - User.passwordHash, User.lastLoginAt, Session — P0-D authentication.
+//     Opaque, database-backed sessions, NOT JWT: the browser holds a
+//     random token in an HttpOnly cookie; the database holds only a
+//     SHA-256 hash of it (Session.tokenHash). This is a deliberate
+//     architecture choice over JWT — see apps/api/src/auth/README.md
+//     for the reasoning (immediate revocation, no refresh-token
+//     complexity yet, simpler to reason about for this stage).
 //   - Membership.role is a plain string for now (e.g. "owner", "member").
-//     Formal roles/permissions tables are P0-F (RBAC) — don't confuse the
-//     two. This field exists so a Membership means something today
-//     without inventing the whole permission system early.
+//     Formal roles/permissions tables are P0-F (RBAC) — don't confuse
+//     the two.
 //
-// Explicitly NOT here yet: sessions/credentials (P0-D auth), tenant
-// row-level isolation policies (P0-E), permissions (P0-F), audit log
-// (P0-G), or any hotel/booking/wallet domain model (P1+).
+// Explicitly NOT here yet: tenant row-level isolation policies (P0-E
+// enforcement — the Session/Membership shape already supports it, but
+// nothing enforces it yet), permissions (P0-F), audit log (P0-G), or
+// any hotel/booking/wallet domain model (P1+).
 
 generator client {
   provider = "prisma-client-js"
@@ -20,10 +29,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Minimal lifecycle status shared by Tenant and User. Deliberately
+/// just two states — a full workflow (PENDING, INVITED, ARCHIVED, ...)
+/// is a later, explicit decision, not something to grow accidentally.
+enum Status {
+  ACTIVE
+  SUSPENDED
+}
+
 model Tenant {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  status    Status   @default(ACTIVE)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -33,13 +51,17 @@ model Tenant {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String?   @map("password_hash")
+  status       Status    @default(ACTIVE)
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   memberships Membership[]
+  sessions    Session[]
 
   @@map("users")
 }
@@ -61,4 +83,24 @@ model Membership {
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("memberships")
+}
+
+/// Opaque, database-backed session (P0-D). The raw session token is
+/// NEVER stored here — only SHA-256(token), in tokenHash. If this
+/// table is ever compromised, the hashes alone can't be replayed as
+/// valid session cookies. Deleting a User cascades to their sessions.
+model Session {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
