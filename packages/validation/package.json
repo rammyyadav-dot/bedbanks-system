@@ -1,0 +1,17 @@
+{
+  "name": "@bedbanks/validation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FBEDS Validation Schemas",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
