@@ -8,6 +8,7 @@
     "dev": "pnpm --filter @bedbanks/website dev",
     "dev:agent": "pnpm --filter @bedbanks/agent-portal dev",
     "dev:admin": "pnpm --filter @bedbanks/admin-console dev",
+    "dev:supplier": "pnpm --filter @bedbanks/supplier-portal dev",
     "dev:api": "pnpm --filter @bedbanks/api dev",
     "build": "pnpm --filter @bedbanks/website build",
     "build:all": "pnpm -r --if-present build",
