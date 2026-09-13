@@ -1,3 +1,0 @@
-{
-  "/(dashboard)/hotels/[id]/page": "app/(dashboard)/hotels/[id]/page.js"
-}

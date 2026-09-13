@@ -27,3 +27,7 @@ yarn-error.log*
 next-env.d.tspackages/*/node_modules/
 packages/*/node_modules/
 apps/*/node_modules/
+
+# Next.js build outputs in each app (root .gitignore had /.next/ which only covers root)
+apps/**/.next/
+apps/**/out/
