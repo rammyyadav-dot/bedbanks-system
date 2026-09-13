@@ -268,6 +268,31 @@ importers:
         specifier: ^5.7.3
         version: 5.7.3
 
+  apps/supplier:
+    dependencies:
+      next:
+        specifier: 16.3.3
+        version: 16.3.3(@babel/core@7.29.7)(@types/node@24.13.3)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+    devDependencies:
+      '@types/node':
+        specifier: ^24
+        version: 24.13.3
+      '@types/react':
+        specifier: 19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: 5.7.3
+        version: 5.7.3
+
   apps/website:
     dependencies:
       '@vercel/analytics':
