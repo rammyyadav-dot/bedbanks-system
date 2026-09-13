@@ -1,0 +1,3 @@
+{
+  "/(dashboard)/finance/ledger/page": "app/(dashboard)/finance/ledger/page.js"
+}

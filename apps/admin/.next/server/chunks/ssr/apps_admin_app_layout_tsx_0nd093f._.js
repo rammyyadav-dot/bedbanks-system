@@ -1,0 +1,3 @@
+module.exports=[80406,a=>{"use strict";var b=a.i(46862);a.s(["default",0,function({children:a}){return(0,b.jsx)("html",{lang:"en",children:(0,b.jsx)("body",{className:"antialiased",children:a})})},"metadata",0,{title:"FBEDS Admin Console",description:"Enterprise administration console for the FBEDS B2B hotel distribution platform."}])},37594,function(a){a.n(a.i(80406))}];
+
+//# sourceMappingURL=apps_admin_app_layout_tsx_0nd093f._.js.map

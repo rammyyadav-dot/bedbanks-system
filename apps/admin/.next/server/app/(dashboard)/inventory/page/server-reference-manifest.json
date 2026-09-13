@@ -1,0 +1,16 @@
+{
+  "node": {
+    "008978edc8c4c2bb1f0e2b28a6325ebe56308eac6c": {
+      "workers": {
+        "app/(dashboard)/inventory/page": {
+          "moduleId": 52113,
+          "async": false,
+          "codeHash": null
+        }
+      },
+      "exportedName": "logoutAction",
+      "filename": "apps/admin/lib/auth/actions.ts"
+    }
+  },
+  "edge": {}
+}

@@ -1,0 +1,3 @@
+module.exports=[17245,a=>{"use strict";var b=a.i(21051),c=a.i(9415);a.s(["Tabs",0,function({tabs:a,defaultTab:d}){let[e,f]=(0,c.useState)(d??a[0]?.id);return(0,b.jsxs)("div",{children:[(0,b.jsx)("div",{className:"admin-tabs",role:"tablist",children:a.map(a=>(0,b.jsx)("button",{role:"tab",type:"button","aria-selected":e===a.id,className:`admin-tab ${e===a.id?"active":""}`,onClick:()=>f(a.id),children:a.label},a.id))}),(0,b.jsx)("div",{role:"tabpanel",children:a.find(a=>a.id===e)?.content})]})}])}];
+
+//# sourceMappingURL=apps_admin_components_common_Tabs_tsx_11zq88a._.js.map
