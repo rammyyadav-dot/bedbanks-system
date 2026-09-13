@@ -3,8 +3,14 @@
 import { useState, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import type { AuthenticatedUser } from '@/lib/api/auth-client';
 
-export function AdminShell({ children }: { children: ReactNode }) {
+interface AdminShellProps {
+  children: ReactNode;
+  identity: AuthenticatedUser;
+}
+
+export function AdminShell({ children, identity }: AdminShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -19,7 +25,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         />
       )}
       <div className="enterprise-main">
-        <Topbar onMenuClick={() => setMobileOpen(true)} />
+        <Topbar identity={identity} onMenuClick={() => setMobileOpen(true)} />
         <main>{children}</main>
       </div>
     </div>
