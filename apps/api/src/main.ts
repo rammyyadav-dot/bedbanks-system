@@ -2,6 +2,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -17,6 +18,19 @@ async function bootstrap(): Promise<void> {
   const port = configService.get('api.port', { infer: true }) ?? 3001;
   const host = configService.get('api.host', { infer: true }) ?? '0.0.0.0';
   const nodeEnv = configService.get('nodeEnv', { infer: true }) ?? 'development';
+  const adminOrigin = configService.get('adminOrigin', { infer: true }) ?? 'http://localhost:3000';
+
+  // Required to read the session cookie in SessionAuthGuard.
+  app.use(cookieParser());
+
+  // Credentialed CORS, restricted to exactly one explicit origin — a
+  // wildcard origin combined with credentials: true would let any
+  // website read an authenticated user's session, so this pairing is
+  // non-negotiable, not a convenience default.
+  app.enableCors({
+    origin: adminOrigin,
+    credentials: true,
+  });
 
   app.setGlobalPrefix(apiPrefix);
 
