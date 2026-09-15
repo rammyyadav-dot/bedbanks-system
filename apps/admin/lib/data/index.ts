@@ -12,6 +12,12 @@
 // network call that isn't really happening yet.
 
 import * as mock from '../mock';
+import { apiRequest } from '../api/client'
+import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
+
+export async function getDashboard({ range }: DashboardQuery): Promise<AdminDashboardView> {
+  return apiRequest<AdminDashboardView>(`/admin/dashboard?range=${encodeURIComponent(range)}`)
+}
 
 export async function getTenants() { return mock.tenants; }
 export async function getTenant(id: string) { return mock.tenants.find((t) => t.id === id) ?? null; }
