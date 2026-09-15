@@ -4,6 +4,7 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const core_1 = require("@nestjs/core");
 const swagger_1 = require("@nestjs/swagger");
+const cookieParser = require("cookie-parser");
 const app_module_1 = require("./app.module");
 const http_exception_filter_1 = require("./common/filters/http-exception.filter");
 const response_interceptor_1 = require("./common/interceptors/response.interceptor");
@@ -15,6 +16,12 @@ async function bootstrap() {
     const port = configService.get('api.port', { infer: true }) ?? 3001;
     const host = configService.get('api.host', { infer: true }) ?? '0.0.0.0';
     const nodeEnv = configService.get('nodeEnv', { infer: true }) ?? 'development';
+    const adminOrigin = configService.get('adminOrigin', { infer: true }) ?? 'http://localhost:3000';
+    app.use(cookieParser());
+    app.enableCors({
+        origin: adminOrigin,
+        credentials: true,
+    });
     app.setGlobalPrefix(apiPrefix);
     app.useGlobalPipes(new common_1.ValidationPipe({
         whitelist: true,
