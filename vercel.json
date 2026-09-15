@@ -3,5 +3,5 @@
   "buildCommand": "pnpm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
-  "installCommand": "pnpm install --frozen-lockfile"
+  "installCommand": "npx --yes pnpm@10.4.1 install --frozen-lockfile"
 }

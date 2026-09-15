@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "FBEDS — Admin Console (internal ops: tenants, hotels, access, audit)",
   "private": true,
+  "packageManager": "pnpm@10.4.1",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3001",
