@@ -10,5 +10,12 @@ exports.default = () => ({
     database: {
         url: process.env.DATABASE_URL ?? '',
     },
+    auth: {
+        sessionTtlSeconds: parseInt(process.env.AUTH_SESSION_TTL_SECONDS ?? '28800', 10),
+        cookieName: process.env.AUTH_COOKIE_NAME ?? 'fbeds_session',
+        cookieSecure: (process.env.AUTH_COOKIE_SECURE ?? 'false') === 'true',
+        cookieSameSite: process.env.AUTH_COOKIE_SAME_SITE ?? 'lax',
+    },
+    adminOrigin: process.env.ADMIN_ORIGIN ?? 'http://localhost:3000',
 });
 //# sourceMappingURL=configuration.js.map
