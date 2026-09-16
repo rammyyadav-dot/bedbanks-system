@@ -1,0 +1,15 @@
+name: Contract checks
+
+on:
+  pull_request:
+    paths: ['apps/**', 'packages/contracts/**', 'tools/contract-check.ts']
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm check:contracts

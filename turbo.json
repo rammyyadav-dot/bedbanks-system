@@ -11,24 +11,20 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**", "build/**"],
-      "cacheKey": "build"
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "lint": {
-      "outputs": [],
-      "cacheKey": "lint"
+      "outputs": []
     },
     "type-check": {
-      "outputs": [],
-      "cacheKey": "type-check"
+      "outputs": []
     },
     "test": {
-      "outputs": ["coverage/**"],
-      "cacheKey": "test"
+      "outputs": ["coverage/**"]
     },
     "test:watch": {
       "cache": false,

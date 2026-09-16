@@ -1,4 +1,5 @@
 import 'server-only';
+import { routes } from '@bedbanks/contracts';
 import { ApiResponseError, type ApiError } from './errors';
 export { ApiResponseError } from './errors';
 
@@ -51,17 +52,17 @@ export interface AuthenticatedUser {
 
 export const authApi = {
   async login(email: string, password: string) {
-    const { response } = await apiFetch<AuthenticatedUser>('/auth/login', {
+    const { response } = await apiFetch<AuthenticatedUser>(routes.auth.login, {
       method: 'POST', body: JSON.stringify({ email, password }),
     });
     // This header is consumed only by the Server Action, never returned to a client.
     return response.headers.getSetCookie();
   },
   async me(cookieHeader: string) {
-    return (await apiFetch<AuthenticatedUser>('/auth/me', { headers: { Cookie: cookieHeader } })).data;
+    return (await apiFetch<AuthenticatedUser>(routes.auth.me, { headers: { Cookie: cookieHeader } })).data;
   },
   async logout(cookieHeader: string) {
-    return (await apiFetch<{ loggedOut: boolean }>('/auth/logout', {
+    return (await apiFetch<{ loggedOut: boolean }>(routes.auth.logout, {
       method: 'POST', headers: { Cookie: cookieHeader },
     })).data;
   },

@@ -20,7 +20,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@bedbanks/contracts": ["../../packages/contracts/src/index.ts"]
     },
     "allowJs": true,
     "plugins": [{ "name": "next" }]

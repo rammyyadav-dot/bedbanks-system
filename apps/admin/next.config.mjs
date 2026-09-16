@@ -6,7 +6,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  transpilePackages: ['@bedbanks/ui'],
+  transpilePackages: ['@bedbanks/ui', '@bedbanks/contracts'],
 }
 
 export default nextConfig
