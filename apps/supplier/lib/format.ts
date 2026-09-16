@@ -11,5 +11,5 @@ export function formatMoney(minorUnits: number, currency: string): string {
 }
 
 export function formatSupplierType(type: string): string {
-  return type.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
+  return type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter: string) => letter.toUpperCase())
 }
