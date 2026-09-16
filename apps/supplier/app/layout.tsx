@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import './globals.css'
 
 export const metadata: Metadata = {
   title: 'fBeds Supplier Portal',
@@ -6,5 +7,9 @@ export const metadata: Metadata = {
 }
 
 export default function SupplierLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <>{children}</>
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
 }
