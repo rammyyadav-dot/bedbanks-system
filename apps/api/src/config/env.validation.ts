@@ -7,6 +7,7 @@ import {
   IsString,
   IsUrl,
   Max,
+  Matches,
   Min,
   validateSync,
 } from 'class-validator';
@@ -27,7 +28,7 @@ class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   @IsOptional()
-  API_PORT: number = 3001;
+  API_PORT: number = 3002;
 
   @IsString()
   @IsOptional()
@@ -55,13 +56,14 @@ class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  @Matches(/^[A-Za-z0-9_-]+$/)
   AUTH_COOKIE_NAME: string = 'fbeds_session';
 
   // Env vars are strings — 'true'/'false', validated and parsed in
   // configuration.ts rather than as a real boolean here.
-  @IsIn(['true', 'false'], { message: 'AUTH_COOKIE_SECURE must be exactly "true" or "false"' })
+  @IsIn(['true'], { message: 'AUTH_COOKIE_SECURE must be true; use HTTPS for session cookies' })
   @IsOptional()
-  AUTH_COOKIE_SECURE: string = 'false';
+  AUTH_COOKIE_SECURE: string = 'true';
 
   @IsIn(['lax', 'strict', 'none'])
   @IsOptional()
@@ -69,9 +71,9 @@ class EnvironmentVariables {
 
   // Explicit allowed origin for credentialed CORS — never combine
   // Access-Control-Allow-Origin: * with credentials: true.
-  @IsUrl({ require_tld: false }, { message: 'ADMIN_ORIGIN must be a valid URL, e.g. http://localhost:3000' })
+  @IsUrl({ require_tld: false }, { message: 'ADMIN_ORIGIN must be a valid URL, e.g. http://localhost:3001' })
   @IsOptional()
-  ADMIN_ORIGIN: string = 'http://localhost:3000';
+  ADMIN_ORIGIN: string = 'http://localhost:3001';
 }
 
 /**
@@ -109,5 +111,12 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     );
   }
 
+  const origin = new URL(validatedConfig.ADMIN_ORIGIN);
+  if (origin.origin !== validatedConfig.ADMIN_ORIGIN || !['http:', 'https:'].includes(origin.protocol)) {
+    throw new Error('ADMIN_ORIGIN must be an exact HTTP(S) origin without a path');
+  }
+  if ([Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV) && origin.protocol !== 'https:') {
+    throw new Error('Staging and production require an HTTPS ADMIN_ORIGIN');
+  }
   return validatedConfig;
 }

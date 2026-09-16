@@ -23,3 +23,8 @@ export function generateSessionToken(): string {
 export function hashSessionToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
+
+/** Reject malformed cookies before hashing or querying the database. */
+export function isSessionToken(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}

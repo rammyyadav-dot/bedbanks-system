@@ -20,7 +20,9 @@
     "prisma:studio": "prisma studio",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
+    "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
