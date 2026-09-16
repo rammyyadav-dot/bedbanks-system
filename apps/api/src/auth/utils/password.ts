@@ -16,10 +16,10 @@ export async function verifyPassword(plaintext: string, hash: string): Promise<b
 }
 
 /**
- * A syntactically valid bcrypt hash that no real password will ever
- * match. Used to run a real comparison even when no user was found,
+ * A valid cost-12 bcrypt hash used only for comparison on rejected
+ * login paths. A match never authenticates a missing user. Used to run a real comparison even when no user was found,
  * so a nonexistent-email login takes roughly the same time as a
  * wrong-password one — otherwise response timing alone lets an
  * attacker enumerate which emails have accounts.
  */
-export const DUMMY_HASH = '$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinval';
+export const DUMMY_HASH = '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxlSI9lUm.PcSvYNNFtvwsNgZsS';

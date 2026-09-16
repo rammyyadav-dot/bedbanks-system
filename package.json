@@ -10,5 +10,9 @@
     "dev": "pnpm --filter @bedbanks/agent-portal dev",
     "build": "pnpm --filter @bedbanks/admin-console build",
     "type-check": "pnpm --filter @bedbanks/admin-console type-check"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "typescript-eslint": "^8.70.0"
   }
 }

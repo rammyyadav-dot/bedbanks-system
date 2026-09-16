@@ -1,3 +1,4 @@
+import { AuthModule } from '../auth/auth.module'
 import { Module } from '@nestjs/common'
 import { AgentController } from './agent.controller'
 import { AgentAuditService } from './audit.service'
@@ -7,6 +8,7 @@ import { TenantContextGuard } from './tenant-context.guard'
 import { SUPPLIER_ADAPTER, UnconfiguredSupplierAdapter } from './supplier.port'
 
 @Module({
+  imports: [AuthModule],
   controllers: [AgentController],
   providers: [
     AgentRbacGuard,

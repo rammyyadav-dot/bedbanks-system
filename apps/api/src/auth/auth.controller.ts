@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import type { AppConfig } from '../config/configuration';
+import { OriginGuard } from './guards/origin.guard';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
@@ -11,6 +12,7 @@ import type { AuthenticatedUser } from './interfaces/authenticated-user.interfac
 
 @ApiTags('auth')
 @Controller('auth')
+@UseGuards(OriginGuard)
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
@@ -20,12 +22,13 @@ export class AuthController {
   private cookieOptions(): { name: string; httpOnly: true; sameSite: 'lax' | 'strict' | 'none'; secure: boolean; path: string; maxAge: number } {
     const name = this.configService.get('auth.cookieName', { infer: true }) ?? 'fbeds_session';
     const sameSite = this.configService.get('auth.cookieSameSite', { infer: true }) ?? 'lax';
-    const secure = this.configService.get('auth.cookieSecure', { infer: true }) ?? false;
+    const secure = this.configService.get('auth.cookieSecure', { infer: true }) ?? true;
     const ttlSeconds = this.configService.get('auth.sessionTtlSeconds', { infer: true }) ?? 28800;
     return { name, httpOnly: true, sameSite, secure, path: '/', maxAge: ttlSeconds * 1000 };
   }
 
   @Post('login')
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Authenticate and receive a session cookie' })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
@@ -36,6 +39,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @Header('Cache-Control', 'no-store')
   @UseGuards(SessionAuthGuard)
   @ApiOperation({ summary: 'Return the identity associated with the current session' })
   me(@CurrentUser() identity: AuthenticatedUser) {
@@ -43,13 +47,14 @@ export class AuthController {
   }
 
   @Post('logout')
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Revoke the current session and clear the cookie' })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const { name, path } = this.cookieOptions();
+    const { name, maxAge: _maxAge, ...options } = this.cookieOptions();
     const rawToken: string | undefined = (req as { cookies?: Record<string, string> }).cookies?.[name];
     await this.authService.logout(rawToken);
-    res.clearCookie(name, { path });
+    res.clearCookie(name, options);
     return { loggedOut: true };
   }
 }

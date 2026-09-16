@@ -1,62 +1,37 @@
-# FBEDS API — Database Migrations (P0-C)
+# Migration history and P0-D release gate
 
-## Local development
+Inspected main: e03f8d2d8cfbb34b7d068a3106039743172b2a34.
+Schema: `apps/api/prisma/schema.prisma`. Run commands below from `apps/api`.
 
-```bash
-# 1. Copy the example env and point it at your local Postgres
-cp .env.example .env
+## Existing history (preserved)
 
-# 2. Create/update the schema and generate a migration
-pnpm prisma:migrate:dev
+1. `20260101000000_baseline_identity`: P0-C Tenant/User/Membership baseline.
+2. `20260910000000_p0d_authentication`: Status enum, user credential/lifecycle fields and opaque sessions. Only SHA-256 session token hashes are stored.
+3. `202609160001_agent_domain_foundation`: currently a full-schema creation script, not an incremental migration. It repeats the first two migrations' enum, tables, indexes and foreign keys.
 
-# 3. (Optional) seed demo data
-pnpm db:seed
+**Release blocked:** replaying this chain on a fresh database encounters duplicate objects in migration 3. Do not deploy this chain or seed an existing database until its migration history is reconciled. Do not replace the baseline with a diff from empty to the current full schema: that would duplicate P0-D and later models again.
 
-# 4. (Optional) browse the database visually
-pnpm prisma:studio
-```
+The P0-D hardening branch preserves schema and all existing SQL bytes. Their actual application state in other environments is unknown. Do not silently rewrite checksummed migrations. No new P0-D migration is necessary for the code-only fixes.
 
-`prisma migrate dev`:
-- Compares `prisma/schema.prisma` against the database's migration history
-- Generates a new SQL migration file under `prisma/migrations/` if the schema changed
-- Applies it immediately to your local database
-- Regenerates the Prisma Client
+## Required history inspection
 
-**Commit the generated `prisma/migrations/` folder to git.** Migration
-files are part of the schema's history, not a build artifact — every
-environment (a teammate's laptop, CI, production) replays the same
-migration files to reach the same schema. Never hand-edit a migration
-file that's already been applied anywhere but your own machine; if the
-schema needs to change further, generate a new migration.
+Have the database owner inspect `_prisma_migrations` on each environment (read-only), including migration_name, checksum, finished_at, rolled_back_at and applied_steps_count; inspect actual schema with Prisma diff. Do not share database credentials or raw customer data in the report.
 
-## Staging / Production
+- If migration 3 has **never** been applied anywhere, replace only that migration with a reviewed incremental diff from the baseline + P0-D state to the current schema. Replay all three in a disposable PostgreSQL database, confirm no drift, then deploy through the normal release process.
+- If migration 3 was applied standalone or manually baselined, first document which SQL objects and migration records really exist. Create an environment-specific reconciliation procedure, with backups and reviewed checksums. Do not blindly mark earlier migrations applied.
+- A new migration after migration 3 cannot fix its earlier duplicate-object failure.
 
-```bash
+## Commands and acceptance gates
+
+```sh
+pnpm prisma:validate
+pnpm prisma:generate
+# Only after the conflicting migration history is resolved, with a disposable DB:
 pnpm prisma:migrate:deploy
+pnpm exec prisma migrate status
+pnpm exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
 ```
 
-`prisma migrate deploy` (**not** `migrate dev`):
-- Applies any pending migrations from `prisma/migrations/` in order
-- Never generates new migrations
-- Never prompts interactively
-- Never resets or drops data
+Use `migrate diff --from-empty` only against a verified historical **P0-C-only** schema when assessing the baseline. Use `migrate resolve --applied` only after proving the exact migration's objects already exist and obtaining the database owner's approval. Never use `migrate dev`, `db push`, `migrate reset`, or guessed schema generation for this task.
 
-**Never run `prisma migrate dev` against a staging or production
-database.** It's an interactive, schema-drift-resolving command that
-can prompt to reset the database if it detects drift — the wrong tool
-entirely once real data exists. `migrate deploy` is the only command
-that belongs in a deploy pipeline.
-
-## Rule of thumb
-
-| Environment | Command |
-|---|---|
-| Your laptop | `prisma migrate dev` |
-| CI / staging / production | `prisma migrate deploy` |
-
-## What P0-C does NOT set up
-
-No production AWS database, no CI pipeline running `migrate deploy`
-automatically yet, no backup/restore strategy. Those are deliberately
-later work — P0-C's job is a correct, safe *workflow* that later
-phases plug into, not the infrastructure itself.
+Rollback: the hardening change has no database migration. Revert application commits if necessary; do not drop identity/session tables. Keep Secure-cookie configuration and do not restore broken cookie forwarding. Real PostgreSQL replay, drift checks and authentication integration remain release gates until they actually pass.
