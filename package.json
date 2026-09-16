@@ -7,6 +7,7 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
+    "dev": "pnpm --filter @bedbanks/agent-portal dev",
     "build": "pnpm --filter @bedbanks/admin-console build",
     "type-check": "pnpm --filter @bedbanks/admin-console type-check"
   }
