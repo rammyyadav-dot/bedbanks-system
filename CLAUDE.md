@@ -14,6 +14,7 @@ Read this before every AI-assisted change.
 8. Privileged and financial mutations create immutable audit events.
 9. Provider-specific types stay in their connector package and map to canonical domain types at the boundary.
 10. Never present a UI route, schema model or placeholder module as a production capability.
+11. `apps/api/prisma/schema.prisma` is the only permitted Prisma schema source. Do not add another `schema.prisma` outside `node_modules`; keep `pnpm check:schema` and the CI Schema integrity job enabled.
 
 ## Change protocol
 
