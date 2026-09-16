@@ -15,6 +15,7 @@
     "check:contracts": "node --import tsx tools/contract-check.ts",
     "check:no-float": "node --import tsx tools/no-float-check.ts",
     "check:no-silent-fallback": "node --import tsx tools/no-silent-fallback-check.ts",
+    "check:schema": "node --import tsx tools/no-divergent-schema-check.ts",
     "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback"
   },
   "devDependencies": {
