@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "scripts": { "type-check": "tsc --noEmit", "build": "tsc" },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "node --test",
+    "build": "tsc"
+  },
   "devDependencies": { "typescript": "^5.7.3" }
 }

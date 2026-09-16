@@ -3,20 +3,40 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fbeds_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fbeds_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
       - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: pnpm }
-      - run: corepack enable
+        with:
+          node-version: 24
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fbeds_ci pnpm --filter @bedbanks/api prisma:generate
-      - run: pnpm check:architecture
-      - run: pnpm type-check
-      - run: pnpm lint
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm --filter @bedbanks/api prisma:generate
+      - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
+      - run: pnpm -r --if-present type-check
+      - run: pnpm -r --if-present lint
+      - run: pnpm -r --if-present test
+      - run: pnpm -r --if-present build

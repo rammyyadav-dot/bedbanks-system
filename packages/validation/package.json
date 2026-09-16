@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "test": "node --test"
   },
   "dependencies": {
     "zod": "^3.22.0"
