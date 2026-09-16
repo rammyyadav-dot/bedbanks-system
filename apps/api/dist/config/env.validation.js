@@ -25,6 +25,11 @@ class EnvironmentVariables {
         this.API_PORT = 3001;
         this.API_HOST = '0.0.0.0';
         this.API_PREFIX = 'api/v1';
+        this.AUTH_SESSION_TTL_SECONDS = 28800;
+        this.AUTH_COOKIE_NAME = 'fbeds_session';
+        this.AUTH_COOKIE_SECURE = 'false';
+        this.AUTH_COOKIE_SAME_SITE = 'lax';
+        this.ADMIN_ORIGIN = 'http://localhost:3000';
     }
 }
 __decorate([
@@ -53,6 +58,32 @@ __decorate([
     (0, class_validator_1.IsUrl)({ protocols: ['postgresql', 'postgres'], require_tld: false }, { message: 'DATABASE_URL must be a valid postgresql:// connection string' }),
     __metadata("design:type", String)
 ], EnvironmentVariables.prototype, "DATABASE_URL", void 0);
+__decorate([
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(60, { message: 'AUTH_SESSION_TTL_SECONDS should be at least 60 seconds' }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Number)
+], EnvironmentVariables.prototype, "AUTH_SESSION_TTL_SECONDS", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "AUTH_COOKIE_NAME", void 0);
+__decorate([
+    (0, class_validator_1.IsIn)(['true', 'false'], { message: 'AUTH_COOKIE_SECURE must be exactly "true" or "false"' }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "AUTH_COOKIE_SECURE", void 0);
+__decorate([
+    (0, class_validator_1.IsIn)(['lax', 'strict', 'none']),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "AUTH_COOKIE_SAME_SITE", void 0);
+__decorate([
+    (0, class_validator_1.IsUrl)({ require_tld: false }, { message: 'ADMIN_ORIGIN must be a valid URL, e.g. http://localhost:3000' }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "ADMIN_ORIGIN", void 0);
 function validate(config) {
     const validatedConfig = (0, class_transformer_1.plainToInstance)(EnvironmentVariables, config, {
         enableImplicitConversion: true,
@@ -65,6 +96,10 @@ function validate(config) {
             .map((error) => Object.values(error.constraints ?? {}).join(', '))
             .join('; ');
         throw new Error(`Environment validation failed: ${message}`);
+    }
+    if (validatedConfig.NODE_ENV === Environment.Production && validatedConfig.AUTH_COOKIE_SECURE !== 'true') {
+        throw new Error('Refusing to start: NODE_ENV=production requires AUTH_COOKIE_SECURE=true. ' +
+            'Running with an insecure session cookie in production is not permitted.');
     }
     return validatedConfig;
 }

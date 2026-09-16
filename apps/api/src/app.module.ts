@@ -6,6 +6,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
+import { AgentModule } from './agent/agent.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { HealthModule } from './health/health.module';
     DatabaseModule,
     AuthModule,
     HealthModule,
+    AgentModule,
   ],
 })
 export class AppModule implements NestModule {

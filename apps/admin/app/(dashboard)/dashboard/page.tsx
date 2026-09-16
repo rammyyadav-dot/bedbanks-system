@@ -1,71 +1,44 @@
-import { Building2, Users, Hotel, Truck, CalendarRange, DollarSign, Clock, AlertTriangle } from 'lucide-react'
-import { PageHeader } from '@/components/common/PageHeader'
-import { KPI } from '@/components/dashboard/KPI'
-import { KPIGrid } from '@/components/dashboard/KPIGrid'
-import { ChartCard } from '@/components/dashboard/ChartCard'
-import { ActivityFeed } from '@/components/dashboard/ActivityFeed'
-import { HealthCard } from '@/components/dashboard/HealthCard'
-import { getDashboardKpis, getSystemStatus, getSuppliers, getHotels } from '@/lib/data'
+'use client'
 
-export default async function DashboardPage() {
-  const [kpis, status, suppliers, hotels] = await Promise.all([
-    getDashboardKpis(), getSystemStatus(), getSuppliers(), getHotels(),
-  ])
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Activity, AlertCircle, CalendarDays, CheckCircle2, ChevronDown, RefreshCw, ShieldCheck, TriangleAlert, XCircle } from 'lucide-react'
+import { getDashboard } from '@/lib/data'
+import type { AdminDashboardView, DateRange, DashboardLoadState, HealthState } from '@/lib/types/dashboard'
 
-  const destinationCounts = Object.entries(
-    hotels.reduce<Record<string, number>>((acc, h) => { acc[h.destination] = (acc[h.destination] ?? 0) + 1; return acc }, {}),
-  ).map(([label, value]) => ({ label, value }))
+const ranges: { value: DateRange; label: string }[] = [{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: '90d', label: 'Last 90 days' }]
 
-  return (
-    <div className="admin-page">
-      <PageHeader
-        eyebrow="OPERATIONAL OVERVIEW"
-        title="Dashboard"
-        description="Live snapshot of tenants, hotel supply, distribution, and financial health across FBEDS."
-      />
+function money(value: { amount: number; currency: string } | null) { return value ? new Intl.NumberFormat('en-US', { style: 'currency', currency: value.currency, maximumFractionDigits: 0 }).format(value.amount) : '—' }
+function healthLabel(value: HealthState | null) { return value ? value[0].toUpperCase() + value.slice(1) : 'Not available' }
+function relativeTime(timestamp: string) { const seconds = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000)); if (seconds < 60) return 'just now'; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; return `${Math.floor(seconds / 3600)}h ago` }
 
-      <KPIGrid>
-        <KPI label="Active Tenants" value={String(kpis.activeTenants)} icon={Building2} tone="cyan" />
-        <KPI label="Active Agents" value={String(kpis.activeAgents)} icon={Users} tone="blue" />
-        <KPI label="Hotels" value={kpis.hotels.toLocaleString()} icon={Hotel} tone="green" />
-        <KPI label="Suppliers" value={String(kpis.suppliers)} icon={Truck} tone="cyan" />
-      </KPIGrid>
-      <KPIGrid>
-        <KPI label="Bookings Today" value={String(kpis.bookingsToday)} icon={CalendarRange} tone="blue" />
-        <KPI label="Revenue Today" value={`$${kpis.revenueToday.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} icon={DollarSign} tone="green" />
-        <KPI label="Pending Bookings" value={String(kpis.pendingBookings)} icon={Clock} tone="amber" />
-        <KPI label="Supplier Errors" value={String(kpis.supplierErrors)} icon={AlertTriangle} tone="amber" />
-      </KPIGrid>
+function Empty({ children }: { children: string }) { return <div className="dashboard-empty">{children}</div> }
+function ErrorState({ onRetry }: { onRetry: () => void }) { return <div className="dashboard-error"><AlertCircle size={18} /><div><strong>Dashboard data unavailable</strong><p>We couldn&apos;t load the latest operational data.</p><button type="button" onClick={onRetry}>Retry</button></div></div> }
+function Metric({ label, value }: { label: string; value: string }) { return <article className="dashboard-metric"><div className="dashboard-metric-label">{label}</div><strong>{value}</strong><div className="dashboard-metric-change">Awaiting API data</div></article> }
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-        <ChartCard title="Booking Volume" subtitle="Last 7 days, mock data" bars={[{ label: 'Mon', value: 42 }, { label: 'Tue', value: 55 }, { label: 'Wed', value: 38 }, { label: 'Thu', value: 61 }, { label: 'Fri', value: 74 }, { label: 'Sat', value: 88 }, { label: 'Sun', value: 52 }]} />
-        <ChartCard title="Revenue Trend" subtitle="USD, last 7 days, mock data" bars={[{ label: 'Mon', value: 18400 }, { label: 'Tue', value: 21200 }, { label: 'Wed', value: 16800 }, { label: 'Thu', value: 24900 }, { label: 'Fri', value: 31200 }, { label: 'Sat', value: 35800 }, { label: 'Sun', value: 22100 }]} />
-      </div>
+export default function DashboardPage() {
+  const [range, setRange] = useState<DateRange>('7d')
+  const [data, setData] = useState<AdminDashboardView | null>(null)
+  const [state, setState] = useState<DashboardLoadState>('idle')
+  const [error, setError] = useState<string | null>(null)
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-        <ChartCard title="Top Destinations" subtitle="Hotels by destination" bars={destinationCounts} />
-        <div className="panel">
-          <div className="panel-header"><h2>Supplier Health</h2></div>
-          <div style={{ padding: '0 18px 16px' }}>
-            {suppliers.map((s) => (
-              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: '1px solid #edf2f3', fontSize: 11 }}>
-                <span style={{ color: '#2c4a55', fontWeight: 600 }}>{s.name}</span>
-                <span style={{ color: '#8ba0a5' }}>{s.successRate}% success</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+  const load = useCallback(async () => {
+    setState('loading'); setError(null)
+    try { setData(await getDashboard({ range })); setState('success') } catch (cause) { setData(null); setError(cause instanceof Error ? cause.message : 'Unable to load dashboard data.'); setState('error') }
+  }, [range])
+  useEffect(() => { void load() }, [load])
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <ActivityFeed items={[
-          { id: '1', text: 'Jordan Davis viewed tenant directory', time: '2 min ago' },
-          { id: '2', text: 'New booking FB260909000201 confirmed', time: '18 min ago' },
-          { id: '3', text: 'Supplier "Regional DMC" sync failed', time: '54 min ago' },
-          { id: '4', text: 'Maya Chen updated a membership role', time: '1h ago' },
-        ]} />
-        <HealthCard items={status} />
-      </div>
-    </div>
-  )
+  const summary = data?.summary
+  const activityMax = useMemo(() => Math.max(...(data?.bookingActivity.map((point) => point.total) ?? [0]), 1), [data])
+  const refreshLabel = state === 'loading' ? 'Refreshing…' : state === 'success' ? 'Updated' : 'Refresh'
+
+  return <main className="dashboard-page">
+    <div className="dashboard-heading"><div><div className="dashboard-eyebrow"><Activity size={12} /> OPERATIONAL OVERVIEW</div><h1>Dashboard</h1><p>Authoritative operational data for your bedbank network.</p></div><div className="dashboard-heading-actions"><label className="dashboard-date-button"><CalendarDays size={15} /><select aria-label="Dashboard date range" value={range} onChange={(event) => setRange(event.target.value as DateRange)}>{ranges.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><ChevronDown size={14} /></label><button className="dashboard-refresh" type="button" onClick={() => void load()} disabled={state === 'loading'}><RefreshCw size={14} className={state === 'loading' ? 'spin' : ''} /> {refreshLabel}</button></div></div>
+    {state === 'error' ? <ErrorState onRetry={() => void load()} /> : null}
+    <div className="dashboard-freshness">{data ? <>Last updated {relativeTime(data.generatedAt)} · {new Date(data.generatedAt).toLocaleString()}</> : 'Live metrics will appear when the Admin API is connected.'}</div>
+    <div className="dashboard-metrics"><Metric label="Total bookings" value={summary ? summary.totalBookings?.toLocaleString() ?? '—' : '—'} /><Metric label="Gross booking value" value={money(summary?.grossBookingValue ?? null)} /><Metric label="Net revenue" value={money(summary?.netRevenue ?? null)} /><Metric label="Active suppliers" value={summary?.activeSuppliers?.toLocaleString() ?? '—'} /><Metric label="Active hotels" value={summary?.activeHotels?.toLocaleString() ?? '—'} /><Metric label="System health" value={healthLabel(summary?.systemHealth ?? null)} /></div>
+    <div className="dashboard-main-grid"><section className="dashboard-panel chart-panel"><div className="dashboard-panel-header"><div><h2>Booking activity</h2><p>Bookings over the selected period</p></div></div>{data?.bookingActivity.length ? <div className="dashboard-bars" role="img" aria-label="Booking activity chart"><div className="dashboard-bar-area">{data.bookingActivity.map((point) => <div className="dashboard-bar-column" key={point.date}><div className="dashboard-bar total" style={{ height: `${point.total / activityMax * 100}%` }} title={`${point.total} bookings`} /><div className="dashboard-bar confirmed" style={{ height: `${point.confirmed / activityMax * 100}%` }} title={`${point.confirmed} confirmed`} /><small>{point.date}</small></div>)}</div></div> : <Empty>No booking activity available for this period.</Empty>}</section><section className="dashboard-panel"><div className="dashboard-panel-header"><div><h2>Revenue overview</h2><p>Gross and net revenue with explicit currency</p></div></div>{data?.revenueOverview.length ? <div className="dashboard-list">{data.revenueOverview.map((point) => <div className="dashboard-list-row" key={point.date}><span>{point.date}</span><strong>{money(point.gross)}</strong><strong>{money(point.net)}</strong></div>)}</div> : <Empty>No revenue data available.</Empty>}</section><section className="dashboard-panel health-panel"><div className="dashboard-panel-header"><div><h2>System health</h2><p>Reported by connected services</p></div><ShieldCheck size={18} /></div>{data?.systemHealth.length ? <div className="health-list">{data.systemHealth.map((item) => <div className="health-row" key={item.name}><span className="health-icon">{item.state === 'healthy' ? <CheckCircle2 size={14} /> : item.state === 'down' ? <XCircle size={14} /> : <TriangleAlert size={14} />}</span><span>{item.name}</span><strong className={`health-${item.state}`}>{healthLabel(item.state)}</strong></div>)}</div> : <Empty>No service health data available.</Empty>}</section></div>
+    <div className="dashboard-lower-grid"><section className="dashboard-panel bookings-panel"><div className="dashboard-panel-header"><div><h2>Recent bookings</h2><p>Latest reservation activity</p></div></div>{data?.recentBookings.length ? <div className="dashboard-table-wrap"><table className="dashboard-table"><caption className="sr-only">Recent bookings</caption><thead><tr><th>Reference</th><th>Agency</th><th>Hotel</th><th>Status</th><th>Amount</th></tr></thead><tbody>{data.recentBookings.map((booking) => <tr key={booking.id}><td className="strong-cell">{booking.reference}</td><td>{booking.agency}</td><td>{booking.hotel}</td><td>{booking.status}</td><td>{money(booking.amount)}</td></tr>)}</tbody></table></div> : <Empty>No bookings found for this period.</Empty>}</section><aside className="dashboard-panel alerts-panel"><div className="dashboard-panel-header"><div><h2>Alerts &amp; notifications</h2><p>Items requiring attention</p></div></div>{data?.alerts.length ? data.alerts.map((alert) => <div className="alert-row" key={alert.id}><span className={`alert-icon ${alert.severity.toLowerCase()}`} aria-label={alert.severity}><AlertCircle size={15} /></span><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><time dateTime={alert.createdAt}>{relativeTime(alert.createdAt)}</time></div>) : <Empty>No alerts.</Empty>}</aside></div>
+    <div className="dashboard-mini-grid"><section className="dashboard-panel ranking-panel"><div className="dashboard-panel-header"><div><h2>Top destinations</h2><p>Provided by the Admin API</p></div></div>{data?.topDestinations.length ? data.topDestinations.map((item) => <div className="ranking-row" key={item.name}><span>{item.name}</span><strong>{item.bookings.toLocaleString()}</strong><small>{item.share}%</small></div>) : <Empty>No destination data available.</Empty>}</section><section className="dashboard-panel ranking-panel"><div className="dashboard-panel-header"><div><h2>Top suppliers</h2><p>Provided by the Admin API</p></div></div>{data?.topSuppliers.length ? data.topSuppliers.map((item) => <div className="ranking-row" key={item.name}><span>{item.name}</span><strong>{item.bookings.toLocaleString()}</strong><small>{item.share}%</small></div>) : <Empty>No supplier activity available.</Empty>}</section></div>
+    {error ? <p className="dashboard-error-detail">{error}</p> : null}
+  </main>
 }

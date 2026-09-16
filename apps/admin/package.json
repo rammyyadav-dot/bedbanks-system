@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "FBEDS — Admin Console (internal ops: tenants, hotels, access, audit)",
   "private": true,
+  "packageManager": "pnpm@10.4.1",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3001",
@@ -12,7 +13,6 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@bedbanks/ui": "workspace:*",
     "@base-ui/react": "^1.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

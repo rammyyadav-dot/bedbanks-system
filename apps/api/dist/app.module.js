@@ -12,8 +12,10 @@ const config_1 = require("@nestjs/config");
 const configuration_1 = require("./config/configuration");
 const env_validation_1 = require("./config/env.validation");
 const request_id_middleware_1 = require("./common/middleware/request-id.middleware");
+const auth_module_1 = require("./auth/auth.module");
 const database_module_1 = require("./database/database.module");
 const health_module_1 = require("./health/health.module");
+const agent_module_1 = require("./agent/agent.module");
 let AppModule = class AppModule {
     configure(consumer) {
         consumer.apply(request_id_middleware_1.RequestIdMiddleware).forRoutes('*');
@@ -30,7 +32,9 @@ exports.AppModule = AppModule = __decorate([
                 envFilePath: ['.env', '.env.local'],
             }),
             database_module_1.DatabaseModule,
+            auth_module_1.AuthModule,
             health_module_1.HealthModule,
+            agent_module_1.AgentModule,
         ],
     })
 ], AppModule);
