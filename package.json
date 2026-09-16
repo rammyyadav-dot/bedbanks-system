@@ -18,7 +18,9 @@
     "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback"
   },
   "devDependencies": {
+    "@prisma/client": "^6.2.1",
     "eslint": "^9.39.5",
+    "prisma": "^6.2.1",
     "tsx": "^4.20.6",
     "turbo": "^2.10.13",
     "typescript-eslint": "^8.70.0"

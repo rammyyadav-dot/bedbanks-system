@@ -5,7 +5,9 @@
   "description": "FBEDS Shared Configuration",
   "scripts": {
     "build": "tsc",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "node --test"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

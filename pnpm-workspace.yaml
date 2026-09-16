@@ -4,4 +4,8 @@ packages:
   - 'packages/connectors/*'
 
 allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
   '@scarf/scarf': true
+  esbuild: true
+  prisma: true
