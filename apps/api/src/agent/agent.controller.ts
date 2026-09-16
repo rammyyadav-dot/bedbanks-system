@@ -3,6 +3,8 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
+import { AgentRbacGuard } from './rbac.guard'
+import { TenantContextGuard } from './tenant-context.guard'
 import { IsDateString, IsInt, IsOptional, IsString, Min } from 'class-validator'
 
 class SearchHotelsDto {
@@ -46,6 +48,7 @@ export class AgentController {
   }
 
   @Post('search')
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
   @ApiOperation({ summary: 'Search live hotel inventory through the configured supplier boundary' })
   search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser) {
     return {

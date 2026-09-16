@@ -37,6 +37,26 @@ enum Status {
   SUSPENDED
 }
 
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  FAILED
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
+
+enum LedgerEntryType {
+  CREDIT
+  DEBIT
+  HOLD
+  RELEASE
+  REFUND
+}
+
 model Tenant {
   id        String   @id @default(cuid())
   name      String
@@ -46,6 +66,11 @@ model Tenant {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   memberships Membership[]
+  roles       Role[]
+  bookings    Booking[]
+  wallets     Wallet[]
+  ledger      LedgerEntry[]
+  auditEvents AuditEvent[]
 
   @@map("tenants")
 }
@@ -62,6 +87,8 @@ model User {
 
   memberships Membership[]
   sessions    Session[]
+  roles       UserRole[]
+  auditEvents AuditEvent[]
 
   @@map("users")
 }
@@ -103,4 +130,114 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String
+  tenantId    String           @map("tenant_id")
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       UserRole[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Booking {
+  id             String         @id @default(cuid())
+  tenantId       String         @map("tenant_id")
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reference      String         @unique
+  supplier       String
+  hotelId        String         @map("hotel_id")
+  status         BookingStatus  @default(PENDING)
+  currency       String
+  totalMinor     Int            @map("total_minor")
+  idempotencyKey String         @unique @map("idempotency_key")
+  searchSnapshot Json           @map("search_snapshot")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  cancellations  Cancellation[]
+
+  @@index([tenantId, status])
+}
+
+model Cancellation {
+  id          String   @id @default(cuid())
+  bookingId   String   @map("booking_id")
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reason      String?
+  refundMinor Int?     @map("refund_minor")
+  createdAt   DateTime @default(now()) @map("created_at")
+}
+
+model Wallet {
+  id          String        @id @default(cuid())
+  tenantId    String        @unique @map("tenant_id")
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  currency    String        @default("USD")
+  creditLimit Int           @default(0) @map("credit_limit")
+  balance     Int           @default(0)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  entries     LedgerEntry[]
+}
+
+model LedgerEntry {
+  id          String          @id @default(cuid())
+  tenantId    String          @map("tenant_id")
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  walletId    String          @map("wallet_id")
+  wallet      Wallet          @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  type        LedgerEntryType
+  amountMinor Int             @map("amount_minor")
+  currency    String
+  reference   String?
+  immutableAt DateTime        @default(now()) @map("immutable_at")
+
+  @@index([tenantId, immutableAt])
+}
+
+model AuditEvent {
+  id         String         @id @default(cuid())
+  tenantId   String?        @map("tenant_id")
+  tenant     Tenant?        @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  userId     String?        @map("user_id")
+  user       User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  actorType  AuditActorType @map("actor_type")
+  action     String
+  entityType String         @map("entity_type")
+  entityId   String         @map("entity_id")
+  payload    Json
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
 }
