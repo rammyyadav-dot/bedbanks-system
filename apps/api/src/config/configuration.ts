@@ -27,7 +27,7 @@ export interface AppConfig {
 export default (): AppConfig => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
   api: {
-    port: parseInt(process.env.API_PORT ?? '3001', 10),
+    port: parseInt(process.env.API_PORT ?? '3002', 10),
     host: process.env.API_HOST ?? '0.0.0.0',
     prefix: process.env.API_PREFIX ?? 'api/v1',
   },
@@ -37,8 +37,8 @@ export default (): AppConfig => ({
   auth: {
     sessionTtlSeconds: parseInt(process.env.AUTH_SESSION_TTL_SECONDS ?? '28800', 10),
     cookieName: process.env.AUTH_COOKIE_NAME ?? 'fbeds_session',
-    cookieSecure: (process.env.AUTH_COOKIE_SECURE ?? 'false') === 'true',
+    cookieSecure: (process.env.AUTH_COOKIE_SECURE ?? 'true') === 'true',
     cookieSameSite: (process.env.AUTH_COOKIE_SAME_SITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax',
   },
-  adminOrigin: process.env.ADMIN_ORIGIN ?? 'http://localhost:3000',
+  adminOrigin: process.env.ADMIN_ORIGIN ?? 'http://localhost:3001',
 });

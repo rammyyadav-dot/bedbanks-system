@@ -1,47 +1,38 @@
-# Dependencies
-node_modules/
-pnpm-lock.yaml
-package-lock.json
-yarn.lock
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Build outputs
-.next/
-dist/
-build/
-.turbo/
-coverage/
+# dependencies
+/node_modules
 
-# Environment
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+# Environment — ignore real env files, never .env.example
 .env
 .env.local
 .env.*.local
 .env.production
 .env.staging
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# v0 runtime files
-__v0_runtime_loader.js
-__v0_devtools.tsx
-__v0_jsx-dev-runtime.ts
-
-# Common ignores
-.DS_Store
-.turbo
-tsconfig.tsbuildinfo
-next-env.d.ts
-
-# Vercel
+# vercel
 .vercel
 
-# Debug logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+# typescript
+*.tsbuildinfo
+next-env.d.tspackages/*/node_modules/
+packages/*/node_modules/
+apps/*/node_modules/
+
+# Next.js build outputs in each app (root .gitignore had /.next/ which only covers root)
+apps/**/.next/
+apps/**/out/

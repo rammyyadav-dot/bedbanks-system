@@ -15,10 +15,10 @@ async function bootstrap(): Promise<void> {
 
   const configService = app.get(ConfigService<AppConfig>);
   const apiPrefix = configService.get('api.prefix', { infer: true }) ?? 'api/v1';
-  const port = configService.get('api.port', { infer: true }) ?? 3001;
+  const port = configService.get('api.port', { infer: true }) ?? 3002;
   const host = configService.get('api.host', { infer: true }) ?? '0.0.0.0';
   const nodeEnv = configService.get('nodeEnv', { infer: true }) ?? 'development';
-  const adminOrigin = configService.get('adminOrigin', { infer: true }) ?? 'http://localhost:3000';
+  const adminOrigin = configService.get('adminOrigin', { infer: true }) ?? 'http://localhost:3001';
 
   // Required to read the session cookie in SessionAuthGuard.
   app.use(cookieParser());

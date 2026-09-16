@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Bell, CalendarDays, Check, ChevronDown, CircleHelp, Eye, Filter, Heart, Info, MapPin, Search, SlidersHorizontal, Star, Users, Wifi, X, Car, Waves, FileText, PauseCircle } from 'lucide-react'
-
-type Hotel = { id: string; name: string; city: string; stars: number; rating: number; price: number; rack: number; rooms: number; supplier: string; board: string; image: string; amenities: string[]; distance: string; reviews: number; cancellation: string }
+import type { Hotel } from '@/types/hotel'
 
 const hotels: Hotel[] = [
   { id: 'HTL-000182', name: 'One&Only Royal Mirage', city: 'Jumeirah Beach Dubai', stars: 5, rating: 4.9, price: 820, rack: 1260, rooms: 12, supplier: 'Hotelbeds', board: 'Breakfast included', image: 'https://images.unsplash.com/photo-1564501049412-61c2a3083791?auto=format&fit=crop&w=900&q=80', amenities: ['Private Beach', 'Luxury Spa', 'WiFi'], distance: '0.5 km from City Center', reviews: 4927, cancellation: 'Free cancellation until 07 Sep' },

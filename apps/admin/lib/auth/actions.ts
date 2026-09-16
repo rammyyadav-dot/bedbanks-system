@@ -2,6 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { parseSessionCookie } from './session-cookie';
 import { authApi, ApiResponseError } from '../api/auth-client';
 
 const COOKIE_NAME = process.env.AUTH_COOKIE_NAME ?? 'fbeds_session';
@@ -13,9 +14,8 @@ export interface LoginActionState {
 /**
  * Server Action — handles login form submission.
  *
- * Credentials go server → API and nowhere else. The session cookie is
- * set by the API's Set-Cookie response header and forwarded through by
- * Next.js; the browser never touches the raw token value.
+ * Credentials go server → API and nowhere else. The API Set-Cookie header is explicitly copied to the Admin host
+ * cookie store. Only the browser cookie mechanism receives the raw token.
  */
 export async function loginAction(
   _prev: LoginActionState,
@@ -29,7 +29,10 @@ export async function loginAction(
   }
 
   try {
-    await authApi.login(email, password);
+    const headers = await authApi.login(email, password);
+    const cookie = parseSessionCookie(headers, COOKIE_NAME);
+    const cookieStore = await cookies();
+    cookieStore.set(COOKIE_NAME, cookie.value, cookie.options);
   } catch (error) {
     if (error instanceof ApiResponseError) {
       if (error.status === 401) return { error: 'Invalid email or password.' };
@@ -49,16 +52,18 @@ export async function loginAction(
  * database, not just cleared from the browser) then redirects to login.
  */
 export async function logoutAction(): Promise<void> {
-  try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get(COOKIE_NAME);
-    if (sessionCookie) {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(COOKIE_NAME);
+  if (sessionCookie) {
+    try {
       await authApi.logout(`${COOKIE_NAME}=${sessionCookie.value}`);
+    } catch {
+      // Keep the cookie so the user can retry revocation; never claim success.
+      throw new Error('Sign out failed. Please try again.');
     }
-  } catch {
-    // Best-effort — even if the API call fails, clear the cookie and
-    // redirect. The session will expire naturally via the DB TTL.
   }
-
+  cookieStore.set(COOKIE_NAME, '', {
+    httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0,
+  });
   redirect('/login');
 }

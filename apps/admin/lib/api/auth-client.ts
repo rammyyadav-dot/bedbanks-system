@@ -1,45 +1,19 @@
-/**
- * Thin server-side fetch wrapper for the FBEDS API.
- *
- * Only used from Server Components, Server Actions, and Route Handlers
- * — never imported in client components. Cookie forwarding (the session
- * cookie) is handled by Next.js automatically when `credentials:
- * 'include'` is set and the API is on the same host, or explicitly via
- * the `Cookie` header in Route Handlers where `next/headers` is
- * available.
- *
- * P0-D: endpoints used are login, me, logout only. As the backend
- * grows, add typed functions here rather than scattering raw fetch
- * calls across pages.
- */
+import 'server-only';
+import { ApiResponseError, type ApiError } from './errors';
+export { ApiResponseError } from './errors';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
-
-export interface ApiError {
-  code: string;
-  message: string;
-  details: unknown[];
-}
-
-export class ApiResponseError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = 'ApiResponseError';
-  }
-}
+const API_BASE = process.env.API_INTERNAL_URL ?? 'http://localhost:3002/api/v1';
+const API_ORIGIN = process.env.AUTH_API_ORIGIN ?? 'http://localhost:3001';
 
 async function apiFetch<T>(
   path: string,
   init?: RequestInit,
-): Promise<T> {
+): Promise<{ data: T; response: Response }> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    credentials: 'include',
     ...init,
+    headers: { 'Content-Type': 'application/json', Origin: API_ORIGIN, ...(init?.headers ?? {}) },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
   });
 
   const body = await res.json();
@@ -53,7 +27,8 @@ async function apiFetch<T>(
     );
   }
 
-  return (body as { success: true; data: T }).data;
+  if (body.success !== true) throw new Error('Invalid authentication response');
+  return { data: (body as { success: true; data: T }).data, response: res };
 }
 
 export interface SafeUser {
@@ -75,24 +50,19 @@ export interface AuthenticatedUser {
 }
 
 export const authApi = {
-  login(email: string, password: string, cookieHeader?: string) {
-    return apiFetch<AuthenticatedUser>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-      headers: cookieHeader ? { Cookie: cookieHeader } : {},
+  async login(email: string, password: string) {
+    const { response } = await apiFetch<AuthenticatedUser>('/auth/login', {
+      method: 'POST', body: JSON.stringify({ email, password }),
     });
+    // This header is consumed only by the Server Action, never returned to a client.
+    return response.headers.getSetCookie();
   },
-
-  me(cookieHeader: string) {
-    return apiFetch<AuthenticatedUser>('/auth/me', {
-      headers: { Cookie: cookieHeader },
-    });
+  async me(cookieHeader: string) {
+    return (await apiFetch<AuthenticatedUser>('/auth/me', { headers: { Cookie: cookieHeader } })).data;
   },
-
-  logout(cookieHeader: string) {
-    return apiFetch<{ loggedOut: boolean }>('/auth/logout', {
-      method: 'POST',
-      headers: { Cookie: cookieHeader },
-    });
+  async logout(cookieHeader: string) {
+    return (await apiFetch<{ loggedOut: boolean }>('/auth/logout', {
+      method: 'POST', headers: { Cookie: cookieHeader },
+    })).data;
   },
 };

@@ -1,0 +1,243 @@
+// FBEDS — Prisma schema
+//
+// Scope discipline: identity + authentication foundation.
+//   - Tenant, User, Membership — who exists and who belongs where (P0-C)
+//   - Status (Tenant/User) — minimal lifecycle only: ACTIVE/SUSPENDED.
+//     Not a general workflow state machine — don't overbuild this.
+//   - User.passwordHash, User.lastLoginAt, Session — P0-D authentication.
+//     Opaque, database-backed sessions, NOT JWT: the browser holds a
+//     random token in an HttpOnly cookie; the database holds only a
+//     SHA-256 hash of it (Session.tokenHash). This is a deliberate
+//     architecture choice over JWT — see apps/api/src/auth/README.md
+//     for the reasoning (immediate revocation, no refresh-token
+//     complexity yet, simpler to reason about for this stage).
+//   - Membership.role is a plain string for now (e.g. "owner", "member").
+//     Formal roles/permissions tables are P0-F (RBAC) — don't confuse
+//     the two.
+//
+// Explicitly NOT here yet: tenant row-level isolation policies (P0-E
+// enforcement — the Session/Membership shape already supports it, but
+// nothing enforces it yet), permissions (P0-F), audit log (P0-G), or
+// any hotel/booking/wallet domain model (P1+).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Minimal lifecycle status shared by Tenant and User. Deliberately
+/// just two states — a full workflow (PENDING, INVITED, ARCHIVED, ...)
+/// is a later, explicit decision, not something to grow accidentally.
+enum Status {
+  ACTIVE
+  SUSPENDED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  FAILED
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
+
+enum LedgerEntryType {
+  CREDIT
+  DEBIT
+  HOLD
+  RELEASE
+  REFUND
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  status    Status   @default(ACTIVE)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  roles       Role[]
+  bookings    Booking[]
+  wallets     Wallet[]
+  ledger      LedgerEntry[]
+  auditEvents AuditEvent[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String?   @map("password_hash")
+  status       Status    @default(ACTIVE)
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  sessions    Session[]
+  roles       UserRole[]
+  auditEvents AuditEvent[]
+
+  @@map("users")
+}
+
+/// Links a User to a Tenant. `role` is a plain string placeholder for
+/// P0-C — real role/permission modeling is P0-F, not here.
+model Membership {
+  id        String   @id @default(cuid())
+  role      String   @default("member")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("memberships")
+}
+
+/// Opaque, database-backed session (P0-D). The raw session token is
+/// NEVER stored here — only SHA-256(token), in tokenHash. If this
+/// table is ever compromised, the hashes alone can't be replayed as
+/// valid session cookies. Deleting a User cascades to their sessions.
+model Session {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String
+  tenantId    String           @map("tenant_id")
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       UserRole[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Booking {
+  id             String         @id @default(cuid())
+  tenantId       String         @map("tenant_id")
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reference      String         @unique
+  supplier       String
+  hotelId        String         @map("hotel_id")
+  status         BookingStatus  @default(PENDING)
+  currency       String
+  totalMinor     Int            @map("total_minor")
+  idempotencyKey String         @unique @map("idempotency_key")
+  searchSnapshot Json           @map("search_snapshot")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  cancellations  Cancellation[]
+
+  @@index([tenantId, status])
+}
+
+model Cancellation {
+  id          String   @id @default(cuid())
+  bookingId   String   @map("booking_id")
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reason      String?
+  refundMinor Int?     @map("refund_minor")
+  createdAt   DateTime @default(now()) @map("created_at")
+}
+
+model Wallet {
+  id          String        @id @default(cuid())
+  tenantId    String        @unique @map("tenant_id")
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  currency    String        @default("USD")
+  creditLimit Int           @default(0) @map("credit_limit")
+  balance     Int           @default(0)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  entries     LedgerEntry[]
+}
+
+model LedgerEntry {
+  id          String          @id @default(cuid())
+  tenantId    String          @map("tenant_id")
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  walletId    String          @map("wallet_id")
+  wallet      Wallet          @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  type        LedgerEntryType
+  amountMinor Int             @map("amount_minor")
+  currency    String
+  reference   String?
+  immutableAt DateTime        @default(now()) @map("immutable_at")
+
+  @@index([tenantId, immutableAt])
+}
+
+model AuditEvent {
+  id         String         @id @default(cuid())
+  tenantId   String?        @map("tenant_id")
+  tenant     Tenant?        @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  userId     String?        @map("user_id")
+  user       User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  actorType  AuditActorType @map("actor_type")
+  action     String
+  entityType String         @map("entity_type")
+  entityId   String         @map("entity_id")
+  payload    Json
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+}

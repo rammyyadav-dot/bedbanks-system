@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import type { AppConfig } from '../config/configuration';
 import { DUMMY_HASH, hashPassword, verifyPassword } from './utils/password';
-import { generateSessionToken, hashSessionToken } from './utils/session-token';
+import { generateSessionToken, hashSessionToken, isSessionToken } from './utils/session-token';
 import type { AuthenticatedUser, MembershipSummary, SafeUser } from './interfaces/authenticated-user.interface';
 
 interface UserRow {
@@ -97,6 +97,7 @@ export class AuthService {
    * whether the session is good.
    */
   async validateSession(rawToken: string): Promise<AuthenticatedUser | null> {
+    if (!isSessionToken(rawToken)) return null;
     const tokenHash = hashSessionToken(rawToken);
     const session = await this.prisma.session.findUnique({
       where: { tokenHash },
@@ -127,7 +128,7 @@ export class AuthService {
    * and treating it as one would leak information about session state.
    */
   async logout(rawToken: string | undefined): Promise<void> {
-    if (!rawToken) return;
+    if (!isSessionToken(rawToken)) return;
     const tokenHash = hashSessionToken(rawToken);
     await this.prisma.session.updateMany({
       where: { tokenHash, revokedAt: null },
