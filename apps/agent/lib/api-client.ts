@@ -23,3 +23,11 @@ export function getAgentContext() {
 export function logout() {
   return request<{ loggedOut: boolean }>('/auth/logout', { method: 'POST' })
 }
+
+export function getFinanceSummary(tenantId: string) {
+  return request<{ status: string; availableCredit: number | null }>(`/agent/finance/summary`, { headers: { 'x-fbeds-tenant-id': tenantId } })
+}
+
+export function getSearchStatus(tenantId: string) {
+  return request<{ status: 'available' | 'provider_unavailable' }>('/agent/search/status', { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify({ destination: 'status', checkIn: '2026-09-16', checkOut: '2026-09-17', rooms: 1, adults: 1, children: 0, nationality: 'US', currency: 'USD' }) })
+}
