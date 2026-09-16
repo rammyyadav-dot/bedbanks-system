@@ -50,20 +50,23 @@ async function main(): Promise<void> {
     },
   });
 
+  const permissionKeys = [
+    ['hotel.search', 'Search hotel availability'],
+    ['booking.prebook', 'Prebook a hotel rate'],
+    ['booking.create', 'Create a booking'],
+    ['booking.cancel', 'Cancel a booking'],
+    ['finance.read', 'View tenant finance'],
+  ] as const;
+  const permissions = await Promise.all(permissionKeys.map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
+  const ownerRole = await prisma.role.upsert({ where: { tenantId_name: { tenantId: tenant.id, name: 'owner' } }, update: {}, create: { tenantId: tenant.id, name: 'owner' } });
+  await Promise.all(permissions.map((permission) => prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: ownerRole.id, permissionId: permission.id } }, update: {}, create: { roleId: ownerRole.id, permissionId: permission.id } })));
+  await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: ownerRole.id } }, update: {}, create: { userId: user.id, roleId: ownerRole.id } });
   await prisma.membership.upsert({
-    where: {
-      userId_tenantId: {
-        userId: user.id,
-        tenantId: tenant.id,
-      },
-    },
-    update: {},
-    create: {
-      userId: user.id,
-      tenantId: tenant.id,
-      role: 'owner',
-    },
+    where: { userId_tenantId: { userId: user.id, tenantId: tenant.id } },
+    update: { role: 'owner' },
+    create: { userId: user.id, tenantId: tenant.id, role: 'owner' },
   });
+  await prisma.wallet.upsert({ where: { tenantId: tenant.id }, update: {}, create: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, balance: 0 } });
 
   console.log('Seed complete:');
   console.log(`  Tenant:     ${tenant.name} (${tenant.slug})`);
