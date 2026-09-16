@@ -1,0 +1,16 @@
+name: Tenant isolation checks
+
+on:
+  pull_request:
+    paths: ['apps/api/**', 'e2e/tenancy-isolation.spec.ts']
+
+jobs:
+  tenant-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fbeds_ci pnpm --filter @bedbanks/api prisma:generate
+      - run: pnpm --filter @bedbanks/api exec jest --runInBand src/agent/tenant-context.guard.spec.ts

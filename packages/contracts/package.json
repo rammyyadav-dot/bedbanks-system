@@ -1,0 +1,9 @@
+{
+  "name": "@bedbanks/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "type-check": "tsc --noEmit", "build": "tsc" },
+  "devDependencies": { "typescript": "^5.7.3" }
+}

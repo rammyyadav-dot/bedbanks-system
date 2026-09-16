@@ -8,11 +8,19 @@
   },
   "scripts": {
     "dev": "pnpm --filter @bedbanks/agent-portal dev",
-    "build": "pnpm --filter @bedbanks/admin-console build",
-    "type-check": "pnpm --filter @bedbanks/admin-console type-check"
+    "build": "turbo run build",
+    "type-check": "turbo run type-check",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check:contracts": "node --import tsx tools/contract-check.ts",
+    "check:no-float": "node --import tsx tools/no-float-check.ts",
+    "check:no-silent-fallback": "node --import tsx tools/no-silent-fallback-check.ts",
+    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback"
   },
   "devDependencies": {
     "eslint": "^9.39.5",
+    "tsx": "^4.20.6",
+    "turbo": "^2.10.13",
     "typescript-eslint": "^8.70.0"
   }
 }

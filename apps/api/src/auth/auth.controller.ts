@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Header, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { routes } from '@bedbanks/contracts';
 import type { Request, Response } from 'express';
 import type { AppConfig } from '../config/configuration';
 import { OriginGuard } from './guards/origin.guard';
@@ -30,7 +31,7 @@ export class AuthController {
   @Post('login')
   @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Authenticate and receive a session cookie' })
+  @ApiOperation({ summary: `${routes.auth.login} — authenticate and receive a session cookie` })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { rawToken, identity } = await this.authService.login(dto.email, dto.password);
     const { name, ...options } = this.cookieOptions();
@@ -41,7 +42,7 @@ export class AuthController {
   @Get('me')
   @Header('Cache-Control', 'no-store')
   @UseGuards(SessionAuthGuard)
-  @ApiOperation({ summary: 'Return the identity associated with the current session' })
+  @ApiOperation({ summary: `${routes.auth.me} — return the current session identity` })
   me(@CurrentUser() identity: AuthenticatedUser) {
     return identity;
   }
@@ -49,7 +50,7 @@ export class AuthController {
   @Post('logout')
   @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Revoke the current session and clear the cookie' })
+  @ApiOperation({ summary: `${routes.auth.logout} — revoke the current session and clear the cookie` })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { name, maxAge: _maxAge, ...options } = this.cookieOptions();
     const rawToken: string | undefined = (req as { cookies?: Record<string, string> }).cookies?.[name];
