@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { AgentPortal } from './agent-portal'
+import { AgentWorkspace } from './agent-workspace'
 import { getAgentContext, login, logout, type AgentIdentity } from '@/lib/api-client'
 
 export function AgentAuthGate() {
@@ -30,7 +30,7 @@ export function AgentAuthGate() {
   }
 
   if (loading) return <main className="auth-state"><p>Checking your secure session…</p></main>
-  if (identity) return <AgentPortal />
+  if (identity) return <AgentWorkspace identity={identity} />
 
   return <main className="auth-page"><section className="auth-card" aria-labelledby="login-title"><div className="auth-mark">f</div><p className="auth-kicker">FBEDS / AGENT PORTAL</p><h1 id="login-title">Sign in to your workspace</h1><p className="auth-copy">Access tenant-scoped hotel inventory, rates and booking operations.</p><form onSubmit={handleSubmit} className="auth-form"><label htmlFor="email">Work email<input id="email" name="email" type="email" autoComplete="username" required /></label><label htmlFor="password">Password<input id="password" name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="auth-error" role="alert">{error}</p>}<button disabled={submitting} type="submit">{submitting ? 'Signing in…' : 'Sign in securely'}</button></form><p className="auth-note">Your session is protected by an HttpOnly cookie. Never share your credentials.</p></section></main>
 }
