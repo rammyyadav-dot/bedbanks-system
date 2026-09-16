@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { AgentPortal } from './agent-portal'
+import { AgentSignOut } from './agent-auth-gate'
 import { getFinanceSummary, getSearchStatus, type AgentIdentity } from '@/lib/api-client'
 
 export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
@@ -21,6 +22,8 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       <label>Workspace<select aria-label="Active workspace" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>{identity.memberships.map((membership) => <option key={membership.tenantId} value={membership.tenantId}>{membership.tenantName} · {membership.role}</option>)}</select></label>
       <span className={`agent-provider-status ${providerStatus}`}>{providerStatus === 'checking' ? 'Checking supplier' : providerStatus === 'available' ? 'Live supplier connected' : 'Supplier not configured'}</span>
       <span className="agent-credit-status">{finance?.availableCredit == null ? 'Credit ledger not configured' : `Available credit ${finance.availableCredit}`}</span>
+      <span className="agent-user-name">{identity.user.name ?? identity.user.email}</span>
+      <AgentSignOut onComplete={() => window.location.reload()} />
     </div>
     <AgentPortal />
   </>
