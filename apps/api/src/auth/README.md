@@ -55,4 +55,4 @@ The old scope description above predates the existing Agent tenant/RBAC guards a
 
 ## Verification and release gate
 
-See docs/P0D-VALIDATION.md from repository root and prisma/MIGRATIONS.md in this app. HTTP and Admin tests use database/fetch doubles and must not be presented as PostgreSQL or browser E2E coverage. Migration 3 duplicates previous SQL; deployment is blocked until actual migration history is reconciled. Login throttling/distributed abuse protection is not added by this patch and remains a production security task.
+See docs/P0D-VALIDATION.md from repository root and prisma/MIGRATIONS.md in this app. HTTP and Admin tests use database/fetch doubles and must not be presented as PostgreSQL or browser E2E coverage. The migration chain must pass disposable PostgreSQL replay and drift checks before release. Login throttling/distributed abuse protection is not added by this patch and remains a production security task.

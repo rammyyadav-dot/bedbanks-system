@@ -1,8 +1,6 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
-
--- CreateEnum
-CREATE TYPE "Status" AS ENUM ('ACTIVE', 'SUSPENDED');
+-- Add the Agent domain after the P0-C identity and P0-D authentication migrations.
+-- This migration is intentionally incremental: it must not recreate Status,
+-- tenants, users, memberships, or sessions from the earlier migrations.
 
 -- CreateEnum
 CREATE TYPE "BookingStatus" AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED');
@@ -12,57 +10,6 @@ CREATE TYPE "AuditActorType" AS ENUM ('USER', 'SYSTEM');
 
 -- CreateEnum
 CREATE TYPE "LedgerEntryType" AS ENUM ('CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND');
-
--- CreateTable
-CREATE TABLE "tenants" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "slug" TEXT NOT NULL,
-    "status" "Status" NOT NULL DEFAULT 'ACTIVE',
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "tenants_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "users" (
-    "id" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
-    "name" TEXT,
-    "password_hash" TEXT,
-    "status" "Status" NOT NULL DEFAULT 'ACTIVE',
-    "last_login_at" TIMESTAMP(3),
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "memberships" (
-    "id" TEXT NOT NULL,
-    "role" TEXT NOT NULL DEFAULT 'member',
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-    "user_id" TEXT NOT NULL,
-    "tenant_id" TEXT NOT NULL,
-
-    CONSTRAINT "memberships_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "sessions" (
-    "id" TEXT NOT NULL,
-    "token_hash" TEXT NOT NULL,
-    "expires_at" TIMESTAMP(3) NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "last_seen_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "revoked_at" TIMESTAMP(3),
-    "user_id" TEXT NOT NULL,
-
-    CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
-);
 
 -- CreateTable
 CREATE TABLE "Permission" (
@@ -171,27 +118,6 @@ CREATE TABLE "AuditEvent" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "tenants_slug_key" ON "tenants"("slug");
-
--- CreateIndex
-CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
-
--- CreateIndex
-CREATE INDEX "memberships_tenant_id_idx" ON "memberships"("tenant_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "memberships_user_id_tenant_id_key" ON "memberships"("user_id", "tenant_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "sessions_token_hash_key" ON "sessions"("token_hash");
-
--- CreateIndex
-CREATE INDEX "sessions_user_id_idx" ON "sessions"("user_id");
-
--- CreateIndex
-CREATE INDEX "sessions_expires_at_idx" ON "sessions"("expires_at");
-
--- CreateIndex
 CREATE UNIQUE INDEX "Permission_key_key" ON "Permission"("key");
 
 -- CreateIndex
@@ -220,15 +146,6 @@ CREATE INDEX "AuditEvent_tenant_id_created_at_idx" ON "AuditEvent"("tenant_id", 
 
 -- CreateIndex
 CREATE INDEX "AuditEvent_entity_type_entity_id_idx" ON "AuditEvent"("entity_type", "entity_id");
-
--- AddForeignKey
-ALTER TABLE "memberships" ADD CONSTRAINT "memberships_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "memberships" ADD CONSTRAINT "memberships_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Role" ADD CONSTRAINT "Role_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
