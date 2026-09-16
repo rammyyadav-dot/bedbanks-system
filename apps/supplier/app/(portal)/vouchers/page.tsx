@@ -1,3 +1,3 @@
 import { OperationalModule } from '../../../components/modules/OperationalModule'
 import { moduleConfigs } from '../../../lib/module-data'
-export default function SettingsPage() { return <OperationalModule config={moduleConfigs.settings} /> }
+export default function VouchersPage() { return <OperationalModule config={moduleConfigs.vouchers} /> }

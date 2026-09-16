@@ -12,7 +12,7 @@ export function DashboardView({ data }: { data: SupplierDashboard }) {
         eyebrow="Meridian Hospitality Group · 16 September 2026"
         title="Good evening, Aisha"
         description="Monitor content readiness, inventory coverage and booking actions across your supply portfolio."
-        actions={<><button className="btn"><RefreshCw size={13} /> Refresh</button><Link className="btn btn-primary" href="/properties/new"><Plus size={13} /> Add property</Link></>}
+        actions={<><button className="btn"><RefreshCw size={13} /> Refresh</button><Link className="btn btn-primary" href="/hotels/new"><Plus size={13} /> Add hotel</Link></>}
       />
 
       <section className="onboarding-strip" aria-label="Onboarding progress">
@@ -24,7 +24,7 @@ export function DashboardView({ data }: { data: SupplierDashboard }) {
           <li className="done"><i>3</i><span><strong>Contracts</strong><small>18 active</small></span></li>
           <li className="current"><i>4</i><span><strong>Finance</strong><small>Action due</small></span></li>
         </ol>
-        <Link className="btn btn-dark" href="/finance">Continue setup <ArrowRight size={13} /></Link>
+        <Link className="btn btn-dark" href="/invoices">Continue setup <ArrowRight size={13} /></Link>
       </section>
 
       <section className="metric-grid" aria-label="Portfolio overview">
@@ -38,7 +38,7 @@ export function DashboardView({ data }: { data: SupplierDashboard }) {
 
       <div className="dashboard-grid">
         <section className="panel inventory-panel">
-          <div className="panel-header"><div><p>90-DAY OUTLOOK</p><h2>Inventory coverage</h2></div><Link href="/availability-inventory">Open calendar <ArrowRight size={12} /></Link></div>
+          <div className="panel-header"><div><p>90-DAY OUTLOOK</p><h2>Inventory coverage</h2></div><Link href="/availability">Open calendar <ArrowRight size={12} /></Link></div>
           <div className="inventory-chart" aria-label="Inventory coverage bars">
             {[78, 84, 92, 88, 95, 97, 91, 86, 94, 96, 89, 93, 98, 90].map((value, index) => <span key={index}><i style={{ height: `${value}%` }} className={value < 85 ? 'warning' : ''} /><small>{index % 2 === 0 ? `${index + 17} Sep` : ''}</small></span>)}
           </div>
@@ -52,7 +52,7 @@ export function DashboardView({ data }: { data: SupplierDashboard }) {
               <article key={alert.id}><span className={`alert-symbol ${alert.tone}`}><AlertTriangle size={14} /></span><div><strong>{alert.title}</strong><small>{alert.detail}</small></div><time>{alert.time}</time></article>
             ))}
           </div>
-          <Link className="panel-footer-link" href="/support">View all actions <ArrowRight size={12} /></Link>
+          <Link className="panel-footer-link" href="/restrictions">View all actions <ArrowRight size={12} /></Link>
         </section>
       </div>
 
