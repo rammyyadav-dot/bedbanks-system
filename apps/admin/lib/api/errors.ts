@@ -3,7 +3,6 @@ export interface ApiError {
   message: string;
   details: unknown[];
 }
-
 export class ApiResponseError extends Error {
   constructor(
     public readonly code: string,
@@ -14,4 +13,3 @@ export class ApiResponseError extends Error {
     this.name = 'ApiResponseError';
   }
 }
-
