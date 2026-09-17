@@ -28,20 +28,20 @@ export function LoginForm() {
       )}
 
       <div className="admin-login-field">
-        <label htmlFor="email">EMAIL</label>
+        <label htmlFor="email">Work email</label>
         <input
           id="email"
           name="email"
           type="email"
           autoComplete="email"
           required
-          placeholder="admin@fbeds.example"
+          placeholder="you@company.com"
           disabled={isPending}
         />
       </div>
 
       <div className="admin-login-field">
-        <label htmlFor="password">PASSWORD</label>
+        <label htmlFor="password">Password</label>
         <input
           id="password"
           name="password"
@@ -60,7 +60,7 @@ export function LoginForm() {
         className="admin-btn admin-btn-primary"
         style={{ width: '100%', justifyContent: 'center', marginTop: 6 }}
       >
-        {isPending ? 'Signing in…' : 'Sign in'}
+        {isPending ? 'Signing in securely…' : 'Sign in securely'}
       </button>
     </form>
   );
