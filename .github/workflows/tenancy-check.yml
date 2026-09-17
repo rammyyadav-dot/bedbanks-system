@@ -9,8 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
-      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fbeds_ci pnpm --filter @bedbanks/api prisma:generate
       - run: pnpm --filter @bedbanks/api exec jest --runInBand src/agent/tenant-context.guard.spec.ts

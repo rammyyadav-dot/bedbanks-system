@@ -1,2 +1,2 @@
-export * from './envelope.js';
-export * from './routes.js';
+export * from './envelope';
+export * from './routes';

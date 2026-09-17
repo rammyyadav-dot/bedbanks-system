@@ -2,7 +2,12 @@
 const nextConfig = {
   async redirects() {
     return [
-      ['/profile', '/settings'], ['/rooms', '/rooms-content'], ['/rate-plans', '/contracts-rate-plans'], ['/rates', '/contracts-rate-plans'], ['/contracts', '/contracts-rate-plans'], ['/promotions', '/contracts-rate-plans'], ['/availability', '/availability-inventory'], ['/restrictions', '/availability-inventory'], ['/cancellations', '/bookings'], ['/payments', '/finance'], ['/reports', '/finance'], ['/users', '/team'],
+      ['/properties', '/hotels'], ['/properties/:path*', '/hotels/:path*'],
+      ['/rooms-content', '/rooms'], ['/contracts-rate-plans', '/contracts'],
+      ['/availability-inventory', '/availability'], ['/finance', '/invoices'],
+      ['/connectivity', '/reports'], ['/team', '/reports'], ['/support', '/reports'], ['/settings', '/reports'],
+      ['/profile', '/reports'], ['/rate-plans', '/rates'], ['/cancellations', '/bookings'],
+      ['/payments', '/invoices'], ['/users', '/reports'],
     ].map(([source, destination]) => ({ source, destination, permanent: false }))
   },
 }
