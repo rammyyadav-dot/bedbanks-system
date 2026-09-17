@@ -1,11 +1,12 @@
 'use client'
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { CircleAlert, CircleCheck, LoaderCircle, Mail } from 'lucide-react'
-import { submitDemoRequest, initialDemoFormState } from '../../app/request-demo/actions'
+import { submitDemoRequest, type DemoFormState } from '../../app/request-demo/actions'
 import { trackWebsiteEvent } from '../../lib/analytics'
 import { businessTypes, interestAreas, volumeOptions, type LeadField } from '../../lib/leads/validation'
 export function DemoRequestForm({ contactEmail }: { contactEmail: string }) {
-  const [state, action, pending] = useActionState(submitDemoRequest, initialDemoFormState)
+  const initialState: DemoFormState = { status: 'idle', errors: {} }
+  const [state, action, pending] = useActionState(submitDemoRequest, initialState)
   const [started, setStarted] = useState(false); const summary = useRef<HTMLDivElement>(null)
   useEffect(() => { if (state.status !== 'idle') summary.current?.focus(); if (state.status === 'invalid') trackWebsiteEvent('demo_form_validation_failed'); if (state.status === 'success') trackWebsiteEvent('demo_submission_succeeded') }, [state])
   const start = () => { if (!started) { setStarted(true); trackWebsiteEvent('demo_form_started') } }
