@@ -236,13 +236,16 @@ body { letter-spacing: -0.01em; }
 
 .admin-masked { font: 11px 'Courier New', monospace; letter-spacing: 2px; color: #7c949a; }
 
-.admin-login-page { min-height: 100vh; display: grid; place-items: center; background: #0d2631; }
-.admin-login-card { width: min(380px, 90vw); background: #fff; border-radius: 8px; padding: 32px 28px; box-shadow: 0 20px 60px #00121866; }
-.admin-login-card h1 { font-size: 20px; color: #17333e; margin: 14px 0 6px; }
-.admin-login-card p { color: #6d858c; font-size: 12px; margin: 0 0 22px; }
-.admin-login-field { margin-bottom: 14px; }
-.admin-login-field label { display: block; font: 9px 'Courier New', monospace; letter-spacing: .8px; color: #7c949a; margin-bottom: 6px; }
-.admin-login-field input { width: 100%; height: 38px; border: 1px solid #d4e1e4; border-radius: 4px; padding: 0 11px; font-size: 12px; color: #35545e; }
+.admin-login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #eef8fa; }
+.admin-login-card { width: min(430px, 100%); background: #fff; border: 1px solid #d6e1e5; border-radius: 10px; padding: 38px 38px 37px; box-shadow: 0 18px 45px rgba(29, 61, 72, .08); }
+.admin-login-mark { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: #073740; background: #16bed0; font-family: Georgia, serif; font-size: 25px; font-weight: 700; font-style: italic; }
+.admin-login-breadcrumb { margin-top: 18px; color: #51717b; font: 9px 'Courier New', monospace; letter-spacing: 1.2px; }.admin-login-breadcrumb span { margin: 0 8px; color: #9cb0b5; }
+.admin-login-card h1 { margin: 15px 0 6px; color: #123847; font-family: 'Montserrat', sans-serif; font-size: 25px; font-weight: 500; letter-spacing: -.8px; }
+.admin-login-card p { margin: 0 0 28px; color: #64808a; font-size: 12px; line-height: 1.5; }
+.admin-login-field { margin-bottom: 19px; }.admin-login-field label { display: block; margin-bottom: 7px; color: #66818a; font: 10px 'Barlow Semi Condensed', sans-serif; }
+.admin-login-field input { width: 100%; height: 42px; border: 1px solid #cbdde2; border-radius: 5px; padding: 0 12px; color: #294b56; background: #fff; font-size: 12px; outline: 0; }.admin-login-field input:focus { border-color: #16a9bb; box-shadow: 0 0 0 3px rgba(22, 190, 208, .12); }
+.admin-login-card .admin-btn-primary { min-height: 42px; border-radius: 5px; background: #159eae; border-color: #159eae; font-size: 11px; }.admin-login-card .admin-btn-primary:hover { background: #118b9a; }
+.admin-login-card form::after { content: 'Your session is protected by an HttpOnly cookie. Never share your credentials.'; display: block; margin-top: 25px; color: #91a5aa; font-size: 9px; }
 
 @media (max-width: 760px) {
   .admin-page { padding: 20px 16px 40px; }

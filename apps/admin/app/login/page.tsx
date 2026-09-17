@@ -6,9 +6,10 @@ export default function LoginPage() {
   return (
     <div className="admin-login-page">
       <div className="admin-login-card">
-        <span className="enterprise-mark" style={{ display: 'inline-flex' }}>F</span>
-        <h1>FBEDS Admin Console</h1>
-        <p>Sign in to manage tenants, hotel supply, and distribution.</p>
+        <span className="admin-login-mark" aria-hidden="true">f</span>
+        <div className="admin-login-breadcrumb" aria-label="Breadcrumb">FBEDS <span>/</span> ADMIN PORTAL</div>
+        <h1>Sign in to your workspace</h1>
+        <p>Access tenant-scoped hotel inventory, rates and booking operations.</p>
         <LoginForm />
       </div>
     </div>
