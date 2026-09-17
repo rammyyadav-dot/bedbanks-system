@@ -11,7 +11,8 @@ export type WebsiteEnvironment = {
 
 export function normalizeUrl(value: string): string {
   const candidate = value.trim()
-  const withProtocol = /^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)
+  const withProtocol = hasProtocol ? candidate : `https://${candidate}`
   const url = new URL(withProtocol)
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`Unsupported URL protocol: ${url.protocol}`)
   url.pathname = url.pathname.replace(/\/+$/, '') || '/'
