@@ -15,6 +15,8 @@ The website is the public marketing, portal-routing and qualified-enquiry surfac
 
 URLs are normalized without trailing slashes. Local portal defaults are available only outside production; missing production portal URLs route to an explicit configuration notice instead of localhost.
 
+The website-specific local ports are `3000` for this public site, `3001` for Admin, `3003` for Agent and `3004` for Supplier. Start this app with `pnpm --filter @bedbanks/website dev -- -p 3000`.
+
 ## Lead endpoint contract
 
 The server sends `POST application/json` with `fullName`, `businessEmail`, `company`, `market`, `businessType`, `monthlyVolume`, `interestArea`, `message`, and `consent`. The receiver must return a 2xx JSON response with `{ "accepted": true }`; it may include a string `reference`. A 2xx response without explicit acceptance is treated as a failure. Credentials belong in server-only deployment configuration.
