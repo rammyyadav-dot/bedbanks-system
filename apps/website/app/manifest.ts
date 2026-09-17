@@ -1,0 +1,2 @@
+import type { MetadataRoute } from 'next'
+export default function manifest(): MetadataRoute.Manifest { return { name: 'fBeds', short_name: 'fBeds', description: 'B2B hotel distribution infrastructure', start_url: '/', display: 'standalone', background_color: '#FFFFFF', theme_color: '#D90429', icons: [{ src: '/icon', sizes: '32x32', type: 'image/png' }, { src: '/apple-icon', sizes: '180x180', type: 'image/png' }] } }
