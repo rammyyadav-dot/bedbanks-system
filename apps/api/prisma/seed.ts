@@ -1,8 +1,15 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 const BCRYPT_SALT_ROUNDS = 12;
+
+async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+    return work(tx);
+  });
+}
 
 /**
  * P0-C/D seed strategy: small, deterministic, idempotent.
@@ -58,15 +65,17 @@ async function main(): Promise<void> {
     ['finance.read', 'View tenant finance'],
   ] as const;
   const permissions = await Promise.all(permissionKeys.map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
-  const ownerRole = await prisma.role.upsert({ where: { tenantId_name: { tenantId: tenant.id, name: 'owner' } }, update: {}, create: { tenantId: tenant.id, name: 'owner' } });
-  await Promise.all(permissions.map((permission) => prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: ownerRole.id, permissionId: permission.id } }, update: {}, create: { roleId: ownerRole.id, permissionId: permission.id } })));
-  await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: ownerRole.id } }, update: {}, create: { userId: user.id, roleId: ownerRole.id } });
-  await prisma.membership.upsert({
-    where: { userId_tenantId: { userId: user.id, tenantId: tenant.id } },
-    update: { role: 'owner' },
-    create: { userId: user.id, tenantId: tenant.id, role: 'owner' },
+  await withTenant(tenant.id, async (tx) => {
+    await tx.membership.upsert({
+      where: { userId_tenantId: { userId: user.id, tenantId: tenant.id } },
+      update: { role: 'owner' },
+      create: { userId: user.id, tenantId: tenant.id, role: 'owner' },
+    });
+    const ownerRole = await tx.role.upsert({ where: { tenantId_name: { tenantId: tenant.id, name: 'owner' } }, update: {}, create: { tenantId: tenant.id, name: 'owner' } });
+    await Promise.all(permissions.map((permission) => tx.rolePermission.upsert({ where: { roleId_permissionId: { roleId: ownerRole.id, permissionId: permission.id } }, update: {}, create: { roleId: ownerRole.id, permissionId: permission.id } })));
+    await tx.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: ownerRole.id } }, update: { tenantId: tenant.id }, create: { userId: user.id, roleId: ownerRole.id, tenantId: tenant.id } });
+    await tx.wallet.upsert({ where: { tenantId_currency: { tenantId: tenant.id, currency: 'USD' } }, update: {}, create: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, cachedBalance: 0 } });
   });
-  await prisma.wallet.upsert({ where: { tenantId: tenant.id }, update: {}, create: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, balance: 0 } });
 
   console.log('Seed complete:');
   console.log(`  Tenant:     ${tenant.name} (${tenant.slug})`);
