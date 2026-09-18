@@ -28,6 +28,7 @@ CREATE TABLE "Contract" (
   "source_metadata" JSONB NOT NULL DEFAULT '{}', "version" INTEGER NOT NULL DEFAULT 1,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updated_at" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "Contract_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "Contract_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "Contract_supplier_id_fkey" FOREIGN KEY ("supplier_id") REFERENCES "Supplier"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT "Contract_supplier_hotel_mapping_id_fkey" FOREIGN KEY ("supplier_hotel_mapping_id") REFERENCES "SupplierHotelMapping"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT "Contract_dates_check" CHECK ("valid_to" >= "valid_from"),
