@@ -9,7 +9,8 @@ import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, priceRate, PERMISSIONS } from './supplier.port'
 import { TenantContextGuard } from './tenant-context.guard'
-import { IsDateString, IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 
 class SearchHotelsDto implements HotelSearchCriteria {
   @IsString() destination!: string
@@ -19,7 +20,7 @@ class SearchHotelsDto implements HotelSearchCriteria {
   @IsInt() @Min(1) adults!: number
   @IsInt() @Min(0) children!: number
   @IsString() nationality!: string
-  @IsOptional() @IsString() currency = 'USD'
+  @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
 }
 
 @ApiTags('agent')
