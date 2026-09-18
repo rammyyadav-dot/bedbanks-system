@@ -61,7 +61,22 @@ export function DashboardView({ data }: { data: SupplierDashboard }) {
         <div className="table-wrap">
           <table className="data-table">
             <thead><tr><th>Booking</th><th>Property</th><th>Stay</th><th>Room / board</th><th>Supplier payable</th><th>Status</th><th aria-label="Actions" /></tr></thead>
-            <tbody>{data.bookings.map((booking) => <tr key={booking.id}><td><Link href={`/bookings/${booking.id}`}>{booking.id}</Link></td><td><strong>{booking.property}</strong></td><td>{booking.arrival}<small>to {booking.departure}</small></td><td>{booking.room}</td><td><strong>{formatMoney(booking.payableMinor, booking.currency)}</strong></td><td><StatusBadge>{booking.status}</StatusBadge></td><td><button className="row-action" aria-label={`View ${booking.id}`}><ArrowRight size={14} /></button></td></tr>)}</tbody>
+            <tbody>{data.bookings.map((booking) => {
+              const bookingId = booking.id
+              const bookingHref = `/bookings/${bookingId}`
+
+              return (
+                <tr key={bookingId}>
+                  <td><Link href={bookingHref}>{bookingId}</Link></td>
+                  <td><strong>{booking.property}</strong></td>
+                  <td>{booking.arrival}<small>to {booking.departure}</small></td>
+                  <td>{booking.room}</td>
+                  <td><strong>{formatMoney(booking.payableMinor, booking.currency)}</strong></td>
+                  <td><StatusBadge>{booking.status}</StatusBadge></td>
+                  <td><Link className="row-action" href={bookingHref} aria-label={`View ${bookingId}`}><ArrowRight size={14} /></Link></td>
+                </tr>
+              )
+            })}</tbody>
           </table>
         </div>
       </section>
