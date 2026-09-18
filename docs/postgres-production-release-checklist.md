@@ -1,6 +1,6 @@
 # PostgreSQL production release checklist
 
-**Status as of 2026-09-18:** **NO-GO.** No production, staging or shared database was accessed for this review. This is an evidence-readiness record, not production approval.
+**Status as of 2026-09-18:** **GO for the controlled evidence-readiness sprint only.** Production deployment and booking remain disabled. No production, staging or shared database was accessed for this review.
 
 **Sprint target decision date:** 2026-10-15.  
 **Secure evidence location:** TBD by Product/CEO; do not record the location itself in GitHub.  
