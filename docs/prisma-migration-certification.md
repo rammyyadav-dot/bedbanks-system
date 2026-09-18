@@ -29,9 +29,18 @@ pnpm prisma:migrate:drift
 pnpm test:e2e
 ```
 
-## CI evidence status
+## CI evidence
 
-This change adds the certification job and commands. The pull-request workflow is the source of real PostgreSQL replay, status, drift and integration-test evidence for the commit that contains this document. Do not state that certification passed until that workflow is green.
+The first certification run completed successfully in GitHub Actions CI run **#64** for commit `902f283dfd2588a6576e317ae9c2b43433e801fb`:
+
+- Prisma schema validation: passed
+- Prisma client generation: passed
+- Empty PostgreSQL migration deployment: passed
+- Migration status: passed
+- Schema drift check: passed with exit code 0
+- API PostgreSQL E2E tests: passed
+
+Each later commit must rerun the same gate. Certification evidence applies only to the exact commit tested.
 
 ## Known limitations
 
