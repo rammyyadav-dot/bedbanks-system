@@ -15,10 +15,10 @@
 //     Formal roles/permissions tables are P0-F (RBAC) — don't confuse
 //     the two.
 //
-// Explicitly NOT here yet: tenant row-level isolation policies (P0-E
-// enforcement — the Session/Membership shape already supports it, but
-// nothing enforces it yet), permissions (P0-F), audit log (P0-G), or
-// any hotel/booking/wallet domain model (P1+).
+// PostgreSQL row-level security is added by the forward-only
+// 202609180001_prisma_tenant_finance_hardening migration. Prisma schema
+// remains the authority for tables and relations; PostgreSQL owns the RLS
+// policies, triggers and audit access controls that Prisma cannot model.
 
 generator client {
   provider = "prisma-client-js"
@@ -67,6 +67,7 @@ model Tenant {
 
   memberships Membership[]
   roles       Role[]
+  roleAssignments UserRole[]
   bookings    Booking[]
   wallets     Wallet[]
   ledger      LedgerEntry[]
@@ -155,10 +156,13 @@ model Role {
 model UserRole {
   userId String @map("user_id")
   roleId String @map("role_id")
+  tenantId String @map("tenant_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+  @@index([tenantId])
 }
 
 model RolePermission {
@@ -179,13 +183,14 @@ model Booking {
   hotelId        String         @map("hotel_id")
   status         BookingStatus  @default(PENDING)
   currency       String
-  totalMinor     Int            @map("total_minor")
-  idempotencyKey String         @unique @map("idempotency_key")
+  totalMinor     BigInt         @map("total_minor")
+  idempotencyKey String         @map("idempotency_key")
   searchSnapshot Json           @map("search_snapshot")
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
   cancellations  Cancellation[]
 
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
 }
 
@@ -194,20 +199,23 @@ model Cancellation {
   bookingId   String   @map("booking_id")
   booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   reason      String?
-  refundMinor Int?     @map("refund_minor")
+  refundMinor BigInt?  @map("refund_minor")
   createdAt   DateTime @default(now()) @map("created_at")
 }
 
 model Wallet {
   id          String        @id @default(cuid())
-  tenantId    String        @unique @map("tenant_id")
+  tenantId    String        @map("tenant_id")
   tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  currency    String        @default("USD")
-  creditLimit Int           @default(0) @map("credit_limit")
-  balance     Int           @default(0)
+  currency    String        @default("USD") @db.Char(3)
+  creditLimit BigInt        @default(0) @map("credit_limit")
+  cachedBalance BigInt      @default(0) @map("cached_balance")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   entries     LedgerEntry[]
+
+  @@unique([tenantId, currency])
+  @@index([tenantId])
 }
 
 model LedgerEntry {
@@ -217,12 +225,14 @@ model LedgerEntry {
   walletId    String          @map("wallet_id")
   wallet      Wallet          @relation(fields: [walletId], references: [id], onDelete: Restrict)
   type        LedgerEntryType
-  amountMinor Int             @map("amount_minor")
-  currency    String
+  amountMinor BigInt          @map("amount_minor")
+  currency    String          @db.Char(3)
   reference   String?
+  idempotencyKey String       @map("idempotency_key")
   immutableAt DateTime        @default(now()) @map("immutable_at")
 
   @@index([tenantId, immutableAt])
+  @@unique([walletId, idempotencyKey])
 }
 
 model AuditEvent {

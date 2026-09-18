@@ -11,10 +11,10 @@ export class AdminDashboardService {
   async getDashboard(identity: AuthenticatedUser, range: DashboardRange) {
     const membership = identity.memberships[0]
     if (!membership) throw new ForbiddenException('No active tenant membership')
-    const roles = await this.prisma.userRole.findMany({
-      where: { userId: identity.user.id, role: { tenantId: membership.tenantId } },
+    const roles = await this.prisma.withTenant(membership.tenantId, (tx) => tx.userRole.findMany({
+      where: { userId: identity.user.id, tenantId: membership.tenantId, role: { tenantId: membership.tenantId } },
       include: { role: { include: { permissions: { include: { permission: true } } } } },
-    })
+    }))
     const permissions = new Set(roles.flatMap((item) => item.role.permissions.map((entry) => entry.permission.key)))
     const legacyOwner = membership.role === 'owner'
     if (!legacyOwner && !permissions.has('dashboard.read')) throw new ForbiddenException('Insufficient permission')
@@ -24,15 +24,15 @@ export class AdminDashboardService {
     start.setUTCHours(0, 0, 0, 0)
     start.setUTCDate(start.getUTCDate() - days + 1)
     const now = new Date()
-    const bookings = await this.prisma.booking.findMany({
+    const bookings = await this.prisma.withTenant(membership.tenantId, (tx) => tx.booking.findMany({
       where: { tenantId: membership.tenantId, createdAt: { gte: start, lte: now } },
       orderBy: { createdAt: 'desc' },
       take: 1000,
-    })
+    }))
     const currencies = new Set(bookings.map((booking) => booking.currency))
     const currency = currencies.size === 1 ? [...currencies][0] : 'MIXED'
-    const money = (value: number) => currency === 'MIXED' ? null : { amount: value / 100, currency }
-    const totalMinor = bookings.reduce((sum, booking) => sum + (booking.currency === currency ? booking.totalMinor : 0), 0)
+    const money = (value: bigint) => currency === 'MIXED' ? null : { amountMinor: value.toString(), currency }
+    const totalMinor = bookings.reduce((sum, booking) => sum + (booking.currency === currency ? booking.totalMinor : 0n), 0n)
     const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0)
     const byDate = new Map<string, { total: number; confirmed: number }>()
     for (let index = 0; index < days; index += 1) {

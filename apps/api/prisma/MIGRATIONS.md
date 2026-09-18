@@ -8,6 +8,7 @@ Run these commands from `apps/api`. The committed migration files are the only p
 1. `20260101000000_baseline_identity` — P0-C tenant, user and membership baseline.
 2. `20260910000000_p0d_authentication` — status, credentials/lifecycle fields and opaque sessions.
 3. `202609160001_agent_domain_foundation` — incremental roles, permissions, bookings, wallet/ledger and audit models.
+4. `202609180001_prisma_tenant_finance_hardening` — tenant-bound role assignments, tenant-scoped idempotency, BIGINT money, multi-currency wallets, audit payload controls and PostgreSQL RLS.
 
 Historical migration directories are immutable after they have been applied to any environment. Future schema changes require a new, forward-only migration.
 
@@ -25,6 +26,14 @@ pnpm test:e2e
 ```
 
 `prisma:migrate:drift` compares the deployed disposable database with `schema.prisma` and exits non-zero on drift. A green run is release evidence for this exact commit only; it does not certify production database history, backups or data migrations.
+
+## Tenant RLS execution model
+
+The hardening migration enables RLS on tenant-scoped tables. The NestJS API must use `PrismaService.withTenant()` only after the authenticated user’s membership is validated. It opens one Prisma transaction and uses `set_config('app.current_tenant_id', tenantId, true)`, equivalent to `SET LOCAL`; the value cannot leak to a pooled connection after the transaction ends.
+
+Production application connections must use a non-owner, non-superuser database role. A controlled system/migration role is separate and may not be used for ordinary HTTP requests. CI proves policy behaviour by switching to a non-owner test role. Do not configure a permanent session tenant variable.
+
+The historical migration headers correctly record their creation state. The CI certification in this repository subsequently replayed the chain against PostgreSQL; do not edit applied historical SQL merely to change those comments.
 
 ## Local disposable verification
 

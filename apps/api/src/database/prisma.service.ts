@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 /**
  * Thin wrapper around PrismaClient that plugs into Nest's lifecycle.
@@ -53,5 +54,25 @@ export class PrismaService
       );
       return false;
     }
+  }
+
+  /**
+   * Runs work in one database transaction with the tenant context scoped by
+   * PostgreSQL `SET LOCAL`. This is safe with pooled connections because the
+   * setting is discarded automatically when the transaction completes.
+   *
+   * Callers must authenticate the user and validate membership before calling
+   * this method; this method deliberately accepts a server-derived tenant ID,
+   * never a raw client header.
+   */
+  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    if (!tenantId || tenantId.trim() !== tenantId) {
+      throw new Error('A normalized tenant context is required');
+    }
+
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+      return work(tx);
+    });
   }
 }
