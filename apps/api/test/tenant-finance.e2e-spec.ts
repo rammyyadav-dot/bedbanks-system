@@ -13,7 +13,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     await prisma.$connect()
     await prisma.$executeRawUnsafe('DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'fbeds_rls_test\') THEN CREATE ROLE fbeds_rls_test NOLOGIN; END IF; END $$;')
     await prisma.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO fbeds_rls_test')
-    await prisma.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "memberships", "Role", "UserRole", "Booking", "Cancellation", "Wallet", "LedgerEntry", "AuditEvent" TO fbeds_rls_test')
+    await prisma.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "memberships", "Role", "UserRole", "Booking", "Cancellation", "Wallet", "LedgerEntry", "AuditEvent", "Supplier", "Hotel", "RoomType", "BoardBasis", "SupplierHotelMapping", "Contract", "RatePlan", "CancellationPolicy", "ChildPolicy", "BookingLeadTimeRule", "DailyAvailability", "DailyRate", "ConnectorDefinition", "ConnectorCredentialReference", "ConnectorExecution", "InventoryUpdateEvent" TO fbeds_rls_test')
   })
 
   afterAll(async () => {
@@ -105,5 +105,29 @@ describe('tenant and finance PostgreSQL hardening', () => {
     await expect(asTenant(a.tenant.id, (tx) => tx.auditEvent.create({
       data: { tenantId: a.tenant.id, actorType: 'SYSTEM', action: 'test.system', entityType: 'test', entityId: suffix, payload: {} },
     }))).rejects.toThrow()
+  })
+
+  it('keeps supply, rate and connector records tenant-isolated and validates inventory constraints', async () => {
+    const a = await createTenant(`${tenantA}-supply`, `${userA}.supply`)
+    const b = await createTenant(`${tenantB}-supply`, `${userB}.supply`)
+    const supplier = await prisma.supplier.create({ data: { tenantId: a.tenant.id, type: 'DMC', legalName: `Supplier ${suffix}`, displayName: 'Supply', countryCode: 'AE', defaultCurrency: 'AED' } })
+    const hotel = await prisma.hotel.create({ data: { tenantId: a.tenant.id, name: 'Dubai Test Hotel', propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', externalRef: `hotel-${suffix}` } })
+    const room = await prisma.roomType.create({ data: { hotelId: hotel.id, name: 'Deluxe', code: 'DLX', maxAdults: 2, maxOccupancy: 2 } })
+    const board = await prisma.boardBasis.create({ data: { tenantId: a.tenant.id, code: 'BB', name: 'Bed and Breakfast' } })
+    const mapping = await prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: supplier.id, hotelId: hotel.id, supplierHotelId: `supplier-hotel-${suffix}`, status: 'MAPPED' } })
+    const contract = await prisma.contract.create({ data: { tenantId: a.tenant.id, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `UAE-${suffix}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2026-12-31'), settlementCurrency: 'AED' } })
+    const ratePlan = await prisma.ratePlan.create({ data: { tenantId: a.tenant.id, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: 'BAR', status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    await prisma.dailyAvailability.create({ data: { tenantId: a.tenant.id, ratePlanId: ratePlan.id, stayDate: new Date('2026-12-10'), allotment: 3, sold: 1 } })
+    await prisma.dailyRate.create({ data: { tenantId: a.tenant.id, ratePlanId: ratePlan.id, stayDate: new Date('2026-12-10'), occupancy: 2, amountMinor: 125000n, currency: 'AED' } })
+    const connector = await prisma.connectorDefinition.create({ data: { tenantId: a.tenant.id, supplierId: supplier.id, type: 'MANUAL_EXTRANET', name: 'manual', version: '1' } })
+
+    await expect(prisma.connectorCredentialReference.create({ data: { connectorId: connector.id, purpose: 'primary', secretRef: 'password=unsafe' } })).rejects.toThrow()
+    await expect(prisma.dailyAvailability.create({ data: { tenantId: a.tenant.id, ratePlanId: ratePlan.id, stayDate: new Date('2026-12-11'), allotment: 1, sold: 2 } })).rejects.toThrow()
+    await expect(prisma.dailyRate.create({ data: { tenantId: a.tenant.id, ratePlanId: ratePlan.id, stayDate: new Date('2026-12-10'), occupancy: 2, amountMinor: 100n, currency: 'AED' } })).rejects.toThrow()
+
+    const visible = await asTenant(a.tenant.id, (tx) => tx.supplier.findMany())
+    expect(visible).toHaveLength(1)
+    await expect(asTenant(a.tenant.id, (tx) => tx.supplier.create({ data: { tenantId: b.tenant.id, type: 'DMC', legalName: 'Blocked', displayName: 'Blocked', countryCode: 'AE', defaultCurrency: 'AED' } }))).rejects.toThrow()
+    await expect(asTenant(b.tenant.id, (tx) => tx.supplier.findMany())).resolves.toHaveLength(0)
   })
 })

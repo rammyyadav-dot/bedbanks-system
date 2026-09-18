@@ -10,6 +10,10 @@ Run these commands from `apps/api`. The committed migration files are the only p
 3. `202609160001_agent_domain_foundation` — incremental roles, permissions, bookings, wallet/ledger and audit models.
 4. `202609180001_prisma_tenant_finance_hardening` — tenant-bound role assignments, tenant-scoped idempotency, BIGINT money, multi-currency wallets, audit payload controls and PostgreSQL RLS.
 5. `202609180002_postgres_release_controls` — non-owner ledger/audit append-only RLS policies and ordinary-role system-audit insert protection.
+6. `202609190001_supplier_hotel_master` — tenant-scoped supplier, canonical hotel, room type and board-basis master data.
+7. `202609190002_contract_commercial_rules` — supplier mappings, versioned contracts, rate plans and commercial policy rules.
+8. `202609190003_rate_availability_inventory` — dated, non-negative rate-plan availability and BIGINT minor-unit daily rates.
+9. `202609190004_connector_registry_foundation` — connector registry, secret-manager references and auditable inventory events.
 
 Historical migration directories are immutable after they have been applied to any environment. Future schema changes require a new, forward-only migration.
 
