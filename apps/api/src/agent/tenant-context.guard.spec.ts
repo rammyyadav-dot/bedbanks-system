@@ -9,7 +9,8 @@ function context(user: unknown, tenantId?: string): ExecutionContext {
 
 describe('TenantContextGuard', () => {
   const findUnique = jest.fn();
-  const guard = new TenantContextGuard({ membership: { findUnique } } as unknown as PrismaService);
+  const auditCreate = jest.fn().mockResolvedValue(undefined);
+  const guard = new TenantContextGuard({ membership: { findUnique }, auditEvent: { create: auditCreate } } as unknown as PrismaService);
   const identity = { user: { id: 'user-a' }, memberships: [] };
 
   beforeEach(() => jest.clearAllMocks());

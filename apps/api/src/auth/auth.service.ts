@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import type { AppConfig } from '../config/configuration';
@@ -39,6 +40,13 @@ export class AuthService {
     return email.trim().toLowerCase();
   }
 
+  private async recordAudit(action: string, payload: Prisma.InputJsonObject, userId?: string) {
+    if (!this.prisma.auditEvent) return
+    await this.prisma.auditEvent.create({
+      data: { actorType: userId ? 'USER' : 'SYSTEM', action, entityType: 'auth', entityId: userId ?? 'anonymous', payload, userId },
+    }).catch(() => undefined)
+  }
+
   private async loadActiveMemberships(userId: string): Promise<MembershipSummary[]> {
     const memberships = await this.prisma.membership.findMany({
       where: { userId, tenant: { status: 'ACTIVE' } },
@@ -72,6 +80,7 @@ export class AuthService {
     const passwordMatches = await verifyPassword(password, hashToCompare);
 
     if (!user || !user.passwordHash || !passwordMatches || user.status !== 'ACTIVE') {
+      await this.recordAudit('auth.login.failure', { reason: 'invalid_credentials' }, user?.id)
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -85,6 +94,7 @@ export class AuthService {
     ]);
 
     const memberships = await this.loadActiveMemberships(user.id);
+    await this.recordAudit('auth.login.success', { membershipCount: memberships.length }, user.id)
 
     return { rawToken, identity: { user: toSafeUser(user), memberships } };
   }
@@ -105,6 +115,7 @@ export class AuthService {
     });
 
     if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+      if (session?.userId) await this.recordAudit('auth.session.expired_or_revoked', { reason: session.revokedAt ? 'revoked' : 'expired' }, session.userId)
       return null;
     }
     if (session.user.status !== 'ACTIVE') {
@@ -130,10 +141,12 @@ export class AuthService {
   async logout(rawToken: string | undefined): Promise<void> {
     if (!isSessionToken(rawToken)) return;
     const tokenHash = hashSessionToken(rawToken);
+    const session = await this.prisma.session.findUnique({ where: { tokenHash }, select: { userId: true } })
     await this.prisma.session.updateMany({
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    await this.recordAudit('auth.logout', {}, session?.userId)
   }
 
   async register(email: string, password: string, name?: string): Promise<SafeUser> {
