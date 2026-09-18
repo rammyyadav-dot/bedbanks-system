@@ -7,7 +7,8 @@
     "build": "next build",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --test"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "check:links": "node --import tsx scripts/check-links.ts"
   },
   "dependencies": {"@vercel/analytics": "1.6.1", "lucide-react": "^1.16.0", "next": "16.3.3", "react": "19.2.4", "react-dom": "19.2.4"},
   "devDependencies": {"@types/node": "^24", "@types/react": "19.2.14", "@types/react-dom": "19.2.3", "@tailwindcss/postcss": "^4.3.3", "tailwindcss": "^4.3.3", "typescript": "5.7.3"}
