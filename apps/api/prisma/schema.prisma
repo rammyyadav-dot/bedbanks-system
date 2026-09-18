@@ -57,6 +57,73 @@ enum LedgerEntryType {
   REFUND
 }
 
+enum SupplierType {
+  HOTEL_DIRECT
+  DMC
+  CHANNEL_MANAGER
+  BEDBANK
+  GDS
+}
+
+enum SupplierStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum ContentStatus {
+  DRAFT
+  INCOMPLETE
+  COMPLETE
+  SUSPENDED
+}
+
+enum ContractStatus {
+  DRAFT
+  REVIEW
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+enum MappingStatus {
+  PENDING
+  MAPPED
+  REJECTED
+}
+
+enum RatePlanStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+enum ConnectorType {
+  API_JSON
+  XML_IN
+  XML_OUT
+  CHANNEL_MANAGER
+  MANUAL_EXTRANET
+}
+
+enum ConnectorStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum ConnectorExecutionStatus {
+  RECEIVED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  RETRYING
+}
+
 model Tenant {
   id        String   @id @default(cuid())
   name      String
@@ -72,6 +139,12 @@ model Tenant {
   wallets     Wallet[]
   ledger      LedgerEntry[]
   auditEvents AuditEvent[]
+  suppliers   Supplier[]
+  hotels      Hotel[]
+  boardBases  BoardBasis[]
+  contracts   Contract[]
+  connectorDefinitions ConnectorDefinition[]
+  inventoryUpdateEvents InventoryUpdateEvent[]
 
   @@map("tenants")
 }
@@ -250,4 +323,327 @@ model AuditEvent {
 
   @@index([tenantId, createdAt])
   @@index([entityType, entityId])
+}
+
+/// Tenant-owned commercial source. Credential material is never persisted here.
+model Supplier {
+  id              String         @id @default(cuid())
+  tenantId        String         @map("tenant_id")
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type            SupplierType
+  status          SupplierStatus @default(DRAFT)
+  legalName       String         @map("legal_name")
+  displayName     String         @map("display_name")
+  countryCode     String         @db.Char(2) @map("country_code")
+  defaultCurrency String         @db.Char(3) @map("default_currency")
+  contactMetadata Json           @default("{}") @map("contact_metadata")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  mappings       SupplierHotelMapping[]
+  contracts      Contract[]
+  connectors     ConnectorDefinition[]
+  inventoryEvents InventoryUpdateEvent[]
+
+  @@unique([tenantId, legalName])
+  @@index([tenantId, status])
+  @@index([tenantId, countryCode])
+}
+
+/// Canonical fBeds property identity, deliberately separate from supplier IDs.
+model Hotel {
+  id            String        @id @default(cuid())
+  tenantId      String        @map("tenant_id")
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  propertyType  String        @map("property_type")
+  starRating    Int?          @map("star_rating")
+  address       String?
+  city          String
+  countryCode   String        @db.Char(2) @map("country_code")
+  latitude      Decimal?      @db.Decimal(9, 6)
+  longitude     Decimal?      @db.Decimal(9, 6)
+  timeZone      String        @default("Asia/Dubai") @map("time_zone")
+  contentStatus ContentStatus @default(DRAFT) @map("content_status")
+  externalRef   String?       @map("external_ref")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  roomTypes RoomType[]
+  mappings  SupplierHotelMapping[]
+
+  @@unique([tenantId, externalRef])
+  @@index([tenantId, countryCode, city])
+  @@index([tenantId, contentStatus])
+}
+
+model RoomType {
+  id          String   @id @default(cuid())
+  hotelId     String   @map("hotel_id")
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  maxAdults   Int      @map("max_adults")
+  maxChildren Int      @default(0) @map("max_children")
+  maxOccupancy Int     @map("max_occupancy")
+  beddingMetadata Json @default("{}") @map("bedding_metadata")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  ratePlans RatePlan[]
+
+  @@unique([hotelId, code])
+  @@index([hotelId, isActive])
+}
+
+model BoardBasis {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code        String   @db.Char(3)
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  ratePlans RatePlan[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+}
+
+model SupplierHotelMapping {
+  id               String        @id @default(cuid())
+  tenantId         String        @map("tenant_id")
+  supplierId       String        @map("supplier_id")
+  supplier         Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  hotelId          String        @map("hotel_id")
+  hotel            Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  supplierHotelId  String        @map("supplier_hotel_id")
+  status           MappingStatus @default(PENDING)
+  confidence       Int?          @map("confidence")
+  sourceMetadata   Json          @default("{}") @map("source_metadata")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  contracts Contract[]
+
+  @@unique([supplierId, supplierHotelId])
+  @@unique([supplierId, hotelId])
+  @@index([tenantId, status])
+  @@index([hotelId])
+}
+
+model Contract {
+  id                  String         @id @default(cuid())
+  tenantId            String         @map("tenant_id")
+  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId          String         @map("supplier_id")
+  supplier            Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierHotelMappingId String?     @map("supplier_hotel_mapping_id")
+  supplierHotelMapping SupplierHotelMapping? @relation(fields: [supplierHotelMappingId], references: [id], onDelete: Restrict)
+  code                String
+  status              ContractStatus @default(DRAFT)
+  validFrom           DateTime       @map("valid_from") @db.Date
+  validTo             DateTime       @map("valid_to") @db.Date
+  settlementCurrency  String         @db.Char(3) @map("settlement_currency")
+  salesMarkets        Json           @default("[]") @map("sales_markets")
+  nationalities       Json           @default("[]")
+  paymentPolicyRef    String?        @map("payment_policy_ref")
+  sourceMetadata      Json           @default("{}") @map("source_metadata")
+  version             Int            @default(1)
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  ratePlans             RatePlan[]
+  cancellationPolicies  CancellationPolicy[]
+  childPolicies         ChildPolicy[]
+  leadTimeRules         BookingLeadTimeRule[]
+
+  @@unique([tenantId, code, version])
+  @@index([tenantId, status, validFrom, validTo])
+  @@index([supplierId, status])
+}
+
+model RatePlan {
+  id                String         @id @default(cuid())
+  tenantId          String         @map("tenant_id")
+  contractId        String         @map("contract_id")
+  contract          Contract       @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  roomTypeId        String         @map("room_type_id")
+  roomType          RoomType       @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  boardBasisId      String         @map("board_basis_id")
+  boardBasis        BoardBasis     @relation(fields: [boardBasisId], references: [id], onDelete: Restrict)
+  code              String
+  status            RatePlanStatus @default(DRAFT)
+  refundable        Boolean        @default(true)
+  occupancy         Int
+  currency          String         @db.Char(3)
+  taxesIncluded     Boolean        @default(false) @map("taxes_included")
+  feesIncluded      Boolean        @default(false) @map("fees_included")
+  minStay           Int            @default(1) @map("min_stay")
+  maxStay           Int?           @map("max_stay")
+  releaseDays       Int            @default(0) @map("release_days")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  availability DailyAvailability[]
+  dailyRates   DailyRate[]
+
+  @@unique([contractId, code])
+  @@index([tenantId, status])
+  @@index([roomTypeId])
+}
+
+model CancellationPolicy {
+  id              String   @id @default(cuid())
+  contractId      String   @map("contract_id")
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  daysBeforeCheckin Int    @map("days_before_checkin")
+  penaltyPercent  Int?     @map("penalty_percent")
+  penaltyMinor    BigInt?  @map("penalty_minor")
+  currency        String?  @db.Char(3)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([contractId])
+}
+
+model ChildPolicy {
+  id             String   @id @default(cuid())
+  contractId     String   @map("contract_id")
+  contract       Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  minAge         Int      @map("min_age")
+  maxAge         Int      @map("max_age")
+  extraBedAllowed Boolean @default(false) @map("extra_bed_allowed")
+  supplementMinor BigInt? @map("supplement_minor")
+  currency       String?  @db.Char(3)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([contractId])
+}
+
+model BookingLeadTimeRule {
+  id            String   @id @default(cuid())
+  contractId    String   @map("contract_id")
+  contract      Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  minLeadHours  Int      @default(0) @map("min_lead_hours")
+  maxLeadDays   Int?     @map("max_lead_days")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([contractId])
+}
+
+model DailyAvailability {
+  id                 String   @id @default(cuid())
+  tenantId           String   @map("tenant_id")
+  ratePlanId         String   @map("rate_plan_id")
+  ratePlan           RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  stayDate           DateTime @map("stay_date") @db.Date
+  allotment          Int
+  sold               Int      @default(0)
+  stopSell           Boolean  @default(false) @map("stop_sell")
+  minStay            Int      @default(1) @map("min_stay")
+  closedToArrival    Boolean  @default(false) @map("closed_to_arrival")
+  closedToDeparture  Boolean  @default(false) @map("closed_to_departure")
+  sourceUpdatedAt    DateTime? @map("source_updated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([ratePlanId, stayDate])
+  @@index([tenantId, stayDate])
+}
+
+model DailyRate {
+  id             String   @id @default(cuid())
+  tenantId       String   @map("tenant_id")
+  ratePlanId     String   @map("rate_plan_id")
+  ratePlan       RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  stayDate       DateTime @map("stay_date") @db.Date
+  occupancy      Int
+  amountMinor    BigInt   @map("amount_minor")
+  currency       String   @db.Char(3)
+  taxMetadata    Json     @default("{}") @map("tax_metadata")
+  feeMetadata    Json     @default("{}") @map("fee_metadata")
+  sourceVersion  String?  @map("source_version")
+  sourceUpdatedAt DateTime? @map("source_updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([ratePlanId, stayDate, occupancy])
+  @@index([tenantId, stayDate])
+}
+
+model ConnectorDefinition {
+  id                  String          @id @default(cuid())
+  tenantId            String          @map("tenant_id")
+  tenant              Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId          String          @map("supplier_id")
+  supplier            Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  type                ConnectorType
+  status              ConnectorStatus @default(DRAFT)
+  name                String
+  capabilities        Json            @default("[]")
+  transportMetadata   Json            @default("{}") @map("transport_metadata")
+  version             String
+  healthState         String          @default("unknown") @map("health_state")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  credentialReferences ConnectorCredentialReference[]
+  executions           ConnectorExecution[]
+  inventoryEvents      InventoryUpdateEvent[]
+
+  @@unique([supplierId, name])
+  @@index([tenantId, status])
+}
+
+/// Stores an approved secret-manager reference only, never secret material.
+model ConnectorCredentialReference {
+  id          String              @id @default(cuid())
+  connectorId String              @map("connector_id")
+  connector   ConnectorDefinition @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  secretRef   String              @map("secret_ref")
+  purpose     String
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@unique([connectorId, purpose])
+}
+
+model ConnectorExecution {
+  id                  String                   @id @default(cuid())
+  tenantId            String                   @map("tenant_id")
+  connectorId         String                   @map("connector_id")
+  connector           ConnectorDefinition      @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  correlationId       String                   @map("correlation_id")
+  operation           String
+  status              ConnectorExecutionStatus @default(RECEIVED)
+  latencyMs           Int?                     @map("latency_ms")
+  retryCount          Int                      @default(0) @map("retry_count")
+  errorClassification String?                  @map("error_classification")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([connectorId, correlationId])
+  @@index([tenantId, createdAt])
+}
+
+model InventoryUpdateEvent {
+  id                String              @id @default(cuid())
+  tenantId          String              @map("tenant_id")
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId        String              @map("supplier_id")
+  supplier          Supplier            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  connectorId       String?             @map("connector_id")
+  connector         ConnectorDefinition? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  idempotencyKey    String              @map("idempotency_key")
+  outcome           ConnectorExecutionStatus @default(RECEIVED)
+  validationErrors  Json                @default("[]") @map("validation_errors")
+  receivedAt        DateTime            @default(now()) @map("received_at")
+  processedAt       DateTime?           @map("processed_at")
+
+  @@unique([supplierId, idempotencyKey])
+  @@index([tenantId, receivedAt])
 }

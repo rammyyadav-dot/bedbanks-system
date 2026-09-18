@@ -1,6 +1,6 @@
 const BLOCKED_KEYS = new Set([
   'password', 'passwordhash', 'token', 'tokenhash', 'authorization', 'cookie',
-  'cardnumber', 'cvv', 'pan', 'suppliercredential', 'apikey', 'secret', 'accesstoken',
+  'cardnumber', 'cvv', 'pan', 'suppliercredential', 'supplierpassword', 'apikey', 'secret', 'accesstoken', 'bearertoken',
   'email', 'phone', 'guestemail', 'guestphone', 'passportnumber', 'passport',
 ])
 
