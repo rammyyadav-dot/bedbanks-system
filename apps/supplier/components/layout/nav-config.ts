@@ -7,6 +7,7 @@ import {
   Boxes,
   Building2,
   CalendarDays,
+  ClipboardCheck,
   FileCheck2,
   LayoutDashboard,
   ReceiptText,
@@ -28,7 +29,12 @@ export interface NavSection {
 }
 
 export const navSections: NavSection[] = [
-  { items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+  {
+    items: [
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/supplier-profile', label: 'Supplier profile', icon: ClipboardCheck },
+    ],
+  },
   {
     label: 'Portfolio',
     items: [
@@ -41,6 +47,7 @@ export const navSections: NavSection[] = [
   {
     label: 'Inventory',
     items: [
+      { href: '/inventory', label: 'Inventory submissions', icon: ClipboardCheck },
       { href: '/availability', label: 'Availability', icon: CalendarDays },
       { href: '/allotments', label: 'Allotments', icon: FileCheck2 },
       { href: '/promotions', label: 'Promotions', icon: BadgePercent },
