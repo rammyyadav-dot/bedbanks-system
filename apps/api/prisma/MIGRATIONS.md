@@ -1,26 +1,41 @@
-# Migration history and P0-D release gate
+# Prisma migration history and certification gate
 
-Inspected main: e03f8d2d8cfbb34b7d068a3106039743172b2a34.
-Schema: `apps/api/prisma/schema.prisma`. Run commands below from `apps/api`.
+**Authoritative schema:** `apps/api/prisma/schema.prisma`.  
+Run these commands from `apps/api`. The committed migration files are the only permitted deployment source.
 
-## Existing history (preserved)
+## Preserved migration history
 
-1. `20260101000000_baseline_identity`: P0-C Tenant/User/Membership baseline.
-2. `20260910000000_p0d_authentication`: Status enum, user credential/lifecycle fields and opaque sessions. Only SHA-256 session token hashes are stored.
-3. `202609160001_agent_domain_foundation`: incremental Agent domain migration. It adds roles, permissions, bookings, wallet/ledger and audit models after the P0-C and P0-D migrations.
+1. `20260101000000_baseline_identity` — P0-C tenant, user and membership baseline.
+2. `20260910000000_p0d_authentication` — status, credentials/lifecycle fields and opaque sessions.
+3. `202609160001_agent_domain_foundation` — incremental roles, permissions, bookings, wallet/ledger and audit models.
 
-The database owner confirmed that the former conflicting third migration had not been applied to a real environment. It was therefore safely replaced with the reviewed incremental diff before release. The chain must still be replayed in disposable PostgreSQL and checked for drift in CI before any production deployment.
+Historical migration directories are immutable after they have been applied to any environment. Future schema changes require a new, forward-only migration.
 
-## Commands and acceptance gates
+## Certification gate
+
+The `Prisma migration certification` GitHub Actions job starts an empty PostgreSQL 16 service and fails when any of these checks fail:
 
 ```sh
 pnpm prisma:validate
 pnpm prisma:generate
 pnpm prisma:migrate:deploy
-pnpm exec prisma migrate status
-pnpm exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+pnpm prisma:migrate:status
+pnpm prisma:migrate:drift
+pnpm test:e2e
 ```
 
-Use `migrate diff --from-empty` only against a verified historical **P0-C-only** schema when assessing the baseline. Use `migrate resolve --applied` only after proving the exact migration's objects already exist and obtaining the database owner's approval. Never use `migrate dev`, `db push`, `migrate reset`, or guessed schema generation for this task.
+`prisma:migrate:drift` compares the deployed disposable database with `schema.prisma` and exits non-zero on drift. A green run is release evidence for this exact commit only; it does not certify production database history, backups or data migrations.
 
-Rollback: revert application commits if necessary; do not drop identity/session tables. Keep Secure-cookie configuration and do not restore broken cookie forwarding. Real PostgreSQL replay, drift checks and authentication integration remain release gates until they actually pass.
+## Local disposable verification
+
+Use a newly created local PostgreSQL database, not `fbeds_dev`, staging or production. Set `DATABASE_URL` only in your local shell or local API environment, then run the certification commands above.
+
+Before any production deployment, the database owner must also inspect `_prisma_migrations` and confirm the recorded migration history matches the committed chain.
+
+## Prohibited recovery shortcuts
+
+Do not use `prisma db push`, `prisma migrate reset`, or guessed schema generation in shared/staging/production environments. Do not use `prisma migrate resolve` unless the database owner proves the exact migration objects already exist and approves the repair. Do not edit, rename, squash or regenerate historical migrations.
+
+## Release policy
+
+A production release remains blocked if migration deployment, status, drift verification or PostgreSQL integration tests fail. Revert application code or create a reviewed forward-only corrective migration; never drop identity/session tables to force recovery.
