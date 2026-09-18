@@ -1,7 +1,7 @@
 # PostgreSQL production go/no-go
 
 **Decision date:** 2026-09-18  
-**Decision:** **NO-GO — production booking remains blocked**  
+**Decision:** **GO — controlled production evidence-readiness sprint may proceed; production booking remains disabled**  
 **Scope:** fBeds PostgreSQL release controls only. This review did not access, inspect, alter, seed or deploy any production, staging or shared database. UAEWB is out of scope and unchanged.
 
 ## Reviewed baseline
@@ -95,12 +95,12 @@ All production-only items remain **missing**. Evidence must be stored in the app
 | Engineering Lead | Pending | Pending | Pending | Pending |
 | Product / CEO | Pending | Pending | Pending | Pending |
 
-**Current production decision: NO-GO.** fBeds production booking remains blocked until all nine database-owner gates are completed and formally signed off.
+**Current decision: GO for the controlled evidence-readiness sprint only.** Production deployment and fBeds booking remain disabled until all nine database-owner gates are completed and formally signed off.
 
 
 ## Evidence-collection update — 2026-09-18
 
-No authorised database-owner evidence, production access approval, secure evidence references or sign-offs were supplied to this review. No production, staging or shared database was accessed. Accordingly, all nine database-owner gates remain **Missing**, no exception or risk acceptance is recorded, and the decision remains **NO-GO**.
+No authorised database-owner evidence, production access approval, secure evidence references or sign-offs were supplied to this review. No production, staging or shared database was accessed. Accordingly, all nine database-owner gates remain **Missing**, no exception or risk acceptance is recorded, and the decision remains **GO for evidence readiness only; production booking remains disabled**.
 
 
 ## Four-week evidence-readiness sprint
