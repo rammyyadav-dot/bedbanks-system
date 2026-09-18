@@ -8,7 +8,11 @@ const apiBase = process.env.NEXT_PUBLIC_AGENT_API_URL ?? 'http://localhost:3001/
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } })
   const body = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(body?.error?.message ?? body?.message ?? 'Request failed')
+  if (!response.ok) {
+    if (response.status === 401) throw new Error('Session expired')
+    if (response.status === 403) throw new Error('Access denied')
+    throw new Error('Request failed')
+  }
   return body?.data ?? body
 }
 
