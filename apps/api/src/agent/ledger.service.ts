@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
 import type { LedgerEntryType } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { assertSupportedSettlementCurrency } from './currency'
 
 @Injectable()
 export class LedgerService {
@@ -8,6 +9,7 @@ export class LedgerService {
 
   /** Posts one append-only minor-unit entry, idempotently, inside the tenant RLS transaction. */
   async post(input: { tenantId: string; walletId: string; currency: string; amountMinor: bigint; type: LedgerEntryType; idempotencyKey: string; reference?: string }) {
+    assertSupportedSettlementCurrency(input.currency)
     return this.prisma.withTenant(input.tenantId, async (tx) => {
       const wallet = await tx.wallet.findFirst({ where: { id: input.walletId, tenantId: input.tenantId } })
       if (!wallet) throw new ForbiddenException('Wallet is unavailable')

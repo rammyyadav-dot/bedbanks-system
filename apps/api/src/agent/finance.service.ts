@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
+import { assertSupportedSettlementCurrency } from './currency'
 
 @Injectable()
 export class AgentFinanceService {
@@ -20,6 +21,7 @@ export class AgentFinanceService {
   }
 
   async assertFunds(tenantId: string, totalMinor: number | bigint, currency = 'USD') {
+    assertSupportedSettlementCurrency(currency)
     const required = BigInt(totalMinor)
     const wallet = await this.prisma.withTenant(tenantId, async (tx) => {
       const candidate = await tx.wallet.findFirst({ where: { tenantId, currency }, include: { entries: true } })

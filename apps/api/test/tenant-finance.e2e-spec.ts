@@ -81,4 +81,29 @@ describe('tenant and finance PostgreSQL hardening', () => {
     const audit = await prisma.auditEvent.create({ data: { tenantId: a.tenant.id, actorType: 'SYSTEM', action: 'test.audit', entityType: 'test', entityId: suffix, payload } })
     expect(audit.payload).toMatchObject({ password: '[REDACTED]', nested: { token: '[REDACTED]' } })
   })
+
+  it('requires tenant context and makes ledger and audit records immutable to an ordinary application role', async () => {
+    const a = await createTenant(`${tenantA}-immutable`, `${userA}.immutable`)
+    const wallet = await prisma.wallet.create({ data: { tenantId: a.tenant.id, currency: 'USD' } })
+    const ledger = await prisma.ledgerEntry.create({
+      data: { tenantId: a.tenant.id, walletId: wallet.id, currency: 'USD', amountMinor: 100n, type: 'CREDIT', idempotencyKey: `ledger-${suffix}` },
+    })
+    const audit = await prisma.auditEvent.create({
+      data: { tenantId: a.tenant.id, actorType: 'USER', action: 'test.immutable', entityType: 'test', entityId: suffix, payload: {} },
+    })
+
+    const withoutContext = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test')
+      return tx.wallet.findMany({ where: { tenantId: a.tenant.id } })
+    })
+    expect(withoutContext).toHaveLength(0)
+
+    await expect(asTenant(a.tenant.id, (tx) => tx.ledgerEntry.update({ where: { id: ledger.id }, data: { amountMinor: 200n } }))).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, (tx) => tx.ledgerEntry.delete({ where: { id: ledger.id } }))).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, (tx) => tx.auditEvent.update({ where: { id: audit.id }, data: { action: 'tampered' } }))).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, (tx) => tx.auditEvent.delete({ where: { id: audit.id } }))).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, (tx) => tx.auditEvent.create({
+      data: { tenantId: a.tenant.id, actorType: 'SYSTEM', action: 'test.system', entityType: 'test', entityId: suffix, payload: {} },
+    }))).rejects.toThrow()
+  })
 })

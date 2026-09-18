@@ -8,6 +8,7 @@ This document records the reproducible certification procedure for the committed
 2. `20260910000000_p0d_authentication`
 3. `202609160001_agent_domain_foundation`
 4. `202609180001_prisma_tenant_finance_hardening`
+5. `202609180002_postgres_release_controls`
 
 The authoritative schema is `apps/api/prisma/schema.prisma`.
 
@@ -41,7 +42,7 @@ The first certification run completed successfully in GitHub Actions CI run **#6
 - Schema drift check: passed with exit code 0
 - API PostgreSQL E2E tests: passed
 
-Each later commit must rerun the same gate. Certification evidence applies only to the exact commit tested.
+Each later commit must rerun the same gate. Certification evidence applies only to the exact commit tested. The release-controls migration requires a fresh certification run before it can be described as certified.
 
 The first two historical SQL files contain immutable creation-time comments stating that they were hand-authored and unverified. They must not be edited after application. The later certification gate is the current evidence of PostgreSQL replay and drift verification.
 

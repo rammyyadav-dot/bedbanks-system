@@ -9,6 +9,7 @@ Run these commands from `apps/api`. The committed migration files are the only p
 2. `20260910000000_p0d_authentication` — status, credentials/lifecycle fields and opaque sessions.
 3. `202609160001_agent_domain_foundation` — incremental roles, permissions, bookings, wallet/ledger and audit models.
 4. `202609180001_prisma_tenant_finance_hardening` — tenant-bound role assignments, tenant-scoped idempotency, BIGINT money, multi-currency wallets, audit payload controls and PostgreSQL RLS.
+5. `202609180002_postgres_release_controls` — non-owner ledger/audit append-only RLS policies and ordinary-role system-audit insert protection.
 
 Historical migration directories are immutable after they have been applied to any environment. Future schema changes require a new, forward-only migration.
 
