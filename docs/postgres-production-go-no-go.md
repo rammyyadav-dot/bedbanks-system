@@ -96,3 +96,8 @@ All production-only items remain **missing**. Evidence must be stored in the app
 | Product / CEO | Pending | Pending | Pending | Pending |
 
 **Current production decision: NO-GO.** fBeds production booking remains blocked until all nine database-owner gates are completed and formally signed off.
+
+
+## Evidence-collection update — 2026-09-18
+
+No authorised database-owner evidence, production access approval, secure evidence references or sign-offs were supplied to this review. No production, staging or shared database was accessed. Accordingly, all nine database-owner gates remain **Missing**, no exception or risk acceptance is recorded, and the decision remains **NO-GO**.
