@@ -101,3 +101,30 @@ All production-only items remain **missing**. Evidence must be stored in the app
 ## Evidence-collection update — 2026-09-18
 
 No authorised database-owner evidence, production access approval, secure evidence references or sign-offs were supplied to this review. No production, staging or shared database was accessed. Accordingly, all nine database-owner gates remain **Missing**, no exception or risk acceptance is recorded, and the decision remains **NO-GO**.
+
+
+## Four-week evidence-readiness sprint
+
+**Sprint start:** 2026-09-18  
+**Target decision date:** 2026-10-15  
+**Current state:** No authorised production evidence, named approvers, maintenance window, secure evidence reference, escalation path or release communication channel has been provided. Each item below is a planned evidence activity, not a completed control.
+
+| Week | Objective | Accountable role | Deliverable | Status |
+|---|---|---|---|---|
+| 1: 18–24 Sep | Assign accountable people, secure evidence location, maintenance and escalation process | Product/CEO Approver | Named-owner record and release-communications process | Missing |
+| 2: 25 Sep–1 Oct | Production migration, platform and backup/restore evidence | Database Owner | Secure evidence references and recovery outcome | Missing |
+| 3: 2–8 Oct | Role, RLS and connection-pool controlled verification | Database Owner / Security Lead / Engineering Lead | Approved role and verification evidence | Missing |
+| 4: 9–15 Oct | Secrets, monitoring, release operation and sign-off | Security Lead / Engineering Lead / Product/CEO Approver | Completed checklist and final decision | Missing |
+
+### Required accountable appointments
+
+| Accountability | Assigned person | Status |
+|---|---|---|
+| Database Owner | TBD by Product/CEO | Missing |
+| Security Lead | TBD by Product/CEO | Missing |
+| Engineering Lead | TBD by Product/CEO | Missing |
+| Product/CEO Approver | TBD by Product/CEO | Missing |
+| Rollback Owner | TBD by Engineering Lead | Missing |
+| Forward-Fix Owner | TBD by Engineering Lead | Missing |
+
+The Database Owner must provide any sensitive evidence through the approved secure channel. GitHub records only its reference, status, accountable role and date/time.
