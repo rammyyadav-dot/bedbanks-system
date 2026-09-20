@@ -5,7 +5,6 @@ import { NextFunction, Request, Response } from 'express';
 export const REQUEST_ID_HEADER = 'X-Request-ID';
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       requestId?: string;
