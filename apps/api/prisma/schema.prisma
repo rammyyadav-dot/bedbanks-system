@@ -162,6 +162,7 @@ model User {
   memberships Membership[]
   sessions    Session[]
   roles       UserRole[]
+  platformRoleAssignments PlatformRoleAssignment[]
   auditEvents AuditEvent[]
 
   @@map("users")
@@ -245,6 +246,42 @@ model RolePermission {
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
+}
+
+model PlatformPermission {
+  id          String @id
+  key         String @unique
+  description String?
+  roles       PlatformRolePermission[]
+}
+
+model PlatformRole {
+  id           String @id
+  name         String @unique
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  permissions  PlatformRolePermission[]
+  assignments  PlatformRoleAssignment[]
+}
+
+model PlatformRolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+  role         PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   PlatformPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model PlatformRoleAssignment {
+  userId    String @map("user_id")
+  roleId    String @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
 }
 
 model Booking {

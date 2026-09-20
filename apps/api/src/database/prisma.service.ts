@@ -75,4 +75,29 @@ export class PrismaService
       return work(tx);
     });
   }
+
+  async withPlatform<T>(operatorUserId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    if (!operatorUserId || operatorUserId.trim() !== operatorUserId) {
+      throw new Error('A normalized platform operator is required');
+    }
+
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.platform_access', 'true', true)`;
+      await tx.$executeRaw`SELECT set_config('app.platform_operator_id', ${operatorUserId}, true)`;
+      return work(tx);
+    });
+  }
+
+  async withPlatformTenant<T>(operatorUserId: string, tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    if (!tenantId || tenantId.trim() !== tenantId) {
+      throw new Error('A normalized tenant context is required');
+    }
+
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.platform_access', 'true', true)`;
+      await tx.$executeRaw`SELECT set_config('app.platform_operator_id', ${operatorUserId}, true)`;
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+      return work(tx);
+    });
+  }
 }

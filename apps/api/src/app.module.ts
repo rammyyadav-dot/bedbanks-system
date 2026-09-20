@@ -8,6 +8,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { AgentModule } from './agent/agent.module';
 import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
     HealthModule,
     AgentModule,
     AdminDashboardModule,
+    PlatformAdminModule,
   ],
 })
 export class AppModule implements NestModule {
