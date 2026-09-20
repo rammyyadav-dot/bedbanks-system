@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, AlertCircle, CalendarDays, CheckCircle2, ChevronDown, RefreshCw, ShieldCheck, TriangleAlert, XCircle } from 'lucide-react'
 import { getDashboard } from '@/lib/data'
+import { ApiResponseError } from '@/lib/api/errors'
+import { AccessDenied, AdminLoadingState, AdminServiceUnavailable, AuthRequired, PermissionUnavailable } from '@/components/auth/AuthorizationStates'
 import type { AdminDashboardView, DateRange, DashboardLoadState, HealthState } from '@/lib/types/dashboard'
 
 const ranges: { value: DateRange; label: string }[] = [{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: '90d', label: 'Last 90 days' }]
@@ -23,13 +25,20 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setState('loading'); setError(null)
-    try { setData(await getDashboard({ range })); setState('success') } catch (cause) { setData(null); setError(cause instanceof Error ? cause.message : 'Unable to load dashboard data.'); setState('error') }
+    try { setData(await getDashboard({ range })); setState('success') } catch (cause) { setData(null); setError(cause instanceof ApiResponseError ? (cause.status === 401 ? 'UNAUTHENTICATED' : cause.status === 403 ? 'FORBIDDEN' : cause.code) : 'UNEXPECTED_ERROR'); setState('error') }
   }, [range])
   useEffect(() => { void load() }, [load])
 
   const summary = data?.summary
   const activityMax = useMemo(() => Math.max(...(data?.bookingActivity.map((point) => point.total) ?? [0]), 1), [data])
   const refreshLabel = state === 'loading' ? 'Refreshing…' : state === 'success' ? 'Updated' : 'Refresh'
+
+  if (state === 'loading' && !data) return <main className="dashboard-page"><AdminLoadingState /></main>
+  if (state === 'error' && error?.includes('FORBIDDEN')) return <main className="dashboard-page"><AccessDenied permission="dashboard.read" /></main>
+  if (state === 'error' && error?.includes('UNAUTHENTICATED')) return <main className="dashboard-page"><AuthRequired /></main>
+  if (state === 'error' && error?.includes('PERMISSION_UNAVAILABLE')) return <main className="dashboard-page"><PermissionUnavailable onRetry={() => void load()} /></main>
+  if (state === 'error' && error?.includes('NETWORK_ERROR')) return <main className="dashboard-page"><AdminServiceUnavailable network onRetry={() => void load()} /></main>
+  if (state === 'error' && error?.includes('API_')) return <main className="dashboard-page"><AdminServiceUnavailable onRetry={() => void load()} /></main>
 
   return <main className="dashboard-page">
     <div className="dashboard-heading"><div><div className="dashboard-eyebrow"><Activity size={12} /> OPERATIONAL OVERVIEW</div><h1>Dashboard</h1><p>Authoritative operational data for your bedbank network.</p></div><div className="dashboard-heading-actions"><label className="dashboard-date-button"><CalendarDays size={15} /><select aria-label="Dashboard date range" value={range} onChange={(event) => setRange(event.target.value as DateRange)}>{ranges.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><ChevronDown size={14} /></label><button className="dashboard-refresh" type="button" onClick={() => void load()} disabled={state === 'loading'}><RefreshCw size={14} className={state === 'loading' ? 'spin' : ''} /> {refreshLabel}</button></div></div>

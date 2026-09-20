@@ -18,7 +18,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     return (body?.data ?? body) as T
   } catch (error) {
     if (error instanceof ApiResponseError) throw error
-    throw new ApiResponseError('API_UNAVAILABLE', 'The Admin API is unavailable.', 503)
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiResponseError('API_TIMEOUT', 'The Admin API request timed out.', 504)
+    }
+    throw new ApiResponseError('NETWORK_ERROR', 'The Admin API could not be reached.', 0)
   } finally {
     clearTimeout(timeout)
   }
