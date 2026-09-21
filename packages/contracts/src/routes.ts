@@ -5,9 +5,10 @@ export const routes = {
     bookings: '/agent/bookings', cancelBooking: '/agent/bookings/:id', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard' },
+  platform: { tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary' },
   supplier: {},
   partner: {},
   health: { status: '/health' },
 } as const;
 
-export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.health)[keyof typeof routes.health];
+export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.health)[keyof typeof routes.health];
