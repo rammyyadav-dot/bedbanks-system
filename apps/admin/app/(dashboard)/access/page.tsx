@@ -3,26 +3,26 @@
 import Link from 'next/link'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
-import { StatusBadge } from '@/components/status/StatusBadge'
-import { roles } from '@/lib/mock'
-import type { Role } from '@/lib/types/admin'
+const accessSections = [
+  ['Roles', 'Manage platform roles and their permission bundles.', '/access/roles'],
+  ['Permissions', 'Review the canonical permission catalogue and scopes.', '/access/permissions'],
+  ['Assignments', 'Grant and revoke platform roles with auditability.', '/access/assignments'],
+] as const
 
 export default function AccessPage() {
-  const columns: DataTableColumn<Role>[] = [
-    { key: 'name', header: 'Role', render: (r) => <Link href="/access/roles" style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{r.name}</Link> },
-    { key: 'description', header: 'Description', render: (r) => r.description },
-    { key: 'userCount', header: 'Users', render: (r) => r.userCount, align: 'right' },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+  const columns: DataTableColumn<(typeof accessSections)[number]>[] = [
+    { key: '0', header: 'Area', render: (r) => <Link href={r[2]} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{r[0]}</Link> },
+    { key: '1', header: 'Purpose', render: (r) => r[1] },
+    { key: '2', header: 'Open', render: (r) => <Link href={r[2]} className="admin-btn">Open</Link> },
   ]
   return (
     <div className="admin-page">
       <PageHeader
         eyebrow="BUSINESS · ACCESS"
         title="Roles & Permissions"
-        description="UI-only visualization of the access model. Backend authorization is enforced in P0-F."
-        actions={<div style={{ display: 'flex', gap: 8 }}><Link href="/access/roles" className="admin-btn">Roles</Link><Link href="/access/permissions" className="admin-btn">Permission matrix</Link></div>}
+        description="Governed platform access with database-backed permissions, role bundles, assignments, and audit trails."
       />
-      <DataTable columns={columns} data={roles} getRowId={(r) => r.id} />
+      <DataTable columns={columns} data={[...accessSections]} getRowId={(r) => r[0]} />
     </div>
   )
 }

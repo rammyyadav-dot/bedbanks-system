@@ -5,7 +5,10 @@ export const routes = {
     bookings: '/agent/bookings', cancelBooking: '/agent/bookings/:id', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard' },
-  platform: { tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary' },
+  platform: {
+    tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
+    permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
+  },
   supplier: {},
   partner: {},
   health: { status: '/health' },
