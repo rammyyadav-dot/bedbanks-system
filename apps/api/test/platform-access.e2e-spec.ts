@@ -1,4 +1,5 @@
-import { INestApplication } from '@nestjs/common'
+import { INestApplication, ValidationPipe } from '@nestjs/common'
+import * as cookieParser from 'cookie-parser'
 import { Test } from '@nestjs/testing'
 import * as request from 'supertest'
 import { AppModule } from '../src/app.module'
@@ -13,24 +14,24 @@ describe('Platform access management (e2e)', () => {
   let cookie: string
   let userId: string
   const roleId = `e2e.role.${Date.now()}`
-
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
-    app = moduleRef.createNestApplication()
+    const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
+    app = module.createNestApplication()
+    app.use(cookieParser())
     app.setGlobalPrefix('api/v1')
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     await app.init()
     prisma = app.get(PrismaService)
     const user = await prisma.user.create({ data: { email: operator, name: 'Platform Access E2E', passwordHash: await hashPassword(password) }, select: { id: true } })
-    const login = await request(app.getHttpServer()).post('/api/v1/auth/login').send({ email: operator, password })
-    cookie = login.headers['set-cookie']?.[0] ?? ''
-    if (!user) throw new Error('Seed operator missing')
     userId = user.id
-    await prisma.platformRole.create({ data: { id: roleId, name: roleId, description: 'E2E role' } })
-    await prisma.platformRolePermission.createMany({ data: [{ roleId, permissionId: 'platform.access.read' }, { roleId, permissionId: 'platform.access.manage' }] })
+    await prisma.platformRole.create({ data: { id: roleId, name: `Platform Access E2E ${Date.now()}`, permissions: { create: [{ permissionId: 'platform.access.read' }, { permissionId: 'platform.access.manage' }] } } })
     await prisma.platformRoleAssignment.create({ data: { userId, roleId } })
+    const login = await request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email: operator, password })
+    cookie = login.headers['set-cookie']?.[0]?.split(';')[0] ?? ''
   })
 
   afterAll(async () => {
+    if (!prisma) return
     await prisma.platformRoleAssignment.deleteMany({ where: { roleId } })
     await prisma.platformRolePermission.deleteMany({ where: { roleId } })
     await prisma.platformRole.deleteMany({ where: { id: roleId } })

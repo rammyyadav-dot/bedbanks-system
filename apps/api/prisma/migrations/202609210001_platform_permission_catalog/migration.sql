@@ -3,4 +3,4 @@ INSERT INTO "PlatformPermission" ("id", "key", "description") VALUES
   ('platform.tenants.access', 'platform.tenants.access', 'Enter a tenant-scoped support context.'),
   ('platform.access.read', 'platform.access.read', 'Read platform roles, permissions, and assignments.'),
   ('platform.access.manage', 'platform.access.manage', 'Manage platform roles, permissions, and assignments.')
-ON CONFLICT ("id") DO UPDATE SET "description" = EXCLUDED."description";
+ON CONFLICT ("key") DO UPDATE SET "description" = EXCLUDED."description";
