@@ -44,7 +44,9 @@ RETURNS BOOLEAN AS $$
   SELECT current_setting('app.platform_access', true) = 'true'
 $$ LANGUAGE SQL STABLE;
 
-DROP POLICY "AuditEvent_tenant_isolation" ON "AuditEvent";
-CREATE POLICY "AuditEvent_tenant_isolation" ON "AuditEvent"
-  USING ("tenant_id" = "fbeds_current_tenant_id"() OR ("tenant_id" IS NULL AND "fbeds_platform_access_allowed"()))
-  WITH CHECK ("tenant_id" = "fbeds_current_tenant_id"() OR ("tenant_id" IS NULL AND "fbeds_platform_access_allowed"()));
+DROP POLICY IF EXISTS "AuditEvent_tenant_select" ON "AuditEvent";
+DROP POLICY IF EXISTS "AuditEvent_tenant_insert" ON "AuditEvent";
+CREATE POLICY "AuditEvent_tenant_select" ON "AuditEvent"
+  FOR SELECT USING ("tenant_id" = "fbeds_current_tenant_id"() OR ("tenant_id" IS NULL AND "fbeds_platform_access_allowed"()));
+CREATE POLICY "AuditEvent_tenant_insert" ON "AuditEvent"
+  FOR INSERT WITH CHECK (("tenant_id" = "fbeds_current_tenant_id"() AND "actor_type" <> 'SYSTEM') OR ("tenant_id" IS NULL AND "fbeds_platform_access_allowed"()));
