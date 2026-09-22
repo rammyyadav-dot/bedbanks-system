@@ -1,7 +1,9 @@
 export type SupplyId = string
 export type SupplyDate = string
 
-export interface HotelRead { id: string; tenantId: string; name: string; propertyType: string; starRating: number | null; address: string | null; city: string; countryCode: string; timeZone: string; contentStatus: string; externalRef: string | null }
+export interface HotelRead { id: string; tenantId: string; name: string; propertyType: string; starRating: number | null; address: string | null; city: string; countryCode: string; timeZone: string; contentStatus: string; externalRef: string | null; createdAt?: string; updatedAt?: string }
+export interface HotelWrite { name: string; propertyType: string; starRating?: number | null; address?: string | null; city: string; countryCode: string; timeZone?: string; externalRef?: string | null }
+export interface HotelUpdate extends Partial<HotelWrite> {}
 export interface RoomTypeRead { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean }
 export interface BoardBasisRead { id: string; tenantId: string; code: string; name: string; description: string | null; isActive: boolean }
 export interface ContractRead { id: string; tenantId: string; supplierId: string; supplierHotelMappingId: string | null; code: string; status: string; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string }
