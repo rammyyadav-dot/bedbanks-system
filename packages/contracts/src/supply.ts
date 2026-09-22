@@ -4,7 +4,9 @@ export type SupplyDate = string
 export interface HotelRead { id: string; tenantId: string; name: string; propertyType: string; starRating: number | null; address: string | null; city: string; countryCode: string; timeZone: string; contentStatus: string; externalRef: string | null; createdAt?: string; updatedAt?: string }
 export interface HotelWrite { name: string; propertyType: string; starRating?: number | null; address?: string | null; city: string; countryCode: string; timeZone?: string; externalRef?: string | null }
 export interface HotelUpdate extends Partial<HotelWrite> {}
-export interface RoomTypeRead { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean }
+export interface RoomTypeRead { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; beddingMetadata?: Record<string, unknown>; isActive: boolean; createdAt?: string; updatedAt?: string }
+export interface RoomTypeWrite { name: string; code: string; maxAdults: number; maxChildren?: number; maxOccupancy: number; beddingMetadata?: Record<string, unknown>; isActive?: boolean }
+export interface RoomTypeUpdate extends Partial<RoomTypeWrite> {}
 export interface BoardBasisRead { id: string; tenantId: string; code: string; name: string; description: string | null; isActive: boolean }
 export interface ContractRead { id: string; tenantId: string; supplierId: string; supplierHotelMappingId: string | null; code: string; status: string; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string }
 export interface RatePlanRead { id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string }
@@ -13,7 +15,7 @@ export interface DailyAvailabilityRead { id: string; tenantId: string; ratePlanI
 export interface SellabilityResult { eligible: boolean; status: 'ELIGIBLE_FOR_FUTURE_SEARCH' | 'NOT_ELIGIBLE'; reasons: string[] }
 
 export const supplyRoutes = {
-  hotels: '/supply/hotels', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates', availability: '/supply/availability', sellability: '/supply/sellability',
+  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates', availability: '/supply/availability', sellability: '/supply/sellability',
 } as const
 
 export const supplyPermissions = {
