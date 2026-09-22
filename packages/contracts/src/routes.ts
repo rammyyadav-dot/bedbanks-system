@@ -11,7 +11,7 @@ export const routes = {
   },
   supplier: {},
   supply: {
-    hotels: '/supply/hotels', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases',
+    hotels: '/supply/hotels', hotel: '/supply/hotels/:hotelId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases',
     contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates',
     availability: '/supply/availability', sellability: '/supply/sellability',
   },

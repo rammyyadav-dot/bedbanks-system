@@ -1,46 +1,23 @@
-import { notFound } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/status/StatusBadge'
-import { Tabs } from '@/components/common/Tabs'
-import { StatCard } from '@/components/common/StatCard'
-import { getHotel, getRoomsByHotel } from '@/lib/data'
+import { AdminLoadingState, AdminServiceUnavailable, AccessDenied, AuthRequired } from '@/components/auth/AuthorizationStates'
+import { apiRequest } from '@/lib/api/client'
+import { ApiResponseError } from '@/lib/api/errors'
 
-export default async function HotelDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const hotel = await getHotel(id)
-  if (!hotel) notFound()
-  const rooms = await getRoomsByHotel(hotel.id)
+type Hotel = { id: string; name: string; propertyType: string; starRating: number | null; address: string | null; city: string; countryCode: string; timeZone: string; contentStatus: string; externalRef: string | null; updatedAt: string; roomTypes?: { id: string; name: string; code: string; maxOccupancy: number }[] }
+function status(value: string) { return value.toLowerCase() === 'published' ? 'active' : value.toLowerCase() === 'suspended' ? 'suspended' : value.toLowerCase() === 'archived' ? 'inactive' : 'pending' }
 
-  return (
-    <div className="admin-page">
-      <PageHeader eyebrow={`HOTEL · ${hotel.code}`} title={hotel.name} description={`${hotel.destination}, ${hotel.country} · ${'★'.repeat(hotel.stars)}`} actions={<StatusBadge status={hotel.status} />} />
-      <div className="admin-summary-cards">
-        <StatCard label="Supplier" value={hotel.supplier} />
-        <StatCard label="Stars" value={String(hotel.stars)} />
-        <StatCard label="Rooms Mapped" value={String(rooms.length)} />
-        <StatCard label="Updated" value={hotel.updatedAt} />
-      </div>
-      <Tabs tabs={[
-        { id: 'overview', label: 'Overview', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Hotel master overview — mock summary.</div> },
-        { id: 'rooms', label: 'Rooms', content: (
-          <div className="workspace-panel">
-            {rooms.length === 0 && <div style={{ padding: 20, fontSize: 12, color: '#7c949a' }}>No rooms mapped yet.</div>}
-            {rooms.map((r) => (
-              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 18px', borderBottom: '1px solid #edf2f3', fontSize: 12 }}>
-                <span>{r.type} <span style={{ color: '#8ba0a5' }}>· {r.occupancy}</span></span>
-                <span style={{ color: '#8ba0a5' }}>{r.mealPlan}</span>
-              </div>
-            ))}
-          </div>
-        ) },
-        { id: 'amenities', label: 'Amenities', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Pool, Spa, Free Wi-Fi, Airport Shuttle, Fitness Centre — mock amenities.</div> },
-        { id: 'images', label: 'Images', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Image gallery placeholder.</div> },
-        { id: 'policies', label: 'Policies', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Standard cancellation policy: free cancellation up to 48h before check-in (mock).</div> },
-        { id: 'mapping', label: 'Supplier Mapping', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Mapped to <strong>{hotel.supplier}</strong> as hotel code <strong>{hotel.code}</strong>.</div> },
-        { id: 'rates', label: 'Rates', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>See the Rates module for live pricing across suppliers.</div> },
-        { id: 'inventory', label: 'Inventory', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>See the Inventory module for allotment and stop-sell status.</div> },
-        { id: 'audit', label: 'Audit', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>No audit events recorded for this hotel yet.</div> },
-      ]} />
-    </div>
-  )
+export default function HotelDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const [hotel, setHotel] = useState<Hotel | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'auth' | 'forbidden'>('loading')
+  const [saving, setSaving] = useState(false)
+  const [name, setName] = useState('')
+  useEffect(() => { let active = true; apiRequest<Hotel>(`/supply/hotels/${id}`).then((data) => { if (active) { setHotel(data); setName(data.name); setState('ready') } }).catch((error) => { if (!active) return; if (error instanceof ApiResponseError && error.status === 401) setState('auth'); else if (error instanceof ApiResponseError && [403, 404].includes(error.status)) setState('forbidden'); else setState('error') }); return () => { active = false } }, [id])
+  async function save() { if (!hotel) return; setSaving(true); try { const updated = await apiRequest<Hotel>(`/supply/hotels/${hotel.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); setHotel(updated) } finally { setSaving(false) } }
+  return <div className="admin-page">{state === 'loading' && <AdminLoadingState />}{state === 'auth' && <AuthRequired />}{state === 'forbidden' && <AccessDenied permission="supply.hotels.read" />}{state === 'error' && <AdminServiceUnavailable onRetry={() => window.location.reload()} />}{state === 'ready' && hotel && <><PageHeader eyebrow={`HOTEL · ${hotel.id}`} title={hotel.name} description={`${hotel.city}, ${hotel.countryCode} · ${hotel.propertyType}`} actions={<StatusBadge status={status(hotel.contentStatus)} />} /><div className="workspace-panel" style={{ display: 'grid', gap: 14, padding: 22, maxWidth: 720 }}><label>HOTEL NAME<input value={name} onChange={(event) => setName(event.target.value)} className="input-wrap" /></label><p style={{ color: '#698088', fontSize: 12 }}>{hotel.address || 'No address recorded'} · {hotel.timeZone}</p><p style={{ color: '#698088', fontSize: 12 }}>Last updated {new Date(hotel.updatedAt).toLocaleString()}</p><button type="button" className="button primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button></div><div className="workspace-panel" style={{ marginTop: 16, padding: 22 }}><h2>Room types</h2>{hotel.roomTypes?.length ? hotel.roomTypes.map((room) => <p key={room.id}>{room.name} · {room.code} · max {room.maxOccupancy}</p>) : <p style={{ color: '#698088' }}>No active room types.</p>}</div></>}</div>
 }
