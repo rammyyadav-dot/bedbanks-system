@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import type { Request } from 'express'
 import { PrismaService } from '../database/prisma.service'
@@ -8,6 +8,8 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 
 @Injectable()
 export class PlatformRbacGuard implements CanActivate {
+  private readonly logger = new Logger(PlatformRbacGuard.name)
+
   constructor(private readonly reflector: Reflector, private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -24,7 +26,9 @@ export class PlatformRbacGuard implements CanActivate {
     if (!assignment) {
       await this.prisma.withPlatform(identity.user.id, (tx) => tx.auditEvent.create({
         data: { tenantId: null, userId: identity.user.id, actorType: 'USER', action: 'platform.access.denied', entityType: 'platform_permission', entityId: required, payload: { permission: required, outcome: 'denied' } },
-      })).catch(() => undefined)
+      })).catch((error: unknown) => {
+        this.logger.error('Failed to persist platform access denial audit', error instanceof Error ? error.stack : String(error))
+      })
       throw new ForbiddenException('Platform access denied')
     }
     ;(request as unknown as Record<string, unknown>).platformPermission = required

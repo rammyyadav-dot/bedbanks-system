@@ -13,7 +13,9 @@ describe('Platform access management (e2e)', () => {
   const password = 'platform-access-password'
   let cookie: string
   let userId: string
+  let targetUserId: string
   const roleId = `e2e.role.${Date.now()}`
+  const targetEmail = `platform-access-target-${Date.now()}@example.test`
   beforeAll(async () => {
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
     app = module.createNestApplication()
@@ -24,6 +26,8 @@ describe('Platform access management (e2e)', () => {
     prisma = app.get(PrismaService)
     const user = await prisma.user.create({ data: { email: operator, name: 'Platform Access E2E', passwordHash: await hashPassword(password) }, select: { id: true } })
     userId = user.id
+    const target = await prisma.user.create({ data: { email: targetEmail, name: 'Platform Access Target', passwordHash: await hashPassword(password) }, select: { id: true } })
+    targetUserId = target.id
     await prisma.platformRole.create({ data: { id: roleId, name: `Platform Access E2E ${Date.now()}`, permissions: { create: [{ permissionId: 'platform.access.read' }, { permissionId: 'platform.access.manage' }] } } })
     await prisma.platformRoleAssignment.create({ data: { userId, roleId } })
     const login = await request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email: operator, password })
@@ -35,7 +39,7 @@ describe('Platform access management (e2e)', () => {
     await prisma.platformRoleAssignment.deleteMany({ where: { roleId } })
     await prisma.platformRolePermission.deleteMany({ where: { roleId } })
     await prisma.platformRole.deleteMany({ where: { id: roleId } })
-    await prisma.user.deleteMany({ where: { id: userId } })
+    await prisma.user.deleteMany({ where: { id: { in: [userId, targetUserId] } } })
     await app.close()
   })
 
@@ -45,10 +49,16 @@ describe('Platform access management (e2e)', () => {
     expect(response.body.some((permission: { key: string }) => permission.key === 'platform.access.manage')).toBe(true)
   })
 
-  it('prevents self-escalation and audits governed changes', async () => {
+  it('persists mutation audits and blocks self-escalation', async () => {
+    const createdRoleId = `e2e.audit.role.${Date.now()}`
+    await request(app.getHttpServer()).post('/api/v1/platform/access/roles').set('Cookie', cookie).send({ id: createdRoleId, name: 'Audit Role' }).expect(201)
+    await request(app.getHttpServer()).put(`/api/v1/platform/access/roles/${createdRoleId}/permissions`).set('Cookie', cookie).send({ permissionIds: ['platform.access.read'] }).expect(200)
+    await request(app.getHttpServer()).post('/api/v1/platform/access/assignments').set('Cookie', cookie).send({ userId: targetUserId, roleId: createdRoleId }).expect(201)
+    await request(app.getHttpServer()).delete(`/api/v1/platform/access/assignments/${targetUserId}/${createdRoleId}`).set('Cookie', cookie).expect(200)
+    const audits = await prisma.auditEvent.findMany({ where: { userId, entityId: { in: [createdRoleId, `${targetUserId}:${createdRoleId}`] } }, orderBy: { createdAt: 'asc' } })
+    expect(audits.map((audit) => audit.action)).toEqual(expect.arrayContaining(['platform.role.created', 'platform.role.permissions.updated', 'platform.role.assigned', 'platform.role.revoked']))
     const response = await request(app.getHttpServer()).post('/api/v1/platform/access/assignments').set('Cookie', cookie).send({ userId, roleId })
     expect(response.status).toBe(400)
-    const audit = await prisma.auditEvent.findFirst({ where: { userId, action: 'platform.role.assigned' }, orderBy: { createdAt: 'desc' } })
-    expect(audit).toBeNull()
+    await prisma.platformRole.delete({ where: { id: createdRoleId } })
   })
 })

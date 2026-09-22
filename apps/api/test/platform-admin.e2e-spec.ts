@@ -82,12 +82,21 @@ describe('Platform admin access foundation', () => {
     await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', await login(tenantOwnerEmail)).expect(403)
   })
 
-  it('lists tenants from explicit database-backed platform permission', async () => {
-    const response = await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', await login(operatorEmail)).expect(200)
+  it('lists tenants from explicit database-backed platform permission and persists request ID audit data', async () => {
+    const requestId = `platform-request-${suffix}`
+    const response = await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', await login(operatorEmail)).set('x-request-id', requestId).expect(200)
     expect(response.body.data).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: tenantAId, name: expect.stringContaining('Platform Tenant A') }),
       expect.objectContaining({ id: tenantBId, name: expect.stringContaining('Platform Tenant B') }),
     ]))
+    await expect(prisma.auditEvent.findFirst({ where: { userId: operatorId, action: 'platform.tenants.directory.read', entityId: 'platform.tenants.read', payload: { path: ['requestId'], equals: requestId } } })).resolves.toMatchObject({ actorType: 'USER', entityType: 'platform_tenant_directory' })
+  })
+
+  it('rejects a revoked session on the next platform request', async () => {
+    const cookie = await login(operatorEmail)
+    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', cookie).expect(200)
+    await prisma.session.updateMany({ where: { userId: operatorId }, data: { revokedAt: new Date() } })
+    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', cookie).expect(401)
   })
 
   it('reads only the explicitly selected tenant context and rejects an unknown target', async () => {
@@ -99,9 +108,11 @@ describe('Platform admin access foundation', () => {
   })
 
   it('ignores forged permission headers and revokes platform access immediately', async () => {
-    const cookie = await login(tenantOwnerEmail)
-    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', cookie).set('x-platform-permission', 'platform.tenants.read').expect(403)
+    const ownerCookie = await login(tenantOwnerEmail)
+    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', ownerCookie).set('x-platform-permission', 'platform.tenants.read').expect(403)
+    const operatorCookie = await login(operatorEmail)
+    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', operatorCookie).expect(200)
     await prisma.platformRoleAssignment.delete({ where: { userId_roleId: assignment } })
-    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', await login(operatorEmail)).expect(403)
+    await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', operatorCookie).expect(403)
   })
 })

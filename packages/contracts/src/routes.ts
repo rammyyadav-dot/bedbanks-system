@@ -10,8 +10,13 @@ export const routes = {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
   },
   supplier: {},
+  supply: {
+    hotels: '/supply/hotels', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases',
+    contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates',
+    availability: '/supply/availability', sellability: '/supply/sellability',
+  },
   partner: {},
   health: { status: '/health' },
 } as const;
 
-export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.health)[keyof typeof routes.health];
+export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.supply)[keyof typeof routes.supply] | (typeof routes.health)[keyof typeof routes.health];
