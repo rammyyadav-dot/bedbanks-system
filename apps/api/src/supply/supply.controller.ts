@@ -14,6 +14,12 @@ export class SupplyController {
   @Get('hotels/:hotelId') hotel(@Req() req: Request, @Param('hotelId') hotelId: string) { const c = this.context(req); return this.supply.hotel(c.tenantId, c.userId, hotelId) }
   @Post('hotels') createHotel(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createHotel(c.tenantId, c.userId, body, c.requestId) }
   @Patch('hotels/:hotelId') updateHotel(@Req() req: Request, @Param('hotelId') hotelId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.updateHotel(c.tenantId, c.userId, hotelId, body, c.requestId) }
+
+  @Get('hotels/:hotelId/rooms') roomsForHotel(@Req() req: Request, @Param('hotelId') hotelId: string) { const c = this.context(req); return this.supply.roomsForHotel(c.tenantId, c.userId, hotelId) }
+  @Get('hotels/:hotelId/rooms/:roomId') room(@Req() req: Request, @Param('hotelId') hotelId: string, @Param('roomId') roomId: string) { const c = this.context(req); return this.supply.room(c.tenantId, c.userId, hotelId, roomId) }
+  @Post('hotels/:hotelId/rooms') createRoom(@Req() req: Request, @Param('hotelId') hotelId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createRoom(c.tenantId, c.userId, hotelId, body, c.requestId) }
+  @Patch('hotels/:hotelId/rooms/:roomId') updateRoom(@Req() req: Request, @Param('hotelId') hotelId: string, @Param('roomId') roomId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.updateRoom(c.tenantId, c.userId, hotelId, roomId, body, c.requestId) }
+
   @Get('room-types') roomTypes(@Req() req: Request) { const c = this.context(req); return this.supply.roomTypes(c.tenantId, c.userId) }
   @Post('room-types') createRoomType(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createRoomType(c.tenantId, c.userId, body, c.requestId) }
   @Get('board-bases') boardBases(@Req() req: Request) { const c = this.context(req); return this.supply.boardBases(c.tenantId, c.userId) }

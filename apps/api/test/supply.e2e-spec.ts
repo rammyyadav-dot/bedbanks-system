@@ -143,6 +143,7 @@ describe('Supply HTTP authorization boundaries', () => {
     return {
       get: (path: string) => configure(request(app.getHttpServer()).get(path)),
       post: (path: string) => configure(request(app.getHttpServer()).post(path)),
+      patch: (path: string) => configure(request(app.getHttpServer()).patch(path)),
     }
   }
 
@@ -162,6 +163,29 @@ describe('Supply HTTP authorization boundaries', () => {
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantAId } })).resolves.not.toBeNull()
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantBId } })).resolves.toBeNull()
     await prisma.hotel.delete({ where: { id: createdHotelId } })
+  })
+
+  it('certifies authoritative Room Master read, create, update, audit and tenant boundaries', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const list = await supply(cookie, tenantAId).get(`/api/v1/supply/hotels/${hotelAId}/rooms`).expect(200)
+    expect(list.body.data.map((room: { id: string }) => room.id)).toContain(roomAId)
+    await supply(cookie, tenantAId).get(`/api/v1/supply/hotels/${hotelAId}/rooms/${roomAId}`).expect(200)
+
+    const roomRequestId = `${suffix}-room-audit`
+    const created = await supply(cookie, tenantAId).post(`/api/v1/supply/hotels/${hotelAId}/rooms`).set('x-request-id', roomRequestId).send({ name: 'Executive King', code: `${suffix}-EXEC`, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, beddingMetadata: { description: 'King bed' } }).expect(201)
+    const createdId = created.body.data.id
+    await expect(prisma.roomType.findUnique({ where: { id: createdId } })).resolves.toMatchObject({ hotelId: hotelAId, maxOccupancy: 3 })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/hotels/${hotelAId}/rooms/${createdId}`).send({ maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: false }).expect(200)
+    await expect(prisma.roomType.findUnique({ where: { id: createdId } })).resolves.toMatchObject({ maxOccupancy: 2, isActive: false })
+    await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: createdId, action: 'supply.room.created' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId: roomRequestId } })
+
+    await supply(cookie, tenantAId).get(`/api/v1/supply/hotels/${hotelBId}/rooms`).expect(404)
+    await supply(cookie, tenantAId).get(`/api/v1/supply/hotels/${hotelBId}/rooms/${roomBId}`).expect(404)
+    const before = await prisma.roomType.count({ where: { hotelId: hotelBId } })
+    await supply(cookie, tenantAId).post(`/api/v1/supply/hotels/${hotelBId}/rooms`).send({ name: 'Blocked', code: `${suffix}-BLOCKED`, maxAdults: 2, maxOccupancy: 2 }).expect(404)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/hotels/${hotelBId}/rooms/${roomBId}`).send({ name: 'Blocked update' }).expect(404)
+    await expect(prisma.roomType.count({ where: { hotelId: hotelBId } })).resolves.toBe(before)
+    await prisma.roomType.delete({ where: { id: createdId } })
   })
 
   it('certifies HTTP RBAC for read, create, rate, and availability operations', async () => {
