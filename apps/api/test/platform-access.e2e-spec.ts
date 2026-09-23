@@ -28,7 +28,14 @@ describe('Platform access management (e2e)', () => {
     userId = user.id
     const target = await prisma.user.create({ data: { email: targetEmail, name: 'Platform Access Target', passwordHash: await hashPassword(password) }, select: { id: true } })
     targetUserId = target.id
-    await prisma.platformRole.create({ data: { id: roleId, name: `Platform Access E2E ${Date.now()}`, permissions: { create: [{ permissionId: 'platform.access.read' }, { permissionId: 'platform.access.manage' }] } } })
+    await prisma.platformRole.create({ data: { id: roleId, name: `Platform Access E2E ${Date.now()}`, permissions: { create: [
+        { permissionId: 'platform.access.read' },
+        { permissionId: 'platform.access.manage' },
+        { permissionId: 'platform.roles.read' },
+        { permissionId: 'platform.roles.manage' },
+        { permissionId: 'platform.assignments.read' },
+        { permissionId: 'platform.assignments.manage' },
+      ] } } })
     await prisma.platformRoleAssignment.create({ data: { userId, roleId } })
     const login = await request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email: operator, password })
     cookie = login.headers['set-cookie']?.[0]?.split(';')[0] ?? ''
