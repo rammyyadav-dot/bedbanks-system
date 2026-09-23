@@ -4,8 +4,10 @@ import { PrismaService } from '../database/prisma.service'
 const platformPermissions = [
   ['platform.tenants.read', 'Read the platform tenant directory.'],
   ['platform.tenants.access', 'Enter a tenant-scoped support context.'],
-  ['platform.access.read', 'Read platform roles, permissions, and assignments.'],
-  ['platform.access.manage', 'Manage platform roles, permissions, and assignments.'],
+  ['platform.roles.read', 'Read platform roles and permissions.'],
+  ['platform.roles.manage', 'Manage platform roles and permission bundles.'],
+  ['platform.assignments.read', 'Read platform role assignments.'],
+  ['platform.assignments.manage', 'Manage platform role assignments.'],
 ] as const
 
 @Injectable()
@@ -24,16 +26,27 @@ export class PlatformAccessService {
     return this.prisma.withPlatform(operatorUserId, (tx) => tx.platformRoleAssignment.findMany({ orderBy: { createdAt: 'desc' }, include: { role: true, user: { select: { id: true, email: true, name: true } } } }))
   }
 
-  async createRole(operatorUserId: string, input: { id: string; name: string; description?: string }) {
+  async createRole(operatorUserId: string, input: { id: string; name: string; description?: string }, requestId?: string) {
     if (!/^[a-z0-9._-]+$/.test(input.id) || !input.name.trim()) throw new BadRequestException('Invalid platform role')
     return this.prisma.withPlatform(operatorUserId, async (tx) => {
       const role = await tx.platformRole.create({ data: { id: input.id, name: input.name.trim(), description: input.description?.trim() || null } })
-      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.created', entityType: 'platform_role', entityId: role.id, payload: { outcome: 'allowed' } } })
+      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.created', entityType: 'platform_role', entityId: role.id, payload: { outcome: 'allowed', requestId: requestId ?? null } } })
       return role
     })
   }
 
-  async setRolePermissions(operatorUserId: string, roleId: string, permissionIds: string[]) {
+  async updateRole(operatorUserId: string, roleId: string, input: { id: string; name: string; description?: string }, requestId?: string) {
+    if (input.id !== roleId || !/^[a-z0-9._-]+$/.test(input.id) || !input.name.trim()) throw new BadRequestException('Invalid platform role')
+    return this.prisma.withPlatform(operatorUserId, async (tx) => {
+      const role = await tx.platformRole.findUnique({ where: { id: roleId } })
+      if (!role) throw new NotFoundException('Platform role not found')
+      const updated = await tx.platformRole.update({ where: { id: roleId }, data: { name: input.name.trim(), description: input.description?.trim() || null } })
+      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.updated', entityType: 'platform_role', entityId: roleId, payload: { outcome: 'allowed', requestId: requestId ?? null, before: { name: role.name, description: role.description }, after: { name: updated.name, description: updated.description } } } })
+      return updated
+    })
+  }
+
+  async setRolePermissions(operatorUserId: string, roleId: string, permissionIds: string[], requestId?: string) {
     return this.prisma.withPlatform(operatorUserId, async (tx) => {
       const role = await tx.platformRole.findUnique({ where: { id: roleId } })
       if (!role) throw new NotFoundException('Platform role not found')
@@ -41,27 +54,27 @@ export class PlatformAccessService {
       if (valid.length !== new Set(permissionIds).size) throw new BadRequestException('Unknown platform permission')
       await tx.platformRolePermission.deleteMany({ where: { roleId } })
       if (valid.length) await tx.platformRolePermission.createMany({ data: valid.map(({ id }) => ({ roleId, permissionId: id })) })
-      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.permissions.updated', entityType: 'platform_role', entityId: roleId, payload: { outcome: 'allowed', permissionIds: valid.map(({ id }) => id) } } })
+      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.permissions.updated', entityType: 'platform_role', entityId: roleId, payload: { outcome: 'allowed', permissionIds: valid.map(({ id }) => id), requestId: requestId ?? null } } })
       return tx.platformRole.findUnique({ where: { id: roleId }, include: { permissions: { include: { permission: true } } } })
     })
   }
 
-  async assignRole(operatorUserId: string, input: { userId: string; roleId: string }) {
+  async assignRole(operatorUserId: string, input: { userId: string; roleId: string }, requestId?: string) {
     if (operatorUserId === input.userId) throw new BadRequestException('Self-escalation is not permitted')
     return this.prisma.withPlatform(operatorUserId, async (tx) => {
       const [user, role] = await Promise.all([tx.user.findUnique({ where: { id: input.userId }, select: { id: true } }), tx.platformRole.findUnique({ where: { id: input.roleId }, select: { id: true } })])
       if (!user || !role) throw new NotFoundException('Platform user or role not found')
       const assignment = await tx.platformRoleAssignment.create({ data: { userId: input.userId, roleId: input.roleId } })
-      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.assigned', entityType: 'platform_role_assignment', entityId: `${input.userId}:${input.roleId}`, payload: { outcome: 'allowed', targetUserId: input.userId, roleId: input.roleId } } })
+      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.assigned', entityType: 'platform_role_assignment', entityId: `${input.userId}:${input.roleId}`, payload: { outcome: 'allowed', targetUserId: input.userId, roleId: input.roleId, requestId: requestId ?? null } } })
       return assignment
     })
   }
 
-  async revokeRole(operatorUserId: string, input: { userId: string; roleId: string }) {
+  async revokeRole(operatorUserId: string, input: { userId: string; roleId: string }, requestId?: string) {
     if (operatorUserId === input.userId) throw new BadRequestException('Self-revocation is not permitted')
     return this.prisma.withPlatform(operatorUserId, async (tx) => {
       await tx.platformRoleAssignment.delete({ where: { userId_roleId: input } })
-      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.revoked', entityType: 'platform_role_assignment', entityId: `${input.userId}:${input.roleId}`, payload: { outcome: 'allowed', targetUserId: input.userId, roleId: input.roleId } } })
+      await tx.auditEvent.create({ data: { tenantId: null, userId: operatorUserId, actorType: 'USER', action: 'platform.role.revoked', entityType: 'platform_role_assignment', entityId: `${input.userId}:${input.roleId}`, payload: { outcome: 'allowed', targetUserId: input.userId, roleId: input.roleId, requestId: requestId ?? null } } })
       return { revoked: true }
     })
   }

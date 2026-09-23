@@ -52,9 +52,17 @@ The first two historical SQL files contain immutable creation-time comments stat
 - It does not prove production `_prisma_migrations` history, backup restoration, data migration correctness or future accommodation/finance domain readiness.
 - Historical migrations are not modified by this certification work.
 
+## Persistent-environment release gate
+
+The exact migration under review is `202609230001_platform_role_management_permissions`. Disposable replay certification applies only to the tested commit and does not establish the state of production, staging, shared preview, shared development, or other persistent databases.
+
+For each persistent database, an authorized database owner must provide read-only `_prisma_migrations` evidence containing the migration name, checksum, `started_at`, `finished_at`, `applied_steps_count`, and `logs`, plus the owner, approved deployment sequence, backup/restore reference, verification queries, compatibility check, monitoring plan, abort criteria, and explicit approval decision. Connection strings and raw sensitive output must remain outside GitHub.
+
+A missing report is `NOT EXECUTED`, not PASS. A failed migration, missing row, divergent checksum, or divergent history is a release stop. Never edit historical migrations, use `migrate resolve`, reset, or guess a repair. Use the database owner's approved forward-only corrective path, or a verified restore when explicitly authorized.
+
 ## Release decision
 
-Production remains blocked when migration deployment, status, schema drift or PostgreSQL integration tests fail. Production deployment additionally requires database-owner confirmation of `_prisma_migrations` history.
+Production remains blocked when migration deployment, status, schema drift or PostgreSQL integration tests fail. Production deployment additionally requires database-owner confirmation of `_prisma_migrations` history for every persistent environment and explicit rollout approval. A green disposable replay does not satisfy this gate.
 
 ## Future migration checklist
 

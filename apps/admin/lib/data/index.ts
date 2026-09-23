@@ -23,8 +23,15 @@ export async function getTenants() { return mock.tenants; }
 export async function getTenant(id: string) { return mock.tenants.find((t) => t.id === id) ?? null; }
 export async function getUsers() { return mock.users; }
 export async function getUser(id: string) { return mock.users.find((u) => u.id === id) ?? null; }
-export async function getRoles() { return mock.roles; }
-export async function getRole(id: string) { return mock.roles.find((r) => r.id === id) ?? null; }
+export async function getRoles() { return apiRequest('/platform/access/roles'); }
+export async function getRole(id: string) { const roles = await getRoles() as Array<{ id: string }>; return roles.find((role) => role.id === id) ?? null; }
+export async function getPlatformPermissions() { return apiRequest('/platform/access/permissions'); }
+export async function getPlatformAssignments() { return apiRequest('/platform/access/assignments'); }
+export async function createPlatformRole(input: { id: string; name: string; description?: string }) { return apiRequest('/platform/access/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function updatePlatformRole(roleId: string, input: { id: string; name: string; description?: string }) { return apiRequest(`/platform/access/roles/${roleId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function setPlatformRolePermissions(roleId: string, permissionIds: string[]) { return apiRequest(`/platform/access/roles/${roleId}/permissions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permissionIds }) }); }
+export async function assignPlatformRole(input: { userId: string; roleId: string }) { return apiRequest('/platform/access/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function revokePlatformRole(userId: string, roleId: string) { return apiRequest(`/platform/access/assignments/${userId}/${roleId}`, { method: 'DELETE' }); }
 export async function getPermissionResources() { return mock.permissionResources; }
 export async function getAuditEvents() { return mock.auditEvents; }
 export async function getHotels() { return mock.hotels; }

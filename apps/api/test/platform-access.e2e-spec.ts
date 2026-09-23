@@ -28,7 +28,19 @@ describe('Platform access management (e2e)', () => {
     userId = user.id
     const target = await prisma.user.create({ data: { email: targetEmail, name: 'Platform Access Target', passwordHash: await hashPassword(password) }, select: { id: true } })
     targetUserId = target.id
-    await prisma.platformRole.create({ data: { id: roleId, name: `Platform Access E2E ${Date.now()}`, permissions: { create: [{ permissionId: 'platform.access.read' }, { permissionId: 'platform.access.manage' }] } } })
+    const permissionKeys = [
+      'platform.access.read',
+      'platform.access.manage',
+      'platform.roles.read',
+      'platform.roles.manage',
+      'platform.assignments.read',
+      'platform.assignments.manage',
+    ]
+    const permissions = await prisma.platformPermission.findMany({ where: { key: { in: permissionKeys } }, select: { id: true, key: true } })
+    const permissionIdsByKey = new Map(permissions.map((permission) => [permission.key, permission.id]))
+    const missingPermissionKeys = permissionKeys.filter((key) => !permissionIdsByKey.has(key))
+    if (missingPermissionKeys.length > 0) throw new Error(`Platform access E2E fixture is missing permissions: ${missingPermissionKeys.join(', ')}`)
+    await prisma.platformRole.create({ data: { id: roleId, name: `Platform Access E2E ${Date.now()}`, permissions: { create: permissionKeys.map((key) => ({ permissionId: permissionIdsByKey.get(key)! })) } } })
     await prisma.platformRoleAssignment.create({ data: { userId, roleId } })
     const login = await request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email: operator, password })
     cookie = login.headers['set-cookie']?.[0]?.split(';')[0] ?? ''
