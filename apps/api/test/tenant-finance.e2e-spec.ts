@@ -14,7 +14,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     await prisma.$executeRawUnsafe('DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'fbeds_rls_test\') THEN CREATE ROLE fbeds_rls_test NOLOGIN; END IF; END $$;')
     await prisma.$executeRawUnsafe('GRANT fbeds_rls_test TO CURRENT_USER')
     await prisma.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO fbeds_rls_test')
-    await prisma.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "memberships", "Role", "UserRole", "Booking", "Cancellation", "Wallet", "LedgerEntry", "AuditEvent", "Supplier", "Hotel", "RoomType", "BoardBasis", "SupplierHotelMapping", "Contract", "RatePlan", "CancellationPolicy", "ChildPolicy", "BookingLeadTimeRule", "DailyAvailability", "DailyRate", "ConnectorDefinition", "ConnectorCredentialReference", "ConnectorExecution", "InventoryUpdateEvent" TO fbeds_rls_test')
+    await prisma.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "memberships", "Role", "UserRole", "Booking", "Cancellation", "Wallet", "LedgerEntry", "AuditEvent", "Supplier", "Hotel", "RoomType", "BoardBasis", "SupplierHotelMapping", "SupplierRoomMapping", "Contract", "RatePlan", "CancellationPolicy", "ChildPolicy", "BookingLeadTimeRule", "DailyAvailability", "DailyRate", "ConnectorDefinition", "ConnectorCredentialReference", "ConnectorExecution", "InventoryUpdateEvent" TO fbeds_rls_test')
   })
 
   afterAll(async () => {
@@ -130,5 +130,82 @@ describe('tenant and finance PostgreSQL hardening', () => {
     expect(visible).toHaveLength(1)
     await expect(asTenant(a.tenant.id, (tx) => tx.supplier.create({ data: { tenantId: b.tenant.id, type: 'DMC', legalName: 'Blocked', displayName: 'Blocked', countryCode: 'AE', defaultCurrency: 'AED' } }))).rejects.toThrow()
     await expect(asTenant(b.tenant.id, (tx) => tx.supplier.findMany())).resolves.toHaveLength(0)
+  })
+
+  it('rejects hostile hotel/room mappings in PostgreSQL and enforces forced RLS', async () => {
+    const a = await createTenant(`${tenantA}-map`, `${userA}.map`)
+    const b = await createTenant(`${tenantB}-map`, `${userB}.map`)
+    const [sa, sb] = await Promise.all([a, b].map((t, i) => prisma.supplier.create({ data: { tenantId: t.tenant.id, type: 'DMC', legalName: `Mapping supplier ${i} ${suffix}`, displayName: 'Supplier', countryCode: 'AE', defaultCurrency: 'USD' } })))
+    const [ha, hb] = await Promise.all([a, b].map((t, i) => prisma.hotel.create({ data: { tenantId: t.tenant.id, name: `Mapping hotel ${i}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })))
+    const [ra, rb] = await Promise.all([ha, hb].map((h, i) => prisma.roomType.create({ data: { hotelId: h.id, name: `Mapping room ${i}`, code: `M${i}`, maxAdults: 2, maxOccupancy: 2 } })))
+    const ma = await prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: ha.id, supplierHotelId: `A-${suffix}` } })
+    const mb = await prisma.supplierHotelMapping.create({ data: { tenantId: b.tenant.id, supplierId: sb.id, hotelId: hb.id, supplierHotelId: `B-${suffix}` } })
+    const room = await prisma.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: `R-${suffix}`, roomTypeId: ra.id } })
+    const roomB = await prisma.supplierRoomMapping.create({ data: { tenantId: b.tenant.id, supplierHotelMappingId: mb.id, hotelId: hb.id, supplierRoomId: `RB-${suffix}`, roomTypeId: rb.id } })
+    // DB-01/02/05/06: inserts and updates cannot mix parent tenant identities.
+    await expect(prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sb.id, hotelId: ha.id, supplierHotelId: 'foreign' } })).rejects.toThrow()
+    await expect(prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: hb.id, supplierHotelId: 'foreign' } })).rejects.toThrow()
+    await expect(prisma.supplierHotelMapping.update({ where: { id: ma.id }, data: { supplierId: sb.id } })).rejects.toThrow()
+    await expect(prisma.supplierHotelMapping.update({ where: { id: ma.id }, data: { hotelId: hb.id } })).rejects.toThrow()
+    // DB-03/04/07: parent and RoomType hotel are both durable FKs.
+    await expect(prisma.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: mb.id, hotelId: hb.id, supplierRoomId: 'foreign', roomTypeId: rb.id } })).rejects.toThrow()
+    await expect(prisma.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: 'wrong-hotel', roomTypeId: rb.id } })).rejects.toThrow()
+    await expect(prisma.supplierRoomMapping.update({ where: { id: room.id }, data: { roomTypeId: rb.id } })).rejects.toThrow()
+    await expect(prisma.supplierRoomMapping.update({ where: { id: room.id }, data: { tenantId: b.tenant.id, supplierHotelMappingId: mb.id } })).rejects.toThrow()
+    // DB-12..20: DB CHECK and unique indexes, not DTOs, reject invalid identities.
+    await expect(prisma.$executeRaw`UPDATE "SupplierHotelMapping" SET "supplier_hotel_id" = '' WHERE "id" = ${ma.id}`).rejects.toThrow()
+    await expect(prisma.$executeRaw`UPDATE "SupplierHotelMapping" SET "supplier_hotel_id" = '  ' WHERE "id" = ${ma.id}`).rejects.toThrow()
+    await expect(prisma.$executeRaw`UPDATE "SupplierHotelMapping" SET "supplier_hotel_id" = NULL WHERE "id" = ${ma.id}`).rejects.toThrow()
+    await expect(prisma.$executeRaw`UPDATE "SupplierRoomMapping" SET "supplier_room_id" = '' WHERE "id" = ${room.id}`).rejects.toThrow()
+    await expect(prisma.$executeRaw`UPDATE "SupplierRoomMapping" SET "supplier_room_id" = '  ' WHERE "id" = ${room.id}`).rejects.toThrow()
+    await expect(prisma.$executeRaw`UPDATE "SupplierRoomMapping" SET "supplier_room_id" = NULL WHERE "id" = ${room.id}`).rejects.toThrow()
+    await expect(prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: ha.id, supplierHotelId: ma.supplierHotelId } })).rejects.toThrow()
+    await expect(prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: ha.id, supplierHotelId: 'different' } })).rejects.toThrow()
+    await expect(prisma.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: room.supplierRoomId, roomTypeId: ra.id } })).rejects.toThrow()
+    // DB-08..11/23/24: restricted role and absent tenant context fail closed.
+    expect(await asTenant(a.tenant.id, tx => tx.supplierHotelMapping.findMany())).toHaveLength(1)
+    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.findMany())).toHaveLength(1)
+    expect(await asTenant(b.tenant.id, tx => tx.supplierRoomMapping.findMany())).toMatchObject([{ id: roomB.id }])
+    expect(await prisma.$transaction(async tx => { await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test'); return tx.supplierHotelMapping.findMany() })).toHaveLength(0)
+    await expect(prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test')
+      return tx.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: 'no-context', roomTypeId: ra.id } })
+    })).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, tx => tx.supplierHotelMapping.create({ data: { tenantId: b.tenant.id, supplierId: sb.id, hotelId: hb.id, supplierHotelId: 'forged' } }))).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, tx => tx.supplierRoomMapping.create({ data: { tenantId: b.tenant.id, supplierHotelMappingId: mb.id, hotelId: hb.id, supplierRoomId: 'forged', roomTypeId: rb.id } }))).rejects.toThrow()
+    await expect(asTenant(a.tenant.id, tx => tx.supplierRoomMapping.updateMany({ where: { id: room.id }, data: { tenantId: b.tenant.id } }))).rejects.toThrow()
+    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.updateMany({ where: { id: roomB.id }, data: { status: 'MAPPED' } }))).toMatchObject({ count: 0 })
+    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.deleteMany({ where: { id: roomB.id } }))).toMatchObject({ count: 0 })
+    // DB-25/26: mapping and audit roll back in one transaction on failure.
+    await expect(prisma.$transaction(async tx => {
+      await tx.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: ha.id, supplierHotelId: 'duplicate-canonical' } })
+      await tx.auditEvent.create({ data: { tenantId: a.tenant.id, actorType: 'USER', action: 'test.invalid-hotel', entityType: 'mapping', entityId: suffix, payload: {} } })
+    })).rejects.toThrow()
+    await expect(prisma.auditEvent.count({ where: { action: 'test.invalid-hotel', entityId: suffix } })).resolves.toBe(0)
+    await expect(prisma.$transaction(async tx => {
+      await tx.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: room.supplierRoomId, roomTypeId: ra.id } })
+      await tx.auditEvent.create({ data: { tenantId: a.tenant.id, actorType: 'USER', action: 'test.invalid-room', entityType: 'mapping', entityId: suffix, payload: {} } })
+    })).rejects.toThrow()
+    await expect(prisma.auditEvent.count({ where: { action: 'test.invalid-room', entityId: suffix } })).resolves.toBe(0)
+    // A successful mapping insert must also roll back if its audit insert fails.
+    const rollbackHotel = await prisma.hotel.create({ data: { tenantId: a.tenant.id, name: 'Rollback hotel', propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })
+    await expect(prisma.$transaction(async tx => {
+      const created = await tx.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: rollbackHotel.id, supplierHotelId: `rollback-hotel-${suffix}` } })
+      await tx.auditEvent.create({ data: { tenantId: a.tenant.id, userId: 'missing-user', actorType: 'USER', action: 'test.rollback-hotel', entityType: 'mapping', entityId: created.id, payload: {} } })
+    })).rejects.toThrow()
+    expect(await prisma.supplierHotelMapping.count({ where: { supplierHotelId: `rollback-hotel-${suffix}` } })).toBe(0)
+    expect(await prisma.auditEvent.count({ where: { action: 'test.rollback-hotel' } })).toBe(0)
+    await expect(prisma.$transaction(async tx => {
+      const created = await tx.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: `rollback-room-${suffix}`, roomTypeId: ra.id } })
+      await tx.auditEvent.create({ data: { tenantId: a.tenant.id, userId: 'missing-user', actorType: 'USER', action: 'test.rollback-room', entityType: 'mapping', entityId: created.id, payload: {} } })
+    })).rejects.toThrow()
+    expect(await prisma.supplierRoomMapping.count({ where: { supplierRoomId: `rollback-room-${suffix}` } })).toBe(0)
+    expect(await prisma.auditEvent.count({ where: { action: 'test.rollback-room' } })).toBe(0)
+    // DB-21/22: unique indexes resolve concurrent duplicate insert races.
+    const anotherHotel = await prisma.hotel.create({ data: { tenantId: a.tenant.id, name: 'Concurrency hotel', propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })
+    const hotelAttempts = await Promise.allSettled([1, 2].map(() => prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: anotherHotel.id, supplierHotelId: `race-${suffix}` } })))
+    expect(hotelAttempts.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const roomAttempts = await Promise.allSettled([1, 2].map(() => prisma.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: `race-${suffix}`, roomTypeId: ra.id } })))
+    expect(roomAttempts.filter(result => result.status === 'fulfilled')).toHaveLength(1)
   })
 })

@@ -29,6 +29,7 @@ export const navSections: NavSection[] = [
     label: 'Suppliers',
     items: [
       { href: '/suppliers', label: 'Suppliers', icon: Truck },
+      { href: '/mappings', label: 'Mappings', icon: ShieldCheck },
       { href: '/contracts', label: 'Contracts', icon: ScrollText },
     ],
   },
