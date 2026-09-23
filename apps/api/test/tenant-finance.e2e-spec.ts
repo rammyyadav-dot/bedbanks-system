@@ -187,6 +187,20 @@ describe('tenant and finance PostgreSQL hardening', () => {
       await tx.auditEvent.create({ data: { tenantId: a.tenant.id, actorType: 'USER', action: 'test.invalid-room', entityType: 'mapping', entityId: suffix, payload: {} } })
     })).rejects.toThrow()
     await expect(prisma.auditEvent.count({ where: { action: 'test.invalid-room', entityId: suffix } })).resolves.toBe(0)
+    // A successful mapping insert must also roll back if its audit insert fails.
+    const rollbackHotel = await prisma.hotel.create({ data: { tenantId: a.tenant.id, name: 'Rollback hotel', propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })
+    await expect(prisma.$transaction(async tx => {
+      const created = await tx.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: rollbackHotel.id, supplierHotelId: `rollback-hotel-${suffix}` } })
+      await tx.auditEvent.create({ data: { tenantId: a.tenant.id, userId: 'missing-user', actorType: 'USER', action: 'test.rollback-hotel', entityType: 'mapping', entityId: created.id, payload: {} } })
+    })).rejects.toThrow()
+    expect(await prisma.supplierHotelMapping.count({ where: { supplierHotelId: `rollback-hotel-${suffix}` } })).toBe(0)
+    expect(await prisma.auditEvent.count({ where: { action: 'test.rollback-hotel' } })).toBe(0)
+    await expect(prisma.$transaction(async tx => {
+      const created = await tx.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: `rollback-room-${suffix}`, roomTypeId: ra.id } })
+      await tx.auditEvent.create({ data: { tenantId: a.tenant.id, userId: 'missing-user', actorType: 'USER', action: 'test.rollback-room', entityType: 'mapping', entityId: created.id, payload: {} } })
+    })).rejects.toThrow()
+    expect(await prisma.supplierRoomMapping.count({ where: { supplierRoomId: `rollback-room-${suffix}` } })).toBe(0)
+    expect(await prisma.auditEvent.count({ where: { action: 'test.rollback-room' } })).toBe(0)
     // DB-21/22: unique indexes resolve concurrent duplicate insert races.
     const anotherHotel = await prisma.hotel.create({ data: { tenantId: a.tenant.id, name: 'Concurrency hotel', propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })
     const hotelAttempts = await Promise.allSettled([1, 2].map(() => prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: anotherHotel.id, supplierHotelId: `race-${suffix}` } })))
