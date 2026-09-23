@@ -268,11 +268,11 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).patch(`${roomPath}/${roomMappingId}`).send({ status: 'MAPPED' }).expect(400)
     await supply(cookie, tenantAId).post(`${roomPath}/${roomMappingId}/approve`).expect(201)
     await supply(cookie, tenantAId).post(`${roomPath}/${roomMappingId}/reopen`).expect(201)
+    await supply(cookie, tenantAId).post(`${roomPath}/${roomMappingId}/reject`).expect(201)
+    await supply(cookie, tenantAId).post(`${roomPath}/${roomMappingId}/reopen`).expect(201)
     for (const action of ['approved', 'rejected', 'reopened']) {
       await expect(prisma.auditEvent.count({ where: { entityId: roomMappingId, action: `supply.room_mapping.${action}` } })).resolves.toBeGreaterThan(0)
     }
-    await supply(cookie, tenantAId).post(`${roomPath}/${roomMappingId}/reject`).expect(201)
-    await supply(cookie, tenantAId).post(`${roomPath}/${roomMappingId}/reopen`).expect(201)
     const audit = await prisma.auditEvent.findFirst({ where: { entityId: roomMappingId, action: 'supply.room_mapping.created' } })
     expect(audit?.payload).toMatchObject({ requestId, outcome: 'allowed', hotelId: hotelAId, roomTypeId: roomAId })
     await expect(prisma.auditEvent.findFirst({ where: { action: 'supply.room_mapping.created', entityId: other.id } })).resolves.toBeNull()
