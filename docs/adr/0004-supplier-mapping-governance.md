@@ -24,3 +24,7 @@ evidence. The SQL migration also fails before DDL when incompatible mapping
 rows exist. The migration cannot automatically repair data. Rollback is a
 controlled forward migration after reviewing mappings and dependents; do not
 drop the new table or constraints automatically in a live database.
+The preflight script rejects a session subject to RLS on the inspected tables:
+a tenant-scoped zero-row result would not certify all tenants. Its audit role
+must have complete read visibility but no write grants, approved by the
+database owner.

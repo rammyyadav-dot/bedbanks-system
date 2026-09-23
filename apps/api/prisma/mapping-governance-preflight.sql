@@ -1,6 +1,16 @@
 -- Run with approved read-only credentials in every environment containing
 -- SupplierHotelMapping data. Every count must equal zero before deployment.
 BEGIN READ ONLY;
+-- FORCE RLS can otherwise make a zero-row report falsely reassuring.
+-- Use a reviewed read-only audit role with complete mapping visibility;
+-- never treat a tenant-scoped session as a global preflight.
+DO $$ BEGIN
+  IF row_security_active('"SupplierHotelMapping"'::regclass)
+    OR row_security_active('"Supplier"'::regclass)
+    OR row_security_active('"Hotel"'::regclass) THEN
+    RAISE EXCEPTION 'Global mapping preflight requires a read-only role with complete RLS visibility';
+  END IF;
+END $$;
 SELECT 'supplier_tenant_mismatch' AS check_name, count(*) AS incompatible_rows FROM "SupplierHotelMapping" m JOIN "Supplier" s ON s.id = m.supplier_id WHERE m.tenant_id IS DISTINCT FROM s.tenant_id
 UNION ALL SELECT 'hotel_tenant_mismatch', count(*) FROM "SupplierHotelMapping" m JOIN "Hotel" h ON h.id = m.hotel_id WHERE m.tenant_id IS DISTINCT FROM h.tenant_id
 UNION ALL SELECT 'duplicate_external_identity', count(*) FROM (SELECT 1 FROM "SupplierHotelMapping" GROUP BY supplier_id, supplier_hotel_id HAVING count(*) > 1) t
