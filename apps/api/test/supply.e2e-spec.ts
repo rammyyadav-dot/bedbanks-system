@@ -226,12 +226,14 @@ describe('Supply HTTP authorization boundaries', () => {
   it('governs supplier hotel and room identities with tenant, status, and audit boundaries', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const other = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantBId, supplierId: supplierBId, hotelId: hotelBId, supplierHotelId: `${suffix}-B` } })
+    const otherRoom = await prisma.supplierRoomMapping.create({ data: { tenantId: tenantBId, supplierHotelMappingId: other.id, hotelId: hotelBId, supplierRoomId: `${suffix}-BR`, roomTypeId: roomBId } })
     const path = '/api/v1/supply/mappings/hotels'
     await request(app.getHttpServer()).get(path).expect(401)
     await supply(cookie, tenantBId).get(path).expect(403)
     const list = await supply(cookie, tenantAId).get(path).expect(200)
     expect(list.body.data.some((row: { id: string }) => row.id === other.id)).toBe(false)
     await supply(cookie, tenantAId).get(`${path}/${other.id}`).expect(404)
+    await supply(cookie, tenantAId).get(`${path}/${other.id}/rooms/${otherRoom.id}`).expect(404)
     const before = await prisma.supplierHotelMapping.count()
     await supply(cookie, tenantAId).post(path).send({ supplierId: supplierBId, hotelId: hotelAId, supplierHotelId: 'foreign' }).expect(400)
     await supply(cookie, tenantAId).post(path).send({ supplierId: supplierAId, hotelId: hotelBId, supplierHotelId: 'foreign' }).expect(400)
@@ -267,6 +269,7 @@ describe('Supply HTTP authorization boundaries', () => {
     expect(audit?.payload).toMatchObject({ requestId, outcome: 'allowed', hotelId: hotelAId, roomTypeId: roomAId })
     await expect(prisma.auditEvent.findFirst({ where: { action: 'supply.room_mapping.created', entityId: other.id } })).resolves.toBeNull()
     await prisma.supplierRoomMapping.delete({ where: { id: roomMappingId } })
+    await prisma.supplierRoomMapping.delete({ where: { id: otherRoom.id } })
     await prisma.supplierHotelMapping.deleteMany({ where: { id: { in: [mappingId, other.id] } } })
   })
 

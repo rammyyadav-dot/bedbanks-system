@@ -141,6 +141,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     const ma = await prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: ha.id, supplierHotelId: `A-${suffix}` } })
     const mb = await prisma.supplierHotelMapping.create({ data: { tenantId: b.tenant.id, supplierId: sb.id, hotelId: hb.id, supplierHotelId: `B-${suffix}` } })
     const room = await prisma.supplierRoomMapping.create({ data: { tenantId: a.tenant.id, supplierHotelMappingId: ma.id, hotelId: ha.id, supplierRoomId: `R-${suffix}`, roomTypeId: ra.id } })
+    const roomB = await prisma.supplierRoomMapping.create({ data: { tenantId: b.tenant.id, supplierHotelMappingId: mb.id, hotelId: hb.id, supplierRoomId: `RB-${suffix}`, roomTypeId: rb.id } })
     // DB-01/02/05/06: inserts and updates cannot mix parent tenant identities.
     await expect(prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sb.id, hotelId: ha.id, supplierHotelId: 'foreign' } })).rejects.toThrow()
     await expect(prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: hb.id, supplierHotelId: 'foreign' } })).rejects.toThrow()
@@ -164,7 +165,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     // DB-08..11/23/24: restricted role and absent tenant context fail closed.
     expect(await asTenant(a.tenant.id, tx => tx.supplierHotelMapping.findMany())).toHaveLength(1)
     expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.findMany())).toHaveLength(1)
-    expect(await asTenant(b.tenant.id, tx => tx.supplierRoomMapping.findMany())).toHaveLength(0)
+    expect(await asTenant(b.tenant.id, tx => tx.supplierRoomMapping.findMany())).toMatchObject([{ id: roomB.id }])
     expect(await prisma.$transaction(async tx => { await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test'); return tx.supplierHotelMapping.findMany() })).toHaveLength(0)
     await expect(prisma.$transaction(async tx => {
       await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test')
@@ -173,8 +174,8 @@ describe('tenant and finance PostgreSQL hardening', () => {
     await expect(asTenant(a.tenant.id, tx => tx.supplierHotelMapping.create({ data: { tenantId: b.tenant.id, supplierId: sb.id, hotelId: hb.id, supplierHotelId: 'forged' } }))).rejects.toThrow()
     await expect(asTenant(a.tenant.id, tx => tx.supplierRoomMapping.create({ data: { tenantId: b.tenant.id, supplierHotelMappingId: mb.id, hotelId: hb.id, supplierRoomId: 'forged', roomTypeId: rb.id } }))).rejects.toThrow()
     await expect(asTenant(a.tenant.id, tx => tx.supplierRoomMapping.updateMany({ where: { id: room.id }, data: { tenantId: b.tenant.id } }))).rejects.toThrow()
-    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.updateMany({ where: { id: 'invisible' }, data: { status: 'MAPPED' } }))).toMatchObject({ count: 0 })
-    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.deleteMany({ where: { id: mb.id } }))).toMatchObject({ count: 0 })
+    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.updateMany({ where: { id: roomB.id }, data: { status: 'MAPPED' } }))).toMatchObject({ count: 0 })
+    expect(await asTenant(a.tenant.id, tx => tx.supplierRoomMapping.deleteMany({ where: { id: roomB.id } }))).toMatchObject({ count: 0 })
     // DB-25/26: mapping and audit roll back in one transaction on failure.
     await expect(prisma.$transaction(async tx => {
       await tx.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: sa.id, hotelId: ha.id, supplierHotelId: 'duplicate-canonical' } })
