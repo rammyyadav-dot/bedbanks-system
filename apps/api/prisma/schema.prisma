@@ -383,6 +383,7 @@ model Supplier {
   inventoryEvents InventoryUpdateEvent[]
 
   @@unique([tenantId, legalName])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@index([tenantId, countryCode])
 }
@@ -410,6 +411,7 @@ model Hotel {
   mappings  SupplierHotelMapping[]
 
   @@unique([tenantId, externalRef])
+  @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
   @@index([tenantId, contentStatus])
 }
@@ -429,8 +431,10 @@ model RoomType {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   ratePlans RatePlan[]
+  supplierRoomMappings SupplierRoomMapping[]
 
   @@unique([hotelId, code])
+  @@unique([hotelId, id])
   @@index([hotelId, isActive])
 }
 
@@ -455,9 +459,9 @@ model SupplierHotelMapping {
   id               String        @id @default(cuid())
   tenantId         String        @map("tenant_id")
   supplierId       String        @map("supplier_id")
-  supplier         Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier         Supplier      @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Cascade)
   hotelId          String        @map("hotel_id")
-  hotel            Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  hotel            Hotel         @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Cascade)
   supplierHotelId  String        @map("supplier_hotel_id")
   status           MappingStatus @default(PENDING)
   confidence       Int?          @map("confidence")
@@ -466,11 +470,36 @@ model SupplierHotelMapping {
   updatedAt        DateTime      @updatedAt @map("updated_at")
 
   contracts Contract[]
+  roomMappings SupplierRoomMapping[]
 
   @@unique([supplierId, supplierHotelId])
   @@unique([supplierId, hotelId])
+  @@unique([tenantId, id, hotelId])
   @@index([tenantId, status])
   @@index([hotelId])
+}
+
+/// Supplier room identity is scoped by its parent mapping. hotelId is retained
+/// solely so PostgreSQL can enforce both the parent and RoomType hotel match.
+model SupplierRoomMapping {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierHotelMappingId String @map("supplier_hotel_mapping_id")
+  hotelId String @map("hotel_id")
+  supplierRoomId String @map("supplier_room_id")
+  roomTypeId String @map("room_type_id")
+  status MappingStatus @default(PENDING)
+  confidence Int? @map("confidence")
+  sourceMetadata Json @default("{}") @map("source_metadata")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplierHotelMapping SupplierHotelMapping @relation(fields: [tenantId, supplierHotelMappingId, hotelId], references: [tenantId, id, hotelId], onDelete: Cascade)
+  roomType RoomType @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+
+  @@unique([supplierHotelMappingId, supplierRoomId])
+  @@index([tenantId, status])
+  @@index([hotelId, roomTypeId])
 }
 
 model Contract {
