@@ -296,4 +296,18 @@ describe('Supply HTTP authorization boundaries', () => {
       for (const permissionId of [read.id, manage.id]) await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId, permissionId } }, update: {}, create: { roleId, permissionId } })
     }
   })
+
+  it('serializes concurrent governance decisions for one mapping', async () => {
+    const hotel = await prisma.hotel.create({ data: { tenantId: tenantAId, name: `${suffix} Decision hotel`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })
+    const mapping = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantAId, supplierId: supplierAId, hotelId: hotel.id, supplierHotelId: `${suffix}-decision` } })
+    const cookie = await login(`${suffix}-a@example.test`)
+    const results = await Promise.all([
+      supply(cookie, tenantAId).post(`/api/v1/supply/mappings/hotels/${mapping.id}/approve`),
+      supply(cookie, tenantAId).post(`/api/v1/supply/mappings/hotels/${mapping.id}/reject`),
+    ])
+    expect(results.map(result => result.status).sort()).toEqual([201, 400])
+    expect(await prisma.auditEvent.count({ where: { entityId: mapping.id, action: { in: ['supply.hotel_mapping.approved', 'supply.hotel_mapping.rejected'] } } })).toBe(1)
+    await prisma.supplierHotelMapping.delete({ where: { id: mapping.id } })
+    await prisma.hotel.delete({ where: { id: hotel.id } })
+  })
 })

@@ -144,6 +144,10 @@ export class MappingService {
   }
   async decide(tenantId: string, userId: string, kind: MappingKind, mappingId: string, decision: 'approve' | 'reject' | 'reopen', requestId?: string, parentId?: string) {
     return this.write(tenantId, userId, requestId, decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'reopened', kind, async tx => {
+      // Serialize parent decisions with room approvals. A room cannot become
+      // MAPPED while its Hotel mapping is concurrently reopened or rejected.
+      const lockedParentId = kind === 'hotel' ? mappingId : parentId!
+      await tx.$queryRaw`SELECT "id" FROM "SupplierHotelMapping" WHERE "id" = ${lockedParentId} AND "tenant_id" = ${tenantId} FOR UPDATE`
       const parent = kind === 'room' ? await this.parent(tx, tenantId, parentId!) : null
       const prior = kind === 'hotel'
         ? await this.parent(tx, tenantId, mappingId)
@@ -156,9 +160,13 @@ export class MappingService {
         if (approvedRooms) throw new BadRequestException('Reopen approved room mappings first')
       }
       const status: MappingStatus = decision === 'approve' ? 'MAPPED' : decision === 'reject' ? 'REJECTED' : 'PENDING'
+      const changed = kind === 'hotel'
+        ? await tx.supplierHotelMapping.updateMany({ where: { id: mappingId, tenantId, status: prior.status }, data: { status } })
+        : await tx.supplierRoomMapping.updateMany({ where: { id: mappingId, tenantId, supplierHotelMappingId: parentId, status: prior.status }, data: { status } })
+      if (changed.count !== 1) throw new BadRequestException('Mapping status changed; retry the decision')
       const value = kind === 'hotel'
-        ? await tx.supplierHotelMapping.update({ where: { id: mappingId }, data: { status } })
-        : await tx.supplierRoomMapping.update({ where: { id: mappingId }, data: { status } })
+        ? await tx.supplierHotelMapping.findUniqueOrThrow({ where: { id: mappingId } })
+        : await tx.supplierRoomMapping.findUniqueOrThrow({ where: { id: mappingId } })
       return { id: mappingId, value, payload: { supplierId: kind === 'hotel' ? (prior as { supplierId: string }).supplierId : parent!.supplierId,
         hotelId: prior.hotelId, supplierHotelId: kind === 'hotel' ? (prior as { supplierHotelId: string }).supplierHotelId : parent!.supplierHotelId,
         ...(kind === 'room' ? { supplierRoomId: (prior as { supplierRoomId: string }).supplierRoomId, roomTypeId: (prior as { roomTypeId: string }).roomTypeId } : {}),
