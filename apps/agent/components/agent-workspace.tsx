@@ -31,6 +31,6 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       {error && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>{error}</p></div>}
       {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking connection…' : providerStatus === 'available' ? 'Live supplier connected' : 'Not configured'}</strong></div><div><span>Finance status</span><strong>{finance?.availableCredit == null ? 'Not configured' : `Available credit ${finance.availableCredit}`}</strong></div></div>}
     </section>
-    {tenantId && !error && <AgentPortal identity={identity} />}
+    {tenantId && !error && <AgentPortal identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} />}
   </main>
 }
