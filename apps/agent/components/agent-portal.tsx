@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import { ApiHotelService } from '@/services/hotel-service'
-import type { HotelSearchResult } from '@/types/hotel'
 import { Bell, CalendarDays, CheckCircle2, ChevronDown, CircleHelp, FileText, LayoutDashboard, MapPin, Menu, Search, ShieldAlert, SlidersHorizontal, WalletCards, X } from 'lucide-react'
 import type { AgentIdentity } from '@/lib/api-client'
-import type { Hotel } from '@/types/hotel'
+import type { Hotel, HotelSearchResult } from '@/types/hotel'
 
 type View = 'dashboard' | 'search' | 'bookings' | 'wallet'
 
