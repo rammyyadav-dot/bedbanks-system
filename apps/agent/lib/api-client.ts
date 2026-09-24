@@ -1,9 +1,11 @@
+import { agentApiBase } from './api-config.mjs'
+
 export type AgentIdentity = {
   user: { id: string; email: string; name: string | null; status: 'ACTIVE' | 'SUSPENDED' }
   memberships: Array<{ tenantId: string; tenantName: string; role: string }>
 }
 
-const apiBase = process.env.NEXT_PUBLIC_AGENT_API_URL ?? 'http://localhost:3001/api/v1'
+const apiBase = agentApiBase
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } })

@@ -36,4 +36,5 @@ export type HotelSearchResult = {
   total: number
   isDemo: boolean
   source: 'mock' | 'api'
+  status: 'demo' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
 }

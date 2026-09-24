@@ -7,7 +7,7 @@ import { AgentAuditService } from './audit.service'
 import { CancellationDto, RateActionDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
-import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, priceRate, PERMISSIONS } from './supplier.port'
+import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
 import { TenantContextGuard } from './tenant-context.guard'
 import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
@@ -60,30 +60,26 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async recheck(@Body() body: RateActionDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    const rate = await this.supplier.recheck({ hotelId: body.hotelId, rateId: body.rateId, criteria: {} as HotelSearchCriteria })
-    const quote = priceRate(rate)
-    await this.audit.record({ tenantId, user: identity, action: 'rate.recheck', entityType: 'rate', entityId: body.rateId, payload: { quote } })
-    return { status: 'rechecked', ...quote, rate }
+    // A rateId plus display strings cannot prove the selected room, board,
+    // policy and amount belong to the same supplier offer.
+    await this.audit.record({ tenantId, user: identity, action: 'rate.recheck.unavailable', entityType: 'rate', entityId: body.rateId, payload: { reason: 'offer_contract_incomplete' } })
+    return { status: 'provider_unavailable', message: 'Authoritative rate recheck is unavailable.' }
   }
 
   @Post('prebook')
   @RequirePermission(PERMISSIONS.prebook)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async prebook(@Body() body: RateActionDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    const result = await this.supplier.prebook({ hotelId: body.hotelId, rateId: body.rateId, criteria: {} as HotelSearchCriteria, idempotencyKey: body.idempotencyKey })
-    await this.financeService.assertFunds(tenantId, result.rate.totalMinor)
-    await this.audit.record({ tenantId, user: identity, action: 'booking.prebook', entityType: 'rate', entityId: body.rateId, payload: { supplierReference: result.supplierReference } })
-    return { status: 'prebooked', supplier: this.supplier.name, ...result, quote: priceRate(result.rate) }
+    await this.audit.record({ tenantId, user: identity, action: 'booking.prebook.unavailable', entityType: 'rate', entityId: body.rateId, payload: { reason: 'transactional_gates_incomplete' } })
+    return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
   }
 
   @Post('bookings')
   @RequirePermission(PERMISSIONS.createBooking)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async createBooking(@Body() body: RateActionDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    const result = await this.supplier.prebook({ hotelId: body.hotelId, rateId: body.rateId, criteria: {} as HotelSearchCriteria, idempotencyKey: body.idempotencyKey })
-    await this.financeService.assertFunds(tenantId, result.rate.totalMinor)
-    await this.audit.record({ tenantId, user: identity, action: 'booking.create.requested', entityType: 'booking', entityId: body.idempotencyKey, payload: { hotelId: body.hotelId, rateId: body.rateId, totalMinor: result.rate.totalMinor } })
-    return { status: 'provider_unavailable', message: 'Booking persistence is ready, but no live supplier is configured.', supplier: this.supplier.name }
+    await this.audit.record({ tenantId, user: identity, action: 'booking.create.unavailable', entityType: 'booking', entityId: body.idempotencyKey, payload: { reason: 'transactional_gates_incomplete' } })
+    return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck, persistence and finance gates are certified.' }
   }
 
   @Delete('bookings/:id')
