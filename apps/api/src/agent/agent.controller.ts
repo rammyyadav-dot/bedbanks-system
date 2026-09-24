@@ -46,7 +46,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async searchStatus(@Body() criteria: SearchHotelsDto) {
     if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
-    return { status: this.supplier.name === 'unconfigured' ? 'provider_unavailable' : 'available' }
+    return { status: this.supplier.name === 'unconfigured' ? 'provider_unavailable' : 'not_checked' }
   }
 
   @Post('search')

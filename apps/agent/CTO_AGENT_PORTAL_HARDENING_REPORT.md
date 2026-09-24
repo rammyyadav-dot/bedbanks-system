@@ -27,7 +27,7 @@ The API distinguishes `available`, `no_availability`, `provider_unavailable` and
 ## Verification and migration impact
 
 - Local focused tests: `node --test packages/domain/src/search-offers.test.cjs apps/agent/services/hotel-service.test.mjs` — **16 passed**.
-- API contract and tenant guard tests must run in full-repository CI. Full pnpm validation and build are pending CI on this branch.
+- At commit `fa75cdc14413dc063bb43f2c9c249a329ef1d430`, GitHub CI #230 passed repository-wide type-check, lint, tests, build, schema integrity and disposable PostgreSQL migration/e2e certification. Contract checks #51 and tenant isolation checks #33 passed. The final status-label amendment requires its own CI rerun before review.
 - No Prisma schema or migration changes. No database was modified. The existing migration governance and empty PostgreSQL CI certification remain mandatory for release.
 
 ## Remaining work

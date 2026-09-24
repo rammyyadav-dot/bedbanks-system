@@ -22,7 +22,7 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
         if (!active) return
         setFinance(financeResult.status === 'fulfilled' ? financeResult.value : null)
         if (statusResult.status === 'fulfilled') {
-          setProviderStatus(statusResult.value.status === 'available' ? 'available' : 'unavailable')
+          setProviderStatus(statusResult.value.status === 'not_checked' ? 'idle' : 'unavailable')
         } else {
           setProviderStatus('unavailable')
           setError(statusResult.reason instanceof Error && statusResult.reason.message === 'Access denied'
@@ -41,7 +41,7 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       {identity.memberships.length > 1 && <p className="workspace-helper">Workspace access is verified server-side for every request. Switching workspace refreshes the active authorization context.</p>}
       <label className="workspace-select-label" htmlFor="active-workspace">Active workspace<select id="active-workspace" value={tenantId} onChange={(event) => setTenantId(event.target.value)} disabled={!identity.memberships.length}><option value="">Choose a workspace</option>{identity.memberships.map((membership) => <option key={membership.tenantId} value={membership.tenantId}>{membership.tenantName} · {membership.role}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></label>
       {error && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>{error}</p></div>}
-      {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking connection…' : providerStatus === 'available' ? 'Live supplier connected' : 'Not configured'}</strong></div><div><span>Finance status</span><strong>{finance?.availableCredit == null ? 'Not configured' : `Available credit ${finance.availableCredit}`}</strong></div></div>}
+      {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking access…' : providerStatus === 'idle' ? 'Not yet checked' : 'Unavailable'}</strong></div><div><span>Finance status</span><strong>{finance?.availableCredit == null ? 'Not configured' : `Available credit ${finance.availableCredit}`}</strong></div></div>}
     </section>
     {tenantId && !error && <AgentPortal key={tenantId} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} />}
   </main>
