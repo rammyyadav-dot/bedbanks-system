@@ -10,8 +10,7 @@ import type { SearchCriteria } from '@bedbanks/domain'
 import { ApiHotelService } from '@/services/hotel-service'
 import { Bell, CheckCircle2, CircleHelp, FileText, LayoutDashboard, Menu, Search, WalletCards, X } from 'lucide-react'
 import type { AgentIdentity } from '@/lib/api-client'
-import type { HotelSearchResult } from '@/types/hotel'
-import type { Hotel } from '@/types/hotel'
+import type { Hotel, HotelSearchResult } from '@/types/hotel'
 
 type View = 'dashboard' | 'search' | 'bookings' | 'wallet'
 
