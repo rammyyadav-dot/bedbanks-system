@@ -1,45 +1,35 @@
-# fBeds Agent Portal hardening report
+# fBeds Agent Portal — Canonical Search Offer Contract
 
-**Baseline:** `main` at `9fa568ce51968cd9c13c78e504da68f92515eb48` (PR #71 merged).  
-**Branch:** `feat/agent-portal-transactional-foundation`  
-**Date:** 2026-09-24  
-**Decision:** Booking stays disabled. This branch is an incremental safety change and is not a certification for production booking.
+**Base:** `main` at `6a0a27487468654e04f171f83ff425d9d158eb39` (PR #72 merged).  
+**Branch:** `feat/agent-canonical-search-offers`  
+**Release decision:** Agent search contract can be reviewed; booking remains disabled.
 
 ## Capability register
 
 | Capability | Classification | Evidence / next gate |
 |---|---|---|
-| Session authentication | REAL-NOW | Existing cookie based login, context and logout retained; full integration test pending. |
-| Workspace selection | REAL-NOW | Existing server TenantContextGuard checks authenticated membership and active tenant on each request; frontend remounts on tenant switch. Suspended membership behavior and end to end isolation still need certification. |
-| Finance summary | CORRECTLY-EMPTY-NOW | Existing endpoint retained; no fabricated balance; backend credit decision remains pending. |
-| Live search | BLOCKED-PENDING-SUPPLIER | Search calls `/agent/search` with tenant header. Current backend returns only hotel, rate ID, roomName, board and totalMinor; populated results are deliberately blocked from the UI until canonical mappings are available. |
-| Sample inventory | CORRECTLY-EMPTY-NOW | One demo dataset in the service, shown only when explicitly enabled outside production. Booking remains disabled. |
-| Room/rate/board integrity | BLOCKED-PENDING-BACKEND | Current supplier port lacks independent roomTypeId, ratePlanId, boardBasisId, supplier offer reference, cancellation policy and price breakdown. Display strings cannot provide safe joins. |
-| Rate recheck | BLOCKED-PENDING-SUPPLIER | Existing `/agent/rates/recheck` route now returns an honest unavailable response without invoking supplier recheck on an incomplete request. |
-| Prebook and confirmed booking | BLOCKED-PENDING-CERTIFICATION | Existing API routes now return booking_unavailable without calling supplier prebook. Need supplier, transactional persistence, recheck and finance gates. |
-| Booking review and voucher | BLOCKED-PENDING-BACKEND | No authoritative offer or confirmed booking exists from which to render them. |
-| Booking history | CORRECTLY-EMPTY-NOW | Samples are visible only in explicit nonproduction demo mode; otherwise an unavailable state. |
+| Session authentication | REAL-NOW | Existing cookie-based login/context/logout retained. |
+| Tenant selection | REAL-NOW | Existing membership guard and RBAC remain on search; tenant header requests context only. Existing cross-tenant and suspended-tenant guard tests retained. |
+| Canonical search contract | REAL-NOW | Version 1 nested hotel → room → rate shape in `@bedbanks/domain`; supplier/API and API/browser boundaries use the same runtime validator. Valid mapped adapter offers can render live without frontend joins. |
+| Live supplier inventory | BLOCKED-PENDING-SUPPLIER | The only registered adapter is unconfigured. It returns `provider_unavailable` and no offers. A real adapter must supply independent IDs and authoritative prices. |
+| Demo inventory | CORRECTLY-EMPTY-NOW | Explicit nonproduction switch only, separate sample type and display. Never used on production API failure. |
+| Rate selection | REAL-NOW | Valid, unexpired offers can be selected with their room, supplier reference/token, search context, board, policy and total retained in memory; no recheck or booking transition is enabled. |
+| Rate recheck | BLOCKED-PENDING-SUPPLIER | Route remains unavailable; requires real offer-token lookup and authoritative changed/expired/unavailable states. |
+| Finance credit decision | BLOCKED-PENDING-BACKEND | Summary read path retained; backend booking eligibility decision is not implemented. |
+| Prebook, booking, voucher and booking history | BLOCKED-PENDING-CERTIFICATION | API prebook/booking paths remain unavailable, no supplier call or booking persistence is attempted. |
 
-## Changes and boundaries
+## Contract and rejection rules
 
-- The public API base URL has one variable, `NEXT_PUBLIC_AGENT_API_URL`, shared by auth and search. `NEXT_PUBLIC_ENABLE_DEMO_INVENTORY` defaults to false. Production ignores the demo switch.
-- The portal no longer owns a hotel inventory array. The search service owns sample inventory and returns typed demo, empty, unavailable, mapping, authentication or access states. Network and HTTP failures cannot become demo offers.
-- The backend still does **not** return a complete canonical room/rate/meal plan contract. The UI does not convert incomplete supplier payloads into bookable offers or calculate an authoritative total.
-- The API keeps tenant and RBAC guards on search, recheck, prebook and booking routes. It derives authorization from authenticated membership; the header requests a tenant context. No migration was made.
-- The sample room/card remains presentation only. Its amount is illustrative and cannot authorize a booking. Search occupancy is fixed at one room and two adults until a validated request form is built.
-- The existing monolithic component is still broad; domain component decomposition, review UI, booking events and operational instrumentation remain work.
+`SearchHotelOffer.rooms[].rates[]` carries hotel, room, rate plan, board basis, supplier hotel/room/rate IDs, optional opaque offer token, expiration, occupancy, availability, cancellation terms and `Money { amountMinor, currency }`. The validator checks IDs and parent references, distinct offers, exact request occupancy/currency, safe integer minor units, valid dates and unexpired offers. It strips unknown fields and rejects an entire malformed supplier response as `mapping_unavailable`, exposing no supplier credentials. It does not derive room, board, policy or price from display strings. The Agent validates the version and echoed search context before rendering. Its money formatter changes only presentation, using integer minor units.
 
-## Verification
+The API distinguishes `available`, `no_availability`, `provider_unavailable` and `mapping_unavailable`. Authentication and access errors remain 401/403 at the HTTP boundary. The form submits visible destination, dates, room count, adult count and child ages; nationality IN and currency AED are displayed as fixed parameters. The demo dataset remains separate from live offers.
 
-- `node --test apps/agent/services/hotel-service.test.mjs`: **4 passed** (explicit demo, production failure, incomplete mapping, authorization denial).
-- `pnpm --filter @bedbanks/agent-portal type-check`, `lint`, `build`: attempted in a partial connector checkout; pnpm printed `No projects found`. These are **not passes**.
-- Full API/domain tests, auth and tenant integration tests, and Next build are **not run** in this environment. CI must execute these on the complete repository.
-- The baseline did not have a local clone or installed dependencies, so baseline checks were also **not verified**. Node v24.19.0 and local pnpm 11.19.0 were observed; repo CI pins its own toolchain.
+## Verification and migration impact
 
-## Release gates
+- Local focused tests: `node --test packages/domain/src/search-offers.test.cjs apps/agent/services/hotel-service.test.mjs` — **16 passed**.
+- At commit `fa75cdc14413dc063bb43f2c9c249a329ef1d430`, GitHub CI #230 passed repository-wide type-check, lint, tests, build, schema integrity and disposable PostgreSQL migration/e2e certification. Contract checks #51 and tenant isolation checks #33 passed. The final status-label amendment requires its own CI rerun before review.
+- No Prisma schema or migration changes. No database was modified. The existing migration governance and empty PostgreSQL CI certification remain mandatory for release.
 
-1. Run pnpm install and Agent type-check, lint, test and build on the complete repository; run API/domain tests and inspect CI.
-2. Add canonical independently keyed hotel, room, rate plan, board basis, supplier offer and integer minor unit price contracts in the shared domain, with runtime validation.
-3. Implement genuine supplier recheck using an authenticated tenant, search context, offer token, expiration and authoritative total; test unchanged, changed, expired and unavailable rates.
-4. Implement a backend authoritative credit decision and transactional booking persistence with idempotency and confirmation/voucher chain; certify migrations before any schema change.
-5. Finish UI component decomposition, validated occupancy and date controls, review flow, auth/tenancy integration tests, and safe observability.
+## Remaining work
+
+Connect a real supplier adapter that emits canonical IDs without guessing; implement authenticated rate recheck using its opaque token and exact search context; add a backend-authoritative finance decision; certify transactional persistence/idempotency and confirmation/voucher delivery. The current PR does not activate any of these capabilities.

@@ -3,12 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./search-offers": {
+      "types": "./src/search-offers.d.cts",
+      "require": "./src/search-offers.cjs",
+      "default": "./src/search-offers.cjs"
+    }
+  },
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test": "node --test",
     "build": "tsc"
   },
-  "devDependencies": { "typescript": "^5.7.3" }
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@bedbanks/money": "workspace:*"
+  }
 }

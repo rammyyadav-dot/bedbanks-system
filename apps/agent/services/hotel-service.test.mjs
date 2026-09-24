@@ -6,6 +6,17 @@ const criteria = {
   destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED',
 }
+const hotel = {
+  hotelId: 'h1', name: 'Hotel', destination: 'Dubai', supplierId: 's1', supplierHotelId: 'sh1',
+  rooms: [{ roomTypeId: 'r1', name: 'King', supplierRoomId: 'sr1', rates: [{
+    offerId: 'o1', hotelId: 'h1', roomTypeId: 'r1', supplierId: 's1', supplierRoomId: 'sr1',
+    ratePlanId: 'p1', ratePlanName: 'Flexible', boardBasisId: 'b1', boardBasisName: 'Breakfast',
+    supplierRateId: 'sp1', expiresAt: '2099-01-01T00:00:00Z',
+    occupancy: { rooms: 1, adults: 2, children: 0, childAges: [] },
+    cancellation: { refundable: true, summary: 'Free until deadline' }, availability: 'available',
+    total: { amountMinor: 125099, currency: 'AED' },
+  }] }],
+}
 const originalFetch = globalThis.fetch
 const originalDemo = process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY
 const originalNodeEnv = process.env.NODE_ENV
@@ -16,45 +27,54 @@ afterEach(() => {
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = originalNodeEnv
 })
-
-test('explicit development demo is labelled and filtered without network', async () => {
+test('explicit nonproduction demo is labelled', async () => {
   process.env.NODE_ENV = 'development'
   process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
-  globalThis.fetch = () => { throw new Error('demo must not call API') }
+  globalThis.fetch = () => { throw Error('demo must not call API') }
   const result = await new ApiHotelService().search({ ...criteria, destination: 'Palace' }, 'tenant-a')
   assert.equal(result.status, 'demo')
-  assert.equal(result.isDemo, true)
   assert.equal(result.hotels.length, 1)
+  assert.deepEqual(result.liveHotels, [])
 })
-
-test('production never serves demo on supplier failure', async () => {
+test('live canonical offer retains nested authoritative total', async () => {
   process.env.NODE_ENV = 'production'
   process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
-  globalThis.fetch = async () => { throw new Error('offline') }
-  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
-  assert.deepEqual(result.hotels, [])
-  assert.equal(result.status, 'provider_unavailable')
-})
-
-test('search passes tenant context but blocks structurally incomplete supplier offers', async () => {
-  process.env.NODE_ENV = 'production'
-  process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'false'
   globalThis.fetch = async (url, init) => {
     assert.equal(url, 'https://example.invalid/agent/search')
     assert.equal(init.headers['x-fbeds-tenant-id'], 'tenant-a')
     assert.equal(init.credentials, 'include')
-    return new Response(JSON.stringify({ data: { hotels: [{ hotelId: 'h1', rates: [{ rateId: 'r1', roomName: 'King', board: 'BB' }] }] } }), { status: 200 })
+    return new Response(JSON.stringify({ data: { version: 1, status: 'available',
+      request: criteria, hotels: [hotel], total: 1 } }), { status: 200 })
   }
   const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+  assert.equal(result.status, 'available')
+  assert.deepEqual(result.hotels, [])
+  assert.equal(result.liveHotels[0].rooms[0].rates[0].total.amountMinor, 125099)
+  assert.equal(result.liveHotels[0].rooms[0].rates[0].boardBasisId, 'b1')
+})
+test('missing room mapping cannot be displayed live', async () => {
+  process.env.NODE_ENV = 'production'
+  const malformed = structuredClone(hotel)
+  delete malformed.rooms[0].rates[0].roomTypeId
+  globalThis.fetch = async () => new Response(JSON.stringify({ version: 1, status: 'available',
+    request: criteria, hotels: [malformed], total: 1 }), { status: 200 })
+  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
   assert.equal(result.status, 'mapping_unavailable')
+  assert.deepEqual(result.liveHotels, [])
+})
+test('production failure never becomes demo availability', async () => {
+  process.env.NODE_ENV = 'production'
+  process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
+  globalThis.fetch = async () => { throw Error('offline') }
+  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+  assert.equal(result.status, 'provider_unavailable')
   assert.deepEqual(result.hotels, [])
 })
-
-test('authorization failures never become sample inventory', async () => {
+test('empty and forbidden responses are distinct', async () => {
   process.env.NODE_ENV = 'production'
-  process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'false'
+  globalThis.fetch = async () => new Response(JSON.stringify({ version: 1, status: 'no_availability',
+    request: criteria, hotels: [], total: 0 }), { status: 200 })
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'empty')
   globalThis.fetch = async () => new Response(null, { status: 403 })
-  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-b')
-  assert.equal(result.status, 'access_denied')
-  assert.equal(result.total, 0)
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-b')).status, 'access_denied')
 })

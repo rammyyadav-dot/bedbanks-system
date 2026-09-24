@@ -1,48 +1,24 @@
-export interface HotelSearchCriteria {
-  destination: string
-  checkIn: string
-  checkOut: string
-  rooms: number
-  adults: number
-  children: number
-  nationality: string
-  currency: string
-}
+import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbanks/domain'
 
-export interface HotelRate {
-  rateId: string
-  roomName: string
-  board: string
-  currency: string
-  totalMinor: number
-  cancellationDeadline?: string
-  refundable: boolean
-}
-
-export interface HotelAvailability {
-  hotelId: string
-  name: string
-  destination: string
-  rates: HotelRate[]
-  supplier: string
-}
-
-export interface RecheckRequest { hotelId: string; rateId: string; criteria: HotelSearchCriteria }
+export type HotelSearchCriteria = SearchCriteria
+export type HotelAvailability = SearchHotelOffer
+export interface RecheckRequest { offerId: string; criteria: SearchCriteria; supplierOfferToken: string }
 export interface PrebookRequest extends RecheckRequest { idempotencyKey: string }
 export interface SupplierAdapter {
   readonly name: string
-  search(criteria: HotelSearchCriteria): Promise<HotelAvailability[]>
-  recheck(request: RecheckRequest): Promise<HotelRate>
-  prebook(request: PrebookRequest): Promise<{ supplierReference: string; rate: HotelRate }>
+  /** Return canonical offers with independently keyed relationships; never synthesize IDs from labels. */
+  search(criteria: SearchCriteria): Promise<SearchHotelOffer[]>
+  recheck(request: RecheckRequest): Promise<SearchRateOffer>
+  prebook(request: PrebookRequest): Promise<{ supplierReference: string; rate: SearchRateOffer }>
   cancel(supplierReference: string): Promise<{ refundMinor: number }>
 }
 
 /** No credentials means the API stays honest instead of returning fake inventory. */
 export class UnconfiguredSupplierAdapter implements SupplierAdapter {
   readonly name = 'unconfigured'
-  async search(): Promise<HotelAvailability[]> { return [] }
-  async recheck(): Promise<HotelRate> { throw new Error('No supplier adapter configured') }
-  async prebook(): Promise<{ supplierReference: string; rate: HotelRate }> { throw new Error('No supplier adapter configured') }
+  async search(): Promise<SearchHotelOffer[]> { return [] }
+  async recheck(): Promise<SearchRateOffer> { throw new Error('No supplier adapter configured') }
+  async prebook(): Promise<{ supplierReference: string; rate: SearchRateOffer }> { throw new Error('No supplier adapter configured') }
   async cancel(): Promise<{ refundMinor: number }> { throw new Error('No supplier adapter configured') }
 }
 
@@ -55,8 +31,3 @@ export const PERMISSIONS = {
   viewFinance: 'finance.read',
 } as const
 export type AgentPermission = typeof PERMISSIONS[keyof typeof PERMISSIONS]
-
-export interface AgentPricingQuote { currency: string; subtotalMinor: number; markupMinor: number; totalMinor: number }
-export function priceRate(rate: HotelRate, markupMinor = 0): AgentPricingQuote {
-  return { currency: rate.currency, subtotalMinor: rate.totalMinor, markupMinor, totalMinor: rate.totalMinor + markupMinor }
-}

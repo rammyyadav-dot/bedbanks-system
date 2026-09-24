@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Inject, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Inject, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
@@ -9,8 +9,9 @@ import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
 import { TenantContextGuard } from './tenant-context.guard'
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
+import { validSearchCriteria, validateSearchHotels } from '@bedbanks/domain/search-offers'
 
 class SearchHotelsDto implements HotelSearchCriteria {
   @IsString() destination!: string
@@ -19,6 +20,7 @@ class SearchHotelsDto implements HotelSearchCriteria {
   @IsInt() @Min(1) rooms!: number
   @IsInt() @Min(1) adults!: number
   @IsInt() @Min(0) children!: number
+  @IsArray() @IsInt({ each: true }) @Min(0, { each: true }) @Max(17, { each: true }) childAges!: number[]
   @IsString() nationality!: string
   @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
 }
@@ -43,17 +45,39 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async searchStatus(@Body() criteria: SearchHotelsDto) {
-    const hotels = await this.supplier.search({ ...criteria, currency: criteria.currency ?? 'USD' })
-    return { status: hotels.length ? 'available' as const : 'provider_unavailable' as const, supplier: this.supplier.name }
+    if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
+    return { status: this.supplier.name === 'unconfigured' ? 'provider_unavailable' : 'not_checked' }
   }
 
   @Post('search')
+  @ApiOperation({ summary: 'Version 1 canonical hotel, room and rate offers; booking stays unavailable' })
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Headers('x-fbeds-tenant-id') tenantId: string) {
-    const hotels = await this.supplier.search({ ...criteria, currency: criteria.currency ?? 'USD' })
-    await this.audit.record({ tenantId, user: identity, action: 'hotel.search', entityType: 'search', entityId: tenantId, payload: { destination: criteria.destination, supplier: this.supplier.name, resultCount: hotels.length } })
-    return { request: { ...criteria, currency: criteria.currency ?? 'USD' }, tenantId, status: hotels.length ? 'available' : 'provider_unavailable', hotels, total: hotels.length, supplier: this.supplier.name }
+    if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
+    const request = {
+      destination: criteria.destination, checkIn: criteria.checkIn, checkOut: criteria.checkOut,
+      rooms: criteria.rooms, adults: criteria.adults, children: criteria.children,
+      childAges: criteria.childAges, nationality: criteria.nationality, currency: criteria.currency,
+    }
+    if (this.supplier.name === 'unconfigured')
+      return { version: 1, request, status: 'provider_unavailable', hotels: [], total: 0 }
+    let raw: unknown
+    try {
+      raw = await this.supplier.search(request)
+    } catch {
+      return { version: 1, request, status: 'provider_unavailable', hotels: [], total: 0 }
+    }
+    const result = validateSearchHotels(raw, request)
+    if (!result.ok) {
+      await this.audit.record({ tenantId, user: identity, action: 'hotel.search.mapping_unavailable',
+        entityType: 'search', entityId: tenantId, payload: { destination: criteria.destination } })
+      return { version: 1, request, status: 'mapping_unavailable', hotels: [], total: 0 }
+    }
+    await this.audit.record({ tenantId, user: identity, action: 'hotel.search', entityType: 'search', entityId: tenantId,
+      payload: { destination: criteria.destination, supplier: this.supplier.name, resultCount: result.hotels.length } })
+    return { version: 1, request, status: result.hotels.length ? 'available' : 'no_availability',
+      hotels: result.hotels, total: result.hotels.length }
   }
 
   @Post('rates/recheck')
