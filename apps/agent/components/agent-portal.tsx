@@ -110,7 +110,7 @@ function SearchView({
 function formatTotal(total: SearchRateOffer['total']) {
   // Format the supplied minor-unit amount without changing the commercial total.
   const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: total.currency })
-  const digits = formatter.resolvedOptions().maximumFractionDigits
+  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2
   const scale = BigInt(10 ** digits)
   const amount = BigInt(total.amountMinor)
   const whole = new Intl.NumberFormat('en-US').format(amount / scale)
