@@ -27,9 +27,13 @@ The API distinguishes `available`, `no_availability`, `provider_unavailable` and
 ## Verification and migration impact
 
 - Local focused tests: `node --test packages/domain/src/search-offers.test.cjs apps/agent/services/hotel-service.test.mjs` — **16 passed**.
-- At commit `fa75cdc14413dc063bb43f2c9c249a329ef1d430`, GitHub CI #230 passed repository-wide type-check, lint, tests, build, schema integrity and disposable PostgreSQL migration/e2e certification. Contract checks #51 and tenant isolation checks #33 passed. The final status-label amendment requires its own CI rerun before review.
+- At commit `fa75cdc14413dc063bb43f2c9c249a329ef1d430`, GitHub CI #230 passed repository-wide type-check, lint, tests, build, schema integrity and disposable PostgreSQL migration/e2e certification. Contract checks #51 and tenant isolation checks #33 passed. The final status-label amendment passed CI #232; contract checks #52 and tenant isolation checks #34 also passed, and PR #73 merged into `main` at `b39f6b047bd717d0e8741ccbd1bd6f6a00009966`.
 - No Prisma schema or migration changes. No database was modified. The existing migration governance and empty PostgreSQL CI certification remain mandatory for release.
 
 ## Remaining work
 
 Connect a real supplier adapter that emits canonical IDs without guessing; implement authenticated rate recheck using its opaque token and exact search context; add a backend-authoritative finance decision; certify transactional persistence/idempotency and confirmation/voucher delivery. The current PR does not activate any of these capabilities.
+
+## Portal follow-up from merged baseline
+
+The workspace shell now delegates hotel search, dashboard, bookings and finance to domain components. The dashboard opens the real search form instead of displaying fixed destination, date and guest fields that could not affect a request. Statement export is visibly unavailable while ledger detail is disconnected; KPI footers no longer suggest a comparison that is not provided. The selected rate view reevaluates expiration while open and stops displaying an expired offer as current. The selected canonical offer and its search context remain in memory for a future supplier recheck; no recheck, prebook, booking or credit decision is invoked. These UI changes require no Prisma schema or migration. Live supplier offers and authoritative recheck remain `BLOCKED-PENDING-SUPPLIER`; ledger details and backend finance decision remain `BLOCKED-PENDING-BACKEND`; booking remains `BLOCKED-PENDING-CERTIFICATION`.
