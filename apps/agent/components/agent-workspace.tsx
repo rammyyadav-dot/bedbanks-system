@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown, ShieldAlert } from 'lucide-react'
 import { AgentSignOut } from './agent-auth-gate'
+import { AgentPortal } from './agent-portal'
 import { getFinanceSummary, getSearchStatus, type AgentIdentity } from '@/lib/api-client'
 
 export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
@@ -30,6 +31,6 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       {error && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>{error}</p></div>}
       {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking connection…' : providerStatus === 'available' ? 'Live supplier connected' : 'Not configured'}</strong></div><div><span>Finance status</span><strong>{finance?.availableCredit == null ? 'Not configured' : `Available credit ${finance.availableCredit}`}</strong></div></div>}
     </section>
-    {tenantId && !error && providerStatus === 'unavailable' && <section className="supplier-unavailable" aria-labelledby="supplier-status-title"><AlertTriangle size={22} aria-hidden="true" /><div><span className="workspace-eyebrow">LIVE INVENTORY STATUS</span><h2 id="supplier-status-title">Live hotel inventory is not yet connected for this workspace.</h2><p>Rates, availability and booking confirmation are unavailable until supplier connectivity is activated. No demo inventory is shown here.</p></div></section>}
+    {tenantId && !error && <AgentPortal identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} />}
   </main>
 }
