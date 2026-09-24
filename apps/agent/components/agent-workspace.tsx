@@ -16,9 +16,21 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
     if (!tenantId) { setFinance(null); setProviderStatus('idle'); return }
     setProviderStatus('checking')
     setError('')
-    Promise.all([getFinanceSummary(tenantId), getSearchStatus(tenantId)])
-      .then(([financeSummary, status]) => { setFinance(financeSummary); setProviderStatus(status.status === 'available' ? 'available' : 'unavailable') })
-      .catch((requestError: Error) => { setFinance(null); setProviderStatus('unavailable'); setError(requestError.message === 'Access denied' ? 'You no longer have access to this workspace. Select another workspace or sign in again.' : 'We could not load this workspace. Please try again.') })
+    let active = true
+    Promise.allSettled([getFinanceSummary(tenantId), getSearchStatus(tenantId)])
+      .then(([financeResult, statusResult]) => {
+        if (!active) return
+        setFinance(financeResult.status === 'fulfilled' ? financeResult.value : null)
+        if (statusResult.status === 'fulfilled') {
+          setProviderStatus(statusResult.value.status === 'available' ? 'available' : 'unavailable')
+        } else {
+          setProviderStatus('unavailable')
+          setError(statusResult.reason instanceof Error && statusResult.reason.message === 'Access denied'
+            ? 'You no longer have access to this workspace. Select another workspace or sign in again.'
+            : 'We could not verify access to this workspace. Please try again.')
+        }
+      })
+    return () => { active = false }
   }, [tenantId])
 
   return <main className="workspace-page">

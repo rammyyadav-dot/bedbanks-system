@@ -1,3 +1,6 @@
+import type { SearchCriteria, SearchHotelOffer } from '@bedbanks/domain'
+
+/** Presentation-only demo hotel. Live search uses the canonical shared offer contract. */
 export type Hotel = {
   id: string
   name: string
@@ -19,22 +22,13 @@ export type Hotel = {
   availabilityStatus?: 'available' | 'limited' | 'sold-out'
 }
 
-export type HotelSearchCriteria = {
-  destination: string
-  checkIn: string
-  checkOut: string
-  rooms: number
-  adults: number
-  children: number
-  childAges: number[]
-  nationality: string
-  currency: string
-}
-
+export type HotelSearchCriteria = SearchCriteria
 export type HotelSearchResult = {
   hotels: Hotel[]
+  liveHotels: SearchHotelOffer[]
   total: number
   isDemo: boolean
   source: 'mock' | 'api'
-  status: 'demo' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
+  status: 'demo' | 'available' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
+  request: SearchCriteria
 }

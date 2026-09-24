@@ -1,5 +1,6 @@
 import type { Hotel, HotelSearchCriteria, HotelSearchResult } from '../types/hotel.ts'
 import { agentApiBase } from '../lib/api-config.mjs'
+import { validSearchCriteria, validateAgentSearchResponse } from '@bedbanks/domain/search-offers'
 
 // Sample inventory is isolated here. It is never a response to a failed live request.
 export const DEMO_HOTELS: Hotel[] = [
@@ -18,14 +19,16 @@ export class ApiHotelService implements HotelService {
   constructor(baseUrl = agentApiBase) { this.baseUrl = baseUrl }
 
   async search(criteria: HotelSearchCriteria, tenantId: string): Promise<HotelSearchResult> {
+    const empty = (status: HotelSearchResult['status']): HotelSearchResult =>
+      ({ hotels: [], liveHotels: [], total: 0, isDemo: false, source: 'api', status, request: criteria })
+    if (!validSearchCriteria(criteria)) return empty('mapping_unavailable')
     if (process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY === 'true' && process.env.NODE_ENV !== 'production') {
       const hotels = DEMO_HOTELS.filter((hotel) =>
         !criteria.destination || `${hotel.name} ${hotel.city}`.toLowerCase().includes(criteria.destination.toLowerCase()),
       )
-      return { hotels, total: hotels.length, isDemo: true, source: 'mock', status: 'demo' }
+      return { hotels, liveHotels: [], total: hotels.length, isDemo: true, source: 'mock', status: 'demo', request: criteria }
     }
-
-    if (!this.baseUrl) return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'provider_unavailable' }
+    if (!this.baseUrl) return empty('provider_unavailable')
     try {
       const response = await fetch(`${this.baseUrl}/agent/search`, {
         method: 'POST',
@@ -33,21 +36,18 @@ export class ApiHotelService implements HotelService {
         credentials: 'include',
         body: JSON.stringify(criteria),
       })
-      if (response.status === 401) return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'auth_required' }
-      if (response.status === 403) return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'access_denied' }
-      if (!response.ok) return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'provider_unavailable' }
+      if (response.status === 401) return empty('auth_required')
+      if (response.status === 403) return empty('access_denied')
+      if (!response.ok) return empty('provider_unavailable')
       const envelope: unknown = await response.json()
       const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
-      if (typeof data !== 'object' || data === null || !('hotels' in data) || !Array.isArray(data.hotels))
-        return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'provider_unavailable' }
-      // The API currently returns rateId + roomName + board strings. Those cannot
-      // establish authoritative room/rate/board mappings or a bookable total.
-      // Empty results are honest; populated but incomplete offers are blocked.
-      if (data.hotels.length > 0)
-        return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'mapping_unavailable' }
-      return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'empty' }
+      const validated = validateAgentSearchResponse(data, criteria)
+      if (!validated.ok) return empty('mapping_unavailable')
+      const { status, hotels, request } = validated.response
+      return { hotels: [], liveHotels: hotels, total: hotels.length, isDemo: false, source: 'api',
+        status: status === 'no_availability' ? 'empty' : status, request }
     } catch {
-      return { hotels: [], total: 0, isDemo: false, source: 'api', status: 'provider_unavailable' }
+      return empty('provider_unavailable')
     }
   }
 
