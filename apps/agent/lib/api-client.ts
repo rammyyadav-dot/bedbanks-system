@@ -1,4 +1,4 @@
-import { agentApiBase } from './api-config'
+import { agentApiBase } from './api-config.mjs'
 
 export type AgentIdentity = {
   user: { id: string; email: string; name: string | null; status: 'ACTIVE' | 'SUSPENDED' }

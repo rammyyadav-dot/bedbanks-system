@@ -1,5 +1,5 @@
 import type { Hotel, HotelSearchCriteria, HotelSearchResult } from '../types/hotel.ts'
-import { agentApiBase } from '../lib/api-config.ts'
+import { agentApiBase } from '../lib/api-config.mjs'
 
 // Sample inventory is isolated here. It is never a response to a failed live request.
 export const DEMO_HOTELS: Hotel[] = [
