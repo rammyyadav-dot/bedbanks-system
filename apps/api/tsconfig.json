@@ -13,6 +13,8 @@
     "baseUrl": "./",
     "paths": {
       "@bedbanks/contracts": ["../../packages/contracts/src/index.ts"],
+      "@bedbanks/domain": ["../../packages/domain/src/index.ts"],
+      "@bedbanks/money": ["../../packages/money/src/index.ts"],
       "@bedbanks/domain/search-offers": ["../../packages/domain/src/search-offers.d.cts"]
     },
     "incremental": true,
