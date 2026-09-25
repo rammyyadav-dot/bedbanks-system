@@ -18,6 +18,7 @@ describe('Admin dashboard HTTP authorization', () => {
   const deniedEmail = `denied-${suffix}@example.test`
   let app: INestApplication
   let tenantId: string
+  let otherTenantId: string
   let allowedUserId: string
   let deniedUserId: string
   let roleId: string
@@ -26,6 +27,7 @@ describe('Admin dashboard HTTP authorization', () => {
     await prisma.$connect()
     const tenant = await prisma.tenant.create({ data: { name: 'RBAC HTTP Test', slug: tenantSlug } })
     tenantId = tenant.id
+    otherTenantId = (await prisma.tenant.create({ data: { name: 'Other RBAC Tenant', slug: `rbac-other-${suffix}` } })).id
     const passwordHash = await hashPassword(password)
     const [owner, allowed, denied] = await Promise.all([
       prisma.user.create({ data: { email: ownerEmail, passwordHash } }),
@@ -57,6 +59,7 @@ describe('Admin dashboard HTTP authorization', () => {
 
   afterAll(async () => {
     await app?.close()
+    await prisma.booking.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } })
     await prisma.userRole.deleteMany({ where: { tenantId } })
     await prisma.rolePermission.deleteMany({ where: { roleId } })
     await prisma.role.deleteMany({ where: { id: roleId } })
@@ -64,7 +67,7 @@ describe('Admin dashboard HTTP authorization', () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
     await prisma.session.deleteMany({ where: { userId: { in: [allowedUserId, deniedUserId] } } })
     await prisma.user.deleteMany({ where: { email: { in: [ownerEmail, allowedEmail, deniedEmail] } } })
-    await prisma.tenant.deleteMany({ where: { id: tenantId } })
+    await prisma.tenant.deleteMany({ where: { id: { in: [tenantId, otherTenantId] } } })
     await prisma.$disconnect()
   })
 
@@ -87,6 +90,51 @@ describe('Admin dashboard HTTP authorization', () => {
     const denial = await prisma.auditEvent.findFirst({ where: { tenantId, action: 'permission.denied', userId: deniedUserId }, orderBy: { createdAt: 'desc' } })
     expect(denial).toMatchObject({ actorType: 'USER', entityType: 'admin_permission', entityId: 'dashboard.read' })
     expect(denial?.payload).toEqual({ permission: 'dashboard.read' })
+  })
+
+  it('validates ranges and keeps all aggregates inside the authenticated tenant', async () => {
+    const cookie = await login(allowedEmail)
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000)
+    const data = (tenantId: string, tag: string, days: number, currency: string, amount: bigint) => ({
+      tenantId, reference: `RBAC-${tag}-${suffix}`, supplier: 'fixture-supplier', hotelId: 'fixture-hotel',
+      status: 'CONFIRMED' as const, currency, totalMinor: amount,
+      idempotencyKey: `rbac-${tag}-${suffix}`, searchSnapshot: { hotelName: tag }, createdAt: daysAgo(days),
+    })
+    await prisma.booking.createMany({ data: [
+      data(tenantId, 'a-usd', 1, 'USD', 10025n),
+      data(tenantId, 'a-aed', 2, 'AED', 20050n),
+      data(tenantId, 'a-old', 20, 'USD', 30075n),
+      data(tenantId, 'a-older', 80, 'USD', 40000n),
+      data(otherTenantId, 'b-secret', 1, 'USD', 900000n),
+    ] })
+
+    for (const [range, expected] of [['7d', 2], ['30d', 3], ['90d', 4]] as const) {
+      const response = await request(app.getHttpServer())
+        .get(`/api/v1/admin/dashboard?range=${range}`).set('Cookie', cookie).expect(200)
+      const view = response.body.data
+      expect(view.range).toBe(range)
+      expect(view.summary.totalBookings).toBe(expected)
+      expect(view.bookingActivity.reduce((sum: number, point: { total: number }) => sum + point.total, 0)).toBe(expected)
+      expect(view.recentBookings).toHaveLength(expected)
+      expect(JSON.stringify(view)).not.toContain('b-secret')
+      expect(new Date(view.generatedAt).getTime()).toBeGreaterThan(Date.now() - 10000)
+      expect(view.summary.netRevenue).toBeNull()
+      expect(view.summary.activeHotels).toBeNull()
+      expect(view.summary.grossBookingValue).toBeNull() // mixed currencies: no FX source
+      expect(view.revenueOverview).toEqual([])
+      expect(view.alerts).toEqual([])
+      expect(view.topDestinations).toEqual([])
+      expect(view.topSuppliers).toEqual([])
+      expect(view.systemHealth).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'Database', state: 'healthy' }),
+      ]))
+      expect(view.recentBookings[0].amount).toEqual(expect.objectContaining({
+        amountMinor: expect.stringMatching(/^\\d+$/), currency: expect.stringMatching(/^[A-Z]{3}$/),
+      }))
+    }
+    await request(app.getHttpServer()).get('/api/v1/admin/dashboard?range=1d').set('Cookie', cookie).expect(400)
+    await request(app.getHttpServer()).get(`/api/v1/admin/dashboard?tenantId=${otherTenantId}`).set('Cookie', cookie).expect(400)
+    await request(app.getHttpServer()).get('/api/v1/admin/dashboard').set('Cookie', cookie).expect(200)
   })
 
   it('revokes the database permission and denies the next request', async () => {
