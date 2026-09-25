@@ -47,6 +47,8 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance }: { i
     setSearching(true)
     try {
       setSearchResult(await new ApiHotelService().search(criteria, tenantId))
+    } catch {
+      show('Search is temporarily unavailable. Please try again.')
     } finally {
       setSearching(false)
     }
