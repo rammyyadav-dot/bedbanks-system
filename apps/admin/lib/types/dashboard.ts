@@ -11,7 +11,7 @@ export interface DashboardSummary {
   systemHealth: HealthState | null
 }
 
-export interface MoneyValue { amount: number; currency: string }
+export interface MoneyValue { amountMinor: string; currency: string }
 export interface BookingActivityPoint { date: string; total: number; confirmed: number }
 export interface RevenuePoint { date: string; gross: MoneyValue | null; net: MoneyValue | null }
 export type HealthState = 'healthy' | 'degraded' | 'down' | 'unknown'
