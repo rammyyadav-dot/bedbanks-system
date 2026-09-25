@@ -36,8 +36,9 @@ export function SearchView({
       {childAges.map((age, index) => <label className="portal-field" key={index}><span>CHILD {index + 1} AGE</span><div><input type="number" min={0} max={17} value={age} onChange={(event) => update(() => setChildAges(childAges.map((value, position) => position === index ? Number(event.target.value) : value)))} aria-label={`Child ${index + 1} age`} /></div></label>)}
       <button className="portal-primary search-submit" onClick={() => { setSelectedLive(null); onSearch() }} disabled={searching}><Search size={16} /> {searching ? 'Searching…' : 'Search'}</button>
     </div><p>Nationality: IN · Currency: AED. Search uses the dates and occupancy shown above.</p></div>
-    {result && <><div className="portal-results-meta"><div><strong>{result.total}</strong> properties in <strong>{result.request.destination}</strong><small>{result.request.checkIn} — {result.request.checkOut} · {guests} · {result.request.currency}</small></div></div>
-      <div className="portal-demo-label" role="status"><ShieldAlert size={15} /> {result.status === 'demo' ? 'Sample inventory only. Amounts are illustrative; booking is disabled.' :
+    {searching && <SearchLoadingState />}
+    {result && !searching && <><div className="portal-results-meta"><div><strong>{result.total}</strong> properties in <strong>{result.request.destination}</strong><small>{result.request.checkIn} — {result.request.checkOut} · {guests} · {result.request.currency}</small></div></div>
+      <div className={`portal-demo-label ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'demo' ? 'Sample inventory only. Amounts are illustrative; booking is disabled.' :
         result.status === 'available' ? 'Verified supplier offers. Rate recheck and booking are unavailable.' :
         result.status === 'mapping_unavailable' ? 'Supplier offer mapping could not be verified. No rate is displayed.' :
         result.status === 'access_denied' ? 'You do not have access to this workspace.' :
@@ -49,11 +50,21 @@ export function SearchView({
         <div className="portal-results-layout"><div className="portal-hotel-list">
           {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} onSelect={() => setSelectedLive(hotel)} />)}
           {hotels.map((hotel) => <HotelCard key={hotel.id} hotel={hotel} onSelect={() => setSelected(hotel)} />)}
-          {!hotels.length && !liveHotels.length && <div className="portal-empty"><Search size={20} /><h2>No available offers</h2><p>Change the search or try again later.</p></div>}
+          {!hotels.length && !liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />}
         </div></div>}</>}
   </>
 }
 
+function SearchLoadingState() {
+  return <section className="portal-search-loading" aria-live="polite" aria-busy="true"><div className="portal-search-loading-heading"><span className="portal-spinner" aria-hidden="true" /><div><strong>Searching available hotels…</strong><p>Checking supplier availability and rates</p></div></div><div className="portal-skeleton-list"><span /><span /><span /></div></section>
+}
+function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchResult['status']; onRetry: () => void; onEdit: () => void }) {
+  const unavailable = ['provider_unavailable', 'auth_required', 'access_denied'].includes(status)
+  const mapping = status === 'mapping_unavailable'
+  const title = unavailable ? 'Rates temporarily unavailable' : mapping ? 'This offer is not available for booking yet' : status === 'empty' ? 'No available hotels found' : 'We couldn’t complete this hotel search'
+  const copy = unavailable ? 'We couldn’t retrieve live supplier rates for this search.' : mapping ? 'The supplier offer could not be verified against the fBeds hotel and room catalogue.' : status === 'empty' ? 'No live offers matched your current destination, dates and occupancy.' : 'Your search details are preserved. Try again or adjust the search criteria.'
+  return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div><button className="portal-primary" onClick={onRetry}>Try again</button><button className="portal-link" onClick={onEdit}>Edit search</button></div></div>
+}
 function formatTotal(total: SearchRateOffer['total']) {
   // Format the supplied minor-unit amount without changing the commercial total.
   const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: total.currency })
