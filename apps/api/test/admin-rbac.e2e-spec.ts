@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { AdminDashboardService } from '../src/admin-dashboard/admin-dashboard.service'
 
 describe('Admin dashboard HTTP authorization', () => {
   const prisma = new PrismaClient()
@@ -90,6 +91,67 @@ describe('Admin dashboard HTTP authorization', () => {
     const denial = await prisma.auditEvent.findFirst({ where: { tenantId, action: 'permission.denied', userId: deniedUserId }, orderBy: { createdAt: 'desc' } })
     expect(denial).toMatchObject({ actorType: 'USER', entityType: 'admin_permission', entityId: 'dashboard.read' })
     expect(denial?.payload).toEqual({ permission: 'dashboard.read' })
+  })
+
+  it('distinguishes empty measured bookings from unavailable financial data', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/dashboard?range=7d').set('Cookie', await login(allowedEmail)).expect(200)
+    const view = response.body.data
+    expect(view.summary.totalBookings).toBe(0)
+    expect(view.bookingActivity).toHaveLength(7)
+    expect(view.bookingActivity.every((point: { total: number; confirmed: number }) => point.total === 0 && point.confirmed === 0)).toBe(true)
+    expect(view.summary.grossBookingValue).toBeNull()
+    expect(view.summary.netRevenue).toBeNull()
+    expect(view.recentBookings).toEqual([])
+    expect(view.generatedAt).toEqual(expect.any(String))
+  })
+
+  it('sums only confirmed bookings in one currency without using floating point', async () => {
+    const cookie = await login(allowedEmail)
+    const confirmed = await prisma.booking.create({ data: {
+      tenantId, reference: `RBAC-single-confirmed-${suffix}`, supplier: 'fixture-supplier',
+      hotelId: 'fixture-hotel', status: 'CONFIRMED', currency: 'USD',
+      totalMinor: 9007199254740993n, idempotencyKey: `rbac-single-confirmed-${suffix}`,
+      searchSnapshot: { hotelName: 'Single currency fixture' },
+    } })
+    const pending = await prisma.booking.create({ data: {
+      tenantId, reference: `RBAC-single-pending-${suffix}`, supplier: 'fixture-supplier',
+      hotelId: 'fixture-hotel', status: 'PENDING', currency: 'USD',
+      totalMinor: 1900n, idempotencyKey: `rbac-single-pending-${suffix}`, searchSnapshot: {},
+    } })
+    try {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/admin/dashboard?range=7d').set('Cookie', cookie).expect(200)
+      expect(response.body.data.summary.totalBookings).toBe(2)
+      expect(response.body.data.summary.grossBookingValue).toEqual({
+        amountMinor: '9007199254740993', currency: 'USD',
+      })
+      expect(response.body.data.summary.netRevenue).toBeNull()
+      expect(response.body.data.recentBookings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: confirmed.id, amount: { amountMinor: '9007199254740993', currency: 'USD' } }),
+      ]))
+      expect(response.body.data.bookingActivity.reduce(
+        (sum: number, point: { confirmed: number }) => sum + point.confirmed, 0,
+      )).toBe(1)
+    } finally {
+      await prisma.booking.deleteMany({ where: { id: { in: [confirmed.id, pending.id] } } })
+    }
+  })
+
+  it('sanitizes unexpected dashboard errors', async () => {
+    const cookie = await login(allowedEmail)
+    const dashboard = app.get(AdminDashboardService)
+    const stub = jest.spyOn(dashboard, 'getDashboard').mockRejectedValueOnce(new Error('internal database diagnostic marker'))
+    try {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/admin/dashboard?range=7d').set('Cookie', cookie).expect(500)
+      expect(response.body).toMatchObject({
+        success: false, error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred' },
+      })
+      expect(JSON.stringify(response.body)).not.toContain('internal database diagnostic marker')
+    } finally {
+      stub.mockRestore()
+    }
   })
 
   it('validates ranges and keeps all aggregates inside the authenticated tenant', async () => {
