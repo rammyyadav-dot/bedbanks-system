@@ -30,12 +30,20 @@ export class ApiHotelService implements HotelService {
     }
     if (!this.baseUrl) return empty('provider_unavailable')
     try {
-      const response = await fetch(`${this.baseUrl}/agent/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
-        credentials: 'include',
-        body: JSON.stringify(criteria),
-      })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      let response: Response
+      try {
+        response = await fetch(`${this.baseUrl}/agent/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
+          credentials: 'include',
+          body: JSON.stringify(criteria),
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeout)
+      }
       if (response.status === 401) return empty('auth_required')
       if (response.status === 403) return empty('access_denied')
       if (!response.ok) return empty('provider_unavailable')
