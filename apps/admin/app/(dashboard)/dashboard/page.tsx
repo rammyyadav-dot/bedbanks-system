@@ -18,7 +18,7 @@ function money(value: { amountMinor: string; currency: string } | null) {
     const factor = 10n ** BigInt(digits)
     const whole = minor / factor
     const fraction = (minor < 0n ? -minor : minor) % factor
-    const parts = formatter.formatToParts(whole)
+    const parts = formatter.formatToParts(minor < 0n && whole === 0n ? -0 : whole)
     if (digits === 0) return parts.map((part) => part.value).join('')
     return parts.map((part) => part.type === 'fraction' ? fraction.toString().padStart(digits, '0') : part.value).join('')
   } catch { return '—' }
