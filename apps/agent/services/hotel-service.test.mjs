@@ -7,7 +7,7 @@ const criteria = {
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED',
 }
 const hotel = {
-  hotelId: 'h1', name: 'Hotel', destination: 'Dubai', supplierId: 's1', supplierHotelId: 'sh1',
+  hotelId: 'h1', name: 'Hotel', destination: 'Dubai', starRating: 5, supplierId: 's1', supplierHotelId: 'sh1',
   rooms: [{ roomTypeId: 'r1', name: 'King', supplierRoomId: 'sr1', rates: [{
     offerId: 'o1', hotelId: 'h1', roomTypeId: 'r1', supplierId: 's1', supplierRoomId: 'sr1',
     tenantId: 'tenant-a', providerId: 'provider-a', canonicalHotelId: 'h1', canonicalRoomTypeId: 'r1',
