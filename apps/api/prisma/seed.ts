@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     },
   });
 
-  const seedEmail = (process.env.FBEDS_SEED_ADMIN_EMAIL ?? 'owner@demo-agency.example').trim().toLowerCase();
+  const seedEmail = (process.env.FBEDS_SEED_ADMIN_EMAIL ?? 'book@fbeds.com').trim().toLowerCase();
   const seedPassword = process.env.FBEDS_SEED_ADMIN_PASSWORD;
 
   if (!seedPassword) {
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     update: { passwordHash, status: 'ACTIVE' },
     create: {
       email: seedEmail,
-      name: 'Demo Owner',
+      name: 'FBEDS Demo Booker',
       passwordHash,
       status: 'ACTIVE',
     },
