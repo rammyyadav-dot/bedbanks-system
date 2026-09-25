@@ -49,6 +49,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
   try {
     const hotels = input.map((hotel) => {
       if (!record(hotel) || !id(hotel.hotelId) || !id(hotel.name) || !id(hotel.destination) ||
+          !natural(hotel.starRating, 1) || hotel.starRating > 5 ||
           !id(hotel.supplierId) || !id(hotel.supplierHotelId) ||
           !Array.isArray(hotel.rooms) || hotel.rooms.length === 0 ||
           hotelIds.has(hotel.hotelId))
@@ -115,10 +116,25 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
         })
         return { roomTypeId: room.roomTypeId, name: room.name, supplierRoomId: room.supplierRoomId, rates }
       })
-      return { hotelId: hotel.hotelId, name: hotel.name, destination: hotel.destination,
+      return { hotelId: hotel.hotelId, name: hotel.name, destination: hotel.destination, starRating: hotel.starRating,
         supplierId: hotel.supplierId, supplierHotelId: hotel.supplierHotelId, rooms }
     })
-    return { ok: true, hotels }
+    const requestedHotelIds = criteria.canonicalHotelIds === undefined ? undefined : new Set(criteria.canonicalHotelIds)
+    const destination = criteria.destination.trim().toLocaleLowerCase('en-US')
+    const filtered = hotels.flatMap((hotel) => {
+      if (requestedHotelIds ? !requestedHotelIds.has(hotel.hotelId) : !hotel.destination.toLocaleLowerCase('en-US').includes(destination)) return []
+      if (criteria.filters?.starRatings !== undefined && !criteria.filters.starRatings.includes(hotel.starRating)) return []
+      const rooms = hotel.rooms.flatMap((room) => {
+        const rates = room.rates.filter((rate) => rate.available &&
+          (criteria.filters?.boardBasisIds === undefined || criteria.filters.boardBasisIds.includes(rate.boardBasisId)) &&
+          (!criteria.filters?.refundableOnly || rate.cancellation.refundable) &&
+          (criteria.filters?.minPriceMinor === undefined || rate.sellAmountMinor >= criteria.filters.minPriceMinor) &&
+          (criteria.filters?.maxPriceMinor === undefined || rate.sellAmountMinor <= criteria.filters.maxPriceMinor))
+        return rates.length === 0 ? [] : [{ ...room, rates }]
+      })
+      return rooms.length === 0 ? [] : [{ ...hotel, rooms }]
+    }).slice(0, criteria.limit ?? 50)
+    return { ok: true, hotels: filtered }
   } catch {
     return { ok: false, reason: 'mapping_unavailable' }
   }

@@ -7,7 +7,7 @@ const criteria = {
   rooms: 1, adults: 2, children: 1, childAges: [8], nationality: 'IN', currency: 'AED',
 }
 function hotel() {
-  return { hotelId: 'hotel-a', name: 'Test Hotel', destination: 'Dubai', supplierId: 'supplier-a',
+  return { hotelId: 'hotel-a', name: 'Test Hotel', destination: 'Dubai', starRating: 5, supplierId: 'supplier-a',
     supplierHotelId: 'sh-a', rooms: [{ roomTypeId: 'room-a', name: 'King Room', supplierRoomId: 'sr-a',
       rates: [{ offerId: 'offer-a', hotelId: 'hotel-a', roomTypeId: 'room-a',
         tenantId: 'tenant-a', providerId: 'provider-a', canonicalHotelId: 'hotel-a', canonicalRoomTypeId: 'room-a',
@@ -49,6 +49,29 @@ for (const [name, mutate] of [
 })
 test('rejects an offer from another tenant when tenant context is supplied', () => {
   assert.equal(validateSearchHotels([hotel()], criteria, Date.now(), 'tenant-b').ok, false)
+})
+test('enforces canonical hotel, star, board, refundable, price and availability filters', () => {
+  const soldOut = hotel()
+  soldOut.rooms[0].rates[0] = { ...soldOut.rooms[0].rates[0], offerId: 'sold-out', availability: 'sold_out', available: false }
+  const matching = hotel()
+  matching.rooms[0].rates.push(soldOut.rooms[0].rates[0])
+  const filteredCriteria = { ...criteria, canonicalHotelIds: ['hotel-a'], filters: {
+    starRatings: [5], boardBasisIds: ['board-a'], refundableOnly: true,
+    minPriceMinor: 125000, maxPriceMinor: 126000,
+  } }
+  const result = validateSearchHotels([matching], filteredCriteria)
+  assert.equal(result.ok, true)
+  assert.equal(result.hotels.length, 1)
+  assert.deepEqual(result.hotels[0].rooms[0].rates.map((rate) => rate.offerId), ['offer-a'])
+  assert.equal(validateSearchHotels([matching], { ...filteredCriteria, filters: { starRatings: [4] } }).hotels.length, 0)
+  assert.equal(validateSearchHotels([matching], { ...filteredCriteria, filters: { boardBasisIds: ['other'] } }).hotels.length, 0)
+  assert.equal(validateSearchHotels([matching], { ...filteredCriteria, filters: { minPriceMinor: 125100 } }).hotels.length, 0)
+})
+test('enforces the bounded hotel result limit after validation', () => {
+  const second = hotel()
+  second.hotelId = 'hotel-b'; second.rooms[0].rates[0].hotelId = 'hotel-b'; second.rooms[0].rates[0].canonicalHotelId = 'hotel-b'
+  second.rooms[0].rates[0].offerId = 'offer-b'
+  assert.equal(validateSearchHotels([hotel(), second], { ...criteria, limit: 1 }).hotels.length, 1)
 })
 test('rejects duplicated offer ID and malformed search dates', () => {
   const sample = hotel(); sample.rooms[0].rates.push({ ...sample.rooms[0].rates[0] })

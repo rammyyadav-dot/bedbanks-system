@@ -9,7 +9,7 @@ const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
 const identity = { user: { id: 'user-a' } } as AuthenticatedUser
 const hotel = {
-  hotelId: 'h1', name: 'Hotel', destination: 'Dubai', supplierId: 's1', supplierHotelId: 'sh1',
+  hotelId: 'h1', name: 'Hotel', destination: 'Dubai', starRating: 5, supplierId: 's1', supplierHotelId: 'sh1',
   rooms: [{ roomTypeId: 'r1', name: 'King', supplierRoomId: 'sr1', rates: [{
     offerId: 'o1', hotelId: 'h1', roomTypeId: 'r1', supplierId: 's1', supplierRoomId: 'sr1',
     tenantId: 'tenant-a', providerId: 'provider-a', canonicalHotelId: 'h1', canonicalRoomTypeId: 'r1',
@@ -47,6 +47,16 @@ describe('Agent canonical search boundary', () => {
     partial.providerSummary = { queried: 2, succeeded: 1, failed: 1 }
     const { controller } = setup(jest.fn().mockResolvedValue(partial))
     expect((await controller.search(query(), identity, request())).status).toBe('partial')
+  })
+  it('enforces advertised filters and limit at the API boundary', async () => {
+    const other = structuredClone(hotel)
+    other.hotelId = 'h2'; other.rooms[0].rates[0].hotelId = 'h2'; other.rooms[0].rates[0].canonicalHotelId = 'h2'
+    other.rooms[0].rates[0].offerId = 'o2'
+    const { controller } = setup(jest.fn().mockResolvedValue(supplierResult([hotel, other])))
+    const result = await controller.search({ ...query(), limit: 1, filters: { starRatings: [5], boardBasisIds: ['b1'], refundableOnly: true,
+      minPriceMinor: 125000, maxPriceMinor: 126000 } }, identity, request())
+    expect(result.status).toBe('available')
+    expect(result.hotels).toHaveLength(1)
   })
   it('fails closed on a cross-tenant canonical offer', async () => {
     const invalid = structuredClone(hotel)

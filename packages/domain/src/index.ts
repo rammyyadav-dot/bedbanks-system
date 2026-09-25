@@ -67,6 +67,7 @@ export interface SearchHotelOffer {
   hotelId: string
   name: string
   destination: string
+  starRating: number
   supplierId: string
   supplierHotelId: string
   rooms: SearchRoomOffer[]
