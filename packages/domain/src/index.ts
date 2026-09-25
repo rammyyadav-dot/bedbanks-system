@@ -83,3 +83,28 @@ export interface AgentSearchResponse {
   total: number
   providerSummary: { queried: number; succeeded: number; failed: number }
 }
+
+export type InventoryHoldStatus = 'PENDING_RECHECK' | 'RECHECKED' | 'HOLD_PENDING' | 'HELD' | 'RELEASED' | 'EXPIRED' | 'FAILED'
+export interface InventoryHoldRequest {
+  offerId: string
+  searchId: string
+  ratePlanId: string
+  canonicalHotelId: string
+  canonicalRoomTypeId: string
+  boardBasisId: string
+  checkIn: string
+  checkOut: string
+  rooms: number
+  currency: string
+  sellAmountMinor: number
+  offerExpiresAt: string
+  idempotencyKey: string
+}
+export interface InventoryHoldResponse {
+  holdId: string
+  requestId: string
+  status: 'held' | 'already_held'
+  expiresAt: string
+  currency: string
+  sellAmountMinor: number
+}
