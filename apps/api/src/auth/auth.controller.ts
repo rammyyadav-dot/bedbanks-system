@@ -16,8 +16,8 @@ import type { AuthenticatedUser } from './interfaces/authenticated-user.interfac
 @UseGuards(OriginGuard)
 export class AuthController {
   constructor(
-    private readonly authService: AuthService,
-    private readonly configService: ConfigService<AppConfig>,
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(ConfigService) private readonly configService: ConfigService<AppConfig>,
   ) {}
 
   private cookieOptions(): { name: string; httpOnly: true; sameSite: 'lax' | 'strict' | 'none'; secure: boolean; path: string; maxAge: number } {
