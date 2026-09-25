@@ -10,7 +10,7 @@ import type { AdminDashboardView, DateRange, DashboardLoadState, HealthState } f
 const ranges: { value: DateRange; label: string }[] = [{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: '90d', label: 'Last 90 days' }]
 
 function money(value: { amountMinor: string; currency: string } | null) {
-  if (!value || !/^-?\\d+$/.test(value.amountMinor) || !/^[A-Z]{3}$/.test(value.currency)) return '—'
+  if (!value || !/^-?\d+$/.test(value.amountMinor) || !/^[A-Z]{3}$/.test(value.currency)) return '—'
   try {
     const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: value.currency })
     const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2
