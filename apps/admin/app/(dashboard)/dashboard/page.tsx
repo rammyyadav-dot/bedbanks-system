@@ -9,7 +9,20 @@ import type { AdminDashboardView, DateRange, DashboardLoadState, HealthState } f
 
 const ranges: { value: DateRange; label: string }[] = [{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: '90d', label: 'Last 90 days' }]
 
-function money(value: { amount: number; currency: string } | null) { return value ? new Intl.NumberFormat('en-US', { style: 'currency', currency: value.currency, maximumFractionDigits: 0 }).format(value.amount) : '—' }
+function money(value: { amountMinor: string; currency: string } | null) {
+  if (!value || !/^-?\\d+$/.test(value.amountMinor) || !/^[A-Z]{3}$/.test(value.currency)) return '—'
+  try {
+    const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: value.currency })
+    const digits = formatter.resolvedOptions().maximumFractionDigits
+    const minor = BigInt(value.amountMinor)
+    const factor = 10n ** BigInt(digits)
+    const whole = minor / factor
+    const fraction = (minor < 0n ? -minor : minor) % factor
+    const parts = formatter.formatToParts(whole)
+    if (digits === 0) return parts.map((part) => part.value).join('')
+    return parts.map((part) => part.type === 'fraction' ? fraction.toString().padStart(digits, '0') : part.value).join('')
+  } catch { return '—' }
+}
 function healthLabel(value: HealthState | null) { return value ? value[0].toUpperCase() + value.slice(1) : 'Not available' }
 function relativeTime(timestamp: string) { const seconds = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000)); if (seconds < 60) return 'just now'; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; return `${Math.floor(seconds / 3600)}h ago` }
 
