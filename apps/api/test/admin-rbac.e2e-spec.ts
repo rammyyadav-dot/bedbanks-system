@@ -129,7 +129,7 @@ describe('Admin dashboard HTTP authorization', () => {
         expect.objectContaining({ name: 'Database', state: 'healthy' }),
       ]))
       expect(view.recentBookings[0].amount).toEqual(expect.objectContaining({
-        amountMinor: expect.stringMatching(/^\\d+$/), currency: expect.stringMatching(/^[A-Z]{3}$/),
+        amountMinor: expect.stringMatching(/^\d+$/), currency: expect.stringMatching(/^[A-Z]{3}$/),
       }))
     }
     await request(app.getHttpServer()).get('/api/v1/admin/dashboard?range=1d').set('Cookie', cookie).expect(400)
