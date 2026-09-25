@@ -14,7 +14,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     await prisma.$executeRawUnsafe('DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'fbeds_rls_test\') THEN CREATE ROLE fbeds_rls_test NOLOGIN; END IF; END $$;')
     await prisma.$executeRawUnsafe('GRANT fbeds_rls_test TO CURRENT_USER')
     await prisma.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO fbeds_rls_test')
-    await prisma.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "memberships", "Role", "UserRole", "Booking", "Cancellation", "Wallet", "LedgerEntry", "AuditEvent", "Supplier", "Hotel", "RoomType", "BoardBasis", "SupplierHotelMapping", "SupplierRoomMapping", "Contract", "RatePlan", "CancellationPolicy", "ChildPolicy", "BookingLeadTimeRule", "DailyAvailability", "DailyRate", "ConnectorDefinition", "ConnectorCredentialReference", "ConnectorExecution", "InventoryUpdateEvent" TO fbeds_rls_test')
+    await prisma.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "memberships", "Role", "UserRole", "Booking", "Cancellation", "Wallet", "LedgerEntry", "AuditEvent", "Supplier", "Hotel", "RoomType", "BoardBasis", "SupplierHotelMapping", "SupplierRoomMapping", "Contract", "RatePlan", "CancellationPolicy", "ChildPolicy", "BookingLeadTimeRule", "DailyAvailability", "DailyRate", "InventoryHold", "InventoryHoldNight", "ConnectorDefinition", "ConnectorCredentialReference", "ConnectorExecution", "InventoryUpdateEvent" TO fbeds_rls_test')
   })
 
   afterAll(async () => {

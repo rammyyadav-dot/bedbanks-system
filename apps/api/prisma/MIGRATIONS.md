@@ -14,6 +14,7 @@ Run these commands from `apps/api`. The committed migration files are the only p
 7. `202609190002_contract_commercial_rules` — supplier mappings, versioned contracts, rate plans and commercial policy rules.
 8. `202609190003_rate_availability_inventory` — dated, non-negative rate-plan availability and BIGINT minor-unit daily rates.
 9. `202609190004_connector_registry_foundation` — connector registry, secret-manager references and auditable inventory events.
+15. `202609250001_booking_concurrency_foundation` — non-bookable inventory holds, atomic held quantities, tenant idempotency and RLS.
 
 Historical migration directories are immutable after they have been applied to any environment. Future schema changes require a new, forward-only migration.
 
