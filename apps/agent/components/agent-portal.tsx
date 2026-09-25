@@ -34,7 +34,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance }: { i
   const creditLabel = finance?.availableCredit == null ? 'Not configured' : `USD ${finance.availableCredit.toLocaleString()}`
   const show = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2200) }
   const nav = (next: View) => { setView(next); setMobileNav(false); setSelected(null) }
-  const criteria: SearchCriteria = { destination: destination.trim(), checkIn, checkOut, rooms, adults, children, childAges, nationality: 'IN', currency: 'AED' }
+  const criteria: SearchCriteria = { destination: destination.trim(), checkIn, checkOut, rooms, adults, children, childAges, nationality: 'IN', currency: 'AED', limit: 50 }
   const updateChildren = (count: number) => { setChildren(count); setChildAges((ages) => Array.from({ length: count }, (_, index) => ages[index] ?? 0)) }
   async function handleSearch() {
     if (searching) return
@@ -60,4 +60,3 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance }: { i
 }
 
 function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) { return <button className={`portal-nav-item ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{active && <b />}</button> }
-

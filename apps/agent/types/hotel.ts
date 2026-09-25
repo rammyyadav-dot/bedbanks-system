@@ -29,6 +29,10 @@ export type HotelSearchResult = {
   total: number
   isDemo: boolean
   source: 'mock' | 'api'
-  status: 'demo' | 'available' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
+  status: 'demo' | 'available' | 'partial' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
   request: SearchCriteria
+  searchId?: string
+  requestId?: string
+  generatedAt?: string
+  providerSummary?: { queried: number; succeeded: number; failed: number }
 }
