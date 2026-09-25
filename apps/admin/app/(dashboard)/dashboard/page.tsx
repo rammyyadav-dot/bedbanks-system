@@ -13,7 +13,7 @@ function money(value: { amountMinor: string; currency: string } | null) {
   if (!value || !/^-?\\d+$/.test(value.amountMinor) || !/^[A-Z]{3}$/.test(value.currency)) return '—'
   try {
     const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: value.currency })
-    const digits = formatter.resolvedOptions().maximumFractionDigits
+    const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2
     const minor = BigInt(value.amountMinor)
     const factor = 10n ** BigInt(digits)
     const whole = minor / factor
