@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import type { AppConfig } from '../../config/configuration';
@@ -6,7 +6,7 @@ import type { AppConfig } from '../../config/configuration';
 /** CORS alone does not prevent cross-site mutations, including login CSRF. */
 @Injectable()
 export class OriginGuard implements CanActivate {
-  constructor(private readonly config: ConfigService<AppConfig>) {}
+  constructor(@Inject(ConfigService) private readonly config: ConfigService<AppConfig>) {}
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();

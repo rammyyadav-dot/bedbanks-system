@@ -4,7 +4,7 @@
   "description": "FBEDS API — NestJS backend foundation (P0-B)",
   "private": true,
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "tsx src/main.ts",
     "build": "nest build",
     "start": "node dist/main",
     "start:prod": "node dist/main",

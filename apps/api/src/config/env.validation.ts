@@ -84,7 +84,11 @@ class EnvironmentVariables {
  * DATABASE_URL (P0-C), and session/cookie/CORS config (P0-D).
  */
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
-  const validatedConfig = plainToInstance(EnvironmentVariables, config, {
+  const normalizedConfig = {
+    ...config,
+    API_PORT: Number.isInteger(Number(config.API_PORT)) && Number(config.API_PORT) > 0 ? Number(config.API_PORT) : 3002,
+  }
+  const validatedConfig = plainToInstance(EnvironmentVariables, normalizedConfig, {
     enableImplicitConversion: true,
   });
 

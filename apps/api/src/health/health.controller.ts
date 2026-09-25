@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
@@ -22,8 +22,8 @@ const SERVICE_VERSION = '0.1.0';
 @Controller('health')
 export class HealthController {
   constructor(
-    private readonly configService: ConfigService<AppConfig>,
-    private readonly prisma: PrismaService,
+    @Inject(ConfigService) private readonly configService: ConfigService<AppConfig>,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
   /**
