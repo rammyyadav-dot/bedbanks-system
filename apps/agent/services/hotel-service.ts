@@ -53,7 +53,9 @@ export class ApiHotelService implements HotelService {
       if (!validated.ok) return empty('mapping_unavailable')
       const { status, hotels, request } = validated.response
       return { hotels: [], liveHotels: hotels, total: hotels.length, isDemo: false, source: 'api',
-        status: status === 'no_availability' ? 'empty' : status, request }
+        status: status === 'no_availability' ? 'empty' : status, request,
+        searchId: validated.response.searchId, requestId: validated.response.requestId,
+        generatedAt: validated.response.generatedAt, providerSummary: validated.response.providerSummary }
     } catch {
       return empty('provider_unavailable')
     }
