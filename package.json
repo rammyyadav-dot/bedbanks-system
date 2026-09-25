@@ -7,7 +7,7 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @bedbanks/agent-portal dev",
+    "dev": "pnpm --dir apps/agent dev",
     "build": "turbo run build",
     "type-check": "turbo run type-check",
     "lint": "turbo run lint",
