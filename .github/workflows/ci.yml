@@ -88,6 +88,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @bedbanks/api prisma:generate
       - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
+      - run: pnpm exec tsx apps/api/test/preview-di.smoke.ts
       - run: pnpm -r --if-present type-check
       - run: pnpm -r --if-present lint
       - run: pnpm -r --if-present test

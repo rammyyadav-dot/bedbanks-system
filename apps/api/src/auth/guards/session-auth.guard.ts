@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import type { AppConfig } from '../../config/configuration';
@@ -8,8 +8,8 @@ import { REQUEST_USER_KEY } from '../auth.constants';
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
   constructor(
-    private readonly authService: AuthService,
-    private readonly configService: ConfigService<AppConfig>,
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(ConfigService) private readonly configService: ConfigService<AppConfig>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
