@@ -193,21 +193,32 @@ describe('Supply HTTP authorization boundaries', () => {
     const cookie = await login(`${suffix}-a@example.test`)
     await supply(cookie, tenantAId).get('/api/v1/supply/hotels').expect(200)
     await supply(cookie, tenantAId).post('/api/v1/supply/hotels').send({ name: `${suffix} RBAC`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-01', occupancy: 2, amountMinor: '12000', currency: 'USD' }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-01', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(201)
     await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-01', allotment: 5, sold: 0 }).expect(201)
   })
 
   it('rejects cross-tenant RatePlan mutations without persisting rows', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-02', occupancy: 2, amountMinor: '12000', currency: 'USD' }).expect(400)
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-02', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(400)
     await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-02', allotment: 5, sold: 0 }).expect(400)
     await expect(prisma.dailyRate.findFirst({ where: { ratePlanId: ratePlanBId, stayDate: new Date('2026-10-02T00:00:00.000Z') } })).resolves.toBeNull()
     await expect(prisma.dailyAvailability.findFirst({ where: { ratePlanId: ratePlanBId, stayDate: new Date('2026-10-02T00:00:00.000Z') } })).resolves.toBeNull()
   })
 
+  it('requires explicit commercial rate meaning and fails closed for NET rates without markup', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const path = '/api/v1/supply/daily-rates'
+    await supply(cookie, tenantAId).post(path).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', occupancy: 2, amountMinor: '13000', currency: 'USD' }).expect(400)
+    await supply(cookie, tenantAId).post(path).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', occupancy: 2, amountMinor: '13000', amountBasis: 'NET', currency: 'USD' }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', allotment: 2, sold: 0 }).expect(201)
+    const result = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', occupancy: 2 }).expect(201)
+    expect(result.body.data.eligible).toBe(false)
+    expect(result.body.data.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE')
+  })
+
   it('persists supply audit metadata and request ID for an allowed HTTP mutation', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    const response = await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').set('x-request-id', requestId).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-03', occupancy: 2, amountMinor: '12500', currency: 'USD' }).expect(201)
+    const response = await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').set('x-request-id', requestId).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-03', occupancy: 2, amountMinor: '12500', amountBasis: 'SELL', currency: 'USD' }).expect(201)
     const row = await prisma.dailyRate.findUnique({ where: { id: response.body.data.id } })
     expect(row?.tenantId).toBe(tenantAId)
     const audit = await prisma.auditEvent.findFirst({ where: { userId: userAId, tenantId: tenantAId, action: 'supply.daily_rate.updated', entityId: response.body.data.id }, orderBy: { createdAt: 'desc' } })
@@ -219,7 +230,7 @@ describe('Supply HTTP authorization boundaries', () => {
   it('does not create successful mutation audit evidence for rejected cross-tenant writes', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const before = await prisma.auditEvent.count({ where: { userId: userAId, action: 'supply.daily_rate.updated' } })
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-04', occupancy: 2, amountMinor: '12000', currency: 'USD' }).expect(400)
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-04', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(400)
     await expect(prisma.auditEvent.count({ where: { userId: userAId, action: 'supply.daily_rate.updated' } })).resolves.toBe(before)
   })
 
