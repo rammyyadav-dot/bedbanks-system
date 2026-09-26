@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentAuditService } from './audit.service'
-import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, RateActionDto } from './domain.dto'
+import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, RateActionDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
@@ -95,13 +95,20 @@ export class AgentController {
   }
 
   @Post('rates/recheck')
+  @ApiOperation({ summary: 'Authoritatively recheck a canonical offer without allocating inventory' })
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async recheck(@Body() body: RateActionDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    // A rateId plus display strings cannot prove the selected room, board,
-    // policy and amount belong to the same supplier offer.
-    await this.audit.record({ tenantId, user: identity, action: 'rate.recheck.unavailable', entityType: 'rate', entityId: body.rateId, payload: { reason: 'offer_contract_incomplete' } })
-    return { status: 'provider_unavailable', message: 'Authoritative rate recheck is unavailable.' }
+  async recheck(@Body() body: OfferRecheckDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request,
+    @Res({ passthrough: true }) response: Response) {
+    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const result = await this.offerHolds.recheck({ offerId: body.offerId, searchId: body.searchId,
+      expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
+      tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
+    const statusCodes = { rechecked: HttpStatus.OK, held: HttpStatus.OK, unavailable: HttpStatus.CONFLICT,
+      price_changed: HttpStatus.CONFLICT, offer_expired: HttpStatus.GONE, mapping_invalid: HttpStatus.UNPROCESSABLE_ENTITY,
+      provider_unavailable: HttpStatus.SERVICE_UNAVAILABLE, rejected: HttpStatus.BAD_REQUEST } as const
+    response.status(statusCodes[result.status])
+    return result
   }
 
   @Post('prebook')
