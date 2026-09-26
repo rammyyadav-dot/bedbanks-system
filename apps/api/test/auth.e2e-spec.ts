@@ -69,5 +69,8 @@ describe('auth HTTP integration', () => {
   });
   it('registers the agent session guard in the full application', async () => {
     await request(app.getHttpServer()).get('/api/v1/agent/context').expect(401);
+    await request(app.getHttpServer()).post('/api/v1/agent/offers/offer-a/hold').send({
+      searchId: 'search-a', expectedCurrency: 'AED', expectedSellAmountMinor: 1000, idempotencyKey: 'request-123',
+    }).expect(401);
   });
 });
