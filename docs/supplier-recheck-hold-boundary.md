@@ -43,3 +43,7 @@ Static capabilities and non-authoritative display metadata may use bounded, tena
 ## Agent Portal behavior
 
 The Agent Portal sends only the selected offer/search references, the displayed currency and sell amount, and a browser-generated idempotency key. It validates the canonical response before rendering it. Unavailable, expired, mapping-invalid, rejected, authentication and provider-failure outcomes never become a booking or optimistic success state. A same-currency price change may be explicitly accepted and rechecked; a currency change requires a new search. A successful result is labelled as a temporary hold with its expiry and an explicit statement that no booking or supplier confirmation exists.
+
+## Standalone authoritative recheck
+
+The Agent standalone rate-recheck endpoint uses the same supplier-authority and canonical mapping validation boundary as offer hold, but it does not allocate inventory. A successful standalone response is `rechecked`, not `held`. Prebook and booking remain disabled until their separate release gates are certified.
