@@ -14,8 +14,9 @@ import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
-import { validSearchCriteria, validateSearchHotels } from '@bedbanks/domain/search-offers'
+import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { OfferHoldService } from './offer-hold.service'
+import { AgentSearchService } from './agent-search.service'
 
 class SearchFiltersDto {
   @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(5, { each: true }) starRatings?: number[]
@@ -49,6 +50,7 @@ export class AgentController {
     private readonly financeService: AgentFinanceService,
     private readonly audit: AgentAuditService,
     private readonly offerHolds: OfferHoldService,
+    private readonly agentSearch: AgentSearchService,
   ) {}
 
   @Get('context')
@@ -89,44 +91,7 @@ export class AgentController {
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
     const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
-    const requestId = req.requestId ?? randomUUID()
-    const searchId = randomUUID()
-    const generatedAt = new Date().toISOString()
-    const request = {
-      destination: criteria.destination, checkIn: criteria.checkIn, checkOut: criteria.checkOut,
-      rooms: criteria.rooms, adults: criteria.adults, children: criteria.children,
-      childAges: criteria.childAges, nationality: criteria.nationality, currency: criteria.currency,
-      ...(criteria.canonicalHotelIds ? { canonicalHotelIds: criteria.canonicalHotelIds } : {}),
-      ...(criteria.limit ? { limit: criteria.limit } : {}), ...(criteria.filters ? { filters: criteria.filters } : {}),
-    }
-    if (this.supplier.name === 'unconfigured')
-      return { version: 1, searchId, requestId, generatedAt, request, status: 'provider_unavailable', hotels: [], total: 0,
-        providerSummary: { queried: 0, succeeded: 0, failed: 0 } }
-    let raw: Awaited<ReturnType<SupplierAdapter['search']>>
-    try {
-      raw = await this.supplier.search(request, { tenantId, requestId })
-    } catch {
-      return { version: 1, searchId, requestId, generatedAt, request, status: 'provider_unavailable', hotels: [], total: 0,
-        providerSummary: { queried: 1, succeeded: 0, failed: 1 } }
-    }
-    const summary = raw.providerSummary
-    const validSummary = summary && Number.isSafeInteger(summary.queried) && Number.isSafeInteger(summary.succeeded) &&
-      Number.isSafeInteger(summary.failed) && summary.queried >= 0 && summary.succeeded >= 0 && summary.failed >= 0 &&
-      summary.succeeded + summary.failed <= summary.queried
-    const result = validSummary ? validateSearchHotels(raw.offers, request, Date.now(), tenantId) : { ok: false as const, reason: 'mapping_unavailable' as const }
-    if (!result.ok) {
-      await this.audit.record({ tenantId, user: identity, action: 'hotel.search.mapping_unavailable',
-        entityType: 'search', entityId: searchId, payload: { destination: criteria.destination, requestId } })
-      return { version: 1, searchId, requestId, generatedAt, request, status: 'mapping_unavailable', hotels: [], total: 0,
-        providerSummary: validSummary ? summary : { queried: 1, succeeded: 0, failed: 1 } }
-    }
-    const status = result.hotels.length
-      ? raw.providerSummary.failed > 0 ? 'partial' : 'available'
-      : raw.providerSummary.failed > 0 && raw.providerSummary.succeeded === 0 ? 'provider_unavailable' : 'no_availability'
-    await this.audit.record({ tenantId, user: identity, action: 'hotel.search', entityType: 'search', entityId: searchId,
-      payload: { destination: criteria.destination, supplier: this.supplier.name, resultCount: result.hotels.length, requestId, status } })
-    return { version: 1, searchId, requestId, generatedAt, request, status,
-      hotels: result.hotels, total: result.hotels.length, providerSummary: raw.providerSummary }
+    return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
   }
 
   @Post('rates/recheck')
