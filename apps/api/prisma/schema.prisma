@@ -44,6 +44,16 @@ enum BookingStatus {
   FAILED
 }
 
+enum InventoryHoldStatus {
+  PENDING_RECHECK
+  RECHECKED
+  HOLD_PENDING
+  HELD
+  RELEASED
+  EXPIRED
+  FAILED
+}
+
 enum AuditActorType {
   USER
   SYSTEM
@@ -101,6 +111,13 @@ enum RatePlanStatus {
   EXPIRED
 }
 
+/// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
+/// intentionally nullable and therefore not sellable until explicitly classified.
+enum RateAmountBasis {
+  NET
+  SELL
+}
+
 enum ConnectorType {
   API_JSON
   XML_IN
@@ -145,6 +162,7 @@ model Tenant {
   contracts   Contract[]
   connectorDefinitions ConnectorDefinition[]
   inventoryUpdateEvents InventoryUpdateEvent[]
+  inventoryHolds InventoryHold[]
 
   @@map("tenants")
 }
@@ -609,6 +627,7 @@ model DailyAvailability {
   stayDate           DateTime @map("stay_date") @db.Date
   allotment          Int
   sold               Int      @default(0)
+  held               Int      @default(0)
   stopSell           Boolean  @default(false) @map("stop_sell")
   minStay            Int      @default(1) @map("min_stay")
   closedToArrival    Boolean  @default(false) @map("closed_to_arrival")
@@ -616,8 +635,57 @@ model DailyAvailability {
   sourceUpdatedAt    DateTime? @map("source_updated_at")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
+  holdNights         InventoryHoldNight[]
 
   @@unique([ratePlanId, stayDate])
+  @@unique([tenantId, id])
+  @@index([tenantId, stayDate])
+}
+
+model InventoryHold {
+  id                 String              @id @default(cuid())
+  tenantId           String              @map("tenant_id")
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  ratePlanId         String              @map("rate_plan_id")
+  offerId            String              @map("offer_id")
+  searchId           String              @map("search_id")
+  canonicalHotelId   String              @map("canonical_hotel_id")
+  canonicalRoomTypeId String             @map("canonical_room_type_id")
+  boardBasisId       String              @map("board_basis_id")
+  checkIn            DateTime            @map("check_in") @db.Date
+  checkOut           DateTime            @map("check_out") @db.Date
+  rooms              Int
+  currency           String              @db.Char(3)
+  sellAmountMinor    BigInt              @map("sell_amount_minor")
+  idempotencyKey     String              @map("idempotency_key")
+  requestFingerprint String              @map("request_fingerprint")
+  requestId          String              @map("request_id")
+  createdByUserId    String              @map("created_by_user_id")
+  status             InventoryHoldStatus @default(HOLD_PENDING)
+  expiresAt          DateTime            @map("expires_at")
+  releasedAt         DateTime?           @map("released_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  nights             InventoryHoldNight[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, status, expiresAt])
+  @@index([tenantId, ratePlanId, checkIn, checkOut])
+}
+
+model InventoryHoldNight {
+  id             String            @id @default(cuid())
+  tenantId       String            @map("tenant_id")
+  holdId         String            @map("hold_id")
+  hold           InventoryHold     @relation(fields: [tenantId, holdId], references: [tenantId, id], onDelete: Cascade)
+  availabilityId String            @map("availability_id")
+  availability   DailyAvailability @relation(fields: [tenantId, availabilityId], references: [tenantId, id], onDelete: Restrict)
+  stayDate       DateTime          @map("stay_date") @db.Date
+  quantity       Int
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@unique([holdId, availabilityId])
   @@index([tenantId, stayDate])
 }
 
@@ -629,6 +697,7 @@ model DailyRate {
   stayDate       DateTime @map("stay_date") @db.Date
   occupancy      Int
   amountMinor    BigInt   @map("amount_minor")
+  amountBasis    RateAmountBasis? @map("amount_basis")
   currency       String   @db.Char(3)
   taxMetadata    Json     @default("{}") @map("tax_metadata")
   feeMetadata    Json     @default("{}") @map("fee_metadata")
@@ -639,6 +708,7 @@ model DailyRate {
 
   @@unique([ratePlanId, stayDate, occupancy])
   @@index([tenantId, stayDate])
+  @@index([tenantId, amountBasis, stayDate])
 }
 
 model ConnectorDefinition {

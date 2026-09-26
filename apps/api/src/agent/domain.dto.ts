@@ -1,4 +1,5 @@
-import { IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator'
+import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 
 export class RateActionDto {
   @IsString() hotelId!: string
@@ -15,4 +16,15 @@ export class BookingActionDto extends RateActionDto {
 
 export class CancellationDto {
   @IsOptional() @IsString() reason?: string
+}
+
+export class OfferHoldDto {
+  @IsString() @Length(1, 512) searchId!: string
+  @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) expectedCurrency!: string
+  @IsInt() @Min(1) expectedSellAmountMinor!: number
+  @IsString() @Length(8, 128) @Matches(/^[A-Za-z0-9._:-]+$/) idempotencyKey!: string
+}
+
+export class OfferHoldParamsDto {
+  @IsString() @Length(1, 512) offerId!: string
 }

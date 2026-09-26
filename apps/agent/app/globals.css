@@ -186,3 +186,11 @@ body { letter-spacing: -0.01em; }
 .portal-global-search:hover { border-color:#cbd5e1; color:#465961; }
 .portal-header-actions button:disabled { color:#aeb8bf; cursor:not-allowed; }
 .portal-secondary:disabled { color:#9aa7ae; background:#f7f8fa; cursor:not-allowed; }
+.portal-hold-panel { display:grid; gap:12px; margin-top:14px; padding:14px; border:1px solid #d9dee2; border-left:3px solid #df251b; background:#fff; }
+.portal-hold-panel > div:first-child { display:flex; align-items:flex-start; gap:8px; color:#465961; font-size:11px; }
+.portal-hold-panel .portal-primary { justify-self:start; min-height:34px; padding:0 14px; }
+.portal-hold-outcome { display:grid; gap:4px; padding:10px 12px; border:1px solid #ead0cc; background:#fff7f5; color:#6b3731; }
+.portal-hold-outcome strong { text-transform:capitalize; font-size:11px; }
+.portal-hold-outcome span { font-size:10px; }
+.portal-hold-outcome b { color:#0d0d0d; font-size:15px; }
+.portal-hold-outcome.is-held { border-color:#b9dfd0; background:#eefaf5; color:#17684f; }

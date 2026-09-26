@@ -1,4 +1,5 @@
-import type { Hotel, HotelSearchCriteria, HotelSearchResult } from '../types/hotel.ts'
+import type { Hotel, HotelSearchCriteria, HotelSearchResult, OfferHoldResult } from '../types/hotel.ts'
+import type { SearchRateOffer } from '@bedbanks/domain'
 import { agentApiBase } from '../lib/api-config.mjs'
 import { validSearchCriteria, validateAgentSearchResponse } from '@bedbanks/domain/search-offers'
 
@@ -11,6 +12,7 @@ export const DEMO_HOTELS: Hotel[] = [
 
 export interface HotelService {
   search(criteria: HotelSearchCriteria, tenantId: string): Promise<HotelSearchResult>
+  holdOffer(rate: SearchRateOffer, searchId: string, tenantId: string, idempotencyKey: string): Promise<OfferHoldResult>
   getById(id: string): Promise<Hotel | null>
 }
 
@@ -53,7 +55,9 @@ export class ApiHotelService implements HotelService {
       if (!validated.ok) return empty('mapping_unavailable')
       const { status, hotels, request } = validated.response
       return { hotels: [], liveHotels: hotels, total: hotels.length, isDemo: false, source: 'api',
-        status: status === 'no_availability' ? 'empty' : status, request }
+        status: status === 'no_availability' ? 'empty' : status, request,
+        searchId: validated.response.searchId, requestId: validated.response.requestId,
+        generatedAt: validated.response.generatedAt, providerSummary: validated.response.providerSummary }
     } catch {
       return empty('provider_unavailable')
     }
@@ -64,4 +68,42 @@ export class ApiHotelService implements HotelService {
       return DEMO_HOTELS.find((hotel) => hotel.id === id) ?? null
     return null
   }
+
+  async holdOffer(rate: SearchRateOffer, searchId: string, tenantId: string, idempotencyKey: string): Promise<OfferHoldResult> {
+    const fallback = (status: OfferHoldResult['status']): OfferHoldResult => ({ offerId: rate.offerId, searchId, requestId: 'unavailable', status })
+    if (!this.baseUrl || !rate.offerId || !searchId || !tenantId) return fallback('provider_unavailable')
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 7_000)
+      let response: Response
+      try {
+        response = await fetch(`${this.baseUrl}/agent/offers/${encodeURIComponent(rate.offerId)}/hold`, {
+          method: 'POST', credentials: 'include', signal: controller.signal,
+          headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
+          body: JSON.stringify({ searchId, expectedCurrency: rate.total.currency,
+            expectedSellAmountMinor: rate.sellAmountMinor, idempotencyKey }),
+        })
+      } finally { clearTimeout(timeout) }
+      if (response.status === 401) return fallback('auth_required')
+      if (response.status === 403) return fallback('access_denied')
+      const envelope: unknown = await response.json().catch(() => null)
+      const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
+      return validateHoldResult(data, rate.offerId, searchId) ?? fallback('provider_unavailable')
+    } catch { return fallback('provider_unavailable') }
+  }
+}
+
+function validateHoldResult(value: unknown, offerId: string, searchId: string): OfferHoldResult | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  const statuses: OfferHoldResult['status'][] = ['held', 'unavailable', 'price_changed', 'offer_expired', 'mapping_invalid', 'provider_unavailable', 'rejected']
+  if (row.offerId !== offerId || row.searchId !== searchId || typeof row.requestId !== 'string' || !row.requestId ||
+      typeof row.status !== 'string' || !statuses.includes(row.status as OfferHoldResult['status'])) return null
+  const result: OfferHoldResult = { offerId, searchId, requestId: row.requestId, status: row.status as OfferHoldResult['status'] }
+  if (row.currency !== undefined) { if (typeof row.currency !== 'string' || !/^[A-Z]{3}$/.test(row.currency)) return null; result.currency = row.currency }
+  if (row.sellAmountMinor !== undefined) { if (!Number.isSafeInteger(row.sellAmountMinor) || Number(row.sellAmountMinor) < 0) return null; result.sellAmountMinor = Number(row.sellAmountMinor) }
+  if (row.holdId !== undefined) { if (typeof row.holdId !== 'string' || !row.holdId) return null; result.holdId = row.holdId }
+  if (row.expiresAt !== undefined) { if (typeof row.expiresAt !== 'string' || !Number.isFinite(Date.parse(row.expiresAt))) return null; result.expiresAt = row.expiresAt }
+  if (result.status === 'held' && (!result.holdId || !result.expiresAt || !result.currency || result.sellAmountMinor === undefined)) return null
+  return result
 }
