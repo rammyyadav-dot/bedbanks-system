@@ -13,7 +13,7 @@ describe('LedgerService financial safety', () => {
       ...overrides,
     }
     const prisma = { withTenant: jest.fn(async (_tenantId: string, fn: any) => fn(tx)) }
-    return { service: new LedgerService(prisma as any), tx }
+    return { service: new LedgerService(prisma as any), tx, prisma }
   }
 
   const input = { tenantId: 't1', walletId: 'w1', currency: 'AED', amountMinor: -1000n,
@@ -34,18 +34,20 @@ describe('LedgerService financial safety', () => {
   })
 
   it('recovers a concurrent unique-key race by returning the winning identical entry', async () => {
-    const { service, tx } = setup()
+    const { service, tx, prisma } = setup()
     tx.ledgerEntry.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(entry)
     tx.ledgerEntry.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: '6.2.1' }))
     await expect(service.post(input)).resolves.toEqual(entry)
+    expect(prisma.withTenant).toHaveBeenCalledTimes(2)
     expect(tx.ledgerEntry.findUnique).toHaveBeenCalledTimes(2)
   })
 
   it('rejects a concurrent winner with different financial intent', async () => {
-    const { service, tx } = setup()
+    const { service, tx, prisma } = setup()
     tx.ledgerEntry.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...entry, amountMinor: -500n })
     tx.ledgerEntry.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: '6.2.1' }))
     await expect(service.post(input)).rejects.toBeInstanceOf(ConflictException)
+    expect(prisma.withTenant).toHaveBeenCalledTimes(2)
   })
 
   it('preserves tenant and wallet currency boundaries', async () => {
