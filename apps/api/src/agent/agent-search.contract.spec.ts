@@ -84,10 +84,9 @@ describe('Agent canonical search boundary', () => {
     expect(result.status).toBe('provider_unavailable')
     expect(JSON.stringify(result)).not.toContain('secret supplier URL')
   })
-  it('never invokes recheck or prebook from disabled routes', async () => {
+  it('keeps prebook and booking disabled after recheck activation', async () => {
     const { controller } = setup(jest.fn())
     const action = { hotelId: 'h1', rateId: 'o1', idempotencyKey: 'key', totalMinor: 1, currency: 'AED' }
-    expect((await controller.recheck(action, 'tenant-a', identity)).status).toBe('provider_unavailable')
     expect((await controller.prebook(action, 'tenant-a', identity)).status).toBe('booking_unavailable')
     expect((await controller.createBooking(action, 'tenant-a', identity)).status).toBe('booking_unavailable')
   })
