@@ -83,8 +83,10 @@ describe('ledger financial safety on PostgreSQL', () => {
 
 
   it('serializes 25 final-credit authorizations without overspending the wallet', async () => {
-    const wallet = await prisma.wallet.create({
-      data: { tenantId: tenantA, currency: 'AED', creditLimit: 10000n },
+    await prisma.ledgerEntry.deleteMany({ where: { walletId: walletA } })
+    const wallet = await prisma.wallet.update({
+      where: { id: walletA },
+      data: { creditLimit: 10000n, cachedBalance: 0n },
     })
 
     try {
@@ -131,7 +133,7 @@ describe('ledger financial safety on PostgreSQL', () => {
     } finally {
       await prisma.auditEvent.deleteMany({ where: { tenantId: tenantA, entityType: 'booking', entityId: { startsWith: 'booking-' } } })
       await prisma.ledgerEntry.deleteMany({ where: { walletId: wallet.id } })
-      await prisma.wallet.delete({ where: { id: wallet.id } })
+      await prisma.wallet.update({ where: { id: wallet.id }, data: { creditLimit: 0n, cachedBalance: 0n } })
     }
   })
 
