@@ -16,7 +16,9 @@ export type MappingMetadataUpdate = Pick<HotelMappingWrite, 'confidence' | 'sour
 export interface BoardBasisRead { id: string; tenantId: string; code: string; name: string; description: string | null; isActive: boolean }
 export interface ContractRead { id: string; tenantId: string; supplierId: string; supplierHotelMappingId: string | null; code: string; status: string; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string }
 export interface RatePlanRead { id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string }
-export interface DailyRateRead { id: string; tenantId: string; ratePlanId: string; stayDate: SupplyDate; occupancy: number; amountMinor: string; currency: string }
+export type RateAmountBasis = 'NET' | 'SELL'
+export interface DailyRateRead { id: string; tenantId: string; ratePlanId: string; stayDate: SupplyDate; occupancy: number; amountMinor: string; amountBasis: RateAmountBasis | null; currency: string }
+export interface DailyRateWrite { ratePlanId: string; stayDate: SupplyDate; occupancy: number; amountMinor: string; amountBasis: RateAmountBasis; currency: string }
 export interface DailyAvailabilityRead { id: string; tenantId: string; ratePlanId: string; stayDate: SupplyDate; allotment: number; sold: number; stopSell: boolean; minStay: number }
 export interface SellabilityResult { eligible: boolean; status: 'ELIGIBLE_FOR_FUTURE_SEARCH' | 'NOT_ELIGIBLE'; reasons: string[] }
 

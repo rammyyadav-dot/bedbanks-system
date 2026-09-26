@@ -15,6 +15,7 @@ Run these commands from `apps/api`. The committed migration files are the only p
 8. `202609190003_rate_availability_inventory` — dated, non-negative rate-plan availability and BIGINT minor-unit daily rates.
 9. `202609190004_connector_registry_foundation` — connector registry, secret-manager references and auditable inventory events.
 15. `202609250001_booking_concurrency_foundation` — non-bookable inventory holds, atomic held quantities, tenant idempotency and RLS.
+16. `202609260001_authoritative_rate_amount_semantics` — explicit nullable NET/SELL meaning for daily rates; legacy NULL rows remain non-sellable until classified.
 
 Historical migration directories are immutable after they have been applied to any environment. Future schema changes require a new, forward-only migration.
 

@@ -111,6 +111,13 @@ enum RatePlanStatus {
   EXPIRED
 }
 
+/// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
+/// intentionally nullable and therefore not sellable until explicitly classified.
+enum RateAmountBasis {
+  NET
+  SELL
+}
+
 enum ConnectorType {
   API_JSON
   XML_IN
@@ -690,6 +697,7 @@ model DailyRate {
   stayDate       DateTime @map("stay_date") @db.Date
   occupancy      Int
   amountMinor    BigInt   @map("amount_minor")
+  amountBasis    RateAmountBasis? @map("amount_basis")
   currency       String   @db.Char(3)
   taxMetadata    Json     @default("{}") @map("tax_metadata")
   feeMetadata    Json     @default("{}") @map("fee_metadata")
@@ -700,6 +708,7 @@ model DailyRate {
 
   @@unique([ratePlanId, stayDate, occupancy])
   @@index([tenantId, stayDate])
+  @@index([tenantId, amountBasis, stayDate])
 }
 
 model ConnectorDefinition {
