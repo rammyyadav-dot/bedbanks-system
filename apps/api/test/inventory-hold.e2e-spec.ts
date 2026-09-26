@@ -176,9 +176,76 @@ describe('inventory hold PostgreSQL concurrency', () => {
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: active.id } })).toMatchObject({ status: 'RELEASED' })
   })
 
+  it('preserves inventory bounds when hold allocation races release restoration', async () => {
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 1, sold: 0, held: 0 },
+    })
+
+    const existing = await holds.create(command(`${suffix}-hold-release-existing`))
+    expect(existing.status).toBe('held')
+
+    let arrived = 0
+    let releaseGate!: () => void
+    const gate = new Promise<void>(resolve => { releaseGate = resolve })
+    const startTogether = async () => {
+      arrived += 1
+      if (arrived === 2) releaseGate()
+      await gate
+    }
+
+    const [releaseResult, allocationResult] = await Promise.allSettled([
+      (async () => {
+        await startTogether()
+        return holds.release(tenantId, existing.holdId, `${suffix}-hold-release-release`, { type: 'USER', userId })
+      })(),
+      (async () => {
+        await startTogether()
+        return holds.create(command(`${suffix}-hold-release-new`))
+      })(),
+    ])
+
+    expect(releaseResult.status).toBe('fulfilled')
+    expect(allocationResult.status).toBe('fulfilled')
+
+    const nights = await prisma.dailyAvailability.findMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      orderBy: { stayDate: 'asc' },
+      select: { allotment: true, sold: true, held: true },
+    })
+    expect(nights).toHaveLength(2)
+    for (const night of nights) {
+      expect(night.held).toBeGreaterThanOrEqual(0)
+      expect(night.sold + night.held).toBeGreaterThanOrEqual(0)
+      expect(night.sold + night.held).toBeLessThanOrEqual(night.allotment)
+    }
+    expect(nights).toEqual([
+      { allotment: 1, sold: 0, held: 1 },
+      { allotment: 1, sold: 0, held: 1 },
+    ])
+
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: existing.holdId } })).toMatchObject({ status: 'RELEASED' })
+    if (allocationResult.status !== 'fulfilled') throw new Error('Expected replacement allocation to succeed after serialized release')
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: allocationResult.value.holdId } })).toMatchObject({ status: 'HELD' })
+  })
+
   it('rolls back every prior night when one night is unavailable', async () => {
-    const active = await prisma.inventoryHold.findFirstOrThrow({ where: { tenantId, status: 'HELD' } })
-    await holds.release(tenantId, active.id, 'prepare-rollback', { type: 'USER', userId })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId },
+      data: { held: 0, sold: 0 },
+    })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 1 },
+    })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: new Date('2099-01-03') },
+      data: { allotment: 0 },
+    })
     await expect(holds.create(command(`${suffix}-rollback`, '2099-01-04'))).rejects.toThrow('Inventory unavailable')
     const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId }, orderBy: { stayDate: 'asc' }, select: { held: true } })
     expect(nights).toEqual([{ held: 0 }, { held: 0 }, { held: 0 }])
