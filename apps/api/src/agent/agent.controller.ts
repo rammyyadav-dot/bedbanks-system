@@ -69,7 +69,7 @@ export class AgentController {
     const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
-    const statusCodes = { held: HttpStatus.CREATED, unavailable: HttpStatus.CONFLICT, price_changed: HttpStatus.CONFLICT,
+    const statusCodes = { rechecked: HttpStatus.OK, held: HttpStatus.CREATED, unavailable: HttpStatus.CONFLICT, price_changed: HttpStatus.CONFLICT,
       offer_expired: HttpStatus.GONE, mapping_invalid: HttpStatus.UNPROCESSABLE_ENTITY,
       provider_unavailable: HttpStatus.SERVICE_UNAVAILABLE, rejected: HttpStatus.BAD_REQUEST } as const
     const holdStatus = result.status === 'rechecked' ? 'rejected' : result.status
