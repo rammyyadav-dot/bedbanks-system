@@ -74,11 +74,12 @@ export class RedisCacheAdapter implements CachePort, CoordinationPort {
     const port = Number(this.url.port || 6379)
     const host = this.url.hostname
     return new Promise((resolve, reject) => {
-      const socket = this.url.protocol === 'rediss:'
+      const secure = this.url.protocol === 'rediss:'
+      const socket = secure
         ? connectTls({ host, port, servername: host })
         : connectTcp({ host, port })
       const timer = setTimeout(() => socket.destroy(new Error('Redis connection timeout')), this.timeoutMs)
-      socket.once('connect', () => { clearTimeout(timer); resolve(socket) })
+      socket.once(secure ? 'secureConnect' : 'connect', () => { clearTimeout(timer); resolve(socket) })
       socket.once('error', error => { clearTimeout(timer); reject(error) })
     })
   }
