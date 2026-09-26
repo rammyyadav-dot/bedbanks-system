@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { createHash, randomUUID } from 'crypto'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
-import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
+import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination, tenantCacheKey, type CachePort, type CoordinationPort } from '../common/cache/cache.port'
 import { AgentAuditService } from './audit.service'
 import { SupplierAdapter, SUPPLIER_ADAPTER, type HotelSearchCriteria } from './supplier.port'
 import { validateSearchHotels } from '@bedbanks/domain/search-offers'
@@ -9,6 +9,9 @@ import { validateSearchHotels } from '@bedbanks/domain/search-offers'
 const DEFAULT_SEARCH_TTL_MS = 45_000
 const MIN_SEARCH_TTL_MS = 1_000
 const MAX_SEARCH_TTL_MS = 120_000
+const SEARCH_LOCK_TTL_MS = 12_000
+const SEARCH_LOCK_WAIT_MS = 750
+const SEARCH_LOCK_POLL_MS = 75
 
 type SearchResponse = {
   version: 1
@@ -28,6 +31,7 @@ export class AgentSearchService {
     @Inject(SUPPLIER_ADAPTER) private readonly supplier: SupplierAdapter,
     private readonly audit: AgentAuditService,
     @Inject(CACHE_PORT) private readonly cache: CachePort = new NoopCache(),
+    @Inject(COORDINATION_PORT) private readonly coordination: CoordinationPort = new NoopCoordination(),
   ) {}
 
   async execute(criteria: HotelSearchCriteria, tenantId: string, requestId: string, identity: AuthenticatedUser): Promise<SearchResponse> {
@@ -38,11 +42,27 @@ export class AgentSearchService {
       return { ...cached, searchId: randomUUID(), requestId, generatedAt: new Date().toISOString() }
     }
 
-    const fresh = await this.fetchFresh(request, tenantId, requestId, identity)
-    if (fresh.status === 'available' || fresh.status === 'partial' || fresh.status === 'no_availability') {
-      await this.safeSet(key, fresh)
+    const lockKey = `${key}:lock`
+    let lease = null
+    try { lease = await this.coordination.acquire(lockKey, SEARCH_LOCK_TTL_MS) } catch { /* coordination is optional */ }
+
+    if (!lease) {
+      const coalesced = await this.waitForCached<SearchResponse>(key)
+      if (coalesced) return { ...coalesced, searchId: randomUUID(), requestId, generatedAt: new Date().toISOString() }
+      // Lock contention/outage must not turn into false unavailability. Fall through to authoritative search.
     }
-    return fresh
+
+    try {
+      const fresh = await this.fetchFresh(request, tenantId, requestId, identity)
+      if (fresh.status === 'available' || fresh.status === 'partial' || fresh.status === 'no_availability') {
+        await this.safeSet(key, fresh)
+      }
+      return fresh
+    } finally {
+      if (lease) {
+        try { await this.coordination.release(lease) } catch { /* lease TTL bounds orphaned locks */ }
+      }
+    }
   }
 
   private async fetchFresh(request: HotelSearchCriteria, tenantId: string, requestId: string, identity: AuthenticatedUser): Promise<SearchResponse> {
@@ -115,6 +135,16 @@ export class AgentSearchService {
     const parsed = Number(process.env.AGENT_SEARCH_CACHE_TTL_MS ?? DEFAULT_SEARCH_TTL_MS)
     if (!Number.isSafeInteger(parsed)) return DEFAULT_SEARCH_TTL_MS
     return Math.min(MAX_SEARCH_TTL_MS, Math.max(MIN_SEARCH_TTL_MS, parsed))
+  }
+
+  private async waitForCached<T>(key: string): Promise<T | null> {
+    const deadline = Date.now() + SEARCH_LOCK_WAIT_MS
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, SEARCH_LOCK_POLL_MS))
+      const cached = await this.safeGet<T>(key)
+      if (cached) return cached
+    }
+    return null
   }
 
   private async safeGet<T>(key: string): Promise<T | null> {

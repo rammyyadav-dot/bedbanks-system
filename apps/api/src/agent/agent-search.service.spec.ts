@@ -2,7 +2,7 @@ import { AgentSearchService } from './agent-search.service'
 import type { SupplierAdapter } from './supplier.port'
 import type { AgentAuditService } from './audit.service'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
-import type { CachePort, CacheWriteOptions } from '../common/cache/cache.port'
+import type { CachePort, CacheWriteOptions, CoordinationPort, LockLease } from '../common/cache/cache.port'
 
 const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
@@ -39,11 +39,21 @@ class MemoryCache implements CachePort {
   async delete(key: string): Promise<void> { this.values.delete(key) }
 }
 
+class MemoryCoordination implements CoordinationPort {
+  private held = false
+  async acquire(key: string, _ttlMs: number): Promise<LockLease | null> {
+    if (this.held) return null
+    this.held = true
+    return { key, token: 'owner' }
+  }
+  async release(_lease: LockLease): Promise<void> { this.held = false }
+}
+
 const supplierResult = (offers: unknown[], failed = 0) => ({ offers, providerSummary: { queried: 1, succeeded: failed ? 0 : 1, failed } })
-const setup = (search: jest.Mock, cache = new MemoryCache(), name = 'supplier-a') => {
+const setup = (search: jest.Mock, cache = new MemoryCache(), name = 'supplier-a', coordination?: CoordinationPort) => {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
-  return { service: new AgentSearchService(supplier, audit, cache), cache, audit }
+  return { service: new AgentSearchService(supplier, audit, cache, coordination), cache, audit }
 }
 
 describe('AgentSearchService cache boundary', () => {
@@ -115,6 +125,20 @@ describe('AgentSearchService cache boundary', () => {
     const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
     const { service } = setup(search, cache)
     expect((await service.execute(criteria, 'tenant-a', 'r1', identity)).status).toBe('available')
+    expect(search).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces concurrent equivalent misses behind one lease owner', async () => {
+    const search = jest.fn().mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60))
+      return supplierResult([hotel])
+    })
+    const { service } = setup(search, new MemoryCache(), 'supplier-a', new MemoryCoordination())
+    const requests = Array.from({ length: 25 }, (_, index) =>
+      service.execute(criteria, 'tenant-a', `concurrent-${index}`, identity))
+    const results = await Promise.all(requests)
+    expect(results).toHaveLength(25)
+    expect(results.every(result => result.status === 'available')).toBe(true)
     expect(search).toHaveBeenCalledTimes(1)
   })
 

@@ -10,7 +10,8 @@ import { SUPPLIER_ADAPTER, UnconfiguredSupplierAdapter } from './supplier.port'
 import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
-import { CACHE_PORT, NoopCache } from '../common/cache/cache.port'
+import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
+import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
 @Module({
   imports: [AuthModule],
@@ -24,7 +25,14 @@ import { CACHE_PORT, NoopCache } from '../common/cache/cache.port'
     InventoryHoldService,
     OfferHoldService,
     AgentSearchService,
-    { provide: CACHE_PORT, useClass: NoopCache },
+    {
+      provide: CACHE_PORT,
+      useFactory: () => redisFromEnvironment() ?? new NoopCache(),
+    },
+    {
+      provide: COORDINATION_PORT,
+      useFactory: () => redisFromEnvironment() ?? new NoopCoordination(),
+    },
     { provide: SUPPLIER_ADAPTER, useClass: UnconfiguredSupplierAdapter },
   ],
   exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER],
