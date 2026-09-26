@@ -14,7 +14,6 @@ export class SupplierPrebookOrchestrationService {
   constructor(
     private readonly bookings: BookingPersistenceService,
     private readonly finance: BookingFinancialAuthorizationService,
-    private readonly inventory: InventoryHoldService,
     private readonly recovery: PrebookCompensationRecoveryService,
     @Inject(SUPPLIER_ADAPTER) private readonly supplier: SupplierAdapter,
   ) {}
