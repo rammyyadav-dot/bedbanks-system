@@ -5,6 +5,7 @@ import type { AgentAuditService } from './audit.service'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import type { Request } from 'express'
 import type { OfferHoldService } from './offer-hold.service'
+import type { AgentSearchService } from './agent-search.service'
 
 const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
@@ -26,8 +27,9 @@ const hotel = {
 function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
-  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService)
-  return { controller, audit }
+  const agentSearch = { execute: jest.fn() } as unknown as AgentSearchService
+  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch)
+  return { controller, audit, agentSearch }
 }
 const query = () => ({ ...criteria } as Parameters<AgentController['search']>[0])
 const request = () => ({ requestId: 'request-a', activeTenantId: 'tenant-a' }) as unknown as Request
