@@ -77,6 +77,7 @@ function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchRe
   const copy = unavailable ? 'We couldn’t retrieve live supplier rates for this search.' : mapping ? 'The supplier offer could not be verified against the fBeds hotel and room catalogue.' : status === 'empty' ? 'No live offers matched your current destination, dates and occupancy.' : 'Your search details are preserved. Try again or adjust the search criteria.'
   return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div><button className="portal-primary" onClick={onRetry}>Try again</button><button className="portal-link" onClick={onEdit}>Edit search</button></div></div>
 }
+function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : 'Agency credit' }
 function formatTotal(total: SearchRateOffer['total']) {
   // Format the supplied minor-unit amount without changing the commercial total.
   const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: total.currency })
@@ -110,17 +111,22 @@ function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHo
     setHolding(true); setHold(null)
     const rate = { ...selection.rate, sellAmountMinor: expectedAmount,
       total: { ...selection.rate.total, amountMinor: expectedAmount } }
-    const result = await new ApiHotelService().holdOffer(rate, searchId, selection.rate.tenantId, idempotencyKey)
-    setHold(result)
-    if (result.status === 'price_changed' && result.sellAmountMinor !== undefined) setExpectedAmount(result.sellAmountMinor)
-    setHolding(false)
+    try {
+      const result = await new ApiHotelService().holdOffer(rate, searchId, selection.rate.tenantId, idempotencyKey)
+      setHold(result)
+      if (result.status === 'price_changed' && result.sellAmountMinor !== undefined) setExpectedAmount(result.sellAmountMinor)
+    } catch {
+      setHold({ status: 'provider_unavailable', offerId: selection.rate.offerId, searchId, requestId: idempotencyKey })
+    } finally {
+      setHolding(false)
+    }
   }
   const canAcceptChangedPrice = hold?.status === 'price_changed' && hold.currency === selection?.rate.total.currency
   return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><span className="portal-eyebrow">VERIFIED SUPPLIER OFFERS</span><h2>{hotel.name}</h2><p>{hotel.destination}</p></div></div>
     {hotel.rooms.map((room) => <div className="portal-room" key={room.roomTypeId}><div><span className="portal-eyebrow">ROOM TYPE</span><h3>{room.name}</h3></div><div className="portal-rate">{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
       const selectable = !expired && rate.availability !== 'sold_out'
-      return <div key={rate.offerId}><span className="portal-eyebrow">RATE PLAN · BOARD BASIS</span><strong>{rate.ratePlanName} · {rate.boardBasisName}</strong><span>{rate.cancellation.summary} · {rate.availability.replace('_', ' ')}</span><b>{formatTotal(rate.total)} total stay</b><button className="portal-secondary" disabled={!selectable} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select rate for recheck'}</button></div>
+      return <div key={rate.offerId} className="portal-rate-option"><span className="portal-eyebrow">RATE PLAN · BOARD BASIS</span><strong>{rate.ratePlanName} · {rate.boardBasisName}</strong><span>{rate.cancellation.summary} · {rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)} total stay</b><small>Includes taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })}</small></div><button className="portal-secondary" disabled={!selectable} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select rate for recheck'}</button></div>
     })}</div></div>)}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} />Selected rate expired. Search again for a current offer.</div>}
     {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected: {selection.room.name} · {selection.rate.ratePlanName} · {selection.rate.boardBasisName} · {formatTotal({ ...selection.rate.total, amountMinor: expectedAmount ?? selection.rate.sellAmountMinor })}. Recheck is required; booking remains disabled.</span></div>
@@ -135,7 +141,7 @@ function HoldOutcome({ result }: { result: OfferHoldResult }) {
     price_changed: 'The supplier price or currency changed. Review the updated total; a currency change requires a new search.',
     unavailable: 'The rate is no longer available. No inventory was held.', offer_expired: 'The offer expired. Search again for a current rate.',
     mapping_invalid: 'The hotel, room or commercial mapping could not be verified. No inventory was held.',
-    provider_unavailable: 'The supplier could not be reached safely. No inventory was held.', rejected: 'The supplier response could not be verified.',
+    provider_unavailable: 'The supplier could not be reached safely. No inventory was held. Try the recheck again.', rejected: 'The supplier response could not be verified. No inventory was held.',
     auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to hold this offer.',
   }
   return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'held' ? 'status' : 'alert'}><strong>{result.status === 'held' ? 'Temporary hold created' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined && <b>{formatTotal({ currency: result.currency, amountMinor: result.sellAmountMinor })}</b>}</div>
