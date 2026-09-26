@@ -30,6 +30,15 @@ function setup(result: SupplierRecheckResult | Error, mapped = true) {
 }
 
 describe('authoritative supplier recheck and hold boundary', () => {
+  it('rechecks authoritatively without allocating inventory', async () => {
+    const fixture = setup({ status: 'available', offer: authority })
+    const { idempotencyKey: _idempotencyKey, ...recheckCommand } = command
+    await expect(fixture.service.recheck(recheckCommand)).resolves.toMatchObject({
+      status: 'rechecked', currency: 'AED', sellAmountMinor: 125099,
+    })
+    expect(fixture.holds.create).not.toHaveBeenCalled()
+  })
+
   it('holds only after authoritative recheck and mapping verification', async () => {
     const fixture = setup({ status: 'available', offer: authority })
     await expect(fixture.service.execute(command)).resolves.toMatchObject({ status: 'held', holdId: 'hold-a' })

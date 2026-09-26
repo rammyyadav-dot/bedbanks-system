@@ -19,7 +19,15 @@ export class OfferHoldService {
     private readonly audit: AgentAuditService,
   ) {}
 
-  async execute(command: OfferHoldRequest & { tenantId: string; user: AuthenticatedUser; requestId: string }): Promise<OfferHoldResponse> {
+  async recheck(command: Omit<OfferHoldRequest, 'idempotencyKey'> & { tenantId: string; user: AuthenticatedUser; requestId: string }): Promise<OfferHoldResponse> {
+    return this.evaluate(command, false)
+  }
+
+  async execute(command: (OfferHoldRequest | Omit<OfferHoldRequest, 'idempotencyKey'>) & { tenantId: string; user: AuthenticatedUser; requestId: string }): Promise<OfferHoldResponse> {
+    return this.evaluate(command, true)
+  }
+
+  private async evaluate(command: (OfferHoldRequest | Omit<OfferHoldRequest, 'idempotencyKey'>) & { tenantId: string; user: AuthenticatedUser; requestId: string }, createHold: boolean): Promise<OfferHoldResponse> {
     const startedAt = Date.now()
     const base = { offerId: command.offerId, searchId: command.searchId, requestId: command.requestId }
     if (this.supplier.name === 'unconfigured') return this.outcome(command, { ...base, status: 'provider_unavailable' }, 'unconfigured', Date.now() - startedAt)
@@ -43,6 +51,10 @@ export class OfferHoldService {
     if (offer.currency !== command.expectedCurrency || offer.sellAmountMinor !== command.expectedSellAmountMinor) {
       return this.outcome(command, { ...base, status: 'price_changed', currency: offer.currency, sellAmountMinor: offer.sellAmountMinor, expiresAt: offer.expiresAt }, 'price_changed', Date.now() - startedAt)
     }
+    if (!createHold) {
+      return this.outcome(command, { ...base, status: 'rechecked', currency: offer.currency, sellAmountMinor: offer.sellAmountMinor, expiresAt: offer.expiresAt }, 'rechecked', Date.now() - startedAt)
+    }
+    if (!('idempotencyKey' in command)) return this.outcome(command, { ...base, status: 'rejected' }, 'missing_idempotency_key', Date.now() - startedAt)
     try {
       const held = await this.holds.create({
         tenantId: command.tenantId, userId: command.user.user.id, requestId: command.requestId,
@@ -103,12 +115,12 @@ export class OfferHoldService {
     })
   }
 
-  private async outcome(command: OfferHoldRequest & { tenantId: string; user: AuthenticatedUser; requestId: string }, response: OfferHoldResponse, reason: string, durationMs: number) {
+  private async outcome(command: (OfferHoldRequest | Omit<OfferHoldRequest, 'idempotencyKey'>) & { tenantId: string; user: AuthenticatedUser; requestId: string }, response: OfferHoldResponse, reason: string, durationMs: number) {
     await this.record(command, response.status, reason, durationMs)
     return response
   }
 
-  private record(command: OfferHoldRequest & { tenantId: string; user: AuthenticatedUser; requestId: string }, status: string, reason: string, durationMs: number) {
+  private record(command: (OfferHoldRequest | Omit<OfferHoldRequest, 'idempotencyKey'>) & { tenantId: string; user: AuthenticatedUser; requestId: string }, status: string, reason: string, durationMs: number) {
     return this.audit.record({ tenantId: command.tenantId, user: command.user, action: `offer.recheck.${status}`,
       entityType: 'offer', entityId: command.offerId, payload: { requestId: command.requestId, searchId: command.searchId, provider: this.supplier.name, reason, durationMs } })
   }

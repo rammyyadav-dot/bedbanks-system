@@ -109,7 +109,7 @@ export interface InventoryHoldResponse {
   sellAmountMinor: number
 }
 
-export type OfferHoldOutcome = 'held' | 'unavailable' | 'price_changed' | 'offer_expired' | 'mapping_invalid' | 'provider_unavailable' | 'rejected'
+export type OfferHoldOutcome = 'rechecked' | 'held' | 'unavailable' | 'price_changed' | 'offer_expired' | 'mapping_invalid' | 'provider_unavailable' | 'rejected'
 export interface OfferHoldRequest {
   offerId: string
   searchId: string
