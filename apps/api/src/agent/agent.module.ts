@@ -13,6 +13,7 @@ import { AgentSearchService } from './agent-search.service'
 import { BookingPersistenceService } from './booking-persistence.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
+import { PrebookCompensationRecoveryService } from './prebook-compensation-recovery.service'
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
 import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
@@ -31,6 +32,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     BookingPersistenceService,
     BookingFinancialAuthorizationService,
     SupplierPrebookOrchestrationService,
+    PrebookCompensationRecoveryService,
     {
       provide: CACHE_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCache(),
