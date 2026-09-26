@@ -106,6 +106,76 @@ describe('inventory hold PostgreSQL concurrency', () => {
     expect(durableNights.every(night => night.quantity === 1)).toBe(true)
   })
 
+  it('allows exactly five of 25 simultaneous requests when five rooms remain', async () => {
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 5, held: 0, sold: 0 },
+    })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+
+    const attempts = 25
+    let arrived = 0
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const results = await Promise.allSettled(Array.from({ length: attempts }, async (_, index) => {
+      arrived += 1
+      if (arrived === attempts) release()
+      await gate
+      return holds.create(command(`${suffix}-capacity-${index}`))
+    }))
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(5)
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(20)
+    const nights = await prisma.dailyAvailability.findMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      orderBy: { stayDate: 'asc' },
+      select: { allotment: true, sold: true, held: true },
+    })
+    for (const night of nights) {
+      expect(night.held).toBe(5)
+      expect(night.sold + night.held).toBeLessThanOrEqual(night.allotment)
+    }
+    expect(await prisma.inventoryHold.count({ where: { tenantId, status: 'HELD' } })).toBe(5)
+    expect(await prisma.inventoryHoldNight.count({ where: { tenantId } })).toBe(10)
+  })
+
+  it('converges 25 identical idempotent requests on one durable hold', async () => {
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 1, held: 0, sold: 0 },
+    })
+    const same = command(`${suffix}-idempotent-race`)
+    const results = await Promise.all(Array.from({ length: 25 }, () => holds.create(same)))
+    expect(new Set(results.map(result => result.holdId)).size).toBe(1)
+    expect(results.filter(result => result.status === 'held')).toHaveLength(1)
+    expect(results.filter(result => result.status === 'already_held')).toHaveLength(24)
+    expect(await prisma.inventoryHold.count({ where: { tenantId, idempotencyKey: same.idempotencyKey } })).toBe(1)
+    expect(await prisma.inventoryHoldNight.count({ where: { tenantId } })).toBe(2)
+    const nights = await prisma.dailyAvailability.findMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      orderBy: { stayDate: 'asc' },
+      select: { allotment: true, sold: true, held: true },
+    })
+    for (const night of nights) expect(night).toMatchObject({ allotment: 1, sold: 0, held: 1 })
+  })
+
+  it('restores inventory exactly once under 25 simultaneous releases', async () => {
+    const active = await prisma.inventoryHold.findFirstOrThrow({ where: { tenantId, status: 'HELD' } })
+    await Promise.all(Array.from({ length: 25 }, (_, index) =>
+      holds.release(tenantId, active.id, `release-race-${index}`, { type: 'USER', userId }),
+    ))
+    const nights = await prisma.dailyAvailability.findMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      orderBy: { stayDate: 'asc' },
+      select: { held: true },
+    })
+    expect(nights).toEqual([{ held: 0 }, { held: 0 }])
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: active.id } })).toMatchObject({ status: 'RELEASED' })
+  })
+
   it('rolls back every prior night when one night is unavailable', async () => {
     const active = await prisma.inventoryHold.findFirstOrThrow({ where: { tenantId, status: 'HELD' } })
     await holds.release(tenantId, active.id, 'prepare-rollback', { type: 'USER', userId })
