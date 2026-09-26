@@ -52,7 +52,7 @@ export class OfferHoldService {
       return this.outcome(command, { ...base, status: 'price_changed', currency: offer.currency, sellAmountMinor: offer.sellAmountMinor, expiresAt: offer.expiresAt }, 'price_changed', Date.now() - startedAt)
     }
     if (!createHold) {
-      return this.outcome(command, { ...base, status: 'held', currency: offer.currency, sellAmountMinor: offer.sellAmountMinor, expiresAt: offer.expiresAt }, 'rechecked', Date.now() - startedAt)
+      return this.outcome(command, { ...base, status: 'rechecked', currency: offer.currency, sellAmountMinor: offer.sellAmountMinor, expiresAt: offer.expiresAt }, 'rechecked', Date.now() - startedAt)
     }
     if (!('idempotencyKey' in command)) return this.outcome(command, { ...base, status: 'rejected' }, 'missing_idempotency_key', Date.now() - startedAt)
     try {
