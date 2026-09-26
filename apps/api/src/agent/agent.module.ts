@@ -8,6 +8,7 @@ import { AgentRbacGuard } from './rbac.guard'
 import { TenantContextGuard } from './tenant-context.guard'
 import { SUPPLIER_ADAPTER, UnconfiguredSupplierAdapter } from './supplier.port'
 import { InventoryHoldService } from './inventory-hold.service'
+import { OfferHoldService } from './offer-hold.service'
 
 @Module({
   imports: [AuthModule],
@@ -19,6 +20,7 @@ import { InventoryHoldService } from './inventory-hold.service'
     LedgerService,
     AgentFinanceService,
     InventoryHoldService,
+    OfferHoldService,
     { provide: SUPPLIER_ADAPTER, useClass: UnconfiguredSupplierAdapter },
   ],
   exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER],

@@ -108,3 +108,22 @@ export interface InventoryHoldResponse {
   currency: string
   sellAmountMinor: number
 }
+
+export type OfferHoldOutcome = 'held' | 'unavailable' | 'price_changed' | 'offer_expired' | 'mapping_invalid' | 'provider_unavailable' | 'rejected'
+export interface OfferHoldRequest {
+  offerId: string
+  searchId: string
+  expectedCurrency: string
+  expectedSellAmountMinor: number
+  idempotencyKey: string
+}
+export interface OfferHoldResponse {
+  offerId: string
+  searchId: string
+  requestId: string
+  status: OfferHoldOutcome
+  currency?: string
+  sellAmountMinor?: number
+  holdId?: string
+  expiresAt?: string
+}

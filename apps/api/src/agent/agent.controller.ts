@@ -1,20 +1,21 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentAuditService } from './audit.service'
-import { CancellationDto, RateActionDto } from './domain.dto'
+import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, RateActionDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
 import { ACTIVE_TENANT_REQUEST_KEY, TenantContextGuard } from './tenant-context.guard'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
-import type { Request } from 'express'
+import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 import { validSearchCriteria, validateSearchHotels } from '@bedbanks/domain/search-offers'
+import { OfferHoldService } from './offer-hold.service'
 
 class SearchFiltersDto {
   @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(5, { each: true }) starRatings?: number[]
@@ -47,12 +48,30 @@ export class AgentController {
     @Inject(SUPPLIER_ADAPTER) private readonly supplier: SupplierAdapter,
     private readonly financeService: AgentFinanceService,
     private readonly audit: AgentAuditService,
+    private readonly offerHolds: OfferHoldService,
   ) {}
 
   @Get('context')
   @ApiOperation({ summary: 'Return authenticated agent context and memberships' })
   context(@CurrentUser() identity: AuthenticatedUser) {
     return { user: identity.user, memberships: identity.memberships, capabilities: Object.values(PERMISSIONS) }
+  }
+
+  @Post('offers/:offerId/hold')
+  @ApiOperation({ summary: 'Authoritatively recheck a canonical offer and create a non-bookable inventory hold' })
+  @RequirePermission(PERMISSIONS.prebook)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async holdOffer(@Param() params: OfferHoldParamsDto, @Body() body: OfferHoldDto,
+    @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
+      expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
+      idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
+    const statusCodes = { held: HttpStatus.CREATED, unavailable: HttpStatus.CONFLICT, price_changed: HttpStatus.CONFLICT,
+      offer_expired: HttpStatus.GONE, mapping_invalid: HttpStatus.UNPROCESSABLE_ENTITY,
+      provider_unavailable: HttpStatus.SERVICE_UNAVAILABLE, rejected: HttpStatus.BAD_REQUEST } as const
+    response.status(statusCodes[result.status])
+    return result
   }
 
   @Post('search/status')
