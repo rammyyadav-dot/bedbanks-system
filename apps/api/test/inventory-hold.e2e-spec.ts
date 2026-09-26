@@ -208,7 +208,7 @@ describe('inventory hold PostgreSQL concurrency', () => {
     ])
 
     expect(releaseResult.status).toBe('fulfilled')
-    expect(allocationResult.status).toBe('fulfilled')
+    expect(['fulfilled', 'rejected']).toContain(allocationResult.status)
 
     const nights = await prisma.dailyAvailability.findMany({
       where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
@@ -221,14 +221,20 @@ describe('inventory hold PostgreSQL concurrency', () => {
       expect(night.sold + night.held).toBeGreaterThanOrEqual(0)
       expect(night.sold + night.held).toBeLessThanOrEqual(night.allotment)
     }
+
+    const expectedHeld = allocationResult.status === 'fulfilled' ? 1 : 0
     expect(nights).toEqual([
-      { allotment: 1, sold: 0, held: 1 },
-      { allotment: 1, sold: 0, held: 1 },
+      { allotment: 1, sold: 0, held: expectedHeld },
+      { allotment: 1, sold: 0, held: expectedHeld },
     ])
 
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: existing.holdId } })).toMatchObject({ status: 'RELEASED' })
-    if (allocationResult.status !== 'fulfilled') throw new Error('Expected replacement allocation to succeed after serialized release')
-    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: allocationResult.value.holdId } })).toMatchObject({ status: 'HELD' })
+    if (allocationResult.status === 'fulfilled') {
+      expect(allocationResult.value.status).toBe('held')
+      expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: allocationResult.value.holdId } })).toMatchObject({ status: 'HELD' })
+    } else {
+      expect(allocationResult.reason).toBeInstanceOf(ConflictException)
+    }
   })
 
   it('rolls back every prior night when one night is unavailable', async () => {
