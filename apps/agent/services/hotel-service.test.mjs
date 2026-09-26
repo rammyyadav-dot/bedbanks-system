@@ -81,3 +81,26 @@ test('empty and forbidden responses are distinct', async () => {
   globalThis.fetch = async () => new Response(null, { status: 403 })
   assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-b')).status, 'access_denied')
 })
+test('recheck sends only expected display amount and returns a validated temporary hold', async () => {
+  const rate = hotel.rooms[0].rates[0]
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, 'https://example.invalid/agent/offers/o1/hold')
+    assert.equal(init.headers['x-fbeds-tenant-id'], 'tenant-a')
+    assert.deepEqual(JSON.parse(init.body), { searchId: 'search-a', expectedCurrency: 'AED', expectedSellAmountMinor: 125099, idempotencyKey: 'request-123' })
+    return new Response(JSON.stringify({ data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a', status: 'held',
+      holdId: 'hold-a', currency: 'AED', sellAmountMinor: 125099, expiresAt: '2099-01-01T00:15:00.000Z' } }), { status: 201 })
+  }
+  const result = await new ApiHotelService('https://example.invalid').holdOffer(rate, 'search-a', 'tenant-a', 'request-123')
+  assert.equal(result.status, 'held')
+  assert.equal(result.holdId, 'hold-a')
+})
+test('price changes and malformed hold responses fail closed without becoming held', async () => {
+  const rate = hotel.rooms[0].rates[0]
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a',
+    status: 'price_changed', currency: 'AED', sellAmountMinor: 125100 } }), { status: 409 })
+  assert.deepEqual(await new ApiHotelService('https://example.invalid').holdOffer(rate, 'search-a', 'tenant-a', 'request-123'), {
+    offerId: 'o1', searchId: 'search-a', requestId: 'request-a', status: 'price_changed', currency: 'AED', sellAmountMinor: 125100,
+  })
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: { offerId: 'other-offer', searchId: 'search-a', requestId: 'request-a', status: 'held' } }), { status: 201 })
+  assert.equal((await new ApiHotelService('https://example.invalid').holdOffer(rate, 'search-a', 'tenant-a', 'request-123')).status, 'provider_unavailable')
+})

@@ -36,3 +36,14 @@ export type HotelSearchResult = {
   generatedAt?: string
   providerSummary?: { queried: number; succeeded: number; failed: number }
 }
+
+export type OfferHoldResult = {
+  offerId: string
+  searchId: string
+  requestId: string
+  status: 'held' | 'unavailable' | 'price_changed' | 'offer_expired' | 'mapping_invalid' | 'provider_unavailable' | 'rejected' | 'auth_required' | 'access_denied'
+  currency?: string
+  sellAmountMinor?: number
+  holdId?: string
+  expiresAt?: string
+}

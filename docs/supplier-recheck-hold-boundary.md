@@ -39,3 +39,7 @@ Static capabilities and non-authoritative display metadata may use bounded, tena
 - A live connector must implement the provider-neutral recheck contract and undergo separate credential, timeout and payload review.
 - Booking, payment, cancellation and supplier confirmation remain disabled.
 - The booking-concurrency migration is not approved for persistent deployment until database-owner release controls and qualified human review are recorded.
+
+## Agent Portal behavior
+
+The Agent Portal sends only the selected offer/search references, the displayed currency and sell amount, and a browser-generated idempotency key. It validates the canonical response before rendering it. Unavailable, expired, mapping-invalid, rejected, authentication and provider-failure outcomes never become a booking or optimistic success state. A same-currency price change may be explicitly accepted and rechecked; a currency change requires a new search. A successful result is labelled as a temporary hold with its expiry and an explicit statement that no booking or supplier confirmation exists.
