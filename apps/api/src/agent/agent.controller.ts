@@ -72,7 +72,8 @@ export class AgentController {
     const statusCodes = { held: HttpStatus.CREATED, unavailable: HttpStatus.CONFLICT, price_changed: HttpStatus.CONFLICT,
       offer_expired: HttpStatus.GONE, mapping_invalid: HttpStatus.UNPROCESSABLE_ENTITY,
       provider_unavailable: HttpStatus.SERVICE_UNAVAILABLE, rejected: HttpStatus.BAD_REQUEST } as const
-    response.status(statusCodes[result.status])
+    const holdStatus = result.status === 'rechecked' ? 'rejected' : result.status
+    response.status(statusCodes[holdStatus])
     return result
   }
 
