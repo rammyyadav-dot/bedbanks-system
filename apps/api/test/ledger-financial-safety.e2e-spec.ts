@@ -8,7 +8,7 @@ describe('ledger financial safety on PostgreSQL', () => {
   const ledger = new LedgerService(prisma)
   const bookingFinance = new BookingFinancialAuthorizationService(prisma)
   const suffix = `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  let tenantA: string, tenantB: string, walletA: string, walletB: string
+  let tenantA: string, tenantB: string, walletA: string, walletB: string, userA: string
 
   beforeAll(async () => {
     await prisma.$connect()
@@ -17,6 +17,8 @@ describe('ledger financial safety on PostgreSQL', () => {
       prisma.tenant.create({ data: { name: `${suffix}-b`, slug: `${suffix}-b` } }),
     ])
     tenantA = a.id; tenantB = b.id
+    const user = await prisma.user.create({ data: { email: `${suffix}@example.test`, name: 'Ledger certification user' } })
+    userA = user.id
     const [wa, wb] = await Promise.all([
       prisma.wallet.create({ data: { tenantId: tenantA, currency: 'AED' } }),
       prisma.wallet.create({ data: { tenantId: tenantB, currency: 'AED' } }),
@@ -26,7 +28,9 @@ describe('ledger financial safety on PostgreSQL', () => {
 
   afterAll(async () => {
     await prisma.ledgerEntry.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
+    await prisma.auditEvent.deleteMany({ where: { userId: userA } })
     await prisma.wallet.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
+    await prisma.user.delete({ where: { id: userA } })
     await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } })
     await prisma.$disconnect()
   })
@@ -100,7 +104,7 @@ describe('ledger financial safety on PostgreSQL', () => {
         await gate
         return bookingFinance.authorize({
           tenantId: tenantA,
-          userId: 'certification-user',
+          userId: userA,
           requestId: `${suffix}-final-credit-${index}`,
           walletId: wallet.id,
           bookingId: `booking-${index}`,
