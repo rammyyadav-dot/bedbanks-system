@@ -7,7 +7,16 @@ export interface CachePort {
   delete(key: string): Promise<void>
 }
 
+export interface LockLease { key: string; token: string }
+
+/** Best-effort distributed coordination. Failure must never change inventory truth. */
+export interface CoordinationPort {
+  acquire(key: string, ttlMs: number): Promise<LockLease | null>
+  release(lease: LockLease): Promise<void>
+}
+
 export const CACHE_PORT = Symbol('CACHE_PORT')
+export const COORDINATION_PORT = Symbol('COORDINATION_PORT')
 
 export class NoopCache implements CachePort {
   async get<T>(_key: string): Promise<T | null> { return null }
@@ -15,6 +24,11 @@ export class NoopCache implements CachePort {
     if (!Number.isSafeInteger(options.ttlMs) || options.ttlMs <= 0) throw new Error('A bounded positive cache TTL is required')
   }
   async delete(_key: string): Promise<void> {}
+}
+
+export class NoopCoordination implements CoordinationPort {
+  async acquire(_key: string, _ttlMs: number): Promise<LockLease | null> { return null }
+  async release(_lease: LockLease): Promise<void> {}
 }
 
 export function tenantCacheKey(tenantId: string, namespace: string, identity: string, version = 'v1'): string {
