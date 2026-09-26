@@ -2,7 +2,7 @@ import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { BookingPersistenceService } from './booking-persistence.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
-import { InventoryHoldService } from './inventory-hold.service'
+import { PrebookCompensationRecoveryService } from './prebook-compensation-recovery.service'
 import { SUPPLIER_ADAPTER, type SupplierAdapter } from './supplier.port'
 
 export interface SupplierPrebookCommand extends BookingTransactionCommand {
@@ -15,6 +15,7 @@ export class SupplierPrebookOrchestrationService {
     private readonly bookings: BookingPersistenceService,
     private readonly finance: BookingFinancialAuthorizationService,
     private readonly inventory: InventoryHoldService,
+    private readonly recovery: PrebookCompensationRecoveryService,
     @Inject(SUPPLIER_ADAPTER) private readonly supplier: SupplierAdapter,
   ) {}
 
@@ -39,13 +40,8 @@ export class SupplierPrebookOrchestrationService {
         supplierReference: prebook.supplierReference,
       }
     } catch {
-      const compensationErrors: unknown[] = []
-      try { await this.finance.release(financeCommand) } catch (error) { compensationErrors.push(error) }
-      try {
-        await this.inventory.release(command.tenantId, command.inventoryHoldId, `${command.requestId}:prebook-failed`, { type: 'USER', userId: command.userId })
-      } catch (error) { compensationErrors.push(error) }
-
-      if (compensationErrors.length > 0) {
+      const compensation = await this.recovery.compensate({ ...financeCommand, inventoryHoldId: command.inventoryHoldId })
+      if (compensation.status === 'reconciliation_required') {
         throw new ServiceUnavailableException('Supplier prebook failed and compensation requires reconciliation')
       }
       throw new ServiceUnavailableException('Supplier prebook unavailable')
