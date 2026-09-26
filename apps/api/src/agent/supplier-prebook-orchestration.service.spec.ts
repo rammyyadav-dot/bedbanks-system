@@ -13,15 +13,14 @@ const booking = { id: 'booking-a', reference: 'FB-ABC', status: 'PENDING' }
 function setup() {
   const bookings = { persistPending: jest.fn().mockResolvedValue(booking) }
   const finance = { authorize: jest.fn().mockResolvedValue({ id: 'hold-ledger' }), release: jest.fn().mockResolvedValue({ id: 'release-ledger' }) }
-  const inventory = { release: jest.fn().mockResolvedValue(undefined) }
   const recovery = { compensate: jest.fn().mockResolvedValue({ status: 'compensated', financeReleased: true, inventoryReleased: true }) }
   const supplier = { prebook: jest.fn().mockResolvedValue({ supplierReference: 'supplier-prebook-a', rate: {} }) }
-  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, supplier as any), bookings, finance, inventory, recovery, supplier }
+  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, supplier as any), bookings, finance, recovery, supplier }
 }
 
 describe('SupplierPrebookOrchestrationService', () => {
   it('persists PENDING, authorizes finance, and prebooks without confirming the booking', async () => {
-    const { service, finance, inventory, recovery, supplier } = setup()
+    const { service, finance, recovery, supplier } = setup()
     await expect(service.execute(command)).resolves.toEqual({
       status: 'prebooked', bookingId: 'booking-a', bookingReference: 'FB-ABC', supplierReference: 'supplier-prebook-a',
     })
