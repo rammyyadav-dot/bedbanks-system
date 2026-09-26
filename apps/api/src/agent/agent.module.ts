@@ -10,6 +10,9 @@ import { SUPPLIER_ADAPTER, UnconfiguredSupplierAdapter } from './supplier.port'
 import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
+import { BookingPersistenceService } from './booking-persistence.service'
+import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
+import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
 import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
@@ -25,6 +28,9 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     InventoryHoldService,
     OfferHoldService,
     AgentSearchService,
+    BookingPersistenceService,
+    BookingFinancialAuthorizationService,
+    SupplierPrebookOrchestrationService,
     {
       provide: CACHE_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCache(),
