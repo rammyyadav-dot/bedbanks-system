@@ -88,6 +88,64 @@ export class BookingFinancialAuthorizationService {
     }
   }
 
+
+  async release(command: FinancialAuthorizationCommand) {
+    this.validate(command)
+    const authorizationKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: command.idempotencyKey } }
+    const releaseKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: `${command.idempotencyKey}:release` } }
+
+    try {
+      return await this.prisma.withTenant(command.tenantId, async tx => {
+        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT "id" FROM "Wallet"
+           WHERE "id" = ${command.walletId} AND "tenant_id" = ${command.tenantId}
+           FOR UPDATE
+        `)
+        if (locked.length !== 1) throw new ForbiddenException('Wallet is unavailable')
+
+        const authorization = await tx.ledgerEntry.findUnique({ where: authorizationKey })
+        if (!authorization) throw new ConflictException('Financial authorization is unavailable')
+        this.assertSameAuthorization(authorization, command)
+
+        const existing = await tx.ledgerEntry.findUnique({ where: releaseKey })
+        if (existing) {
+          this.assertSameRelease(existing, command)
+          return existing
+        }
+
+        const entry = await tx.ledgerEntry.create({ data: {
+          tenantId: command.tenantId, walletId: command.walletId, type: 'RELEASE',
+          amountMinor: command.amountMinor, currency: command.currency,
+          reference: `booking:${command.bookingId}`, idempotencyKey: `${command.idempotencyKey}:release`,
+        } })
+        await tx.auditEvent.create({ data: {
+          tenantId: command.tenantId, userId: command.userId, actorType: 'USER',
+          action: 'booking.finance.released', entityType: 'booking', entityId: command.bookingId,
+          payload: { requestId: command.requestId, walletId: command.walletId, currency: command.currency, amountMinor: command.amountMinor.toString() },
+        } })
+        return entry
+      })
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
+      return this.prisma.withTenant(command.tenantId, async tx => {
+        const raced = await tx.ledgerEntry.findUnique({ where: releaseKey })
+        if (!raced) throw error
+        this.assertSameRelease(raced, command)
+        return raced
+      })
+    }
+  }
+
+  private assertSameRelease(existing: {
+    tenantId: string; walletId: string; type: string; amountMinor: bigint; currency: string; reference: string | null
+  }, command: FinancialAuthorizationCommand): void {
+    if (existing.tenantId !== command.tenantId || existing.walletId !== command.walletId || existing.type !== 'RELEASE' ||
+      existing.amountMinor !== command.amountMinor || existing.currency !== command.currency ||
+      existing.reference !== `booking:${command.bookingId}`) {
+      throw new ConflictException('Financial release idempotency key was reused with different intent')
+    }
+  }
+
   private validate(command: FinancialAuthorizationCommand): void {
     assertSupportedSettlementCurrency(command.currency)
     for (const value of [command.tenantId, command.userId, command.requestId, command.walletId, command.bookingId, command.idempotencyKey]) {

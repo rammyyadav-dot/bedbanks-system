@@ -24,7 +24,7 @@ export interface SupplierAdapter {
   /** Return canonical offers with independently keyed relationships; never synthesize IDs from labels. */
   search(criteria: SearchCriteria, context: SupplierSearchContext): Promise<SupplierSearchResult>
   recheck(request: SupplierRecheckRequest, context: SupplierRequestContext): Promise<SupplierRecheckResult>
-  prebook(request: PrebookRequest): Promise<{ supplierReference: string; rate: SearchRateOffer }>
+  prebook(request: PrebookRequest, context: SupplierRequestContext): Promise<{ supplierReference: string; rate: SearchRateOffer }>
   cancel(supplierReference: string): Promise<{ refundMinor: number }>
 }
 
