@@ -28,3 +28,10 @@ export class OfferHoldDto {
 export class OfferHoldParamsDto {
   @IsString() @Length(1, 512) offerId!: string
 }
+
+export class OfferRecheckDto {
+  @IsString() @Length(1, 512) offerId!: string
+  @IsString() @Length(1, 512) searchId!: string
+  @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) expectedCurrency!: string
+  @IsInt() @Min(1) expectedSellAmountMinor!: number
+}
