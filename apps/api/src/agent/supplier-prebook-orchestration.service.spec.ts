@@ -14,13 +14,14 @@ function setup() {
   const bookings = { persistPending: jest.fn().mockResolvedValue(booking) }
   const finance = { authorize: jest.fn().mockResolvedValue({ id: 'hold-ledger' }), release: jest.fn().mockResolvedValue({ id: 'release-ledger' }) }
   const inventory = { release: jest.fn().mockResolvedValue(undefined) }
+  const recovery = { compensate: jest.fn().mockResolvedValue({ status: 'compensated', financeReleased: true, inventoryReleased: true }) }
   const supplier = { prebook: jest.fn().mockResolvedValue({ supplierReference: 'supplier-prebook-a', rate: {} }) }
-  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, inventory as any, supplier as any), bookings, finance, inventory, supplier }
+  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, supplier as any), bookings, finance, inventory, recovery, supplier }
 }
 
 describe('SupplierPrebookOrchestrationService', () => {
   it('persists PENDING, authorizes finance, and prebooks without confirming the booking', async () => {
-    const { service, finance, inventory, supplier } = setup()
+    const { service, finance, inventory, recovery, supplier } = setup()
     await expect(service.execute(command)).resolves.toEqual({
       status: 'prebooked', bookingId: 'booking-a', bookingReference: 'FB-ABC', supplierReference: 'supplier-prebook-a',
     })
@@ -29,26 +30,22 @@ describe('SupplierPrebookOrchestrationService', () => {
       { offerId: 'offer-a', searchId: 'search-a', idempotencyKey: 'booking:booking-a:prebook' },
       { tenantId: 'tenant-a', userId: 'user-a', requestId: 'request-a' },
     )
-    expect(finance.release).not.toHaveBeenCalled()
-    expect(inventory.release).not.toHaveBeenCalled()
+    expect(recovery.compensate).not.toHaveBeenCalled()
   })
 
   it('releases finance and inventory when supplier prebook fails', async () => {
-    const { service, finance, inventory, supplier } = setup()
+    const { service, recovery, supplier } = setup()
     supplier.prebook.mockRejectedValue(new Error('provider down'))
     await expect(service.execute(command)).rejects.toThrow('Supplier prebook unavailable')
-    expect(finance.release).toHaveBeenCalledTimes(1)
-    expect(inventory.release).toHaveBeenCalledWith('tenant-a', 'hold-a', 'request-a:prebook-failed', { type: 'USER', userId: 'user-a' })
+    expect(recovery.compensate).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 'booking-a', inventoryHoldId: 'hold-a' }))
   })
 
   it('fails closed for reconciliation when either compensation fails', async () => {
-    const { service, finance, inventory, supplier } = setup()
+    const { service, recovery, supplier } = setup()
     supplier.prebook.mockRejectedValue(new Error('provider down'))
-    finance.release.mockRejectedValue(new Error('ledger unavailable'))
-    inventory.release.mockRejectedValue(new Error('inventory unavailable'))
+    recovery.compensate.mockResolvedValue({ status: 'reconciliation_required', financeReleased: false, inventoryReleased: false })
     await expect(service.execute(command)).rejects.toThrow('Supplier prebook failed and compensation requires reconciliation')
-    expect(finance.release).toHaveBeenCalledTimes(1)
-    expect(inventory.release).toHaveBeenCalledTimes(1)
+    expect(recovery.compensate).toHaveBeenCalledTimes(1)
   })
 
   it('does not call supplier when booking persistence or finance authorization fails', async () => {
