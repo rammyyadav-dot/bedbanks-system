@@ -14,20 +14,21 @@ export class LedgerService {
     if (!input.idempotencyKey.trim()) throw new BadRequestException('Ledger idempotency key is required')
     if (input.amountMinor === 0n) throw new BadRequestException('Ledger amount must be non-zero')
 
-    return this.prisma.withTenant(input.tenantId, async (tx) => {
-      const wallet = await tx.wallet.findFirst({ where: { id: input.walletId, tenantId: input.tenantId } })
-      if (!wallet) throw new ForbiddenException('Wallet is unavailable')
-      if (wallet.currency !== input.currency) throw new ConflictException('Wallet currency mismatch')
+    const key = { walletId_idempotencyKey: { walletId: input.walletId, idempotencyKey: input.idempotencyKey } }
 
-      const key = { walletId_idempotencyKey: { walletId: input.walletId, idempotencyKey: input.idempotencyKey } }
-      const existing = await tx.ledgerEntry.findUnique({ where: key })
-      if (existing) {
-        this.assertSameIntent(existing, input)
-        return existing
-      }
+    try {
+      return await this.prisma.withTenant(input.tenantId, async (tx) => {
+        const wallet = await tx.wallet.findFirst({ where: { id: input.walletId, tenantId: input.tenantId } })
+        if (!wallet) throw new ForbiddenException('Wallet is unavailable')
+        if (wallet.currency !== input.currency) throw new ConflictException('Wallet currency mismatch')
 
-      try {
-        return await tx.ledgerEntry.create({
+        const existing = await tx.ledgerEntry.findUnique({ where: key })
+        if (existing) {
+          this.assertSameIntent(existing, input)
+          return existing
+        }
+
+        return tx.ledgerEntry.create({
           data: {
             tenantId: input.tenantId,
             walletId: input.walletId,
@@ -38,14 +39,17 @@ export class LedgerService {
             reference: input.reference,
           },
         })
-      } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
+      })
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
+
+      return this.prisma.withTenant(input.tenantId, async (tx) => {
         const raced = await tx.ledgerEntry.findUnique({ where: key })
         if (!raced) throw error
         this.assertSameIntent(raced, input)
         return raced
-      }
-    })
+      })
+    }
   }
 
   assertRefundWithinAuthorized(input: { refundMinor: bigint; authorizedRefundableMinor: bigint }) {
