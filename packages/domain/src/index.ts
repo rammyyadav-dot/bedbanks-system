@@ -127,3 +127,44 @@ export interface OfferHoldResponse {
   holdId?: string
   expiresAt?: string
 }
+
+
+export interface BookingTransactionCommand {
+  tenantId: string
+  userId: string
+  requestId: string
+  idempotencyKey: string
+  offerId: string
+  searchId: string
+  inventoryHoldId: string
+  canonicalHotelId: string
+  canonicalRoomTypeId: string
+  ratePlanId: string
+  boardBasisId: string
+  checkIn: string
+  checkOut: string
+  rooms: number
+  adults: number
+  children: number
+  childAges: number[]
+  currency: string
+  totalMinor: number
+  leadGuest: {
+    firstName: string
+    lastName: string
+  }
+}
+
+/**
+ * Internal orchestration states. These deliberately do not replace Prisma BookingStatus:
+ * InventoryHold remains the temporary inventory authority and supplier confirmation is
+ * not enabled by this contract.
+ */
+export type BookingTransactionState =
+  | 'RECHECKED'
+  | 'INVENTORY_HELD'
+  | 'FINANCE_AUTHORIZED'
+  | 'PREBOOKED'
+  | 'BOOKING_PENDING'
+  | 'CONFIRMED'
+  | 'FAILED'
