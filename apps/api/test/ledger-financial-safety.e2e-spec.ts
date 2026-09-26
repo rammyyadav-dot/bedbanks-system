@@ -1,10 +1,12 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { LedgerService } from '../src/agent/ledger.service'
+import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
 
 describe('ledger financial safety on PostgreSQL', () => {
   const prisma = new PrismaService()
   const ledger = new LedgerService(prisma)
+  const bookingFinance = new BookingFinancialAuthorizationService(prisma)
   const suffix = `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}`
   let tenantA: string, tenantB: string, walletA: string, walletB: string
 
@@ -77,6 +79,60 @@ describe('ledger financial safety on PostgreSQL', () => {
     const large = await post(`${suffix}-large`, { amountMinor: 999999999999n })
     expect(one.amountMinor).toBe(1n)
     expect(large.amountMinor).toBe(999999999999n)
+  })
+
+
+  it('serializes 25 final-credit authorizations without overspending the wallet', async () => {
+    const wallet = await prisma.wallet.create({
+      data: { tenantId: tenantA, currency: 'AED', creditLimit: 10000n },
+    })
+
+    try {
+      const attempts = 25
+      let arrived = 0
+      let open!: () => void
+      const gate = new Promise<void>(resolve => { open = resolve })
+      const settled = await Promise.allSettled(Array.from({ length: attempts }, async (_, index) => {
+        arrived += 1
+        if (arrived === attempts) open()
+        await gate
+        return bookingFinance.authorize({
+          tenantId: tenantA,
+          userId: 'certification-user',
+          requestId: `${suffix}-final-credit-${index}`,
+          walletId: wallet.id,
+          bookingId: `booking-${index}`,
+          currency: 'AED',
+          amountMinor: 6000n,
+          idempotencyKey: `${suffix}-authorization-${index}`,
+        })
+      }))
+
+      const fulfilled = settled.filter(result => result.status === 'fulfilled')
+      const rejected = settled.filter(result => result.status === 'rejected')
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(24)
+      for (const result of rejected) {
+        if (result.status === 'rejected') expect(result.reason).toBeInstanceOf(ConflictException)
+      }
+
+      const holds = await prisma.ledgerEntry.findMany({
+        where: { tenantId: tenantA, walletId: wallet.id, type: 'HOLD' },
+      })
+      expect(holds).toHaveLength(1)
+      expect(holds[0].amountMinor).toBe(-6000n)
+
+      const aggregate = await prisma.ledgerEntry.aggregate({
+        where: { tenantId: tenantA, walletId: wallet.id },
+        _sum: { amountMinor: true },
+      })
+      expect(aggregate._sum.amountMinor).toBe(-6000n)
+      expect((aggregate._sum.amountMinor ?? 0n) + wallet.creditLimit).toBe(4000n)
+    } finally {
+      await prisma.auditEvent.deleteMany({ where: { tenantId: tenantA, entityType: 'booking', entityId: { startsWith: 'booking-' } } })
+      await prisma.ledgerEntry.deleteMany({ where: { walletId: wallet.id } })
+      await prisma.wallet.delete({ where: { id: wallet.id } })
+    }
   })
 
   it('enforces refund authorization boundaries without enabling production refunds', () => {
