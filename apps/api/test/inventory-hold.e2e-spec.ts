@@ -177,8 +177,20 @@ describe('inventory hold PostgreSQL concurrency', () => {
   })
 
   it('rolls back every prior night when one night is unavailable', async () => {
-    const active = await prisma.inventoryHold.findFirstOrThrow({ where: { tenantId, status: 'HELD' } })
-    await holds.release(tenantId, active.id, 'prepare-rollback', { type: 'USER', userId })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId },
+      data: { held: 0, sold: 0 },
+    })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 1 },
+    })
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: new Date('2099-01-03') },
+      data: { allotment: 0 },
+    })
     await expect(holds.create(command(`${suffix}-rollback`, '2099-01-04'))).rejects.toThrow('Inventory unavailable')
     const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId }, orderBy: { stayDate: 'asc' }, select: { held: true } })
     expect(nights).toEqual([{ held: 0 }, { held: 0 }, { held: 0 }])
