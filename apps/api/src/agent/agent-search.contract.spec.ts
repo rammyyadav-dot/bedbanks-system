@@ -5,7 +5,7 @@ import type { AgentAuditService } from './audit.service'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import type { Request } from 'express'
 import type { OfferHoldService } from './offer-hold.service'
-import type { AgentSearchService } from './agent-search.service'
+import { AgentSearchService } from './agent-search.service'
 
 const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
@@ -27,7 +27,7 @@ const hotel = {
 function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
-  const agentSearch = { execute: jest.fn() } as unknown as AgentSearchService
+  const agentSearch = new AgentSearchService(supplier, audit)
   const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch)
   return { controller, audit, agentSearch }
 }
@@ -43,7 +43,8 @@ describe('Agent canonical search boundary', () => {
     expect(result.version).toBe(1)
     expect(result.requestId).toBe('request-a')
     expect(result.searchId).toEqual(expect.any(String))
-    expect(result.hotels[0].rooms[0].rates[0].total).toEqual({ amountMinor: 125099, currency: 'AED' })
+    const firstHotel = result.hotels[0] as typeof hotel
+    expect(firstHotel.rooms[0].rates[0].total).toEqual({ amountMinor: 125099, currency: 'AED' })
   })
   it('returns partial only when a failed provider accompanies verified offers', async () => {
     const partial = supplierResult([hotel])
