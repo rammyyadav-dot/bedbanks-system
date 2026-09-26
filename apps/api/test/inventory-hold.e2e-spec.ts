@@ -67,12 +67,43 @@ describe('inventory hold PostgreSQL concurrency', () => {
     expect(await prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, orderBy: { stayDate: 'asc' }, select: { held: true } })).toEqual([{ held: 0 }, { held: 0 }])
   })
 
-  it('allows only one of two parallel requests for the final room', async () => {
-    const results = await Promise.allSettled([holds.create(command(`${suffix}-parallel-a`)), holds.create(command(`${suffix}-parallel-b`))])
+  it('allows exactly one of 25 simultaneous requests for the final room', async () => {
+    const attempts = 25
+    let arrived = 0
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const startTogether = async () => {
+      arrived += 1
+      if (arrived === attempts) release()
+      await gate
+    }
+
+    const results = await Promise.allSettled(Array.from({ length: attempts }, async (_, index) => {
+      await startTogether()
+      return holds.create(command(`${suffix}-parallel-${index}`))
+    }))
+
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
-    const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, orderBy: { stayDate: 'asc' }, select: { held: true } })
-    expect(nights).toEqual([{ held: 1 }, { held: 1 }])
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(24)
+
+    const nights = await prisma.dailyAvailability.findMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      orderBy: { stayDate: 'asc' },
+      select: { id: true, allotment: true, sold: true, held: true },
+    })
+    expect(nights).toHaveLength(2)
+    for (const night of nights) {
+      expect(night.held).toBe(1)
+      expect(night.sold + night.held).toBeLessThanOrEqual(night.allotment)
+    }
+
+    const successful = results.find(result => result.status === 'fulfilled')
+    if (!successful || successful.status !== 'fulfilled') throw new Error('Expected one successful hold')
+    const durableHold = await prisma.inventoryHold.findUniqueOrThrow({ where: { id: successful.value.holdId } })
+    expect(durableHold).toMatchObject({ tenantId, status: 'HELD', rooms: 1 })
+    const durableNights = await prisma.inventoryHoldNight.findMany({ where: { holdId: durableHold.id }, orderBy: { stayDate: 'asc' } })
+    expect(durableNights).toHaveLength(2)
+    expect(durableNights.every(night => night.quantity === 1)).toBe(true)
   })
 
   it('rolls back every prior night when one night is unavailable', async () => {
