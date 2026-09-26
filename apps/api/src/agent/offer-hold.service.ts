@@ -82,7 +82,7 @@ export class OfferHoldService {
     } finally { if (timer) clearTimeout(timer) }
   }
 
-  private validateAuthority(offer: RecheckedOfferAuthority, command: OfferHoldRequest): 'rejected' | 'offer_expired' | undefined {
+  private validateAuthority(offer: RecheckedOfferAuthority, command: Pick<OfferHoldRequest, 'offerId' | 'searchId'>): 'rejected' | 'offer_expired' | undefined {
     const ids = [offer.offerId, offer.searchId, offer.supplierId, offer.supplierHotelId, offer.supplierRoomId,
       offer.canonicalHotelId, offer.canonicalRoomTypeId, offer.ratePlanId, offer.boardBasisId]
     if (ids.some(value => typeof value !== 'string' || !value || value.trim() !== value) ||
