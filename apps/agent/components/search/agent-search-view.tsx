@@ -110,10 +110,15 @@ function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHo
     setHolding(true); setHold(null)
     const rate = { ...selection.rate, sellAmountMinor: expectedAmount,
       total: { ...selection.rate.total, amountMinor: expectedAmount } }
-    const result = await new ApiHotelService().holdOffer(rate, searchId, selection.rate.tenantId, idempotencyKey)
-    setHold(result)
-    if (result.status === 'price_changed' && result.sellAmountMinor !== undefined) setExpectedAmount(result.sellAmountMinor)
-    setHolding(false)
+    try {
+      const result = await new ApiHotelService().holdOffer(rate, searchId, selection.rate.tenantId, idempotencyKey)
+      setHold(result)
+      if (result.status === 'price_changed' && result.sellAmountMinor !== undefined) setExpectedAmount(result.sellAmountMinor)
+    } catch {
+      setHold({ status: 'provider_unavailable', offerId: selection.rate.offerId, searchId, requestId: idempotencyKey })
+    } finally {
+      setHolding(false)
+    }
   }
   const canAcceptChangedPrice = hold?.status === 'price_changed' && hold.currency === selection?.rate.total.currency
   return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><span className="portal-eyebrow">VERIFIED SUPPLIER OFFERS</span><h2>{hotel.name}</h2><p>{hotel.destination}</p></div></div>
@@ -135,7 +140,7 @@ function HoldOutcome({ result }: { result: OfferHoldResult }) {
     price_changed: 'The supplier price or currency changed. Review the updated total; a currency change requires a new search.',
     unavailable: 'The rate is no longer available. No inventory was held.', offer_expired: 'The offer expired. Search again for a current rate.',
     mapping_invalid: 'The hotel, room or commercial mapping could not be verified. No inventory was held.',
-    provider_unavailable: 'The supplier could not be reached safely. No inventory was held.', rejected: 'The supplier response could not be verified.',
+    provider_unavailable: 'The supplier could not be reached safely. No inventory was held. Try the recheck again.', rejected: 'The supplier response could not be verified. No inventory was held.',
     auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to hold this offer.',
   }
   return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'held' ? 'status' : 'alert'}><strong>{result.status === 'held' ? 'Temporary hold created' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined && <b>{formatTotal({ currency: result.currency, amountMinor: result.sellAmountMinor })}</b>}</div>
