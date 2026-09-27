@@ -319,6 +319,35 @@ describe('Supply HTTP authorization boundaries', () => {
     await prisma.contract.update({ where: { id: contractAId }, data: { status: 'DRAFT' } })
   })
 
+  it('certifies Dubai seven-day sellability matrix with one stop-sell day and reopen', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'ACTIVE', currency: 'USD', occupancy: 2 } })
+    await prisma.contract.update({ where: { id: contractAId }, data: { status: 'ACTIVE' } })
+    const dates = Array.from({ length: 7 }, (_, offset) => new Date(Date.UTC(2026, 10, 10 + offset)).toISOString().slice(0, 10))
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates/bulk').send({ rows: dates.map((stayDate) => ({ ratePlanId: ratePlanAId, stayDate, occupancy: 2, amountMinor: '29900', amountBasis: 'SELL', currency: 'USD' })) }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability/bulk').send({ rows: dates.map((stayDate, index) => ({ ratePlanId: ratePlanAId, stayDate, allotment: 5, sold: 0, stopSell: index === 3, minStay: 1 })) }).expect(201)
+
+    const matrix = await Promise.all(dates.map(async (stayDate) => {
+      const response = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate, occupancy: 2 }).expect(201)
+      return response.body.data as { eligible: boolean; reasons: string[] }
+    }))
+    expect(matrix.filter((row) => row.eligible)).toHaveLength(6)
+    expect(matrix.filter((row) => !row.eligible)).toHaveLength(1)
+    expect(matrix[3].reasons).toContain('STOP_SELL')
+
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: dates[3], allotment: 5, sold: 0, stopSell: false, minStay: 1 }).expect(201)
+    const reopened = await Promise.all(dates.map(async (stayDate) => {
+      const response = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate, occupancy: 2 }).expect(201)
+      return response.body.data as { eligible: boolean }
+    }))
+    expect(reopened.every((row) => row.eligible)).toBe(true)
+
+    await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date('2026-11-10T00:00:00.000Z'), lte: new Date('2026-11-16T00:00:00.000Z') } } })
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date('2026-11-10T00:00:00.000Z'), lte: new Date('2026-11-16T00:00:00.000Z') } } })
+    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT' } })
+    await prisma.contract.update({ where: { id: contractAId }, data: { status: 'DRAFT' } })
+  })
+
   it('certifies authoritative availability reads, bulk stop-sell and reopen operations', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const stayDate = '2026-10-10'
