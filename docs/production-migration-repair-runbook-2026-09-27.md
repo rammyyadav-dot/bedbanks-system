@@ -60,7 +60,12 @@ Do not run `db push`, `migrate reset`, manual migration SQL, or manual edits to 
 4. `202609260001_authoritative_rate_amount_semantics`
 5. `202609270001_supplier_admin_permissions`
 
-These changes were already applied successfully to an isolated child clone of Production data.
+Later schema objects were observed on an isolated child clone, but that clone's
+Prisma migration history still ended before these five migrations. This is
+schema behavior evidence only, **not successful Prisma migration-history
+certification**. Use a fresh production child and the reviewed runner in
+`docs/clone-certification-runner.md` to establish that evidence. The runner is
+prepared but has not completed the persistent clone migration.
 
 ## Post-migration verification
 

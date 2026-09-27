@@ -18,6 +18,7 @@ coverage/
 .env.production
 .env.staging
 .vercel/
+clone-certification-evidence/
 
 # Tooling
 *.tsbuildinfo

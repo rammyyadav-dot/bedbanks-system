@@ -1,0 +1,64 @@
+name: Production clone certification
+
+# This review branch can be certified before merging. No production trigger or URL.
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/clone-certification-runner]
+    paths:
+      - .github/workflows/clone-certification.yml
+      - tools/*clone*.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fbeds-production-clone-certification
+  cancel-in-progress: false
+
+jobs:
+  certify-clone:
+    if: github.repository == 'rammyyadav-dot/bedbanks-system' && github.ref == 'refs/heads/fix/clone-certification-runner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Owner must configure required reviewers and restrict this environment to this branch.
+    environment: fbeds-clone-certification
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test target safety guards
+        run: node --test tools/clone-certification-guard.test.mjs
+      - name: Certify the approved disposable clone
+        env:
+          FBEDS_CERT_CLONE_DATABASE_URL: ${{ secrets.FBEDS_CERT_CLONE_DATABASE_URL }}
+          FBEDS_CERT_CLONE_TARGET_JSON: ${{ secrets.FBEDS_CERT_CLONE_TARGET_JSON }}
+          FBEDS_CERT_ALLOW_CLONE_WRITE: ${{ vars.FBEDS_CERT_ALLOW_CLONE_WRITE }}
+          REDIS_URL: redis://127.0.0.1:6379
+        run: node tools/certify-production-clone.mjs
+      - name: Publish sanitized result only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clone-certification-result
+          path: clone-certification-evidence/result.json
+          if-no-files-found: ignore
+          retention-days: 7
