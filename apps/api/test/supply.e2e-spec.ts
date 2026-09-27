@@ -194,9 +194,12 @@ describe('Supply HTTP authorization boundaries', () => {
     const boardRequestId = `${suffix}-board-audit`
     const created = await supply(cookie, tenantAId).post('/api/v1/supply/board-bases').set('x-request-id', boardRequestId).send({ code: 'HB', name: 'Half Board' }).expect(201)
     const createdId = created.body.data.id as string
+    expect(created.body.data.value.code).toBe('HB')
+    const adminList = await supply(cookie, tenantAId).get('/api/v1/supply/board-bases/admin').expect(200)
+    expect(adminList.body.data.find((board: { id: string }) => board.id === createdId).code).toBe('HB')
     await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ code: 'FB' }).expect(400)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ isActive: false }).expect(200)
-    await expect(prisma.boardBasis.findUnique({ where: { id: createdId } })).resolves.toMatchObject({ tenantId: tenantAId, code: 'HB', isActive: false })
+    await expect(prisma.boardBasis.findUnique({ where: { id: createdId } })).resolves.toMatchObject({ tenantId: tenantAId, isActive: false })
     await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ isActive: true, name: 'Half Board Plus' }).expect(200)
     await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: createdId, action: 'supply.board_basis.created' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId: boardRequestId } })
     await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${boardBId}`).send({ isActive: false }).expect(404)
