@@ -77,10 +77,10 @@ export async function getDashboardKpis() {
     activeTenants: tenants.filter((t) => t.status === 'active').length,
     activeAgents: mock.users.filter((u) => u.status === 'active').length,
     hotels: hotels.length,
-    suppliers: suppliers.length,
+    suppliers: suppliers.total,
     bookingsToday: bookings.length,
     revenueToday: bookings.reduce((sum, b) => sum + b.amount, 0),
     pendingBookings: bookings.filter((b) => b.status === 'pending').length,
-    supplierErrors: suppliers.filter((s) => s.connection === 'down').length,
+    supplierErrors: 0,
   };
 }
