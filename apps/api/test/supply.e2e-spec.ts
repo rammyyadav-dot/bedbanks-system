@@ -267,6 +267,27 @@ describe('Supply HTTP authorization boundaries', () => {
     await prisma.bookingLeadTimeRule.delete({ where: { id: lead.body.data.id } })
   })
 
+  it('certifies authoritative Rate Plan detail, update, tenant and audit boundaries', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const list = await supply(cookie, tenantAId).get('/api/v1/supply/rate-plans').expect(200)
+    expect(list.body.data.map((plan: { id: string }) => plan.id)).toContain(ratePlanAId)
+    expect(list.body.data.map((plan: { id: string }) => plan.id)).not.toContain(ratePlanBId)
+    const detail = await supply(cookie, tenantAId).get(`/api/v1/supply/rate-plans/${ratePlanAId}`).expect(200)
+    expect(detail.body.data).toMatchObject({ id: ratePlanAId, tenantId: tenantAId, contractId: contractAId, roomTypeId: roomAId, boardBasisId: boardAId })
+    await supply(cookie, tenantAId).get(`/api/v1/supply/rate-plans/${ratePlanBId}`).expect(404)
+
+    const ratePlanRequestId = `${suffix}-rate-plan-audit`
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).set('x-request-id', ratePlanRequestId)
+      .send({ status: 'ACTIVE', occupancy: 1, currency: 'AED', refundable: false, minStay: 2, maxStay: 7, releaseDays: 1 }).expect(200)
+    await expect(prisma.ratePlan.findUnique({ where: { id: ratePlanAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', occupancy: 1, currency: 'AED', refundable: false, minStay: 2, maxStay: 7, releaseDays: 1 })
+    await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: ratePlanAId, action: 'supply.rate_plan.updated' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId: ratePlanRequestId } })
+
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ occupancy: 3 }).expect(400)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ minStay: 5, maxStay: 2 }).expect(400)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ boardBasisId: boardBId }).expect(400)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanBId}`).send({ status: 'SUSPENDED' }).expect(404)
+  })
+
   it('certifies HTTP RBAC for read, create, rate, and availability operations', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     await supply(cookie, tenantAId).get('/api/v1/supply/hotels').expect(200)
