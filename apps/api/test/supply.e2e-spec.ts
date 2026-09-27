@@ -53,7 +53,7 @@ describe('Supply HTTP authorization boundaries', () => {
     const permissionKeys = [
       'supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage',
       'supply.rates.read', 'supply.rates.manage', 'supply.contracts.read', 'supply.contracts.manage',
-      'supply.availability.manage', 'supply.suppliers.read', 'supply.suppliers.manage',
+      'supply.availability.read', 'supply.availability.manage', 'supply.suppliers.read', 'supply.suppliers.manage',
       'supply.mappings.read', 'supply.mappings.manage',
     ]
     const permissions = await Promise.all(permissionKeys.map((key) => prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: `${suffix} ${key}` } })))
