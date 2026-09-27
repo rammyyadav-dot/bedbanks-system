@@ -78,7 +78,7 @@ export class SupplyService {
   }
   async boardBasesAdmin(tenantId: string, userId: string) {
     await this.check(tenantId, userId, 'supply.rates.read')
-    return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId }, orderBy: { code: 'asc' } }))
+    return this.prisma.withTenant(tenantId, async tx => (await tx.boardBasis.findMany({ where: { tenantId }, orderBy: { code: 'asc' } })).map(value => ({ ...value, code: value.code.trim() })))
   }
   private boardBasisData(input: any) {
     const code = clean(input.code).toUpperCase(), name = clean(input.name)
@@ -91,7 +91,7 @@ export class SupplyService {
       const duplicate = await tx.boardBasis.findFirst({ where: { tenantId, code: data.code } })
       if (duplicate) throw new BadRequestException('Board basis code already exists')
       const value = await tx.boardBasis.create({ data: { tenantId, ...data } })
-      return { id: value.id, value }
+      return { id: value.id, value: { ...value, code: value.code.trim() } }
     })
   }
   async updateBoardBasis(tenantId: string, userId: string, boardBasisId: string, input: any, requestId?: string) {
@@ -102,7 +102,7 @@ export class SupplyService {
       if (!current) throw new NotFoundException('Board basis not found')
       if (input.name !== undefined && !clean(input.name)) throw new BadRequestException('Board basis name is required')
       const value = await tx.boardBasis.update({ where: { id: boardBasisId }, data: { ...(input.name !== undefined ? { name: clean(input.name) } : {}), ...(input.description !== undefined ? { description: input.description == null ? null : clean(input.description) } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}) } })
-      return { id: value.id, value }
+      return { id: value.id, value: { ...value, code: value.code.trim() } }
     })
   }
 
