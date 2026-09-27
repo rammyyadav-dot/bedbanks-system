@@ -10,6 +10,9 @@ import { StatusBadge } from '@/components/status/StatusBadge'
 import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
 import { getSuppliers, type SupplySupplier } from '@/lib/data'
+import type { Status } from '@/lib/types/admin'
+
+const supplierStatus = (status: string): Status => status === 'ACTIVE' ? 'active' : status === 'SUSPENDED' ? 'suspended' : status === 'INACTIVE' ? 'inactive' : 'pending'
 
 export default function SuppliersPage() {
   const [search, setSearch] = useState('')
@@ -35,7 +38,7 @@ export default function SuppliersPage() {
     { key: 'countryCode', header: 'Country', render: (s) => s.countryCode },
     { key: 'currency', header: 'Currency', render: (s) => s.defaultCurrency },
     { key: 'updatedAt', header: 'Updated', render: (s) => new Date(s.updatedAt).toLocaleString() },
-    { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status.toLowerCase()} /> },
+    { key: 'status', header: 'Status', render: (s) => <StatusBadge status={supplierStatus(s.status)} /> },
   ], [])
 
   return (
