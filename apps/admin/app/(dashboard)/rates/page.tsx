@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { getRatePlans, getDailyRates, bulkUpdateDailyRates, checkSellability, type AdminRatePlan, type AdminDailyRate } from '@/lib/data'
+import { buildSevenDayRates, sellabilityMessage } from '@/lib/dubai-operations'
 
 const today = new Date().toISOString().slice(0, 10)
 const money = (minor: string, currency: string) => new Intl.NumberFormat('en', { style: 'currency', currency }).format(Number(minor) / 100)
@@ -22,19 +23,13 @@ export default function RatesPage() {
   useEffect(() => { getDailyRates(dateValue).then(setRates).catch(() => { setRates([]); setError('Daily Rates are unavailable. No mock data is shown.') }) }, [dateValue])
   const loadSevenDays = async () => {
     const plan = plans.find((item) => item.id === selectedPlan)
-    const minor = Math.round(Number(amount) * 100)
-    if (!plan || !Number.isSafeInteger(minor) || minor < 0) return setOperation('Select a Rate Plan and enter a valid non-negative amount.')
-    const start = new Date(`${dateValue}T00:00:00.000Z`)
-    const rows = Array.from({ length: 7 }, (_, offset) => {
-      const day = new Date(start); day.setUTCDate(day.getUTCDate() + offset)
-      return { ratePlanId: plan.id, stayDate: day.toISOString().slice(0, 10), occupancy: plan.occupancy, amountMinor: String(minor), amountBasis: basis, currency: plan.currency }
-    })
-    try { await bulkUpdateDailyRates(rows); setRates(await getDailyRates(dateValue, rows[6].stayDate, plan.id)); setOperation(`Loaded 7 authoritative ${basis} rates.`) } catch { setOperation('Rate load failed. No fallback data was written.') }
+    if (!plan) return setOperation('Select a Rate Plan and enter a valid non-negative amount.')
+    try { const rows = buildSevenDayRates(plan, dateValue, amount, basis); await bulkUpdateDailyRates(rows); setRates(await getDailyRates(dateValue, rows[6].stayDate, plan.id)); setOperation(`Loaded 7 authoritative ${basis} rates.`) } catch { setOperation('Rate load failed. No fallback data was written.') }
   }
   const verifySellability = async () => {
     const plan = plans.find((item) => item.id === selectedPlan)
     if (!plan) return setOperation('Select a Rate Plan first.')
-    try { const result = await checkSellability({ ratePlanId: plan.id, stayDate: dateValue, occupancy: plan.occupancy }); setOperation(result.eligible ? `Sellable: ${result.status}` : `Not sellable: ${result.reasons.join(', ')}`) } catch { setOperation('Sellability check unavailable.') }
+    try { const result = await checkSellability({ ratePlanId: plan.id, stayDate: dateValue, occupancy: plan.occupancy }); setOperation(sellabilityMessage(result)) } catch { setOperation('Sellability check unavailable.') }
   }
   const planColumns: DataTableColumn<AdminRatePlan>[] = [
     { key: 'hotel', header: 'Hotel', render: (r) => r.roomType.hotel.name }, { key: 'room', header: 'Room', render: (r) => r.roomType.name },
