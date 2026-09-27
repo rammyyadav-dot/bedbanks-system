@@ -23,6 +23,89 @@ export class SupplyService {
       return result.value
     })
   }
+  async suppliers(tenantId: string, userId: string, query: { search?: string; status?: string; page?: number; pageSize?: number } = {}) {
+    await this.check(tenantId, userId, 'supply.suppliers.read')
+    const page = Number.isInteger(query.page) && (query.page ?? 0) > 0 ? query.page! : 1
+    const pageSize = Number.isInteger(query.pageSize) ? Math.min(Math.max(query.pageSize!, 1), 100) : 25
+    const search = clean(query.search)
+    const allowedStatuses = ['DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'SUSPENDED', 'INACTIVE']
+    if (query.status && !allowedStatuses.includes(query.status)) throw new BadRequestException('Invalid supplier status')
+    return this.prisma.withTenant(tenantId, async tx => {
+      const where: Prisma.SupplierWhereInput = { tenantId, ...(query.status ? { status: query.status as any } : {}), ...(search ? { OR: [{ legalName: { contains: search, mode: 'insensitive' } }, { displayName: { contains: search, mode: 'insensitive' } }] } : {}) }
+      const [items, total] = await Promise.all([
+        tx.supplier.findMany({ where, orderBy: { displayName: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }),
+        tx.supplier.count({ where }),
+      ])
+      return { items, page, pageSize, total }
+    })
+  }
+  async supplier(tenantId: string, userId: string, supplierId: string) {
+    await this.check(tenantId, userId, 'supply.suppliers.read')
+    const value = await this.prisma.withTenant(tenantId, tx => tx.supplier.findFirst({ where: { id: supplierId, tenantId } }))
+    if (!value) throw new NotFoundException('Supplier not found')
+    return value
+  }
+  private supplierData(input: any) {
+    const legalName = clean(input.legalName), displayName = clean(input.displayName)
+    const countryCode = clean(input.countryCode).toUpperCase(), defaultCurrency = clean(input.defaultCurrency).toUpperCase()
+    const types = ['HOTEL_DIRECT', 'DMC', 'CHANNEL_MANAGER', 'BEDBANK', 'GDS']
+    const statuses = ['DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'SUSPENDED', 'INACTIVE']
+    if (!legalName || !displayName || !types.includes(input.type) || !statuses.includes(input.status ?? 'DRAFT') || !/^[A-Z]{2}$/.test(countryCode) || !/^[A-Z]{3}$/.test(defaultCurrency)) throw new BadRequestException('Invalid supplier fields')
+    if (input.contactMetadata !== undefined && (input.contactMetadata === null || Array.isArray(input.contactMetadata) || typeof input.contactMetadata !== 'object')) throw new BadRequestException('Invalid supplier contact metadata')
+    return { legalName, displayName, type: input.type, status: input.status ?? 'DRAFT', countryCode, defaultCurrency, contactMetadata: input.contactMetadata ?? {} }
+  }
+  async createSupplier(tenantId: string, userId: string, input: any, requestId?: string) {
+    const data = this.supplierData(input)
+    return this.write(tenantId, userId, 'supply.suppliers.manage', 'supply.supplier.created', 'supplier', requestId, async tx => {
+      const duplicate = await tx.supplier.findFirst({ where: { tenantId, legalName: data.legalName } })
+      if (duplicate) throw new BadRequestException('Supplier legal name already exists')
+      const value = await tx.supplier.create({ data: { tenantId, ...data } as any })
+      return { id: value.id, value }
+    })
+  }
+  async updateSupplier(tenantId: string, userId: string, supplierId: string, input: any, requestId?: string) {
+    const allowed = ['legalName', 'displayName', 'type', 'status', 'countryCode', 'defaultCurrency', 'contactMetadata']
+    if (!Object.keys(input).length || Object.keys(input).some(key => !allowed.includes(key))) throw new BadRequestException('Invalid supplier fields')
+    const current = await this.prisma.withTenant(tenantId, tx => tx.supplier.findFirst({ where: { id: supplierId, tenantId } }))
+    if (!current) throw new NotFoundException('Supplier not found')
+    const data = this.supplierData({ ...current, ...input })
+    return this.write(tenantId, userId, 'supply.suppliers.manage', 'supply.supplier.updated', 'supplier', requestId, async tx => {
+      const duplicate = await tx.supplier.findFirst({ where: { tenantId, legalName: data.legalName, NOT: { id: supplierId } } })
+      if (duplicate) throw new BadRequestException('Supplier legal name already exists')
+      const value = await tx.supplier.update({ where: { id: supplierId }, data: data as any })
+      return { id: value.id, value }
+    })
+  }
+  async boardBasesAdmin(tenantId: string, userId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId }, orderBy: { code: 'asc' } }))
+  }
+  private boardBasisData(input: any) {
+    const code = clean(input.code).toUpperCase(), name = clean(input.name)
+    if (!/^[A-Z0-9]{1,3}$/.test(code) || !name || (input.isActive !== undefined && typeof input.isActive !== 'boolean')) throw new BadRequestException('Invalid board basis fields')
+    return { code, name, description: input.description == null ? null : clean(input.description), isActive: input.isActive ?? true }
+  }
+  async createBoardBasis(tenantId: string, userId: string, input: any, requestId?: string) {
+    const data = this.boardBasisData(input)
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.board_basis.created', 'board_basis', requestId, async tx => {
+      const duplicate = await tx.boardBasis.findFirst({ where: { tenantId, code: data.code } })
+      if (duplicate) throw new BadRequestException('Board basis code already exists')
+      const value = await tx.boardBasis.create({ data: { tenantId, ...data } })
+      return { id: value.id, value }
+    })
+  }
+  async updateBoardBasis(tenantId: string, userId: string, boardBasisId: string, input: any, requestId?: string) {
+    const allowed = ['name', 'description', 'isActive']
+    if (!Object.keys(input).length || Object.keys(input).some(key => !allowed.includes(key))) throw new BadRequestException('Canonical board basis code cannot be changed')
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.board_basis.updated', 'board_basis', requestId, async tx => {
+      const current = await tx.boardBasis.findFirst({ where: { id: boardBasisId, tenantId } })
+      if (!current) throw new NotFoundException('Board basis not found')
+      if (input.name !== undefined && !clean(input.name)) throw new BadRequestException('Board basis name is required')
+      const value = await tx.boardBasis.update({ where: { id: boardBasisId }, data: { ...(input.name !== undefined ? { name: clean(input.name) } : {}), ...(input.description !== undefined ? { description: input.description == null ? null : clean(input.description) } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}) } })
+      return { id: value.id, value }
+    })
+  }
+
   async hotels(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.hotels.read'); return this.prisma.withTenant(tenantId, tx => tx.hotel.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })) }
   async hotel(tenantId: string, userId: string, hotelId: string) { await this.check(tenantId, userId, 'supply.hotels.read'); const hotel = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId }, include: { roomTypes: { where: { isActive: true }, orderBy: { name: 'asc' } } } })); if (!hotel) throw new NotFoundException('Hotel not found'); return hotel }
   private hotelData(tenantId: string, input: any) { const name = clean(input.name); const propertyType = clean(input.propertyType); const city = clean(input.city); const countryCode = clean(input.countryCode).toUpperCase(); const timeZone = clean(input.timeZone) || 'Asia/Dubai'; if (!name || !propertyType || !city || !/^[A-Z]{2}$/.test(countryCode) || (input.starRating !== undefined && input.starRating !== null && (!Number.isInteger(input.starRating) || input.starRating < 1 || input.starRating > 5))) throw new BadRequestException('Invalid hotel fields'); return { tenantId, name, propertyType, starRating: input.starRating ?? null, address: input.address == null ? null : clean(input.address), city, countryCode, timeZone, externalRef: input.externalRef == null ? null : clean(input.externalRef) } }
