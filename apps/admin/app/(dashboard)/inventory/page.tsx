@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
 import { getInventory, getRatePlans, bulkUpdateAvailability, checkSellability, type AdminAvailabilityRow, type AdminRatePlan } from '@/lib/data'
+import { buildSevenDayAvailability, sellabilityMessage } from '@/lib/dubai-operations'
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -19,15 +20,13 @@ export default function InventoryPage() {
   useEffect(() => { getRatePlans().then(setPlans).catch(() => setError('Rate Plans are unavailable.')) }, [])
   useEffect(() => { setError(null); getInventory(dateValue).then(setRows).catch(() => { setRows([]); setError('Inventory is unavailable. No mock data is shown.') }) }, [dateValue])
   const loadSevenDays = async () => {
-    const plan = plans.find((item) => item.id === selectedPlan); const quantity = Number(allotment)
-    if (!plan || !Number.isInteger(quantity) || quantity < 0) return setOperation('Select a Rate Plan and enter a valid allotment.')
-    const start = new Date(`${dateValue}T00:00:00.000Z`)
-    const rows = Array.from({ length: 7 }, (_, offset) => { const day = new Date(start); day.setUTCDate(day.getUTCDate() + offset); return { ratePlanId: plan.id, stayDate: day.toISOString().slice(0, 10), allotment: quantity, sold: 0, stopSell, minStay: plan.minStay } })
-    try { await bulkUpdateAvailability(rows); setRows(await getInventory(dateValue, rows[6].stayDate)); setOperation(stopSell ? 'Stop sell applied for 7 days.' : 'Availability opened for 7 days.') } catch { setOperation('Inventory update failed. No fallback data was written.') }
+    const plan = plans.find((item) => item.id === selectedPlan)
+    if (!plan) return setOperation('Select a Rate Plan and enter a valid allotment.')
+    try { const rows = buildSevenDayAvailability(plan, dateValue, allotment, stopSell); await bulkUpdateAvailability(rows); setRows(await getInventory(dateValue, rows[6].stayDate)); setOperation(stopSell ? 'Stop sell applied for 7 days.' : 'Availability opened for 7 days.') } catch { setOperation('Inventory update failed. No fallback data was written.') }
   }
   const verifySellability = async () => {
     const plan = plans.find((item) => item.id === selectedPlan); if (!plan) return setOperation('Select a Rate Plan first.')
-    try { const result = await checkSellability({ ratePlanId: plan.id, stayDate: dateValue, occupancy: plan.occupancy }); setOperation(result.eligible ? `Sellable: ${result.status}` : `Not sellable: ${result.reasons.join(', ')}`) } catch { setOperation('Sellability check unavailable.') }
+    try { const result = await checkSellability({ ratePlanId: plan.id, stayDate: dateValue, occupancy: plan.occupancy }); setOperation(sellabilityMessage(result)) } catch { setOperation('Sellability check unavailable.') }
   }
   const columns: DataTableColumn<AdminAvailabilityRow>[] = [
     { key: 'hotel', header: 'Hotel', render: (r) => r.ratePlan.roomType.hotel.name },
