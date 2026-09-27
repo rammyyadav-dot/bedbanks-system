@@ -13,6 +13,13 @@ export interface RoomMappingRead { id: string; tenantId: string; supplierHotelMa
 export interface HotelMappingWrite { supplierId: string; hotelId: string; supplierHotelId: string; confidence?: number | null; sourceMetadata?: Record<string, unknown> }
 export interface RoomMappingWrite { supplierRoomId: string; roomTypeId: string; confidence?: number | null; sourceMetadata?: Record<string, unknown> }
 export type MappingMetadataUpdate = Pick<HotelMappingWrite, 'confidence' | 'sourceMetadata'>
+export type SupplierType = 'HOTEL_DIRECT' | 'DMC' | 'CHANNEL_MANAGER' | 'BEDBANK' | 'GDS'
+export type SupplierStatus = 'DRAFT' | 'PENDING_REVIEW' | 'ACTIVE' | 'SUSPENDED' | 'INACTIVE'
+export interface SupplierRead { id: string; tenantId: string; type: SupplierType; status: SupplierStatus; legalName: string; displayName: string; countryCode: string; defaultCurrency: string; contactMetadata: Record<string, unknown>; createdAt?: string; updatedAt?: string }
+export interface SupplierWrite { type: SupplierType; status?: SupplierStatus; legalName: string; displayName: string; countryCode: string; defaultCurrency: string; contactMetadata?: Record<string, unknown> }
+export interface SupplierUpdate extends Partial<SupplierWrite> {}
+export interface BoardBasisWrite { code: string; name: string; description?: string | null; isActive?: boolean }
+export interface BoardBasisUpdate { name?: string; description?: string | null; isActive?: boolean }
 export interface BoardBasisRead { id: string; tenantId: string; code: string; name: string; description: string | null; isActive: boolean }
 export interface ContractRead { id: string; tenantId: string; supplierId: string; supplierHotelMappingId: string | null; code: string; status: string; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string }
 export interface RatePlanRead { id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string }
@@ -27,11 +34,13 @@ export const supplyRoutes = {
   mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId',
   hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
   roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
-  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates', availability: '/supply/availability', sellability: '/supply/sellability',
+  suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
+  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId', contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates', availability: '/supply/availability', sellability: '/supply/sellability',
 } as const
 
 export const supplyPermissions = {
   mappingsRead: 'supply.mappings.read', mappingsManage: 'supply.mappings.manage',
+  suppliersRead: 'supply.suppliers.read', suppliersManage: 'supply.suppliers.manage',
   hotelsRead: 'supply.hotels.read', hotelsManage: 'supply.hotels.manage', roomsRead: 'supply.rooms.read', roomsManage: 'supply.rooms.manage', contractsRead: 'supply.contracts.read', contractsManage: 'supply.contracts.manage', ratesRead: 'supply.rates.read', ratesManage: 'supply.rates.manage', availabilityRead: 'supply.availability.read', availabilityManage: 'supply.availability.manage',
 } as const
 export type SupplyPermission = (typeof supplyPermissions)[keyof typeof supplyPermissions]

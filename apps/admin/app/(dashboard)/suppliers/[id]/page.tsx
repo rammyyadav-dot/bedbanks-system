@@ -21,11 +21,11 @@ export default function SupplierDetailPage() {
   if (!supplier) return <div className="admin-page"><LoadingState rows={5} /></div>
   return (
     <div className="admin-page">
-      <PageHeader eyebrow={`SUPPLIER · ${supplier.type.replaceAll('_', ' ')}`} title={supplier.displayName} description={supplier.legalName} actions={<StatusBadge status={supplierStatus(supplier.status)} />} />
+      <PageHeader eyebrow={`SUPPLIER · ${supplier.type.split('_').join(' ')}`} title={supplier.displayName} description={supplier.legalName} actions={<StatusBadge status={supplierStatus(supplier.status)} />} />
       <div className="admin-summary-cards">
         <StatCard label="Country" value={supplier.countryCode} />
         <StatCard label="Default Currency" value={supplier.defaultCurrency} />
-        <StatCard label="Supplier Type" value={supplier.type.replaceAll('_', ' ')} />
+        <StatCard label="Supplier Type" value={supplier.type.split('_').join(' ')} />
         <StatCard label="Status" value={supplier.status} />
       </div>
       <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>
