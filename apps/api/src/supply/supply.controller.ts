@@ -47,6 +47,7 @@ export class SupplyController {
   @Get('daily-rates') dailyRates(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.dailyRates(c.tenantId, c.userId, query) }
   @Get('availability') availabilityRows(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.availabilityRows(c.tenantId, c.userId, query) }
   @Post('availability/bulk') bulkAvailability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.bulkAvailability(c.tenantId, c.userId, body, c.requestId) }
+  @Post('daily-rates/bulk') bulkDailyRates(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.bulkDailyRates(c.tenantId, c.userId, body, c.requestId) }
   @Post('daily-rates') dailyRate(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.upsertDailyRate(c.tenantId, c.userId, body, c.requestId) }
   @Post('availability') availability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.upsertAvailability(c.tenantId, c.userId, body, c.requestId) }
   @Post('sellability') sellability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.sellability(c.tenantId, c.userId, body) }
