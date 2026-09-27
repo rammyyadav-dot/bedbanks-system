@@ -229,6 +229,44 @@ describe('Supply HTTP authorization boundaries', () => {
     await prisma.roomType.delete({ where: { id: createdId } })
   })
 
+  it('certifies authoritative Contract detail, update and policy operations', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const detail = await supply(cookie, tenantAId).get(`/api/v1/supply/contracts/${contractAId}`).expect(200)
+    expect(detail.body.data).toMatchObject({ id: contractAId, tenantId: tenantAId, supplierId: supplierAId })
+    await supply(cookie, tenantAId).get(`/api/v1/supply/contracts/${contractBId}`).expect(404)
+
+    const requestId = `${suffix}-contract-policy-audit`
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).set('x-request-id', requestId)
+      .send({ status: 'ACTIVE', validFrom: '2026-02-01', validTo: '2027-11-30', settlementCurrency: 'AED' }).expect(200)
+    await expect(prisma.contract.findUnique({ where: { id: contractAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', settlementCurrency: 'AED' })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractBId}`).send({ status: 'ACTIVE' }).expect(404)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).send({ validFrom: '2028-01-01', validTo: '2027-01-01' }).expect(400)
+
+    const cancellation = await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation`).set('x-request-id', requestId)
+      .send({ daysBeforeCheckin: 7, penaltyPercent: 50 }).expect(201)
+    const child = await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/child`)
+      .send({ minAge: 0, maxAge: 5, extraBedAllowed: false, supplementMinor: '0', currency: 'AED' }).expect(201)
+    const lead = await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/lead-time`)
+      .send({ minLeadHours: 24, maxLeadDays: 180 }).expect(201)
+    expect(cancellation.body.data.penaltyMinor).toBeNull()
+    expect(child.body.data.supplementMinor).toBe('0')
+    expect(lead.body.data).toMatchObject({ contractId: contractAId, minLeadHours: 24, maxLeadDays: 180 })
+
+    const policies = await supply(cookie, tenantAId).get(`/api/v1/supply/contracts/${contractAId}/policies`).expect(200)
+    expect(policies.body.data.cancellationPolicies.some((row: { id: string }) => row.id === cancellation.body.data.id)).toBe(true)
+    expect(policies.body.data.childPolicies.some((row: { id: string }) => row.id === child.body.data.id)).toBe(true)
+    expect(policies.body.data.leadTimeRules.some((row: { id: string }) => row.id === lead.body.data.id)).toBe(true)
+
+    await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation`).send({ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: '1000' }).expect(400)
+    await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/child`).send({ minAge: 4, maxAge: 8 }).expect(400)
+    await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractBId}/policies/lead-time`).send({ minLeadHours: 1 }).expect(404)
+    await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: contractAId, action: 'supply.contract.updated' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId } })
+
+    await prisma.cancellationPolicy.delete({ where: { id: cancellation.body.data.id } })
+    await prisma.childPolicy.delete({ where: { id: child.body.data.id } })
+    await prisma.bookingLeadTimeRule.delete({ where: { id: lead.body.data.id } })
+  })
+
   it('certifies HTTP RBAC for read, create, rate, and availability operations', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     await supply(cookie, tenantAId).get('/api/v1/supply/hotels').expect(200)
