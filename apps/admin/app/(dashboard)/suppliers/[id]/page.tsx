@@ -8,6 +8,9 @@ import { StatusBadge } from '@/components/status/StatusBadge'
 import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
 import { getSupplier, type SupplySupplier } from '@/lib/data'
+import type { Status } from '@/lib/types/admin'
+
+const supplierStatus = (status: string): Status => status === 'ACTIVE' ? 'active' : status === 'SUSPENDED' ? 'suspended' : status === 'INACTIVE' ? 'inactive' : 'pending'
 
 export default function SupplierDetailPage() {
   const params = useParams<{ id: string }>()
@@ -18,7 +21,7 @@ export default function SupplierDetailPage() {
   if (!supplier) return <div className="admin-page"><LoadingState rows={5} /></div>
   return (
     <div className="admin-page">
-      <PageHeader eyebrow={`SUPPLIER · ${supplier.type.replaceAll('_', ' ')}`} title={supplier.displayName} description={supplier.legalName} actions={<StatusBadge status={supplier.status.toLowerCase()} />} />
+      <PageHeader eyebrow={`SUPPLIER · ${supplier.type.replaceAll('_', ' ')}`} title={supplier.displayName} description={supplier.legalName} actions={<StatusBadge status={supplierStatus(supplier.status)} />} />
       <div className="admin-summary-cards">
         <StatCard label="Country" value={supplier.countryCode} />
         <StatCard label="Default Currency" value={supplier.defaultCurrency} />
