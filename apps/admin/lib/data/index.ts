@@ -49,7 +49,13 @@ export async function getBoardBasesAdmin() { return apiRequest<BoardBasisRecord[
 export async function createBoardBasis(input: { code: string; name: string; description?: string; isActive?: boolean }) { return apiRequest<BoardBasisRecord>('/supply/board-bases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function updateBoardBasis(id: string, input: { name?: string; description?: string | null; isActive?: boolean }) { return apiRequest<BoardBasisRecord>(`/supply/board-bases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function getContracts() { return apiRequest('/supply/contracts'); }
-export async function getInventory() { return mock.inventory; }
+export interface AdminAvailabilityRow {
+  id: string; tenantId: string; ratePlanId: string; stayDate: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number;
+  ratePlan: { id: string; code: string; releaseDays: number; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
+}
+export async function getInventory(from: string, to = from) { return apiRequest<AdminAvailabilityRow[]>(`/supply/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`); }
+export async function updateAvailability(input: { ratePlanId: string; stayDate: string; allotment: number; sold: number; stopSell?: boolean; minStay?: number }) { return apiRequest('/supply/availability', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function bulkUpdateAvailability(rows: Array<{ ratePlanId: string; stayDate: string; allotment: number; sold: number; stopSell?: boolean; minStay?: number }>) { return apiRequest('/supply/availability/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) }); }
 export interface AdminRatePlan {
   id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string;
   refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number;

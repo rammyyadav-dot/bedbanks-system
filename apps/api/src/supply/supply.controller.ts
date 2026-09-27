@@ -44,6 +44,9 @@ export class SupplyController {
   @Get('rate-plans/:ratePlanId') ratePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.supply.ratePlan(c.tenantId, c.userId, ratePlanId) }
   @Post('rate-plans') createRatePlan(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createRatePlan(c.tenantId, c.userId, body, c.requestId) }
   @Patch('rate-plans/:ratePlanId') updateRatePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.updateRatePlan(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
+  @Get('daily-rates') dailyRates(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.dailyRates(c.tenantId, c.userId, query) }
+  @Get('availability') availabilityRows(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.availabilityRows(c.tenantId, c.userId, query) }
+  @Post('availability/bulk') bulkAvailability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.bulkAvailability(c.tenantId, c.userId, body, c.requestId) }
   @Post('daily-rates') dailyRate(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.upsertDailyRate(c.tenantId, c.userId, body, c.requestId) }
   @Post('availability') availability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.upsertAvailability(c.tenantId, c.userId, body, c.requestId) }
   @Post('sellability') sellability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.sellability(c.tenantId, c.userId, body) }

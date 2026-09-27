@@ -21,7 +21,7 @@ export const routes = {
     suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
     hotels: '/supply/hotels', hotel: '/supply/hotels/:hotelId', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId',
     contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', ratePlan: '/supply/rate-plans/:ratePlanId', dailyRates: '/supply/daily-rates',
-    availability: '/supply/availability', sellability: '/supply/sellability',
+    availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/availability', sellability: '/supply/sellability',
   },
   partner: {},
   health: { status: '/health' },
