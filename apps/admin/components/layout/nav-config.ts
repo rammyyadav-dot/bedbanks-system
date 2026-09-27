@@ -31,6 +31,7 @@ export const navSections: NavSection[] = [
       { href: '/suppliers', label: 'Suppliers', icon: Truck },
       { href: '/mappings', label: 'Mappings', icon: ShieldCheck },
       { href: '/contracts', label: 'Contracts', icon: ScrollText },
+      { href: '/board-basis', label: 'Board Basis', icon: Tags },
     ],
   },
   {
