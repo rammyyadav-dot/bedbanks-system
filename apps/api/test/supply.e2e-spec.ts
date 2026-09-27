@@ -286,6 +286,8 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ minStay: 5, maxStay: 2 }).expect(400)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ boardBasisId: boardBId }).expect(400)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanBId}`).send({ status: 'SUSPENDED' }).expect(404)
+
+    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT', occupancy: 2, currency: 'USD', refundable: true, minStay: 1, maxStay: null, releaseDays: 0 } })
   })
 
   it('certifies HTTP RBAC for read, create, rate, and availability operations', async () => {
