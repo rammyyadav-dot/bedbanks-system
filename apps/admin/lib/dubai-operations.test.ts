@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSevenDayRates, buildSevenDayAvailability, sellabilityMessage } from './dubai-operations.ts'
+import { buildSevenDayRates, buildSevenDayAvailability, sellabilityMessage } from './dubai-operations'
 
 const plan = { id: 'rp-dubai-flex', occupancy: 2, currency: 'AED', minStay: 1 }
 
