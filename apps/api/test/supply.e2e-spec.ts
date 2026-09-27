@@ -498,8 +498,8 @@ describe('Supply HTTP authorization boundaries', () => {
   })
 
   it('preserves sold and held inventory during authoritative admin availability updates', async () => {
-    const agent = request.agent(app.getHttpServer())
-    await login(agent, 'owner-a@example.com')
+    const cookie = await login(`${suffix}-a@example.test`)
+    const agent = supply(cookie, tenantAId)
     const stayDate = '2026-12-20'
     await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z') } })
     await prisma.dailyAvailability.create({ data: { tenantId: tenantAId, ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z'), allotment: 5, sold: 2, held: 1, stopSell: false, minStay: 1 } })
