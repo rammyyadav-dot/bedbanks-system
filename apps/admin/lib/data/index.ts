@@ -50,7 +50,17 @@ export async function createBoardBasis(input: { code: string; name: string; desc
 export async function updateBoardBasis(id: string, input: { name?: string; description?: string | null; isActive?: boolean }) { return apiRequest<BoardBasisRecord>(`/supply/board-bases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function getContracts() { return apiRequest('/supply/contracts'); }
 export async function getInventory() { return mock.inventory; }
-export async function getRates() { return mock.rates; }
+export interface AdminRatePlan {
+  id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string;
+  refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number;
+  contract: { id: string; code: string; supplier: { id: string; displayName: string } };
+  roomType: { id: string; name: string; hotel: { id: string; name: string } };
+  boardBasis: { id: string; code: string; name: string };
+}
+export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supply/rate-plans'); }
+export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
+export async function updateRatePlan(id: string, input: Partial<Pick<AdminRatePlan, 'status' | 'occupancy' | 'currency' | 'refundable' | 'taxesIncluded' | 'feesIncluded' | 'minStay' | 'maxStay' | 'releaseDays'>>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function getRates() { return getRatePlans(); }
 export async function getSearchComparison() { return mock.searchComparison; }
 export async function getBookings() { return mock.bookings; }
 export async function getBooking(id: string) { return mock.bookings.find((b) => b.id === id) ?? null; }
