@@ -34,13 +34,21 @@ export async function assignPlatformRole(input: { userId: string; roleId: string
 export async function revokePlatformRole(userId: string, roleId: string) { return apiRequest(`/platform/access/assignments/${userId}/${roleId}`, { method: 'DELETE' }); }
 export async function getPermissionResources() { return mock.permissionResources; }
 export async function getAuditEvents() { return mock.auditEvents; }
-export async function getHotels() { return mock.hotels; }
-export async function getHotel(id: string) { return mock.hotels.find((h) => h.id === id) ?? null; }
-export async function getRooms() { return mock.rooms; }
-export async function getRoomsByHotel(hotelId: string) { return mock.rooms.filter((r) => r.hotelId === hotelId); }
-export async function getSuppliers() { return mock.suppliers; }
-export async function getSupplier(id: string) { return mock.suppliers.find((s) => s.id === id) ?? null; }
-export async function getContracts() { return mock.contracts; }
+export async function getHotels() { return apiRequest('/supply/hotels'); }
+export async function getHotel(id: string) { return apiRequest(`/supply/hotels/${id}`); }
+export async function getRooms() { return apiRequest('/supply/room-types'); }
+export async function getRoomsByHotel(hotelId: string) { return apiRequest(`/supply/hotels/${hotelId}/rooms`); }
+export interface SupplySupplier { id: string; type: string; status: string; legalName: string; displayName: string; countryCode: string; defaultCurrency: string; contactMetadata: Record<string, unknown>; createdAt: string; updatedAt: string }
+export interface SupplierList { items: SupplySupplier[]; page: number; pageSize: number; total: number }
+export interface BoardBasisRecord { id: string; code: string; name: string; description: string | null; isActive: boolean; createdAt: string; updatedAt: string }
+export async function getSuppliers(query = '') { return apiRequest<SupplierList>(`/supply/suppliers${query ? `?${query}` : ''}`); }
+export async function getSupplier(id: string) { return apiRequest<SupplySupplier>(`/supply/suppliers/${id}`); }
+export async function createSupplier(input: Omit<SupplySupplier, 'id' | 'createdAt' | 'updatedAt'>) { return apiRequest<SupplySupplier>('/supply/suppliers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function updateSupplier(id: string, input: Partial<Omit<SupplySupplier, 'id' | 'createdAt' | 'updatedAt'>>) { return apiRequest<SupplySupplier>(`/supply/suppliers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function getBoardBasesAdmin() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases/admin'); }
+export async function createBoardBasis(input: { code: string; name: string; description?: string; isActive?: boolean }) { return apiRequest<BoardBasisRecord>('/supply/board-bases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function updateBoardBasis(id: string, input: { name?: string; description?: string | null; isActive?: boolean }) { return apiRequest<BoardBasisRecord>(`/supply/board-bases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function getContracts() { return apiRequest('/supply/contracts'); }
 export async function getInventory() { return mock.inventory; }
 export async function getRates() { return mock.rates; }
 export async function getSearchComparison() { return mock.searchComparison; }
@@ -69,10 +77,10 @@ export async function getDashboardKpis() {
     activeTenants: tenants.filter((t) => t.status === 'active').length,
     activeAgents: mock.users.filter((u) => u.status === 'active').length,
     hotels: hotels.length,
-    suppliers: suppliers.length,
+    suppliers: suppliers.total,
     bookingsToday: bookings.length,
     revenueToday: bookings.reduce((sum, b) => sum + b.amount, 0),
     pendingBookings: bookings.filter((b) => b.status === 'pending').length,
-    supplierErrors: suppliers.filter((s) => s.connection === 'down').length,
+    supplierErrors: 0,
   };
 }

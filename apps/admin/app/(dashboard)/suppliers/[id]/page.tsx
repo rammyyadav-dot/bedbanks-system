@@ -1,39 +1,38 @@
-import { notFound } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import { PageHeader } from '@/components/common/PageHeader'
-import { HealthBadge } from '@/components/status/HealthBadge'
-import { Tabs } from '@/components/common/Tabs'
 import { StatCard } from '@/components/common/StatCard'
-import { getSupplier } from '@/lib/data'
+import { StatusBadge } from '@/components/status/StatusBadge'
+import { ErrorState } from '@/components/common/ErrorState'
+import { LoadingState } from '@/components/common/LoadingState'
+import { getSupplier, type SupplySupplier } from '@/lib/data'
+import type { Status } from '@/lib/types/admin'
 
-export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const supplier = await getSupplier(id)
-  if (!supplier) notFound()
+const supplierStatus = (status: string): Status => status === 'ACTIVE' ? 'active' : status === 'SUSPENDED' ? 'suspended' : status === 'INACTIVE' ? 'inactive' : 'pending'
 
+export default function SupplierDetailPage() {
+  const params = useParams<{ id: string }>()
+  const [supplier, setSupplier] = useState<SupplySupplier | null>(null)
+  const [error, setError] = useState(false)
+  useEffect(() => { getSupplier(params.id).then(setSupplier).catch(() => setError(true)) }, [params.id])
+  if (error) return <div className="admin-page"><ErrorState title="Supplier unavailable" description="The authoritative supplier record could not be loaded. No mock summary is shown." /></div>
+  if (!supplier) return <div className="admin-page"><LoadingState rows={5} /></div>
   return (
     <div className="admin-page">
-      <PageHeader eyebrow={`SUPPLIER · ${supplier.type}`} title={supplier.name} description={`Last synced ${new Date(supplier.lastSync).toLocaleString()}`} actions={<HealthBadge state={supplier.connection} />} />
+      <PageHeader eyebrow={`SUPPLIER · ${supplier.type.replaceAll('_', ' ')}`} title={supplier.displayName} description={supplier.legalName} actions={<StatusBadge status={supplierStatus(supplier.status)} />} />
       <div className="admin-summary-cards">
-        <StatCard label="Hotels Mapped" value={supplier.hotels.toLocaleString()} />
-        <StatCard label="Success Rate" value={`${supplier.successRate}%`} />
-        <StatCard label="Connection Type" value={supplier.type} />
+        <StatCard label="Country" value={supplier.countryCode} />
+        <StatCard label="Default Currency" value={supplier.defaultCurrency} />
+        <StatCard label="Supplier Type" value={supplier.type.replaceAll('_', ' ')} />
         <StatCard label="Status" value={supplier.status} />
       </div>
-      <Tabs tabs={[
-        { id: 'overview', label: 'Overview', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Supplier relationship overview — mock summary.</div> },
-        { id: 'connection', label: 'Connection', content: (
-          <div className="workspace-panel" style={{ padding: 18, fontSize: 12 }}>
-            <div style={{ marginBottom: 10 }}>API Key</div>
-            <div className="admin-masked">••••••••••••••••</div>
-          </div>
-        ) },
-        { id: 'hotel-mapping', label: 'Hotel Mapping', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>{supplier.hotels.toLocaleString()} hotels mapped from this supplier.</div> },
-        { id: 'room-mapping', label: 'Room Mapping', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Room-type mapping placeholder.</div> },
-        { id: 'contracts', label: 'Contracts', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>See the Contracts module for commercial terms with this supplier.</div> },
-        { id: 'search-perf', label: 'Search Performance', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>See Distribution → Search Monitor for live comparisons.</div> },
-        { id: 'booking-perf', label: 'Booking Performance', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Booking success/failure trend placeholder.</div> },
-        { id: 'errors', label: 'Errors', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>No unresolved supplier errors recorded (mock).</div> },
-      ]} />
+      <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>
+        <strong>Authoritative supplier record</strong>
+        <div style={{ marginTop: 10 }}>Created {new Date(supplier.createdAt).toLocaleString()}</div>
+        <div>Updated {new Date(supplier.updatedAt).toLocaleString()}</div>
+      </div>
     </div>
   )
 }
