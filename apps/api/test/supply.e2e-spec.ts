@@ -194,7 +194,7 @@ describe('Supply HTTP authorization boundaries', () => {
     const boardRequestId = `${suffix}-board-audit`
     const created = await supply(cookie, tenantAId).post('/api/v1/supply/board-bases').set('x-request-id', boardRequestId).send({ code: 'HB', name: 'Half Board' }).expect(201)
     const createdId = created.body.data.id as string
-    expect(created.body.data.value.code).toBe('HB')
+    expect(created.body.data.code).toBe('HB')
     const adminList = await supply(cookie, tenantAId).get('/api/v1/supply/board-bases/admin').expect(200)
     expect(adminList.body.data.find((board: { id: string }) => board.id === createdId).code).toBe('HB')
     await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ code: 'FB' }).expect(400)
