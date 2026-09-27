@@ -21,6 +21,12 @@ export interface SupplierUpdate extends Partial<SupplierWrite> {}
 export interface BoardBasisWrite { code: string; name: string; description?: string | null; isActive?: boolean }
 export interface BoardBasisUpdate { name?: string; description?: string | null; isActive?: boolean }
 export interface BoardBasisRead { id: string; tenantId: string; code: string; name: string; description: string | null; isActive: boolean }
+export type ContractStatus = 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
+export interface ContractWrite { supplierId: string; supplierHotelMappingId?: string | null; code: string; status?: ContractStatus; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; paymentPolicyRef?: string | null }
+export interface ContractUpdate extends Partial<ContractWrite> {}
+export interface CancellationPolicyWrite { daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string; currency?: string }
+export interface ChildPolicyWrite { minAge: number; maxAge: number; extraBedAllowed?: boolean; supplementMinor?: string; currency?: string }
+export interface LeadTimeRuleWrite { minLeadHours: number; maxLeadDays?: number | null }
 export interface ContractRead { id: string; tenantId: string; supplierId: string; supplierHotelMappingId: string | null; code: string; status: string; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string }
 export interface RatePlanRead { id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string }
 export type RateAmountBasis = 'NET' | 'SELL'
@@ -35,7 +41,7 @@ export const supplyRoutes = {
   hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
   roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
   suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
-  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId', contracts: '/supply/contracts', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates', availability: '/supply/availability', sellability: '/supply/sellability',
+  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId', contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', dailyRates: '/supply/daily-rates', availability: '/supply/availability', sellability: '/supply/sellability',
 } as const
 
 export const supplyPermissions = {
