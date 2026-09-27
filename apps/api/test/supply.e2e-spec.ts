@@ -53,7 +53,7 @@ describe('Supply HTTP authorization boundaries', () => {
     const permissionKeys = [
       'supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage',
       'supply.rates.read', 'supply.rates.manage', 'supply.contracts.read', 'supply.contracts.manage',
-      'supply.availability.manage',
+      'supply.availability.manage', 'supply.suppliers.read', 'supply.suppliers.manage',
       'supply.mappings.read', 'supply.mappings.manage',
     ]
     const permissions = await Promise.all(permissionKeys.map((key) => prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: `${suffix} ${key}` } })))
@@ -164,6 +164,43 @@ describe('Supply HTTP authorization boundaries', () => {
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantAId } })).resolves.not.toBeNull()
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantBId } })).resolves.toBeNull()
     await prisma.hotel.delete({ where: { id: createdHotelId } })
+  })
+
+  it('certifies authoritative Supplier Admin tenant, RBAC, mutation and audit boundaries', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const list = await supply(cookie, tenantAId).get('/api/v1/supply/suppliers?page=1&pageSize=100').expect(200)
+    expect(list.body.data.items.map((supplier: { id: string }) => supplier.id)).toContain(supplierAId)
+    expect(list.body.data.items.map((supplier: { id: string }) => supplier.id)).not.toContain(supplierBId)
+    await supply(cookie, tenantAId).get(`/api/v1/supply/suppliers/${supplierBId}`).expect(404)
+
+    const supplierRequestId = `${suffix}-supplier-audit`
+    const created = await supply(cookie, tenantAId).post('/api/v1/supply/suppliers').set('x-request-id', supplierRequestId).send({
+      type: 'DMC', legalName: `${suffix} New DMC`, displayName: 'New DMC', countryCode: 'AE', defaultCurrency: 'AED',
+    }).expect(201)
+    const createdId = created.body.data.id as string
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/suppliers/${createdId}`).send({ status: 'ACTIVE', displayName: 'Dubai DMC' }).expect(200)
+    await expect(prisma.supplier.findUnique({ where: { id: createdId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', displayName: 'Dubai DMC' })
+    await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: createdId, action: 'supply.supplier.created' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId: supplierRequestId } })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/suppliers/${supplierBId}`).send({ status: 'SUSPENDED' }).expect(404)
+    await prisma.supplier.delete({ where: { id: createdId } })
+  })
+
+  it('certifies governed Board Basis create, canonical-code protection and activation lifecycle', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const list = await supply(cookie, tenantAId).get('/api/v1/supply/board-bases/admin').expect(200)
+    expect(list.body.data.map((board: { id: string }) => board.id)).toContain(boardAId)
+    expect(list.body.data.map((board: { id: string }) => board.id)).not.toContain(boardBId)
+
+    const boardRequestId = `${suffix}-board-audit`
+    const created = await supply(cookie, tenantAId).post('/api/v1/supply/board-bases').set('x-request-id', boardRequestId).send({ code: 'HB', name: 'Half Board' }).expect(201)
+    const createdId = created.body.data.id as string
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ code: 'FB' }).expect(400)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ isActive: false }).expect(200)
+    await expect(prisma.boardBasis.findUnique({ where: { id: createdId } })).resolves.toMatchObject({ tenantId: tenantAId, code: 'HB', isActive: false })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${createdId}`).send({ isActive: true, name: 'Half Board Plus' }).expect(200)
+    await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: createdId, action: 'supply.board_basis.created' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId: boardRequestId } })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/board-bases/${boardBId}`).send({ isActive: false }).expect(404)
+    await prisma.boardBasis.delete({ where: { id: createdId } })
   })
 
   it('certifies authoritative Room Master read, create, update, audit and tenant boundaries', async () => {
