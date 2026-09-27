@@ -34,7 +34,7 @@ export async function assignPlatformRole(input: { userId: string; roleId: string
 export async function revokePlatformRole(userId: string, roleId: string) { return apiRequest(`/platform/access/assignments/${userId}/${roleId}`, { method: 'DELETE' }); }
 export async function getPermissionResources() { return mock.permissionResources; }
 export async function getAuditEvents() { return mock.auditEvents; }
-export async function getHotels() { return apiRequest('/supply/hotels'); }
+export async function getHotels(): Promise<Array<{ id: string }>> { return apiRequest<Array<{ id: string }>>('/supply/hotels'); }
 export async function getHotel(id: string) { return apiRequest(`/supply/hotels/${id}`); }
 export async function getRooms() { return apiRequest('/supply/room-types'); }
 export async function getRoomsByHotel(hotelId: string) { return apiRequest(`/supply/hotels/${hotelId}/rooms`); }
