@@ -11,12 +11,13 @@ test('Dubai Admin 7-day Rate Loader builds exact authoritative SELL and NET payl
   assert.ok(sell.every(row => row.ratePlanId === plan.id && row.occupancy === 2 && row.currency === 'AED' && row.amountMinor === '29900' && row.amountBasis === 'SELL'))
   const net = buildSevenDayRates(plan, '2026-10-20', '275.50', 'NET')
   assert.ok(net.every(row => row.amountMinor === '27550' && row.amountBasis === 'NET'))
+  assert.ok(buildSevenDayRates(plan, '2026-10-20', '0.10', 'SELL').every(row => row.amountMinor === '10'))
 })
 
 test('Dubai Admin Inventory loader builds seven open rows and Stop Sell/Reopen payloads', () => {
   const open = buildSevenDayAvailability(plan, '2026-10-20', '5', false)
   assert.equal(open.length, 7)
-  assert.ok(open.every(row => row.allotment === 5 && row.sold === 0 && row.stopSell === false && row.minStay === 1))
+  assert.ok(open.every(row => row.allotment === 5 && !('sold' in row) && row.stopSell === false && row.minStay === 1))
   const stopped = buildSevenDayAvailability(plan, '2026-10-20', '5', true)
   assert.ok(stopped.every(row => row.stopSell === true))
   const reopened = buildSevenDayAvailability(plan, '2026-10-20', '5', false)
@@ -26,6 +27,8 @@ test('Dubai Admin Inventory loader builds seven open rows and Stop Sell/Reopen p
 test('Dubai Admin rejects invalid operator amounts and allotments before API writes', () => {
   assert.throws(() => buildSevenDayRates(plan, '2026-10-20', '-1', 'SELL'), /Invalid amount/)
   assert.throws(() => buildSevenDayRates(plan, 'bad-date', '299', 'SELL'), /Invalid start date/)
+  assert.throws(() => buildSevenDayRates(plan, '2026-10-20', '1.001', 'SELL'), /Invalid amount/)
+  assert.throws(() => buildSevenDayRates(plan, '2026-10-20', 'abc', 'SELL'), /Invalid amount/)
   assert.throws(() => buildSevenDayAvailability(plan, '2026-10-20', '1.5', false), /Invalid allotment/)
   assert.throws(() => buildSevenDayAvailability(plan, '2026-10-20', '-1', false), /Invalid allotment/)
 })

@@ -496,4 +496,28 @@ describe('Supply HTTP authorization boundaries', () => {
     await prisma.supplierHotelMapping.delete({ where: { id: mapping.id } })
     await prisma.hotel.delete({ where: { id: hotel.id } })
   })
+
+  it('preserves sold and held inventory during authoritative admin availability updates', async () => {
+    const agent = request.agent(app.getHttpServer())
+    await login(agent, 'owner-a@example.com')
+    const stayDate = '2026-12-20'
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z') } })
+    await prisma.dailyAvailability.create({ data: { tenantId: tenantAId, ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z'), allotment: 5, sold: 2, held: 1, stopSell: false, minStay: 1 } })
+
+    await agent.post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 6, stopSell: true, minStay: 1 }).expect(201)
+    const preserved = await prisma.dailyAvailability.findUniqueOrThrow({ where: { ratePlanId_stayDate: { ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z') } } })
+    expect(preserved.sold).toBe(2)
+    expect(preserved.held).toBe(1)
+    expect(preserved.allotment).toBe(6)
+    expect(preserved.stopSell).toBe(true)
+
+    await agent.post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 2, stopSell: false, minStay: 1 }).expect(400)
+    const afterRejectedReduction = await prisma.dailyAvailability.findUniqueOrThrow({ where: { ratePlanId_stayDate: { ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z') } } })
+    expect(afterRejectedReduction.sold).toBe(2)
+    expect(afterRejectedReduction.held).toBe(1)
+    expect(afterRejectedReduction.allotment).toBe(6)
+
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z') } })
+  })
+
 })
