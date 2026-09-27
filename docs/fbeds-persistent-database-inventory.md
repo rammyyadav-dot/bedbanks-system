@@ -1,67 +1,114 @@
 # fBeds Persistent Database Inventory — Owner Evidence
 
-Status: **BLOCKED — provider resource identity and owner evidence required**
+Status: **BLOCKED FOR PRODUCTION DEPLOYMENT — clone migration path validated; production migration not executed**
 
-Release baseline: `9ebb08545681e98b19058bb302aeca5c79da28e7`
+Release baseline: `71f5014767ca7aedeee68fe76f891de64d8d1b19`
 
 This document operationalizes `docs/postgres-production-release-checklist.md`. It is an evidence register, not approval. Do not place connection strings, passwords, tokens, or raw secret values in Git.
 
-## Inventory
+## Verified provider inventory
 
-| Environment | Provider project | Branch | Database | Compute endpoint | Persistent? | Migration 202609230001_platform_role_management_permissions | Owner | Evidence ref | Decision |
-|---|---|---|---|---|---|---|---|---|---|
-| Production | Pending | Pending | Pending | Pending | Yes | NOT VERIFIED | Pending | Pending | BLOCKED |
-| Staging | Pending | Pending | Pending | Pending | Yes | NOT VERIFIED | Pending | Pending | BLOCKED |
-| Shared preview | Pending | Pending | Pending | Pending | Yes if shared/non-expiring | NOT VERIFIED | Pending | Pending | BLOCKED |
-| Shared development | Pending | Pending | Pending | Pending | Yes | NOT VERIFIED | Pending | Pending | BLOCKED |
-| Other persistent databases | Pending discovery | Pending | Pending | Pending | Pending classification | NOT VERIFIED | Pending | Pending | BLOCKED |
+| Environment | Provider project | Branch | Database | Compute endpoint | Persistence | Migration state | Owner | Decision |
+|---|---|---|---|---|---|---|---|---|
+| Production candidate | `square-grass-15016800` | `main` / `br-wandering-hill-au9gq1wv` | `neondb` | `ep-fancy-term-aucsh8rv` | Persistent | Through `202609220001_supply_permissions`; later repo migrations absent | Owner attestation required | BLOCKED |
+| Non-production | `square-grass-15016800` | `fbeds-nonprod` / `br-sparkling-king-au5766p3` | `neondb` | `ep-blue-art-auo2cwp0` | Persistent/non-expiring candidate | Not fully certified | Owner attestation required | PARTIAL |
+| Migration certification clone | `square-grass-15016800` | `cert-prod-migration-repair-20260927` / `br-green-voice-au1mklo0` | `neondb` | provider-created | Disposable certification branch | Exact missing DDL validated | N/A | PASS FOR CLONE ONLY |
+| Staging | — | — | — | — | Not established | NOT VERIFIED | Owner attestation required | BLOCKED |
 
-Disposable CI PostgreSQL is excluded from persistent-environment approval. Its successful migration replay/status/drift and E2E evidence does not prove any row above.
+Provider metadata observed PostgreSQL 18 in AWS `us-east-1`. Both `main` and `fbeds-nonprod` were reported unprotected at audit time.
 
-## Approved read-only Neon discovery
+## Production migration reconciliation
 
-An authorized infrastructure/database owner supplies the fBeds Neon project ID(s). For each project, record metadata only:
+Read-only `_prisma_migrations` inspection established that historical unsuccessful attempts for:
+- `202609200001_platform_admin_access_foundation`
+- `202609210001_platform_permission_catalog`
 
-1. List branches and classify each as persistent or disposable from provider lifecycle/settings and owner evidence; do not classify from branch name alone.
-2. For each persistent branch, list PostgreSQL databases and compute endpoints.
-3. Reconcile each resource with deployment environment-variable **names/references** and owner records. Do not export connection strings or secret values.
-4. For each persistent database, execute only the following read-only migration-history query:
+have non-null `rolled_back_at` values. They are formally rolled back historical attempts rather than unresolved in-progress rows.
 
-```sql
-SELECT migration_name,
-       checksum,
-       started_at,
-       finished_at,
-       applied_steps_count,
-       logs
-FROM "_prisma_migrations"
-WHERE migration_name = '202609230001_platform_role_management_permissions';
-```
+The latest successful migration currently established on the Production candidate is:
 
-Record a sanitized evidence reference outside Git when logs contain sensitive material. If the row is missing, record **NOT APPLIED**. If checksum/history is divergent or a failed migration is present, STOP and escalate to the database owner. Do not run `migrate resolve`, `db push`, reset, edit migration history, or apply a migration.
+`202609220001_supply_permissions`
 
-## Role / RLS evidence
+The current repository additionally requires:
 
-For each persistent application database, the owner must verify with read-only metadata that the HTTP role is non-owner, non-superuser and has no `BYPASSRLS`; RLS is enabled where required; transaction-local tenant context/pool reset behavior is approved; and privileged migration/background roles are separate.
+1. `202609230001_platform_role_management_permissions`
+2. `202609230001_supplier_mapping_governance`
+3. `202609250001_booking_concurrency_foundation`
+4. `202609260001_authoritative_rate_amount_semantics`
+5. `202609270001_supplier_admin_permissions`
 
-Record only role names/attributes and evidence references approved for Git. Do not record passwords or connection strings.
+## Physical schema gap confirmed
 
-## Owner-controlled evidence still required
+Production read-only catalog checks confirmed:
+- `SupplierRoomMapping` absent.
+- `InventoryHold` absent.
+- `InventoryHoldNight` absent.
+- `DailyAvailability.held` absent.
+- `DailyRate.amount_basis` absent.
+- `supply.suppliers.read` absent.
+- `supply.suppliers.manage` absent.
 
-- Complete provider inventory for production, staging, shared preview, shared development and any other persistent database.
-- Database owner identity for every persistent resource.
-- Exact `_prisma_migrations` evidence and committed-migration checksum comparison.
-- Verified backup identifier and restore drill.
-- PostgreSQL engine/version/extensions.
-- HTTP role/RLS and connection-pool isolation.
-- Secret-manager confirmation.
-- Monitoring and database access logging.
-- Approved deployment order and compatibility check.
-- Maintenance window, abort criteria, forward-fix owner and recovery/restore owner.
-- Explicit database-owner release decision.
+Therefore current application `main` is not schema-compatible with the Production candidate.
 
-## STOP conditions
+## Clone migration certification
 
-Production migration/deployment remains blocked if any persistent database is undiscovered, owner evidence is missing, migration history/checksum is divergent or failed, backup/restore is unverified, HTTP role/RLS controls are not approved, or explicit owner approval is absent.
+A child branch of Production was created solely for certification:
 
-No persistent database migration or deployment is authorized by this document.
+`br-green-voice-au1mklo0`
+
+No Production mutation occurred.
+
+The exact committed SQL effects of all five missing migrations were applied transactionally to the clone and completed successfully.
+
+Verified clone postconditions:
+- `SupplierRoomMapping` exists.
+- `InventoryHold` exists.
+- `InventoryHoldNight` exists.
+- `DailyAvailability.held` exists.
+- `DailyRate.amount_basis` exists.
+- supplier Admin read/manage permissions exist.
+- platform role/assignment permissions exist.
+- required tenant RLS policies exist.
+- supplier mapping governance preflight passed against copied Production data.
+- schema comparison against Production showed the intended forward changes.
+
+This validates schema compatibility of the missing migration sequence against a copy of Production data. It does **not** authorize raw SQL application to Production and it does not replace Prisma migration-history recording.
+
+## Production repair rule
+
+Production must be migrated only through the repository's normal Prisma migration path so `_prisma_migrations` remains authoritative.
+
+Do not repair Production by:
+- manually executing the migration SQL;
+- manually inserting/updating `_prisma_migrations`;
+- `prisma db push`;
+- `prisma migrate reset`;
+- guessed `prisma migrate resolve`.
+
+The approved production operation, once owner-controlled release prerequisites are complete, is the exact committed migration chain via the governed Prisma migration runner.
+
+## Runtime role / RLS evidence
+
+The provider/audit connection executes as `neondb_owner`, which is non-superuser but has `BYPASSRLS` and owns `neondb`.
+
+This does not prove the deployed HTTP API uses that role. Production release still requires evidence that the HTTP runtime uses a separate non-owner, non-superuser, non-`BYPASSRLS` role.
+
+Tenant-scoped RLS policies were observed on the inspected operational tables.
+
+## Owner-controlled evidence still required before Production migration
+
+- Explicit database-owner approval for the migration window.
+- Verified backup/recovery point and restore procedure.
+- Actual HTTP runtime role identity and attributes.
+- Preview/Development → `fbeds-nonprod` binding evidence.
+- Monitoring/incident owner.
+- Migration command execution through an approved Prisma runner.
+- Post-migration `prisma migrate status`, drift verification and application smoke tests.
+
+## Current decision
+
+**Production migration/deployment remains BLOCKED.**
+
+The schema repair has been validated safely on an isolated Production clone, but Production itself has not been changed.
+
+Production booking remains disabled.
