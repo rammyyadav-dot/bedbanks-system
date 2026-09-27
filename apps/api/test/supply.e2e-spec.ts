@@ -298,6 +298,30 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-01', allotment: 5, sold: 0 }).expect(201)
   })
 
+  it('certifies authoritative availability reads, bulk stop-sell and reopen operations', async () => {
+    const cookie = await login(`${suffix}-a@example.test`)
+    const stayDate = '2026-10-10'
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 1, stopSell: false, minStay: 2 }).expect(201)
+    const open = await supply(cookie, tenantAId).get(`/api/v1/supply/availability?from=${stayDate}&to=${stayDate}`).expect(200)
+    expect(open.body.data).toHaveLength(1)
+    expect(open.body.data[0]).toMatchObject({ tenantId: tenantAId, ratePlanId: ratePlanAId, allotment: 4, sold: 1, stopSell: false, minStay: 2 })
+
+    const bulkRequestId = `${suffix}-inventory-bulk`
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability/bulk').set('x-request-id', bulkRequestId).send({ rows: [
+      { ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 1, stopSell: true, minStay: 2 },
+      { ratePlanId: ratePlanAId, stayDate: '2026-10-11', allotment: 5, sold: 0, stopSell: true, minStay: 1 },
+    ] }).expect(201)
+    const closed = await supply(cookie, tenantAId).get('/api/v1/supply/availability?from=2026-10-10&to=2026-10-11').expect(200)
+    expect(closed.body.data).toHaveLength(2)
+    expect(closed.body.data.every((row: { stopSell: boolean }) => row.stopSell)).toBe(true)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 1, stopSell: false, minStay: 2 }).expect(201)
+    const reopened = await supply(cookie, tenantAId).get(`/api/v1/supply/availability?from=${stayDate}&to=${stayDate}`).expect(200)
+    expect(reopened.body.data[0].stopSell).toBe(false)
+    await supply(cookie, tenantAId).get('/api/v1/supply/availability?from=2026-10-11&to=2026-10-10').expect(400)
+    await supply(cookie, tenantBId).get(`/api/v1/supply/availability?from=${stayDate}&to=${stayDate}`).expect(403)
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { in: [new Date('2026-10-10T00:00:00.000Z'), new Date('2026-10-11T00:00:00.000Z')] } } })
+  })
+
   it('rejects cross-tenant RatePlan mutations without persisting rows', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-02', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(400)
