@@ -24,7 +24,8 @@ Run-scoped tenant/entity filters clean fixtures after tests, including on assert
 2. Supply sellability accepted suspended suppliers. Added an active-supplier requirement; fixture suppliers now explicitly declare ACTIVE when testing eligible inventory.
 3. Supply sellability ignored daily-rate/plan currency mismatch and unsupported occupancy. Added fail-closed reasons and regression cases.
 4. Admin Contracts page displayed mock contracts and invented markup/commission fields. It now reads the authenticated existing contracts API, shows persisted commercial fields, and exposes loading, empty and unavailable states. It remains a read-only page, not a complete contract editor.
-5. AgentModule binds `UnconfiguredSupplierAdapter`. No internal 100-hotel search adapter was introduced or live supplier contacted. Admin eligibility is explicitly not an Agent offer/search certificate.
+5. Admin daily-rate types incorrectly excluded NULL basis and the Rates page labeled it NET. The read type now admits NULL and the page displays Unverified; write inputs still require explicit SELL/NET.
+6. AgentModule binds `UnconfiguredSupplierAdapter`. No internal 100-hotel search adapter was introduced or live supplier contacted. Admin eligibility is explicitly not an Agent offer/search certificate.
 
 ## Acceptance matrix
 
@@ -48,7 +49,7 @@ Run-scoped tenant/entity filters clean fixtures after tests, including on assert
 
 ## Verification log
 
-Local API/Admin type checks, API/Admin lint and schema guard: execution in progress; final results to be recorded after CI. Earlier baseline success is not counted as changed-head acceptance. Exact CI SHA, command timestamps and observed metrics will be appended after the branch run.
+Local API/Admin type checks, API/Admin lint and schema guard passed. API unit: 155 passed, 3 skipped. Admin operation tests: 4 passed. Admin server authentication integration: 14 passed. All commands exited 0. Earlier baseline success is not counted as changed-head acceptance. Exact CI SHA, command timestamps and observed metrics will be appended after the branch run.
 
 ## Performance and limitations
 
@@ -61,3 +62,7 @@ The current supplier adapter is unconfigured; the expanded suite invokes supply/
 Review the bounded fixes and CI evidence; implement and certify an authoritative internal Agent search path and applicable stay restrictions before claiming 100-hotel search acceptance. Complete isolated authenticated browser/operator acceptance. Separately provision the protected clone runner, certify migration/preservation/RLS, trace the deployed API role, and demonstrate backup/PITR restore. A clone runner pinned to the earlier application baseline cannot certify these changed application files without a reviewed baseline update.
 
 No merge, deployment, Production migration or booking activation is authorized by this report.
+
+## Initial CI attempt
+
+Commit `33bbb950b94b8d0e4e640a144077c53c48b54d29`, CI run `36407443481`: migration replay/status/drift passed; E2E returned 1 with 75 passing and one failing test. All 700 baseline checks completed. The new mapping test incorrectly reopened a parent with an approved child; the application correctly rejected that transition. The correction asserts that rejection and reopens the child first, restoring parent then child. No governance rule was weakened. Corrected branch CI is pending.
