@@ -296,11 +296,20 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     } finally { await prisma.hotel.delete({ where: { id: foreign.id } }) }
     const plan = await prisma.ratePlan.findUniqueOrThrow({ where: { id: ratePlanId }, include: { contract: true } })
     const mappingPath = `/api/v1/supply/mappings/hotels/${plan.contract.supplierHotelMappingId}`
+    const roomMapping = await prisma.supplierRoomMapping.findFirstOrThrow({ where: { supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId } })
+    const roomMappingPath = `${mappingPath}/rooms/${roomMapping.id}`
+    await agent.post(`${mappingPath}/reopen`).expect(400)
+    await agent.post(`${roomMappingPath}/reopen`).expect(201)
+    let hotelReopened = false
     try {
       await agent.post(`${mappingPath}/reopen`).expect(201)
+      hotelReopened = true
       const result = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: dateKeys[0], occupancy: 2 }).expect(201)
       expect(result.body.data.reasons).toContain('SUPPLIER_MAPPING_INVALID')
-    } finally { await agent.post(`${mappingPath}/approve`).expect(201) }
+    } finally {
+      if (hotelReopened) await agent.post(`${mappingPath}/approve`).expect(201)
+      await agent.post(`${roomMappingPath}/approve`).expect(201)
+    }
     for (const stayDate of [dateKeys[0], dateKeys[6]]) {
       const response = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate, occupancy: 2 }).expect(201)
       expect(response.body.data.eligible).toBe(true)
