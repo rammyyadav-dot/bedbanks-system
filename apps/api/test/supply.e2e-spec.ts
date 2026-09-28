@@ -67,8 +67,8 @@ describe('Supply HTTP authorization boundaries', () => {
     await prisma.userRole.createMany({ data: [{ tenantId: tenantAId, userId: userAId, roleId: roleIds[0] }, { tenantId: tenantBId, userId: userBId, roleId: roleIds[1] }] })
 
     const [supplierA, supplierB] = await Promise.all([
-      prisma.supplier.create({ data: { tenantId: tenantAId, type: 'HOTEL_DIRECT', legalName: `${suffix} Supplier A`, displayName: 'Supplier A', countryCode: 'AE', defaultCurrency: 'USD' } }),
-      prisma.supplier.create({ data: { tenantId: tenantBId, type: 'HOTEL_DIRECT', legalName: `${suffix} Supplier B`, displayName: 'Supplier B', countryCode: 'AE', defaultCurrency: 'USD' } }),
+      prisma.supplier.create({ data: { tenantId: tenantAId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier A`, displayName: 'Supplier A', countryCode: 'AE', defaultCurrency: 'USD' } }),
+      prisma.supplier.create({ data: { tenantId: tenantBId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier B`, displayName: 'Supplier B', countryCode: 'AE', defaultCurrency: 'USD' } }),
     ])
     supplierAId = supplierA.id
     supplierBId = supplierB.id
