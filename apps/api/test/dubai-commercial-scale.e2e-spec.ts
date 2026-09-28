@@ -3,10 +3,12 @@ import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
 import { Prisma, PrismaClient } from '@prisma/client'
+import type { SearchCriteria, SearchHotelOffer } from '@bedbanks/domain'
 import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { SUPPLIER_ADAPTER, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRequestContext, type SupplierSearchContext } from '../src/agent/supplier.port'
 
 const prisma = new PrismaClient()
 
@@ -30,11 +32,61 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
   let supplierId: string
   let boardId: string
   let contractId: string
+  const offerAuthority = new Map<string, {
+    supplierHotelId: string; supplierRoomId: string; canonicalHotelId: string; canonicalRoomTypeId: string
+    ratePlanId: string; boardBasisId: string; checkIn: string; checkOut: string; sellAmountMinor: number
+  }>()
+  let canonicalOffers: SearchHotelOffer[] = []
 
   const ms = (started: bigint) => Number(process.hrtime.bigint() - started) / 1_000_000
   const metric = (name: string, value: number) => {
     // Kept in CI logs as evidence; deliberately no brittle latency threshold on shared runners.
     console.info(`DUBAI_SCALE_METRIC ${name}=${value.toFixed(2)}ms`)
+  }
+  const count = (name: string, value: number) => console.info(`DUBAI_ACCEPTANCE_COUNT ${name}=${value}`)
+  const plusOne = (value: string) => new Date(Date.parse(`${value}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10)
+
+  const supplierAdapter: SupplierAdapter = {
+    name: 'dubai-disposable-fixture',
+    async search(criteria: SearchCriteria, _context: SupplierSearchContext) {
+      const offers = canonicalOffers.map((hotel) => ({
+        ...hotel,
+        rooms: hotel.rooms.map((room) => ({
+          ...room,
+          rates: room.rates.map((rate) => {
+            const offerId = `${rate.canonicalHotelId}:${criteria.checkIn}`
+            offerAuthority.set(offerId, {
+              supplierHotelId: hotel.supplierHotelId, supplierRoomId: room.supplierRoomId,
+              canonicalHotelId: rate.canonicalHotelId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
+              ratePlanId: rate.ratePlanId, boardBasisId: rate.boardBasisId,
+              checkIn: criteria.checkIn, checkOut: criteria.checkOut, sellAmountMinor: rate.sellAmountMinor,
+            })
+            return {
+              ...rate, offerId, expiresAt: new Date(Date.now() + 300_000).toISOString(),
+              occupancy: { rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: [...criteria.childAges] },
+            }
+          }),
+        })),
+      }))
+      return { offers, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+    },
+    async recheck(input: SupplierRecheckRequest, _context: SupplierRequestContext) {
+      const authority = offerAuthority.get(input.offerId)
+      if (!authority) return { status: 'unavailable' as const }
+      return {
+        status: 'available' as const,
+        offer: {
+          offerId: input.offerId, searchId: input.searchId, supplierId,
+          supplierHotelId: authority.supplierHotelId, supplierRoomId: authority.supplierRoomId,
+          canonicalHotelId: authority.canonicalHotelId, canonicalRoomTypeId: authority.canonicalRoomTypeId,
+          ratePlanId: authority.ratePlanId, boardBasisId: authority.boardBasisId,
+          checkIn: authority.checkIn, checkOut: authority.checkOut, rooms: 1, adults: 2, children: 0, childAges: [],
+          currency: 'AED', sellAmountMinor: authority.sellAmountMinor, expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        },
+      }
+    },
+    async prebook() { throw new Error('Booking is disabled in Dubai disposable acceptance') },
+    async cancel() { throw new Error('Booking is disabled in Dubai disposable acceptance') },
   }
 
   beforeAll(async () => {
@@ -47,7 +99,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     const permissionKeys = [
       'supply.hotels.read', 'supply.rooms.read', 'supply.rates.read',
       'supply.contracts.read', 'supply.availability.read', 'supply.contracts.manage',
-      'supply.rates.manage', 'supply.availability.manage', 'supply.suppliers.manage', 'supply.mappings.read', 'supply.mappings.manage',
+      'supply.rates.manage', 'supply.availability.manage', 'supply.suppliers.manage', 'supply.mappings.read', 'supply.mappings.manage', 'hotel.search',
     ]
     const permissions = await Promise.all(permissionKeys.map((key) =>
       prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: `${suffix} ${key}` } }),
@@ -100,7 +152,8 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       }))),
     })
 
-    const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
+    const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(SUPPLIER_ADAPTER).useValue(supplierAdapter).compile()
     app = module.createNestApplication()
     app.use(cookieParser())
     app.setGlobalPrefix('api/v1')
@@ -123,6 +176,20 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       const bound = await agent.post('/api/v1/supply/contracts').send({ supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${room.id}`, validFrom: dateKeys[0], validTo: dateKeys[6], settlementCurrency: 'AED' }).expect(201)
       await agent.patch(`/api/v1/supply/contracts/${bound.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
       await agent.patch(`/api/v1/supply/rate-plans/${plan.id}`).send({ contractId: bound.body.data.id }).expect(200)
+      canonicalOffers.push({
+        hotelId: room.hotelId, name: hotels.find(value => value.id === room.hotelId)!.name, destination: 'Dubai', starRating: 5,
+        supplierId, supplierHotelId: `${suffix}-${room.hotelId}`,
+        rooms: [{ roomTypeId: room.id, name: room.name, supplierRoomId: `${suffix}-${room.id}`, rates: [{
+          offerId: `${room.hotelId}:seed`, tenantId, providerId: 'dubai-disposable-fixture',
+          hotelId: room.hotelId, canonicalHotelId: room.hotelId, roomTypeId: room.id, canonicalRoomTypeId: room.id,
+          supplierId, supplierRoomId: `${suffix}-${room.id}`, ratePlanId: plan.id, ratePlanName: plan.code, boardBasisId: boardId,
+          boardBasisName: 'Bed & Breakfast', supplierRateId: `${suffix}-rate-${plan.id}`,
+          expiresAt: new Date(Date.now() + 300_000).toISOString(), occupancy: { rooms: 1, adults: 2, children: 0, childAges: [] },
+          availability: 'available', available: true, cancellation: { refundable: true, summary: 'Refundable fixture rate' },
+          total: { amountMinor: 29900, currency: 'AED' }, netAmountMinor: 29900, taxAmountMinor: 0, feeAmountMinor: 0,
+          totalAmountMinor: 29900, markupAmountMinor: 0, sellAmountMinor: 29900, paymentType: 'credit', source: 'hotel_direct',
+        }] }],
+      })
     }
     planIds = plans.map(plan => plan.id)
     console.info(`DUBAI_SCALE_DATA hotels=100 rooms=100 hotelMappings=100 roomMappings=100 rates=700 availability=700 timezone=Asia/Dubai start=${dateKeys[0]} end=${dateKeys[6]}`)
@@ -322,4 +389,60 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     const occupancy = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: dateKeys[0], occupancy: 4 }).expect(201)
     expect(occupancy.body.data.reasons).toContain('OCCUPANCY_UNSUPPORTED')
   })
+
+  it('certifies D0 through D+6 SEARCH -> OFFER -> REVALIDATE across the approved disposable fixture', async () => {
+    const cookie = await login()
+    const agent = api(cookie)
+    let searches = 0
+    let offers = 0
+    let revalidated = 0
+    let rejected = 0
+    let priceChanged = 0
+    let unavailable = 0
+
+    for (let offset = 0; offset < dates.length; offset += 1) {
+      const checkIn = day(dates[offset])
+      const checkOut = plusOne(checkIn)
+      const response = await agent.post('/api/v1/agent/search').send({
+        destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [],
+        nationality: 'AE', currency: 'AED', limit: 100,
+      }).expect(201)
+      searches += 1
+      expect(response.body.data.status).toBe('available')
+      expect(response.body.data.hotels).toHaveLength(hotelCount)
+      const dayOffers = response.body.data.hotels.flatMap((hotel: { rooms: Array<{ rates: unknown[] }> }) =>
+        hotel.rooms.flatMap((room) => room.rates)) as Array<{ offerId: string; sellAmountMinor: number; total: { currency: string } }>
+      expect(dayOffers).toHaveLength(hotelCount)
+      offers += dayOffers.length
+
+      for (const offer of dayOffers) {
+        const recheck = await agent.post('/api/v1/agent/rates/recheck').send({
+          offerId: offer.offerId, searchId: response.body.data.searchId,
+          expectedCurrency: offer.total.currency, expectedSellAmountMinor: offer.sellAmountMinor,
+        })
+        const status = recheck.body.data?.status
+        if (status === 'rechecked') revalidated += 1
+        else if (status === 'price_changed') priceChanged += 1
+        else if (status === 'unavailable') unavailable += 1
+        else rejected += 1
+        expect(recheck.status).toBe(200)
+        expect(status).toBe('rechecked')
+      }
+      count(`d${offset}_offers`, dayOffers.length)
+      count(`d${offset}_revalidated`, revalidated - (offset * hotelCount))
+    }
+
+    count('searches', searches)
+    count('offers', offers)
+    count('revalidated', revalidated)
+    count('rejected', rejected)
+    count('price_changed', priceChanged)
+    count('unavailable', unavailable)
+    expect(searches).toBe(7)
+    expect(offers).toBe(700)
+    expect(revalidated).toBe(700)
+    expect(rejected).toBe(0)
+    expect(priceChanged).toBe(0)
+    expect(unavailable).toBe(0)
+  }, 120000)
 })
