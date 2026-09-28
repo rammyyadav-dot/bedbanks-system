@@ -392,7 +392,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
 
   it('certifies D0 through D+6 SEARCH -> OFFER -> REVALIDATE across the approved disposable fixture', async () => {
     const cookie = await login()
-    const agent = api(cookie)
+    const agent = supply(cookie)
     let searches = 0
     let offers = 0
     let revalidated = 0
@@ -401,7 +401,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     let unavailable = 0
 
     for (let offset = 0; offset < dates.length; offset += 1) {
-      const checkIn = day(dates[offset])
+      const checkIn = dateKeys[offset]
       const checkOut = plusOne(checkIn)
       const response = await agent.post('/api/v1/agent/search').send({
         destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [],
