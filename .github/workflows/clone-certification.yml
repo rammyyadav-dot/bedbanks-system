@@ -1,13 +1,14 @@
 name: Production clone certification
 
-# This review branch can be certified before merging. No production trigger or URL.
+# Manual clone operation only. Normal pushes/PRs never receive clone credentials.
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/clone-certification-runner]
-    paths:
-      - .github/workflows/clone-certification.yml
-      - tools/*clone*.mjs
+    inputs:
+      apply_clone_migrations:
+        description: Apply the five approved migrations to the verified disposable clone
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,10 +19,10 @@ concurrency:
 
 jobs:
   certify-clone:
-    if: github.repository == 'rammyyadav-dot/bedbanks-system' && github.ref == 'refs/heads/fix/clone-certification-runner'
+    if: github.repository == 'rammyyadav-dot/bedbanks-system' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.apply_clone_migrations
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Owner must configure required reviewers and restrict this environment to this branch.
+    # Owner must configure required reviewers and restrict this environment to main.
     environment: fbeds-clone-certification
     services:
       redis:
@@ -44,6 +45,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Check clone configuration before installing dependencies
+        env:
+          FBEDS_CERT_CLONE_DATABASE_URL: ${{ secrets.FBEDS_CERT_CLONE_DATABASE_URL }}
+          FBEDS_CERT_CLONE_TARGET_JSON: ${{ secrets.FBEDS_CERT_CLONE_TARGET_JSON }}
+          FBEDS_CERT_ALLOW_CLONE_WRITE: ${{ vars.FBEDS_CERT_ALLOW_CLONE_WRITE }}
+          FBEDS_CERT_APPLY_MIGRATIONS: ${{ inputs.apply_clone_migrations }}
+        run: node tools/certify-production-clone.mjs --check-config
       - run: pnpm install --frozen-lockfile
       - name: Test target safety guards
         run: node --test tools/clone-certification-guard.test.mjs
@@ -52,6 +60,7 @@ jobs:
           FBEDS_CERT_CLONE_DATABASE_URL: ${{ secrets.FBEDS_CERT_CLONE_DATABASE_URL }}
           FBEDS_CERT_CLONE_TARGET_JSON: ${{ secrets.FBEDS_CERT_CLONE_TARGET_JSON }}
           FBEDS_CERT_ALLOW_CLONE_WRITE: ${{ vars.FBEDS_CERT_ALLOW_CLONE_WRITE }}
+          FBEDS_CERT_APPLY_MIGRATIONS: ${{ inputs.apply_clone_migrations }}
           REDIS_URL: redis://127.0.0.1:6379
         run: node tools/certify-production-clone.mjs
       - name: Publish sanitized result only

@@ -6,7 +6,7 @@ The repository is public. Do not commit connection strings, hostnames, project/b
 
 ## Required owner setup
 
-1. Create the GitHub Actions environment `fbeds-clone-certification`. Configure a required reviewer and limit deployment branches to `fix/clone-certification-runner`. Verify those controls before supplying credentials.
+1. Create the GitHub Actions environment `fbeds-clone-certification`. Configure a required reviewer and limit deployment branches to `main`. Verify those controls before supplying credentials. The corrected workflow runs only from a manual dispatch on `main`; pushes and pull requests cannot start a clone migration.
 2. Reinspect the intended disposable production child in Neon. Confirm it is neither primary nor default and its endpoint belongs to that child. Record the direct endpoint; pooled endpoints are rejected. Confirm its schema and migration history match the approved baseline. This independent provider identity check is mandatory: the runner validates the supplied attestation, but has no Neon management token to query branch metadata itself.
 3. Store `FBEDS_CERT_CLONE_DATABASE_URL` as an **environment secret**, containing only that clone's direct connection URL. Use `sslmode=require` or `sslmode=verify-full`. Never reuse a production connection reference.
 4. Store `FBEDS_CERT_CLONE_TARGET_JSON` as an environment secret, using the following shape. Replace every placeholder using verified Neon metadata and read-only preflight. Do not publish the completed JSON.
@@ -28,7 +28,9 @@ The repository is public. Do not commit connection strings, hostnames, project/b
 }
 ```
 
-5. After reviewing the workflow and exact branch commit, set environment variable `FBEDS_CERT_ALLOW_CLONE_WRITE=yes`. Approve the environment job. A push to this exact review branch starts the workflow; if a previous run stopped for missing secrets, rerun that job after setup. `workflow_dispatch` is also declared, but GitHub may require the workflow to exist on the default branch before exposing manual dispatch. No merge is authorized by these instructions.
+5. After reviewing the workflow and exact commit, set environment variable `FBEDS_CERT_ALLOW_CLONE_WRITE=yes`. Once this correction is reviewed and merged, open Actions → Production clone certification → Run workflow, select `main`, and explicitly check **Apply the five approved migrations to the verified disposable clone**. Then approve the environment job. The checkbox defaults to false and is required in addition to the environment variable. Configuration is checked before dependency installation and does not connect to a database. Do not rerun the old automatic branch workflow as a substitute. No merge is authorized by these instructions.
+
+For an independently approved infrastructure runner, inject the same secrets from its secret store, set `FBEDS_CERT_ALLOW_CLONE_WRITE=yes` and `FBEDS_CERT_APPLY_MIGRATIONS=true`, then run `node tools/certify-production-clone.mjs --check-config` before the actual command without that option. The configuration-only command performs no database access and does not certify provider identity or migration readiness.
 
 Attestations expire after six hours. The runner requires this exact application/migration baseline and refuses partial migration state. If the clone has already been mutated, do not use migrate resolve or rerun against it blindly: inspect the evidence and create a fresh clone for another attempt.
 

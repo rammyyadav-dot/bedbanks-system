@@ -44,3 +44,11 @@ These local checks validate runner guards only. They do not prove the pending mi
 Follow `docs/clone-certification-runner.md` to configure the protected environment and two clone-specific secrets, verify the target attestation, then approve/rerun the clone job. Review its sanitized result and independently recheck history/schema through Neon. A failed or partly migrated child must be inspected and replaced for another certification attempt; never use `migrate resolve` as a shortcut.
 
 Only after all clone, role and recovery gates pass may an exact production change plan be submitted for a separate database-owner approval. No production execution, application deployment, booking activation or PR merge is authorized by this work.
+
+## Continuation — 28 September 2026
+
+- PR #138 was merged into main at `2102b199e05eb405c545c8e117ed114e14478b09`. Both CI runs for its head passed (`36322825570`, `36322840511`). The merged changes touch certification tooling/documentation only; the pinned application and migration baseline is unchanged.
+- Clone job `36322825644` ran the seven target/history tests successfully and then stopped at `CLONE_SECRETS_MISSING`. It did not access the database. The published artifact contains a blocked result, not a migration certificate.
+- The fresh clone was rechecked: 12 successful migrations, three retained rolled-back attempts, zero unresolved failures. No migration ran during this continuation.
+- Found and corrected a post-merge workflow defect: dispatch from `main` was silently skipped because the job allowed only the old review branch. The correction uses a manual dispatch on `main`, removes push triggers, requires an explicit per-run confirmation in addition to the environment gate, and checks configuration before dependency installation. The runner independently enforces GitHub repository/event/ref context. Guard tests now also run in regular CI.
+- Protected environment/secret setup remains blocked by GitHub settings authentication. No secret has been committed or printed. Actual clone migration, drift, runtime-role verification and backup/recovery evidence remain unresolved.

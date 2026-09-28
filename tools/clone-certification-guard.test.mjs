@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validateTarget, checkHistory, pending, releaseSha } from './clone-certification-guard.mjs'
+import { validateTarget, validateExecution, checkHistory, pending, releaseSha } from './clone-certification-guard.mjs'
 
 const now = Date.parse('2026-09-27T12:00:00Z')
 const target = {releaseSha, branchId:'br-test-clone', parentBranchId:'br-test-parent', branchName:'cert-prod-schema-compat-test', primary:false, default:false, hostname:'ep-test-clone.c-10.us-east-1.aws.neon.tech', productionHostnames:['ep-test-production.c-10.us-east-1.aws.neon.tech'], database:'neondb', role:'clone_runner', verifiedAt:new Date(now).toISOString(), expectedLegacyRates:13}
@@ -24,3 +24,11 @@ test('rejects unresolved failures, missing history and checksum mismatches',()=>
   for(const candidate of [rows.slice(1),[...rows,{...rows[0],finished_at:null}],rows.map((r,i)=>i? r:{...r,checksum:'wrong'})]) assert.throws(()=>checkHistory(candidate,migrations))
 })
 test('rejects partially migrated clones',()=>assert.throws(()=>checkHistory([...rows,{migration_name:pending[0],finished_at:'date',checksum:migrations[12].checksum,applied_steps_count:1}],migrations)))
+const execution = {FBEDS_CERT_ALLOW_CLONE_WRITE:'yes',FBEDS_CERT_APPLY_MIGRATIONS:'true',GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'rammyyadav-dot/bedbanks-system',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main'}
+test('allows an explicit manual request on main with the environment write gate',()=>validateExecution(execution))
+test('rejects pushes, pull requests, other repositories and review branches',()=>{
+  for(const change of [{GITHUB_EVENT_NAME:'push'},{GITHUB_EVENT_NAME:'pull_request'},{GITHUB_REPOSITORY:'other/repo'},{GITHUB_REF:'refs/heads/fix/clone-certification-runner'}]) assert.throws(()=>validateExecution({...execution,...change}),/WORKFLOW_CONTEXT_REJECTED/)
+})
+test('requires both per-run confirmation and environment authorization',()=>{
+  for(const change of [{FBEDS_CERT_ALLOW_CLONE_WRITE:''},{FBEDS_CERT_APPLY_MIGRATIONS:'false'},{FBEDS_CERT_APPLY_MIGRATIONS:undefined}]) assert.throws(()=>validateExecution({...execution,...change}),/CLONE_WRITE_NOT_APPROVED/)
+})

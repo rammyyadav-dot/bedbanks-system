@@ -12,6 +12,12 @@ export const pending = [
 export function requireCheck(condition, code) {
   if (!condition) throw new Error(code)
 }
+export function validateExecution(env) {
+  requireCheck(env.FBEDS_CERT_ALLOW_CLONE_WRITE === 'yes' && env.FBEDS_CERT_APPLY_MIGRATIONS === 'true', 'CLONE_WRITE_NOT_APPROVED')
+  if (env.GITHUB_ACTIONS === 'true') {
+    requireCheck(env.GITHUB_REPOSITORY === 'rammyyadav-dot/bedbanks-system' && env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_REF === 'refs/heads/main', 'WORKFLOW_CONTEXT_REJECTED')
+  }
+}
 export function validateTarget(rawUrl, rawTarget, now = Date.now()) {
   requireCheck(Boolean(rawUrl && rawTarget), 'CLONE_SECRETS_MISSING')
   let url, target
