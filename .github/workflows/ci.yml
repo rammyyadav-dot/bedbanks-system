@@ -19,6 +19,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:schema
+      - run: node --test tools/clone-certification-guard.test.mjs
 
   prisma-migration-certification:
     name: Prisma migration certification

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { validateTarget, inventory, checkHistory, requireCheck, pending, releaseSha } from './clone-certification-guard.mjs'
+import { validateTarget, validateExecution, inventory, checkHistory, requireCheck, pending, releaseSha } from './clone-certification-guard.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const evidence = { releaseSha, startedAt: new Date().toISOString(), steps: [], verdict: 'BLOCKED', productionAuthorization: false }
@@ -73,7 +73,11 @@ async function assertSchema() {
 }
 async function main() {
   const target = validateTarget(process.env.FBEDS_CERT_CLONE_DATABASE_URL,process.env.FBEDS_CERT_CLONE_TARGET_JSON)
-  requireCheck(process.env.FBEDS_CERT_ALLOW_CLONE_WRITE==='yes','CLONE_WRITE_NOT_APPROVED')
+  validateExecution(process.env)
+  if (process.argv.includes('--check-config')) {
+    evidence.verdict='CONFIGURATION_VALIDATED_NO_DATABASE_ACCESS'
+    return
+  }
   const migrationDir = `${root}/apps/api/prisma/migrations`
   const migrations = inventory(migrationDir)
   for(const m of migrations) {
@@ -129,6 +133,7 @@ async function main() {
 try { await main() } catch(error) {
   // Error messages from database drivers may include credentials or source data.
   const safeCodes=new Set(['CLONE_SECRETS_MISSING','CLONE_CONFIG_INVALID','RELEASE_SHA_MISMATCH','BRANCH_ID_INVALID','TARGET_NOT_DISPOSABLE_CLONE','DIRECT_ENDPOINT_REQUIRED','PRODUCTION_DENYLIST_REQUIRED','PRODUCTION_TARGET_REJECTED','CONNECTION_TARGET_MISMATCH','DATABASE_OR_ROLE_MISMATCH','CONNECTION_OPTIONS_REJECTED','TLS_OR_SCHEMA_REJECTED','TARGET_VERIFICATION_EXPIRED','PREFLIGHT_COUNT_REQUIRED','CLONE_WRITE_NOT_APPROVED','COMMITTED_MIGRATION_CHANGED','APPLICATION_BASELINE_CHANGED','COMMAND_FAILED','MIGRATION_CHAIN_CHANGED','UNKNOWN_HISTORY','UNRESOLVED_MIGRATION','UNEXPECTED_HISTORY_COUNT','HISTORY_CHECKSUM_OR_STEPS_MISMATCH','CLONE_ALREADY_TOUCHED','CLONE_SCHEMA_ALREADY_TOUCHED','PREFLIGHT_VIOLATION','PREFLIGHT_DATA_CHANGED','HISTORICAL_ROWS_CHANGED','UNEXPECTED_HISTORY_ADDITIONS','LEGACY_ROWS_CHANGED','LEGACY_RATES_CLASSIFIED','LEGACY_AVAILABILITY_HELD_CHANGED'])
+  safeCodes.add('WORKFLOW_CONTEXT_REJECTED')
   evidence.error=safeCodes.has(error?.message)?error.message:'DATABASE_OR_SCHEMA_CHECK_FAILED'
   console.error(evidence.error)
   process.exitCode=1
