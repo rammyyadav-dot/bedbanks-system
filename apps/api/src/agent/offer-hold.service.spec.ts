@@ -87,7 +87,7 @@ describe('authoritative supplier recheck and hold boundary', () => {
 
   it('rejects an authority response whose server-validated expiry has elapsed', async () => {
     const fixture = setup({ status: 'available', offer: { ...authority, expiresAt: '2020-01-01T00:00:00.000Z' } })
-    await expect(fixture.service.recheck(({ idempotencyKey: _key, ...command }))).resolves.toMatchObject({ status: 'offer_expired' })
+    await expect(fixture.service.recheck(command)).resolves.toMatchObject({ status: 'offer_expired' })
     expect(fixture.holds.create).not.toHaveBeenCalled()
   })
 
