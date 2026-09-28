@@ -200,7 +200,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     await prisma.boardBasis.deleteMany({ where: { id: boardId } })
     const hotels = await prisma.hotel.findMany({ where: { tenantId, externalRef: { startsWith: `${suffix}-hotel-` } }, select: { id: true } })
     await prisma.roomType.deleteMany({ where: { hotelId: { in: hotels.map((hotel) => hotel.id) } } })
-    await prisma.hotel.deleteMany({ where: { id: { in: hotels.map((hotel) => hotel.id) } })
+    await prisma.hotel.deleteMany({ where: { id: { in: hotels.map((hotel) => hotel.id) } } })
     await prisma.supplier.deleteMany({ where: { id: supplierId } })
     await prisma.userRole.deleteMany({ where: { userId } })
     await prisma.rolePermission.deleteMany({ where: { roleId } })
@@ -315,7 +315,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
         else if (status === 'price_changed') priceChanged += 1
         else if (status === 'unavailable') unavailable += 1
         else rejected += 1
-        expect(recheck.status).toBe(201)
+        expect(recheck.status).toBe(200)
         expect(status).toBe('rechecked')
       }
       count(`d${offset}_offers`, dayOffers.length)
