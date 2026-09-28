@@ -123,7 +123,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
 
     await prisma.hotel.createMany({
       data: Array.from({ length: hotelCount }, (_, index) => ({
-        tenantId, name: `Dubai Scale Hotel ${String(index + 1).padStart(3, '0')}`, propertyType: 'HOTEL',
+        tenantId, name: `Dubai Scale Hotel ${String(index + 1).padStart(3, '0')}`, propertyType: 'HOTEL', contentStatus: 'COMPLETE',
         city: 'Dubai', countryCode: 'AE', externalRef: `${suffix}-hotel-${index + 1}`,
       })),
     })
