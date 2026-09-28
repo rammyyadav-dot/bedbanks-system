@@ -84,4 +84,41 @@ describe('authoritative supplier recheck and hold boundary', () => {
       expect(fixture.holds.create).not.toHaveBeenCalled()
     } finally { jest.useRealTimers() }
   })
+
+  it('rejects an authority response whose server-validated expiry has elapsed', async () => {
+    const fixture = setup({ status: 'available', offer: { ...authority, expiresAt: '2020-01-01T00:00:00.000Z' } })
+    await expect(fixture.service.recheck(({ idempotencyKey: _key, ...command }))).resolves.toMatchObject({ status: 'offer_expired' })
+    expect(fixture.holds.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { offerId: 'offer-tampered' },
+    { searchId: 'search-tampered' },
+  ])('rejects tampered canonical offer identity: %o', async patch => {
+    const fixture = setup({ status: 'available', offer: { ...authority, ...patch } })
+    const { idempotencyKey: _key, ...recheckCommand } = command
+    await expect(fixture.service.recheck(recheckCommand)).resolves.toMatchObject({ status: 'rejected' })
+    expect(fixture.holds.create).not.toHaveBeenCalled()
+  })
+
+  it('propagates only the authenticated tenant context into canonical DB validation', async () => {
+    const fixture = setup({ status: 'available', offer: authority })
+    const { idempotencyKey: _key, ...recheckCommand } = command
+    await fixture.service.recheck(recheckCommand)
+    const prisma = (fixture.service as unknown as { prisma: { withTenant: jest.Mock } }).prisma
+    expect(prisma.withTenant).toHaveBeenCalledWith('tenant-a', expect.any(Function))
+  })
+
+  it('preserves request correlation in the revalidation audit event', async () => {
+    const fixture = setup({ status: 'available', offer: authority })
+    const { idempotencyKey: _key, ...recheckCommand } = command
+    await fixture.service.recheck(recheckCommand)
+    expect(fixture.audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-a',
+      action: 'offer.recheck.rechecked',
+      entityType: 'offer',
+      entityId: 'offer-a',
+      payload: expect.objectContaining({ requestId: 'request-a', searchId: 'search-a' }),
+    }))
+  })
 })
