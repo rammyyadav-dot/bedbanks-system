@@ -52,3 +52,14 @@ Only after all clone, role and recovery gates pass may an exact production chang
 - The fresh clone was rechecked: 12 successful migrations, three retained rolled-back attempts, zero unresolved failures. No migration ran during this continuation.
 - Found and corrected a post-merge workflow defect: dispatch from `main` was silently skipped because the job allowed only the old review branch. The correction uses a manual dispatch on `main`, removes push triggers, requires an explicit per-run confirmation in addition to the environment gate, and checks configuration before dependency installation. The runner independently enforces GitHub repository/event/ref context. Guard tests now also run in regular CI.
 - Protected environment/secret setup remains blocked by GitHub settings authentication. No secret has been committed or printed. Actual clone migration, drift, runtime-role verification and backup/recovery evidence remain unresolved.
+
+## P0 Prisma alignment and disposable lifecycle continuation — 28 September 2026
+
+- Starting `main` SHA: `874a18baca27d7411a53c9cdb7fd51c9b19bdbf7`; working tree was clean and already aligned with `origin/main`.
+- Repair branch: `fix/p0-prisma-offer-lifecycle-certification`; repair commit: `48e4e52`.
+- Root cause: the committed Prisma schema and migrations already contained `InventoryHold`, `InventoryHoldNight`, `DailyAvailability.held`, and `DailyRate.amountBasis`; the checked-out generated Prisma client was stale. Prisma generation from the authoritative schema restored those contracts. No migration was added or rewritten.
+- `prisma validate`, `prisma generate`, API typecheck, and API build passed after regeneration. Lifecycle test compilation defects were repaired without reducing assertions: the expired-offer test now passes its full command, Dubai uses the existing authenticated API helper, and date iteration uses the canonical date keys.
+- Focused Agent lifecycle tests: 3 suites passed, 23 tests passed. Full API unit suite: 20 suites passed, 160 tests passed, 1 suite skipped; 3 tests skipped.
+- Disposable PostgreSQL migration replay and Dubai 100-hotel D0–D+6 acceptance were **not run** in this workspace: no Docker/PostgreSQL runtime tooling was available, and no persistent database was touched. Therefore hotels, rooms, availability rows, searches, offers, revalidations, rejection, price-change, unavailable, stop-sell, inactive-supplier, exhaustion, expiry, mapping-invalidation, and cross-tenant counts are unverified here.
+- CI now explicitly runs API typecheck in the Prisma migration-certification job before API E2E. Existing CI already validates/generates Prisma, deploys/status-checks migrations, runs drift detection, and runs disposable API E2E.
+- Disposable clean-DB certification does not establish Production-clone compatibility. Live suppliers, production deployment, persistent database migration, booking activation, and payment paths remained disabled.

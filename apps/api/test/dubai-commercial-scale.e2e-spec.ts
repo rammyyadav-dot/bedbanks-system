@@ -229,7 +229,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     return response.headers['set-cookie'][0].split(';')[0]
   }
 
-  function supply(cookie: string) {
+  function api(cookie: string) {
     const configure = (test: request.Test) => test.set('Cookie', cookie).set('x-fbeds-tenant-id', tenantId)
     return {
       get: (path: string) => configure(request(app.getHttpServer()).get(path)),
@@ -237,6 +237,8 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       patch: (path: string) => configure(request(app.getHttpServer()).patch(path)),
     }
   }
+
+  const supply = api
 
   it('measures real API reads and sellability across 100 disposable Dubai hotels', async () => {
     const cookie = await login()
@@ -401,7 +403,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     let unavailable = 0
 
     for (let offset = 0; offset < dates.length; offset += 1) {
-      const checkIn = day(dates[offset])
+      const checkIn = dateKeys[offset]
       const checkOut = plusOne(checkIn)
       const response = await agent.post('/api/v1/agent/search').send({
         destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [],

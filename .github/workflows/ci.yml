@@ -64,6 +64,7 @@ jobs:
       - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
       - run: pnpm --filter @bedbanks/api prisma:migrate:status
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
+      - run: pnpm --filter @bedbanks/api type-check
       - run: pnpm --filter @bedbanks/api test:e2e
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
 
