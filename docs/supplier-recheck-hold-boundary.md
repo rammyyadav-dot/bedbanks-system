@@ -47,3 +47,12 @@ The Agent Portal sends only the selected offer/search references, the displayed 
 ## Standalone authoritative recheck
 
 The Agent standalone rate-recheck endpoint uses the same supplier-authority and canonical mapping validation boundary as offer hold, but it does not allocate inventory. A successful standalone response is `rechecked`, not `held`. Prebook and booking remain disabled until their separate release gates are certified.
+
+
+## Canonical offer lifecycle certification boundary
+
+The canonical lifecycle is `search -> canonical offer -> expiry -> authoritative recheck -> rechecked/rejected`. Search results are display/search artifacts even when cached; they are never booking authority. Recheck binds the client selection back to supplier authority and tenant-scoped PostgreSQL commercial state before any hold can be attempted.
+
+Certification must separately prove: canonical offer/search identity, server-side expiry, minor-unit price comparison, mapped hotel/room/board/rate-plan/contract validity, authenticated tenant propagation, sanitized provider failure, and request-ID audit preservation. A successful standalone recheck means the offer is eligible to proceed to the separately controlled hold/booking gates; it does not mean a booking exists.
+
+The repository's default supplier adapter remains deliberately unconfigured. Therefore live-supplier revalidation, the full disposable 100-hotel Dubai matrix, persistent-database compatibility, and Production booking readiness cannot be inferred from unit or clean-database CI. Those require their own executed evidence and must remain BLOCKED when that evidence is unavailable.
