@@ -42,7 +42,7 @@ export default function RatesPage() {
     { key: 'hotel', header: 'Hotel', render: (r) => r.ratePlan.roomType.hotel.name }, { key: 'room', header: 'Room', render: (r) => r.ratePlan.roomType.name },
     { key: 'board', header: 'Board', render: (r) => r.ratePlan.boardBasis.code.trim() }, { key: 'date', header: 'Stay date', render: (r) => r.stayDate.slice(0, 10) },
     { key: 'occupancy', header: 'Occ.', render: (r) => r.occupancy, align: 'right' }, { key: 'amount', header: 'Amount', render: (r) => money(r.amountMinor, r.currency), align: 'right' },
-    { key: 'basis', header: 'Basis', render: (r) => r.amountBasis === 'SELL' ? <span className="status-pill success"><i className="status-dot" />SELL</span> : <span className="status-pill warning"><i className="status-dot" />NET</span> },
+    { key: 'basis', header: 'Basis', render: (r) => r.amountBasis === 'SELL' ? <span className="status-pill success"><i className="status-dot" />SELL</span> : <span className="status-pill warning"><i className="status-dot" />{r.amountBasis === 'NET' ? 'NET' : 'Unverified'}</span> },
   ]
   return <div className="admin-page">
     <PageHeader eyebrow="COMMERCIAL · RATE PLANS" title="Rate Plans" description="Authoritative contract, room, board, occupancy, stay rules and daily prices." actions={<input aria-label="Daily rate date" type="date" value={dateValue} onChange={(event) => setDateValue(event.target.value)} className="admin-filter-select" />} />
