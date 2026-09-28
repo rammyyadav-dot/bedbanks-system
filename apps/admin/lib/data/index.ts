@@ -1,15 +1,4 @@
-// FBEDS Admin — mock data-access layer (spec section 40).
-//
-// Every function here returns mock data today. The signatures and
-// return shapes are exactly what the equivalent `/api/v1/*` endpoint
-// will return once the backend exists — swapping the body of each
-// function for a `fetch()` call is the entire migration; no page using
-// these functions should need to change.
-//
-// Deliberately NOT actually async work — a resolved Promise is enough
-// to let pages already be written against `await getX()` /
-// React Server Component data-fetching, without pretending there's a
-// network call that isn't really happening yet.
+// Authoritative supply/dashboard API access; remaining legacy areas below still use mocks.
 
 import * as mock from '../mock';
 import { apiRequest } from '../api/client'
@@ -48,9 +37,13 @@ export async function updateSupplier(id: string, input: Partial<Omit<SupplySuppl
 export async function getBoardBasesAdmin() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases/admin'); }
 export async function createBoardBasis(input: { code: string; name: string; description?: string; isActive?: boolean }) { return apiRequest<BoardBasisRecord>('/supply/board-bases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function updateBoardBasis(id: string, input: { name?: string; description?: string | null; isActive?: boolean }) { return apiRequest<BoardBasisRecord>(`/supply/board-bases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
-export async function getContracts() { return apiRequest('/supply/contracts'); }
+export interface AdminContract {
+  id: string; code: string; validFrom: string; validTo: string; settlementCurrency: string; status: string;
+  supplier: { id: string; displayName: string };
+}
+export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 export interface AdminDailyRate {
-  id: string; tenantId: string; ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string;
+  id: string; tenantId: string; ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL' | null; currency: string;
   ratePlan: { id: string; code: string; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
 }
 export async function getDailyRates(from: string, to = from, ratePlanId?: string) { return apiRequest<AdminDailyRate[]>(`/supply/daily-rates?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${ratePlanId ? `&ratePlanId=${encodeURIComponent(ratePlanId)}` : ''}`); }

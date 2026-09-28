@@ -51,12 +51,21 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify disposable database target and record runner
+        run: |
+          node - <<'NODE'
+          const os = require('node:os');
+          const u = new URL(process.env.DATABASE_URL);
+          if (!['localhost', '127.0.0.1'].includes(u.hostname) || u.pathname !== '/fbeds_ci' || process.env.NODE_ENV !== 'test') throw new Error('DISPOSABLE_TARGET_REQUIRED');
+          console.log(JSON.stringify({ track: 'engineering-only', timestamp: new Date().toISOString(), node: process.version, platform: os.platform(), arch: os.arch(), cpus: os.cpus().length, memoryGiB: Math.round(os.totalmem()/1024**3), concurrency: 10 }));
+          NODE
       - run: pnpm --filter @bedbanks/api prisma:validate
       - run: pnpm --filter @bedbanks/api prisma:generate
       - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
       - run: pnpm --filter @bedbanks/api prisma:migrate:status
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - run: pnpm --filter @bedbanks/api test:e2e
+      - run: pnpm --filter @bedbanks/api prisma:migrate:drift
 
   verify:
     runs-on: ubuntu-latest
