@@ -141,7 +141,7 @@ function RecheckOutcome({ result }: { result: OfferRecheckResult }) {
     unavailable: 'The rate is no longer available. No inventory was allocated.', offer_expired: 'The offer expired. Search again for a current rate.',
     mapping_invalid: 'The hotel, room or commercial mapping could not be verified. No inventory was allocated.',
     provider_unavailable: 'The supplier could not be reached safely. No inventory was allocated. Try the recheck again.', rejected: 'The supplier response could not be verified. No inventory was allocated.',
-    auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to hold this offer.',
+    auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to recheck this offer.',
   }
   return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined && <b>{formatTotal({ currency: result.currency, amountMinor: result.sellAmountMinor })}</b>}</div>
 }
