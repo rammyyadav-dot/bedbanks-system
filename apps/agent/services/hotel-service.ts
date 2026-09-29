@@ -88,12 +88,12 @@ export class ApiHotelService implements HotelService {
       if (response.status === 403) return fallback('access_denied')
       const envelope: unknown = await response.json().catch(() => null)
       const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
-      return validateHoldResult(data, rate.offerId, searchId) ?? fallback('provider_unavailable')
+      return validateRecheckResult(data, rate.offerId, searchId) ?? fallback('provider_unavailable')
     } catch { return fallback('provider_unavailable') }
   }
 }
 
-function validateHoldResult(value: unknown, offerId: string, searchId: string): OfferRecheckResult | null {
+function validateRecheckResult(value: unknown, offerId: string, searchId: string): OfferRecheckResult | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Record<string, unknown>
   const statuses: OfferRecheckResult['status'][] = ['rechecked', 'unavailable', 'price_changed', 'offer_expired', 'mapping_invalid', 'provider_unavailable', 'rejected']
