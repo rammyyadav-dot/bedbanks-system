@@ -117,7 +117,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     const board = await prisma.boardBasis.create({ data: { tenantId, code: 'BB', name: 'Bed & Breakfast' } })
     boardId = board.id
     const contract = await prisma.contract.create({
-      data: { tenantId, supplierId, code: `${suffix}-contract`, status: 'ACTIVE', validFrom: dates[0], validTo: dates[6], settlementCurrency: 'AED' },
+      data: { tenantId, supplierId, code: `${suffix}-contract`, status: 'ACTIVE', validFrom: dates[0], validTo: new Date(dates[6].getTime() + 86400000), settlementCurrency: 'AED' },
     })
     contractId = contract.id
 
@@ -173,7 +173,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       await agent.post(`${mappingPath}/approve`).expect(201)
       const mappedRoom = await agent.post(`${mappingPath}/rooms`).send({ supplierRoomId: `${suffix}-${room.id}`, roomTypeId: room.id }).expect(201)
       await agent.post(`${mappingPath}/rooms/${mappedRoom.body.data.id}/approve`).expect(201)
-      const bound = await agent.post('/api/v1/supply/contracts').send({ supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${room.id}`, validFrom: dateKeys[0], validTo: dateKeys[6], settlementCurrency: 'AED' }).expect(201)
+      const bound = await agent.post('/api/v1/supply/contracts').send({ supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${room.id}`, validFrom: dateKeys[0], validTo: plusOne(dateKeys[6]), settlementCurrency: 'AED' }).expect(201)
       await agent.patch(`/api/v1/supply/contracts/${bound.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
       await agent.patch(`/api/v1/supply/rate-plans/${plan.id}`).send({ contractId: bound.body.data.id }).expect(200)
       canonicalOffers.push({
