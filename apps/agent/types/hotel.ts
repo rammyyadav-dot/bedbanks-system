@@ -37,13 +37,12 @@ export type HotelSearchResult = {
   providerSummary?: { queried: number; succeeded: number; failed: number }
 }
 
-export type OfferHoldResult = {
+export type OfferRecheckResult = {
   offerId: string
   searchId: string
   requestId: string
-  status: 'held' | 'unavailable' | 'price_changed' | 'offer_expired' | 'mapping_invalid' | 'provider_unavailable' | 'rejected' | 'auth_required' | 'access_denied'
+  status: 'rechecked' | 'unavailable' | 'price_changed' | 'offer_expired' | 'mapping_invalid' | 'provider_unavailable' | 'rejected' | 'auth_required' | 'access_denied'
   currency?: string
   sellAmountMinor?: number
-  holdId?: string
   expiresAt?: string
 }
