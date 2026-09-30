@@ -18,6 +18,11 @@ on:
         type: choice
         options: [status-only, apply]
         default: status-only
+      allow_catch_up:
+        description: Nonprod only. Also apply older pending migrations (for a branch that is behind). Refused for production.
+        required: true
+        type: boolean
+        default: false
       confirm_database:
         description: Type the exact database name (for example neondb)
         required: true
@@ -43,6 +48,8 @@ jobs:
       HOLD_EXPIRY_LOGIN_ROLE: ${{ vars.HOLD_EXPIRY_LOGIN_ROLE }}
       CONFIRM_DATABASE: ${{ inputs.confirm_database }}
       MODE: ${{ inputs.mode }}
+      TARGET: ${{ inputs.target }}
+      ALLOW_CATCH_UP: ${{ inputs.allow_catch_up }}
       EXPECTED_PENDING: 202609280001_hold_expiry_system_audit_policy
       NODE_ENV: production
     steps:

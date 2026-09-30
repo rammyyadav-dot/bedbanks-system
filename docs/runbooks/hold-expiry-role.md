@@ -28,8 +28,15 @@ Run (Actions -> Provision hold-expiry role -> Run workflow):
    `HOLD_EXPIRY_DATABASE_URL` where the API runs and only then enable the sweeper.
 
 The workflow refuses: a pooled connection string, a mismatched database name,
-failed or unknown migrations, and any pending migration other than
-`202609280001_hold_expiry_system_audit_policy`.
+unresolved failed migrations (started, never finished, not marked rolled back),
+migrations the repo does not know, and any pending migration other than
+`202609280001_hold_expiry_system_audit_policy`. Rows an earlier repair already
+marked rolled back are reported and ignored, matching Prisma's behaviour.
+
+A nonprod branch that is several migrations behind can be brought up with the
+**allow_catch_up** tick-box. It is refused for `production`, where only the one
+expected migration may be pending. If production is behind, stop and follow
+`docs/production-migration-repair-runbook-2026-09-27.md` instead.
 
 ## 0. Preconditions
 - The migration `202609280001_hold_expiry_system_audit_policy` is deployed

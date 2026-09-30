@@ -8,7 +8,7 @@
  *   verify      connects AS the restricted role and checks it; exits 1 on failure
  *
  * Environment: OWNER_DATABASE_URL, CONFIRM_DATABASE, MODE (status-only|apply),
- * EXPECTED_PENDING (comma list), HOLD_EXPIRY_LOGIN_ROLE, HOLD_EXPIRY_LOGIN_PASSWORD.
+ * TARGET (nonprod|production), ALLOW_CATCH_UP (nonprod only), EXPECTED_PENDING (comma list), HOLD_EXPIRY_LOGIN_ROLE, HOLD_EXPIRY_LOGIN_PASSWORD.
  * Never prints a URL, password or error message that could contain either.
  */
 import { appendFileSync, readdirSync, statSync } from 'node:fs'
@@ -55,11 +55,15 @@ async function preflight(): Promise<void> {
     const rows = await prisma.$queryRawUnsafe<MigrationRow[]>('SELECT migration_name, finished_at, rolled_back_at FROM _prisma_migrations')
     const directories = readdirSync(MIGRATIONS_DIR).filter(name => statSync(join(MIGRATIONS_DIR, name)).isDirectory())
     const expected = (process.env.EXPECTED_PENDING ?? '').split(',').map(name => name.trim()).filter(Boolean)
-    const result = assessMigrations(directories, rows, expected)
+    const catchUp = process.env.ALLOW_CATCH_UP === 'true'
+    if (catchUp && process.env.TARGET !== 'nonprod') fail('catch-up is only allowed for the nonprod target')
+    const result = assessMigrations(directories, rows, expected, { allowCatchUp: catchUp })
+    if (catchUp) note('Catch-up enabled (nonprod only): any pending migrations will be applied, not just the expected one')
     note(`Target database: ${target.database} on ${target.host}`)
     note(`Mode: ${mode}`)
     note(`Migrations applied: ${result.applied.length}; pending: ${result.pending.length ? result.pending.join(', ') : 'none'}`)
-    if (result.failed.length) note(`Failed or rolled back: ${result.failed.join(', ')}`)
+    if (result.rolledBack.length) note(`Earlier repairs already marked rolled back (ignored): ${result.rolledBack.length}`)
+    if (result.failed.length) note(`Unresolved failed migrations: ${result.failed.join(', ')}`)
     if (result.unknownApplied.length) note(`Applied but unknown to this repo: ${result.unknownApplied.join(', ')}`)
     if (result.unexpectedPending.length) note(`Unexpected pending: ${result.unexpectedPending.join(', ')}`)
     if (!result.safeToApply) fail('migration state is not the expected one; nothing was changed. See docs/production-migration-repair-runbook-2026-09-27.md')
