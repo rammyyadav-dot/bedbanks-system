@@ -1,18 +1,16 @@
 import 'server-only';
 import { routes } from '@bedbanks/contracts';
 import { ApiResponseError, type ApiError } from './errors';
+import { apiInternalUrl, apiTrustedOrigin } from './server-env';
 export { ApiResponseError } from './errors';
-
-const API_BASE = process.env.API_INTERNAL_URL ?? 'http://localhost:3002/api/v1';
-const API_ORIGIN = process.env.AUTH_API_ORIGIN ?? 'http://localhost:3001';
 
 async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<{ data: T; response: Response }> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${apiInternalUrl()}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', Origin: API_ORIGIN, ...(init?.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', Origin: apiTrustedOrigin(), ...(init?.headers ?? {}) },
     cache: 'no-store',
     signal: AbortSignal.timeout(10000),
   });

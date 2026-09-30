@@ -18,7 +18,7 @@ type LoadError = 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NETWORK' | 'API'
 type SaveState = { kind: 'idle' | 'saving' | 'saved' } | { kind: 'error'; message: string }
 
 const LANGUAGE_LABELS: Record<string, string> = { en: 'English', ar: 'Arabic', fr: 'French', de: 'German', es: 'Spanish', hi: 'Hindi' }
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1'
+const API_PATH = '/api/v1 (same-origin proxy)'
 
 function toForm(view: TenantSettingsView): UpdateTenantSettingsRequest {
   return {
@@ -124,7 +124,7 @@ export default function SettingsPage() {
         <dt>TENANT ID</dt><dd>{view.tenantId}</dd>
         <dt>SLUG</dt><dd>{view.slug}</dd>
         <dt>STATUS</dt><dd>{view.status}</dd>
-        <dt>API ORIGIN</dt><dd>{API_ORIGIN}</dd>
+        <dt>API PATH</dt><dd>{API_PATH}</dd>
         <dt>LAST UPDATED</dt><dd>{new Date(view.updatedAt).toLocaleString()}</dd>
       </dl>
     </div> },

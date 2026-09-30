@@ -1,5 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { CrossSiteRequestGuard } from './common/guards/cross-site-request.guard';
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -29,6 +31,7 @@ import { SupplyModule } from './supply/supply.module';
     PlatformAdminModule,
     SupplyModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: CrossSiteRequestGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
