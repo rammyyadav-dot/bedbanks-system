@@ -22,6 +22,7 @@
     "prisma:migrate:drift": "prisma migrate diff --from-url \"$DATABASE_URL\" --to-schema-datamodel prisma/schema.prisma --exit-code",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",
+    "ops:provision-hold-expiry-role": "tsx src/database/provision-hold-expiry-role.cli.ts",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
     "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
     "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand"

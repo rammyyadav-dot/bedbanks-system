@@ -2,6 +2,8 @@ import { ConflictException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
 import { HoldExpirySweeper } from '../src/agent/hold-expiry-sweeper.service'
+import { deprovisionHoldExpiryRole, provisionHoldExpiryRole, verifyHoldExpiryRole } from '../src/database/hold-expiry-role'
+import { randomBytes } from 'node:crypto'
 import { OfferHoldService } from '../src/agent/offer-hold.service'
 import { AgentAuditService } from '../src/agent/audit.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
@@ -12,6 +14,7 @@ describe('inventory hold PostgreSQL concurrency', () => {
   const holds = new InventoryHoldService(prisma)
   const suffix = `hold-${Date.now()}-${Math.random().toString(36).slice(2)}`
   let tenantId: string, userId: string, supplierId: string, hotelId: string, roomId: string
+  let roleName: string | undefined
   let boardId: string, contractId: string, ratePlanId: string, hotelMappingId: string, roomMappingId: string
 
   beforeAll(async () => {
@@ -35,6 +38,7 @@ describe('inventory hold PostgreSQL concurrency', () => {
   })
 
   afterAll(async () => {
+    if (roleName) await deprovisionHoldExpiryRole(prisma, roleName, { dropGroup: true })
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
@@ -323,5 +327,65 @@ describe('inventory hold PostgreSQL concurrency', () => {
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: live.holdId } })).toMatchObject({ status: 'HELD' })
     const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, select: { allotment: true, sold: true, held: true } })
     for (const night of nights) expect(night.held).toBe(1)
+  })
+  describe('restricted hold-expiry database role', () => {
+    const password = randomBytes(30).toString('base64url')
+    let restrictedUrl: string
+    let restricted: PrismaService
+
+    beforeAll(async () => {
+      roleName = `hx_${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
+      await provisionHoldExpiryRole(prisma, { loginRole: roleName, password })
+      const url = new URL(process.env.DATABASE_URL as string)
+      url.username = roleName
+      url.password = password
+      restrictedUrl = url.toString()
+      restricted = new PrismaService({ datasourceUrl: restrictedUrl })
+      await restricted.$connect()
+    })
+
+    afterAll(async () => { await restricted.$disconnect() })
+
+    it('is provisioned idempotently with no elevated attributes and no access outside its scope', async () => {
+      await provisionHoldExpiryRole(prisma, { loginRole: roleName as string, password })
+      expect(await verifyHoldExpiryRole(restricted)).toEqual({ ok: true, failures: [] })
+    })
+
+    it('expires a due hold through the restricted role and records the SYSTEM audit event', async () => {
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, data: { allotment: 2, held: 0, sold: 0 } })
+      await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+      await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+      const due = await holds.create({ ...command(`${suffix}-role-due`), offerExpiresAt: new Date(Date.now() + 1_500).toISOString() })
+      const live = await holds.create(command(`${suffix}-role-live`))
+      await new Promise(resolve => setTimeout(resolve, 1_800))
+
+      const sweeper = new HoldExpirySweeper({ HOLD_EXPIRY_SWEEP_ENABLED: 'true', HOLD_EXPIRY_DATABASE_URL: restrictedUrl, DATABASE_URL: process.env.DATABASE_URL, HOLD_EXPIRY_SWEEP_INTERVAL_MS: '3600000' })
+      await sweeper.onModuleInit()
+      try { expect(await sweeper.runOnce()).toBeGreaterThanOrEqual(1) } finally { await sweeper.onModuleDestroy() }
+
+      expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: due.holdId } })).toMatchObject({ status: 'EXPIRED' })
+      expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: live.holdId } })).toMatchObject({ status: 'HELD' })
+      const audit = await prisma.auditEvent.findMany({ where: { tenantId, entityId: due.holdId, action: 'inventory.hold.expired' } })
+      expect(audit).toHaveLength(1)
+      expect(audit[0]).toMatchObject({ actorType: 'SYSTEM', userId: null, entityType: 'inventory_hold' })
+      const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, select: { held: true } })
+      for (const night of nights) expect(night.held).toBe(1)
+    })
+
+    it('cannot forge other audit events, edit commercial data, read finance or auth data, or cross tenants', async () => {
+      const audit = (actorType: 'SYSTEM' | 'USER', action: string) => restricted.withTenant(tenantId, tx => tx.auditEvent.create({ data: { tenantId, actorType, action, entityType: 'inventory_hold', entityId: 'x', payload: {} } }))
+      await expect(audit('SYSTEM', 'booking.confirmed')).rejects.toThrow(/42501/)
+      await expect(audit('USER', 'inventory.hold.expired')).rejects.toThrow(/42501/)
+      await expect(audit('USER', 'anything.else')).rejects.toThrow(/42501/)
+      await expect(restricted.withTenant(tenantId, tx => tx.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 999 } }))).rejects.toThrow(/42501/)
+      await expect(restricted.withTenant(tenantId, tx => tx.dailyAvailability.updateMany({ where: { ratePlanId }, data: { sold: 999 } }))).rejects.toThrow(/42501/)
+      await expect(restricted.withTenant(tenantId, tx => tx.inventoryHold.deleteMany({ where: { tenantId } }))).rejects.toThrow(/42501/)
+      await expect(restricted.withTenant(tenantId, tx => tx.inventoryHold.updateMany({ where: { tenantId }, data: { sellAmountMinor: 1n } }))).rejects.toThrow(/42501/)
+      await expect(restricted.withTenant(tenantId, tx => tx.ledgerEntry.findMany())).rejects.toThrow(/42501/)
+      await expect(restricted.session.findMany()).rejects.toThrow(/42501/)
+      const otherTenant = await restricted.withTenant('tenant-that-does-not-own-the-hold', tx => tx.inventoryHold.updateMany({ where: { tenantId }, data: { status: 'EXPIRED' } }))
+      expect(otherTenant.count).toBe(0)
+      expect(await restricted.withTenant('tenant-that-does-not-own-the-hold', tx => tx.inventoryHold.findMany({ where: { tenantId } }))).toHaveLength(0)
+    })
   })
 })
