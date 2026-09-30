@@ -4,12 +4,12 @@
   "description": "FBEDS API — NestJS backend foundation (P0-B)",
   "private": true,
   "scripts": {
-    "dev": "tsx src/main.ts",
+    "dev": "nest start --watch",
     "build": "nest build",
-    "start": "node dist/main",
-    "start:prod": "node dist/main",
+    "start": "node --import tsx dist/apps/api/src/main.js",
+    "start:prod": "node --import tsx dist/apps/api/src/main.js",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
-    "test": "pnpm run test:unit && pnpm run test:e2e",
+    "test": "jest --runInBand && jest --config ./test/jest-e2e.json --runInBand",
     "test:unit": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -19,7 +19,7 @@
     "prisma:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
-    "prisma:migrate:drift": "prisma migrate diff --from-url \"$DATABASE_URL\" --to-schema-datamodel prisma/schema.prisma --exit-code",
+    "prisma:migrate:drift": "prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",
     "ops:provision-hold-expiry-role": "tsx src/database/provision-hold-expiry-role.cli.ts",
@@ -32,25 +32,28 @@
   },
   "dependencies": {
     "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/domain": "workspace:*",
+    "@bedbanks/money": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^8.1.0",
     "@prisma/client": "^6.2.1",
+    "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "bcryptjs": "^2.4.3",
-    "cookie-parser": "^1.4.7",
-    "@bedbanks/domain": "workspace:*",
-    "@bedbanks/money": "workspace:*"
+    "tsx": "^4.23.13"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.7",
@@ -63,12 +66,10 @@
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.7.3",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cookie-parser": "^1.4.8"
+    "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=20.6.0",
     "pnpm": ">=9.0.0"
   },
   "jest": {

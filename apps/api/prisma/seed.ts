@@ -8,7 +8,7 @@ async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClie
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
     return work(tx);
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 /**

@@ -7,7 +7,7 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "set -a; [ ! -f /vercel/share/.env.project ] || . /vercel/share/.env.project; set +a; (cd apps/api && env -u API_PORT -u ADMIN_ORIGIN API_PORT=3002 ADMIN_ORIGIN=http://localhost:3000 pnpm dev) & api_pid=$!; NEXT_PUBLIC_AGENT_API_URL=http://localhost:3002/api/v1 pnpm --dir apps/agent dev; agent_status=$?; kill $api_pid 2>/dev/null || true; wait $api_pid 2>/dev/null || true; exit $agent_status",
+    "dev": "node tools/dev.mjs",
     "build": "turbo run build",
     "type-check": "turbo run type-check",
     "lint": "turbo run lint",
@@ -16,7 +16,7 @@
     "check:no-float": "node --import tsx tools/no-float-check.ts",
     "check:no-silent-fallback": "node --import tsx tools/no-silent-fallback-check.ts",
     "check:schema": "node --import tsx tools/no-divergent-schema-check.ts",
-    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback"
+    "check:architecture": "node --import tsx tools/contract-check.ts && node --import tsx tools/no-float-check.ts && node --import tsx tools/no-silent-fallback-check.ts"
   },
   "devDependencies": {
     "@prisma/client": "^6.2.1",
