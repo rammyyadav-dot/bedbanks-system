@@ -26,7 +26,8 @@ export class AgentRbacGuard implements CanActivate {
     if (!identity || !tenantId) throw new ForbiddenException('Access denied')
     const membership = await this.prisma.withTenant(tenantId, (tx) => tx.membership.findUnique({ where: { userId_tenantId: { userId: identity.user.id, tenantId } }, include: { tenant: true } }))
     if (!membership || membership.tenant.status !== 'ACTIVE') throw new ForbiddenException('Insufficient permission')
-    if (!required) return true
+    // Fail closed: every handler behind this guard must declare its permission.
+    if (!required) throw new ForbiddenException('Access denied')
     const roles = await this.prisma.withTenant(tenantId, (tx) => tx.userRole.findMany({
       where: { userId: identity.user.id, tenantId, role: { tenantId } },
       include: { role: { include: { permissions: { include: { permission: true } } } } },

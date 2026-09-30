@@ -142,6 +142,7 @@ export class AgentController {
   finance(@Headers('x-fbeds-tenant-id') tenantId: string) { return this.financeService.summary(tenantId) }
 
   @Get('audit')
+  @RequirePermission(PERMISSIONS.auditRead)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  auditEvents(@Headers('x-fbeds-tenant-id') tenantId: string, @Query('limit') limit?: string) { return this.audit.list(tenantId, Number(limit) || 50) }
+  auditEvents(@Headers('x-fbeds-tenant-id') tenantId: string, @Query('limit') limit?: string) { return this.audit.list(tenantId, Math.max(1, Math.trunc(Number(limit)) || 50)) }
 }

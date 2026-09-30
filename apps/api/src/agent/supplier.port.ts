@@ -51,5 +51,6 @@ export const PERMISSIONS = {
   createBooking: 'booking.create',
   cancelBooking: 'booking.cancel',
   viewFinance: 'finance.read',
+  auditRead: 'audit.read',
 } as const
 export type AgentPermission = typeof PERMISSIONS[keyof typeof PERMISSIONS]
