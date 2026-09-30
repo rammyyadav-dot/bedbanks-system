@@ -1,6 +1,7 @@
 import { ApiResponseError } from './errors'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1'
+// Same-origin path proxied to the API by next.config rewrites; the session cookie is host-only.
+const API_BASE = '/api/v1'
 const REQUEST_TIMEOUT_MS = 10_000
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
