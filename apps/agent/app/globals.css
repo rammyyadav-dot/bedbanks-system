@@ -195,3 +195,78 @@ body { letter-spacing: -0.01em; }
 .portal-hold-outcome span { font-size:10px; }
 .portal-hold-outcome b { color:#0d0d0d; font-size:15px; }
 .portal-hold-outcome.is-held { border-color:#b9dfd0; background:#eefaf5; color:#17684f; }
+
+/* ===== Agent portal UX polish =====
+   Scoped overrides for the legacy rules above. Fixes: negative letter-spacing on a condensed
+   font, 9-11px text, invisible Sign out, workspace picker dominating the page, wrapping
+   buttons, a 200px results column with no sidebar, jumbled rate rows and an unbalanced
+   search form. Keep new portal rules here rather than editing the legacy blocks. */
+body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
+.portal-shell { font-size: 14px; line-height: 1.5; }
+.portal-shell :is(p, span, small, label, li) { word-spacing: .04em; }
+.portal-shell :is(button, input, select, textarea), .workspace-page :is(select, button) { font-family: inherit; }
+
+/* Readable type scale (was 9-11px, with 9px monospace labels) */
+.portal-eyebrow { font: 600 11px/1.4 'Barlow Semi Condensed', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: #566d76; }
+.portal-breadcrumb { font-size: 13px; }
+.portal-nav-item { font-size: 14px; padding: 12px 10px; }
+.portal-heading-row p { font-size: 14px; color: #566d76; }
+.portal-kpi span { font-size: 12px; color: #566d76; }
+.portal-kpi small { font-size: 12px; color: #566d76; }
+.portal-live { font-size: 11px; letter-spacing: .06em; }
+.portal-global-search span { font-size: 13px; }
+.portal-primary, .portal-secondary, .portal-link { font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+.portal-primary, .portal-secondary { min-height: 40px; padding: 0 16px; }
+.portal-demo-label { font-size: 13px; line-height: 1.45; }
+.portal-results-meta { font-size: 14px; }
+.portal-results-meta small { display: block; margin-top: 2px; font-size: 13px; color: #566d76; }
+.portal-field > span { font-size: 11px; color: #566d76; }
+.portal-field input, .workspace-select-label select { font-family: inherit; font-size: 14px; }
+.workspace-select-label { font-family: inherit; font-size: 13px; }
+.portal-empty, .portal-empty p, .portal-empty strong { font-size: 14px; color: #566d76; }
+
+/* Keyboard focus was not visible anywhere */
+.portal-shell :is(button, input, select, a):focus-visible, .workspace-page :is(button, select):focus-visible, .auth-card :is(button, input):focus-visible { outline: 2px solid #0f6b7a; outline-offset: 2px; }
+
+/* Sign out: was transparent with near-white text on a light page */
+.agent-signout { padding: 8px 14px; border-color: #9fb4ba; background: #fff; color: #17333e; font-size: 13px; font-weight: 600; cursor: pointer; }
+.agent-signout:hover { background: #eef4f5; }
+
+/* Workspace picker collapses to one slim bar once a workspace is active */
+.workspace-page.is-active { min-height: 0; padding: 12px 16px 0; background: #fff; }
+.workspace-page.is-active .workspace-header { width: 100%; margin: 0 0 8px; align-items: center; }
+.workspace-page.is-active .workspace-header h1, .workspace-page.is-active .workspace-header p:not(.auth-kicker) { display: none; }
+.workspace-page.is-active .workspace-card { width: 100%; max-width: none; margin: 0 0 4px; padding: 10px 14px; border-radius: 8px; box-shadow: none; display: flex; align-items: center; gap: 16px; }
+.workspace-page.is-active :is(.workspace-card-heading, .workspace-helper, .workspace-status-grid) { display: none; }
+.workspace-page.is-active .workspace-select-label { display: flex; align-items: center; gap: 12px; margin: 0; width: min(100%, 460px); position: relative; }
+.workspace-page.is-active .portal-shell { margin-top: 8px; }
+
+/* Results: there is no filter sidebar, so the list must use the full width */
+.portal-results-layout { grid-template-columns: 1fr; }
+.portal-outcome { margin-top: 14px; padding: 36px 20px; }
+.portal-outcome h2 { font-size: 18px; }
+
+/* Search form: balanced rows on every width (destination is wide, button aligns to the fields) */
+.portal-search-form { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; align-items: end; }
+.portal-search-form .portal-field.wide { grid-column: span 2; }
+.portal-search-form .search-submit { width: 100%; height: 40px; }
+@media (max-width: 640px) { .portal-search-form .portal-field.wide, .portal-search-form .search-submit { grid-column: 1 / -1; } .portal-primary, .portal-secondary { min-height: 44px; } .portal-nav-item { min-height: 44px; } }
+
+/* Rate rows: label, plan, policy and price each get their own line */
+.portal-rate-option { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.portal-rate-option > strong { font-size: 15px; }
+.portal-rate-option > span:not(.portal-eyebrow) { font-size: 13px; color: #566d76; }
+.portal-room h3 { font-size: 16px; }
+.portal-hold-panel, .portal-policy-note, .portal-hold-outcome { font-size: 13px; }
+.portal-shell .portal-field input, .portal-shell .portal-field div input { font-family: 'Barlow Semi Condensed', sans-serif; font-size: 14px; letter-spacing: 0; }
+.portal-sidebar-footer small, .portal-sidebar-footer strong { letter-spacing: 0; word-break: break-word; }
+.portal-sidebar-footer small { font-size: 12px; color: #566d76; }
+.workspace-page.is-active .workspace-select-label select { flex: 1; min-width: 0; }
+.portal-hotel-content h2 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+.portal-hotel-content > p { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; color: #566d76; font-size: 14px; }
+.portal-kpi strong { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .workspace-page.is-active .workspace-header { flex-direction: row; justify-content: space-between; }
+  .workspace-page.is-active .workspace-card { padding: 10px 12px; }
+  .workspace-page.is-active .workspace-select-label { flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
+}

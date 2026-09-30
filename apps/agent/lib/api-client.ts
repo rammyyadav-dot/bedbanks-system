@@ -7,6 +7,9 @@ export type AgentIdentity = {
 
 const apiBase = agentApiBase
 
+/** availableCredit is an integer minor-unit amount serialised as a string, in `currency`. */
+export type FinanceSummary = { status: string; currency: string; availableCredit: string | null; creditLimit?: string | null }
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } })
   const body = await response.json().catch(() => null)
@@ -31,7 +34,7 @@ export function logout() {
 }
 
 export function getFinanceSummary(tenantId: string) {
-  return request<{ status: string; availableCredit: number | null }>(`/agent/finance/summary`, { headers: { 'x-fbeds-tenant-id': tenantId } })
+  return request<FinanceSummary>(`/agent/finance/summary`, { headers: { 'x-fbeds-tenant-id': tenantId } })
 }
 
 export function getSearchStatus(tenantId: string) {

@@ -5,6 +5,7 @@ import { CalendarDays, MapPin, Search, ShieldAlert } from 'lucide-react'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer } from '@bedbanks/domain'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
+import { formatMinorAmount, formatStay } from '@/lib/format'
 import type { Hotel, HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 
 export function SearchView({
@@ -48,7 +49,7 @@ export function SearchView({
       <button className="portal-primary search-submit" onClick={submitSearch} disabled={searching}><Search size={16} /> {searching ? 'Searching…' : 'Search hotels'}</button>
     </div>{validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}<p>Nationality: IN · Currency: AED. Search uses the dates and occupancy shown above.</p></div>
     {searching && <SearchLoadingState />}
-    {result && !searching && <><div className="portal-results-meta"><div><strong>{result.total}</strong> properties in <strong>{result.request.destination}</strong><small>{result.request.checkIn} — {result.request.checkOut} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
+    {result && !searching && <><div className="portal-results-meta"><div><strong>{result.total}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
       <div className={`portal-demo-label ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'demo' ? 'Sample inventory only. Amounts are illustrative; booking is disabled.' :
         result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before any future booking step; booking remains disabled.' :
         result.status === 'partial' ? 'Some suppliers are unavailable. Verified offers from successful providers are shown.' :
@@ -78,18 +79,7 @@ function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchRe
   return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div><button className="portal-primary" onClick={onRetry}>Try again</button><button className="portal-link" onClick={onEdit}>Edit search</button></div></div>
 }
 function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : 'Agency credit' }
-function formatTotal(total: SearchRateOffer['total']) {
-  // Format the supplied minor-unit amount without changing the commercial total.
-  const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: total.currency })
-  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2
-  const scale = BigInt(10 ** digits)
-  const amount = BigInt(total.amountMinor)
-  const whole = new Intl.NumberFormat('en-US').format(amount / scale)
-  const fraction = String(amount % scale).padStart(digits, '0')
-  return formatter.formatToParts(0).map((part) =>
-    part.type === 'integer' ? whole : part.type === 'fraction' ? fraction : part.type === 'group' ? '' : part.value,
-  ).join('')
-}
+function formatTotal(total: SearchRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
 function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect: () => void }) {
   const firstRate = hotel.rooms.flatMap((room) => room.rates).find((rate) => rate.availability !== 'sold_out')
   return <article className="portal-hotel-card"><div className="portal-hotel-content"><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.destination}</p><div className="portal-hotel-bottom"><div><small>AUTHORITATIVE TOTAL STAY PRICE</small><strong>{firstRate ? formatTotal(firstRate.total) : 'No available rate'}</strong><span>Rate recheck and booking unavailable</span></div><button className="portal-secondary" onClick={onSelect}>View verified rooms & rates</button></div></div></article>
