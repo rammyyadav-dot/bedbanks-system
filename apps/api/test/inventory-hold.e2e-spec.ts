@@ -273,4 +273,28 @@ describe('inventory hold PostgreSQL concurrency', () => {
     expect(await prisma.inventoryHold.findUnique({ where: { id: result.holdId! } })).toMatchObject({ tenantId, status: 'HELD' })
     await holds.release(tenantId, result.holdId!, `${suffix}-verified-release`, { type: 'USER', userId })
   })
+  it('expires only due holds, restores inventory exactly once and audits the expiry', async () => {
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 2, held: 0, sold: 0 },
+    })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+
+    const due = await holds.create({ ...command(`${suffix}-expiry-due`), offerExpiresAt: new Date(Date.now() + 5_000).toISOString() })
+    const live = await holds.create(command(`${suffix}-expiry-live`))
+    const later = new Date(Date.now() + 60_000)
+
+    expect(await holds.expireDue(tenantId, later)).toBe(1)
+    expect(await holds.expireDue(tenantId, later)).toBe(0)
+
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: due.holdId } })).toMatchObject({ status: 'EXPIRED' })
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: live.holdId } })).toMatchObject({ status: 'HELD' })
+    const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, select: { allotment: true, sold: true, held: true } })
+    for (const night of nights) {
+      expect(night.held).toBe(1)
+      expect(night.sold + night.held).toBeLessThanOrEqual(night.allotment)
+    }
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'inventory.hold.expired', entityId: due.holdId } })).toBe(1)
+  })
 })
