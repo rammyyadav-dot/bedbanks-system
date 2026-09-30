@@ -6,23 +6,11 @@ import { Breadcrumbs } from './Breadcrumbs';
 import { GlobalSearch } from './GlobalSearch';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import type { AuthenticatedUser } from '@/lib/api/auth-client';
+import { userInitials } from './user-initials';
 
 interface TopbarProps {
   onMenuClick: () => void;
   identity: AuthenticatedUser;
-}
-
-function userInitials(user: AuthenticatedUser['user']): string {
-  if (user.name) {
-    return user.name
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join('')
-      .toUpperCase();
-  }
-  return user.email.slice(0, 2).toUpperCase();
 }
 
 export function Topbar({ onMenuClick, identity }: TopbarProps) {
@@ -43,7 +31,6 @@ export function Topbar({ onMenuClick, identity }: TopbarProps) {
         </button>
         <button type="button" className="icon-button" aria-label="Notifications">
           <Bell size={17} />
-          <em />
         </button>
         <div style={{ position: 'relative' }}>
           <button

@@ -1,6 +1,5 @@
-// Authoritative supply/dashboard API access; remaining legacy areas below still use mocks.
+// Browser-side access to authoritative /api/v1 endpoints. Server components use ./server.
 
-import * as mock from '../mock';
 import { routes, type TenantSettingsView, type UpdateTenantSettingsRequest } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
@@ -14,17 +13,11 @@ export async function updateTenantSettings(input: UpdateTenantSettingsRequest, i
   return apiRequest<TenantSettingsView>(routes.admin.settings, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input) })
 }
 
-export async function getTenants() { return mock.tenants; }
-export async function getTenant(id: string) { return mock.tenants.find((t) => t.id === id) ?? null; }
-export async function getUsers() { return mock.users; }
-export async function getUser(id: string) { return mock.users.find((u) => u.id === id) ?? null; }
 export async function createPlatformRole(input: { id: string; name: string; description?: string }) { return apiRequest('/platform/access/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function updatePlatformRole(roleId: string, input: { id: string; name: string; description?: string }) { return apiRequest(`/platform/access/roles/${roleId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function setPlatformRolePermissions(roleId: string, permissionIds: string[]) { return apiRequest(`/platform/access/roles/${roleId}/permissions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permissionIds }) }); }
 export async function assignPlatformRole(input: { userId: string; roleId: string }) { return apiRequest('/platform/access/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function revokePlatformRole(userId: string, roleId: string) { return apiRequest(`/platform/access/assignments/${userId}/${roleId}`, { method: 'DELETE' }); }
-export async function getPermissionResources() { return mock.permissionResources; }
-export async function getAuditEvents() { return mock.auditEvents; }
 export async function getHotels(): Promise<Array<{ id: string }>> { return apiRequest<Array<{ id: string }>>('/supply/hotels'); }
 export async function getHotel(id: string) { return apiRequest(`/supply/hotels/${id}`); }
 export async function getRooms() { return apiRequest('/supply/room-types'); }
@@ -71,36 +64,3 @@ export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supp
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
 export async function updateRatePlan(id: string, input: Partial<Pick<AdminRatePlan, 'status' | 'occupancy' | 'currency' | 'refundable' | 'taxesIncluded' | 'feesIncluded' | 'minStay' | 'maxStay' | 'releaseDays'>>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
-export async function getSearchComparison() { return mock.searchComparison; }
-export async function getBookings() { return mock.bookings; }
-export async function getBooking(id: string) { return mock.bookings.find((b) => b.id === id) ?? null; }
-export async function getCancellations() { return mock.cancellations; }
-export async function getWallets() { return mock.wallets; }
-export async function getLedger() { return mock.ledger; }
-export async function getPayments() { return mock.payments; }
-export async function getEmailLogs() { return mock.emailLogs; }
-
-export async function getSystemStatus() {
-  return [
-    { name: 'API', state: 'healthy' as const, detail: '/api/v1 — 99.98% uptime (30d)' },
-    { name: 'Database', state: 'healthy' as const, detail: 'Postgres — 4ms p50 query time' },
-    { name: 'Supplier Connections', state: 'degraded' as const, detail: '1 of 4 suppliers degraded' },
-    { name: 'Email', state: 'healthy' as const, detail: 'SES — delivering normally' },
-  ];
-}
-
-export async function getDashboardKpis() {
-  const [tenants, hotels, suppliers, bookings] = await Promise.all([
-    getTenants(), getHotels(), getSuppliers(), getBookings(),
-  ]);
-  return {
-    activeTenants: tenants.filter((t) => t.status === 'active').length,
-    activeAgents: mock.users.filter((u) => u.status === 'active').length,
-    hotels: hotels.length,
-    suppliers: suppliers.total,
-    bookingsToday: bookings.length,
-    revenueToday: bookings.reduce((sum, b) => sum + b.amount, 0),
-    pendingBookings: bookings.filter((b) => b.status === 'pending').length,
-    supplierErrors: 0,
-  };
-}

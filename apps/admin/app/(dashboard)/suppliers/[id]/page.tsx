@@ -17,7 +17,7 @@ export default function SupplierDetailPage() {
   const [supplier, setSupplier] = useState<SupplySupplier | null>(null)
   const [error, setError] = useState(false)
   useEffect(() => { getSupplier(params.id).then(setSupplier).catch(() => setError(true)) }, [params.id])
-  if (error) return <div className="admin-page"><ErrorState title="Supplier unavailable" description="The authoritative supplier record could not be loaded. No mock summary is shown." /></div>
+  if (error) return <div className="admin-page"><ErrorState title="Supplier unavailable" description="The authoritative supplier record could not be loaded. No fallback summary is shown." /></div>
   if (!supplier) return <div className="admin-page"><LoadingState rows={5} /></div>
   return (
     <div className="admin-page">

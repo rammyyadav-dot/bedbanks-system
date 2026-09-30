@@ -18,7 +18,7 @@ export default function InventoryPage() {
   const [stopSell, setStopSell] = useState(false)
   const [operation, setOperation] = useState<string | null>(null)
   useEffect(() => { getRatePlans().then(setPlans).catch(() => setError('Rate Plans are unavailable.')) }, [])
-  useEffect(() => { setError(null); getInventory(dateValue).then(setRows).catch(() => { setRows([]); setError('Inventory is unavailable. No mock data is shown.') }) }, [dateValue])
+  useEffect(() => { setError(null); getInventory(dateValue).then(setRows).catch(() => { setRows([]); setError('Inventory is unavailable. No fallback data is shown.') }) }, [dateValue])
   const loadSevenDays = async () => {
     const plan = plans.find((item) => item.id === selectedPlan)
     if (!plan) return setOperation('Select a Rate Plan and enter a valid allotment.')

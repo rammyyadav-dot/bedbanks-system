@@ -3,10 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { X } from 'lucide-react';
+import type { AuthenticatedUser } from '@/lib/api/auth-client';
 import { navSections } from './nav-config';
+import { userInitials } from './user-initials';
 
-export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
+export function Sidebar({ mobileOpen, onClose, identity }: { mobileOpen: boolean; onClose: () => void; identity: AuthenticatedUser }) {
   const pathname = usePathname();
+  const primaryTenant = identity.memberships[0];
 
   return (
     <aside className={`enterprise-sidebar ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Admin navigation">
@@ -32,6 +35,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
                 <Link key={item.href} href={item.href} className={active ? 'active' : ''} onClick={onClose}>
                   <span className="nav-glyph"><Icon size={15} /></span>
                   {item.label}
+                  {!item.live && <span className="nav-soon" title="No production API yet">Soon</span>}
                 </Link>
               );
             })}
@@ -40,29 +44,14 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
       </nav>
 
       <div className="sidebar-footer">
-        <div className="security-note">
-          <ShieldIcon />
-          <span>
-            <strong>UI only — mock data</strong>
-            <small>Backend authorization enforced later</small>
-          </span>
-        </div>
         <div className="session-user">
-          <span className="user-initials">PA</span>
+          <span className="user-initials">{userInitials(identity.user)}</span>
           <span>
-            <strong>Admin User</strong>
-            <small>Platform Administrator</small>
+            <strong>{identity.user.name ?? identity.user.email}</strong>
+            <small>{primaryTenant ? `${primaryTenant.role} · ${primaryTenant.tenantName}` : 'No tenant membership'}</small>
           </span>
         </div>
       </div>
     </aside>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" />
-    </svg>
   );
 }

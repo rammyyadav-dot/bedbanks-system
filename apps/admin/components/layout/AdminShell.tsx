@@ -15,7 +15,7 @@ export function AdminShell({ children, identity }: AdminShellProps) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <Sidebar identity={identity} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       {mobileOpen && (
         <button
           type="button"

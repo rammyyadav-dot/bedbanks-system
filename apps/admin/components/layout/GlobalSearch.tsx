@@ -1,10 +1,9 @@
 'use client';
 
 import { useMemo, useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import { Search } from 'lucide-react';
-import { tenants, users, hotels, bookings, suppliers } from '../../lib/mock';
-
-interface ResultGroup { label: string; items: { id: string; title: string; href: string }[]; }
+import { flatNav } from './nav-config';
 
 export function GlobalSearch() {
   const [query, setQuery] = useState('');
@@ -19,16 +18,10 @@ export function GlobalSearch() {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  const groups: ResultGroup[] = useMemo(() => {
+  const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return [
-      { label: 'Hotels', items: hotels.filter((h) => h.name.toLowerCase().includes(q)).slice(0, 3).map((h) => ({ id: h.id, title: h.name, href: `/hotels/${h.id}` })) },
-      { label: 'Tenants', items: tenants.filter((t) => t.name.toLowerCase().includes(q)).slice(0, 3).map((t) => ({ id: t.id, title: t.name, href: `/tenants/${t.id}` })) },
-      { label: 'Users', items: users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)).slice(0, 3).map((u) => ({ id: u.id, title: `${u.name} · ${u.email}`, href: `/users/${u.id}` })) },
-      { label: 'Bookings', items: bookings.filter((b) => b.reference.toLowerCase().includes(q)).slice(0, 3).map((b) => ({ id: b.id, title: b.reference, href: `/bookings/${b.id}` })) },
-      { label: 'Suppliers', items: suppliers.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 3).map((s) => ({ id: s.id, title: s.name, href: `/suppliers/${s.id}` })) },
-    ].filter((g) => g.items.length > 0);
+    return flatNav.filter((item) => item.label.toLowerCase().includes(q) || item.href.includes(q)).slice(0, 8);
   }, [query]);
 
   return (
@@ -36,30 +29,26 @@ export function GlobalSearch() {
       <div className="hotel-top-search">
         <Search size={14} />
         <input
-          placeholder="Search FBEDS — tenants, users, hotels, bookings, suppliers…"
+          placeholder="Jump to a page…"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
-          aria-label="Global search"
+          aria-label="Jump to a page"
         />
-        <kbd>/</kbd>
       </div>
-      {open && groups.length > 0 && (
+      {open && matches.length > 0 && (
         <div className="hotel-popover" style={{ width: '100%', maxHeight: 360, overflowY: 'auto' }}>
-          {groups.map((group) => (
-            <div key={group.label} style={{ marginBottom: 10 }}>
-              <div style={{ font: "9px 'Courier New', monospace", color: '#7c949a', letterSpacing: '.8px', marginBottom: 6 }}>{group.label.toUpperCase()}</div>
-              {group.items.map((item) => (
-                <a key={item.id} href={item.href} style={{ display: 'block', padding: '7px 4px', fontSize: 12, color: '#2c4a55', textDecoration: 'none', borderRadius: 4 }}>
-                  {item.title}
-                </a>
-              ))}
-            </div>
+          <div style={{ font: "9px 'Courier New', monospace", color: '#7c949a', letterSpacing: '.8px', marginBottom: 6 }}>PAGES</div>
+          {matches.map((item) => (
+            <Link key={item.href} href={item.href} onClick={() => { setOpen(false); setQuery(''); }} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 4px', fontSize: 12, color: '#2c4a55', textDecoration: 'none', borderRadius: 4 }}>
+              {item.label}
+              {!item.live && <span style={{ color: '#8ba0a5', fontSize: 10 }}>Not available yet</span>}
+            </Link>
           ))}
         </div>
       )}
-      {open && query.trim() && groups.length === 0 && (
-        <div className="hotel-popover" style={{ width: '100%', color: '#7e969d', fontSize: 11 }}>No results for &ldquo;{query}&rdquo;</div>
+      {open && query.trim() && matches.length === 0 && (
+        <div className="hotel-popover" style={{ width: '100%', color: '#7e969d', fontSize: 11 }}>No pages match &ldquo;{query}&rdquo;</div>
       )}
     </div>
   );

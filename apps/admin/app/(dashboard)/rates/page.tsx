@@ -19,8 +19,8 @@ export default function RatesPage() {
   const [amount, setAmount] = useState('')
   const [basis, setBasis] = useState<'SELL' | 'NET'>('SELL')
   const [operation, setOperation] = useState<string | null>(null)
-  useEffect(() => { getRatePlans().then(setPlans).catch(() => setError('Rate Plans are unavailable. No mock data is shown.')) }, [])
-  useEffect(() => { getDailyRates(dateValue).then(setRates).catch(() => { setRates([]); setError('Daily Rates are unavailable. No mock data is shown.') }) }, [dateValue])
+  useEffect(() => { getRatePlans().then(setPlans).catch(() => setError('Rate Plans are unavailable. No fallback data is shown.')) }, [])
+  useEffect(() => { getDailyRates(dateValue).then(setRates).catch(() => { setRates([]); setError('Daily Rates are unavailable. No fallback data is shown.') }) }, [dateValue])
   const loadSevenDays = async () => {
     const plan = plans.find((item) => item.id === selectedPlan)
     if (!plan) return setOperation('Select a Rate Plan and enter a valid non-negative amount.')
