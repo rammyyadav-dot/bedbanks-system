@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
+import { HoldExpirySweeper } from '../src/agent/hold-expiry-sweeper.service'
 import { OfferHoldService } from '../src/agent/offer-hold.service'
 import { AgentAuditService } from '../src/agent/audit.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
@@ -296,5 +297,31 @@ describe('inventory hold PostgreSQL concurrency', () => {
       expect(night.sold + night.held).toBeLessThanOrEqual(night.allotment)
     }
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'inventory.hold.expired', entityId: due.holdId } })).toBe(1)
+  })
+  it('sweeps an expired hold through the real background runtime and leaves live holds', async () => {
+    await prisma.dailyAvailability.updateMany({
+      where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },
+      data: { allotment: 2, held: 0, sold: 0 },
+    })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    const due = await holds.create({ ...command(`${suffix}-sweep-due`), offerExpiresAt: new Date(Date.now() + 1_500).toISOString() })
+    const live = await holds.create(command(`${suffix}-sweep-live`))
+    await new Promise(resolve => setTimeout(resolve, 1_800))
+
+    // A distinct URL string stands in for the restricted role in this disposable database.
+    const backgroundUrl = `${process.env.DATABASE_URL}&application_name=hold-expiry-sweeper`
+    const sweeper = new HoldExpirySweeper({ HOLD_EXPIRY_SWEEP_ENABLED: 'true', HOLD_EXPIRY_DATABASE_URL: backgroundUrl, DATABASE_URL: process.env.DATABASE_URL, HOLD_EXPIRY_SWEEP_INTERVAL_MS: '3600000' })
+    await sweeper.onModuleInit()
+    try {
+      expect(await sweeper.runOnce()).toBeGreaterThanOrEqual(1)
+    } finally {
+      await sweeper.onModuleDestroy()
+    }
+
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: due.holdId } })).toMatchObject({ status: 'EXPIRED' })
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: live.holdId } })).toMatchObject({ status: 'HELD' })
+    const nights = await prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, select: { allotment: true, sold: true, held: true } })
+    for (const night of nights) expect(night.held).toBe(1)
   })
 })
