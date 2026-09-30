@@ -22,7 +22,7 @@ Each hold first claims its tenant-scoped idempotency key, then increments `Daily
 
 Release changes only an active `HELD` row. The winning transaction restores each recorded night exactly once; retries observe a terminal state and perform no inventory mutation. Database constraints prevent negative values or `sold + held` exceeding allotment.
 
-Manual release records the authenticated user. Expiry records a system actor and therefore may only be invoked by the governed restricted background role; it is not registered as a scheduled process in this milestone.
+Manual release records the authenticated user. Expiry records a system actor and therefore may only be invoked by the governed restricted background role; it is not registered as a scheduled process in this milestone (see ADR 0005 for the gated sweeper, disabled by default).
 
 ## Cache classification
 
