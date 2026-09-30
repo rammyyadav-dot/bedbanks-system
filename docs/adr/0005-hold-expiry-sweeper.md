@@ -28,12 +28,19 @@ still leak inventory; this ADR removes the code gap, not the operational one.
 Multiple API instances each run a sweeper; this is safe but redundant, and a
 single scheduler can replace it later without changing `expireDue()`.
 
+## Restricted role (added)
+Existing policies reject every SYSTEM `AuditEvent` insert for roles that respect
+RLS. Migration `202609280001_hold_expiry_system_audit_policy` adds one narrow
+policy for members of the group role `fbeds_hold_expiry` (tenant in context,
+SYSTEM actor, no user, action `inventory.hold.expired`, entity `inventory_hold`)
+and excludes those members from the general tenant insert policy, so the role
+cannot write USER-type or other audit events. The role and its grants are created
+by an owner-run script (`ops:provision-hold-expiry-role`), not by a migration, so
+no role or secret enters migration history. See `docs/runbooks/hold-expiry-role.md`.
+
 ## Owner actions before enabling
-1. Provision a non-owner, non-superuser role that can read active tenants, update
-   hold and availability rows and insert SYSTEM audit events, with RLS behaviour
-   certified.
-2. Store its URL as a secret reference and set the two variables above.
-3. Watch logs for `Hold expiry pass:` lines and failed tenants after enabling.
+Follow `docs/runbooks/hold-expiry-role.md`: deploy the migration, provision the
+role, store `HOLD_EXPIRY_DATABASE_URL` as a secret reference, verify, then enable.
 
 ## Rollback
 Set `HOLD_EXPIRY_SWEEP_ENABLED=false` and restart. No schema change is involved.
