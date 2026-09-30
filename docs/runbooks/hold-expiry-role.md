@@ -3,6 +3,34 @@
 Closes the operational half of ADR 0005. Executed by the **database owner**, not
 by CI or an AI session. Nothing here touches production until a human runs it.
 
+## Fastest route: the GitHub workflow (no terminal)
+The manual workflow **Provision hold-expiry role** performs steps 2 to 4 below from
+GitHub. It only runs from `main`, reads secrets from a GitHub Environment, never
+prints a URL or password, and defaults to a read-only check.
+
+One-time setup (repository owner, in GitHub: Settings -> Environments):
+1. Create environments `db-nonprod` and `db-production`. On `db-production` add
+   yourself (or another person) under **Required reviewers**, and restrict both
+   to the `main` branch.
+2. In each environment add **secrets**:
+   - `OWNER_DATABASE_URL`: the Neon **direct** (pooling off) owner connection
+     string for that branch. Paste it into the secret box; do not screenshot it.
+   - `HOLD_EXPIRY_LOGIN_PASSWORD`: a new 32+ character URL-safe password. Use the
+     same value later inside `HOLD_EXPIRY_DATABASE_URL`.
+3. Optional environment **variable** `HOLD_EXPIRY_LOGIN_ROLE` (default
+   `fbeds_hold_expiry_login`).
+
+Run (Actions -> Provision hold-expiry role -> Run workflow):
+1. `target=nonprod`, `mode=status-only`, `confirm_database=<database name>` first.
+   Expect "Migration state: as expected". Any other result stops with a clear message.
+2. `target=nonprod`, `mode=apply` to rehearse, then the same two runs for `production`.
+3. The run summary ends with "Role check passed". Then set
+   `HOLD_EXPIRY_DATABASE_URL` where the API runs and only then enable the sweeper.
+
+The workflow refuses: a pooled connection string, a mismatched database name,
+failed or unknown migrations, and any pending migration other than
+`202609280001_hold_expiry_system_audit_policy`.
+
 ## 0. Preconditions
 - The migration `202609280001_hold_expiry_system_audit_policy` is deployed
   (`prisma migrate deploy` through the normal, approved release process).
