@@ -383,11 +383,19 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       const response = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate, occupancy: 2 }).expect(201)
       expect(response.body.data.eligible).toBe(true)
     }
-    for (const offset of [-1, 7]) {
-      const stayDate = new Date(start.getTime() + offset * 86400000).toISOString().slice(0, 10)
-      const response = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate, occupancy: 2 }).expect(201)
-      expect(response.body.data.reasons).toContain('OUTSIDE_CONTRACT_VALIDITY')
-    }
+    const beforeContract = new Date(start.getTime() - 86400000).toISOString().slice(0, 10)
+    const beforeResponse = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: beforeContract, occupancy: 2 }).expect(201)
+    expect(beforeResponse.body.data.eligible).toBe(false)
+    expect(beforeResponse.body.data.reasons).toContain('OUTSIDE_CONTRACT_VALIDITY')
+
+    // D+7 is intentionally contract-valid so the D+6 stay can check out on D+7.
+    // It has no seeded nightly rate or availability, so sellability must fail for commercial-data reasons.
+    const checkoutBoundary = plusOne(dateKeys[6])
+    const boundaryResponse = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: checkoutBoundary, occupancy: 2 }).expect(201)
+    expect(boundaryResponse.body.data.eligible).toBe(false)
+    expect(boundaryResponse.body.data.reasons).not.toContain('OUTSIDE_CONTRACT_VALIDITY')
+    expect(boundaryResponse.body.data.reasons).toContain('DAILY_RATE_MISSING_OR_INVALID')
+    expect(boundaryResponse.body.data.reasons).toContain('AVAILABILITY_MISSING')
     const occupancy = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: dateKeys[0], occupancy: 4 }).expect(201)
     expect(occupancy.body.data.reasons).toContain('OCCUPANCY_UNSUPPORTED')
   })
