@@ -27,7 +27,7 @@ function optionalUrl(value?: string): string | undefined {
 export function resolveWebsiteConfig(env: WebsiteEnvironment) {
   const production = env.NODE_ENV === 'production'
   const vercelHost = env.VERCEL_PROJECT_PRODUCTION_URL ?? env.VERCEL_URL
-  const siteUrl = optionalUrl(env.NEXT_PUBLIC_SITE_URL) ?? optionalUrl(vercelHost) ?? 'http://localhost:3000'
+  const siteUrl = optionalUrl(env.NEXT_PUBLIC_SITE_URL) ?? (production ? 'https://www.fbeds.com' : optionalUrl(vercelHost) ?? 'http://localhost:3000')
 
   return {
     production,
