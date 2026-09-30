@@ -1,11 +1,17 @@
 // Authoritative supply/dashboard API access; remaining legacy areas below still use mocks.
 
 import * as mock from '../mock';
+import { routes, type TenantSettingsView, type UpdateTenantSettingsRequest } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
 
 export async function getDashboard({ range }: DashboardQuery): Promise<AdminDashboardView> {
   return apiRequest<AdminDashboardView>(`/admin/dashboard?range=${encodeURIComponent(range)}`)
+}
+
+export async function getTenantSettings() { return apiRequest<TenantSettingsView>(routes.admin.settings) }
+export async function updateTenantSettings(input: UpdateTenantSettingsRequest, idempotencyKey: string) {
+  return apiRequest<TenantSettingsView>(routes.admin.settings, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input) })
 }
 
 export async function getTenants() { return mock.tenants; }

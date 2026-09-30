@@ -41,7 +41,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             ))}
           </div>
         ) },
-        { id: 'settings', label: 'Settings', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Tenant settings form — UI-only placeholder.</div> },
+        { id: 'settings', label: 'Settings', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>Cross-tenant settings management is not available. Tenant administrators manage their own workspace from Settings.</div> },
         { id: 'activity', label: 'Activity', content: <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>No live activity feed yet — connects to <code>/api/v1</code> later.</div> },
         { id: 'audit', label: 'Audit', content: (
           <div className="workspace-panel">

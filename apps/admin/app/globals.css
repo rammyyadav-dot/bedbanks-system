@@ -245,6 +245,13 @@ body { letter-spacing: -0.01em; }
 .admin-login-field { margin-bottom: 19px; }.admin-login-field label { display: block; margin-bottom: 7px; color: #66818a; font: 10px 'Barlow Semi Condensed', sans-serif; }
 .admin-login-field input { width: 100%; height: 42px; border: 1px solid #cbdde2; border-radius: 5px; padding: 0 12px; color: #294b56; background: #fff; font-size: 12px; outline: 0; }.admin-login-field input:focus { border-color: #16a9bb; box-shadow: 0 0 0 3px rgba(22, 190, 208, .12); }
 .admin-login-card .admin-btn-primary { min-height: 42px; border-radius: 5px; background: #159eae; border-color: #159eae; font-size: 11px; }.admin-login-card .admin-btn-primary:hover { background: #118b9a; }
+.admin-login-field select { width: 100%; height: 42px; border: 1px solid #cbdde2; border-radius: 5px; padding: 0 10px; color: #294b56; background: #fff; font-size: 12px; outline: 0; }.admin-login-field select:focus { border-color: #16a9bb; box-shadow: 0 0 0 3px rgba(22, 190, 208, .12); }
+.admin-login-field input:disabled, .admin-login-field input:read-only { background: #f4f8f9; color: #5f7a82; }
+.settings-panel { padding: 18px; max-width: 520px; }
+.settings-hint { margin: -12px 0 18px; color: #7c949a; font-size: 11px; line-height: 1.45; }
+.settings-savebar { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.settings-status { font-size: 11px; color: #5f7a82; }.settings-status.error { color: #bc5652; }.settings-status.success { color: #16866f; }
+.settings-readonly { display: grid; grid-template-columns: 140px 1fr; gap: 10px 16px; font-size: 12px; color: #294b56; }.settings-readonly dt { color: #66818a; font: 10px 'Barlow Semi Condensed', sans-serif; letter-spacing: .04em; }.settings-readonly dd { margin: 0; word-break: break-all; }
 .admin-login-card form::after { content: 'Your session is protected by an HttpOnly cookie. Never share your credentials.'; display: block; margin-top: 25px; color: #91a5aa; font-size: 9px; }
 
 @media (max-width: 760px) {

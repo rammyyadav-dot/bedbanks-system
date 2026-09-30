@@ -163,8 +163,29 @@ model Tenant {
   connectorDefinitions ConnectorDefinition[]
   inventoryUpdateEvents InventoryUpdateEvent[]
   inventoryHolds InventoryHold[]
+  settings    TenantSettings?
 
   @@map("tenants")
+}
+
+/// Workspace preferences for the authenticated tenant. Default currency is
+/// display and alert configuration only — it does not rewrite wallets or ledger.
+model TenantSettings {
+  id                       String   @id @default(cuid())
+  tenantId                 String   @unique @map("tenant_id")
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supportEmail             String?  @map("support_email")
+  defaultLanguage          String   @default("en") @map("default_language")
+  timeZone                 String   @default("UTC") @map("time_zone")
+  defaultCurrency          String   @default("USD") @db.Char(3) @map("default_currency")
+  lowBalanceThresholdMinor BigInt   @default(0) @map("low_balance_threshold_minor")
+  lowBalanceCurrency       String   @default("USD") @db.Char(3) @map("low_balance_currency")
+  lastIdempotencyKey       String?  @map("last_idempotency_key")
+  lastMutationFingerprint  String?  @map("last_mutation_fingerprint")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_settings")
 }
 
 model User {

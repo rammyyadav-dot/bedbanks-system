@@ -4,7 +4,7 @@ export const routes = {
     context: '/agent/context', searchStatus: '/agent/search/status', search: '/agent/search', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', prebook: '/agent/prebook',
     bookings: '/agent/bookings', cancelBooking: '/agent/bookings/:id', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
-  admin: { dashboard: '/admin/dashboard' },
+  admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
   platform: {
     tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
