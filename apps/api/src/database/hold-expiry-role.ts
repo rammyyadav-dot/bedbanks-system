@@ -6,6 +6,19 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 // URL-safe so the credential can be embedded in a connection string unchanged.
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
+/**
+ * Explains why a password is rejected without revealing any of it: only its length and how many
+ * characters fall outside the allowed set are reported.
+ */
+export function describePasswordProblems(password: string): string[] {
+  const problems: string[] = []
+  if (password.length < 32) problems.push(`it is ${password.length} characters long; at least 32 are needed`)
+  if (password.length > 128) problems.push(`it is ${password.length} characters long; at most 128 are allowed`)
+  const invalid = [...password].filter(character => !/[A-Za-z0-9_-]/.test(character)).length
+  if (invalid > 0) problems.push(`${invalid} character${invalid === 1 ? ' is' : 's are'} not a letter, digit, hyphen or underscore (spaces, symbols, quotes and line breaks are not allowed)`)
+  return problems
+}
+
 export function assertProvisioningInput(loginRole: string, password: string): void {
   if (!IDENTIFIER.test(loginRole)) throw new Error('Login role must match [a-z][a-z0-9_]{2,62}')
   if (loginRole === HOLD_EXPIRY_GROUP_ROLE || loginRole === 'postgres') throw new Error('Login role must be dedicated to the sweeper')

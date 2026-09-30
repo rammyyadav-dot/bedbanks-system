@@ -14,7 +14,7 @@
 import { appendFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { PrismaClient } from '@prisma/client'
-import { assertProvisioningInput, provisionHoldExpiryRole, verifyHoldExpiryRole } from './hold-expiry-role'
+import { assertProvisioningInput, describePasswordProblems, provisionHoldExpiryRole, verifyHoldExpiryRole } from './hold-expiry-role'
 import { assessMigrations, type MigrationRow } from './hold-expiry-migrations'
 import { normalizeOpsDatabaseUrl, withCredentials } from './ops-database-url'
 
@@ -34,7 +34,12 @@ function fail(message: string): never {
 
 /** Validation messages from assertProvisioningInput never contain the input, so they are safe to show. */
 function checkCredentials(): void {
-  try { assertProvisioningInput(loginRole(), process.env.HOLD_EXPIRY_LOGIN_PASSWORD ?? '') } catch (error) { fail(error instanceof Error ? error.message : 'invalid role name or password') }
+  const password = process.env.HOLD_EXPIRY_LOGIN_PASSWORD ?? ''
+  try { assertProvisioningInput(loginRole(), password) } catch (error) {
+    const base = error instanceof Error ? error.message : 'invalid role name or password'
+    const details = /^Password/.test(base) ? describePasswordProblems(password) : []
+    fail(details.length ? `${base}. Problem: ${details.join('; ')}. Edit the HOLD_EXPIRY_LOGIN_PASSWORD secret in this GitHub environment.` : base)
+  }
 }
 
 function loginRole(): string { return process.env.HOLD_EXPIRY_LOGIN_ROLE || 'fbeds_hold_expiry_login' }
