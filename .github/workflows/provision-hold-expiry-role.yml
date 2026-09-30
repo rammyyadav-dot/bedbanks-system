@@ -1,0 +1,81 @@
+name: Provision hold-expiry role
+
+# Manual operation only (ADR 0005, docs/runbooks/hold-expiry-role.md).
+# Default mode is read-only. "apply" runs the pending migration and creates the
+# restricted role. Secrets live in a GitHub Environment, never in the repo.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which database (selects the GitHub Environment holding its secrets)
+        required: true
+        type: choice
+        options: [nonprod, production]
+        default: nonprod
+      mode:
+        description: status-only = read-only check. apply = run the migration and create the role.
+        required: true
+        type: choice
+        options: [status-only, apply]
+        default: status-only
+      confirm_database:
+        description: Type the exact database name (for example neondb)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fbeds-hold-expiry-role-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  hold-expiry-role:
+    if: github.repository == 'rammyyadav-dot/bedbanks-system' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Owner configures required reviewers on db-production and restricts both to main.
+    environment: db-${{ inputs.target }}
+    env:
+      OWNER_DATABASE_URL: ${{ secrets.OWNER_DATABASE_URL }}
+      HOLD_EXPIRY_LOGIN_PASSWORD: ${{ secrets.HOLD_EXPIRY_LOGIN_PASSWORD }}
+      HOLD_EXPIRY_LOGIN_ROLE: ${{ vars.HOLD_EXPIRY_LOGIN_ROLE }}
+      CONFIRM_DATABASE: ${{ inputs.confirm_database }}
+      MODE: ${{ inputs.mode }}
+      EXPECTED_PENDING: 202609280001_hold_expiry_system_audit_policy
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bedbanks/api prisma:generate
+      - name: Read-only preflight (target, confirmation, migration state)
+        working-directory: apps/api
+        run: node --import tsx src/database/hold-expiry-ops.cli.ts preflight
+      - name: Export masked database URL for Prisma
+        if: inputs.mode == 'apply'
+        working-directory: apps/api
+        run: node --import tsx src/database/hold-expiry-ops.cli.ts export-env
+      - name: Apply pending migration
+        if: inputs.mode == 'apply'
+        run: pnpm --filter @bedbanks/api prisma:migrate:deploy
+      - name: Confirm migration status
+        if: inputs.mode == 'apply'
+        run: pnpm --filter @bedbanks/api prisma:migrate:status
+      - name: Create the restricted role
+        if: inputs.mode == 'apply'
+        working-directory: apps/api
+        run: node --import tsx src/database/hold-expiry-ops.cli.ts provision
+      - name: Verify the restricted role
+        if: inputs.mode == 'apply'
+        working-directory: apps/api
+        run: node --import tsx src/database/hold-expiry-ops.cli.ts verify
