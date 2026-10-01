@@ -71,4 +71,14 @@ describe('HealthController', () => {
     expect(result.database.status).toBe('unavailable');
     expect(result.status).toBe('ok'); // process liveness is independent of DB state
   });
+
+  it('reports ready only when the database is reachable', async () => {
+    prisma.isHealthy.mockResolvedValueOnce(true);
+    await expect(controller.ready()).resolves.toMatchObject({ status: 'ok', database: { status: 'ok' } });
+  });
+
+  it('does not report ready when the database is unreachable', async () => {
+    prisma.isHealthy.mockResolvedValueOnce(false);
+    await expect(controller.ready()).rejects.toThrow('Database is not ready');
+  });
 });

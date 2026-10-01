@@ -41,13 +41,13 @@ Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
    ```
    It creates the tenant, a tenant `owner` role holding every tenant permission, the user, and a `platform_owner` role holding every platform permission. It is idempotent; an existing user's password is kept unless you add `--reset-password`. It writes two audit events (ids only) and prints only ids and counts. This is the only path that bypasses the API's self-escalation rule; run it once, then manage further access through the platform admin API. It does not create wallets.
 5. **Create the service** from `Dockerfile.api`, set the variables above, and deploy.
-6. **Smoke test:** `GET https://<api-host>/api/v1/health` returns `status: ok` with `database.status: ok`.
+6. **Smoke test:** `GET https://<api-host>/api/v1/health` returns `status: ok` with `database.status: ok`. `GET /api/v1/health/ready` is the host readiness check and returns 503 when the database is unavailable, so a process with a failed database is not treated as ready.
 7. **Vercel (Admin project, Root Directory `apps/admin`):** set `API_INTERNAL_URL=https://<api-host>/api/v1` and `AUTH_API_ORIGIN=<Admin public origin>` for Production and Preview, then redeploy. `AUTH_API_ORIGIN` must equal the API's `ADMIN_ORIGIN`.
 8. Record the deployed version, migration state and rollback point (`docs/runbooks/deploy.md`, `rollback.md`).
 
 ## Render
 
-`render.yaml` at the repository root defines the API web service (Docker, health check `/api/v1/health`, manual deploys) and a Redis-compatible Key Value instance wired to `REDIS_URL`.
+`render.yaml` at the repository root defines the API web service (Docker, readiness check `/api/v1/health/ready`, manual deploys) and a Redis-compatible Key Value instance wired to `REDIS_URL`.
 
 1. In Render choose New, then Blueprint, and select this repository. Render prompts for the two `sync: false` values: `DATABASE_URL` (the `fbeds_api_login` URL from step 3) and `ADMIN_ORIGIN`.
 2. The Key Value instance has an empty `ipAllowList`, so it is reachable only from your Render services in the same region (internal URL).

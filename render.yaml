@@ -9,7 +9,7 @@ services:
     dockerContext: .
     plan: starter
     region: frankfurt
-    healthCheckPath: /api/v1/health
+    healthCheckPath: /api/v1/health/ready
     autoDeploy: false
     envVars:
       - key: NODE_ENV
