@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AgentEntrance } from '@/components/entrance/agent-entrance'
 import { AgentWorkspace } from './agent-workspace'
-import { getAgentContext, logout, type AgentIdentity } from '@/lib/api-client'
+import { agentSession, getAgentContext, logout, type AgentIdentity } from '@/lib/api-client'
 import { clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
 
 export function AgentAuthGate() {
@@ -11,21 +11,40 @@ export function AgentAuthGate() {
   const [loading, setLoading] = useState(true)
   const [sessionExpired, setSessionExpired] = useState(false)
   const [restoreError, setRestoreError] = useState(false)
+  const sessionEpoch = useRef(0)
 
   const restoreSession = useCallback(async () => {
+    const generation = ++sessionEpoch.current
     setLoading(true)
     setRestoreError(false)
     try {
       const context = await getAgentContext()
-      setIdentity({ user: context.user, memberships: context.memberships })
+      if (sessionEpoch.current !== generation) return
+      setIdentity(agentSession(context, context.bookingEnabled))
       setSessionExpired(false)
     } catch (error) {
+      if (sessionEpoch.current !== generation) return
       setIdentity(null)
       const expired = error instanceof Error && error.message === 'Session expired' && consumeExpiredSession(window.sessionStorage)
       setSessionExpired(expired)
       setRestoreError(!(error instanceof Error && error.message === 'Session expired'))
     } finally {
-      setLoading(false)
+      if (sessionEpoch.current === generation) setLoading(false)
+    }
+  }, [])
+
+  const acceptSignIn = useCallback(async (signedIn: AgentIdentity) => {
+    const generation = ++sessionEpoch.current
+    setIdentity(agentSession(signedIn, false))
+    setSessionExpired(false)
+    setRestoreError(false)
+    try {
+      const context = await getAgentContext()
+      if (sessionEpoch.current !== generation) return
+      setIdentity(agentSession(context, context.bookingEnabled))
+    } catch {
+      if (sessionEpoch.current !== generation) return
+      setIdentity(agentSession(signedIn, false))
     }
   }, [])
 
@@ -33,7 +52,7 @@ export function AgentAuthGate() {
 
   if (loading) return <main className="trade-state" aria-live="polite"><p>Checking your secure session…</p></main>
   if (identity) return <AgentWorkspace identity={identity} />
-  return <AgentEntrance sessionExpired={sessionExpired} restoreError={restoreError} onRetry={() => { void restoreSession() }} onSignedIn={setIdentity} />
+  return <AgentEntrance sessionExpired={sessionExpired} restoreError={restoreError} onRetry={() => { void restoreSession() }} onSignedIn={(signedIn) => { void acceptSignIn(signedIn) }} />
 }
 
 export function AgentSignOut({ userId, onComplete }: { userId: string; onComplete: () => void }) {
