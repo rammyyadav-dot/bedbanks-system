@@ -6,19 +6,18 @@ import type { SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
 import { formatMinorAmount, formatStay } from '@/lib/format'
-import type { Hotel, HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
+import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 
 export function SearchView({
   destination, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
-  guests, hotels, liveHotels, result, searching, onSearch, selected, setSelected,
+  guests, liveHotels, result, searching, onSearch, 
   rooms, setRooms, adults, setAdults, children, updateChildren, childAges, setChildAges, onCriteriaChange,
 }: {
   destination: string; setDestination: (value: string) => void
   checkIn: string; setCheckIn: (value: string) => void
   checkOut: string; setCheckOut: (value: string) => void
-  guests: string; hotels: Hotel[]; liveHotels: SearchHotelOffer[]
+  guests: string; liveHotels: SearchHotelOffer[]
   result: HotelSearchResult | null; searching: boolean; onSearch: () => void
-  selected: Hotel | null; setSelected: (value: Hotel | null) => void
   rooms: number; setRooms: (value: number) => void
   adults: number; setAdults: (value: number) => void
   children: number; updateChildren: (value: number) => void
@@ -50,8 +49,7 @@ export function SearchView({
     </div>{validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}<p>Nationality: IN · Currency: AED. Search uses the dates and occupancy shown above.</p></div>
     {searching && <SearchLoadingState />}
     {result && !searching && <><div className="portal-results-meta"><div><strong>{result.total}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
-      <div className={`portal-demo-label ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'demo' ? 'Sample inventory only. Amounts are illustrative; booking is disabled.' :
-        result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before any future booking step; booking remains disabled.' :
+      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before any future booking step; booking remains disabled.' :
         result.status === 'partial' ? 'Some suppliers are unavailable. Verified offers from successful providers are shown.' :
         result.status === 'mapping_unavailable' ? 'Supplier offer mapping could not be verified. No rate is displayed.' :
         result.status === 'access_denied' ? 'You do not have access to this workspace.' :
@@ -59,11 +57,9 @@ export function SearchView({
         result.status === 'empty' ? 'No availability for this search.' :
         'Supplier inventory is unavailable. Booking is disabled.'}</div>
       {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={result.request} searchId={result.searchId} onBack={() => setSelectedLive(null)} /> :
-        selected ? <HotelDetail hotel={selected} onBack={() => setSelected(null)} /> :
         <div className="portal-results-layout"><div className="portal-hotel-list">
           {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} onSelect={() => setSelectedLive(hotel)} />)}
-          {hotels.map((hotel) => <HotelCard key={hotel.id} hotel={hotel} onSelect={() => setSelected(hotel)} />)}
-          {!hotels.length && !liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />}
+          {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />}
         </div></div>}</>}
   </>
 }
@@ -135,5 +131,3 @@ function RecheckOutcome({ result }: { result: OfferRecheckResult }) {
   }
   return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined && <b>{formatTotal({ currency: result.currency, amountMinor: result.sellAmountMinor })}</b>}</div>
 }
-function HotelCard({ hotel, onSelect }: { hotel: Hotel; onSelect: () => void }) { return <article className="portal-hotel-card"><img src={hotel.image} alt={`${hotel.name} exterior`} /><div className="portal-hotel-content"><div className="portal-hotel-title"><div><h2>{hotel.name}</h2><span className="portal-stars">{'★'.repeat(hotel.stars)}</span><p><MapPin size={14} /> {hotel.city} · {hotel.distance}</p></div><span className="portal-score">{hotel.rating.toFixed(1)}<small>/5</small></span></div><div className="portal-hotel-tags"><span>{hotel.board}</span><span className="success">{hotel.cancellation}</span></div><div className="portal-hotel-bottom"><div><small>ILLUSTRATIVE SAMPLE AMOUNT · NOT BOOKABLE</small><strong>AED {hotel.price.toLocaleString()}</strong></div><button className="portal-secondary" onClick={onSelect}>View sample details</button></div></div></article> }
-function HotelDetail({ hotel, onBack }: { hotel: Hotel; onBack: () => void }) { return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><span className="portal-eyebrow">SAMPLE PROPERTY · NOT BOOKABLE</span><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.city}</p></div></div><div className="portal-policy-note"><ShieldAlert size={16} /> No authoritative room, rate or policy is available for this sample property. Booking is disabled.</div></section> }
