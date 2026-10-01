@@ -65,6 +65,7 @@ async function main(): Promise<void> {
     ['finance.read', 'View tenant finance'],
     ['audit.read', 'View tenant audit events'],
     ['booking.reconcile', 'Reconcile interrupted booking attempts'],
+    ['booking.read', 'View booking vouchers, invoices and credit notes'],
   ] as const;
   const permissions = await Promise.all(permissionKeys.map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
   await withTenant(tenant.id, async (tx) => {

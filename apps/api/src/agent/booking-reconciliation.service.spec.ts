@@ -2,11 +2,11 @@ import { BookingReconciliationService, DEFAULT_STALE_MINUTES, MIN_STALE_MINUTES 
 
 const NOW = new Date('2099-01-01T12:00:00.000Z')
 
-function setup(options: { holds?: string[]; booking?: any; prebooked?: number; reservation?: any } = {}) {
+function setup(options: { holds?: string[]; booking?: any; prebookedMinutesAgo?: number; reservation?: any; claim?: number } = {}) {
   const tx = {
     inventoryHold: { findMany: jest.fn().mockResolvedValue((options.holds ?? ['hold-a']).map((id) => ({ id }))) },
-    booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    auditEvent: { count: jest.fn().mockResolvedValue(options.prebooked ?? 0) },
+    booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: options.claim ?? 1 }) },
+    auditEvent: { findFirst: jest.fn().mockResolvedValue(options.prebookedMinutesAgo === undefined ? null : { createdAt: new Date(NOW.getTime() - options.prebookedMinutesAgo * 60_000) }) },
     ledgerEntry: { findFirst: jest.fn().mockResolvedValue(options.reservation === undefined ? { walletId: 'wallet-a' } : options.reservation) },
   }
   const prisma = { withTenant: jest.fn((_t: string, work: (t: unknown) => unknown) => work(tx)) }
@@ -37,10 +37,35 @@ describe('BookingReconciliationService', () => {
     expect(tx.inventoryHold.findMany.mock.calls[1][0].where.updatedAt.lt).toEqual(new Date(NOW.getTime() - DEFAULT_STALE_MINUTES * 60_000))
   })
 
-  it('leaves a successfully prebooked booking alone', async () => {
-    const { service, finance, holds } = setup({ prebooked: 1 })
+  it('leaves a prebooked booking alone inside its confirmation window', async () => {
+    const { service, finance, holds } = setup({ prebookedMinutesAgo: 59 })
     expect((await run(service)).items[0].outcome).toBe('prebooked_awaiting_confirmation')
     expect(finance.release).not.toHaveBeenCalled(); expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('expires a prebooked booking that was never confirmed within the window and returns wallet and inventory', async () => {
+    const { service, finance, holds, tx, audit } = setup({ prebookedMinutesAgo: 61 })
+    expect((await run(service)).items[0].outcome).toBe('prebook_expired')
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING' }, data: { status: 'FAILED' } })
+    expect(finance.release).toHaveBeenCalledTimes(1); expect(holds.release).toHaveBeenCalledTimes(1)
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.expired', payload: expect.objectContaining({ prebookMaxMinutes: 60 }) }))
+    const custom = setup({ prebookedMinutesAgo: 20 })
+    expect((await run(custom.service, { prebookMaxMinutes: 15 })).items[0].outcome).toBe('prebook_expired')
+    const floor = setup({ prebookedMinutesAgo: 10 })
+    expect((await run(floor.service, { prebookMaxMinutes: 1 })).items[0].outcome).toBe('prebooked_awaiting_confirmation') // never below 15 minutes
+  })
+
+  it('does nothing when it loses the claim to a concurrent confirmation', async () => {
+    const { service, finance, holds } = setup({ claim: 0 })
+    expect((await run(service)).items[0].outcome).toBe('booking_not_pending')
+    expect(finance.release).not.toHaveBeenCalled(); expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('finishes an interrupted reconciliation (booking FAILED, hold still PROCESSING) without re-claiming', async () => {
+    const { service, finance, holds, tx } = setup({ booking: { id: 'booking-a', status: 'FAILED', currency: 'AED', totalMinor: 6000n } })
+    expect((await run(service)).items[0].outcome).toBe('reconciled')
+    expect(tx.booking.updateMany).not.toHaveBeenCalled()
+    expect(finance.release).toHaveBeenCalledTimes(1); expect(holds.release).toHaveBeenCalledTimes(1)
   })
 
   it('leaves a booking that already progressed alone', async () => {

@@ -40,6 +40,7 @@ export class OfferRecheckDto {
 export class ReconcileBookingsDto {
   @IsOptional() @IsBoolean() dryRun?: boolean
   @IsOptional() @IsInt() @Min(5) @Max(1440) staleMinutes?: number
+  @IsOptional() @IsInt() @Min(15) @Max(10080) prebookMaxMinutes?: number
 }
 
 export class LeadGuestDto {

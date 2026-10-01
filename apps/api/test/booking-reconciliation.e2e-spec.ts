@@ -6,6 +6,7 @@ import { BookingFinancialAuthorizationService } from '../src/agent/booking-finan
 import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compensation-recovery.service'
 import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
 import { BookingReconciliationService } from '../src/agent/booking-reconciliation.service'
+import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 
 describe('interrupted booking reconciliation (PostgreSQL)', () => {
@@ -134,5 +135,53 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     const result = await reconcile()
     expect(result.items.find((item) => item.holdId === hold.holdId)?.outcome).toBe('reconciled')
     expect(await walletNet()).toBe(before + 125099n)
+  })
+
+  it('expires a prebooked-but-never-confirmed booking after the window, and confirmation then refuses', async () => {
+    const supplier = { prebook: async () => ({ supplierReference: 'sup-exp' }) } as unknown as SupplierAdapter
+    const hold = await newHold(`${suffix}-expire`)
+    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
+    const pre = await flow.execute({ ...commandFor(`${suffix}-expire`, hold.holdId), walletId } as never)
+    const net = await walletNet()
+    await backdate(hold.holdId, 45)
+    expect((await reconcile()).items.find((item) => item.holdId === hold.holdId)?.outcome).toBe('prebooked_awaiting_confirmation')
+
+    await prisma.$executeRawUnsafe(`UPDATE "AuditEvent" SET "created_at" = now() - interval '2 hours' WHERE "action" = 'booking.prebook.succeeded' AND "entity_id" = '${pre.bookingId}'`)
+    expect((await reconcile({ dryRun: true })).items.find((item) => item.holdId === hold.holdId)?.outcome).toBe('would_reconcile')
+    const result = await reconcile()
+    expect(result.items.find((item) => item.holdId === hold.holdId)).toEqual({ holdId: hold.holdId, bookingId: pre.bookingId, outcome: 'prebook_expired' })
+    expect(await walletNet()).toBe(net + 125099n)
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: pre.bookingId } })).toMatchObject({ status: 'FAILED' })
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.prebook.expired', entityId: pre.bookingId } })).toBe(1)
+    const confirmation = new BookingConfirmationService(prisma)
+    await expect(confirmation.confirm({ tenantId, userId, requestId: 'late', bookingId: pre.bookingId })).rejects.toThrow('not confirmable')
+  })
+
+  it('a confirmation racing the expiry has exactly one winner and never refunds a confirmed booking', async () => {
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 20 } })
+    const supplier = { prebook: async () => ({ supplierReference: 'sup-race' }) } as unknown as SupplierAdapter
+    const confirmation = new BookingConfirmationService(prisma)
+    for (let round = 0; round < 5; round++) {
+      const key = `${suffix}-race-${round}`
+      const hold = await newHold(key)
+      const pre = await new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier).execute({ ...commandFor(key, hold.holdId), walletId } as never)
+      await backdate(hold.holdId, 45)
+      await prisma.$executeRawUnsafe(`UPDATE "AuditEvent" SET "created_at" = now() - interval '2 hours' WHERE "action" = 'booking.prebook.succeeded' AND "entity_id" = '${pre.bookingId}'`)
+      const net = await walletNet()
+      const [confirmed, swept] = await Promise.allSettled([confirmation.confirm({ tenantId, userId, requestId: `c${round}`, bookingId: pre.bookingId }), reconcile()])
+      const booking = await prisma.booking.findUniqueOrThrow({ where: { id: pre.bookingId } })
+      const types = (await prisma.ledgerEntry.findMany({ where: { walletId, reference: `booking:${pre.bookingId}` }, select: { type: true } })).map((entry) => entry.type).sort()
+      expect(swept.status).toBe('fulfilled')
+      if (booking.status === 'CONFIRMED') {
+        expect(confirmed.status).toBe('fulfilled')
+        expect(types).toEqual(['DEBIT', 'HOLD', 'RELEASE']) // settled once, never released as a failure
+        expect(await walletNet()).toBe(net)
+      } else {
+        expect(booking.status).toBe('FAILED')
+        expect(confirmed.status).toBe('rejected')
+        expect(types).toEqual(['HOLD', 'RELEASE'])
+        expect(await walletNet()).toBe(net + 125099n)
+      }
+    }
   })
 })

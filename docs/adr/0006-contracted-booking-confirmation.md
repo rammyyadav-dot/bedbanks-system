@@ -48,3 +48,27 @@ CONFIRMED contracted-inventory booking:
 
 Not covered: refunds to an external payment method (the wallet is the only settlement), supplier-side cancellation
 for non-contracted suppliers, partial cancellation, no-show handling, and the Agent UI.
+
+## Addendum: prebook expiry and booking documents (2026-10-05)
+**Prebook expiry.** A prebooked booking that is never confirmed no longer holds inventory and wallet credit
+forever. `POST /agent/bookings/reconcile-stale` now also expires a PENDING booking once its
+`booking.prebook.succeeded` marker is older than `prebookMaxMinutes` (default 60, minimum 15, maximum 10080):
+booking -> `FAILED`, wallet reservation and inventory released, audit `booking.prebook.expired`, outcome
+`prebook_expired`. Inside the window it is left alone. The reconciler now *claims* the booking
+(`PENDING -> FAILED`) before releasing anything, and confirmation requires `PENDING` under a row lock, so a
+confirmation racing a sweep has exactly one winner and a confirmed booking can never be refunded as a failure. A
+`FAILED` booking whose hold is still `PROCESSING` is treated as an interrupted sweep and finished.
+This remains an operator-triggered action (see ADR 0005 on why it is not a timer).
+
+**Documents.** `GET /agent/bookings/:id/documents/{voucher|invoice|credit-note}` (JSON) and `.../html` (printable
+HTML, `booking.read`, `BOOKING_ENABLED=true`). Each is issued once per booking and type into `BookingDocument`
+(migration `202610050001`: RLS, unique `(booking, type)` and `(tenant, number)`, UPDATE rejected by trigger), numbered
+`VCH-/INV-/CN-<booking reference>`, with a frozen JSON snapshot (amounts as integer-minor strings) so a re-print shows
+exactly what was issued. Eligibility: voucher needs CONFIRMED, invoice CONFIRMED or CANCELLED, credit note CANCELLED;
+the voucher carries no price. Earlier documents of a cancelled booking re-render with a "cancelled" banner (status is
+read live, never stored). HTML is escaped, script-free, self-contained and served under
+`Content-Security-Policy: default-src 'none'`. There is no PDF engine: users print to PDF from the browser.
+
+Not covered: tax registration numbers and tenant logos (no source data yet), supplier-issued vouchers for
+non-contracted suppliers, email delivery, and DELETE protection on `BookingDocument` (only UPDATE is blocked, so tenant
+teardown still works).
