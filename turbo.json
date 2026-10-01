@@ -11,9 +11,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"],
-      "env": ["API_INTERNAL_URL", "VERCEL"]
-      "env": ["API_INTERNAL_URL", "AUTH_API_ORIGIN", "AUTH_COOKIE_NAME"],
+      "env": ["API_INTERNAL_URL", "AUTH_API_ORIGIN", "AUTH_COOKIE_NAME", "VERCEL"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"]
     },
     "dev": {
