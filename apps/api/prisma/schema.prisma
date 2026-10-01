@@ -352,6 +352,8 @@ model Cancellation {
   reason      String?
   refundMinor BigInt?  @map("refund_minor")
   createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([bookingId])
 }
 
 model Wallet {

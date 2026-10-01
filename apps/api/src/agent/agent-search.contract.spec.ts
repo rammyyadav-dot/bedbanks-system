@@ -1,5 +1,6 @@
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService } from './booking-transaction.service'
+import { BookingCancellationService } from './booking-cancellation.service'
 import { AgentController } from './agent.controller'
 import type { SupplierAdapter } from './supplier.port'
 import type { AgentFinanceService } from './finance.service'
@@ -30,7 +31,7 @@ function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
   const agentSearch = new AgentSearchService(supplier, audit)
-  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService)
+  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService)
   return { controller, audit, agentSearch }
 }
 const query = () => ({ ...criteria } as Parameters<AgentController['search']>[0])
@@ -98,12 +99,30 @@ describe('Agent canonical search boundary', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unavailable', payload: { reason: 'booking_disabled' } }))
 
     const tx = { prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService)
     process.env.BOOKING_ENABLED = 'true'
     try {
       await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
       expect(tx.prebook).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', inventoryHoldId: 'hold-a' }))
       await expect(enabled.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CONFIRMED' })
+    } finally { delete process.env.BOOKING_ENABLED }
+  })
+  it('keeps cancellation and its quote disabled unless BOOKING_ENABLED=true, then delegates', async () => {
+    const { controller, audit } = setup(jest.fn())
+    const response = () => ({ status: jest.fn() }) as unknown as Response
+    delete process.env.BOOKING_ENABLED
+    const off = response()
+    expect((await controller.cancel('booking-a', { reason: 'x' }, 'tenant-a', identity, request(), off)).status).toBe('booking_unavailable')
+    expect(off.status).toHaveBeenCalledWith(503)
+    expect((await controller.cancellationQuote('booking-a', 'tenant-a', identity, request(), response()) as { status: string }).status).toBe('booking_unavailable')
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.cancel.unavailable' }))
+    const cancellations = { cancel: jest.fn().mockResolvedValue({ status: 'CANCELLED' }), quote: jest.fn().mockResolvedValue({ refundMinor: '1' }) }
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService)
+    process.env.BOOKING_ENABLED = 'true'
+    try {
+      await expect(enabled.cancel('booking-a', { reason: 'guest' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
+      expect(cancellations.cancel).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', bookingId: 'booking-a', reason: 'guest' }))
+      await expect(enabled.cancellationQuote('booking-a', 'tenant-a', identity, request(), response())).resolves.toEqual({ refundMinor: '1' })
     } finally { delete process.env.BOOKING_ENABLED }
   })
 })

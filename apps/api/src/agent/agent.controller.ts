@@ -19,6 +19,7 @@ import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
+import { BookingCancellationService } from './booking-cancellation.service'
 
 class SearchFiltersDto {
   @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(5, { each: true }) starRatings?: number[]
@@ -55,6 +56,7 @@ export class AgentController {
     private readonly agentSearch: AgentSearchService,
     private readonly reconciliation: BookingReconciliationService,
     private readonly bookingTx: BookingTransactionService,
+    private readonly cancellations: BookingCancellationService,
   ) {}
 
   @Get('context')
@@ -147,12 +149,26 @@ export class AgentController {
     return result
   }
 
-  @Delete('bookings/:id')
+  @Get('bookings/:id/cancellation-quote')
+  @ApiOperation({ summary: 'Quote the penalty and refund for cancelling a confirmed booking now (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.cancelBooking)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.requested', entityType: 'booking', entityId: bookingId, payload: { reason: body.reason } })
-    return { status: 'provider_unavailable', bookingId, message: 'Cancellation is ready for a supplier adapter but none is configured.' }
+  async cancellationQuote(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Cancellation is unavailable until booking gates are certified.' } }
+    return this.cancellations.quote({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId })
+  }
+
+  @Delete('bookings/:id')
+  @ApiOperation({ summary: 'Cancel a confirmed booking atomically: policy penalty, inventory returned, refund posted (requires BOOKING_ENABLED=true)' })
+  @RequirePermission(PERMISSIONS.cancelBooking)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.unavailable', entityType: 'booking', entityId: bookingId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', bookingId, message: 'Cancellation is unavailable until booking gates are certified.' }
+    }
+    return this.cancellations.cancel({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, reason: body.reason })
   }
 
   @Post('bookings/reconcile-stale')

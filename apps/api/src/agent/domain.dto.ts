@@ -16,7 +16,7 @@ export class BookingActionDto extends RateActionDto {
 }
 
 export class CancellationDto {
-  @IsOptional() @IsString() reason?: string
+  @IsOptional() @IsString() @Length(0, 500) reason?: string
 }
 
 export class OfferHoldDto {
