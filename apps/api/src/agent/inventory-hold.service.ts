@@ -74,7 +74,7 @@ export class InventoryHoldService {
           } })
         }
 
-        const active = await tx.inventoryHold.update({ where: { id: hold.id }, data: { status: 'HELD' } })
+        const active = await tx.inventoryHold.update({ where: { tenantId_id: { tenantId: command.tenantId, id: hold.id } }, data: { status: 'HELD' } })
         await tx.auditEvent.create({ data: { tenantId: command.tenantId, userId: command.userId, actorType: 'USER',
           action: 'inventory.hold.created', entityType: 'inventory_hold', entityId: hold.id,
           payload: { requestId: command.requestId, ratePlanId: command.ratePlanId, rooms: command.rooms, checkIn: command.checkIn, checkOut: command.checkOut },

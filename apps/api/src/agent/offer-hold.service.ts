@@ -103,7 +103,7 @@ export class OfferHoldService {
       const plan = await tx.ratePlan.findFirst({ where: {
         id: offer.ratePlanId, tenantId, status: 'ACTIVE', boardBasisId: offer.boardBasisId,
         roomTypeId: offer.canonicalRoomTypeId, currency: offer.currency,
-        occupancy: { gte: offer.adults + offer.children }, boardBasis: { isActive: true },
+        occupancy: { gte: offer.adults + offer.children }, boardBasis: { tenantId, isActive: true },
         roomType: { isActive: true, hotelId: offer.canonicalHotelId, maxAdults: { gte: offer.adults }, maxChildren: { gte: offer.children }, maxOccupancy: { gte: offer.adults + offer.children }, hotel: { tenantId, contentStatus: 'COMPLETE' } },
         contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: checkOut }, settlementCurrency: offer.currency,
           supplier: { tenantId, status: 'ACTIVE' }, supplierHotelMapping: { tenantId, hotelId: offer.canonicalHotelId, supplierHotelId: offer.supplierHotelId, status: 'MAPPED',
