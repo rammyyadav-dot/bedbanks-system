@@ -4,7 +4,9 @@
   "description": "FBEDS API — NestJS backend foundation (P0-B)",
   "private": true,
   "scripts": {
-    "dev": "tsx src/main.ts",
+    "dev": "pnpm run build:bundle && node dist-bundle/main.js",
+    "build:bundle": "nest build --webpack --webpackPath webpack.dev.config.js",
+    "start:bundle": "node dist-bundle/main.js",
     "build": "nest build",
     "start": "node dist/main",
     "start:prod": "node dist/main",
