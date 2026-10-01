@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useRef, useState } from 'react'
+import { searchAttemptNotice } from '@/lib/search-notice'
 import { SearchView } from '@/components/search/agent-search-view'
 import { AgentHome } from '@/components/home/agent-home'
 import { Bookings } from '@/components/booking/agent-bookings'
@@ -38,10 +39,20 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   const [loadMoreError, setLoadMoreError] = useState('')
   const [toast, setToast] = useState('')
   const searchGeneration = useRef(0)
+  const toastTimer = useRef<number | null>(null)
   const agency = identity.memberships.find((membership) => membership.tenantId === tenantId)?.tenantName ?? 'Verified agency workspace'
   const formattedCredit = formatMinorAmount(finance?.availableCredit, finance?.currency)
   const creditLabel = formattedCredit ?? 'Not configured'
-  const show = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2200) }
+  const dismissToast = () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+    toastTimer.current = null
+    setToast('')
+  }
+  const show = (message: string) => {
+    dismissToast()
+    setToast(message)
+    toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast('') }, 2200)
+  }
   const nav = (next: View) => { setView(next); setMobileNav(false) }
   const criteria: SearchCriteria = { destination: destination.trim(), checkIn, checkOut, rooms, adults, children, childAges, nationality: 'IN', currency: 'AED', limit: SEARCH_PAGE_SIZE }
   const updateChildren = (count: number) => { setChildren(count); setChildAges((ages) => Array.from({ length: count }, (_, index) => ages[index] ?? 0)) }
@@ -82,6 +93,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
       return
     }
     setSearching(true)
+    dismissToast()
     try {
       const result = await new ApiHotelService().search(requested, tenantId)
       if (generation !== searchGeneration.current) return
@@ -95,8 +107,13 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
         children: requested.children,
         childAges: requested.childAges ?? [],
       })
+      const notice = searchAttemptNotice({ kind: 'resolved', status: result.status })
+      if (notice) show(notice)
     } catch {
-      if (generation === searchGeneration.current) show('Search is temporarily unavailable. Please try again.')
+      if (generation === searchGeneration.current) {
+        const notice = searchAttemptNotice({ kind: 'thrown' })
+        if (notice) show(notice)
+      }
     } finally {
       if (generation === searchGeneration.current) setSearching(false)
     }

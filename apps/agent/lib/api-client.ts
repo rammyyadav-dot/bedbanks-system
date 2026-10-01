@@ -3,6 +3,17 @@ import { agentApiBase } from './api-config.mjs'
 export type AgentIdentity = {
   user: { id: string; email: string; name: string | null; status: 'ACTIVE' | 'SUSPENDED' }
   memberships: Array<{ tenantId: string; tenantName: string; role: string }>
+  /** Server context only. True solely when the API sends boolean true. Never a booking permission. */
+  bookingEnabled: boolean
+}
+
+/** Fail closed. Only an explicit boolean true from agent context enables the booking UI. */
+export function bookingEnabledFromContext(value: unknown): boolean {
+  return value === true
+}
+
+export function agentSession(identity: { user: AgentIdentity['user']; memberships: AgentIdentity['memberships'] }, bookingEnabled: unknown): AgentIdentity {
+  return { user: identity.user, memberships: identity.memberships, bookingEnabled: bookingEnabledFromContext(bookingEnabled) }
 }
 
 const apiBase = agentApiBase
@@ -30,8 +41,9 @@ export async function login(email: string, password: string) {
   }
 }
 
-export function getAgentContext() {
-  return request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: boolean }>('/agent/context')
+export async function getAgentContext() {
+  const context = await request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: unknown }>('/agent/context')
+  return { ...context, bookingEnabled: bookingEnabledFromContext(context.bookingEnabled) }
 }
 
 export function logout() {

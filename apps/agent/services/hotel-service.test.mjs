@@ -67,6 +67,14 @@ test('missing room mapping cannot be displayed live', async () => {
   assert.equal(result.status, 'mapping_unavailable')
   assert.deepEqual(result.liveHotels, [])
 })
+test('an unavailable supplier response resolves as provider_unavailable and does not throw', async () => {
+  process.env.NODE_ENV = 'production'
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: 'https://supplier.internal/secret' }), { status: 503 })
+  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+  assert.equal(result.status, 'provider_unavailable')
+  assert.deepEqual(result.liveHotels, [])
+  assert.equal(JSON.stringify(result).includes('supplier.internal'), false)
+})
 test('a provider failure never becomes availability, even if a demo flag is set', async () => {
   process.env.NODE_ENV = 'development'
   process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
