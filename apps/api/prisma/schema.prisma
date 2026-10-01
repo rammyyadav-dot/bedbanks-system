@@ -50,6 +50,7 @@ enum InventoryHoldStatus {
   HOLD_PENDING
   HELD
   PROCESSING
+  CONFIRMED
   RELEASED
   EXPIRED
   FAILED

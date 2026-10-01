@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentAuditService } from './audit.service'
-import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, RateActionDto, ReconcileBookingsDto } from './domain.dto'
+import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, ReconcileBookingsDto, PrebookBookingDto, ConfirmBookingDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
@@ -18,6 +18,7 @@ import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { BookingReconciliationService } from './booking-reconciliation.service'
+import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
 
 class SearchFiltersDto {
   @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(5, { each: true }) starRatings?: number[]
@@ -53,6 +54,7 @@ export class AgentController {
     private readonly offerHolds: OfferHoldService,
     private readonly agentSearch: AgentSearchService,
     private readonly reconciliation: BookingReconciliationService,
+    private readonly bookingTx: BookingTransactionService,
   ) {}
 
   @Get('context')
@@ -115,19 +117,34 @@ export class AgentController {
   }
 
   @Post('prebook')
+  @ApiOperation({ summary: 'Claim a held offer, reserve wallet credit and prebook it (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.prebook)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async prebook(@Body() body: RateActionDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    await this.audit.record({ tenantId, user: identity, action: 'booking.prebook.unavailable', entityType: 'rate', entityId: body.rateId, payload: { reason: 'transactional_gates_incomplete' } })
-    return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
+  async prebook(@Body() body: PrebookBookingDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.prebook.unavailable', entityType: 'inventory_hold', entityId: body.inventoryHoldId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
+    }
+    const result = await this.bookingTx.prebook({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), inventoryHoldId: body.inventoryHoldId, idempotencyKey: body.idempotencyKey,
+      adults: body.adults, children: body.children, childAges: body.childAges, leadGuest: body.leadGuest })
+    response.status(HttpStatus.CREATED)
+    return result
   }
 
   @Post('bookings')
+  @ApiOperation({ summary: 'Confirm a prebooked booking atomically: inventory sold, wallet debited (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.createBooking)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async createBooking(@Body() body: RateActionDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
-    await this.audit.record({ tenantId, user: identity, action: 'booking.create.unavailable', entityType: 'booking', entityId: body.idempotencyKey, payload: { reason: 'transactional_gates_incomplete' } })
-    return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck, persistence and finance gates are certified.' }
+  async createBooking(@Body() body: ConfirmBookingDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.create.unavailable', entityType: 'booking', entityId: body.bookingId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck, persistence and finance gates are certified.' }
+    }
+    const result = await this.bookingTx.confirm({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId: body.bookingId })
+    response.status(result.alreadyConfirmed ? HttpStatus.OK : HttpStatus.CREATED)
+    return result
   }
 
   @Delete('bookings/:id')

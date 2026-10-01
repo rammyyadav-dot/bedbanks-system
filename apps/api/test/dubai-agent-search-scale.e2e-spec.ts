@@ -632,12 +632,12 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     const empty = await search(emptyCookie, {}, emptyTenantId).expect(201)
     expect(empty.body.data).toMatchObject({ status: 'provider_unavailable', hotels: [] })
     const prebook = await api(ownerCookie).post('/api/v1/agent/prebook').send({
-      hotelId: chains.h1.hotelId, rateId: offer.offerId, idempotencyKey: `${suffix}-prebook`, totalMinor: chains.h1.nightMinor * stayNights, currency: 'AED',
-    }).expect(201)
+      inventoryHoldId: 'hold-not-used-while-disabled', idempotencyKey: `${suffix}-prebook`, adults: 2, children: 0, childAges: [], leadGuest: { firstName: 'Test', lastName: 'Guest' },
+    }).expect(503)
     expect(prebook.body.data.status).toBe('booking_unavailable')
     const booking = await api(ownerCookie).post('/api/v1/agent/bookings').send({
-      hotelId: chains.h1.hotelId, rateId: offer.offerId, idempotencyKey: `${suffix}-book`, totalMinor: chains.h1.nightMinor * stayNights, currency: 'AED',
-    }).expect(201)
+      bookingId: 'booking-not-used-while-disabled',
+    }).expect(503)
     expect(booking.body.data.status).toBe('booking_unavailable')
   })
 })

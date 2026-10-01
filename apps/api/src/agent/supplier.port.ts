@@ -24,7 +24,7 @@ export interface SupplierAdapter {
   /** Return canonical offers with independently keyed relationships; never synthesize IDs from labels. */
   search(criteria: SearchCriteria, context: SupplierSearchContext): Promise<SupplierSearchResult>
   recheck(request: SupplierRecheckRequest, context: SupplierRequestContext): Promise<SupplierRecheckResult>
-  prebook(request: PrebookRequest, context: SupplierRequestContext): Promise<{ supplierReference: string; rate: SearchRateOffer }>
+  prebook(request: PrebookRequest, context: SupplierRequestContext): Promise<{ supplierReference: string; rate?: SearchRateOffer }>
   cancel(supplierReference: string): Promise<{ refundMinor: number }>
 }
 
@@ -35,7 +35,7 @@ export class UnconfiguredSupplierAdapter implements SupplierAdapter {
     return { offers: [], providerSummary: { queried: 0, succeeded: 0, failed: 0 } }
   }
   async recheck(): Promise<SupplierRecheckResult> { throw new SupplierProviderError('unconfigured') }
-  async prebook(): Promise<{ supplierReference: string; rate: SearchRateOffer }> { throw new Error('No supplier adapter configured') }
+  async prebook(): Promise<{ supplierReference: string; rate?: SearchRateOffer }> { throw new Error('No supplier adapter configured') }
   async cancel(): Promise<{ refundMinor: number }> { throw new Error('No supplier adapter configured') }
 }
 
