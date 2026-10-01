@@ -55,7 +55,7 @@ export function AgentEntrance({
     <div className="trade-entrance">
       <section className="trade-hero">
         <div className="trade-panel">
-          <p className="trade-logo-plate">fBeds</p>
+          <img className="trade-hero-logo" src="/fabbeds-logo.png" alt="FabBeds" width={1143} height={295} />
           <h1>{heroCopy.headline}</h1>
           <p className="trade-lead">{heroCopy.supporting}</p>
           {sessionExpired && <p className="trade-banner" role="status">Your secure session has expired. Sign in again to continue.</p>}

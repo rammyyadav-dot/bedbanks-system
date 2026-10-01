@@ -295,7 +295,7 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .trade-entrance { background: #F3F4F6; min-height: 100vh; padding: 28px 32px 36px; }
 .trade-hero { display: grid; grid-template-columns: minmax(320px, 500px) minmax(0, 1fr); gap: 20px; align-items: stretch; }
 .trade-panel { display: flex; flex-direction: column; align-items: stretch; gap: 12px; padding: 22px 28px 28px; border-radius: 28px; background: #FFFFFF; }
-.trade-logo-plate { align-self: center; box-sizing: border-box; width: min(340px, 78%); margin: 0 0 12px; padding: 40px 18px 32px; border-radius: 8px 8px 24px 24px; background: #D90429; color: #FFFFFF; font-family: Montserrat, sans-serif; font-size: 36px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; text-align: center; }
+.trade-hero-logo { align-self: center; width: min(420px, 92%); height: auto; margin: 8px 0 16px; }
 .trade-panel .trade-kicker { margin-top: 8px; color: #1F2937; font-size: 13px; letter-spacing: 0.14em; }
 .trade-panel h1, .trade-public-main h1 { margin: 0; color: #1F2937; font-family: Montserrat, sans-serif; font-size: clamp(28px, 3vw, 36px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.12; text-wrap: balance; }
 .trade-lead { margin: 0; color: #4B5563; font-size: 16px; line-height: 1.55; }
@@ -354,7 +354,7 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
   .trade-panel, .trade-footer, .trade-public-bar, .trade-public-main { padding-left: 16px; padding-right: 16px; }
   .trade-panel { padding-top: 24px; padding-bottom: 24px; }
   .trade-hero-media, .trade-hero-media img { min-height: 300px; }
-  .trade-logo-plate { font-size: 28px; }
+  .trade-hero-logo { width: min(280px, 88%); margin-top: 4px; }
   .trade-recent-list li { align-items: flex-start; flex-direction: column; }
   .trade-button, .trade-recent-list .portal-secondary { width: 100%; }
 }

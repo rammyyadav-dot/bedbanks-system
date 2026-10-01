@@ -6,7 +6,7 @@ export const heroCopy = {
   primaryCta: 'Agent Sign In',
   secondaryCta: 'Request Agent Access',
   joinLabel: 'Join us',
-  partnerInvitation: 'Travel agencies can request access. The fBeds team reviews each request. Sending a message does not create an account or a workspace role.',
+  partnerInvitation: 'Travel agencies can request access. The FabBeds team reviews each request. Sending a message does not create an account or a workspace role.',
 } as const
 
 export const privacyLink = {
