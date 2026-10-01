@@ -1,0 +1,38 @@
+# Render Blueprint for the FBEDS API. See docs/runbooks/api-deploy.md.
+# Migrations and the fbeds_api_login runtime role are manual owner steps and are
+# NOT run by this blueprint. BOOKING_ENABLED and the hold-expiry sweeper stay unset.
+services:
+  - type: web
+    name: fbeds-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    dockerContext: .
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /api/v1/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: API_PREFIX
+        value: api/v1
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: fbeds-redis
+          property: connectionString
+      # Runtime URL for fbeds_api_login (never the owner URL). Set in the dashboard.
+      - key: DATABASE_URL
+        sync: false
+      # Exact public origin of the Admin site, no path, no trailing slash.
+      - key: ADMIN_ORIGIN
+        sync: false
+
+  - type: keyvalue
+    name: fbeds-redis
+    plan: starter
+    region: frankfurt
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
