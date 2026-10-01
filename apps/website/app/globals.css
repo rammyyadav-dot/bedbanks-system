@@ -189,3 +189,5 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .footer-grid { grid-template-columns: 1fr 1fr; }.footer-grid > div:first-child { grid-column: 1 / -1; }.footer-grid > div:last-child { grid-column: auto; }.footer-base { flex-direction: column; }
   .contact-float { position: static; margin: 0 14px 20px; justify-content: center; }
 }
+
+.status-banner { margin: 0; padding: 8px 16px; background: #fff7e6; color: #5b3a00; border-bottom: 1px solid #f3d9a4; font-size: 14px; line-height: 1.4; text-align: center; }
