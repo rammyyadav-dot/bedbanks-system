@@ -4,9 +4,7 @@
   "description": "FBEDS API — NestJS backend foundation (P0-B)",
   "private": true,
   "scripts": {
-    "dev": "pnpm run build:bundle && node dist-bundle/main.js",
-    "build:bundle": "nest build --webpack --webpackPath webpack.dev.config.js",
-    "start:bundle": "node dist-bundle/main.js",
+    "dev": "node --no-experimental-strip-types -r @swc-node/register src/main.ts",
     "build": "nest build",
     "start": "node dist/main",
     "start:prod": "node dist/main",
@@ -34,25 +32,29 @@
   },
   "dependencies": {
     "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/domain": "workspace:*",
+    "@bedbanks/money": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^8.1.0",
     "@prisma/client": "^6.2.1",
+    "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
-    "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
-    "@bedbanks/domain": "workspace:*",
-    "@bedbanks/money": "workspace:*"
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
+    "@swc-node/register": "^1.12.1",
+    "@swc/core": "^1.16.13",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.7",
@@ -65,9 +67,7 @@
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.7.3",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cookie-parser": "^1.4.8"
+    "typescript": "^5.7.3"
   },
   "engines": {
     "node": ">=20.0.0",

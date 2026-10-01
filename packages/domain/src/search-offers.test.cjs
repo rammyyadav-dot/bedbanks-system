@@ -84,6 +84,48 @@ test('enforces the bounded hotel result limit after validation', () => {
   second.rooms[0].rates[0].offerId = 'offer-b'
   assert.equal(validateSearchHotels([hotel(), second], { ...criteria, limit: 1 }).hotels.length, 1)
 })
+function numberedHotel(index) {
+  const sample = hotel()
+  const hotelId = `hotel-${index}`
+  sample.hotelId = hotelId
+  sample.name = `Hotel ${String(index).padStart(2, '0')}`
+  sample.rooms[0].rates[0].hotelId = hotelId
+  sample.rooms[0].rates[0].canonicalHotelId = hotelId
+  sample.rooms[0].rates[0].offerId = `offer-${index}`
+  return sample
+}
+test('pages a stable order without duplicates or a second slice', () => {
+  const hotels = [0, 1, 2].map(numberedHotel)
+  const first = validateSearchHotels(hotels, { ...criteria, limit: 2, offset: 0 })
+  const second = validateSearchHotels(hotels, { ...criteria, limit: 2, offset: 2 })
+  assert.equal(first.ok, true)
+  assert.deepEqual(first.hotels.map((row) => row.hotelId), ['hotel-0', 'hotel-1'])
+  assert.equal(first.matchedTotal, 3)
+  assert.deepEqual(second.hotels.map((row) => row.hotelId), ['hotel-2'])
+  assert.equal(second.matchedTotal, 3)
+  const ids = [...first.hotels, ...second.hotels].map((row) => row.hotelId)
+  assert.equal(new Set(ids).size, 3)
+})
+test('keeps an already paged response and rejects an inconsistent continuation', () => {
+  const pageCriteria = { ...criteria, limit: 1, offset: 1 }
+  const response = { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z',
+    status: 'available', request: pageCriteria, hotels: [numberedHotel(1)], total: 1,
+    pagination: { limit: 1, offset: 1, total: 2, hasMore: false },
+    providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+  const validated = validateAgentSearchResponse(response, pageCriteria)
+  assert.equal(validated.ok, true)
+  assert.equal(validated.response.hotels[0].hotelId, 'hotel-1')
+  assert.deepEqual(validated.response.pagination, { limit: 1, offset: 1, total: 2, hasMore: false })
+  assert.equal(validateAgentSearchResponse({ ...response, pagination: { limit: 1, offset: 1, total: 3, hasMore: true, nextOffset: 2 } }, pageCriteria).ok, true)
+  const short = { ...response, request: { ...criteria, limit: 2 }, hotels: [numberedHotel(0)], total: 1,
+    pagination: { limit: 2, offset: 0, total: 3, hasMore: true, nextOffset: 2 } }
+  assert.equal(validateAgentSearchResponse(short, { ...criteria, limit: 2 }).ok, false)
+  assert.equal(validSearchCriteria({ ...criteria, offset: -1 }), false)
+  assert.equal(validSearchCriteria({ ...criteria, offset: 1.5 }), false)
+  assert.equal(validSearchCriteria({ ...criteria, offset: 10001 }), false)
+  assert.equal(validSearchCriteria({ ...criteria, offset: 0 }), true)
+  assert.equal(validateAgentSearchResponse(response, criteria).ok, false)
+})
 test('rejects duplicated offer ID and malformed search dates', () => {
   const sample = hotel(); sample.rooms[0].rates.push({ ...sample.rooms[0].rates[0] })
   assert.equal(validateSearchHotels([sample], criteria).ok, false)

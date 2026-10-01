@@ -327,6 +327,75 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     }, null, 2))
   })
 
+  it('walks every sellable hotel through deterministic pages', async () => {
+    const pageSize = 25
+    const seen = new Set<string>()
+    const names: string[] = []
+    const offerIds = new Set<string>()
+    const pages: number[] = []
+    let offset = 0
+    let secondPageIds: string[] = []
+    for (let page = 0; page < 5; page += 1) {
+      const response = await search(agentCookie, { limit: pageSize, offset }).expect(201)
+      const rows = response.body.data.hotels as Array<{ hotelId: string; name: string; rooms: Array<{ rates: Array<{ offerId: string }> }> }>
+      const pagination = response.body.data.pagination
+      expect(pagination).toMatchObject({ limit: pageSize, offset, total: HOTEL_COUNT, hasMore: offset + rows.length < HOTEL_COUNT })
+      expect(response.body.data.total).toBe(rows.length)
+      if (pagination.hasMore) expect(pagination.nextOffset).toBe(offset + pageSize)
+      else expect(pagination.nextOffset).toBeUndefined()
+      pages.push(rows.length)
+      if (offset === pageSize) secondPageIds = rows.map((hotel) => hotel.hotelId)
+      for (const hotel of rows) {
+        expect(seen.has(hotel.hotelId)).toBe(false)
+        seen.add(hotel.hotelId)
+        names.push(hotel.name)
+        for (const rate of hotel.rooms.flatMap((room) => room.rates)) offerIds.add(rate.offerId)
+      }
+      if (!pagination.hasMore) break
+      offset = pagination.nextOffset
+    }
+    expect(pages).toEqual([25, 25, 25, 25])
+    expect(seen.size).toBe(HOTEL_COUNT)
+    expect(offerIds.size).toBe(HOTEL_COUNT)
+    expect(names).toEqual(hotels.map((hotel) => hotel.name))
+    expect(names.some((name) => name.includes('Other Tenant'))).toBe(false)
+    const repeated = await search(agentCookie, { limit: pageSize, offset: pageSize }).expect(201)
+    expect(repeated.body.data.hotels.map((hotel: { hotelId: string }) => hotel.hotelId)).toEqual(secondPageIds)
+
+    await request(app.getHttpServer()).post('/api/v1/agent/search').set('x-fbeds-tenant-id', tenantId).send(searchBody({ limit: pageSize, offset: pageSize })).expect(401)
+    await api(deniedCookie).post('/api/v1/agent/search').send(searchBody({ limit: pageSize, offset: pageSize })).expect(403)
+    await api(agentCookie, otherTenantId).post('/api/v1/agent/search').send(searchBody({ limit: pageSize, offset: pageSize })).expect(403)
+    const otherPage = await search(otherCookie, { limit: pageSize, offset: 0 }, otherTenantId).expect(201)
+    expect(otherPage.body.data.hotels.map((hotel: { name: string }) => hotel.name)).toEqual([`${suffix} ZZZ Other Tenant`])
+    expect(otherPage.body.data.hotels.some((hotel: { hotelId: string }) => seen.has(hotel.hotelId))).toBe(false)
+
+    const priced = hotels[10]
+    await prisma.dailyRate.update({
+      where: { ratePlanId_stayDate_occupancy: { ratePlanId: priced.sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
+      data: { amountMinor: BigInt(priced.nightMinor + 100) },
+    })
+    const repriced = await search(agentCookie, { limit: pageSize, offset: 0 }).expect(201)
+    expect(repriced.body.data.hotels.find((hotel: { hotelId: string }) => hotel.hotelId === priced.hotelId).rooms[0].rates[0].sellAmountMinor).toBe(priced.totalMinor + 100)
+    await prisma.dailyRate.update({
+      where: { ratePlanId_stayDate_occupancy: { ratePlanId: priced.sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
+      data: { amountMinor: BigInt(priced.nightMinor) },
+    })
+
+    const stoppedHotel = hotels[30]
+    await prisma.dailyAvailability.update({
+      where: { ratePlanId_stayDate: { ratePlanId: stoppedHotel.sellPlanId, stayDate: utc(nights[0]) } },
+      data: { stopSell: true },
+    })
+    const afterStop = await search(agentCookie, { limit: pageSize, offset: pageSize }).expect(201)
+    expect(afterStop.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === stoppedHotel.hotelId)).toBe(false)
+    expect(afterStop.body.data.pagination.total).toBe(HOTEL_COUNT - 1)
+    await prisma.dailyAvailability.update({
+      where: { ratePlanId_stayDate: { ratePlanId: stoppedHotel.sellPlanId, stayDate: utc(nights[0]) } },
+      data: { stopSell: false },
+    })
+    expect((await search()).body.data.hotels).toHaveLength(HOTEL_COUNT)
+  })
+
   it('rechecks the first, middle and last hotel without dropping the others', async () => {
     const found = await search().expect(201)
     const offerFor = (hotelId: string) => found.body.data.hotels.find((hotel: { hotelId: string }) => hotel.hotelId === hotelId).rooms[0].rates[0]

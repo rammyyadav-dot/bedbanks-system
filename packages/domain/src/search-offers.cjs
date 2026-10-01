@@ -18,10 +18,17 @@ const sameCriteria = (left, right) => left.destination === right.destination &&
   left.childAges.length === right.childAges.length &&
   left.childAges.every((age, i) => age === right.childAges[i]) &&
   JSON.stringify(left.canonicalHotelIds ?? []) === JSON.stringify(right.canonicalHotelIds ?? []) &&
-  (left.limit ?? 50) === (right.limit ?? 50) && JSON.stringify(left.filters ?? {}) === JSON.stringify(right.filters ?? {})
+  (left.limit ?? 50) === (right.limit ?? 50) && (left.offset ?? 0) === (right.offset ?? 0) &&
+  JSON.stringify(left.filters ?? {}) === JSON.stringify(right.filters ?? {})
+
+const MAX_SEARCH_OFFSET = 10_000
+
+function pageWindow(criteria) {
+  return { limit: criteria.limit ?? 50, offset: criteria.offset ?? 0 }
+}
 
 function validSearchCriteria(c, now = Date.now()) {
-  if (!record(c) || !allowedKeys(c, ['destination', 'canonicalHotelIds', 'checkIn', 'checkOut', 'rooms', 'adults', 'children', 'childAges', 'nationality', 'currency', 'limit', 'filters'])) return false
+  if (!record(c) || !allowedKeys(c, ['destination', 'canonicalHotelIds', 'checkIn', 'checkOut', 'rooms', 'adults', 'children', 'childAges', 'nationality', 'currency', 'limit', 'offset', 'filters'])) return false
   const today = new Date(now).toISOString().slice(0, 10)
   const nights = date(c.checkIn) && date(c.checkOut) ? Math.round((Date.parse(c.checkOut) - Date.parse(c.checkIn)) / 86400000) : 0
   const hotelsValid = c.canonicalHotelIds === undefined || (Array.isArray(c.canonicalHotelIds) && c.canonicalHotelIds.length > 0 && c.canonicalHotelIds.length <= 50 && c.canonicalHotelIds.every(id))
@@ -39,10 +46,25 @@ function validSearchCriteria(c, now = Date.now()) {
     Array.isArray(c.childAges) && c.childAges.length === c.children &&
     c.childAges.every((age) => natural(age, 0) && age <= 17) &&
     SUPPORTED_COUNTRIES.has(c.nationality) && SUPPORTED_CURRENCIES.has(c.currency) &&
-    (c.limit === undefined || (natural(c.limit, 1) && c.limit <= 100)) && filtersValid
+    (c.limit === undefined || (natural(c.limit, 1) && c.limit <= 100)) &&
+    (c.offset === undefined || (natural(c.offset, 0) && c.offset <= MAX_SEARCH_OFFSET)) && filtersValid
 }
 
-function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantId) {
+function declaredPagination(value, criteria, pageLength) {
+  const { limit, offset } = pageWindow(criteria)
+  if (value === undefined) return offset === 0 ? undefined : null
+  if (!record(value) || !allowedKeys(value, ['limit', 'offset', 'total', 'hasMore', 'nextOffset'])) return null
+  if (value.limit !== limit || value.offset !== offset || !natural(value.total, 0) || pageLength > limit) return null
+  if (value.total < offset + pageLength) return null
+  const hasMore = offset + pageLength < value.total
+  if (value.hasMore !== hasMore) return null
+  if (hasMore) {
+    if (pageLength !== limit || value.nextOffset !== offset + limit) return null
+  } else if (value.nextOffset !== undefined) return null
+  return { limit, offset, total: value.total, hasMore, ...(hasMore ? { nextOffset: offset + limit } : {}) }
+}
+
+function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantId, paginate = true) {
   if (!validSearchCriteria(criteria) || !Array.isArray(input)) return { ok: false, reason: 'mapping_unavailable' }
   const offerIds = new Set()
   const hotelIds = new Set()
@@ -133,8 +155,11 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
         return rates.length === 0 ? [] : [{ ...room, rates }]
       })
       return rooms.length === 0 ? [] : [{ ...hotel, rooms }]
-    }).slice(0, criteria.limit ?? 50)
-    return { ok: true, hotels: filtered }
+    })
+    const { limit, offset } = pageWindow(criteria)
+    if (!paginate && filtered.length > limit) throw Error('page')
+    const page = paginate ? filtered.slice(offset, offset + limit) : filtered
+    return { ok: true, hotels: page, matchedTotal: paginate ? filtered.length : page.length }
   } catch {
     return { ok: false, reason: 'mapping_unavailable' }
   }
@@ -149,8 +174,9 @@ function validateAgentSearchResponse(value, criteria, now = Date.now()) {
       !natural(value.providerSummary.queried, 0) || !natural(value.providerSummary.succeeded, 0) || !natural(value.providerSummary.failed, 0) ||
       value.providerSummary.succeeded + value.providerSummary.failed > value.providerSummary.queried)
     return { ok: false, reason: 'mapping_unavailable' }
-  const result = validateSearchHotels(value.hotels, criteria, now)
-  if (!result.ok || value.total !== result.hotels.length ||
+  const result = validateSearchHotels(value.hotels, criteria, now, undefined, false)
+  const pagination = result.ok ? declaredPagination(value.pagination, criteria, result.hotels.length) : null
+  if (!result.ok || pagination === null || value.total !== result.hotels.length ||
       (!['available', 'partial'].includes(value.status) && result.hotels.length > 0) ||
       (['available', 'partial'].includes(value.status) && result.hotels.length === 0) ||
       (value.status === 'partial' && value.providerSummary.failed === 0))
@@ -158,6 +184,7 @@ function validateAgentSearchResponse(value, criteria, now = Date.now()) {
   return { ok: true, response: { version: 1, searchId: value.searchId, requestId: value.requestId,
     generatedAt: value.generatedAt, status: value.status, request: { ...criteria, childAges: [...criteria.childAges] },
     hotels: result.hotels, total: result.hotels.length,
+    ...(pagination ? { pagination } : {}),
     providerSummary: { queried: value.providerSummary.queried, succeeded: value.providerSummary.succeeded, failed: value.providerSummary.failed } } }
 }
 
