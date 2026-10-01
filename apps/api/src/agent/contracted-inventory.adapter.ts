@@ -11,6 +11,8 @@ const OFFER_PREFIX = 'ci_'
 const DEFAULT_OFFER_TTL_MS = 900_000
 const MIN_OFFER_TTL_MS = 1_000
 const MAX_OFFER_TTL_MS = 3_600_000
+/** Candidate hotels per rate-plan read. Small enough to keep each query bounded, with no global plan ceiling. */
+const HOTEL_CANDIDATE_BATCH = 25
 
 interface StoredOffer {
   offerId: string
@@ -49,6 +51,10 @@ function sourceFor(type: SupplierType): SearchRateOffer['source'] {
   if (type === 'CHANNEL_MANAGER') return 'channel_manager'
   if (type === 'GDS') return 'gds'
   return 'bedbank'
+}
+
+function commercialKey(rate: SearchRateOffer): string {
+  return [rate.hotelId, rate.roomTypeId, rate.boardBasisId, rate.ratePlanId, rate.supplierId, rate.contractId ?? ''].join('|')
 }
 
 @Injectable()
@@ -125,7 +131,37 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const checkOut = new Date(`${criteria.checkOut}T00:00:00.000Z`)
     const nightDates = nights.map((night) => new Date(`${night}T00:00:00.000Z`))
     const destination = criteria.destination.trim()
-    return this.prisma.withTenant(tenantId, (tx) => tx.ratePlan.findMany({
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const hotels = await tx.hotel.findMany({
+        where: {
+          tenantId,
+          contentStatus: 'COMPLETE',
+          ...(criteria.canonicalHotelIds?.length ? { id: { in: criteria.canonicalHotelIds } } : {}),
+          ...(destination ? { city: { contains: destination, mode: 'insensitive' } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      })
+      const plans: Awaited<ReturnType<ContractedInventoryAdapter['findPlanBatch']>> = []
+      for (let offset = 0; offset < hotels.length; offset += HOTEL_CANDIDATE_BATCH) {
+        const hotelIds = hotels.slice(offset, offset + HOTEL_CANDIDATE_BATCH).map((hotel) => hotel.id)
+        plans.push(...await this.findPlanBatch(tx, tenantId, criteria, occupancy, checkIn, checkOut, nightDates, hotelIds))
+      }
+      return plans
+    })
+  }
+
+  private findPlanBatch(
+    tx: Parameters<Parameters<PrismaService['withTenant']>[1]>[0],
+    tenantId: string,
+    criteria: SearchCriteria,
+    occupancy: number,
+    checkIn: Date,
+    checkOut: Date,
+    nightDates: Date[],
+    hotelIds: string[],
+  ) {
+    return tx.ratePlan.findMany({
       where: {
         tenantId,
         status: 'ACTIVE',
@@ -137,12 +173,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           maxAdults: { gte: criteria.adults },
           maxChildren: { gte: criteria.children },
           maxOccupancy: { gte: occupancy },
-          hotel: {
-            tenantId,
-            contentStatus: 'COMPLETE',
-            ...(criteria.canonicalHotelIds ? { id: { in: criteria.canonicalHotelIds } } : {}),
-            ...(destination ? { city: { contains: destination, mode: 'insensitive' } } : {}),
-          },
+          hotelId: { in: hotelIds },
         },
         contract: {
           tenantId,
@@ -151,40 +182,84 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           validFrom: { lte: checkIn },
           validTo: { gte: checkOut },
           supplier: { tenantId, status: 'ACTIVE' },
-          supplierHotelMapping: { is: { tenantId, status: 'MAPPED' } },
+          supplierHotelMapping: { is: { tenantId, status: 'MAPPED', hotelId: { in: hotelIds } } },
         },
       },
       include: {
         boardBasis: true,
         roomType: { include: { hotel: true } },
-        contract: { include: { supplier: true, supplierHotelMapping: { include: { roomMappings: true } } } },
+        contract: {
+          include: {
+            supplier: true,
+            supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
+          },
+        },
         dailyRates: { where: { occupancy, stayDate: { in: nightDates } } },
         availability: { where: { stayDate: { in: nightDates } } },
       },
-      take: 200,
-    }))
+      orderBy: { id: 'asc' },
+    })
   }
 
   private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[]): SearchHotelOffer[] {
     const expiresAt = new Date(Date.now() + offerTtlMs()).toISOString()
     const leadDays = commercialLeadDays(criteria.checkIn)
+    const seen = new Set<string>()
     const priced = plans.flatMap((plan) => {
       const built = this.pricePlan(plan, criteria, tenantId, nights, leadDays, expiresAt)
-      return built ? [built] : []
-    }).sort((left, right) => left.rate.sellAmountMinor - right.rate.sellAmountMinor)
-    const hotels = new Map<string, SearchHotelOffer>()
+      if (!built || seen.has(commercialKey(built.rate))) return []
+      seen.add(commercialKey(built.rate))
+      return [built]
+    })
+    const byHotel = new Map<string, typeof priced>()
     for (const item of priced) {
-      const current = hotels.get(item.hotel.hotelId)
-      if (!current) {
-        hotels.set(item.hotel.hotelId, item.hotel)
-        continue
-      }
-      if (current.supplierId !== item.hotel.supplierId) continue
-      const room = current.rooms.find((candidate) => candidate.roomTypeId === item.hotel.rooms[0].roomTypeId)
-      if (!room) current.rooms.push(item.hotel.rooms[0])
-      else room.rates.push(item.hotel.rooms[0].rates[0])
+      const rows = byHotel.get(item.hotel.hotelId) ?? []
+      rows.push(item)
+      byHotel.set(item.hotel.hotelId, rows)
     }
-    return [...hotels.values()].slice(0, criteria.limit ?? 50)
+    const hotels = [...byHotel.entries()]
+      .sort((left, right) => left[1][0].hotel.name.localeCompare(right[1][0].hotel.name) || left[0].localeCompare(right[0]))
+      .map(([, items]) => this.hotelOffer(items))
+    return hotels.slice(0, criteria.limit ?? 50)
+  }
+
+  private hotelOffer(items: Array<{ hotel: SearchHotelOffer; rate: SearchRateOffer }>): SearchHotelOffer {
+    const bySupplier = new Map<string, typeof items>()
+    for (const item of items) {
+      const rows = bySupplier.get(item.hotel.supplierId) ?? []
+      rows.push(item)
+      bySupplier.set(item.hotel.supplierId, rows)
+    }
+    const [supplierId, chosen] = [...bySupplier.entries()].sort((left, right) => {
+      const leftPrice = Math.min(...left[1].map((item) => item.rate.sellAmountMinor))
+      const rightPrice = Math.min(...right[1].map((item) => item.rate.sellAmountMinor))
+      return leftPrice - rightPrice || left[0].localeCompare(right[0])
+    })[0]
+    const rooms = new Map<string, SearchHotelOffer['rooms'][number]>()
+    const ordered = [...chosen].sort((left, right) => (
+      left.hotel.rooms[0].name.localeCompare(right.hotel.rooms[0].name)
+      || left.rate.sellAmountMinor - right.rate.sellAmountMinor
+      || left.rate.ratePlanId.localeCompare(right.rate.ratePlanId)
+    ))
+    for (const item of ordered) {
+      const room = item.hotel.rooms[0]
+      const current = rooms.get(room.roomTypeId)
+      if (!current) rooms.set(room.roomTypeId, { ...room, rates: [...room.rates] })
+      else current.rates.push(room.rates[0])
+    }
+    for (const room of rooms.values()) {
+      room.rates.sort((left, right) => left.sellAmountMinor - right.sellAmountMinor || left.ratePlanId.localeCompare(right.ratePlanId))
+    }
+    const hotel = chosen[0].hotel
+    return {
+      hotelId: hotel.hotelId,
+      name: hotel.name,
+      destination: hotel.destination,
+      starRating: hotel.starRating,
+      supplierId,
+      supplierHotelId: hotel.supplierHotelId,
+      rooms: [...rooms.values()].sort((left, right) => left.name.localeCompare(right.name) || left.roomTypeId.localeCompare(right.roomTypeId)),
+    }
   }
 
   private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], leadDays: number, expiresAt: string, persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
