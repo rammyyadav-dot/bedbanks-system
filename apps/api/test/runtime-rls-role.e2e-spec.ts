@@ -2,9 +2,9 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { PrismaClient, type Prisma } from '@prisma/client'
 
 /**
- * Proves the existing disposable NOLOGIN role `fbeds_rls_test` is subject to
- * forced RLS. It is not an API connection role: the HTTP runtime still has no
- * provisioned LOGIN role, so this file does not certify the booted API.
+ * Proves the disposable NOLOGIN role `fbeds_rls_test` is subject to forced RLS
+ * when assumed inside an owner transaction. The API login role is certified in
+ * api-runtime-role.e2e-spec.ts.
  */
 describe('disposable RLS role hotel isolation', () => {
   const prisma = new PrismaClient()
@@ -55,13 +55,12 @@ describe('disposable RLS role hotel isolation', () => {
         WHERE rolcanlogin AND NOT rolsuper AND NOT rolbypassrls AND rolname <> 'postgres'
         ORDER BY rolname`)
     mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/rls-runtime-role.json', JSON.stringify({
+    writeFileSync('/opt/cursor/artifacts/rls-nologin-role.json', JSON.stringify({
       connectionRole: connection[0],
       restrictedRole: restricted[0],
       tables,
       nonBypassLoginRoles: loginRoles,
-      httpRuntimeCertification: 'BLOCKED',
-      reason: 'The API connects as the database owner. fbeds_rls_test is NOLOGIN and is only assumed with SET LOCAL ROLE. No disposable LOGIN runtime role is provisioned for hotel search.',
+      note: 'fbeds_rls_test is NOLOGIN and is assumed with SET LOCAL ROLE. The API login role is certified separately.',
     }, null, 2))
 
     expect(restricted[0]).toMatchObject({ rolname: 'fbeds_rls_test', rolsuper: false, rolbypassrls: false, rolcanlogin: false, owned: 0 })

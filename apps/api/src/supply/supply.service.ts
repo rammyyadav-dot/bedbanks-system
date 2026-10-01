@@ -255,7 +255,7 @@ export class SupplyService {
     const hasStay = input.checkInDate !== undefined || input.nights !== undefined
     if (hasStay && (typeof input.checkInDate !== 'string' || !Number.isInteger(input.nights) || input.nights < 1 || input.nights > 366)) throw new BadRequestException('checkInDate and a positive integer nights are required together')
     const checkIn = hasStay ? date(input.checkInDate) : null
-    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, include: { roomType: { include: { hotel: true } }, boardBasis: true, contract: { include: { supplier: true, supplierHotelMapping: true } }, dailyRates: { where: { stayDate, occupancy: input.occupancy } }, availability: { where: { stayDate } } } }))
+    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, include: { roomType: { include: { hotel: true } }, boardBasis: true, contract: { include: { supplier: true, supplierHotelMapping: true } }, dailyRates: { where: { tenantId, stayDate, occupancy: input.occupancy } }, availability: { where: { tenantId, stayDate } } } }))
     const roomMapping = plan?.contract.supplierHotelMapping
       ? await this.prisma.withTenant(tenantId, tx => tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId, status: 'MAPPED' } }))
       : null

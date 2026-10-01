@@ -14,16 +14,20 @@ describe('auth HTTP integration', () => {
   let passwordHash: string;
   const sessions = new Map<string, { id: string; tokenHash: string; expiresAt: Date; revokedAt: Date | null }>();
   const user = () => ({ id: 'u1', email: 'admin@example.test', name: 'Admin', status: 'ACTIVE', passwordHash });
+  const membership = { findMany: jest.fn(async () => []) };
   const db = {
     user: { findUnique: jest.fn(async () => user()), update: jest.fn(async () => user()) },
-    membership: { findMany: jest.fn(async () => []) },
+    membership,
     session: {
       create: jest.fn(async ({ data }) => { const row = { ...data, id: 's1', revokedAt: null }; sessions.set(data.tokenHash, row); return row; }),
       findUnique: jest.fn(async ({ where }) => { const row = sessions.get(where.tokenHash); return row ? { ...row, user: user() } : null; }),
       update: jest.fn(async () => ({})),
       updateMany: jest.fn(async ({ where, data }) => { const row = sessions.get(where.tokenHash); if (row) row.revokedAt = data.revokedAt; return { count: row ? 1 : 0 }; }),
     },
-    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    $transaction: jest.fn(async (ops: unknown) => {
+      if (typeof ops === 'function') return ops({ $executeRaw: async () => 0, membership });
+      return Promise.all(ops as Promise<unknown>[]);
+    }),
   };
   beforeAll(async () => {
     passwordHash = await hashPassword('correct-password');
