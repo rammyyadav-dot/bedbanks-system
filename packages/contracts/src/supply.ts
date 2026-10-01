@@ -38,7 +38,7 @@ export interface DailyRateWrite { ratePlanId: string; stayDate: SupplyDate; occu
 export interface DailyAvailabilityRead { id: string; tenantId: string; ratePlanId: string; stayDate: SupplyDate; allotment: number; sold: number; stopSell: boolean; minStay: number }
 export interface SellabilityRequest { ratePlanId: string; stayDate: SupplyDate; occupancy: number; checkInDate?: SupplyDate; nights?: number }
 export interface SupplyCapabilities { permissions: SupplyPermission[] }
-export interface SellabilityResult { eligible: boolean; status: 'ELIGIBLE_FOR_FUTURE_SEARCH' | 'NOT_ELIGIBLE'; reasons: string[] }
+export interface SellabilityResult { eligible: boolean; status: 'ELIGIBLE_FOR_FUTURE_SEARCH' | 'NOT_ELIGIBLE'; reasons: string[]; /** Non-blocking notes, e.g. HOTEL_CONTENT_NOT_COMPLETE (sellable but not visible to agent search). */ warnings?: string[] }
 
 export const supplyRoutes = {
   hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',

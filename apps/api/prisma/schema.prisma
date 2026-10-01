@@ -44,11 +44,19 @@ enum BookingStatus {
   FAILED
 }
 
+enum BookingDocumentType {
+  VOUCHER
+  INVOICE
+  CREDIT_NOTE
+}
+
 enum InventoryHoldStatus {
   PENDING_RECHECK
   RECHECKED
   HOLD_PENDING
   HELD
+  PROCESSING
+  CONFIRMED
   RELEASED
   EXPIRED
   FAILED
@@ -153,6 +161,7 @@ model Tenant {
   roles       Role[]
   roleAssignments UserRole[]
   bookings    Booking[]
+  bookingDocuments BookingDocument[]
   wallets     Wallet[]
   ledger      LedgerEntry[]
   auditEvents AuditEvent[]
@@ -338,9 +347,26 @@ model Booking {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
   cancellations  Cancellation[]
+  documents      BookingDocument[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
+}
+
+model BookingDocument {
+  id        String              @id @default(cuid())
+  tenantId  String              @map("tenant_id")
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId String              @map("booking_id")
+  booking   Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  type      BookingDocumentType
+  number    String
+  payload   Json
+  issuedAt  DateTime            @default(now()) @map("issued_at")
+
+  @@unique([bookingId, type])
+  @@unique([tenantId, number])
+  @@index([tenantId, bookingId])
 }
 
 model Cancellation {
@@ -350,6 +376,8 @@ model Cancellation {
   reason      String?
   refundMinor BigInt?  @map("refund_minor")
   createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([bookingId])
 }
 
 model Wallet {

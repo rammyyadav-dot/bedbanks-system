@@ -7,7 +7,7 @@ import { LoadingState } from '@/components/common/LoadingState'
 import { PlanPicker } from './PlanPicker'
 import { describeApiError } from '@/lib/api/describe-error'
 import { dateRange } from '@/lib/dubai-operations'
-import { summarizeSellability, type SellabilitySummary } from '@/lib/sellability'
+import { summarizeSellability, WARNING_TEXT, type SellabilitySummary } from '@/lib/sellability'
 import { checkSellability, getRatePlans, type AdminRatePlan } from '@/lib/data'
 
 const MAX_NIGHTS = 31
@@ -79,6 +79,7 @@ export function SellabilityInspector({ initialRatePlanId = '', initialCheckIn = 
                 ))}</tbody>
               </table>
               <p role="status" style={{ fontSize: 14, fontWeight: 700, color: summary.sellable ? '#1f7a5a' : '#bc5652' }}>RESULT: {summary.sellable ? 'SELLABLE' : 'NOT SELLABLE'}</p>
+              {summary.warnings.map((code) => <p key={code} role="note" data-warning={code} style={{ background: '#fff7e0', border: '1px solid #f0d58a', padding: '8px 12px', fontSize: 12 }}>{WARNING_TEXT[code] ?? code}</p>)}
               {!summary.sellable ? <ul style={{ fontSize: 12 }}>{summary.failures.map((failure) => <li key={`${failure.stayDate}-${failure.code}`}>{failure.code}: {failure.stayDate}</li>)}</ul> : null}
             </section>
           ) : null}

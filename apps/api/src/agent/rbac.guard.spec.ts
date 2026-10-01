@@ -5,7 +5,7 @@ import { PERMISSIONS } from './supplier.port';
 import type { PrismaService } from '../database/prisma.service';
 
 function context(): ExecutionContext {
-  const request = { user: { user: { id: 'user-a' } }, header: (name: string) => (name === 'x-fbeds-tenant-id' ? 'tenant-a' : undefined) };
+  const request = { user: { user: { id: 'user-a' } }, header: (name: string) => (name === 'x-fbeds-tenant-id' ? 'tenant-forged' : undefined), activeTenantId: 'tenant-a' };
   return { switchToHttp: () => ({ getRequest: () => request }), getHandler: () => undefined, getClass: () => undefined } as unknown as ExecutionContext;
 }
 
@@ -38,5 +38,15 @@ describe('AgentRbacGuard', () => {
     reflected.mockReturnValue(PERMISSIONS.search);
     userRoleFindMany.mockResolvedValue([{ role: { permissions: [{ permission: { key: PERMISSIONS.search } }] } }]);
     await expect(guard.canActivate(context())).resolves.toBe(true);
+  });
+
+  it('trusts only the guard-validated tenant, never the raw header, and fails closed without it', async () => {
+    reflected.mockReturnValue(PERMISSIONS.search);
+    userRoleFindMany.mockResolvedValue([{ role: { permissions: [{ permission: { key: PERMISSIONS.search } }] } }]);
+    await guard.canActivate(context());
+    expect(withTenant.mock.calls.every(([tenant]) => tenant === 'tenant-a')).toBe(true);
+    const unvalidated = { user: { user: { id: 'user-a' } }, header: () => 'tenant-forged' };
+    const ctx = { switchToHttp: () => ({ getRequest: () => unvalidated }), getHandler: () => undefined, getClass: () => undefined } as unknown as ExecutionContext;
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

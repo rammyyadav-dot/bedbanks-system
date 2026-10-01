@@ -33,3 +33,10 @@ describe('TenantContextGuard', () => {
     await expect(guard.canActivate(context(identity, 'tenant-a'))).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+describe('agent controller tenant handling', () => {
+  it('never reads the raw tenant header in a handler', () => {
+    const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'agent.controller.ts'), 'utf8') as string
+    expect(source).not.toMatch(/@Headers\(\s*['"]x-fbeds-tenant-id/)
+  })
+})
