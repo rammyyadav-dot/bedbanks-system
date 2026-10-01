@@ -43,6 +43,20 @@ test('live canonical offer retains nested authoritative total', async () => {
   assert.equal(result.liveHotels[0].rooms[0].rates[0].total.amountMinor, 125099)
   assert.equal(result.liveHotels[0].rooms[0].rates[0].boardBasisId, 'b1')
 })
+test('keeps server pagination instead of treating the page as the full result', async () => {
+  process.env.NODE_ENV = 'production'
+  const pageCriteria = { ...criteria, limit: 1, offset: 1 }
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(JSON.parse(init.body).offset, 1)
+    return new Response(JSON.stringify({ data: { version: 1, searchId: 'search-b', requestId: 'request-b', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+      request: pageCriteria, hotels: [hotel], total: 1,
+      pagination: { limit: 1, offset: 1, total: 2, hasMore: false },
+      providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
+  }
+  const result = await new ApiHotelService('https://example.invalid').search(pageCriteria, 'tenant-a')
+  assert.equal(result.liveHotels.length, 1)
+  assert.deepEqual(result.pagination, { limit: 1, offset: 1, total: 2, hasMore: false })
+})
 test('missing room mapping cannot be displayed live', async () => {
   process.env.NODE_ENV = 'production'
   const malformed = structuredClone(hotel)

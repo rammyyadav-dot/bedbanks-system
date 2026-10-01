@@ -179,13 +179,14 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         status: 'ACTIVE',
         currency: criteria.currency,
         occupancy,
-        boardBasis: { isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
+        boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
         roomType: {
           isActive: true,
           maxAdults: { gte: criteria.adults },
           maxChildren: { gte: criteria.children },
           maxOccupancy: { gte: occupancy },
           hotelId: { in: hotelIds },
+          hotel: { tenantId },
         },
         contract: {
           tenantId,
@@ -206,8 +207,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },
-        dailyRates: { where: { occupancy, stayDate: { in: nightDates } } },
-        availability: { where: { stayDate: { in: nightDates } } },
+        dailyRates: { where: { tenantId, occupancy, stayDate: { in: nightDates } } },
+        availability: { where: { tenantId, stayDate: { in: nightDates } } },
       },
       orderBy: { id: 'asc' },
     })
@@ -232,7 +233,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const hotels = [...byHotel.entries()]
       .sort((left, right) => left[1][0].hotel.name.localeCompare(right[1][0].hotel.name) || left[0].localeCompare(right[0]))
       .map(([, items]) => this.hotelOffer(items))
-    return hotels.slice(0, criteria.limit ?? 50)
+    // The domain validator applies offset and limit once, after this stable order.
+    return hotels
   }
 
   private hotelOffer(items: Array<{ hotel: SearchHotelOffer; rate: SearchRateOffer }>): SearchHotelOffer {

@@ -83,10 +83,19 @@ class EnvironmentVariables {
  * `undefined` config values. Covers process/API config (P0-B),
  * DATABASE_URL (P0-C), and session/cookie/CORS config (P0-D).
  */
+function integerEnv(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === '') return fallback
+  const parsed = Number(value)
+  return Number.isInteger(parsed) ? parsed : Number.NaN
+}
+
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
   const normalizedConfig = {
     ...config,
     API_PORT: Number.isInteger(Number(config.API_PORT)) && Number(config.API_PORT) > 0 ? Number(config.API_PORT) : 3002,
+    // Environment values are strings. tsx does not emit design:type metadata, so
+    // class-transformer cannot turn this one into a number on its own.
+    AUTH_SESSION_TTL_SECONDS: integerEnv(config.AUTH_SESSION_TTL_SECONDS, 28800),
   }
   const validatedConfig = plainToInstance(EnvironmentVariables, normalizedConfig, {
     enableImplicitConversion: true,

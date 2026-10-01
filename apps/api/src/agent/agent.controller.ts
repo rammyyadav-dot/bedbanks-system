@@ -8,13 +8,13 @@ import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, Rec
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
-import { ACTIVE_TENANT_REQUEST_KEY, ActiveTenant, TenantContextGuard } from './tenant-context.guard'
+import { ActiveTenant, TenantContextGuard, activeTenantId } from './tenant-context.guard'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
-import { validSearchCriteria } from '@bedbanks/domain/search-offers'
+import { validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { BookingReconciliationService } from './booking-reconciliation.service'
@@ -45,6 +45,7 @@ class SearchHotelsDto implements HotelSearchCriteria {
   @IsString() nationality!: string
   @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
   @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number
+  @IsOptional() @IsInt() @Min(0) @Max(10000) offset?: number
   @IsOptional() @ValidateNested() @Type(() => SearchFiltersDto) filters?: SearchFiltersDto
 }
 
@@ -78,7 +79,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async holdOffer(@Param() params: OfferHoldParamsDto, @Body() body: OfferHoldDto,
     @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
@@ -104,7 +105,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
   }
 
@@ -122,7 +123,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async recheck(@Body() body: OfferRecheckDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request,
     @Res({ passthrough: true }) response: Response) {
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     const result = await this.offerHolds.recheck({ offerId: body.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
