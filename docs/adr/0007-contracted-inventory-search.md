@@ -24,6 +24,12 @@ and returns no hotels.
 sellability reasons are unchanged and now call the same night helper.
 
 ## Consequences
-One approved Dubai hotel can be searched and rechecked from authoritative
-rows. Scaling past the adapter's current plan read limit, and any live
-supplier booking, needs a separate decision. No schema change is required.
+Approved Dubai hotels can be searched and rechecked from authoritative rows.
+The adapter does not apply a global rate-plan ceiling. It first selects the
+tenant's complete candidate hotels for the destination, ordered by id, then
+reads active rate plans in batches of 25 hotels. Each batch is ordered by
+rate-plan id and includes only mapped room rows for the requested nights.
+Sellability still drops unsellable plans after those reads. The response
+limit applies only after that evaluation. Search results for this adapter
+stay uncached. Live supplier booking remains a separate decision. No schema
+change is required. Admin sellability remains a single-night check.
