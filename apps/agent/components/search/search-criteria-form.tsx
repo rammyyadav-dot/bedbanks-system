@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, MapPin, Minus, Plus, Search } from 'lucide-react'
 import { marketplaceHome } from '@/lib/marketplace-content'
 import { destinationSuggestions } from '@/lib/destination-suggestions'
+import { criteriaFilters } from '@/lib/search-filters'
 import { GUEST_MARKETS, guestMarketName } from '@/lib/guest-market'
 import { clampCount, MAX_OCCUPANTS, MAX_ROOMS, occupancySummary } from '@/lib/occupancy'
 import { formatCompactStay, weekdayShort } from '@/lib/format'
@@ -49,28 +50,39 @@ export function SearchCriteriaForm({
   destinationInvalid?: boolean
 }) {
   const [advanced, setAdvanced] = useState(false)
+  const [formError, setFormError] = useState('')
   const submitLabel = searching ? marketplaceHome.searchingCta : searchFailed ? marketplaceHome.retryCta : marketplaceHome.searchCta
   const nights = nightCount(checkIn, checkOut)
+  const change = (action: () => void) => { setFormError(''); onChange(action) }
+  const submit = () => {
+    const parsed = criteriaFilters({ starRatings, refundableOnly, minPriceAed, maxPriceAed })
+    if (!destination.trim()) return setFormError('Enter a destination.')
+    if (!parsed.ok) return setFormError(parsed.reason)
+    if (nights === null || nights > 30) return setFormError('Choose a stay of 1 to 30 nights.')
+    setFormError('')
+    onSubmit()
+  }
   return (
     <section className="market-search" id="hotel-search" aria-label="Hotel search">
       <div className="market-search-row">
-        <DestinationField destination={destination} invalid={destinationInvalid} onChange={(value) => onChange(() => setDestination(value))} />
-        <StayField checkIn={checkIn} checkOut={checkOut} nights={nights} onChange={(next) => onChange(() => { setCheckIn(next.checkIn); setCheckOut(next.checkOut) })} />
-        <OccupancyField rooms={rooms} adults={adults} children={children} childAges={childAges} onChange={(next) => onChange(() => {
+        <DestinationField destination={destination} invalid={destinationInvalid || Boolean(formError && !destination.trim())} onChange={(value) => change(() => setDestination(value))} />
+        <StayField checkIn={checkIn} checkOut={checkOut} nights={nights} onChange={(next) => change(() => { setCheckIn(next.checkIn); setCheckOut(next.checkOut) })} />
+        <OccupancyField rooms={rooms} adults={adults} children={children} childAges={childAges} onChange={(next) => change(() => {
           setRooms(next.rooms)
           setAdults(next.adults)
           if (next.children !== children) updateChildren(next.children)
           else setChildAges(next.childAges)
         })} />
-        <NationalityField nationality={nationality} onChange={(value) => onChange(() => setNationality(value))} />
-        <button className="portal-primary market-search-cta" type="button" onClick={onSubmit} disabled={searching}><Search size={16} /> {submitLabel}</button>
+        <NationalityField nationality={nationality} onChange={(value) => change(() => setNationality(value))} />
+        <button className="portal-primary market-search-cta" type="button" onClick={submit} disabled={searching}><Search size={16} /> {submitLabel}</button>
       </div>
       <div className="market-search-tools">
         <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>
         <p><span>{marketplaceHome.currencyLabel}</span> <strong>{marketplaceHome.currencyCode}</strong></p>
       </div>
+      {formError && <p className="portal-field-error" role="alert">{formError}</p>}
       <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} {marketplaceHome.residencyNote} A search total is not confirmed availability.</p>
-      {advanced && <AdvancedFields starRatings={starRatings} setStarRatings={(value) => onChange(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => onChange(() => setRefundableOnly(value))} minPriceAed={minPriceAed} setMinPriceAed={(value) => onChange(() => setMinPriceAed(value))} maxPriceAed={maxPriceAed} setMaxPriceAed={(value) => onChange(() => setMaxPriceAed(value))} onClear={() => onChange(() => { setStarRatings([]); setRefundableOnly(false); setMinPriceAed(''); setMaxPriceAed('') })} />}
+      {advanced && <AdvancedFields starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPriceAed={minPriceAed} setMinPriceAed={(value) => change(() => setMinPriceAed(value))} maxPriceAed={maxPriceAed} setMaxPriceAed={(value) => change(() => setMaxPriceAed(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPriceAed(''); setMaxPriceAed('') })} />}
     </section>
   )
 }

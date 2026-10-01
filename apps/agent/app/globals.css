@@ -439,6 +439,7 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .market-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .market-badges span { padding: 4px 7px; border-radius: 999px; background: #F7F8FA; color: #1F2937; font-size: 11px; font-weight: 700; }
 .portal-rate .portal-primary:not(:disabled) { opacity: 1; cursor: pointer; }
+.portal-hold-outcome strong { text-transform: none; font-size: 14px; }
 .market-home { gap: 18px; }
 @media (max-width: 1100px) {
   .market-search-row, .market-recent-grid { grid-template-columns: 1fr 1fr; }
