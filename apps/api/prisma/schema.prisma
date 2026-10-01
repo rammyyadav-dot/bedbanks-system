@@ -505,6 +505,8 @@ model HotelSearchIndex {
 
   @@unique([tenantId, hotelId])
   @@index([tenantId, normalizedCountryCode, normalizedCity])
+  @@index([normalizedName(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_name_trgm")
+  @@index([normalizedAddress(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_address_trgm")
 }
 
 model RoomType {
