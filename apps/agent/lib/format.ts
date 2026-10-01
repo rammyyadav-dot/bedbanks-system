@@ -48,6 +48,37 @@ export function formatStay(checkIn: string, checkOut: string): string {
   return `${sameYear ? short.format(start) : full.format(start)} – ${full.format(end)} · ${nights} night${nights === 1 ? '' : 's'}`
 }
 
+/** "12–15 Oct" when the stay is inside one month, otherwise "30 Dec – 2 Jan". */
+export function formatCompactStay(checkIn: string, checkOut: string): string {
+  const start = parseDate(checkIn)
+  const end = parseDate(checkOut)
+  if (start === null || end === null || end <= start) return `${checkIn} – ${checkOut}`
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+  const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', timeZone: 'UTC' })
+  const month = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' })
+  if (startDate.getUTCFullYear() === endDate.getUTCFullYear() && startDate.getUTCMonth() === endDate.getUTCMonth()) {
+    return `${day.format(start)}–${day.format(end)} ${month.format(end)}`
+  }
+  const dayMonth = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  return `${dayMonth.format(start)} – ${dayMonth.format(end)}`
+}
+
+export function weekdayShort(value: string): string | null {
+  const time = parseDate(value)
+  if (time === null) return null
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' }).format(time)
+}
+
+/** Signed difference of two minor-unit amounts. Positive values keep a leading plus. */
+export function formatMinorDelta(previousMinor: number, nextMinor: number, currency: string): string | null {
+  if (!Number.isSafeInteger(previousMinor) || !Number.isSafeInteger(nextMinor)) return null
+  const delta = BigInt(nextMinor) - BigInt(previousMinor)
+  const formatted = formatMinorAmount(delta, currency)
+  if (!formatted || delta <= 0n) return formatted
+  return `+${formatted}`
+}
+
 export type CreditSummary = { currency?: string | null; availableCredit?: string | number | null; creditLimit?: string | number | null }
 
 /** Available credit, credit limit and credit used (limit - available) in the wallet currency. Null entries are unknown, never guessed. */

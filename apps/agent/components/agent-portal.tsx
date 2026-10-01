@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { searchAttemptNotice } from '@/lib/search-notice'
 import { SearchView } from '@/components/search/agent-search-view'
 import { AgentHome } from '@/components/home/agent-home'
@@ -10,16 +10,24 @@ import { Wallet } from '@/components/finance/agent-wallet'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import type { SearchCriteria } from '@bedbanks/domain'
 import { ApiHotelService } from '@/services/hotel-service'
-import { Bell, CheckCircle2, CircleHelp, FileText, House, Menu, Search, WalletCards, X } from 'lucide-react'
+import { CheckCircle2, CircleHelp, FileText, House, Menu, Search, WalletCards, X } from 'lucide-react'
 import type { AgentIdentity, FinanceSummary } from '@/lib/api-client'
 import { creditBreakdown, formatMinorAmount } from '@/lib/format'
+import { isGuestMarket, readGuestNationality, rememberGuestNationality } from '@/lib/guest-market'
+import { criteriaFilters, minorToWholeAmount, type FilterDraft } from '@/lib/search-filters'
 import { rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
 import type { HotelSearchResult } from '@/types/hotel'
 
 type View = 'home' | 'search' | 'bookings' | 'wallet'
-type SearchOverride = Partial<Pick<SearchCriteria, 'destination' | 'checkIn' | 'checkOut' | 'rooms' | 'adults' | 'children' | 'childAges'>>
+type SearchOverride = Partial<Pick<SearchCriteria, 'destination' | 'checkIn' | 'checkOut' | 'rooms' | 'adults' | 'children' | 'childAges' | 'nationality'>> & {
+  starRatings?: number[]
+  refundableOnly?: boolean
+  minPriceMinor?: number
+  maxPriceMinor?: number
+}
 
 const SEARCH_PAGE_SIZE = 25
+const DISPLAY_CURRENCY = 'AED'
 
 export function AgentPortal({ identity, tenantId, providerStatus, finance, bookingEnabled = false, onFinanceChanged = () => {} }: { identity: AgentIdentity; tenantId: string; providerStatus: 'idle' | 'checking' | 'available' | 'unavailable'; finance: FinanceSummary | null; bookingEnabled?: boolean; onFinanceChanged?: () => void }) {
   const [view, setView] = useState<View>('home')
@@ -32,17 +40,27 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   const [adults, setAdults] = useState(2)
   const [children, setChildren] = useState(0)
   const [childAges, setChildAges] = useState<number[]>([])
-  const guests = `${rooms} room${rooms === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} children` : ''}`
+  const [nationality, setNationality] = useState('IN')
+  const [starRatings, setStarRatings] = useState<number[]>([])
+  const [refundableOnly, setRefundableOnly] = useState(false)
+  const [minPriceAed, setMinPriceAed] = useState('')
+  const [maxPriceAed, setMaxPriceAed] = useState('')
   const [searchResult, setSearchResult] = useState<HotelSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
+  const [searchFailed, setSearchFailed] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState('')
   const [toast, setToast] = useState('')
   const searchGeneration = useRef(0)
   const toastTimer = useRef<number | null>(null)
   const agency = identity.memberships.find((membership) => membership.tenantId === tenantId)?.tenantName ?? 'Verified agency workspace'
+  const agentName = identity.user.name ?? identity.user.email
   const formattedCredit = formatMinorAmount(finance?.availableCredit, finance?.currency)
   const creditLabel = formattedCredit ?? 'Not configured'
+  useEffect(() => {
+    const saved = readGuestNationality(window.sessionStorage, identity.user.id)
+    if (saved) setNationality(saved)
+  }, [identity.user.id])
   const dismissToast = () => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
     toastTimer.current = null
@@ -54,45 +72,88 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast('') }, 2200)
   }
   const nav = (next: View) => { setView(next); setMobileNav(false) }
-  const criteria: SearchCriteria = { destination: destination.trim(), checkIn, checkOut, rooms, adults, children, childAges, nationality: 'IN', currency: 'AED', limit: SEARCH_PAGE_SIZE }
+  const draft = (): FilterDraft => ({ starRatings, refundableOnly, minPriceAed, maxPriceAed })
+  const criteriaFrom = (source: { destination: string; checkIn: string; checkOut: string; rooms: number; adults: number; children: number; childAges: number[]; nationality: string }, filters: FilterDraft): SearchCriteria | null => {
+    const parsed = criteriaFilters(filters)
+    if (!parsed.ok) return null
+    return {
+      destination: source.destination.trim(),
+      checkIn: source.checkIn,
+      checkOut: source.checkOut,
+      rooms: source.rooms,
+      adults: source.adults,
+      children: source.children,
+      childAges: source.childAges,
+      nationality: source.nationality,
+      currency: DISPLAY_CURRENCY,
+      limit: SEARCH_PAGE_SIZE,
+      ...(parsed.filters ? { filters: parsed.filters } : {}),
+    }
+  }
+  const criteria = criteriaFrom({ destination, checkIn, checkOut, rooms, adults, children, childAges, nationality }, draft())
   const updateChildren = (count: number) => { setChildren(count); setChildAges((ages) => Array.from({ length: count }, (_, index) => ages[index] ?? 0)) }
   const stampSearch = (result: HotelSearchResult): HotelSearchResult => {
     const hotelSearchIds: Record<string, string> = {}
     if (result.searchId) for (const hotel of result.liveHotels) hotelSearchIds[hotel.hotelId] = result.searchId
     return { ...result, hotelSearchIds }
   }
-  const resetSearch = () => { searchGeneration.current += 1; setSearchResult(null); setLoadMoreError(''); setLoadingMore(false) }
-  const applyOverride = (override?: SearchOverride): SearchCriteria => {
-    if (!override) return criteria
-    if (override.destination !== undefined) setDestination(override.destination)
-    if (override.checkIn !== undefined) setCheckIn(override.checkIn)
-    if (override.checkOut !== undefined) setCheckOut(override.checkOut)
-    if (override.rooms !== undefined) setRooms(override.rooms)
-    if (override.adults !== undefined) setAdults(override.adults)
-    if (override.children !== undefined) setChildren(override.children)
-    if (override.childAges !== undefined) setChildAges([...override.childAges])
-    else if (override.children !== undefined) updateChildren(override.children)
-    return {
-      ...criteria,
-      ...override,
-      destination: (override.destination ?? criteria.destination).trim(),
-      childAges: override.childAges ?? (override.children !== undefined ? childAges.slice(0, override.children) : criteria.childAges),
-      nationality: 'IN',
-      currency: 'AED',
-      limit: SEARCH_PAGE_SIZE,
+  const resetSearch = () => { searchGeneration.current += 1; setSearchResult(null); setLoadMoreError(''); setLoadingMore(false); setSearchFailed(false) }
+  const applyOverride = (override?: SearchOverride): SearchCriteria | null => {
+    const nextDestination = override?.destination ?? destination
+    const nextCheckIn = override?.checkIn ?? checkIn
+    const nextCheckOut = override?.checkOut ?? checkOut
+    const nextRooms = override?.rooms ?? rooms
+    const nextAdults = override?.adults ?? adults
+    const nextChildren = override?.children ?? children
+    const nextAges = override?.childAges ?? (override?.children !== undefined ? childAges.slice(0, override.children) : childAges)
+    const nextNationality = override?.nationality && isGuestMarket(override.nationality) ? override.nationality : nationality
+    const nextStars = override?.starRatings ?? starRatings
+    const nextRefundable = override?.refundableOnly ?? refundableOnly
+    const nextMin = override && ('minPriceMinor' in override || 'maxPriceMinor' in override) ? minorToWholeAmount(override.minPriceMinor) : minPriceAed
+    const nextMax = override && ('minPriceMinor' in override || 'maxPriceMinor' in override) ? minorToWholeAmount(override.maxPriceMinor) : maxPriceAed
+    if (override?.destination !== undefined) setDestination(override.destination)
+    if (override?.checkIn !== undefined) setCheckIn(override.checkIn)
+    if (override?.checkOut !== undefined) setCheckOut(override.checkOut)
+    if (override?.rooms !== undefined) setRooms(override.rooms)
+    if (override?.adults !== undefined) setAdults(override.adults)
+    if (override?.children !== undefined) setChildren(override.children)
+    if (override?.childAges !== undefined) setChildAges([...override.childAges])
+    else if (override?.children !== undefined) updateChildren(override.children)
+    if (override?.nationality && isGuestMarket(override.nationality)) {
+      setNationality(override.nationality)
+      rememberGuestNationality(window.sessionStorage, identity.user.id, override.nationality)
     }
+    if (override && 'starRatings' in override && override.starRatings) setStarRatings(override.starRatings)
+    if (override && 'refundableOnly' in override) setRefundableOnly(Boolean(override.refundableOnly))
+    if (override && ('minPriceMinor' in override || 'maxPriceMinor' in override)) {
+      setMinPriceAed(nextMin)
+      setMaxPriceAed(nextMax)
+    }
+    return criteriaFrom(
+      { destination: nextDestination, checkIn: nextCheckIn, checkOut: nextCheckOut, rooms: nextRooms, adults: nextAdults, children: nextChildren, childAges: nextAges, nationality: nextNationality },
+      { starRatings: nextStars, refundableOnly: nextRefundable, minPriceAed: nextMin, maxPriceAed: nextMax },
+    )
   }
-  async function handleSearch(requested: SearchCriteria = criteria) {
+  const changeNationality = (value: string) => {
+    setNationality(value)
+    rememberGuestNationality(window.sessionStorage, identity.user.id, value)
+  }
+  async function handleSearch(requested: SearchCriteria | null = criteria) {
     if (searching) return
     const generation = searchGeneration.current + 1
     searchGeneration.current = generation
     setSearchResult(null)
     setLoadMoreError('')
+    if (!requested) {
+      show('Enter the price range in whole AED amounts.')
+      return
+    }
     if (!validSearchCriteria(requested)) {
       show('Enter a destination, valid dates and occupancy')
       return
     }
     setSearching(true)
+    setLoadingMore(false)
     dismissToast()
     try {
       const result = await new ApiHotelService().search(requested, tenantId)
@@ -106,11 +167,18 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
         adults: requested.adults,
         children: requested.children,
         childAges: requested.childAges ?? [],
+        nationality: requested.nationality,
+        ...(requested.filters?.starRatings ? { starRatings: requested.filters.starRatings } : {}),
+        ...(requested.filters?.refundableOnly ? { refundableOnly: true } : {}),
+        ...(requested.filters?.minPriceMinor !== undefined ? { minPriceMinor: requested.filters.minPriceMinor } : {}),
+        ...(requested.filters?.maxPriceMinor !== undefined ? { maxPriceMinor: requested.filters.maxPriceMinor } : {}),
       })
       const notice = searchAttemptNotice({ kind: 'resolved', status: result.status })
+      setSearchFailed(Boolean(notice))
       if (notice) show(notice)
     } catch {
       if (generation === searchGeneration.current) {
+        setSearchFailed(true)
         const notice = searchAttemptNotice({ kind: 'thrown' })
         if (notice) show(notice)
       }
@@ -120,15 +188,28 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   }
   function beginSearch(override?: SearchOverride) {
     const requested = applyOverride(override)
-    if (!validSearchCriteria(requested)) {
-      show('Enter a destination, valid dates and occupancy')
+    if (!requested || !validSearchCriteria(requested)) {
+      show(requested ? 'Enter a destination, valid dates and occupancy' : 'Enter the price range in whole AED amounts.')
       return
     }
     setView('search')
     void handleSearch(requested)
   }
   function replaySearch(search: RecentSearch) {
-    beginSearch(search)
+    beginSearch({
+      destination: search.destination,
+      checkIn: search.checkIn,
+      checkOut: search.checkOut,
+      rooms: search.rooms,
+      adults: search.adults,
+      children: search.children,
+      childAges: search.childAges,
+      ...(search.nationality ? { nationality: search.nationality } : {}),
+      starRatings: search.starRatings ?? [],
+      refundableOnly: Boolean(search.refundableOnly),
+      minPriceMinor: search.minPriceMinor,
+      maxPriceMinor: search.maxPriceMinor,
+    })
   }
   async function handleLoadMore() {
     const current = searchResult
@@ -166,11 +247,42 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     }
   }
   const changeCriteria = (action: () => void) => { resetSearch(); action() }
-  const viewLabel = view === 'home' ? 'Home' : view === 'search' ? 'Hotel search' : view === 'bookings' ? 'My bookings' : 'Wallet & credit'
+  const marketProps = {
+    destination, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
+    rooms, setRooms, adults, setAdults, children, updateChildren, childAges, setChildAges,
+    nationality, setNationality: changeNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
+    minPriceAed, setMinPriceAed, maxPriceAed, setMaxPriceAed, searching, searchFailed,
+  }
+  const supplierNote = providerStatus === 'checking' ? 'Checking supplier access' : providerStatus === 'unavailable' ? 'Supplier access was not confirmed' : 'Supplier access has not been checked'
 
-  return <div className="portal-shell">
-    <header className="portal-header"><button className="portal-mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav}><Menu size={20} /></button><button className="portal-brand" onClick={() => nav('home')}><span>f</span><strong>fBeds</strong><small>WHOLESALE TRAVEL</small></button><button className="portal-global-search" onClick={() => nav('search')} aria-label="Open hotel search"><Search size={16} /><span>Open hotel search</span></button><div className="portal-header-actions"><span className={`portal-live ${searchResult?.status === 'available' ? 'is-live' : ''}`}><i /> {searchResult?.status === 'available' ? 'VERIFIED LIVE OFFERS' : providerStatus === 'checking' ? 'VERIFYING WORKSPACE' : providerStatus === 'unavailable' ? 'INVENTORY UNAVAILABLE' : 'SUPPLIER NOT CHECKED'}</span>{formattedCredit && <span className="portal-credit">Credit <strong>{formattedCredit}</strong></span>}<button disabled title="Notifications unavailable" aria-label="Notifications unavailable"><Bell size={17} /></button><a className="portal-header-link" href="/support" aria-label="Agent support"><CircleHelp size={17} /></a><span className="portal-avatar">{(identity.user.name ?? 'JD').slice(0, 2).toUpperCase()}</span></div></header>
-    <div className="portal-body"><aside className={`portal-sidebar ${mobileNav ? 'is-open' : ''}`} aria-label="Workspace navigation"><div className="portal-sidebar-heading">WORKSPACE <button onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button></div><nav aria-label="Agent portal navigation"><NavItem icon={<House size={17} />} label="Home" active={view === 'home'} onClick={() => nav('home')} /><NavItem icon={<Search size={17} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} /><NavItem icon={<FileText size={17} />} label="My bookings" active={view === 'bookings'} onClick={() => nav('bookings')} /><NavItem icon={<WalletCards size={17} />} label="Wallet & credit" active={view === 'wallet'} onClick={() => nav('wallet')} /></nav><div className="portal-sidebar-footer"><span className="portal-eyebrow">ACTIVE AGENCY</span><strong>{agency}</strong><small>{identity.user.email}</small></div></aside><main className="portal-main"><div className="portal-breadcrumb">fBeds Agent Portal <span>/</span> {viewLabel}</div>{view === 'home' && <AgentHome userId={identity.user.id} userName={identity.user.name ?? identity.user.email} agency={agency} destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} onSearch={() => beginSearch()} onSearchDubai={() => beginSearch({ destination: 'Dubai' })} onChange={changeCriteria} onReplay={replaySearch} />}{view === 'search' && <SearchView destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} guests={guests} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onCriteriaChange={resetSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}{view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}{view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} />}</main></div>{toast && <div className="portal-toast" role="status"><CheckCircle2 size={16} /> {toast}</div>}</div>
+  return <div className="portal-shell market-shell">
+    <header className="portal-header market-header">
+      <button className="portal-mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav}><Menu size={20} /></button>
+      <button className="portal-brand" onClick={() => nav('home')}><span>f</span><strong>fBeds</strong></button>
+      <nav className={`market-nav ${mobileNav ? 'is-open' : ''}`} aria-label="Marketplace">
+        <NavItem icon={<House size={16} />} label="Marketplace" active={view === 'home'} onClick={() => nav('home')} />
+        <NavItem icon={<Search size={16} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} />
+        <NavItem icon={<FileText size={16} />} label="Bookings" active={view === 'bookings'} muted={!bookingEnabled} detail={bookingEnabled ? undefined : 'Not enabled'} onClick={() => nav('bookings')} />
+        <NavItem icon={<WalletCards size={16} />} label="Wallet" active={view === 'wallet'} onClick={() => nav('wallet')} />
+        <a href="/support"><CircleHelp size={16} /> Support</a>
+        <button className="market-nav-close" type="button" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button>
+      </nav>
+      <div className="portal-header-actions market-account-bar">
+        <span className="market-currency" title={supplierNote}>{DISPLAY_CURRENCY}</span>
+        <a className="portal-header-link" href="/support">Help</a>
+        <span className="market-account"><strong>{agentName}</strong><small>{agency}</small></span>
+      </div>
+    </header>
+    <div className="portal-body"><main className="portal-main">
+      {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} onChange={changeCriteria} onSearch={() => beginSearch()} onSearchDubai={() => beginSearch({ destination: 'Dubai' })} onReplay={replaySearch} />}
+      {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onCriteriaChange={resetSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}
+      {view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
+      {view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} />}
+    </main></div>
+    {toast && <div className="portal-toast" role="status"><CheckCircle2 size={16} /> {toast}</div>}
+  </div>
 }
 
-function NavItem({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) { return <button className={`portal-nav-item ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{active && <b />}</button> }
+function NavItem({ icon, label, active, muted = false, detail, onClick }: { icon: ReactNode; label: string; active: boolean; muted?: boolean; detail?: string; onClick: () => void }) {
+  return <button type="button" className={`market-nav-item ${active ? 'active' : ''} ${muted ? 'is-muted' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}>{icon}<span>{label}</span>{detail && <small>{detail}</small>}</button>
+}
