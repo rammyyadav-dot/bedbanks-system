@@ -1,4 +1,5 @@
 import { ApiResponseError } from './errors'
+import { activeTenantHeaders } from './tenant-context'
 
 // Same-origin path proxied to the API by next.config rewrites; the session cookie is host-only.
 const API_BASE = '/api/v1'
@@ -11,7 +12,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     const response = await fetch(`${API_BASE}${path}`, {
       ...init,
       credentials: 'include',
-      headers: { Accept: 'application/json', ...init.headers },
+      headers: { Accept: 'application/json', ...activeTenantHeaders(), ...init.headers },
       signal: controller.signal,
     })
     const body = await response.json().catch(() => null) as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null

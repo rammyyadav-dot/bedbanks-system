@@ -9,12 +9,14 @@ import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
+import { useCan } from '@/lib/auth/capabilities'
 import { getSuppliers, type SupplySupplier } from '@/lib/data'
 import type { Status } from '@/lib/types/admin'
 
 const supplierStatus = (status: string): Status => status === 'ACTIVE' ? 'active' : status === 'SUSPENDED' ? 'suspended' : status === 'INACTIVE' ? 'inactive' : 'pending'
 
 export default function SuppliersPage() {
+  const can = useCan()
   const [search, setSearch] = useState('')
   const [items, setItems] = useState<SupplySupplier[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,7 +45,7 @@ export default function SuppliersPage() {
 
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="SUPPLIERS" title="Suppliers" description="Authoritative supplier relationships for the active tenant." />
+      <PageHeader eyebrow="SUPPLIERS" title="Suppliers" description="Authoritative supplier relationships for the active tenant." actions={can('supply.suppliers.manage') ? <Link href="/suppliers/new" className="admin-btn admin-btn-primary">New supplier</Link> : undefined} />
       <TableToolbar><SearchInput value={search} onChange={setSearch} placeholder="Search suppliers…" /></TableToolbar>
       {loading ? <LoadingState rows={6} /> : error ? <ErrorState title="Supplier data unavailable" description="The Admin API could not load authoritative supplier data. No fallback data is shown." /> : <DataTable columns={columns} data={items} getRowId={(s) => s.id} emptyTitle="No suppliers found" />}
     </div>

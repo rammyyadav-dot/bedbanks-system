@@ -1,59 +1,53 @@
 import type { LucideIcon } from 'lucide-react';
+import type { SupplyPermission } from '@bedbanks/contracts';
 import {
-  LayoutDashboard, Building2, Users, ShieldCheck, ScrollText, Hotel, BedDouble,
-  Truck, Radar, Tags, CalendarRange, Wallet, Bell, BarChart3, Settings,
+  LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
 } from 'lucide-react';
 
-export interface NavItem { href: string; label: string; icon: LucideIcon; }
+export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission; }
 export interface NavSection { label?: string; items: NavItem[]; }
 
+/**
+ * Dubai MVP navigation. Only modules backed by authoritative APIs are listed.
+ * Booking, finance, reports, notifications, tenants/users and the pricing simulator are intentionally absent:
+ * their routes render an explicit "not enabled" state instead of data.
+ */
 export const navSections: NavSection[] = [
-  { items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+  { label: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
   {
-    label: 'Business',
+    label: 'Commercial',
     items: [
-      { href: '/tenants', label: 'Tenants', icon: Building2 },
-      { href: '/users', label: 'Users', icon: Users },
+      { href: '/suppliers', label: 'Suppliers', icon: Truck, requires: 'supply.suppliers.read' },
+      { href: '/hotels', label: 'Hotels', icon: Hotel, requires: 'supply.hotels.read' },
+      { href: '/board-basis', label: 'Board Basis', icon: Tags, requires: 'supply.rates.read' },
+      { href: '/mappings', label: 'Mappings', icon: Link2, requires: 'supply.mappings.read' },
+      { href: '/contracts', label: 'Contracts', icon: FileSignature, requires: 'supply.contracts.read' },
+      { href: '/rates/plans', label: 'Rate Plans', icon: ScrollText, requires: 'supply.rates.read' },
+      { href: '/rates', label: 'Rates & Inventory', icon: CalendarRange, requires: 'supply.rates.read' },
+      { href: '/sellability', label: 'Sellability', icon: ClipboardCheck, requires: 'supply.rates.read' },
+    ],
+  },
+  {
+    label: 'Control',
+    items: [
       { href: '/access', label: 'Roles & Permissions', icon: ShieldCheck },
-      { href: '/audit', label: 'Audit', icon: ScrollText },
+      { href: '/settings', label: 'Settings', icon: Settings },
     ],
   },
-  {
-    label: 'Hotel Supply',
-    items: [
-      { href: '/hotels', label: 'Hotels', icon: Hotel },
-      { href: '/rooms', label: 'Rooms', icon: BedDouble },
-    ],
-  },
-  {
-    label: 'Suppliers',
-    items: [
-      { href: '/suppliers', label: 'Suppliers', icon: Truck },
-      { href: '/mappings', label: 'Mappings', icon: ShieldCheck },
-      { href: '/contracts', label: 'Contracts', icon: ScrollText },
-      { href: '/board-basis', label: 'Board Basis', icon: Tags },
-    ],
-  },
-  {
-    label: 'Distribution',
-    items: [
-      { href: '/distribution', label: 'Search Monitor', icon: Radar },
-      { href: '/inventory', label: 'Inventory', icon: CalendarRange },
-      { href: '/rates', label: 'Rates', icon: Tags },
-    ],
-  },
-  { label: 'Pricing', items: [{ href: '/pricing', label: 'Pricing Simulator', icon: Tags }] },
-  {
-    label: 'Bookings',
-    items: [
-      { href: '/bookings', label: 'All Bookings', icon: CalendarRange },
-      { href: '/cancellations', label: 'Cancellations', icon: CalendarRange },
-    ],
-  },
-  { label: 'Finance', items: [{ href: '/finance', label: 'Finance', icon: Wallet }] },
-  { label: 'Communications', items: [{ href: '/notifications', label: 'Notifications', icon: Bell }] },
-  { label: 'Reports', items: [{ href: '/reports', label: 'Reports', icon: BarChart3 }] },
-  { label: 'Settings', items: [{ href: '/settings', label: 'Settings', icon: Settings }] },
 ];
 
-export const flatNav = navSections.flatMap((s) => s.items);
+/** Routes that stay reachable (and breadcrumbed) without a sidebar entry. */
+const hiddenRoutes: NavItem[] = [
+  { href: '/rooms', label: 'Rooms', icon: Hotel, requires: 'supply.rooms.read' },
+  { href: '/inventory', label: 'Rates & Inventory', icon: CalendarRange },
+];
+
+export const flatNav = [...navSections.flatMap((s) => s.items), ...hiddenRoutes];
+
+/** True when `href` is the best (longest) sidebar match for `pathname`, so /rates does not also light up under /rates/plans. */
+export function isActiveRoute(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  const matches = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+  if (!matches(href)) return false;
+  return !flatNav.some((other) => other.href.length > href.length && other.href.startsWith(href) && matches(other.href));
+}
