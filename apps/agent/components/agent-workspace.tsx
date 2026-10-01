@@ -12,8 +12,8 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
   const [finance, setFinance] = useState<FinanceSummary | null>(null)
   const [providerStatus, setProviderStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle')
   const [error, setError] = useState('')
-  // Booking, confirmation, payment, and supplier publishing remain disabled in this preview.
-  const bookingEnabled = false
+  // UI hint from server context. Booking endpoints still require BOOKING_ENABLED on the API.
+  const bookingEnabled = identity.bookingEnabled === true
   const refreshFinance = () => { if (tenantId) void getFinanceSummary(tenantId).then(setFinance).catch(() => undefined) }
 
   useEffect(() => {
