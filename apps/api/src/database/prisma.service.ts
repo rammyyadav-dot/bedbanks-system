@@ -48,10 +48,8 @@ export class PrismaService
     try {
       await this.$queryRaw`SELECT 1`;
       return true;
-    } catch (error) {
-      this.logger.warn(
-        `Database health check failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    } catch {
+      this.logger.warn('Database health check failed');
       return false;
     }
   }

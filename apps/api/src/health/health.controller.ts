@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
 import { PrismaService } from '../database/prisma.service';
 
+export type Readiness = 'ready' | 'database_unavailable' | 'dependency_unavailable';
+
 export interface HealthStatus {
   status: 'ok';
   service: string;
@@ -13,6 +15,17 @@ export interface HealthStatus {
   database: {
     status: 'ok' | 'unavailable';
   };
+  dependencies: {
+    status: 'ok' | 'unavailable';
+  };
+  readiness: Readiness;
+}
+
+/** Process liveness stays `ok` whenever this function runs. Database failure is reported before any other dependency. */
+export function classifyReadiness(databaseHealthy: boolean, dependenciesHealthy: boolean): Readiness {
+  if (!databaseHealthy) return 'database_unavailable';
+  if (!dependenciesHealthy) return 'dependency_unavailable';
+  return 'ready';
 }
 
 const SERVICE_NAME = 'fbeds-api';
@@ -44,7 +57,7 @@ export class HealthController {
     description: 'The API process is running. Check database.status for DB connectivity.',
   })
   async check(): Promise<HealthStatus> {
-    return this.snapshot(await this.prisma.isHealthy());
+    return this.snapshot(await this.databaseHealthy(), this.dependenciesHealthy());
   }
 
   /**
@@ -57,14 +70,31 @@ export class HealthController {
   @ApiResponse({ status: 200, description: 'The process can serve traffic and the database is reachable.' })
   @ApiResponse({ status: 503, description: 'The database is not ready.' })
   async ready(): Promise<HealthStatus> {
-    const databaseHealthy = await this.prisma.isHealthy();
+    const databaseHealthy = await this.databaseHealthy();
+    const dependenciesHealthy = this.dependenciesHealthy();
     if (!databaseHealthy) {
       throw new ServiceUnavailableException('Database is not ready');
     }
-    return this.snapshot(true);
+    if (!dependenciesHealthy) {
+      throw new ServiceUnavailableException('A required dependency is not ready');
+    }
+    return this.snapshot(true, true);
   }
 
-  private snapshot(databaseHealthy: boolean): HealthStatus {
+  private async databaseHealthy(): Promise<boolean> {
+    try {
+      return await this.prisma.isHealthy();
+    } catch {
+      return false;
+    }
+  }
+
+  private dependenciesHealthy(): boolean {
+    const environment = this.configService.get('nodeEnv', { infer: true });
+    return typeof environment === 'string' && environment.length > 0;
+  }
+
+  private snapshot(databaseHealthy: boolean, dependenciesHealthy: boolean): HealthStatus {
     return {
       status: 'ok',
       service: SERVICE_NAME,
@@ -74,6 +104,10 @@ export class HealthController {
       database: {
         status: databaseHealthy ? 'ok' : 'unavailable',
       },
+      dependencies: {
+        status: dependenciesHealthy ? 'ok' : 'unavailable',
+      },
+      readiness: classifyReadiness(databaseHealthy, dependenciesHealthy),
     };
   }
 }

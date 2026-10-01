@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapPin, Search, ShieldAlert } from 'lucide-react'
 import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer } from '@bedbanks/domain'
@@ -8,6 +8,7 @@ import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
 import { formatMinorAmount, formatStay } from '@/lib/format'
 import { recheckOutcomeMessage } from '@/lib/recheck-copy'
+import { recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
 
@@ -85,22 +86,32 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, ten
   const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
   const [recheck, setRecheck] = useState<OfferRecheckResult | null>(null)
   const [rechecking, setRechecking] = useState(false)
+  const recheckGeneration = useRef(0)
+  const selectedOfferId = useRef('')
   const choose = (room: SearchRoomOffer, rate: SearchRateOffer) => {
     if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out') return
-    setSelection({ hotel, room, rate, searchContext: request }); setRecheck(null)
+    recheckGeneration.current += 1
+    selectedOfferId.current = rate.offerId
+    setSelection({ hotel, room, rate, searchContext: request }); setRecheck(null); setRechecking(false)
   }
   const recheckOffer = async (acceptedMinor?: number) => {
     if (!selection || !searchId || rechecking) return
+    const generation = recheckGeneration.current + 1
+    recheckGeneration.current = generation
+    const offerId = selection.rate.offerId
+    selectedOfferId.current = offerId
     const expectedSellAmountMinor = acceptedMinor ?? selection.rate.sellAmountMinor
     setRechecking(true); setRecheck(null)
     const rate = { ...selection.rate, sellAmountMinor: expectedSellAmountMinor,
       total: { ...selection.rate.total, amountMinor: expectedSellAmountMinor } }
+    const stillSelected = () => recheckResultApplies({ generation, offerId }, { generation: recheckGeneration.current, offerId: selectedOfferId.current })
     try {
-      setRecheck(await new ApiHotelService().recheckOffer(rate, searchId, selection.rate.tenantId))
+      const result = await new ApiHotelService().recheckOffer(rate, searchId, selection.rate.tenantId)
+      if (stillSelected()) setRecheck(result)
     } catch {
-      setRecheck({ status: 'provider_unavailable', offerId: selection.rate.offerId, searchId, requestId: 'unavailable' })
+      if (stillSelected()) setRecheck({ status: 'provider_unavailable', offerId, searchId, requestId: 'unavailable' })
     } finally {
-      setRechecking(false)
+      if (generation === recheckGeneration.current) setRechecking(false)
     }
   }
   const canAcceptChangedPrice = recheck?.status === 'price_changed' && recheck.currency === selection?.rate.total.currency
