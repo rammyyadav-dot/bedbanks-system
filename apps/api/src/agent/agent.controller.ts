@@ -22,6 +22,7 @@ import { BookingTransactionService, bookingEnabled } from './booking-transaction
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
+import { InventoryHoldService } from './inventory-hold.service'
 import { renderBookingDocument } from './booking-document.render'
 
 class SearchFiltersDto {
@@ -62,6 +63,7 @@ export class AgentController {
     private readonly cancellations: BookingCancellationService,
     private readonly documents: BookingDocumentService,
     private readonly bookingQueries: BookingQueryService,
+    private readonly inventoryHolds: InventoryHoldService,
   ) {}
 
   @Get('context')
@@ -104,6 +106,14 @@ export class AgentController {
     if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
     const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
     return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
+  }
+
+  @Delete('holds/:holdId')
+  @ApiOperation({ summary: 'Release your own un-booked inventory hold before it expires' })
+  @RequirePermission(PERMISSIONS.prebook)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async releaseHold(@Param('holdId') holdId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    return this.inventoryHolds.releaseOwn(tenantId, holdId, identity.user.id, req.requestId ?? randomUUID())
   }
 
   @Post('rates/recheck')
