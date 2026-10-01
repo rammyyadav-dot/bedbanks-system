@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { connection } from 'next/server'
 import { Analytics } from '@vercel/analytics/next'
 import { siteConfig } from '../lib/site-config'
 import './globals.css'
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.siteUrl),
@@ -17,7 +15,9 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Nonce-based CSP needs a per-request render, so every page is rendered on demand (ADR/README: CSP).
+  await connection()
   const structuredData = [{ '@context': 'https://schema.org', '@type': 'Organization', name: siteConfig.brandName, url: siteConfig.siteUrl, email: siteConfig.contactEmail }, { '@context': 'https://schema.org', '@type': 'WebSite', name: siteConfig.brandName, url: siteConfig.siteUrl, description: siteConfig.defaultDescription }]
-  return <html lang="en" className="bg-background"><body className={`${inter.variable} font-sans`}>{children}<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, '\\u003c') }} />{siteConfig.analyticsEnabled && <Analytics />}</body></html>
+  return <html lang="en" className="bg-background"><body className="font-sans">{children}<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, '\\u003c') }} />{siteConfig.analyticsEnabled && <Analytics />}</body></html>
 }

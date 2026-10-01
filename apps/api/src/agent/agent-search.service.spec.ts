@@ -151,6 +151,25 @@ describe('AgentSearchService cache boundary', () => {
     expect(cache.writes).toHaveLength(0)
   })
 
+  it('rejects a corrupted cache entry and searches again', async () => {
+    const cache = new MemoryCache()
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const { service } = setup(search, cache)
+    await service.execute(criteria, 'tenant-a', 'r1', identity)
+    const key = cache.writes[0].key
+    cache.values.set(key, { version: 1, hotels: [{ hotelId: 'h1', rooms: [{ rates: [{ tenantId: 'tenant-b', canonicalHotelId: 'h1', canonicalRoomTypeId: 'r1' }] }] }], pagination: { limit: 50, offset: 0 }, status: 'available' })
+    await service.execute(criteria, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a different cache entry for the next page', async () => {
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const { service } = setup(search)
+    await service.execute({ ...criteria, limit: 25, offset: 0 }, 'tenant-a', 'r1', identity)
+    await service.execute({ ...criteria, limit: 25, offset: 25 }, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+  })
+
   it('clamps configured TTL to a short bounded window', async () => {
     process.env.AGENT_SEARCH_CACHE_TTL_MS = '999999'
     const { service, cache } = setup(jest.fn().mockResolvedValue(supplierResult([hotel])))

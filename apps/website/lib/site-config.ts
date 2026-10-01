@@ -17,7 +17,7 @@ export const siteConfig = {
   siteUrl: resolved.siteUrl,
   contactEmail: resolved.contactEmail,
   defaultTitle: 'fBeds | Global B2B Hotel Distribution',
-  defaultDescription: 'fBeds connects hotels, DMCs and travel professionals through a modern global B2B hotel distribution ecosystem.',
+  defaultDescription: 'fBeds is building a modern global B2B hotel distribution ecosystem for hotels, DMCs and travel professionals.',
   analyticsEnabled: process.env.NODE_ENV === 'production',
   portals: resolved.portals,
 } as const

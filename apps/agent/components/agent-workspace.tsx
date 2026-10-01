@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown, ShieldAlert } from 'lucide-react'
 import { AgentSignOut } from './agent-auth-gate'
 import { AgentPortal } from './agent-portal'
-import { getAgentContext, getFinanceSummary, getSearchStatus, type AgentIdentity, type FinanceSummary } from '@/lib/api-client'
+import { getFinanceSummary, getSearchStatus, type AgentIdentity, type FinanceSummary } from '@/lib/api-client'
 import { formatMinorAmount } from '@/lib/format'
 
 export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
@@ -12,8 +12,8 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
   const [finance, setFinance] = useState<FinanceSummary | null>(null)
   const [providerStatus, setProviderStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle')
   const [error, setError] = useState('')
-  const [bookingEnabled, setBookingEnabled] = useState(false)
-  useEffect(() => { let alive = true; getAgentContext().then((context) => { if (alive) setBookingEnabled(context.bookingEnabled === true) }).catch(() => { if (alive) setBookingEnabled(false) }); return () => { alive = false } }, [])
+  // Booking, confirmation, payment, and supplier publishing remain disabled in this preview.
+  const bookingEnabled = false
   const refreshFinance = () => { if (tenantId) void getFinanceSummary(tenantId).then(setFinance).catch(() => undefined) }
 
   useEffect(() => {
@@ -29,9 +29,11 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
           setProviderStatus(statusResult.value.status === 'not_checked' ? 'idle' : 'unavailable')
         } else {
           setProviderStatus('unavailable')
-          setError(statusResult.reason instanceof Error && statusResult.reason.message === 'Access denied'
-            ? 'You no longer have access to this workspace. Select another workspace or sign in again.'
-            : 'We could not verify access to this workspace. Please try again.')
+          setError(statusResult.reason instanceof Error && statusResult.reason.message === 'Session expired'
+            ? 'Your secure session expired. Sign in again to continue.'
+            : statusResult.reason instanceof Error && statusResult.reason.message === 'Access denied'
+              ? 'You no longer have access to this workspace. Select another workspace or sign in again.'
+              : 'The supplier API is unavailable. Search and booking verification are disabled until it recovers.')
         }
       })
     return () => { active = false }

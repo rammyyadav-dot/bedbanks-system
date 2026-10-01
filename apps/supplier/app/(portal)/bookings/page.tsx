@@ -1,3 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
-export default function BookingsPage() { return <OperationalModule config={moduleConfigs.bookings} /> }
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Bookings"
+      description="Bookings are not available. This screen does not confirm a reservation."
+    />
+  )
+}

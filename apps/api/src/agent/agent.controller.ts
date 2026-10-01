@@ -8,7 +8,7 @@ import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, Rec
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
-import { ACTIVE_TENANT_REQUEST_KEY, ActiveTenant, TenantContextGuard } from './tenant-context.guard'
+import { ActiveTenant, TenantContextGuard, activeTenantId } from './tenant-context.guard'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
@@ -22,6 +22,7 @@ import { BookingTransactionService, bookingEnabled } from './booking-transaction
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
+import { InventoryHoldService } from './inventory-hold.service'
 import { renderBookingDocument } from './booking-document.render'
 
 class SearchFiltersDto {
@@ -63,6 +64,7 @@ export class AgentController {
     private readonly cancellations: BookingCancellationService,
     private readonly documents: BookingDocumentService,
     private readonly bookingQueries: BookingQueryService,
+    private readonly inventoryHolds: InventoryHoldService,
   ) {}
 
   @Get('context')
@@ -77,7 +79,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async holdOffer(@Param() params: OfferHoldParamsDto, @Body() body: OfferHoldDto,
     @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
@@ -103,8 +105,16 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
+  }
+
+  @Delete('holds/:holdId')
+  @ApiOperation({ summary: 'Release your own un-booked inventory hold before it expires' })
+  @RequirePermission(PERMISSIONS.prebook)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async releaseHold(@Param('holdId') holdId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    return this.inventoryHolds.releaseOwn(tenantId, holdId, identity.user.id, req.requestId ?? randomUUID())
   }
 
   @Post('rates/recheck')
@@ -113,7 +123,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async recheck(@Body() body: OfferRecheckDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request,
     @Res({ passthrough: true }) response: Response) {
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     const result = await this.offerHolds.recheck({ offerId: body.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       tenantId, user: identity, requestId: req.requestId ?? randomUUID() })

@@ -13,6 +13,7 @@ import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { SupplyModule } from './supply/supply.module';
+import { SupplierExtranetModule } from './supplier-extranet/supplier-extranet.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { SupplyModule } from './supply/supply.module';
     AdminSettingsModule,
     PlatformAdminModule,
     SupplyModule,
+    SupplierExtranetModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: CrossSiteRequestGuard }],
 })

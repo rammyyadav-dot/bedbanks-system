@@ -4,6 +4,7 @@ apps/**/node_modules/
 packages/**/node_modules/
 
 # Build outputs
+.next/
 apps/**/.next/
 apps/**/out/
 apps/**/dist/
@@ -31,3 +32,15 @@ yarn-error.log*
 .idea/
 .vscode/
 *.swp
+
+# local Redis snapshots
+dump.rdb
+**/dump.rdb
+
+# Local Redis snapshots
+dump.rdb
+**/dump.rdb
+
+# Playwright
+**/playwright-report/
+**/test-results/

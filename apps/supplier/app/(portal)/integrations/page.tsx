@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function IntegrationsPage() {
-  return <OperationalModule config={moduleConfigs.connectivity} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Integrations"
+      description="Live supplier connections are not available."
+    />
+  )
 }

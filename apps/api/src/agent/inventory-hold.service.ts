@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import type { InventoryHoldRequest, InventoryHoldResponse } from '@bedbanks/domain'
@@ -74,7 +74,7 @@ export class InventoryHoldService {
           } })
         }
 
-        const active = await tx.inventoryHold.update({ where: { id: hold.id }, data: { status: 'HELD' } })
+        const active = await tx.inventoryHold.update({ where: { tenantId_id: { tenantId: command.tenantId, id: hold.id } }, data: { status: 'HELD' } })
         await tx.auditEvent.create({ data: { tenantId: command.tenantId, userId: command.userId, actorType: 'USER',
           action: 'inventory.hold.created', entityType: 'inventory_hold', entityId: hold.id,
           payload: { requestId: command.requestId, ratePlanId: command.ratePlanId, rooms: command.rooms, checkIn: command.checkIn, checkOut: command.checkOut },
@@ -120,10 +120,10 @@ export class InventoryHoldService {
   }
 
   async release(tenantId: string, holdId: string, requestId: string,
-    actor: { type: 'USER'; userId: string } | { type: 'SYSTEM' }, expired = false): Promise<void> {
+    actor: { type: 'USER'; userId: string } | { type: 'SYSTEM' }, expired = false, heldOnly = false): Promise<void> {
     await this.prisma.withTenant(tenantId, async tx => {
       const changed = await tx.inventoryHold.updateMany({
-        where: { id: holdId, tenantId, status: expired ? 'HELD' : { in: ['HELD', 'PROCESSING'] } },
+        where: { id: holdId, tenantId, status: expired || heldOnly ? 'HELD' : { in: ['HELD', 'PROCESSING'] } },
         data: { status: expired ? 'EXPIRED' : 'RELEASED', releasedAt: new Date() },
       })
       if (changed.count === 0) return
@@ -141,6 +141,23 @@ export class InventoryHoldService {
         entityType: 'inventory_hold', entityId: holdId, payload: { requestId },
       } })
     })
+  }
+
+  /**
+   * Lets the agent who created a hold give the inventory back before it expires. Only a HELD hold can be released this
+   * way: once a booking attempt has claimed it (PROCESSING) or confirmed it, the booking flow owns it. Idempotent for a
+   * hold that is already RELEASED or EXPIRED.
+   */
+  async releaseOwn(tenantId: string, holdId: string, userId: string, requestId: string): Promise<{ holdId: string; status: 'RELEASED' | 'EXPIRED' }> {
+    const read = () => this.prisma.withTenant(tenantId, tx => tx.inventoryHold.findFirst({ where: { id: holdId, tenantId, createdByUserId: userId }, select: { status: true } }))
+    const hold = await read()
+    if (!hold) throw new NotFoundException('Inventory hold not found')
+    if (hold.status === 'RELEASED' || hold.status === 'EXPIRED') return { holdId, status: hold.status }
+    if (hold.status !== 'HELD') throw new ConflictException('Inventory hold can no longer be released')
+    await this.release(tenantId, holdId, requestId, { type: 'USER', userId }, false, true)
+    const after = await read()
+    if (after?.status !== 'RELEASED' && after?.status !== 'EXPIRED') throw new ConflictException('Inventory hold can no longer be released')
+    return { holdId, status: after.status }
   }
 
   async expireDue(tenantId: string, now = new Date()): Promise<number> {

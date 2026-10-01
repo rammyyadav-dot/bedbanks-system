@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function PropertyDetailPage() {
-  return <OperationalModule config={{ ...moduleConfigs.rooms, eyebrow: 'Property profile', title: 'Property profile', description: 'Review content readiness, contacts, facilities and operational rules for this property.' }} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Property"
+      description="This property view is not available."
+    />
+  )
 }

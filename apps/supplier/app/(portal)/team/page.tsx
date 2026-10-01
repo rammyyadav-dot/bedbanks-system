@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function TeamPage() {
-  return <OperationalModule config={moduleConfigs.team} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Team"
+      description="Team invitations are not available."
+    />
+  )
 }

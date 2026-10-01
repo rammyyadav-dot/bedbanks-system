@@ -38,7 +38,7 @@ export const navSections: NavSection[] = [
   {
     label: 'Portfolio',
     items: [
-      { href: '/properties', label: 'Properties', icon: Building2 },
+      { href: '/hotels', label: 'Properties', icon: Building2 },
       { href: '/contracts', label: 'Contracts', icon: BookOpenCheck },
       { href: '/rooms', label: 'Rooms', icon: BedDouble },
       { href: '/rates', label: 'Rates', icon: Tags },

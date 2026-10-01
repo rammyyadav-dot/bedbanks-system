@@ -38,7 +38,7 @@ export class AgentFinanceService {
     assertSupportedSettlementCurrency(currency)
     const required = BigInt(totalMinor)
     const wallet = await this.prisma.withTenant(tenantId, async (tx) => {
-      const candidate = await tx.wallet.findFirst({ where: { tenantId, currency }, include: { entries: true } })
+      const candidate = await tx.wallet.findFirst({ where: { tenantId, currency }, include: { entries: { where: { tenantId } } } })
       if (!candidate) return null
       const balance = candidate.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n)
       return { ...candidate, availableCredit: candidate.creditLimit + balance }

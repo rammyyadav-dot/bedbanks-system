@@ -9,10 +9,10 @@ import { audiences, capabilities, operationalPrinciples, workflow } from '../lib
 export default function HomePage() {
   return <SiteShell>
     <section className="home-hero grid-lines"><div className="container-wide home-hero-grid"><div>
-      <p className="status-pill"><span /> Global B2B hotel distribution</p>
+      <p className="status-pill"><span /> Global B2B hotel distribution · Early build-out</p>
       <h1>Next Gen of Global B2B Hotel Distribution</h1>
-      <p className="hero-copy">Connect hotels, DMCs and travel professionals through one modern distribution ecosystem.</p>
-      <div className="hero-actions"><Link href="/request-demo" className="button button-primary">Join fBeds <ArrowUpRight size={17} aria-hidden="true" /></Link><Link href="#ecosystem" className="button button-secondary">Explore fBeds</Link></div>
+      <p className="hero-copy">fBeds is building one modern distribution ecosystem for hotels, DMCs and travel professionals.</p>
+      <div className="hero-actions"><Link href="/request-demo" className="button button-primary">Register your interest <ArrowUpRight size={17} aria-hidden="true" /></Link><Link href="#ecosystem" className="button button-secondary">Explore fBeds</Link></div>
       <ul className="hero-checks" aria-label="Platform principles"><li><Check aria-hidden="true" /> B2B-first workflows</li><li><Check aria-hidden="true" /> Explicit operational controls</li><li><Check aria-hidden="true" /> Integration-ready boundaries</li></ul>
     </div><NetworkVisual /></div></section>
 

@@ -70,6 +70,12 @@ export class BookingService {
     return this.parse(result, (data): data is HoldOutcome => isRecord(data) && typeof data.status === 'string')
   }
 
+  /** Gives the inventory back before the hold expires. Only possible while the hold is not yet part of a booking attempt. */
+  async releaseHold(holdId: string, tenantId: string): Promise<BookingResult<{ holdId: string; status: 'RELEASED' | 'EXPIRED' }>> {
+    return this.parse(await this.call(`/agent/holds/${encodeURIComponent(holdId)}`, tenantId, { method: 'DELETE' }),
+      (data): data is { holdId: string; status: 'RELEASED' | 'EXPIRED' } => isRecord(data) && typeof data.holdId === 'string' && (data.status === 'RELEASED' || data.status === 'EXPIRED'))
+  }
+
   async prebook(holdId: string, guest: GuestInput, tenantId: string): Promise<BookingResult<PrebookData>> {
     const body = { inventoryHoldId: holdId, idempotencyKey: `prebook-${holdId}`, adults: guest.adults, children: guest.children, childAges: guest.childAges, leadGuest: { firstName: guest.firstName.trim(), lastName: guest.lastName.trim() } }
     return this.parse(await this.call('/agent/prebook', tenantId, { method: 'POST', body: JSON.stringify(body) }),

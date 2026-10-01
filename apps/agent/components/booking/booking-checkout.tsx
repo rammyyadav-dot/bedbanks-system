@@ -46,6 +46,14 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
     setMessage(out.status === 'price_changed' ? `The price changed${out.currency && out.sellAmountMinor !== undefined ? ` to ${formatMinorAmount(out.sellAmountMinor, out.currency)}` : ''}. Recheck the rate to accept the new total.` : (HOLD_MESSAGES[out.status] ?? 'The rate could not be held.'))
   }
 
+  async function releaseHold() {
+    if (!hold || phase === 'booking') return
+    setMessage('')
+    const result = await api.releaseHold(hold.holdId, tenantId)
+    if (!result.ok) { setMessage(result.message); return }
+    holdKey.current = newKey(); setHold(null); setBookingId(null); setPhase('idle'); setMessage('Hold released. The inventory is available again.')
+  }
+
   async function book() {
     if (!hold || !validGuest || phase === 'booking') return
     setPhase('booking'); setMessage('')
@@ -70,7 +78,8 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
         <div className="booking-guest-form"><label className="portal-field"><span>LEAD GUEST FIRST NAME</span><div><input value={guest.firstName} maxLength={80} onChange={(event) => setGuest({ ...guest, firstName: event.target.value })} aria-label="Lead guest first name" /></div></label>
           <label className="portal-field"><span>LEAD GUEST LAST NAME</span><div><input value={guest.lastName} maxLength={80} onChange={(event) => setGuest({ ...guest, lastName: event.target.value })} aria-label="Lead guest last name" /></div></label></div>
         <p className="booking-note">{request.adults} adult{request.adults === 1 ? '' : 's'}{request.children ? `, ${request.children} child${request.children === 1 ? '' : 'ren'} (ages ${request.childAges.join(', ')})` : ''} · {request.rooms} room · charged to agency credit · {rate.cancellation.summary}</p>
-        <button className="portal-primary" disabled={!validGuest || phase === 'booking'} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button></>}
+        <button className="portal-primary" disabled={!validGuest || phase === 'booking'} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
+        {!bookingId && <button className="portal-link" disabled={phase === 'booking'} onClick={() => void releaseHold()}>Release hold</button>}</>}
     </div>}
     {phase === 'failed' && <div className="portal-hold-outcome" role="alert"><ShieldAlert size={16} /><strong>Booking not completed</strong><span>{message || 'Nothing was charged.'}</span><button className="portal-link" onClick={() => { holdKey.current = newKey(); setHold(null); setBookingId(null); setPhase('idle'); setMessage('') }}>Start over</button></div>}
     {message && phase !== 'failed' && <p className="portal-field-error" role="alert">{message}</p>}

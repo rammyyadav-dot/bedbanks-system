@@ -21,7 +21,7 @@ Formal `Role`, `Permission`, `UserRole`, and `RolePermission` records are the so
 
 ## Tenant context behavior
 
-The active tenant is selected in memory by the Agent workspace screen and sent as `x-fbeds-tenant-id` for protected requests. `TenantContextGuard` validates the authenticated user’s active membership and tenant status against the database on every request. A missing, inactive, or unrelated tenant returns a generic access-denied response and records an audit event.
+The Agent workspace may send `x-fbeds-tenant-id` to name one membership already loaded from the opaque session. `TenantContextGuard` accepts that value only when it equals a session membership, then reloads the membership row and stores `membership.tenantId` for every later read and write. Handlers and `AgentRbacGuard` use that server value. A missing header is allowed only when the session has exactly one active membership. A header, body, or query tenant that is not one of those memberships is denied before any database call uses it. An inactive membership returns a generic access-denied response and records an audit event in that session tenant.
 
 ## Supplier-unavailable behavior
 

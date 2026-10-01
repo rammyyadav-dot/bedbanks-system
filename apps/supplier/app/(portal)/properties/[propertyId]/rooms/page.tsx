@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function PropertyRoomsPage() {
-  return <OperationalModule config={moduleConfigs.rooms} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Property rooms"
+      description="This room view is not available."
+    />
+  )
 }

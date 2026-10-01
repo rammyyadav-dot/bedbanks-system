@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "node --no-experimental-strip-types -r @swc-node/register src/main.ts",
     "build": "nest build",
-    "start": "node dist/main",
-    "start:prod": "node dist/main",
+    "start": "node --no-experimental-strip-types -r @swc-node/register src/main.ts",
+    "start:prod": "node --no-experimental-strip-types -r @swc-node/register src/main.ts",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "pnpm run test:unit && pnpm run test:e2e",
     "test:unit": "jest --runInBand",
@@ -19,10 +19,13 @@
     "prisma:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
-    "prisma:migrate:drift": "prisma migrate diff --from-url \"$DATABASE_URL\" --to-schema-datamodel prisma/schema.prisma --exit-code",
+    "prisma:migrate:drift": "node scripts/check-migration-drift.mjs",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",
     "ops:provision-hold-expiry-role": "tsx src/database/provision-hold-expiry-role.cli.ts",
+    "ops:provision-api-runtime-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-api-runtime-role.cli.ts",
+    "ops:provision-preview-fixtures": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-preview-fixtures.cli.ts",
+    "ops:bootstrap-first-admin": "node --no-experimental-strip-types -r @swc-node/register src/database/bootstrap-first-admin.cli.ts",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
     "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
     "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand"
@@ -45,14 +48,14 @@
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "@swc-node/register": "^1.12.1",
+    "@swc/core": "^1.16.13"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
-    "@swc-node/register": "^1.12.1",
-    "@swc/core": "^1.16.13",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
