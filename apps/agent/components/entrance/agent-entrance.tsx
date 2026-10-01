@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
-import { TradeFooter, TradeMark } from '@/components/entrance/trade-frame'
+import { Eye, EyeOff, Headset, Info, MessageSquare, Rss } from 'lucide-react'
+import { TradeFooter } from '@/components/entrance/trade-frame'
 import { login, type AgentIdentity } from '@/lib/api-client'
 import { entranceCards, heroCopy } from '@/lib/marketplace-content'
 import { markAgentSession } from '@/lib/recent-searches'
@@ -50,11 +50,12 @@ export function AgentEntrance({
     }
   }
 
+  const cardIcons = [Info, Headset, MessageSquare, Rss]
   return (
     <div className="trade-entrance">
       <section className="trade-hero">
         <div className="trade-panel">
-          <TradeMark />
+          <img className="trade-hero-logo" src="/fabbeds-logo.png" alt="FabBeds" width={1143} height={295} />
           <h1>{heroCopy.headline}</h1>
           <p className="trade-lead">{heroCopy.supporting}</p>
           {sessionExpired && <p className="trade-banner" role="status">Your secure session has expired. Sign in again to continue.</p>}
@@ -65,6 +66,7 @@ export function AgentEntrance({
             {error && <p id="login-error" className="trade-error" role="alert">{error}</p>}
             <button className="trade-button" disabled={submitting} type="submit">{submitting ? 'Signing in…' : heroCopy.primaryCta}</button>
           </form>
+          <p className="trade-kicker">{heroCopy.joinLabel}</p>
           <p className="trade-partner">{heroCopy.partnerInvitation}</p>
           <Link className="trade-button is-secondary" href={`/access?next=${encodeURIComponent(returnPath)}`}>{heroCopy.secondaryCta}</Link>
         </div>
@@ -73,14 +75,18 @@ export function AgentEntrance({
         </figure>
       </section>
       <section className="trade-card-grid" aria-label="Company information">
-        {entranceCards.map((card) => (
-          <Link key={card.href} className="trade-info-card" href={card.href}>
-            <h2>{card.title}</h2>
-            <p>{card.text}</p>
-          </Link>
-        ))}
+        {entranceCards.map((card, index) => {
+          const Icon = cardIcons[index] ?? Info
+          return (
+            <Link key={card.href} className="trade-info-card" href={card.href}>
+              <span className="trade-card-icon" aria-hidden="true"><Icon size={18} /></span>
+              <h2>{card.title}</h2>
+              <p>{card.text}</p>
+            </Link>
+          )
+        })}
       </section>
-      <TradeFooter />
+      <TradeFooter quiet />
     </div>
   )
 }
