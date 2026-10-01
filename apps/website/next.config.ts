@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  // The demo form is the only Server Action; its payload is a few KB at most. Next's default is 1 MB.
+  experimental: { serverActions: { bodySizeLimit: '32kb' } },
   async headers() {
     const directives = ["default-src 'self'", "base-uri 'self'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'", "img-src 'self' data: blob:", "font-src 'self' data:", "style-src 'self' 'unsafe-inline'", `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''} https://va.vercel-scripts.com`, "connect-src 'self' https://vitals.vercel-insights.com https://*.vercel-insights.com"]
     if (process.env.NODE_ENV === 'production') directives.push('upgrade-insecure-requests')
