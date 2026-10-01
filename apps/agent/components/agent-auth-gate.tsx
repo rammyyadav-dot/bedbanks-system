@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AgentEntrance } from '@/components/entrance/agent-entrance'
 import { AgentWorkspace } from './agent-workspace'
 import { agentSession, getAgentContext, logout, type AgentIdentity } from '@/lib/api-client'
+import { clearGuestNationality } from '@/lib/guest-market'
 import { clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
 
 export function AgentAuthGate() {
@@ -59,6 +60,7 @@ export function AgentSignOut({ userId, onComplete }: { userId: string; onComplet
   return <button className="agent-signout" onClick={async () => {
     await logout()
     clearRecentSearches(window.sessionStorage, userId)
+    clearGuestNationality(window.sessionStorage, userId)
     clearAgentSessionMark(window.sessionStorage)
     onComplete()
   }}>Sign out</button>

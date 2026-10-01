@@ -78,6 +78,32 @@ test('enforces canonical hotel, star, board, refundable, price and availability 
   assert.equal(validateSearchHotels([matching], { ...filteredCriteria, filters: { boardBasisIds: ['other'] } }).hotels.length, 0)
   assert.equal(validateSearchHotels([matching], { ...filteredCriteria, filters: { minPriceMinor: 125100 } }).hotels.length, 0)
 })
+test('AED 700 is 70000 minor of the total stay, not 700 per night', () => {
+  const stayTotal = hotel()
+  Object.assign(stayTotal.rooms[0].rates[0], {
+    sellAmountMinor: 70000, totalAmountMinor: 65000, markupAmountMinor: 5000,
+    netAmountMinor: 55000, taxAmountMinor: 10000, feeAmountMinor: 0,
+    total: { amountMinor: 70000, currency: 'AED' },
+  })
+  const threeNights = hotel()
+  threeNights.hotelId = 'hotel-b'
+  threeNights.rooms[0].roomTypeId = 'room-b'
+  Object.assign(threeNights.rooms[0].rates[0], {
+    offerId: 'offer-b', hotelId: 'hotel-b', canonicalHotelId: 'hotel-b',
+    roomTypeId: 'room-b', canonicalRoomTypeId: 'room-b',
+    sellAmountMinor: 210000, totalAmountMinor: 200000, markupAmountMinor: 10000,
+    netAmountMinor: 180000, taxAmountMinor: 20000, feeAmountMinor: 0,
+    total: { amountMinor: 210000, currency: 'AED' },
+  })
+  const capped = validateSearchHotels([stayTotal, threeNights], { ...criteria, filters: { maxPriceMinor: 70000 } })
+  assert.equal(capped.ok, true)
+  assert.deepEqual(capped.hotels.map((row) => row.hotelId), ['hotel-a'])
+  assert.equal(capped.hotels[0].rooms[0].rates[0].sellAmountMinor, 70000)
+  assert.equal('nightlyAmountMinor' in capped.hotels[0].rooms[0].rates[0], false)
+  const floor = validateSearchHotels([stayTotal], { ...criteria, filters: { minPriceMinor: 70000, maxPriceMinor: 70000 } })
+  assert.equal(floor.hotels.length, 1)
+  assert.equal(validateSearchHotels([stayTotal], { ...criteria, filters: { minPriceMinor: 70001 } }).hotels.length, 0)
+})
 test('enforces the bounded hotel result limit after validation', () => {
   const second = hotel()
   second.hotelId = 'hotel-b'; second.rooms[0].rates[0].hotelId = 'hotel-b'; second.rooms[0].rates[0].canonicalHotelId = 'hotel-b'
