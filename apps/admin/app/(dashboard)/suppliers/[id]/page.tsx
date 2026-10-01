@@ -7,6 +7,7 @@ import { StatCard } from '@/components/common/StatCard'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
+import { SupplierForm } from '@/components/commercial/SupplierForm'
 import { getSupplier, type SupplySupplier } from '@/lib/data'
 import type { Status } from '@/lib/types/admin'
 
@@ -33,6 +34,7 @@ export default function SupplierDetailPage() {
         <div style={{ marginTop: 10 }}>Created {new Date(supplier.createdAt).toLocaleString()}</div>
         <div>Updated {new Date(supplier.updatedAt).toLocaleString()}</div>
       </div>
+      <SupplierForm key={supplier.updatedAt} supplier={supplier} onSaved={setSupplier} />
     </div>
   )
 }

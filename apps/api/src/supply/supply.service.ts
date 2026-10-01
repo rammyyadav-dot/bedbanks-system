@@ -14,6 +14,12 @@ export class SupplyService {
     const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
     if (!keys.includes(permission)) throw new ForbiddenException('Insufficient permission')
   }
+  /** The caller's own supply.* permission keys in the active tenant. Used only to hide controls; every endpoint still enforces its own permission. */
+  async capabilities(tenantId: string, userId: string) {
+    const assignments: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
+    const keys = new Set<string>(assignments.flatMap((assignment: any) => assignment.role.permissions.map((item: any) => item.permission.key as string)).filter((key: string) => key.startsWith('supply.')))
+    return { permissions: [...keys].sort() }
+  }
   private async check(tenantId: string, userId: string, permission: string) { await this.permitted(tenantId, userId, permission) }
   private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>) {
     await this.check(tenantId, userId, permission)
@@ -238,4 +244,53 @@ export class SupplyService {
 
   async upsertDailyRate(tenantId: string, userId: string, input: any, requestId?: string) { if ((!Number.isSafeInteger(input.amountMinor) && typeof input.amountMinor !== 'string') || !Number.isInteger(input.occupancy) || !['NET', 'SELL'].includes(input.amountBasis)) throw new BadRequestException('Invalid daily rate'); const amountMinor = BigInt(input.amountMinor); if (amountMinor < 0n) throw new BadRequestException('amountMinor must be non-negative'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.daily_rate.updated', 'daily_rate', requestId, async tx => { const plan = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId } }); if (!plan || plan.currency !== clean(input.currency).toUpperCase()) throw new BadRequestException('Rate plan or currency is invalid'); const value = await tx.dailyRate.upsert({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: input.ratePlanId, stayDate: date(input.stayDate), occupancy: input.occupancy } }, update: { amountMinor, amountBasis: input.amountBasis, currency: clean(input.currency).toUpperCase() }, create: { tenantId, ratePlanId: input.ratePlanId, stayDate: date(input.stayDate), occupancy: input.occupancy, amountMinor, amountBasis: input.amountBasis, currency: clean(input.currency).toUpperCase() } }); return { id: value.id, value: { ...value, amountMinor: value.amountMinor.toString() } } }) }
   async upsertAvailability(tenantId: string, userId: string, input: any, requestId?: string) { if (!Number.isInteger(input.allotment) || input.allotment < 0 || (input.sold !== undefined && (!Number.isInteger(input.sold) || input.sold < 0 || input.sold > input.allotment))) throw new BadRequestException('Invalid availability'); return this.write(tenantId, userId, 'supply.availability.manage', 'supply.availability.updated', 'daily_availability', requestId, async tx => { const plan = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId } }); if (!plan) throw new BadRequestException('Rate plan does not belong to tenant'); const stayDate = date(input.stayDate); const existing = await tx.dailyAvailability.findUnique({ where: { ratePlanId_stayDate: { ratePlanId: input.ratePlanId, stayDate } } }); if (existing && input.allotment < existing.sold + existing.held) throw new BadRequestException('Allotment cannot be below committed inventory'); const value = await tx.dailyAvailability.upsert({ where: { ratePlanId_stayDate: { ratePlanId: input.ratePlanId, stayDate } }, update: { allotment: input.allotment, stopSell: input.stopSell ?? false, minStay: input.minStay ?? 1 }, create: { tenantId, ratePlanId: input.ratePlanId, stayDate, allotment: input.allotment, sold: input.sold ?? 0, stopSell: input.stopSell ?? false, minStay: input.minStay ?? 1 } }); return { id: value.id, value } }) }
-  async sellability(tenantId: string, userId: string, input: any) { await this.check(tenantId, userId, 'supply.rates.read'); const stayDate = date(input.stayDate); const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, include: { roomType: { include: { hotel: true } }, boardBasis: true, contract: { include: { supplier: true, supplierHotelMapping: true } }, dailyRates: { where: { stayDate, occupancy: input.occupancy } }, availability: { where: { stayDate } } } })); const reasons: string[] = []; if (!plan) reasons.push('RATE_PLAN_MISSING'); else { if (plan.roomType.hotel.contentStatus === 'SUSPENDED') reasons.push('HOTEL_INACTIVE'); if (!plan.roomType.isActive) reasons.push('ROOM_TYPE_INACTIVE'); if (!plan.boardBasis.isActive) reasons.push('BOARD_BASIS_INACTIVE'); if (plan.contract.supplier.status !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE'); if (input.occupancy !== plan.occupancy || input.occupancy > plan.roomType.maxOccupancy) reasons.push('OCCUPANCY_UNSUPPORTED'); if (plan.contract.status !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE'); if (stayDate < plan.contract.validFrom || stayDate > plan.contract.validTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY'); if (plan.contract.supplierHotelMapping && (plan.contract.supplierHotelMapping.hotelId !== plan.roomType.hotelId || plan.contract.supplierHotelMapping.status !== 'MAPPED')) reasons.push('SUPPLIER_MAPPING_INVALID'); if (plan.status !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE'); const dailyRate = plan.dailyRates[0]; if (!dailyRate || dailyRate.amountMinor < 0n) reasons.push('DAILY_RATE_MISSING_OR_INVALID'); else if (dailyRate.currency !== plan.currency) reasons.push('RATE_CURRENCY_MISMATCH'); else if (dailyRate.amountBasis === null) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED'); else if (dailyRate.amountBasis === 'NET') reasons.push('NET_RATE_MARKUP_UNAVAILABLE'); const availability = plan.availability[0]; if (!availability) reasons.push('AVAILABILITY_MISSING'); else { if (availability.stopSell) reasons.push('STOP_SELL'); if (availability.allotment - availability.sold - availability.held <= 0) reasons.push('NO_INVENTORY') } } return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons } } }
+  /**
+   * Per-night sellability diagnostic. `reasons` are stable backend codes; clients render them verbatim.
+   * Optional stay context (`checkInDate` + `nights`) additionally evaluates minimum stay, maximum stay and release days.
+   */
+  async sellability(tenantId: string, userId: string, input: any) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const stayDate = date(input.stayDate)
+    const hasStay = input.checkInDate !== undefined || input.nights !== undefined
+    if (hasStay && (typeof input.checkInDate !== 'string' || !Number.isInteger(input.nights) || input.nights < 1 || input.nights > 366)) throw new BadRequestException('checkInDate and a positive integer nights are required together')
+    const checkIn = hasStay ? date(input.checkInDate) : null
+    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, include: { roomType: { include: { hotel: true } }, boardBasis: true, contract: { include: { supplier: true, supplierHotelMapping: true } }, dailyRates: { where: { stayDate, occupancy: input.occupancy } }, availability: { where: { stayDate } } } }))
+    const roomMapping = plan?.contract.supplierHotelMapping
+      ? await this.prisma.withTenant(tenantId, tx => tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId, status: 'MAPPED' } }))
+      : null
+    const reasons: string[] = []
+    if (!plan) reasons.push('RATE_PLAN_MISSING')
+    else {
+      if (plan.roomType.hotel.contentStatus === 'SUSPENDED') reasons.push('HOTEL_INACTIVE')
+      if (!plan.roomType.isActive) reasons.push('ROOM_TYPE_INACTIVE')
+      if (!plan.boardBasis.isActive) reasons.push('BOARD_BASIS_INACTIVE')
+      if (plan.contract.supplier.status !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE')
+      if (input.occupancy !== plan.occupancy || input.occupancy > plan.roomType.maxOccupancy) reasons.push('OCCUPANCY_UNSUPPORTED')
+      if (plan.contract.status !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
+      if (stayDate < plan.contract.validFrom || stayDate > plan.contract.validTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+      const hotelMapping = plan.contract.supplierHotelMapping
+      if (hotelMapping && (hotelMapping.hotelId !== plan.roomType.hotelId || hotelMapping.status !== 'MAPPED')) reasons.push('SUPPLIER_MAPPING_INVALID')
+      else if (hotelMapping && !roomMapping) reasons.push('ROOM_MAPPING_UNAPPROVED')
+      if (plan.status !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE')
+      const dailyRate = plan.dailyRates[0]
+      if (!dailyRate || dailyRate.amountMinor < 0n) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
+      else if (dailyRate.currency !== plan.currency) reasons.push('RATE_CURRENCY_MISMATCH')
+      else if (dailyRate.amountBasis === null) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
+      else if (dailyRate.amountBasis === 'NET') reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
+      const availability = plan.availability[0]
+      if (!availability) reasons.push('AVAILABILITY_MISSING')
+      else {
+        if (availability.stopSell) reasons.push('STOP_SELL')
+        if (availability.allotment - availability.sold - availability.held <= 0) reasons.push('NO_INVENTORY')
+      }
+      if (checkIn) {
+        const requiredMinStay = Math.max(plan.minStay, availability && stayDate.getTime() === checkIn.getTime() ? availability.minStay : 1)
+        if (input.nights < requiredMinStay) reasons.push('MIN_STAY_NOT_MET')
+        if (plan.maxStay != null && input.nights > plan.maxStay) reasons.push('MAX_STAY_EXCEEDED')
+        const today = date(new Intl.DateTimeFormat('en-CA', { timeZone: plan.roomType.hotel.timeZone || 'UTC' }).format(new Date()))
+        if (Math.round((checkIn.getTime() - today.getTime()) / 86_400_000) < plan.releaseDays) reasons.push('RELEASE_WINDOW_VIOLATED')
+      }
+    }
+    return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons }
+  }
+}
