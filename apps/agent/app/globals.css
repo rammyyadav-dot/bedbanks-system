@@ -424,7 +424,7 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .market-advanced label, .market-check { display: flex; align-items: center; gap: 6px; color: #1F2937; font-size: 14px; }
 .market-section-head, .market-strip, .market-criteria-bar, .market-recheck-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .market-recent-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
-.market-recent-grid li { display: grid; gap: 4px; min-height: 132px; padding: 14px; border: 1px solid #E5E7EB; border-radius: 14px; background: #F7F8FA; }
+.market-recent-grid li { display: grid; gap: 4px; min-height: 148px; padding: 14px; border: 1px solid #E5E7EB; border-radius: 14px; background: #F7F8FA; }
 .market-recent-grid strong { color: #1F2937; }
 .market-recent-grid span, .market-criteria-bar { color: #4B5563; font-size: 13px; }
 .market-recent-grid div { display: flex; align-items: center; justify-content: space-between; margin-top: auto; }
@@ -440,6 +440,7 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .market-badges span { padding: 4px 7px; border-radius: 999px; background: #F7F8FA; color: #1F2937; font-size: 11px; font-weight: 700; }
 .portal-rate .portal-primary:not(:disabled) { opacity: 1; cursor: pointer; }
 .portal-hold-outcome strong { text-transform: none; font-size: 14px; }
+.portal-hold-outcome small { color: #4B5563; font-size: 12px; }
 .market-home { gap: 18px; }
 @media (max-width: 1100px) {
   .market-search-row, .market-recent-grid { grid-template-columns: 1fr 1fr; }

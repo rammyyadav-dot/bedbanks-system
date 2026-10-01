@@ -6,7 +6,7 @@ import { marketplaceHome } from '@/lib/marketplace-content'
 import { destinationSuggestions } from '@/lib/destination-suggestions'
 import { criteriaFilters } from '@/lib/search-filters'
 import { GUEST_MARKETS, guestMarketName } from '@/lib/guest-market'
-import { clampCount, MAX_OCCUPANTS, MAX_ROOMS, occupancySummary } from '@/lib/occupancy'
+import { clampCount, MAX_OCCUPANTS, MAX_ROOMS, occupancySummary, resolvedChildAges, type DraftChildAge } from '@/lib/occupancy'
 import { formatCompactStay, weekdayShort } from '@/lib/format'
 import { addUtcDays, applyStayPick, monthGrid, monthLabel, nightCount, shiftMonth, utcToday } from '@/lib/stay-calendar'
 
@@ -31,8 +31,8 @@ export function SearchCriteriaForm({
   setAdults: (value: number) => void
   children: number
   updateChildren: (value: number) => void
-  childAges: number[]
-  setChildAges: (value: number[]) => void
+  childAges: DraftChildAge[]
+  setChildAges: (value: DraftChildAge[]) => void
   nationality: string
   setNationality: (value: string) => void
   starRatings: number[]
@@ -58,6 +58,7 @@ export function SearchCriteriaForm({
     const parsed = criteriaFilters({ starRatings, refundableOnly, minPriceAed, maxPriceAed })
     if (!destination.trim()) return setFormError('Enter a destination.')
     if (!parsed.ok) return setFormError(parsed.reason)
+    if (!resolvedChildAges(children, childAges)) return setFormError('Choose an age for each child.')
     if (nights === null || nights > 30) return setFormError('Choose a stay of 1 to 30 nights.')
     setFormError('')
     onSubmit()
@@ -160,7 +161,7 @@ function Month({ year, monthIndex, checkIn, checkOut, onPick, className = '' }: 
   </div>
 }
 
-function OccupancyField({ rooms, adults, children, childAges, onChange }: { rooms: number; adults: number; children: number; childAges: number[]; onChange: (value: { rooms: number; adults: number; children: number; childAges: number[] }) => void }) {
+function OccupancyField({ rooms, adults, children, childAges, onChange }: { rooms: number; adults: number; children: number; childAges: DraftChildAge[]; onChange: (value: { rooms: number; adults: number; children: number; childAges: DraftChildAge[] }) => void }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   useDismiss(box, () => setOpen(false))
@@ -168,7 +169,7 @@ function OccupancyField({ rooms, adults, children, childAges, onChange }: { room
   const setAdults = (value: number) => onChange({ rooms, adults: clampCount(value, 1, MAX_OCCUPANTS), children, childAges })
   const setChildren = (value: number) => {
     const next = clampCount(value, 0, MAX_OCCUPANTS)
-    onChange({ rooms, adults, children: next, childAges: Array.from({ length: next }, (_, index) => childAges[index] ?? 0) })
+    onChange({ rooms, adults, children: next, childAges: Array.from({ length: next }, (_, index) => childAges[index] ?? null) })
   }
   return (
     <div className="market-field" ref={box}>
@@ -180,7 +181,7 @@ function OccupancyField({ rooms, adults, children, childAges, onChange }: { room
         <Stepper label="Rooms" value={rooms} min={1} max={MAX_ROOMS} onChange={setRooms} />
         <Stepper label="Adults" value={adults} min={1} max={MAX_OCCUPANTS} onChange={setAdults} />
         <Stepper label="Children" value={children} min={0} max={MAX_OCCUPANTS} onChange={setChildren} />
-        {childAges.map((age, index) => <label key={index} className="market-child-age">Child {index + 1} age<select aria-label={`Child ${index + 1} age`} value={age} onChange={(event) => onChange({ rooms, adults, children, childAges: childAges.map((current, position) => position === index ? Number(event.target.value) : current) })}>{Array.from({ length: 18 }, (_, value) => <option key={value} value={value}>{value} years</option>)}</select></label>)}
+        {childAges.map((age, index) => <label key={index} className="market-child-age">Child {index + 1} age<select aria-label={`Child ${index + 1} age`} value={age ?? ''} onChange={(event) => { const picked = event.target.value; if (picked === '') return; onChange({ rooms, adults, children, childAges: childAges.map((current, position) => position === index ? Number(picked) : current) }) }}><option value="" disabled>Age</option>{Array.from({ length: 18 }, (_, value) => <option key={value} value={value}>{value} years</option>)}</select></label>)}
         <p>Occupancy is sent as one total for this search. The maximum is {MAX_ROOMS} rooms.</p>
       </div>}
     </div>
@@ -212,8 +213,8 @@ function AdvancedFields({ starRatings, setStarRatings, refundableOnly, setRefund
     <fieldset><legend>Star rating</legend><div>{[5, 4, 3, 2, 1].map((star) => <label key={star}><input type="checkbox" checked={starRatings.includes(star)} onChange={() => toggleStar(star)} /> {star}★</label>)}</div></fieldset>
     <label className="market-check"><input type="checkbox" checked={refundableOnly} onChange={(event) => setRefundableOnly(event.target.checked)} /> Refundable rates only</label>
     <div className="market-price-range">
-      <label>Minimum AED<input inputMode="numeric" value={minPriceAed} aria-label="Minimum price in whole AED" onChange={(event) => setMinPriceAed(event.target.value)} /></label>
-      <label>Maximum AED<input inputMode="numeric" value={maxPriceAed} aria-label="Maximum price in whole AED" onChange={(event) => setMaxPriceAed(event.target.value)} /></label>
+      <label>Minimum total stay (AED)<input inputMode="numeric" value={minPriceAed} aria-label="Minimum total stay in whole AED" onChange={(event) => setMinPriceAed(event.target.value)} /></label>
+      <label>Maximum total stay (AED)<input inputMode="numeric" value={maxPriceAed} aria-label="Maximum total stay in whole AED" onChange={(event) => setMaxPriceAed(event.target.value)} /></label>
     </div>
     <button type="button" className="portal-link" onClick={onClear}>Clear filters</button>
   </div>

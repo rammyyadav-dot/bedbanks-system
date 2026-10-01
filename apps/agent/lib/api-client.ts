@@ -1,4 +1,5 @@
 import { agentApiBase } from './api-config.mjs'
+import { defaultSearchStay } from './stay-dates.mjs'
 
 export type AgentIdentity = {
   user: { id: string; email: string; name: string | null; status: 'ACTIVE' | 'SUSPENDED' }
@@ -55,8 +56,9 @@ export function getFinanceSummary(tenantId: string) {
 }
 
 export function getSearchStatus(tenantId: string) {
-  const checkIn = new Date().toISOString().slice(0, 10)
-  const checkOut = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+  const stay = defaultSearchStay(Date.now(), 1)
+  const checkIn = stay.checkIn
+  const checkOut = stay.checkOut
   return request<{ status: 'not_checked' | 'provider_unavailable' }>('/agent/search/status', { method: 'POST',
     headers: { 'x-fbeds-tenant-id': tenantId },
     body: JSON.stringify({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 1,
