@@ -6,6 +6,7 @@ import { AgentAuditService } from './audit.service'
 import { InventoryHoldService } from './inventory-hold.service'
 import { SUPPLIER_ADAPTER, SupplierAdapter, SupplierProviderError, type RecheckedOfferAuthority, type SupplierRecheckResult } from './supplier.port'
 import { assertSupportedSettlementCurrency } from './currency'
+import { commercialLeadDays, stayNightCount } from '../supply/contracted-sellability'
 
 const RECHECK_TIMEOUT_MS = 5_000
 const safeInteger = (value: number) => Number.isSafeInteger(value) && value >= 0
@@ -109,8 +110,8 @@ export class OfferHoldService {
             roomMappings: { some: { tenantId, supplierRoomId: offer.supplierRoomId, roomTypeId: offer.canonicalRoomTypeId, status: 'MAPPED' } } } },
       }, select: { id: true, minStay: true, maxStay: true, releaseDays: true } })
       if (!plan) return false
-      const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
-      const leadDays = Math.floor((checkIn.getTime() - today.getTime()) / 86_400_000)
+      const nights = stayNightCount(offer.checkIn, offer.checkOut)
+      const leadDays = commercialLeadDays(offer.checkIn, today)
       return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && leadDays >= plan.releaseDays
     })
   }

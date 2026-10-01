@@ -32,6 +32,17 @@ test('retains nested room/rate/board/policy/total and strips unknown fields', ()
   assert.equal(offer.cancellation.summary, 'Free until deadline')
   assert.deepEqual(offer.total, { amountMinor: 125099, currency: 'AED' })
   assert.equal('internalCredential' in offer, false)
+  assert.equal('contractId' in offer, false)
+})
+test('preserves an optional contract id', () => {
+  const sample = hotel()
+  sample.rooms[0].rates[0].contractId = 'contract-a'
+  const result = validateSearchHotels([sample], criteria)
+  assert.equal(result.ok, true)
+  assert.equal(result.hotels[0].rooms[0].rates[0].contractId, 'contract-a')
+  const blank = hotel()
+  blank.rooms[0].rates[0].contractId = ' '
+  assert.equal(validateSearchHotels([blank], criteria).ok, false)
 })
 for (const [name, mutate] of [
   ['missing board ID', (h) => { delete h.rooms[0].rates[0].boardBasisId }],
