@@ -3,10 +3,9 @@ import test from 'node:test'
 import { recheckOutcomeMessage, recheckOutcomeTitle } from './recheck-copy.ts'
 
 test('describes fixture recheck outcomes without enabling booking', () => {
-  assert.equal(recheckOutcomeTitle('rechecked'), 'Rate verified')
-  assert.match(recheckOutcomeMessage('rechecked', false), /Price and availability confirmed/)
-  assert.match(recheckOutcomeMessage('rechecked', false), /Booking activation is not currently available/)
-  assert.match(recheckOutcomeMessage('rechecked', true), /Price and availability confirmed\./)
+  assert.equal(recheckOutcomeTitle('rechecked'), 'Offer rechecked')
+  assert.equal(recheckOutcomeMessage('rechecked', false), 'Current price and availability have been verified. Booking activation is not available for this account.')
+  assert.equal(recheckOutcomeMessage('rechecked', true), 'Current price and availability have been verified.')
   assert.doesNotMatch(recheckOutcomeMessage('rechecked', true), /Booking activation/)
   assert.equal(recheckOutcomeTitle('price_changed'), 'Price updated')
   assert.match(recheckOutcomeMessage('price_changed', false), /Accept the current price/)
