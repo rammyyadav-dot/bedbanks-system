@@ -13,6 +13,8 @@ import { hashPassword } from '../src/auth/utils/password'
 const prisma = new PrismaClient()
 jest.setTimeout(180000)
 
+const measured: { firstSearchMs?: number; repeatSearchMs?: number[]; priceChangedRecheckMs?: number; stopSellRecheckMs?: number } = {}
+
 const HOTEL_COUNT = 100
 const PLANS_PER_HOTEL = 3
 
@@ -129,6 +131,11 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   }, 180000)
 
   afterAll(async () => {
+    mkdirSync('/opt/cursor/artifacts', { recursive: true })
+    writeFileSync('/opt/cursor/artifacts/dubai-100-metrics.json', JSON.stringify({
+      ...measured, hotels: HOTEL_COUNT, offers: HOTEL_COUNT, activePlans: HOTEL_COUNT * PLANS_PER_HOTEL,
+      cachePolicy: 'contracted-inventory-uncached',
+    }, null, 2))
     await app?.close()
     const tenantIds = [tenantId, otherTenantId, emptyTenantId].filter(Boolean)
     if (tenantIds.length) {
@@ -286,7 +293,9 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   it('returns every sellable hotel when more than 200 rate plans match', async () => {
     const activePlans = await prisma.ratePlan.count({ where: { tenantId, status: 'ACTIVE' } })
     expect(activePlans).toBe(HOTEL_COUNT * PLANS_PER_HOTEL)
+    const started = process.hrtime.bigint()
     const response = await search().expect(201)
+    measured.firstSearchMs = Number(process.hrtime.bigint() - started) / 1_000_000
     expect(response.body.data.status).toBe('available')
     const rows = response.body.data.hotels
     expect(rows).toHaveLength(HOTEL_COUNT)
@@ -314,17 +323,14 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   it('repeats the same 100-hotel commercial result', async () => {
     const first = await search().expect(201)
     const signature = commercialSignature(first.body.data.hotels)
-    const measured: number[] = []
+    const repeats: number[] = []
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const started = process.hrtime.bigint()
       const again = await search().expect(201)
-      measured.push(Number(process.hrtime.bigint() - started) / 1_000_000)
+      repeats.push(Number(process.hrtime.bigint() - started) / 1_000_000)
       expect(commercialSignature(again.body.data.hotels)).toEqual(signature)
     }
-    mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/dubai-100-metrics.json', JSON.stringify({
-      searchMs: measured, hotels: signature.length, offers: HOTEL_COUNT, activePlans: HOTEL_COUNT * PLANS_PER_HOTEL,
-    }, null, 2))
+    measured.repeatSearchMs = repeats
   })
 
   it('walks every sellable hotel through deterministic pages', async () => {
@@ -411,9 +417,11 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
       where: { ratePlanId_stayDate_occupancy: { ratePlanId: hotels[50].sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
       data: { amountMinor: BigInt(hotels[50].nightMinor + 100) },
     })
+    const changedStarted = process.hrtime.bigint()
     const changed = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
       offerId: middle.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: middle.sellAmountMinor,
     }).expect(409)
+    measured.priceChangedRecheckMs = Number(process.hrtime.bigint() - changedStarted) / 1_000_000
     expect(changed.body.data).toMatchObject({ offerId: middle.offerId, status: 'price_changed', currency: 'AED', sellAmountMinor: hotels[50].totalMinor + 100 })
     expect(middle.sellAmountMinor).toBe(hotels[50].totalMinor)
     await prisma.dailyRate.update({
@@ -425,9 +433,11 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
       where: { ratePlanId_stayDate: { ratePlanId: hotels[99].sellPlanId, stayDate: utc(nights[0]) } },
       data: { stopSell: true },
     })
+    const stoppedStarted = process.hrtime.bigint()
     const stopped = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
       offerId: last.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: last.sellAmountMinor,
     }).expect(409)
+    measured.stopSellRecheckMs = Number(process.hrtime.bigint() - stoppedStarted) / 1_000_000
     expect(stopped.body.data.status).toBe('unavailable')
     const afterStop = await search().expect(201)
     expect(afterStop.body.data.hotels).toHaveLength(HOTEL_COUNT - 1)
