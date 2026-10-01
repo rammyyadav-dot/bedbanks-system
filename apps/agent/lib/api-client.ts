@@ -21,8 +21,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body?.data ?? body
 }
 
-export function login(email: string, password: string) {
-  return request<AgentIdentity>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+export async function login(email: string, password: string) {
+  try {
+    return await request<AgentIdentity>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Session expired') throw new Error('Invalid credentials')
+    throw error
+  }
 }
 
 export function getAgentContext() {
