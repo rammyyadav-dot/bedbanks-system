@@ -1,8 +1,9 @@
 import type { MetadataRoute } from 'next'
 import { publicRoutes } from '../lib/navigation'
+import { contentLastUpdated } from '../lib/content-dates'
+import { privacyPolicyApproved } from '../lib/legal-status'
 import { siteConfig } from '../lib/site-config'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const contentDate = new Date('2026-09-17T00:00:00.000Z')
-  return publicRoutes.filter((path) => path !== '/portals').map((path) => ({ url: new URL(path, `${siteConfig.siteUrl}/`).toString(), lastModified: contentDate, changeFrequency: path === '/' ? 'weekly' : 'monthly', priority: path === '/' ? 1 : .7 }))
+  return publicRoutes.filter((path) => path !== '/portals' && (path !== '/privacy' || privacyPolicyApproved)).map((path) => ({ url: new URL(path, `${siteConfig.siteUrl}/`).toString(), ...(contentLastUpdated[path] ? { lastModified: contentLastUpdated[path] } : {}), changeFrequency: path === '/' ? 'weekly' : 'monthly', priority: path === '/' ? 1 : .7 }))
 }

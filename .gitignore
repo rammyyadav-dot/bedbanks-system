@@ -40,3 +40,7 @@ dump.rdb
 # Local Redis snapshots
 dump.rdb
 **/dump.rdb
+
+# Playwright
+**/playwright-report/
+**/test-results/

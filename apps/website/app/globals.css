@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 @theme inline {
-  --font-sans: var(--font-inter), Arial, sans-serif;
+  --font-sans: var(--font-body);
   --color-background: #ffffff;
   --color-foreground: #1f2937;
   --color-muted: #f9fafb;
@@ -22,7 +22,7 @@
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #fff; color: #1f2937; font-family: var(--font-inter), Arial, sans-serif; }
+body { margin: 0; background: #fff; color: #1f2937; font-family: var(--font-body); }
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
@@ -189,3 +189,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .footer-grid { grid-template-columns: 1fr 1fr; }.footer-grid > div:first-child { grid-column: 1 / -1; }.footer-grid > div:last-child { grid-column: auto; }.footer-base { flex-direction: column; }
   .contact-float { position: static; margin: 0 14px 20px; justify-content: center; }
 }
+
+.status-banner { margin: 0; padding: 8px 16px; background: #fff7e6; color: #5b3a00; border-bottom: 1px solid #f3d9a4; font-size: 14px; line-height: 1.4; text-align: center; }
+
+/* System font stack: no remote font fetch at build or run time. To add a licensed brand font, see README "Fonts". */
+:root { --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.privacy-pending { color: #5b3a00; background: #fff7e6; border-left: 3px solid #f3d9a4; padding: 8px 12px; font-size: 15px; }
