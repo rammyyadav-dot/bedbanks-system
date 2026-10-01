@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
+import { evaluateNightSellability } from './contracted-sellability'
 
 const date = (value: string) => { const parsed = new Date(`${value}T00:00:00.000Z`); if (Number.isNaN(parsed.getTime())) throw new BadRequestException('Invalid date'); return parsed }
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
@@ -114,9 +115,9 @@ export class SupplyService {
 
   async hotels(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.hotels.read'); return this.prisma.withTenant(tenantId, tx => tx.hotel.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })) }
   async hotel(tenantId: string, userId: string, hotelId: string) { await this.check(tenantId, userId, 'supply.hotels.read'); const hotel = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId }, include: { roomTypes: { where: { isActive: true }, orderBy: { name: 'asc' } } } })); if (!hotel) throw new NotFoundException('Hotel not found'); return hotel }
-  private hotelData(tenantId: string, input: any) { const name = clean(input.name); const propertyType = clean(input.propertyType); const city = clean(input.city); const countryCode = clean(input.countryCode).toUpperCase(); const timeZone = clean(input.timeZone) || 'Asia/Dubai'; if (!name || !propertyType || !city || !/^[A-Z]{2}$/.test(countryCode) || (input.starRating !== undefined && input.starRating !== null && (!Number.isInteger(input.starRating) || input.starRating < 1 || input.starRating > 5))) throw new BadRequestException('Invalid hotel fields'); return { tenantId, name, propertyType, starRating: input.starRating ?? null, address: input.address == null ? null : clean(input.address), city, countryCode, timeZone, externalRef: input.externalRef == null ? null : clean(input.externalRef) } }
+  private hotelData(tenantId: string, input: any) { const name = clean(input.name); const propertyType = clean(input.propertyType); const city = clean(input.city); const countryCode = clean(input.countryCode).toUpperCase(); const timeZone = clean(input.timeZone) || 'Asia/Dubai'; const contentStatuses = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED']; const contentStatus = input.contentStatus ?? 'DRAFT'; if (!name || !propertyType || !city || !/^[A-Z]{2}$/.test(countryCode) || !contentStatuses.includes(contentStatus) || (input.starRating !== undefined && input.starRating !== null && (!Number.isInteger(input.starRating) || input.starRating < 1 || input.starRating > 5))) throw new BadRequestException('Invalid hotel fields'); return { tenantId, name, propertyType, starRating: input.starRating ?? null, address: input.address == null ? null : clean(input.address), city, countryCode, timeZone, contentStatus, externalRef: input.externalRef == null ? null : clean(input.externalRef) } }
   async createHotel(tenantId: string, userId: string, input: any, requestId?: string) { const data = this.hotelData(tenantId, input); return this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.created', 'hotel', requestId, async tx => { const value = await tx.hotel.create({ data }); return { id: value.id, value } }) }
-  async updateHotel(tenantId: string, userId: string, hotelId: string, input: any, requestId?: string) { const allowed = ['name', 'propertyType', 'starRating', 'address', 'city', 'countryCode', 'timeZone', 'externalRef']; if (Object.keys(input).some((key) => !allowed.includes(key) || key === 'tenantId')) throw new BadRequestException('Invalid hotel fields'); const current = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId } })); if (!current) throw new NotFoundException('Hotel not found'); const data = this.hotelData(tenantId, { ...current, ...input }); return this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.updated', 'hotel', requestId, async tx => { const value = await tx.hotel.update({ where: { id: hotelId }, data }); return { id: value.id, value } }) }
+  async updateHotel(tenantId: string, userId: string, hotelId: string, input: any, requestId?: string) { const allowed = ['name', 'propertyType', 'starRating', 'address', 'city', 'countryCode', 'timeZone', 'contentStatus', 'externalRef']; if (Object.keys(input).some((key) => !allowed.includes(key) || key === 'tenantId')) throw new BadRequestException('Invalid hotel fields'); const current = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId } })); if (!current) throw new NotFoundException('Hotel not found'); const data = this.hotelData(tenantId, { ...current, ...input }); return this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.updated', 'hotel', requestId, async tx => { const value = await tx.hotel.update({ where: { id: hotelId }, data }); return { id: value.id, value } }) }
   private roomData(input: any) {
     const name = clean(input.name)
     const code = clean(input.code)
@@ -258,37 +259,17 @@ export class SupplyService {
     const roomMapping = plan?.contract.supplierHotelMapping
       ? await this.prisma.withTenant(tenantId, tx => tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId, status: 'MAPPED' } }))
       : null
-    const reasons: string[] = []
-    if (!plan) reasons.push('RATE_PLAN_MISSING')
-    else {
-      if (plan.roomType.hotel.contentStatus === 'SUSPENDED') reasons.push('HOTEL_INACTIVE')
-      if (!plan.roomType.isActive) reasons.push('ROOM_TYPE_INACTIVE')
-      if (!plan.boardBasis.isActive) reasons.push('BOARD_BASIS_INACTIVE')
-      if (plan.contract.supplier.status !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE')
-      if (input.occupancy !== plan.occupancy || input.occupancy > plan.roomType.maxOccupancy) reasons.push('OCCUPANCY_UNSUPPORTED')
-      if (plan.contract.status !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
-      if (stayDate < plan.contract.validFrom || stayDate > plan.contract.validTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+    const reasons: string[] = evaluateNightSellability(plan, { stayDate, occupancy: input.occupancy })
+    if (plan) {
       const hotelMapping = plan.contract.supplierHotelMapping
-      if (hotelMapping && (hotelMapping.hotelId !== plan.roomType.hotelId || hotelMapping.status !== 'MAPPED')) reasons.push('SUPPLIER_MAPPING_INVALID')
-      else if (hotelMapping && !roomMapping) reasons.push('ROOM_MAPPING_UNAPPROVED')
-      if (plan.status !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE')
-      const dailyRate = plan.dailyRates[0]
-      if (!dailyRate || dailyRate.amountMinor < 0n) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
-      else if (dailyRate.currency !== plan.currency) reasons.push('RATE_CURRENCY_MISMATCH')
-      else if (dailyRate.amountBasis === null) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
-      else if (dailyRate.amountBasis === 'NET') reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
+      if (hotelMapping && hotelMapping.hotelId === plan.roomType.hotelId && hotelMapping.status === 'MAPPED' && !roomMapping) reasons.push('ROOM_MAPPING_UNAPPROVED')
       const availability = plan.availability[0]
-      if (!availability) reasons.push('AVAILABILITY_MISSING')
-      else {
-        if (availability.stopSell) reasons.push('STOP_SELL')
-        if (availability.allotment - availability.sold - availability.held <= 0) reasons.push('NO_INVENTORY')
-      }
       if (checkIn) {
         const requiredMinStay = Math.max(plan.minStay, availability && stayDate.getTime() === checkIn.getTime() ? availability.minStay : 1)
         if (input.nights < requiredMinStay) reasons.push('MIN_STAY_NOT_MET')
         if (plan.maxStay != null && input.nights > plan.maxStay) reasons.push('MAX_STAY_EXCEEDED')
         const today = date(new Intl.DateTimeFormat('en-CA', { timeZone: plan.roomType.hotel.timeZone || 'UTC' }).format(new Date()))
-        if (Math.round((checkIn.getTime() - today.getTime()) / 86_400_000) < plan.releaseDays) reasons.push('RELEASE_WINDOW_VIOLATED')
+        if (Math.round((checkIn.getTime() - today.getTime()) / 86_400_000) < plan.releaseDays) reasons.push('RELEASE_DAYS_NOT_MET')
       }
     }
     return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons }

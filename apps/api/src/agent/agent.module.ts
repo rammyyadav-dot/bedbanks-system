@@ -6,7 +6,8 @@ import { LedgerService } from './ledger.service'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard } from './rbac.guard'
 import { TenantContextGuard } from './tenant-context.guard'
-import { SUPPLIER_ADAPTER, UnconfiguredSupplierAdapter } from './supplier.port'
+import { ContractedInventoryAdapter } from './contracted-inventory.adapter'
+import { SUPPLIER_ADAPTER } from './supplier.port'
 import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { HoldExpirySweeper } from './hold-expiry-sweeper.service'
@@ -43,7 +44,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
       provide: COORDINATION_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCoordination(),
     },
-    { provide: SUPPLIER_ADAPTER, useClass: UnconfiguredSupplierAdapter },
+    { provide: SUPPLIER_ADAPTER, useClass: ContractedInventoryAdapter },
   ],
   exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER],
 })

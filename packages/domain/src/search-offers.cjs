@@ -69,7 +69,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               rate.canonicalRoomTypeId !== room.roomTypeId ||
               rate.hotelId !== hotel.hotelId || rate.roomTypeId !== room.roomTypeId ||
               rate.supplierId !== hotel.supplierId || rate.supplierRoomId !== room.supplierRoomId ||
-              !id(rate.ratePlanId) || !id(rate.ratePlanName) || !id(rate.boardBasisId) ||
+              !id(rate.ratePlanId) || (rate.contractId !== undefined && !id(rate.contractId)) || !id(rate.ratePlanName) || !id(rate.boardBasisId) ||
               !id(rate.boardBasisName) || !id(rate.supplierRateId) ||
               (rate.offerToken !== undefined && !id(rate.offerToken)) ||
               !instant(rate.expiresAt) || Date.parse(rate.expiresAt) <= now ||
@@ -97,7 +97,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
             hotelId: rate.hotelId, canonicalHotelId: rate.canonicalHotelId,
             roomTypeId: rate.roomTypeId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
             supplierId: rate.supplierId, supplierRoomId: rate.supplierRoomId,
-            ratePlanId: rate.ratePlanId, ratePlanName: rate.ratePlanName,
+            ratePlanId: rate.ratePlanId, ...(rate.contractId === undefined ? {} : { contractId: rate.contractId }), ratePlanName: rate.ratePlanName,
             boardBasisId: rate.boardBasisId, boardBasisName: rate.boardBasisName,
             supplierRateId: rate.supplierRateId,
             ...(rate.offerToken === undefined ? {} : { offerToken: rate.offerToken }),

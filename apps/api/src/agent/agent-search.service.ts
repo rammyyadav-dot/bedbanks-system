@@ -37,7 +37,8 @@ export class AgentSearchService {
   async execute(criteria: HotelSearchCriteria, tenantId: string, requestId: string, identity: AuthenticatedUser): Promise<SearchResponse> {
     const request = this.normalize(criteria)
     const key = tenantCacheKey(tenantId, 'agent-search', this.identity(request))
-    const cached = await this.safeGet<SearchResponse>(key)
+    const authoritative = this.authoritativeInventory()
+    const cached = authoritative ? null : await this.safeGet<SearchResponse>(key)
     if (cached) {
       return { ...cached, searchId: randomUUID(), requestId, generatedAt: new Date().toISOString() }
     }
@@ -46,7 +47,7 @@ export class AgentSearchService {
     let lease = null
     try { lease = await this.coordination.acquire(lockKey, SEARCH_LOCK_TTL_MS) } catch { /* coordination is optional */ }
 
-    if (!lease) {
+    if (!lease && !authoritative) {
       const coalesced = await this.waitForCached<SearchResponse>(key)
       if (coalesced) return { ...coalesced, searchId: randomUUID(), requestId, generatedAt: new Date().toISOString() }
       // Lock contention/outage must not turn into false unavailability. Fall through to authoritative search.
@@ -54,7 +55,7 @@ export class AgentSearchService {
 
     try {
       const fresh = await this.fetchFresh(request, tenantId, requestId, identity)
-      if (fresh.status === 'available' || fresh.status === 'partial' || fresh.status === 'no_availability') {
+      if (!authoritative && (fresh.status === 'available' || fresh.status === 'partial' || fresh.status === 'no_availability')) {
         await this.safeSet(key, fresh)
       }
       return fresh
@@ -129,6 +130,10 @@ export class AgentSearchService {
 
   private identity(request: HotelSearchCriteria): string {
     return createHash('sha256').update(JSON.stringify(request)).digest('hex')
+  }
+
+  private authoritativeInventory(): boolean {
+    return this.supplier.name === 'contracted-inventory'
   }
 
   private ttlMs(): number {

@@ -259,7 +259,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       expect((await sellable({ checkInDate: start, nights: 3 })).reasons).toContain('MIN_STAY_NOT_MET')
       await restore()
       await prisma.ratePlan.update({ where: { id: ids.ratePlan }, data: { releaseDays: 30 } })
-      expect((await sellable({ checkInDate: start, nights: 2 })).reasons).toContain('RELEASE_WINDOW_VIOLATED')
+      expect((await sellable({ checkInDate: start, nights: 2 })).reasons).toContain('RELEASE_DAYS_NOT_MET')
       await restore()
       await api(operator).post('/supply/sellability', { ratePlanId: ids.ratePlan, stayDate: start, occupancy: 2, nights: 2 }).expect(400)
     })

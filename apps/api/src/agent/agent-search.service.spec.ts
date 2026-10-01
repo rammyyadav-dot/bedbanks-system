@@ -142,6 +142,15 @@ describe('AgentSearchService cache boundary', () => {
     expect(search).toHaveBeenCalledTimes(1)
   })
 
+  it('does not cache contracted inventory results', async () => {
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const { service, cache } = setup(search, new MemoryCache(), 'contracted-inventory')
+    await service.execute(criteria, 'tenant-a', 'r1', identity)
+    await service.execute(criteria, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(cache.writes).toHaveLength(0)
+  })
+
   it('clamps configured TTL to a short bounded window', async () => {
     process.env.AGENT_SEARCH_CACHE_TTL_MS = '999999'
     const { service, cache } = setup(jest.fn().mockResolvedValue(supplierResult([hotel])))
