@@ -22,7 +22,12 @@ describe('opaque session lifecycle', () => {
     db.membership.findMany.mockResolvedValue([]);
     db.session.update.mockResolvedValue({});
     db.session.updateMany.mockResolvedValue({ count: 1 });
-    db.$transaction.mockResolvedValue([]);
+    db.$transaction.mockImplementation((input: unknown) => {
+      if (typeof input === 'function') {
+        return (input as (tx: unknown) => unknown)({ $executeRaw: jest.fn().mockResolvedValue(0), membership: db.membership });
+      }
+      return Promise.resolve([]);
+    });
   });
   it('creates a unique opaque token, persists only its hash and returns a safe identity', async () => {
     const before = Date.now();

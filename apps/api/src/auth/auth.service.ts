@@ -48,10 +48,14 @@ export class AuthService {
   }
 
   private async loadActiveMemberships(userId: string): Promise<MembershipSummary[]> {
-    const memberships = await this.prisma.membership.findMany({
-      where: { userId, tenant: { status: 'ACTIVE' } },
-      include: { tenant: true },
-    });
+    if (!userId || userId.trim() !== userId) throw new Error('A normalized user context is required')
+    const memberships = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`
+      return tx.membership.findMany({
+        where: { userId, tenant: { status: 'ACTIVE' } },
+        include: { tenant: true },
+      })
+    })
     return memberships.map((m: { tenantId: string; role: string; tenant: { name: string } }) => ({
       tenantId: m.tenantId,
       tenantName: m.tenant.name,

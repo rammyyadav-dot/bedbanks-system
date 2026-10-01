@@ -4,7 +4,9 @@ import { CrossSiteRequestGuard } from './cross-site-request.guard'
 import type { AppConfig } from '../../config/configuration'
 
 const ADMIN = 'https://admin.example'
-const guard = new CrossSiteRequestGuard({ get: () => ADMIN } as unknown as ConfigService<AppConfig>)
+const AGENT = 'https://agent.example'
+const settings: Record<string, unknown> = { adminOrigin: ADMIN, trustedOrigins: [AGENT] }
+const guard = new CrossSiteRequestGuard({ get: (key: string) => settings[key] } as unknown as ConfigService<AppConfig>)
 
 function context(method: string, headers: Record<string, string> = {}): ExecutionContext {
   const lower = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]))
@@ -19,6 +21,16 @@ describe('CrossSiteRequestGuard', () => {
 
   it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('allows %s from the Admin origin', (method) => {
     expect(guard.canActivate(context(method, { Origin: ADMIN, 'Sec-Fetch-Site': 'same-origin' }))).toBe(true)
+  })
+
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('allows %s from a listed portal origin', (method) => {
+    expect(guard.canActivate(context(method, { Origin: AGENT, 'Sec-Fetch-Site': 'same-origin' }))).toBe(true)
+  })
+
+  it('rejects an origin that only shares a prefix or scheme with a trusted one', () => {
+    for (const origin of ['http://agent.example', 'https://agent.example.evil.example', 'https://agent.example:8443']) {
+      expect(() => guard.canActivate(context('POST', { Origin: origin }))).toThrow(ForbiddenException)
+    }
   })
 
   it.each(['POST', 'PATCH', 'DELETE'])('rejects %s from a foreign origin', (method) => {

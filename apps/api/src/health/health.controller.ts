@@ -1,4 +1,4 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
@@ -44,8 +44,27 @@ export class HealthController {
     description: 'The API process is running. Check database.status for DB connectivity.',
   })
   async check(): Promise<HealthStatus> {
-    const databaseHealthy = await this.prisma.isHealthy();
+    return this.snapshot(await this.prisma.isHealthy());
+  }
 
+  /**
+   * Readiness for the process host. Liveness stays on `GET /health` so a
+   * transient database blip does not hide that the process is up. This
+   * route is not successful while the database is unreachable.
+   */
+  @Get('ready')
+  @ApiOperation({ summary: 'Readiness check. Not successful while the database is unavailable.' })
+  @ApiResponse({ status: 200, description: 'The process can serve traffic and the database is reachable.' })
+  @ApiResponse({ status: 503, description: 'The database is not ready.' })
+  async ready(): Promise<HealthStatus> {
+    const databaseHealthy = await this.prisma.isHealthy();
+    if (!databaseHealthy) {
+      throw new ServiceUnavailableException('Database is not ready');
+    }
+    return this.snapshot(true);
+  }
+
+  private snapshot(databaseHealthy: boolean): HealthStatus {
     return {
       status: 'ok',
       service: SERVICE_NAME,
