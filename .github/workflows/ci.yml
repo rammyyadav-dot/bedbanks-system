@@ -41,6 +41,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
+      MAPPING_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +97,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
+      MAPPING_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
       REDIS_URL: redis://127.0.0.1:6379
       NODE_ENV: test
     steps:
