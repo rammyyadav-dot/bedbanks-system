@@ -1,3 +1,5 @@
+import { parseOriginList } from './trusted-origins';
+
 export interface AppConfig {
   nodeEnv: string;
   api: {
@@ -15,6 +17,8 @@ export interface AppConfig {
     cookieSameSite: 'lax' | 'strict' | 'none';
   };
   adminOrigin: string;
+  /** Additional exact browser origins allowed to make cookie-authenticated mutations (portals that proxy to this API). */
+  trustedOrigins: string[];
 }
 
 /**
@@ -41,4 +45,5 @@ export default (): AppConfig => ({
     cookieSameSite: (process.env.AUTH_COOKIE_SAME_SITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax',
   },
   adminOrigin: process.env.ADMIN_ORIGIN ?? 'http://localhost:3001',
+  trustedOrigins: parseOriginList(process.env.TRUSTED_ORIGINS),
 });

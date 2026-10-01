@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable }
 import { ConfigService } from '@nestjs/config'
 import type { Request } from 'express'
 import type { AppConfig } from '../../config/configuration'
+import { isTrustedOrigin } from '../../config/trusted-origins'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -24,7 +25,7 @@ export class CrossSiteRequestGuard implements CanActivate {
       throw new ForbiddenException('Untrusted request origin')
     }
     const origin = req.get('origin')
-    if (origin !== undefined && origin !== this.config.get('adminOrigin', { infer: true })) {
+    if (origin !== undefined && !isTrustedOrigin(this.config, origin)) {
       throw new ForbiddenException('Untrusted request origin')
     }
     return true

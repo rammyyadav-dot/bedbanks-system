@@ -29,6 +29,10 @@ services:
       # Exact public origin of the Admin site, no path, no trailing slash.
       - key: ADMIN_ORIGIN
         sync: false
+      # Comma-separated exact origins of the other portals (Agent, Supplier), HTTPS, no
+      # paths. Leave empty until those portals are deployed (ADR 0010).
+      - key: TRUSTED_ORIGINS
+        sync: false
 
   - type: keyvalue
     name: fbeds-redis

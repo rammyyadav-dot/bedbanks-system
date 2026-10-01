@@ -56,6 +56,15 @@ Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
 
 Render's public URL (`https://fbeds-api.onrender.com`, or your custom domain) is the host for `API_INTERNAL_URL`.
 
+## Portals (Agent, Supplier)
+
+Portals reach the API through a same-origin proxy (ADR 0010), not CORS.
+
+1. Agent Vercel project (Root Directory `apps/agent`): set `API_INTERNAL_URL=https://<api-host>/api/v1` for Production and Preview. The Agent build fails without it. Do not set `NEXT_PUBLIC_AGENT_API_URL`.
+2. API (Render): set `TRUSTED_ORIGINS` to the exact production origin of each portal, comma-separated, HTTPS, no path, for example `https://agent.example.com`. Redeploy the API. A portal missing from this list gets 403 `Untrusted request origin` on login.
+3. Do not list preview deployment origins.
+4. Supplier has no authenticated API client yet; do not add it until it does.
+
 ## Not covered
 
-Wallets and credit limits, the hold-expiry sweeper role (`hold-expiry-role.md`), and any Agent-origin CORS. The API allows a single credentialed origin, so Agent cannot call it from a browser until a multi-origin policy exists.
+Wallets and credit limits, and the hold-expiry sweeper role (`hold-expiry-role.md`).

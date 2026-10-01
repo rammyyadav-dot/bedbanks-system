@@ -11,4 +11,15 @@ describe('authentication environment', () => {
   });
   it('requires HTTPS outside local development', () => expect(() => validate({ ...base, NODE_ENV: 'production' })).toThrow());
   it('accepts exact production HTTPS origin', () => expect(validate({ ...base, NODE_ENV: 'production', ADMIN_ORIGIN: 'https://admin.example' }).AUTH_COOKIE_SECURE).toBe('true'));
+  describe('TRUSTED_ORIGINS', () => {
+    const prod = { ...base, NODE_ENV: 'production', ADMIN_ORIGIN: 'https://admin.example' };
+    it('is optional', () => expect(() => validate(prod)).not.toThrow());
+    it('accepts a comma-separated list of exact HTTPS origins', () =>
+      expect(() => validate({ ...prod, TRUSTED_ORIGINS: 'https://agent.example, https://supplier.example' })).not.toThrow());
+    it.each(['https://agent.example/path', 'https://agent.example/', '*', 'null', 'agent.example', 'https://agent.example,*'])('rejects %s', (TRUSTED_ORIGINS) => {
+      expect(() => validate({ ...prod, TRUSTED_ORIGINS })).toThrow('TRUSTED_ORIGINS');
+    });
+    it('requires HTTPS in production', () => expect(() => validate({ ...prod, TRUSTED_ORIGINS: 'http://agent.example' })).toThrow('HTTPS'));
+    it('allows HTTP locally', () => expect(() => validate({ ...base, TRUSTED_ORIGINS: 'http://localhost:3003' })).not.toThrow());
+  });
 });
