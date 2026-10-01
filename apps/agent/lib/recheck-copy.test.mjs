@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { recheckOutcomeMessage } from './recheck-copy.ts'
+import { recheckOutcomeMessage, recheckOutcomeTitle } from './recheck-copy.ts'
 
 test('describes fixture recheck outcomes without enabling booking', () => {
-  assert.match(recheckOutcomeMessage('rechecked', false), /Rate rechecked against current contracted inventory/)
-  assert.match(recheckOutcomeMessage('rechecked', false), /Booking remains disabled/)
-  assert.match(recheckOutcomeMessage('price_changed', false), /until you accept the new total/)
-  assert.match(recheckOutcomeMessage('unavailable', false), /no longer available/)
-  assert.match(recheckOutcomeMessage('offer_expired', false), /offer expired/i)
+  assert.equal(recheckOutcomeTitle('rechecked'), 'Rate verified')
+  assert.match(recheckOutcomeMessage('rechecked', false), /Price and availability confirmed/)
+  assert.match(recheckOutcomeMessage('rechecked', false), /Booking activation is not currently available/)
+  assert.match(recheckOutcomeMessage('rechecked', true), /Price and availability confirmed\./)
+  assert.doesNotMatch(recheckOutcomeMessage('rechecked', true), /Booking activation/)
+  assert.equal(recheckOutcomeTitle('price_changed'), 'Price updated')
+  assert.match(recheckOutcomeMessage('price_changed', false), /Accept the current price/)
+  assert.equal(recheckOutcomeTitle('unavailable'), 'This offer is no longer available')
+  assert.match(recheckOutcomeMessage('unavailable', false), /Availability changed/)
+  assert.equal(recheckOutcomeTitle('offer_expired'), 'This rate has expired')
+  assert.match(recheckOutcomeMessage('offer_expired', false), /Refresh the latest rates/)
 })

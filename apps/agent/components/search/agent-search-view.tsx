@@ -6,62 +6,89 @@ import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer } from '@bedbanks/domain'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
-import { formatMinorAmount, formatStay } from '@/lib/format'
-import { recheckOutcomeMessage } from '@/lib/recheck-copy'
+import { formatCompactStay, formatMinorAmount, formatMinorDelta, formatStay } from '@/lib/format'
+import { guestMarketName } from '@/lib/guest-market'
+import { occupancyCompact } from '@/lib/occupancy'
+import { criteriaFilters, type FilterDraft } from '@/lib/search-filters'
+import { recheckOutcomeMessage, recheckOutcomeTitle } from '@/lib/recheck-copy'
 import { recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
 
 export function SearchView({
   destination, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
-  guests, liveHotels, result, searching, loadingMore, loadMoreError, onSearch, onLoadMore,
+  liveHotels, result, searching, searchFailed, loadingMore, loadMoreError, onSearch, onLoadMore,
   rooms, setRooms, adults, setAdults, children, updateChildren, childAges, setChildAges, onCriteriaChange,
+  nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
+  minPriceAed, setMinPriceAed, maxPriceAed, setMaxPriceAed,
   bookingEnabled, tenantId, onBooked, onViewBooking,
 }: {
   destination: string; setDestination: (value: string) => void
   checkIn: string; setCheckIn: (value: string) => void
   checkOut: string; setCheckOut: (value: string) => void
-  guests: string; liveHotels: SearchHotelOffer[]
-  result: HotelSearchResult | null; searching: boolean; loadingMore: boolean; loadMoreError: string; onSearch: () => void; onLoadMore: () => void
+  liveHotels: SearchHotelOffer[]
+  result: HotelSearchResult | null; searching: boolean; searchFailed: boolean; loadingMore: boolean; loadMoreError: string; onSearch: () => void; onLoadMore: () => void
   rooms: number; setRooms: (value: number) => void
   adults: number; setAdults: (value: number) => void
   children: number; updateChildren: (value: number) => void
   childAges: number[]; setChildAges: (value: number[]) => void
   onCriteriaChange: () => void
+  nationality: string; setNationality: (value: string) => void
+  starRatings: number[]; setStarRatings: (value: number[]) => void
+  refundableOnly: boolean; setRefundableOnly: (value: boolean) => void
+  minPriceAed: string; setMinPriceAed: (value: string) => void
+  maxPriceAed: string; setMaxPriceAed: (value: string) => void
   bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void
 }) {
   const [selectedLive, setSelectedLive] = useState<SearchHotelOffer | null>(null)
   const [validationMessage, setValidationMessage] = useState('')
-  const criteria: SearchCriteria = { destination: destination.trim(), checkIn, checkOut, rooms, adults, children, childAges, nationality: 'IN', currency: 'AED' }
+  const draft: FilterDraft = { starRatings, refundableOnly, minPriceAed, maxPriceAed }
+  const parsedFilters = criteriaFilters(draft)
+  const criteria: SearchCriteria = {
+    destination: destination.trim(), checkIn, checkOut, rooms, adults, children, childAges, nationality, currency: 'AED',
+    ...(parsedFilters.ok && parsedFilters.filters ? { filters: parsedFilters.filters } : {}),
+  }
   const update = (action: () => void) => { setValidationMessage(''); onCriteriaChange(); setSelectedLive(null); action() }
   const submitSearch = () => {
     if (!criteria.destination) return setValidationMessage('Enter a destination.')
+    if (!parsedFilters.ok) return setValidationMessage(parsedFilters.reason)
     if (!validSearchCriteria(criteria)) return setValidationMessage('Choose valid check-in and check-out dates and at least one adult.')
     setValidationMessage('')
     setSelectedLive(null)
     onSearch()
   }
+  const request = result?.request
+  const total = result?.pagination?.total ?? liveHotels.length
+  const pageSize = result?.pagination?.limit
   return <>
-    <section className="portal-heading-row"><div><span className="portal-eyebrow">HOTEL SEARCH</span><h1>Search hotels</h1><p>Compare verified rooms, board basis and total stay rates.</p></div></section>
-    <SearchCriteriaForm destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !destination.trim())} />
+    <SearchCriteriaForm destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPriceAed={minPriceAed} setMinPriceAed={setMinPriceAed} maxPriceAed={maxPriceAed} setMaxPriceAed={setMaxPriceAed} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !destination.trim())} />
     {validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}
     {searching && <SearchLoadingState />}
-    {result && !searching && <><div className="portal-results-meta"><div><strong>{liveHotels.length}</strong> of <strong>{result.pagination?.total ?? liveHotels.length}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
-      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before a booking can be held.' + (bookingEnabled ? '' : ' Booking remains disabled.') :
-        result.status === 'partial' ? 'Some suppliers are unavailable. Verified offers from successful providers are shown.' :
-        result.status === 'mapping_unavailable' ? 'Supplier offer mapping could not be verified. No rate is displayed.' :
-        result.status === 'access_denied' ? 'You do not have access to this workspace.' :
-        result.status === 'auth_required' ? 'Your session expired. Sign in again.' :
-        result.status === 'empty' ? 'No availability for this search.' :
-        'Supplier inventory is unavailable. Booking is disabled.'}</div>
-      {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={result.request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onBooked} onViewBooking={onViewBooking} /> :
-        <div className="portal-results-layout"><div className="portal-hotel-list" data-result-count={liveHotels.length}>
-          {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} bookingEnabled={bookingEnabled} onSelect={() => setSelectedLive(hotel)} />)}
-          {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />}
-          {liveHotels.length > 0 && result.pagination?.hasMore && <div className="portal-load-more"><button className="portal-secondary" type="button" onClick={onLoadMore} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? 'Loading more hotels…' : 'Load more hotels'}</button></div>}
+    {result && request && !searching && <>
+      <div className="market-criteria-bar">
+        <p>{request.destination} <span>|</span> {formatCompactStay(request.checkIn, request.checkOut)} <span>|</span> {occupancyCompact(request.rooms, request.adults, request.children)} <span>|</span> {guestMarketName(request.nationality)}</p>
+        <button className="portal-link" type="button" onClick={() => document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Modify</button>
+      </div>
+      <div className="portal-results-meta"><div>Showing <strong>{liveHotels.length}</strong> of <strong>{total}</strong> hotels<small>{formatStay(request.checkIn, request.checkOut)} · {request.currency}</small></div></div>
+      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status, bookingEnabled)}</div>
+      {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onBooked} onViewBooking={onViewBooking} /> :
+        <div className="market-results"><div className="portal-hotel-list" data-result-count={liveHotels.length}>
+          {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} onSelect={() => setSelectedLive(hotel)} />)}
+          {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />}
+          {liveHotels.length > 0 && result.pagination?.hasMore && <div className="portal-load-more"><button className="portal-secondary" type="button" onClick={onLoadMore} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? 'Loading more hotels…' : pageSize ? `Load ${pageSize} more hotels` : 'Load more hotels'}</button></div>}
           {loadMoreError && <p className="portal-load-more-error" role="alert">{loadMoreError}</p>}
         </div></div>}</>}
   </>
+}
+
+function statusCopy(status: HotelSearchResult['status'], bookingEnabled: boolean) {
+  if (status === 'available') return `These totals are search quotes. Recheck an offer before you rely on the price.${bookingEnabled ? '' : ' Booking remains disabled.'}`
+  if (status === 'partial') return 'Some hotel inventory is temporarily unavailable. We could not retrieve rates from one inventory source. Your other available results are still shown.'
+  if (status === 'mapping_unavailable') return 'Supplier offer mapping could not be verified. No rate is displayed.'
+  if (status === 'access_denied') return 'You do not have access to this workspace.'
+  if (status === 'auth_required') return 'Your session expired. Sign in again.'
+  if (status === 'empty') return 'No hotels matched this search. This is not a supplier outage.'
+  return 'Search is temporarily unavailable. Please try again.'
 }
 
 function SearchLoadingState() {
@@ -70,17 +97,26 @@ function SearchLoadingState() {
 function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchResult['status']; onRetry: () => void; onEdit: () => void }) {
   const unavailable = ['provider_unavailable', 'auth_required', 'access_denied'].includes(status)
   const mapping = status === 'mapping_unavailable'
-  const title = unavailable ? 'Rates temporarily unavailable' : mapping ? 'This offer is not available for booking yet' : status === 'empty' ? 'No available hotels found' : 'We couldn’t complete this hotel search'
-  const copy = unavailable ? 'We couldn’t retrieve live supplier rates for this search.' : mapping ? 'The supplier offer could not be verified against the fBeds hotel and room catalogue.' : status === 'empty' ? 'No live offers matched your current destination, dates and occupancy.' : 'Your search details are preserved. Try again or adjust the search criteria.'
-  return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div><button className="portal-primary" onClick={onRetry}>Try again</button><button className="portal-link" onClick={onEdit}>Edit search</button></div></div>
+  const title = unavailable ? 'Search is temporarily unavailable.' : mapping ? 'This offer is not available for booking yet' : status === 'empty' ? 'No hotels matched this search.' : 'We couldn’t complete this hotel search'
+  const copy = unavailable ? 'Please try again in a moment.' : mapping ? 'The supplier offer could not be verified against the fBeds hotel and room catalogue.' : status === 'empty' ? 'Change the dates, broaden the destination, or clear filters. This is not a supplier outage.' : 'Your search details are preserved. Try again or adjust the search criteria.'
+  return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div>{unavailable ? <button className="portal-primary" onClick={onRetry}>Try again</button> : <button className="portal-primary" onClick={onEdit}>Modify search</button>}{!unavailable && <button className="portal-link" onClick={onRetry}>Try again</button>}</div></div>
 }
 function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : 'Agency credit' }
 function formatTotal(total: SearchRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
-function LiveHotelCard({ hotel, onSelect, bookingEnabled }: { hotel: SearchHotelOffer; onSelect: () => void; bookingEnabled: boolean }) {
-  const firstRate = hotel.rooms.flatMap((room) => room.rates).find((rate) => rate.availability !== 'sold_out')
-  return <article className="portal-hotel-card"><div className="portal-hotel-content"><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.destination}</p><div className="portal-hotel-bottom"><div><small>AUTHORITATIVE TOTAL STAY PRICE</small><strong>{firstRate ? formatTotal(firstRate.total) : 'No available rate'}</strong><span>{firstRate ? `${firstRate.boardBasisName}${bookingEnabled ? '' : ' · Booking remains disabled'}` : 'No available rate'}</span></div><button className="portal-secondary" onClick={onSelect}>View verified rooms & rates</button></div></div></article>
+function lowestAvailableRate(hotel: SearchHotelOffer) {
+  const rates = hotel.rooms.flatMap((room) => room.rates).filter((rate) => rate.availability !== 'sold_out')
+  return rates.reduce<SearchRateOffer | null>((best, rate) => {
+    if (!best) return rate
+    if (rate.total.currency !== best.total.currency) return best
+    return rate.sellAmountMinor < best.sellAmountMinor ? rate : best
+  }, null)
 }
-function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, tenantId, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
+function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect: () => void }) {
+  const rate = lowestAvailableRate(hotel)
+  const stars = Number.isInteger(hotel.starRating) && hotel.starRating >= 1 && hotel.starRating <= 5 ? `${hotel.starRating}★` : ''
+  return <article className="portal-hotel-card market-hotel-card"><div className="market-hotel-mark" aria-hidden="true">{hotel.name.trim().charAt(0).toUpperCase() || 'H'}</div><div className="portal-hotel-content"><div className="portal-hotel-title"><h2>{hotel.name}</h2>{stars && <span className="portal-stars">{stars}</span>}</div><p><MapPin size={14} /> {hotel.destination}</p>{rate && <div className="market-badges">{rate.cancellation.refundable && <span>Free cancellation</span>}{/breakfast/i.test(rate.boardBasisName) && <span>Breakfast included</span>}{rate.availability === 'limited' && <span>Limited availability</span>}</div>}<div className="portal-hotel-bottom"><div><small>{rate ? 'From · total stay' : 'Rate'}</small><strong>{rate ? formatTotal(rate.total) : 'No available rate'}</strong><span>{rate ? `${rate.boardBasisName} · total stay` : 'No available rate'}</span></div><button className="portal-secondary" onClick={onSelect}>View rooms →</button></div></div></article>
+}
+function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
@@ -88,25 +124,15 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, ten
   const [rechecking, setRechecking] = useState(false)
   const recheckGeneration = useRef(0)
   const selectedOfferId = useRef('')
-  const choose = (room: SearchRoomOffer, rate: SearchRateOffer) => {
-    if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out') return
-    recheckGeneration.current += 1
-    selectedOfferId.current = rate.offerId
-    setSelection({ hotel, room, rate, searchContext: request }); setRecheck(null); setRechecking(false)
-  }
-  const recheckOffer = async (acceptedMinor?: number) => {
-    if (!selection || !searchId || rechecking) return
-    const generation = recheckGeneration.current + 1
-    recheckGeneration.current = generation
-    const offerId = selection.rate.offerId
+  const runRecheck = async (rate: SearchRateOffer, expectedMinor: number, generation: number) => {
+    const offerId = rate.offerId
     selectedOfferId.current = offerId
-    const expectedSellAmountMinor = acceptedMinor ?? selection.rate.sellAmountMinor
-    setRechecking(true); setRecheck(null)
-    const rate = { ...selection.rate, sellAmountMinor: expectedSellAmountMinor,
-      total: { ...selection.rate.total, amountMinor: expectedSellAmountMinor } }
+    if (!searchId) { if (generation === recheckGeneration.current) setRechecking(false); return }
     const stillSelected = () => recheckResultApplies({ generation, offerId }, { generation: recheckGeneration.current, offerId: selectedOfferId.current })
+    setRechecking(true)
+    setRecheck(null)
     try {
-      const result = await new ApiHotelService().recheckOffer(rate, searchId, selection.rate.tenantId)
+      const result = await new ApiHotelService().recheckOffer({ ...rate, sellAmountMinor: expectedMinor, total: { ...rate.total, amountMinor: expectedMinor } }, searchId, rate.tenantId)
       if (stillSelected()) setRecheck(result)
     } catch {
       if (stillSelected()) setRecheck({ status: 'provider_unavailable', offerId, searchId, requestId: 'unavailable' })
@@ -114,16 +140,35 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, ten
       if (generation === recheckGeneration.current) setRechecking(false)
     }
   }
-  const canAcceptChangedPrice = recheck?.status === 'price_changed' && recheck.currency === selection?.rate.total.currency
-  return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><span className="portal-eyebrow">VERIFIED SUPPLIER OFFERS</span><h2>{hotel.name}</h2><p>{hotel.destination} · {formatStay(request.checkIn, request.checkOut)} · {request.rooms} room · {request.adults} adults · {request.children} children · {request.currency}</p></div></div>
-    {hotel.rooms.map((room) => <div className="portal-room" key={room.roomTypeId}><div><span className="portal-eyebrow">ROOM TYPE</span><h3>{room.name}</h3></div><div className="portal-rate">{room.rates.map((rate) => {
+  const choose = (room: SearchRoomOffer, rate: SearchRateOffer) => {
+    if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out') return
+    const generation = recheckGeneration.current + 1
+    recheckGeneration.current = generation
+    setSelection({ hotel, room, rate, searchContext: request })
+    void runRecheck(rate, rate.sellAmountMinor, generation)
+  }
+  const acceptPrice = () => {
+    if (!selection || recheck?.status !== 'price_changed' || recheck.sellAmountMinor === undefined || recheck.currency !== selection.rate.total.currency) return
+    const generation = recheckGeneration.current + 1
+    recheckGeneration.current = generation
+    void runRecheck(selection.rate, recheck.sellAmountMinor, generation)
+  }
+  const canAcceptChangedPrice = recheck?.status === 'price_changed' && recheck.currency === selection?.rate.total.currency && recheck.sellAmountMinor !== undefined
+  return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><h2>{hotel.name}</h2><p>{hotel.destination} · {formatStay(request.checkIn, request.checkOut)} · {occupancyCompact(request.rooms, request.adults, request.children)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
+    {hotel.rooms.map((room) => <div className="portal-room" key={room.roomTypeId}><div><h3>{room.name}</h3></div><div className="portal-rate">{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
       const selectable = !expired && rate.availability !== 'sold_out'
-      return <div key={rate.offerId} className="portal-rate-option"><span className="portal-eyebrow">RATE PLAN · BOARD BASIS</span><strong>{rate.ratePlanName} · {rate.boardBasisName}</strong><span>{rate.cancellation.summary} · {rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)} total stay</b><small>{rate.total.currency} · taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })} · expires {rate.expiresAt}</small></div><button className="portal-secondary" disabled={!selectable} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select rate for recheck'}</button></div>
+      const selected = selection?.rate.offerId === rate.offerId
+      return <div key={rate.offerId} className="portal-rate-option"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span><span>{rate.cancellation.summary}{rate.cancellation.refundable ? ' · Free cancellation' : ''}</span><span>{rate.availability === 'limited' ? 'Limited availability' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)}</b><small>Total stay · taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })}</small></div><button className="portal-secondary" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select Offer'}</button></div>
     })}</div></div>)}
-    {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} />Selected rate expired. Search again for a current offer.</div>}
-    {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected: {hotel.name} · {selection.room.name} · {selection.rate.boardBasisName} · {formatStay(request.checkIn, request.checkOut)} · {request.rooms} room · {request.adults} adults · {request.children} children · quoted {formatTotal(selection.rate.total)}. Offer expires {selection.rate.expiresAt}. Authoritative recheck is required{bookingEnabled ? ' before holding.' : '; booking remains disabled.'}</span></div>
-      {!recheck || canAcceptChangedPrice || ['unavailable', 'provider_unavailable', 'mapping_invalid', 'rejected'].includes(recheck.status) ? <button className="portal-primary" disabled={rechecking || !searchId} onClick={() => void recheckOffer(canAcceptChangedPrice ? recheck?.sellAmountMinor : undefined)}>{rechecking ? 'Rechecking supplier…' : canAcceptChangedPrice ? 'Accept updated price and recheck' : 'Recheck rate'}</button> : null}
+    {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} /> This rate has expired. Refresh the latest rates to continue.</div>}
+    {selection && !searchId && <p className="portal-field-error" role="alert">This result has no search identifier, so the offer cannot be rechecked.</p>}
+    {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected offer {selection.room.name} · {selection.rate.boardBasisName} · quoted {formatTotal(selection.rate.total)}. Recheck uses this offer.</span></div>
+      {rechecking && <p role="status">Checking latest price & availability…</p>}
+      {canAcceptChangedPrice && !rechecking && <div className="market-recheck-actions"><button className="portal-primary" type="button" onClick={acceptPrice}>Accept New Price</button><button className="portal-link" type="button" onClick={() => { recheckGeneration.current += 1; setSelection(null); setRecheck(null) }}>Choose Another Offer</button></div>}
+      {recheck?.status === 'unavailable' && !rechecking && <div className="market-recheck-actions"><button className="portal-primary" type="button" onClick={() => { recheckGeneration.current += 1; setSelection(null); setRecheck(null) }}>View alternative rooms</button><button className="portal-link" type="button" onClick={onRefresh}>Search again</button></div>}
+      {recheck?.status === 'offer_expired' && !rechecking && <button className="portal-primary" type="button" onClick={onRefresh}>Refresh rates</button>}
+      {(recheck?.status === 'provider_unavailable' || recheck?.status === 'rejected' || recheck?.status === 'mapping_invalid') && !rechecking && <button className="portal-primary" type="button" onClick={() => choose(selection.room, selection.rate)}>Try again</button>}
       {recheck && <RecheckOutcome result={recheck} quotedMinor={selection.rate.sellAmountMinor} quotedCurrency={selection.rate.total.currency} bookingEnabled={bookingEnabled} />}
       {bookingEnabled && recheck?.status === 'rechecked' && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} />}</div>}
   </section>
@@ -131,5 +176,6 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, ten
 
 function RecheckOutcome({ result, quotedMinor, quotedCurrency, bookingEnabled }: { result: OfferRecheckResult; quotedMinor: number; quotedCurrency: string; bookingEnabled: boolean }) {
   const current = result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined ? { currency: result.currency, amountMinor: result.sellAmountMinor } : null
-  return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{recheckOutcomeMessage(result.status, bookingEnabled)}</span>{current && <b>Previous {formatTotal({ currency: quotedCurrency, amountMinor: quotedMinor })} · Current {formatTotal(current)}</b>}</div>
+  const delta = current && current.currency === quotedCurrency ? formatMinorDelta(quotedMinor, current.amountMinor, current.currency) : null
+  return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{recheckOutcomeTitle(result.status)}</strong><span>{recheckOutcomeMessage(result.status, bookingEnabled)}</span>{current && <b>Previously {formatTotal({ currency: quotedCurrency, amountMinor: quotedMinor })} · Current price {formatTotal(current)}{delta ? ` · Difference ${delta}` : ''}</b>}</div>
 }
