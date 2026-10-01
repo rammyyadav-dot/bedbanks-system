@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CalendarDays, MapPin, Search, ShieldAlert } from 'lucide-react'
+import { MapPin, Search, ShieldAlert } from 'lucide-react'
+import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer } from '@bedbanks/domain'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
 import { formatMinorAmount, formatStay } from '@/lib/format'
+import { recheckOutcomeMessage } from '@/lib/recheck-copy'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
 
@@ -40,16 +42,8 @@ export function SearchView({
   }
   return <>
     <section className="portal-heading-row"><div><span className="portal-eyebrow">HOTEL SEARCH</span><h1>Search hotels</h1><p>Compare verified rooms, board basis and total stay rates.</p></div></section>
-    <div className="portal-panel portal-search-panel"><div className="portal-search-form">
-      <label className="portal-field wide"><span>DESTINATION</span><div className={validationMessage && !destination.trim() ? 'has-error' : ''}><MapPin size={16} /><input value={destination} onChange={(event) => update(() => setDestination(event.target.value))} aria-label="Destination" aria-invalid={Boolean(validationMessage && !destination.trim())} /></div></label>
-      <label className="portal-field"><span>CHECK-IN</span><div><CalendarDays size={15} /><input type="date" value={checkIn} onChange={(event) => update(() => setCheckIn(event.target.value))} aria-label="Check-in" /></div></label>
-      <label className="portal-field"><span>CHECK-OUT</span><div><CalendarDays size={15} /><input type="date" value={checkOut} onChange={(event) => update(() => setCheckOut(event.target.value))} aria-label="Check-out" /></div></label>
-      <label className="portal-field"><span>ROOMS</span><div><input type="number" min={1} max={20} value={rooms} onChange={(event) => update(() => setRooms(Number(event.target.value)))} aria-label="Rooms" /></div></label>
-      <label className="portal-field"><span>ADULTS</span><div><input type="number" min={1} max={40} value={adults} onChange={(event) => update(() => setAdults(Number(event.target.value)))} aria-label="Adults" /></div></label>
-      <label className="portal-field"><span>CHILDREN</span><div><input type="number" min={0} max={40} value={children} onChange={(event) => update(() => updateChildren(Number(event.target.value)))} aria-label="Children" /></div></label>
-      {childAges.map((age, index) => <label className="portal-field" key={index}><span>CHILD {index + 1} AGE</span><div><input type="number" min={0} max={17} value={age} onChange={(event) => update(() => setChildAges(childAges.map((value, position) => position === index ? Number(event.target.value) : value)))} aria-label={`Child ${index + 1} age`} /></div></label>)}
-      <button className="portal-primary search-submit" onClick={submitSearch} disabled={searching}><Search size={16} /> {searching ? 'Searching…' : 'Search hotels'}</button>
-    </div>{validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}<p>Nationality: IN · Currency: AED. Search uses the dates and occupancy shown above.</p></div>
+    <SearchCriteriaForm destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !destination.trim())} />
+    {validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}
     {searching && <SearchLoadingState />}
     {result && !searching && <><div className="portal-results-meta"><div><strong>{liveHotels.length}</strong> of <strong>{result.pagination?.total ?? liveHotels.length}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
       <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before a booking can be held.' + (bookingEnabled ? '' : ' Booking remains disabled.') :
@@ -125,15 +119,6 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, ten
 }
 
 function RecheckOutcome({ result, quotedMinor, quotedCurrency, bookingEnabled }: { result: OfferRecheckResult; quotedMinor: number; quotedCurrency: string; bookingEnabled: boolean }) {
-  const tail = bookingEnabled ? '' : ' Booking remains disabled.'
-  const messages: Record<OfferRecheckResult['status'], string> = {
-    rechecked: `Rate rechecked against current contracted inventory.${tail}`,
-    price_changed: 'The authoritative total changed. The quoted amount stays in place until you accept the new total.',
-    unavailable: `The rate is no longer available. No inventory was allocated.${tail}`, offer_expired: `The offer expired. Search again for a current rate.${tail}`,
-    mapping_invalid: 'The hotel, room or commercial mapping could not be verified. No inventory was allocated.',
-    provider_unavailable: 'The supplier could not be reached safely. No inventory was allocated. Try the recheck again.', rejected: 'The supplier response could not be verified. No inventory was allocated.',
-    auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to recheck this offer.',
-  }
   const current = result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined ? { currency: result.currency, amountMinor: result.sellAmountMinor } : null
-  return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{current && <b>Previous {formatTotal({ currency: quotedCurrency, amountMinor: quotedMinor })} · Current {formatTotal(current)}</b>}</div>
+  return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{recheckOutcomeMessage(result.status, bookingEnabled)}</span>{current && <b>Previous {formatTotal({ currency: quotedCurrency, amountMinor: quotedMinor })} · Current {formatTotal(current)}</b>}</div>
 }

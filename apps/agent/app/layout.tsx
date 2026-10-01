@@ -8,7 +8,7 @@ const barlow = Barlow_Semi_Condensed({ subsets: ['latin'], variable: '--font-bar
 
 export const metadata: Metadata = {
   title: 'fBeds Agent Portal | Wholesale Hotel Booking',
-  description: 'B2B wholesale hotel search, rates and booking operations for verified fBeds travel partners.',
+  description: 'Trade workspace for fBeds travel agents to search hotels, compare room and board options, and recheck availability.',
   generator: 'v0.app',
   icons: {
     icon: [

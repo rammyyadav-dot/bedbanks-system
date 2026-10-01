@@ -1,24 +1,27 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { useRef, useState } from 'react'
-import { Dashboard } from '@/components/dashboard/agent-dashboard'
 import { SearchView } from '@/components/search/agent-search-view'
+import { AgentHome } from '@/components/home/agent-home'
 import { Bookings } from '@/components/booking/agent-bookings'
 import { Wallet } from '@/components/finance/agent-wallet'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import type { SearchCriteria } from '@bedbanks/domain'
 import { ApiHotelService } from '@/services/hotel-service'
-import { Bell, CheckCircle2, CircleHelp, FileText, LayoutDashboard, Menu, Search, WalletCards, X } from 'lucide-react'
+import { Bell, CheckCircle2, CircleHelp, FileText, House, Menu, Search, WalletCards, X } from 'lucide-react'
 import type { AgentIdentity, FinanceSummary } from '@/lib/api-client'
 import { creditBreakdown, formatMinorAmount } from '@/lib/format'
+import { rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
 import type { HotelSearchResult } from '@/types/hotel'
 
-type View = 'dashboard' | 'search' | 'bookings' | 'wallet'
+type View = 'home' | 'search' | 'bookings' | 'wallet'
+type SearchOverride = Partial<Pick<SearchCriteria, 'destination' | 'checkIn' | 'checkOut' | 'rooms' | 'adults' | 'children' | 'childAges'>>
 
 const SEARCH_PAGE_SIZE = 25
 
 export function AgentPortal({ identity, tenantId, providerStatus, finance, bookingEnabled = false, onFinanceChanged = () => {} }: { identity: AgentIdentity; tenantId: string; providerStatus: 'idle' | 'checking' | 'available' | 'unavailable'; finance: FinanceSummary | null; bookingEnabled?: boolean; onFinanceChanged?: () => void }) {
-  const [view, setView] = useState<View>('dashboard')
+  const [view, setView] = useState<View>('home')
   const [openBookingId, setOpenBookingId] = useState<string | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
   const [destination, setDestination] = useState('Dubai')
@@ -48,25 +51,67 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     return { ...result, hotelSearchIds }
   }
   const resetSearch = () => { searchGeneration.current += 1; setSearchResult(null); setLoadMoreError(''); setLoadingMore(false) }
-  async function handleSearch() {
+  const applyOverride = (override?: SearchOverride): SearchCriteria => {
+    if (!override) return criteria
+    if (override.destination !== undefined) setDestination(override.destination)
+    if (override.checkIn !== undefined) setCheckIn(override.checkIn)
+    if (override.checkOut !== undefined) setCheckOut(override.checkOut)
+    if (override.rooms !== undefined) setRooms(override.rooms)
+    if (override.adults !== undefined) setAdults(override.adults)
+    if (override.children !== undefined) setChildren(override.children)
+    if (override.childAges !== undefined) setChildAges([...override.childAges])
+    else if (override.children !== undefined) updateChildren(override.children)
+    return {
+      ...criteria,
+      ...override,
+      destination: (override.destination ?? criteria.destination).trim(),
+      childAges: override.childAges ?? (override.children !== undefined ? childAges.slice(0, override.children) : criteria.childAges),
+      nationality: 'IN',
+      currency: 'AED',
+      limit: SEARCH_PAGE_SIZE,
+    }
+  }
+  async function handleSearch(requested: SearchCriteria = criteria) {
     if (searching) return
     const generation = searchGeneration.current + 1
     searchGeneration.current = generation
     setSearchResult(null)
     setLoadMoreError('')
-    if (!validSearchCriteria(criteria)) {
+    if (!validSearchCriteria(requested)) {
       show('Enter a destination, valid dates and occupancy')
       return
     }
     setSearching(true)
     try {
-      const result = await new ApiHotelService().search(criteria, tenantId)
-      if (generation === searchGeneration.current) setSearchResult(stampSearch(result))
+      const result = await new ApiHotelService().search(requested, tenantId)
+      if (generation !== searchGeneration.current) return
+      setSearchResult(stampSearch(result))
+      rememberRecentSearch(window.sessionStorage, identity.user.id, {
+        destination: requested.destination,
+        checkIn: requested.checkIn,
+        checkOut: requested.checkOut,
+        rooms: requested.rooms,
+        adults: requested.adults,
+        children: requested.children,
+        childAges: requested.childAges ?? [],
+      })
     } catch {
       if (generation === searchGeneration.current) show('Search is temporarily unavailable. Please try again.')
     } finally {
       if (generation === searchGeneration.current) setSearching(false)
     }
+  }
+  function beginSearch(override?: SearchOverride) {
+    const requested = applyOverride(override)
+    if (!validSearchCriteria(requested)) {
+      show('Enter a destination, valid dates and occupancy')
+      return
+    }
+    setView('search')
+    void handleSearch(requested)
+  }
+  function replaySearch(search: RecentSearch) {
+    beginSearch(search)
   }
   async function handleLoadMore() {
     const current = searchResult
@@ -103,10 +148,12 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
       if (generation === searchGeneration.current) setLoadingMore(false)
     }
   }
+  const changeCriteria = (action: () => void) => { resetSearch(); action() }
+  const viewLabel = view === 'home' ? 'Home' : view === 'search' ? 'Hotel search' : view === 'bookings' ? 'My bookings' : 'Wallet & credit'
 
   return <div className="portal-shell">
-    <header className="portal-header"><button className="portal-mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav}><Menu size={20} /></button><button className="portal-brand" onClick={() => nav('dashboard')}><span>f</span><strong>fBeds</strong><small>WHOLESALE TRAVEL</small></button><button className="portal-global-search" onClick={() => nav('search')} aria-label="Open hotel search"><Search size={16} /><span>Open hotel search</span></button><div className="portal-header-actions"><span className={`portal-live ${searchResult?.status === 'available' ? 'is-live' : ''}`}><i /> {searchResult?.status === 'available' ? 'VERIFIED LIVE OFFERS' : providerStatus === 'checking' ? 'VERIFYING WORKSPACE' : providerStatus === 'unavailable' ? 'INVENTORY UNAVAILABLE' : 'SUPPLIER NOT CHECKED'}</span><span className="portal-credit">Credit <strong>{creditLabel}</strong></span><button disabled title="Notifications unavailable" aria-label="Notifications unavailable"><Bell size={17} /></button><button disabled title="Support contact is unavailable" aria-label="Support unavailable"><CircleHelp size={17} /></button><span className="portal-avatar">{(identity.user.name ?? 'JD').slice(0, 2).toUpperCase()}</span></div></header>
-    <div className="portal-body"><aside className={`portal-sidebar ${mobileNav ? 'is-open' : ''}`} aria-label="Workspace navigation"><div className="portal-sidebar-heading">WORKSPACE <button onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button></div><nav aria-label="Agent portal navigation"><NavItem icon={<LayoutDashboard size={17} />} label="Dashboard" active={view === 'dashboard'} onClick={() => nav('dashboard')} /><NavItem icon={<Search size={17} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} /><NavItem icon={<FileText size={17} />} label="My bookings" active={view === 'bookings'} onClick={() => nav('bookings')} /><NavItem icon={<WalletCards size={17} />} label="Wallet & credit" active={view === 'wallet'} onClick={() => nav('wallet')} /></nav><div className="portal-sidebar-footer"><span className="portal-eyebrow">ACTIVE AGENCY</span><strong>{agency}</strong><small>{identity.user.email}</small></div></aside><main className="portal-main"><div className="portal-breadcrumb">fBeds Agent Portal <span>/</span> {view === 'dashboard' ? 'Dashboard' : view === 'search' ? 'Hotel search' : view === 'bookings' ? 'My bookings' : 'Wallet & credit'}</div>{view === 'dashboard' && <Dashboard onSearch={() => nav('search')} onBookings={() => nav('bookings')} agency={agency} userName={identity.user.name ?? identity.user.email} creditLabel={creditLabel} hasFinance={formattedCredit !== null}  />}{view === 'search' && <SearchView destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} guests={guests} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={handleSearch} onLoadMore={() => void handleLoadMore()} onCriteriaChange={resetSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}{view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}{view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} />}</main></div>{toast && <div className="portal-toast" role="status"><CheckCircle2 size={16} /> {toast}</div>}</div>
+    <header className="portal-header"><button className="portal-mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav}><Menu size={20} /></button><button className="portal-brand" onClick={() => nav('home')}><span>f</span><strong>fBeds</strong><small>WHOLESALE TRAVEL</small></button><button className="portal-global-search" onClick={() => nav('search')} aria-label="Open hotel search"><Search size={16} /><span>Open hotel search</span></button><div className="portal-header-actions"><span className={`portal-live ${searchResult?.status === 'available' ? 'is-live' : ''}`}><i /> {searchResult?.status === 'available' ? 'VERIFIED LIVE OFFERS' : providerStatus === 'checking' ? 'VERIFYING WORKSPACE' : providerStatus === 'unavailable' ? 'INVENTORY UNAVAILABLE' : 'SUPPLIER NOT CHECKED'}</span>{formattedCredit && <span className="portal-credit">Credit <strong>{formattedCredit}</strong></span>}<button disabled title="Notifications unavailable" aria-label="Notifications unavailable"><Bell size={17} /></button><a className="portal-header-link" href="/support" aria-label="Agent support"><CircleHelp size={17} /></a><span className="portal-avatar">{(identity.user.name ?? 'JD').slice(0, 2).toUpperCase()}</span></div></header>
+    <div className="portal-body"><aside className={`portal-sidebar ${mobileNav ? 'is-open' : ''}`} aria-label="Workspace navigation"><div className="portal-sidebar-heading">WORKSPACE <button onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button></div><nav aria-label="Agent portal navigation"><NavItem icon={<House size={17} />} label="Home" active={view === 'home'} onClick={() => nav('home')} /><NavItem icon={<Search size={17} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} /><NavItem icon={<FileText size={17} />} label="My bookings" active={view === 'bookings'} onClick={() => nav('bookings')} /><NavItem icon={<WalletCards size={17} />} label="Wallet & credit" active={view === 'wallet'} onClick={() => nav('wallet')} /></nav><div className="portal-sidebar-footer"><span className="portal-eyebrow">ACTIVE AGENCY</span><strong>{agency}</strong><small>{identity.user.email}</small></div></aside><main className="portal-main"><div className="portal-breadcrumb">fBeds Agent Portal <span>/</span> {viewLabel}</div>{view === 'home' && <AgentHome userId={identity.user.id} userName={identity.user.name ?? identity.user.email} agency={agency} destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} onSearch={() => beginSearch()} onSearchDubai={() => beginSearch({ destination: 'Dubai' })} onChange={changeCriteria} onReplay={replaySearch} />}{view === 'search' && <SearchView destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} guests={guests} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges} searching={searching} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onCriteriaChange={resetSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}{view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}{view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} />}</main></div>{toast && <div className="portal-toast" role="status"><CheckCircle2 size={16} /> {toast}</div>}</div>
 }
 
-function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) { return <button className={`portal-nav-item ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{active && <b />}</button> }
+function NavItem({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) { return <button className={`portal-nav-item ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{active && <b />}</button> }

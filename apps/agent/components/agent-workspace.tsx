@@ -41,7 +41,7 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
 
   const active = Boolean(tenantId) && !error
   return <main className={`workspace-page ${active ? 'is-active' : ''}`}>
-    <header className="workspace-header"><div><p className="auth-kicker">FBEDS / AGENT PORTAL</p><h1>Workspace access</h1><p>Choose a verified workspace to continue.</p></div><AgentSignOut onComplete={() => window.location.reload()} /></header>
+    <header className="workspace-header"><div><p className="auth-kicker">FBEDS / AGENT PORTAL</p><h1>Workspace access</h1><p>Choose a verified workspace to continue.</p></div><AgentSignOut userId={identity.user.id} onComplete={() => window.location.reload()} /></header>
     <section className="workspace-card" aria-labelledby="workspace-title">
       <div className="workspace-card-heading"><div><span className="workspace-eyebrow">ACTIVE TENANT CONTEXT</span><h2 id="workspace-title">Select your workspace</h2></div><ShieldAlert aria-hidden="true" /></div>
       {identity.memberships.length === 0 && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>Your account has no active workspaces. Contact your platform administrator.</p></div>}
