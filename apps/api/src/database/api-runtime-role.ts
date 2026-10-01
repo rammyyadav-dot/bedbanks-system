@@ -10,7 +10,7 @@ const RESERVED = new Set(['postgres', API_RUNTIME_GROUP_ROLE, 'fbeds_hold_expiry
 
 const SELECT_TABLES = [
   'tenants', 'memberships', 'Permission', 'Role', 'UserRole', 'RolePermission',
-  'Hotel', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
+  'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
   'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
 ] as const
 

@@ -167,6 +167,7 @@ model Tenant {
   auditEvents AuditEvent[]
   suppliers   Supplier[]
   hotels      Hotel[]
+  hotelSearchIndexes HotelSearchIndex[]
   boardBases  BoardBasis[]
   contracts   Contract[]
   connectorDefinitions ConnectorDefinition[]
@@ -476,11 +477,34 @@ model Hotel {
 
   roomTypes RoomType[]
   mappings  SupplierHotelMapping[]
+  searchIndex HotelSearchIndex?
 
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
   @@index([tenantId, contentStatus])
+}
+
+/// Normalized identity used only to propose canonical hotel candidates.
+/// Embeddings are a retrieval signal. They never approve a mapping by themselves.
+model HotelSearchIndex {
+  id                     String   @id @default(cuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId                String   @map("hotel_id")
+  hotel                  Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Cascade)
+  normalizedName         String   @map("normalized_name")
+  normalizedAddress      String   @map("normalized_address")
+  normalizedCity         String   @map("normalized_city")
+  normalizedCountryCode  String   @db.Char(2) @map("normalized_country_code")
+  latitude               Decimal? @db.Decimal(9, 6)
+  longitude              Decimal? @db.Decimal(9, 6)
+  embedding              Unsupported("vector(64)")
+  embeddingModel         String   @map("embedding_model")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, hotelId])
+  @@index([tenantId, normalizedCountryCode, normalizedCity])
 }
 
 model RoomType {
