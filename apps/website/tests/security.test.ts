@@ -24,8 +24,10 @@ test('the production policy gates scripts by nonce and never allows unsafe-inlin
 test('development allowances stay out of production', () => {
   const development = buildContentSecurityPolicy({ nonce: 'n', development: true })
   assert.ok(development.includes("'unsafe-eval'") && development.includes('ws:') && !development.includes('upgrade-insecure-requests'))
+  assert.ok(development.includes("style-src 'self' 'unsafe-inline'"))
   const production = buildContentSecurityPolicy({ nonce: 'n', development: false })
-  assert.ok(!production.includes('ws:') && !production.includes("'unsafe-eval'"))
+  assert.ok(!production.includes('ws:') && !production.includes("'unsafe-eval'") && !production.includes('unsafe-inline'))
+  assert.ok(production.includes("style-src 'self' 'nonce-n'"))
 })
 
 test('nonces are 128-bit, valid base64 and unique per call', () => {

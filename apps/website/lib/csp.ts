@@ -13,7 +13,8 @@ export function buildContentSecurityPolicy(options: { nonce: string; development
   const directives = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ''}`,
-    `style-src 'self' 'nonce-${nonce}'`,
+    // Dev only: the Next dev server injects un-nonced <style> tags, and a nonce would make 'unsafe-inline' ignored.
+    development ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     `connect-src 'self'${development ? ' ws: wss:' : ''}`,
