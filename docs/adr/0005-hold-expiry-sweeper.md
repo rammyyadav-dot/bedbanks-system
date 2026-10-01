@@ -44,3 +44,19 @@ role, store `HOLD_EXPIRY_DATABASE_URL` as a secret reference, verify, then enabl
 
 ## Rollback
 Set `HOLD_EXPIRY_SWEEP_ENABLED=false` and restart. No schema change is involved.
+
+## Addendum: PROCESSING claim (2026-10-02)
+
+A booking attempt now claims its hold before any wallet reservation or supplier call:
+`InventoryHoldService.beginProcessing` performs one conditional `UPDATE … SET status='PROCESSING'
+WHERE status='HELD' AND expires_at > now()`. The sweeper only expires `HELD` rows, so a claimed hold can no
+longer be released mid-checkout, and an already-expired hold can never be claimed. Compensation
+(`release`) accepts `HELD` or `PROCESSING`; expiry still accepts only `HELD`.
+
+Order in `SupplierPrebookOrchestrationService`: persist PENDING booking → claim hold → authorize wallet
+(inventory-only release if this fails) → supplier prebook (full compensation if this fails).
+
+Known remaining gap: a process crash after the claim leaves a `PROCESSING` hold and, possibly, a wallet HOLD
+ledger entry. A reconciliation sweep for stale `PROCESSING` holds is required before booking is enabled.
+Migration `202610020001_inventory_hold_processing_state` is additive; PostgreSQL cannot drop enum values, so
+rollback means resolving all `PROCESSING` holds and leaving the unused value in place.
