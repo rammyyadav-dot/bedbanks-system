@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function HelpPage() {
-  return <OperationalModule config={moduleConfigs.support} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Help"
+      description="Support requests are not available from this screen."
+    />
+  )
 }

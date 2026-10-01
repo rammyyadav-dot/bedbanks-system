@@ -16,7 +16,10 @@ export function AgentAuthGate() {
   useEffect(() => {
     getAgentContext()
       .then((context) => setIdentity({ user: context.user, memberships: context.memberships }))
-      .catch(() => setSessionExpired(true))
+      .catch(() => {
+        // A first visit without a cookie is not an expired session.
+        setSessionExpired(false)
+      })
       .finally(() => setLoading(false))
   }, [])
 

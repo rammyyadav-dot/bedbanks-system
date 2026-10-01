@@ -304,6 +304,16 @@ describe('Authoritative Dubai one-hotel agent search', () => {
   it('rejects an agent without search permission and a cross-tenant header', async () => {
     await api(deniedCookie).post('/api/v1/agent/search').send(searchBody()).expect(403)
     await api(agentCookie, otherTenantId).post('/api/v1/agent/search').send(searchBody()).expect(403)
+    await api(ownerCookie, otherTenantId).get('/api/v1/agent/finance/summary').expect(403)
+    await api(ownerCookie, otherTenantId).get('/api/v1/agent/audit').expect(403)
+    await api(agentCookie, otherTenantId).post('/api/v1/agent/prebook').send({
+      hotelId, rateId: 'foreign-rate', idempotencyKey: `${suffix}-foreign-prebook`, totalMinor: stayMinor, currency: 'AED',
+    }).expect(403)
+    await api(agentCookie, otherTenantId).post('/api/v1/agent/bookings').send({
+      hotelId, rateId: 'foreign-rate', idempotencyKey: `${suffix}-foreign-book`, totalMinor: stayMinor, currency: 'AED',
+    }).expect(403)
+    const ownTenant = await request(app.getHttpServer()).post('/api/v1/agent/search').set('Cookie', ownerCookie).send(searchBody()).expect(201)
+    expect(ownTenant.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === hotelId)).toBe(true)
     const other = await api(otherCookie, otherTenantId).post('/api/v1/agent/search').send(searchBody()).expect(201)
     expect(other.body.data.hotels).toEqual([])
     expect(other.body.data.status).toBe('provider_unavailable')

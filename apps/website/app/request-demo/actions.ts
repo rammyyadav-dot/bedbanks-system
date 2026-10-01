@@ -1,5 +1,21 @@
 'use server'
-import { submitLead } from '../../lib/leads/lead-adapter'
-import { leadFromFormData, validateLead, type LeadErrors } from '../../lib/leads/validation'
-export type DemoFormState = { status: 'idle' | 'invalid' | 'not_configured' | 'failed' | 'success'; errors: LeadErrors; message?: string }
-export async function submitDemoRequest(_previous: DemoFormState, formData: FormData): Promise<DemoFormState> { const lead = leadFromFormData(formData); const errors = validateLead(lead); if (Object.keys(errors).length) return { status: 'invalid', errors }; const { website: _honeypot, ...payload } = lead; const result = await submitLead(payload); if (result.status === 'success') return { status: 'success', errors: {}, message: result.reference ? `Reference: ${result.reference}` : undefined }; if (result.status === 'not_configured') return { status: 'not_configured', errors: {}, message: 'Online lead submission is not configured yet. Please use the email option below.' }; return { status: 'failed', errors: { form: result.message }, message: result.message } }
+import { createHash } from 'node:crypto'
+import { headers } from 'next/headers'
+import { createRateLimiter } from '../../lib/leads/rate-limit'
+import { processLeadSubmission } from '../../lib/leads/process'
+import type { DemoFormState } from '../../lib/leads/state'
+
+export type { DemoFormState }
+
+// Per-instance and best-effort only; the edge rate-limit rule in the README is the primary control.
+const limiter = createRateLimiter({ limit: 5, windowMs: 10 * 60 * 1000 })
+
+async function clientId(): Promise<string> {
+  const list = await headers()
+  const address = list.get('x-vercel-forwarded-for') ?? list.get('x-real-ip') ?? list.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  return createHash('sha256').update(address).digest('hex').slice(0, 32)
+}
+
+export async function submitDemoRequest(_previous: DemoFormState, formData: FormData): Promise<DemoFormState> {
+  return processLeadSubmission(formData, { limiter, clientId: await clientId() })
+}

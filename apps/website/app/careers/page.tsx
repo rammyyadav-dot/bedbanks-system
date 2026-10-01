@@ -1,8 +1,9 @@
 import { ArrowUpRight, Check } from 'lucide-react'
 import { SiteShell } from '../../components/layout/SiteShell'
+import { pageMetadata } from '../../lib/seo'
 import { siteConfig } from '../../lib/site-config'
 
-export const metadata = { title: 'Careers', description: 'Build the future of global hotel distribution with fBeds.' }
+export const metadata = pageMetadata({ title: 'Careers', description: 'Build the future of global hotel distribution with fBeds.', path: '/careers' })
 
 const values = [
   ['Ownership', 'Take responsibility for the outcomes our partners and teammates rely on.'],

@@ -71,3 +71,15 @@ test('document html returns the text only on success', async () => {
   const refused = await service().documentHtml('b', 'voucher', 't')
   assert.equal(refused.ok, false); assert.equal(refused.message, 'A voucher is issued only for a confirmed booking')
 })
+
+test('releasing a hold uses DELETE on the hold and only trusts a RELEASED/EXPIRED answer', async () => {
+  let seen
+  globalThis.fetch = async (url, init) => { seen = [url, init.method, init.headers['x-fbeds-tenant-id']]; return new Response(JSON.stringify({ data: { holdId: 'h/1', status: 'RELEASED' } }), { status: 200 }) }
+  assert.deepEqual(await service().releaseHold('h/1', 'tenant-a'), { ok: true, data: { holdId: 'h/1', status: 'RELEASED' } })
+  assert.deepEqual(seen, ['https://api.invalid/agent/holds/h%2F1', 'DELETE', 'tenant-a'])
+  globalThis.fetch = reply(200, { data: { holdId: 'h', status: 'HELD' } })
+  assert.equal((await service().releaseHold('h', 't')).ok, false)
+  globalThis.fetch = reply(409, { error: { message: 'Inventory hold can no longer be released' } })
+  const refused = await service().releaseHold('h', 't')
+  assert.equal(refused.ok, false); assert.equal(refused.kind, 'conflict'); assert.match(refused.message, /no longer be released/)
+})

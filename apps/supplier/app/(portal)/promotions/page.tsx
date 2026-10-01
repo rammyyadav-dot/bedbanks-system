@@ -1,3 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
-export default function PromotionsPage() { return <OperationalModule config={moduleConfigs.promotions} /> }
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Promotions"
+      description="Promotions are not available."
+    />
+  )
+}

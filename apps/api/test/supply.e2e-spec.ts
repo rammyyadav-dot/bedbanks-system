@@ -151,7 +151,11 @@ describe('Supply HTTP authorization boundaries', () => {
   it('requires authentication and distinguishes authenticated authorization', async () => {
     await request(app.getHttpServer()).get('/api/v1/supply/hotels').expect(401)
     const cookie = await login(`${suffix}-a@example.test`)
-    await request(app.getHttpServer()).get('/api/v1/supply/hotels').set('Cookie', cookie).expect(403)
+    // The tenant comes from the server-loaded membership: a single-membership user needs no header and sees only their own tenant.
+    const own = await request(app.getHttpServer()).get('/api/v1/supply/hotels').set('Cookie', cookie).expect(200)
+    expect((own.body.data as Array<{ tenantId: string }>).every((hotel) => hotel.tenantId === tenantAId)).toBe(true)
+    // A header naming a tenant outside the session's memberships is denied, never trusted.
+    await request(app.getHttpServer()).get('/api/v1/supply/hotels').set('Cookie', cookie).set('x-fbeds-tenant-id', tenantBId).expect(403)
   })
 
   it('isolates tenant lists and ignores forged body/query/header tenant claims', async () => {

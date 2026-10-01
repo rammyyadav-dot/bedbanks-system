@@ -1,25 +1,25 @@
 import { BarChart3, BedDouble, Building2, Cable, FileCheck2, Globe2, Hotel, KeyRound, Network, Search, ShieldCheck, SlidersHorizontal, UsersRound, Zap } from 'lucide-react'
 
 export const capabilities = [
-  { icon: Hotel, title: 'Hotel content', text: 'Structure hotel, room and policy information for consistent downstream use.' },
-  { icon: SlidersHorizontal, title: 'Commercial controls', text: 'Keep contracts, rates, restrictions and availability close to the teams operating them.' },
-  { icon: Cable, title: 'Connectivity boundaries', text: 'Prepare API and XML connections behind explicit contracts, monitoring and fallback policies.' },
-  { icon: ShieldCheck, title: 'Booking control', text: 'Design booking, cancellation and audit workflows around traceability and clear state.' },
+  { icon: Hotel, title: 'Hotel content', text: 'In development: structured hotel, room and policy information for consistent downstream use.' },
+  { icon: SlidersHorizontal, title: 'Commercial controls', text: 'In development: contracts, rates, restrictions and availability kept close to the teams operating them.' },
+  { icon: Cable, title: 'Connectivity boundaries', text: 'Coming soon: API and XML connections behind explicit contracts, monitoring and fallback policies.' },
+  { icon: ShieldCheck, title: 'Booking control', text: 'In development: booking, cancellation and audit workflows designed around traceability and clear state.' },
 ]
 
 export const audiences = [
   { title: 'Travel agencies', href: '/solutions/travel-agencies', text: 'A clearer route from search criteria to bookable hotel options.', icon: Search },
   { title: 'Tour operators', href: '/solutions/tour-operators', text: 'Contracted inventory and operating controls for packaged travel.', icon: Globe2 },
-  { title: 'DMCs', href: '/solutions/dmcs', text: 'A supplier workspace for local contracting and distribution readiness.', icon: Network },
-  { title: 'Hotels', href: '/solutions/hotels', text: 'Structured content, inventory and commercial setup in one workflow.', icon: Building2 },
+  { title: 'DMCs', href: '/solutions/dmcs', text: 'A supplier workspace for local contracting and distribution readiness. Self-service is coming soon.', icon: Network },
+  { title: 'Hotels', href: '/solutions/hotels', text: 'Structured content, inventory and commercial setup in one workflow. Hotel self-service is coming soon.', icon: Building2 },
   { title: 'Travel technology', href: '/solutions/travel-technology', text: 'Defined integration boundaries for product and engineering teams.', icon: Zap },
 ]
 
 export const workflow = [
   { number: '01', title: 'Structure supply', text: 'Bring hotel content, rooms, contracts and restrictions into governed workflows.' },
   { number: '02', title: 'Control availability', text: 'Manage the commercial and inventory signals that determine what can be sold.' },
-  { number: '03', title: 'Connect demand', text: 'Expose approved inventory through clear buyer and technology boundaries.' },
-  { number: '04', title: 'Operate bookings', text: 'Track booking state, documents, cancellations and settlement readiness.' },
+  { number: '03', title: 'Connect demand', text: 'Coming soon: approved inventory exposed through clear buyer and technology boundaries.' },
+  { number: '04', title: 'Operate bookings', text: 'In development: booking state, documents and cancellations. Settlement is coming soon.' },
 ]
 
 export type MarketingPageContent = {
@@ -35,16 +35,16 @@ export const marketingPages: Record<'platform' | 'inventory' | 'connectivity' | 
     sections: [
       { title: 'Supply operations', text: 'Give hotels and supply partners a structured path from onboarding to distribution readiness.', items: ['Hotel and room content', 'Contracts and rate plans', 'Availability and restrictions'] },
       { title: 'Demand workflows', text: 'Support buyer journeys without hiding pricing, inventory or booking state behind unclear fallbacks.', items: ['Search and rate recheck', 'Prebook and booking states', 'Voucher and cancellation workflows'] },
-      { title: 'Platform oversight', text: 'Keep operational teams close to tenancy, permissions, audit events and finance boundaries.', items: ['Tenant-aware access', 'Explicit permissions', 'Audit and settlement readiness'] },
+      { title: 'Platform oversight', text: 'Keep operational teams close to tenancy, permissions, audit events and finance boundaries.', items: ['Tenant-aware access', 'Explicit permissions', 'Audit trail', 'Settlement (coming soon)'] },
     ],
   },
   inventory: {
     eyebrow: 'Inventory', title: 'Organise hotel supply before asking it to scale.',
     intro: 'A reliable distribution layer starts with mapped content, explicit commercial rules and availability that can be explained night by night.',
-    proof: 'Contracted and dynamic supply · Buyer-ready content · No silent rate fallback',
+    proof: 'Contracted supply · Dynamic supply coming soon · No silent rate fallback',
     sections: [
       { title: 'Contracted supply', text: 'Represent negotiated hotel agreements without separating the rate from its operating conditions.', items: ['Contract periods', 'Room and meal-plan mapping', 'Cancellation and restriction rules'] },
-      { title: 'Dynamic supply', text: 'Prepare external supplier content for mapping, validation and controlled distribution.', items: ['Supplier identity', 'Hotel and room mapping', 'Connection health'] },
+      { title: 'Dynamic supply', text: 'Coming soon: external supplier content prepared for mapping, validation and controlled distribution.', items: ['Supplier identity (coming soon)', 'Hotel and room mapping (coming soon)', 'Connection health (coming soon)'] },
       { title: 'Distribution readiness', text: 'Make gaps visible before inventory is exposed to buyers.', items: ['Content completeness', 'Availability coverage', 'Stop-sale and restriction review'] },
     ],
   },
@@ -53,9 +53,9 @@ export const marketingPages: Record<'platform' | 'inventory' | 'connectivity' | 
     intro: 'fBeds separates connector behavior from core commercial logic so API and XML integrations can evolve without obscuring booking decisions.',
     proof: 'Typed contracts · Connector isolation · Observable failure states',
     sections: [
-      { title: 'Supplier connections', text: 'Prepare third-party supply behind explicit mappings and operational controls.', items: ['API and XML adapters', 'Credential isolation', 'Timeout and retry policies'] },
-      { title: 'Buyer distribution', text: 'Design outbound access around stable contracts and traceable transactions.', items: ['Search and availability contracts', 'Booking lifecycle events', 'Idempotency expectations'] },
-      { title: 'Operational resilience', text: 'Treat degraded connections as visible states, not silent substitutions.', items: ['Health monitoring', 'Actionable errors', 'Audited fallback decisions'] },
+      { title: 'Supplier connections', text: 'Coming soon: third-party supply behind explicit mappings and operational controls.', items: ['API and XML adapters (coming soon)', 'Credential isolation (coming soon)', 'Timeout and retry policies (coming soon)'] },
+      { title: 'Buyer distribution', text: 'Coming soon: outbound access designed around stable contracts and traceable transactions.', items: ['Search and availability contracts (coming soon)', 'Booking lifecycle events (coming soon)', 'Idempotency expectations'] },
+      { title: 'Operational resilience', text: 'Treat degraded connections as visible states, not silent substitutions.', items: ['Health monitoring (coming soon)', 'Actionable errors', 'Audited fallback decisions'] },
     ],
   },
   about: {
@@ -94,25 +94,25 @@ export type SolutionKey = 'travel-agencies' | 'tour-operators' | 'dmcs' | 'hotel
 export const solutionPages: Record<SolutionKey, MarketingPageContent & { icon: typeof UsersRound }> = {
   'travel-agencies': { icon: UsersRound, eyebrow: 'Travel agencies', title: 'Hotel sourcing workflows built for B2B selling.', intro: 'Give agency teams a clearer journey from search criteria to reviewed rates and booking state.', proof: 'Search clarity · Rate recheck · Traceable booking state', sections: [
     { title: 'Find relevant supply', text: 'Structure destination, dates, rooms, occupancy, nationality and currency before search.', items: ['Explicit search criteria', 'Mapped hotel content', 'Comparable room options'] },
-    { title: 'Protect the booking decision', text: 'Recheck price and availability before confirming a transaction.', items: ['Rate validation', 'Cancellation visibility', 'Clear failure states'] },
-    { title: 'Operate after confirmation', text: 'Keep booking references, vouchers and support context together.', items: ['Booking status', 'Voucher workflow', 'Cancellation requests'] },
+    { title: 'Protect the booking decision', text: 'In development: price and availability rechecked before a transaction is confirmed.', items: ['Rate validation', 'Cancellation visibility', 'Clear failure states'] },
+    { title: 'Operate after confirmation', text: 'In development: booking references, vouchers and support context kept together.', items: ['Booking status', 'Voucher workflow', 'Cancellation requests'] },
   ] },
   'tour-operators': { icon: BedDouble, eyebrow: 'Tour operators', title: 'Contracted hotel supply with operating controls attached.', intro: 'Organise negotiated rooms, periods and rules for packaging and B2B distribution.', proof: 'Contracts · Allotments · Restrictions', sections: [
     { title: 'Commercial structure', text: 'Keep contract periods and rate plans aligned to hotel and room mappings.', items: ['Seasons and markets', 'Meal plans', 'Occupancy conditions'] },
     { title: 'Inventory control', text: 'Represent availability and restrictions without losing their source or timing.', items: ['Allotments', 'Stop sales', 'Minimum stay rules'] },
-    { title: 'Operational review', text: 'Surface gaps before offers reach sales teams or downstream buyers.', items: ['Coverage checks', 'Content readiness', 'Exception queues'] },
+    { title: 'Operational review', text: 'Surface gaps before offers reach sales teams or downstream buyers.', items: ['Coverage checks', 'Content readiness', 'Exception queues (coming soon)'] },
   ] },
   dmcs: { icon: Network, eyebrow: 'Destination management companies', title: 'A supply workspace for local contracting and distribution.', intro: 'Prepare hotel portfolios for consistent onboarding, commercial control and buyer access.', proof: 'Portfolio view · Local contracting · Distribution readiness', sections: [
     { title: 'Portfolio onboarding', text: 'Create a governed record for every contracted property.', items: ['Hotel identity', 'Room definitions', 'Contacts and policies'] },
-    { title: 'Commercial operations', text: 'Work with contracts, rates, promotions and restrictions in one operating model.', items: ['Contract tracking', 'Rate plan setup', 'Promotion windows'] },
-    { title: 'Distribution oversight', text: 'Understand which hotels are ready, blocked or awaiting review.', items: ['Readiness status', 'Mapping state', 'Coverage reporting'] },
+    { title: 'Commercial operations', text: 'Work with contracts, rates, promotions and restrictions in one operating model.', items: ['Contract tracking', 'Rate plan setup', 'Promotion windows (coming soon)'] },
+    { title: 'Distribution oversight', text: 'Understand which hotels are ready, blocked or awaiting review.', items: ['Readiness status', 'Mapping state', 'Coverage reporting (coming soon)'] },
   ] },
   hotels: { icon: Building2, eyebrow: 'Hotels', title: 'Put hotel content and commercial setup on a clearer path to market.', intro: 'Give hotel teams an organised workspace for the information and controls B2B distribution depends on.', proof: 'Content · Rooms · Availability', sections: [
-    { title: 'Content foundation', text: 'Maintain structured hotel, facility, policy and media information.', items: ['Core profile', 'Room content', 'Policy review'] },
-    { title: 'Commercial setup', text: 'Prepare contracts and rate plans for controlled distribution.', items: ['Rate plans', 'Market conditions', 'Promotions'] },
+    { title: 'Content foundation', text: 'Maintain structured hotel, facility and policy information. Media management is coming soon.', items: ['Core profile', 'Room content', 'Policy review'] },
+    { title: 'Commercial setup', text: 'Prepare contracts and rate plans for controlled distribution.', items: ['Rate plans', 'Market conditions', 'Promotions (coming soon)'] },
     { title: 'Day-to-day control', text: 'Keep availability, allotments and restrictions visible to operating teams.', items: ['Availability calendar', 'Allotment coverage', 'Stop-sale review'] },
   ] },
-  'travel-technology': { icon: Cable, eyebrow: 'Travel technology', title: 'Stable contracts for product and engineering teams.', intro: 'Connect through explicit boundaries that keep supplier behavior separate from core pricing and booking logic.', proof: 'Typed contracts · Idempotency · Observable errors', sections: [
+  'travel-technology': { icon: Cable, eyebrow: 'Travel technology', title: 'Stable contracts for product and engineering teams.', intro: 'Public API access is coming soon. The planned contracts keep supplier behavior separate from core pricing and booking logic.', proof: 'Typed contracts · Idempotency · Observable errors', sections: [
     { title: 'Search and content', text: 'Work against predictable criteria and response shapes.', items: ['Destination and occupancy inputs', 'Mapped hotel identity', 'Rate source visibility'] },
     { title: 'Booking lifecycle', text: 'Design transactional calls around rechecks, idempotency and explicit state.', items: ['Prebook', 'Confirm', 'Cancel'] },
     { title: 'Operational support', text: 'Treat monitoring and exception handling as part of the integration contract.', items: ['Request tracing', 'Error taxonomy', 'Connection health'] },

@@ -1,7 +1,7 @@
 export const routes = {
   auth: { login: '/auth/login', logout: '/auth/logout', me: '/auth/me' },
   agent: {
-    context: '/agent/context', searchStatus: '/agent/search/status', search: '/agent/search', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', prebook: '/agent/prebook',
+    context: '/agent/context', searchStatus: '/agent/search/status', search: '/agent/search', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', releaseHold: '/agent/holds/:holdId', prebook: '/agent/prebook',
     bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
@@ -9,7 +9,14 @@ export const routes = {
     tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
   },
-  supplier: {},
+  supplier: {
+    memberships: '/supplier/extranet/memberships',
+    context: '/supplier/extranet/context',
+    hotels: '/supplier/extranet/hotels',
+    hotel: '/supplier/extranet/hotels/:hotelId',
+    rooms: '/supplier/extranet/hotels/:hotelId/rooms',
+    roomDraft: '/supplier/extranet/hotels/:hotelId/rooms/:roomId/draft',
+  },
   platformAccess: {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',
   },
@@ -27,4 +34,4 @@ export const routes = {
   health: { status: '/health', ready: '/health/ready' },
 } as const;
 
-export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.platformAccess)[keyof typeof routes.platformAccess] | (typeof routes.supply)[keyof typeof routes.supply] | (typeof routes.health)[keyof typeof routes.health];
+export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.platformAccess)[keyof typeof routes.platformAccess] | (typeof routes.supplier)[keyof typeof routes.supplier] | (typeof routes.supply)[keyof typeof routes.supply] | (typeof routes.health)[keyof typeof routes.health];

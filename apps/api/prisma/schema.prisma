@@ -112,6 +112,13 @@ enum MappingStatus {
   REJECTED
 }
 
+/// Extranet access for one supplier organization. This is not an admin role.
+enum SupplierMembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
 enum RatePlanStatus {
   DRAFT
   ACTIVE
@@ -167,12 +174,15 @@ model Tenant {
   auditEvents AuditEvent[]
   suppliers   Supplier[]
   hotels      Hotel[]
+  hotelSearchIndexes HotelSearchIndex[]
   boardBases  BoardBasis[]
   contracts   Contract[]
   connectorDefinitions ConnectorDefinition[]
   inventoryUpdateEvents InventoryUpdateEvent[]
   inventoryHolds InventoryHold[]
   settings    TenantSettings?
+  supplierMemberships SupplierMembership[]
+  supplierRoomDrafts SupplierRoomDraft[]
 
   @@map("tenants")
 }
@@ -210,6 +220,7 @@ model User {
   memberships Membership[]
   sessions    Session[]
   roles       UserRole[]
+  supplierMemberships SupplierMembership[]
   platformRoleAssignments PlatformRoleAssignment[]
   auditEvents AuditEvent[]
 
@@ -448,6 +459,8 @@ model Supplier {
   contracts      Contract[]
   connectors     ConnectorDefinition[]
   inventoryEvents InventoryUpdateEvent[]
+  memberships    SupplierMembership[]
+  roomDrafts     SupplierRoomDraft[]
 
   @@unique([tenantId, legalName])
   @@unique([tenantId, id])
@@ -476,11 +489,37 @@ model Hotel {
 
   roomTypes RoomType[]
   mappings  SupplierHotelMapping[]
+  searchIndex HotelSearchIndex?
+  supplierRoomDrafts SupplierRoomDraft[]
 
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
   @@index([tenantId, contentStatus])
+}
+
+/// Normalized identity used only to propose canonical hotel candidates.
+/// Embeddings are a retrieval signal. They never approve a mapping by themselves.
+model HotelSearchIndex {
+  id                     String   @id @default(cuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId                String   @map("hotel_id")
+  hotel                  Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Cascade)
+  normalizedName         String   @map("normalized_name")
+  normalizedAddress      String   @map("normalized_address")
+  normalizedCity         String   @map("normalized_city")
+  normalizedCountryCode  String   @db.Char(2) @map("normalized_country_code")
+  latitude               Decimal? @db.Decimal(9, 6)
+  longitude              Decimal? @db.Decimal(9, 6)
+  embedding              Unsupported("vector(64)")
+  embeddingModel         String   @map("embedding_model")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, hotelId])
+  @@index([tenantId, normalizedCountryCode, normalizedCity])
+  @@index([normalizedName(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_name_trgm")
+  @@index([normalizedAddress(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_address_trgm")
 }
 
 model RoomType {
@@ -499,6 +538,7 @@ model RoomType {
 
   ratePlans RatePlan[]
   supplierRoomMappings SupplierRoomMapping[]
+  supplierRoomDrafts SupplierRoomDraft[]
 
   @@unique([hotelId, code])
   @@unique([hotelId, id])
@@ -567,6 +607,47 @@ model SupplierRoomMapping {
   @@unique([supplierHotelMappingId, supplierRoomId])
   @@index([tenantId, status])
   @@index([hotelId, roomTypeId])
+}
+
+/// Authenticated user membership in one tenant-owned supplier organization.
+/// Admin supply permissions do not create this row.
+model SupplierMembership {
+  id         String                   @id @default(cuid())
+  tenantId   String                   @map("tenant_id")
+  tenant     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId     String                   @map("user_id")
+  user       User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supplierId String                   @map("supplier_id")
+  supplier   Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Cascade)
+  status     SupplierMembershipStatus @default(ACTIVE)
+  createdAt  DateTime                 @default(now()) @map("created_at")
+  updatedAt  DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([userId, tenantId, supplierId])
+  @@index([tenantId, userId, status])
+  @@index([tenantId, supplierId])
+  @@map("supplier_memberships")
+}
+
+/// Private supplier note for a mapped room. It is not room content, a rate, or availability,
+/// and it cannot be published or activated.
+model SupplierRoomDraft {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId    String   @map("supplier_id")
+  supplier      Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Cascade)
+  hotelId       String   @map("hotel_id")
+  hotel         Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Cascade)
+  roomTypeId    String   @map("room_type_id")
+  roomType      RoomType @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  supplierNotes String   @map("supplier_notes") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, supplierId, roomTypeId])
+  @@index([tenantId, supplierId, hotelId])
+  @@map("supplier_room_drafts")
 }
 
 model Contract {

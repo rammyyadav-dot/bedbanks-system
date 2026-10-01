@@ -4,6 +4,14 @@ import { PrismaService } from '../database/prisma.service'
 
 export type DashboardRange = '7d' | '30d' | '90d'
 
+/** The API runtime role is not granted booking tables. That is a privilege boundary, not an outage. */
+export function isBookingReadDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const meta = 'meta' in error ? (error as { meta?: { code?: string } }).meta : undefined
+  if (meta?.code === '42501') return true
+  return error instanceof Error && error.message.includes('permission denied for table')
+}
+
 type ActivityRow = { day: Date; total: number; confirmed: number }
 type MoneyRow = { currency: string; amount_minor: string }
 
@@ -23,39 +31,56 @@ export class AdminDashboardService {
     start.setUTCHours(0, 0, 0, 0)
     start.setUTCDate(start.getUTCDate() - days + 1)
 
-    const { count, activity, recent, totals, activeSuppliers } = await this.prisma.withTenant(membership.tenantId, async (tx) => {
-      const [count, activity, recent, totals, activeSuppliers] = await Promise.all([
-        tx.booking.count({ where: { tenantId: membership.tenantId, createdAt: { gte: start, lte: now } } }),
-        tx.$queryRaw<ActivityRow[]>`
-          SELECT date_trunc('day', "created_at" AT TIME ZONE 'UTC') AS day,
-                 COUNT(*)::integer AS total,
-                 COUNT(*) FILTER (WHERE "status" = 'CONFIRMED')::integer AS confirmed
-          FROM "Booking"
-          WHERE "tenant_id" = ${membership.tenantId}
-            AND "created_at" >= ${start} AND "created_at" <= ${now}
-          GROUP BY day ORDER BY day
-        `,
-        tx.booking.findMany({
-          where: { tenantId: membership.tenantId, createdAt: { gte: start, lte: now } },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 8,
-          select: { id: true, reference: true, status: true, currency: true, totalMinor: true, searchSnapshot: true, hotelId: true },
-        }),
-        tx.$queryRaw<MoneyRow[]>`
-          SELECT "currency", SUM("total_minor")::text AS amount_minor
-          FROM "Booking"
-          WHERE "tenant_id" = ${membership.tenantId}
-            AND "created_at" >= ${start} AND "created_at" <= ${now}
-            AND "status" = 'CONFIRMED'
-          GROUP BY "currency"
-        `,
-        tx.supplier.count({ where: { tenantId: membership.tenantId, status: 'ACTIVE' } }),
-      ])
-      return { count, activity, recent, totals, activeSuppliers }
-    })
+    const activeSuppliers = await this.prisma.withTenant(membership.tenantId, (tx) => tx.supplier.count({
+      where: { tenantId: membership.tenantId, status: 'ACTIVE' },
+    }))
+
+    let bookingMetrics: 'available' | 'unavailable' = 'available'
+    let count = 0
+    let activity: ActivityRow[] = []
+    let recent: Array<{ id: string; reference: string; status: string; currency: string; totalMinor: bigint; searchSnapshot: unknown; hotelId: string | null }> = []
+    let totals: MoneyRow[] = []
+    try {
+      const loaded = await this.prisma.withTenant(membership.tenantId, async (tx) => {
+        const [bookingCount, bookingActivity, recentBookings, money] = await Promise.all([
+          tx.booking.count({ where: { tenantId: membership.tenantId, createdAt: { gte: start, lte: now } } }),
+          tx.$queryRaw<ActivityRow[]>`
+            SELECT date_trunc('day', "created_at" AT TIME ZONE 'UTC') AS day,
+                   COUNT(*)::integer AS total,
+                   COUNT(*) FILTER (WHERE "status" = 'CONFIRMED')::integer AS confirmed
+            FROM "Booking"
+            WHERE "tenant_id" = ${membership.tenantId}
+              AND "created_at" >= ${start} AND "created_at" <= ${now}
+            GROUP BY day ORDER BY day
+          `,
+          tx.booking.findMany({
+            where: { tenantId: membership.tenantId, createdAt: { gte: start, lte: now } },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 8,
+            select: { id: true, reference: true, status: true, currency: true, totalMinor: true, searchSnapshot: true, hotelId: true },
+          }),
+          tx.$queryRaw<MoneyRow[]>`
+            SELECT "currency", SUM("total_minor")::text AS amount_minor
+            FROM "Booking"
+            WHERE "tenant_id" = ${membership.tenantId}
+              AND "created_at" >= ${start} AND "created_at" <= ${now}
+              AND "status" = 'CONFIRMED'
+            GROUP BY "currency"
+          `,
+        ])
+        return { bookingCount, bookingActivity, recentBookings, money }
+      })
+      count = loaded.bookingCount
+      activity = loaded.bookingActivity
+      recent = loaded.recentBookings
+      totals = loaded.money
+    } catch (error) {
+      if (!isBookingReadDenied(error)) throw error
+      bookingMetrics = 'unavailable'
+    }
 
     const activityByDay = new Map(activity.map((point) => [point.day.toISOString().slice(0, 10), point]))
-    const bookingActivity = Array.from({ length: days }, (_, index) => {
+    const bookingActivity = bookingMetrics === 'unavailable' ? [] : Array.from({ length: days }, (_, index) => {
       const date = new Date(start)
       date.setUTCDate(start.getUTCDate() + index)
       const key = date.toISOString().slice(0, 10)
@@ -88,18 +113,24 @@ export class AdminDashboardService {
       range,
       generatedAt: new Date().toISOString(),
       summary: {
-        totalBookings: count,
-        grossBookingValue,
+        totalBookings: bookingMetrics === 'unavailable' ? null : count,
+        grossBookingValue: bookingMetrics === 'unavailable' ? null : grossBookingValue,
         netRevenue: null,
         activeSuppliers,
         activeHotels: null,
-        systemHealth: 'healthy' as const,
+        systemHealth: bookingMetrics === 'unavailable' ? 'degraded' as const : 'healthy' as const,
       },
       bookingActivity,
       revenueOverview: [],
       systemHealth: [
         { name: 'API', state: 'healthy' as const, detail: 'Dashboard request served' },
-        { name: 'Database', state: 'healthy' as const, detail: 'Dashboard queries completed' },
+        {
+          name: 'Database',
+          state: bookingMetrics === 'unavailable' ? 'degraded' as const : 'healthy' as const,
+          detail: bookingMetrics === 'unavailable'
+            ? 'Booking metrics are not readable by the API database role'
+            : 'Dashboard queries completed',
+        },
       ],
       recentBookings,
       alerts: [],

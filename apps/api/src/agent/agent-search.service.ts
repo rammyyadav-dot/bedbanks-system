@@ -40,7 +40,9 @@ export class AgentSearchService {
     const request = this.normalize(criteria)
     const key = tenantCacheKey(tenantId, 'agent-search', this.identity(request))
     const authoritative = this.authoritativeInventory()
-    const cached = authoritative ? null : await this.safeGet<SearchResponse>(key)
+    const rawCached = authoritative ? null : await this.safeGet<unknown>(key)
+    const cached = this.acceptCached(rawCached, tenantId, request)
+    if (rawCached && !cached) await this.cache.delete(key).catch(() => undefined)
     if (cached) {
       return { ...cached, searchId: randomUUID(), requestId, generatedAt: new Date().toISOString() }
     }
@@ -50,13 +52,15 @@ export class AgentSearchService {
     try { lease = await this.coordination.acquire(lockKey, SEARCH_LOCK_TTL_MS) } catch { /* coordination is optional */ }
 
     if (!lease && !authoritative) {
-      const coalesced = await this.waitForCached<SearchResponse>(key)
+      const coalesced = await this.waitForCached(key, tenantId, request)
       if (coalesced) return { ...coalesced, searchId: randomUUID(), requestId, generatedAt: new Date().toISOString() }
       // Lock contention/outage must not turn into false unavailability. Fall through to authoritative search.
     }
 
     try {
       const fresh = await this.fetchFresh(request, tenantId, requestId, identity)
+      // Contracted inventory is not cached: the next search must observe stop-sell and rate edits.
+      // Recheck remains the booking authority for every supplier.
       if (!authoritative && (fresh.status === 'available' || fresh.status === 'partial' || fresh.status === 'no_availability')) {
         await this.safeSet(key, fresh)
       }
@@ -150,17 +154,41 @@ export class AgentSearchService {
     return this.supplier.name === 'contracted-inventory'
   }
 
+  private acceptCached(value: unknown, tenantId: string, request: HotelSearchCriteria): SearchResponse | null {
+    if (!value || typeof value !== 'object') return null
+    const cached = value as SearchResponse
+    const limit = request.limit ?? 50
+    const offset = request.offset ?? 0
+    if (cached.version !== 1 || !Array.isArray(cached.hotels) || !cached.pagination) return null
+    if (cached.pagination.limit !== limit || cached.pagination.offset !== offset) return null
+    if (!['available', 'partial', 'no_availability'].includes(cached.status)) return null
+    for (const hotel of cached.hotels) {
+      if (!hotel || typeof hotel !== 'object') return null
+      const rooms = (hotel as { rooms?: unknown }).rooms
+      if (!Array.isArray(rooms)) return null
+      for (const room of rooms) {
+        const rates = (room as { rates?: unknown }).rates
+        if (!Array.isArray(rates)) return null
+        for (const rate of rates) {
+          const row = rate as { tenantId?: string; canonicalHotelId?: string; canonicalRoomTypeId?: string }
+          if (row.tenantId !== tenantId || !row.canonicalHotelId || !row.canonicalRoomTypeId) return null
+        }
+      }
+    }
+    return cached
+  }
+
   private ttlMs(): number {
     const parsed = Number(process.env.AGENT_SEARCH_CACHE_TTL_MS ?? DEFAULT_SEARCH_TTL_MS)
     if (!Number.isSafeInteger(parsed)) return DEFAULT_SEARCH_TTL_MS
     return Math.min(MAX_SEARCH_TTL_MS, Math.max(MIN_SEARCH_TTL_MS, parsed))
   }
 
-  private async waitForCached<T>(key: string): Promise<T | null> {
+  private async waitForCached(key: string, tenantId: string, request: HotelSearchCriteria): Promise<SearchResponse | null> {
     const deadline = Date.now() + SEARCH_LOCK_WAIT_MS
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, SEARCH_LOCK_POLL_MS))
-      const cached = await this.safeGet<T>(key)
+      const cached = this.acceptCached(await this.safeGet<unknown>(key), tenantId, request)
       if (cached) return cached
     }
     return null

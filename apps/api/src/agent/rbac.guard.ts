@@ -4,7 +4,7 @@ import type { Request } from 'express'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { PrismaService } from '../database/prisma.service'
 import { PERMISSIONS, type AgentPermission } from './supplier.port'
-import { ACTIVE_TENANT_REQUEST_KEY } from './tenant-context.guard'
+import { activeTenantId, sessionTenantId } from './tenant-context.guard'
 
 export const REQUIRED_PERMISSION = 'fbeds:required-permission'
 export const RequirePermission = (permission: AgentPermission) => SetMetadata(REQUIRED_PERMISSION, permission)
@@ -22,12 +22,12 @@ export class AgentRbacGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>()
     const identity = (request as unknown as { user?: AuthenticatedUser }).user
-    // Only the tenant validated by TenantContextGuard (which must run first) is trusted; the raw header never is.
-    const tenantId = (request as unknown as Record<string, unknown>)[ACTIVE_TENANT_REQUEST_KEY]
     const required = this.reflector.getAllAndOverride<AgentPermission>(REQUIRED_PERMISSION, [context.getHandler(), context.getClass()])
-    if (!identity || typeof tenantId !== 'string' || !tenantId) throw new ForbiddenException('Access denied')
+    if (!identity) throw new ForbiddenException('Access denied')
+    const tenantId = activeTenantId(request)
+    if (sessionTenantId(identity, tenantId) !== tenantId) throw new ForbiddenException('Access denied')
     const membership = await this.prisma.withTenant(tenantId, (tx) => tx.membership.findUnique({ where: { userId_tenantId: { userId: identity.user.id, tenantId } }, include: { tenant: true } }))
-    if (!membership || membership.tenant.status !== 'ACTIVE') throw new ForbiddenException('Insufficient permission')
+    if (!membership || membership.tenantId !== tenantId || membership.tenant.status !== 'ACTIVE') throw new ForbiddenException('Insufficient permission')
     // Fail closed: every handler behind this guard must declare its permission.
     if (!required) throw new ForbiddenException('Access denied')
     const roles = await this.prisma.withTenant(tenantId, (tx) => tx.userRole.findMany({

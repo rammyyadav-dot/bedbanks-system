@@ -1,0 +1,10 @@
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/dump.rdb
+.git
+.env
+**/.env
+**/.env.*
+!**/.env.example
