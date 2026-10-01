@@ -220,7 +220,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const hotels = [...byHotel.entries()]
       .sort((left, right) => left[1][0].hotel.name.localeCompare(right[1][0].hotel.name) || left[0].localeCompare(right[0]))
       .map(([, items]) => this.hotelOffer(items))
-    return hotels.slice(0, criteria.limit ?? 50)
+    // The domain validator applies offset and limit once, after this stable order.
+    return hotels
   }
 
   private hotelOffer(items: Array<{ hotel: SearchHotelOffer; rate: SearchRateOffer }>): SearchHotelOffer {

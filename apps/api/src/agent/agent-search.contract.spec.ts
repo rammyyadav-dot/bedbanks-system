@@ -61,6 +61,21 @@ describe('Agent canonical search boundary', () => {
       minPriceMinor: 125000, maxPriceMinor: 126000 } }, identity, request())
     expect(result.status).toBe('available')
     expect(result.hotels).toHaveLength(1)
+    expect(result.pagination).toEqual({ limit: 1, offset: 0, total: 2, hasMore: true, nextOffset: 1 })
+  })
+  it('returns the next page from the same stable order', async () => {
+    const later = structuredClone(hotel)
+    later.hotelId = 'h2'
+    later.name = 'Later Hotel'
+    later.rooms[0].rates[0].hotelId = 'h2'
+    later.rooms[0].rates[0].canonicalHotelId = 'h2'
+    later.rooms[0].rates[0].offerId = 'o2'
+    const { controller } = setup(jest.fn().mockResolvedValue(supplierResult([hotel, later])))
+    const page = await controller.search({ ...query(), limit: 1, offset: 1 }, identity, request())
+    expect(page.status).toBe('available')
+    expect(page.total).toBe(1)
+    expect((page.hotels[0] as typeof hotel).hotelId).toBe('h2')
+    expect(page.pagination).toEqual({ limit: 1, offset: 1, total: 2, hasMore: false })
   })
   it('fails closed on a cross-tenant canonical offer', async () => {
     const invalid = structuredClone(hotel)

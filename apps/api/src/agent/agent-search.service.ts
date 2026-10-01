@@ -4,7 +4,8 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination, tenantCacheKey, type CachePort, type CoordinationPort } from '../common/cache/cache.port'
 import { AgentAuditService } from './audit.service'
 import { SupplierAdapter, SUPPLIER_ADAPTER, type HotelSearchCriteria } from './supplier.port'
-import { validateSearchHotels } from '@bedbanks/domain/search-offers'
+import type { SearchPagination } from '@bedbanks/domain'
+import { validateSearchHotels } from './search-offers'
 
 const DEFAULT_SEARCH_TTL_MS = 45_000
 const MIN_SEARCH_TTL_MS = 1_000
@@ -22,6 +23,7 @@ type SearchResponse = {
   status: 'available' | 'partial' | 'no_availability' | 'provider_unavailable' | 'mapping_unavailable'
   hotels: unknown[]
   total: number
+  pagination: SearchPagination
   providerSummary: { queried: number; succeeded: number; failed: number }
 }
 
@@ -71,6 +73,7 @@ export class AgentSearchService {
     const generatedAt = new Date().toISOString()
     if (this.supplier.name === 'unconfigured') {
       return { version: 1, searchId, requestId, generatedAt, request, status: 'provider_unavailable', hotels: [], total: 0,
+        pagination: this.pagination(request, 0, 0),
         providerSummary: { queried: 0, succeeded: 0, failed: 0 } }
     }
 
@@ -79,6 +82,7 @@ export class AgentSearchService {
       raw = await this.supplier.search(request, { tenantId, requestId })
     } catch {
       return { version: 1, searchId, requestId, generatedAt, request, status: 'provider_unavailable', hotels: [], total: 0,
+        pagination: this.pagination(request, 0, 0),
         providerSummary: { queried: 1, succeeded: 0, failed: 1 } }
     }
 
@@ -92,6 +96,7 @@ export class AgentSearchService {
       await this.audit.record({ tenantId, user: identity, action: 'hotel.search.mapping_unavailable',
         entityType: 'search', entityId: searchId, payload: { destination: request.destination, requestId } })
       return { version: 1, searchId, requestId, generatedAt, request, status: 'mapping_unavailable', hotels: [], total: 0,
+        pagination: this.pagination(request, 0, 0),
         providerSummary: validSummary ? summary : { queried: 1, succeeded: 0, failed: 1 } }
     }
 
@@ -99,9 +104,17 @@ export class AgentSearchService {
       ? raw.providerSummary.failed > 0 ? 'partial' : 'available'
       : raw.providerSummary.failed > 0 && raw.providerSummary.succeeded === 0 ? 'provider_unavailable' : 'no_availability'
     await this.audit.record({ tenantId, user: identity, action: 'hotel.search', entityType: 'search', entityId: searchId,
-      payload: { destination: request.destination, supplier: this.supplier.name, resultCount: result.hotels.length, requestId, status } })
+      payload: { destination: request.destination, supplier: this.supplier.name, resultCount: result.hotels.length, matchedTotal: result.matchedTotal, requestId, status } })
     return { version: 1, searchId, requestId, generatedAt, request, status,
-      hotels: result.hotels, total: result.hotels.length, providerSummary: raw.providerSummary }
+      hotels: result.hotels, total: result.hotels.length, pagination: this.pagination(request, result.hotels.length, result.matchedTotal),
+      providerSummary: raw.providerSummary }
+  }
+
+  private pagination(request: HotelSearchCriteria, pageLength: number, matchedTotal: number): SearchPagination {
+    const limit = request.limit ?? 50
+    const offset = request.offset ?? 0
+    const hasMore = offset + pageLength < matchedTotal
+    return { limit, offset, total: matchedTotal, hasMore, ...(hasMore ? { nextOffset: offset + limit } : {}) }
   }
 
   private normalize(criteria: HotelSearchCriteria): HotelSearchCriteria {
@@ -124,6 +137,7 @@ export class AgentSearchService {
       currency: criteria.currency?.trim().toUpperCase(),
       ...(criteria.canonicalHotelIds ? { canonicalHotelIds: [...criteria.canonicalHotelIds].sort() } : {}),
       ...(criteria.limit ? { limit: criteria.limit } : {}),
+      ...(criteria.offset ? { offset: criteria.offset } : {}),
       ...(filters ? { filters } : {}),
     }
   }

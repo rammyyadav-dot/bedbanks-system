@@ -14,7 +14,7 @@ import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
-import { validSearchCriteria } from '@bedbanks/domain/search-offers'
+import { validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 
@@ -38,6 +38,7 @@ class SearchHotelsDto implements HotelSearchCriteria {
   @IsString() nationality!: string
   @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
   @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number
+  @IsOptional() @IsInt() @Min(0) @Max(10000) offset?: number
   @IsOptional() @ValidateNested() @Type(() => SearchFiltersDto) filters?: SearchFiltersDto
 }
 

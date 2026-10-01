@@ -10,14 +10,14 @@ import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 
 export function SearchView({
   destination, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
-  guests, liveHotels, result, searching, onSearch, 
+  guests, liveHotels, result, searching, loadingMore, loadMoreError, onSearch, onLoadMore,
   rooms, setRooms, adults, setAdults, children, updateChildren, childAges, setChildAges, onCriteriaChange,
 }: {
   destination: string; setDestination: (value: string) => void
   checkIn: string; setCheckIn: (value: string) => void
   checkOut: string; setCheckOut: (value: string) => void
   guests: string; liveHotels: SearchHotelOffer[]
-  result: HotelSearchResult | null; searching: boolean; onSearch: () => void
+  result: HotelSearchResult | null; searching: boolean; loadingMore: boolean; loadMoreError: string; onSearch: () => void; onLoadMore: () => void
   rooms: number; setRooms: (value: number) => void
   adults: number; setAdults: (value: number) => void
   children: number; updateChildren: (value: number) => void
@@ -48,7 +48,7 @@ export function SearchView({
       <button className="portal-primary search-submit" onClick={submitSearch} disabled={searching}><Search size={16} /> {searching ? 'Searching…' : 'Search hotels'}</button>
     </div>{validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}<p>Nationality: IN · Currency: AED. Search uses the dates and occupancy shown above.</p></div>
     {searching && <SearchLoadingState />}
-    {result && !searching && <><div className="portal-results-meta"><div><strong>{result.total}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
+    {result && !searching && <><div className="portal-results-meta"><div><strong>{liveHotels.length}</strong> of <strong>{result.pagination?.total ?? liveHotels.length}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
       <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before any future booking step; booking remains disabled.' :
         result.status === 'partial' ? 'Some suppliers are unavailable. Verified offers from successful providers are shown.' :
         result.status === 'mapping_unavailable' ? 'Supplier offer mapping could not be verified. No rate is displayed.' :
@@ -56,10 +56,12 @@ export function SearchView({
         result.status === 'auth_required' ? 'Your session expired. Sign in again.' :
         result.status === 'empty' ? 'No availability for this search.' :
         'Supplier inventory is unavailable. Booking is disabled.'}</div>
-      {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={result.request} searchId={result.searchId} onBack={() => setSelectedLive(null)} /> :
-        <div className="portal-results-layout"><div className="portal-hotel-list">
+      {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={result.request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} /> :
+        <div className="portal-results-layout"><div className="portal-hotel-list" data-result-count={liveHotels.length}>
           {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} onSelect={() => setSelectedLive(hotel)} />)}
           {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />}
+          {liveHotels.length > 0 && result.pagination?.hasMore && <div className="portal-load-more"><button className="portal-secondary" type="button" onClick={onLoadMore} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? 'Loading more hotels…' : 'Load more hotels'}</button></div>}
+          {loadMoreError && <p className="portal-load-more-error" role="alert">{loadMoreError}</p>}
         </div></div>}</>}
   </>
 }

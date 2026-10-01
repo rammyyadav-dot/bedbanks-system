@@ -1,4 +1,4 @@
-import type { SearchCriteria, SearchHotelOffer } from '@bedbanks/domain'
+import type { SearchCriteria, SearchHotelOffer, SearchPagination } from '@bedbanks/domain'
 
 export type HotelSearchCriteria = SearchCriteria
 export type HotelSearchResult = {
@@ -6,6 +6,9 @@ export type HotelSearchResult = {
   total: number
   status: 'available' | 'partial' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
   request: SearchCriteria
+  pagination?: SearchPagination
+  /** Search that returned each hotel. Recheck must use that search, not a later page. */
+  hotelSearchIds?: Record<string, string>
   searchId?: string
   requestId?: string
   generatedAt?: string
