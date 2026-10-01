@@ -31,10 +31,19 @@ Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
    `DATABASE_URL=<owner url> pnpm --filter @bedbanks/api prisma:migrate:deploy`
    Never run `prisma migrate dev` against this database.
 3. **Provision the runtime role** exactly as in `docs/runbooks/api-runtime-role.md` (needs owner approval for a remote database). Build `DATABASE_URL` for the API from `fbeds_api_login`. The API must not run as the table owner: that role has `BYPASSRLS` and tenant isolation would not be enforced (ADR 0008).
-4. **Create the service** from `Dockerfile.api`, set the variables above, and deploy.
-5. **Smoke test:** `GET https://<api-host>/api/v1/health` returns `status: ok` with `database.status: ok`.
-6. **Vercel (Admin project, Root Directory `apps/admin`):** set `API_INTERNAL_URL=https://<api-host>/api/v1` and `AUTH_API_ORIGIN=<Admin public origin>` for Production and Preview, then redeploy. `AUTH_API_ORIGIN` must equal the API's `ADMIN_ORIGIN`.
-7. Record the deployed version, migration state and rollback point (`docs/runbooks/deploy.md`, `rollback.md`).
+4. **Create the first administrator** (do not use `db:seed`: it creates a demo tenant and user for local development and grants no `supply.*` or platform permissions). As the database owner, from a trusted shell:
+   ```
+   PROVISION_DATABASE_URL='<owner url>' \
+   BOOTSTRAP_TENANT_NAME='<your company>' BOOTSTRAP_TENANT_SLUG='<lowercase-slug>' \
+   BOOTSTRAP_ADMIN_EMAIL='<you@company.com>' BOOTSTRAP_ADMIN_NAME='<your name>' \
+   BOOTSTRAP_ADMIN_PASSWORD='<16+ characters>' \
+   pnpm --filter @bedbanks/api ops:bootstrap-first-admin --allow-remote --confirm-database=<exact database name>
+   ```
+   It creates the tenant, a tenant `owner` role holding every tenant permission, the user, and a `platform_owner` role holding every platform permission. It is idempotent; an existing user's password is kept unless you add `--reset-password`. It writes two audit events (ids only) and prints only ids and counts. This is the only path that bypasses the API's self-escalation rule; run it once, then manage further access through the platform admin API. It does not create wallets.
+5. **Create the service** from `Dockerfile.api`, set the variables above, and deploy.
+6. **Smoke test:** `GET https://<api-host>/api/v1/health` returns `status: ok` with `database.status: ok`.
+7. **Vercel (Admin project, Root Directory `apps/admin`):** set `API_INTERNAL_URL=https://<api-host>/api/v1` and `AUTH_API_ORIGIN=<Admin public origin>` for Production and Preview, then redeploy. `AUTH_API_ORIGIN` must equal the API's `ADMIN_ORIGIN`.
+8. Record the deployed version, migration state and rollback point (`docs/runbooks/deploy.md`, `rollback.md`).
 
 ## Render
 
@@ -49,4 +58,4 @@ Render's public URL (`https://fbeds-api.onrender.com`, or your custom domain) is
 
 ## Not covered
 
-Seeding the first platform administrator, the hold-expiry sweeper role (`hold-expiry-role.md`), and any Agent-origin CORS. The API allows a single credentialed origin, so Agent cannot call it from a browser until a multi-origin policy exists.
+Wallets and credit limits, the hold-expiry sweeper role (`hold-expiry-role.md`), and any Agent-origin CORS. The API allows a single credentialed origin, so Agent cannot call it from a browser until a multi-origin policy exists.

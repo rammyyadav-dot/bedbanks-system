@@ -24,6 +24,7 @@
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",
     "ops:provision-hold-expiry-role": "tsx src/database/provision-hold-expiry-role.cli.ts",
     "ops:provision-api-runtime-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-api-runtime-role.cli.ts",
+    "ops:bootstrap-first-admin": "node --no-experimental-strip-types -r @swc-node/register src/database/bootstrap-first-admin.cli.ts",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
     "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
     "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand"
