@@ -1,8 +1,8 @@
-const DAY = 86_400_000
+import { addUtcDays, utcToday } from './stay-dates.mjs'
 
-export function utcToday(now = Date.now()): string {
-  return new Date(now).toISOString().slice(0, 10)
-}
+export { addUtcDays, businessToday, defaultSearchStay, SEARCH_BUSINESS_TIME_ZONE, utcToday } from './stay-dates.mjs'
+
+const DAY = 86_400_000
 
 function parse(value: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
@@ -11,12 +11,6 @@ function parse(value: string): number | null {
   const date = new Date(time)
   if (date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) return null
   return time
-}
-
-export function addUtcDays(value: string, days: number): string | null {
-  const time = parse(value)
-  if (time === null || !Number.isInteger(days)) return null
-  return new Date(time + days * DAY).toISOString().slice(0, 10)
 }
 
 export function nightCount(checkIn: string, checkOut: string): number | null {

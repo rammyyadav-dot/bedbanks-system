@@ -15,6 +15,10 @@ import type { AgentIdentity, FinanceSummary } from '@/lib/api-client'
 import { creditBreakdown, formatMinorAmount } from '@/lib/format'
 import { isGuestMarket, readGuestNationality, rememberGuestNationality } from '@/lib/guest-market'
 import { criteriaFilters, minorToWholeAmount, type FilterDraft } from '@/lib/search-filters'
+import { resolvedChildAges, type DraftChildAge } from '@/lib/occupancy'
+import { defaultSearchStay } from '@/lib/stay-calendar'
+import { appendHotelPage } from '@/lib/search-page'
+import { beginSearchRun, invalidateSearchRun, settleSearchRun } from '@/lib/search-attempt'
 import { rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
 import type { HotelSearchResult } from '@/types/hotel'
 
@@ -34,12 +38,13 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   const [openBookingId, setOpenBookingId] = useState<string | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
   const [destination, setDestination] = useState('Dubai')
-  const [checkIn, setCheckIn] = useState(() => new Date().toISOString().slice(0, 10))
-  const [checkOut, setCheckOut] = useState(() => new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10))
+  const [stayDates] = useState(() => defaultSearchStay())
+  const [checkIn, setCheckIn] = useState(stayDates.checkIn)
+  const [checkOut, setCheckOut] = useState(stayDates.checkOut)
   const [rooms, setRooms] = useState(1)
   const [adults, setAdults] = useState(2)
   const [children, setChildren] = useState(0)
-  const [childAges, setChildAges] = useState<number[]>([])
+  const [childAges, setChildAges] = useState<DraftChildAge[]>([])
   const [nationality, setNationality] = useState('IN')
   const [starRatings, setStarRatings] = useState<number[]>([])
   const [refundableOnly, setRefundableOnly] = useState(false)
@@ -52,6 +57,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   const [loadMoreError, setLoadMoreError] = useState('')
   const [toast, setToast] = useState('')
   const searchGeneration = useRef(0)
+  const searchingRef = useRef(false)
   const toastTimer = useRef<number | null>(null)
   const agency = identity.memberships.find((membership) => membership.tenantId === tenantId)?.tenantName ?? 'Verified agency workspace'
   const agentName = identity.user.name ?? identity.user.email
@@ -73,32 +79,44 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   }
   const nav = (next: View) => { setView(next); setMobileNav(false) }
   const draft = (): FilterDraft => ({ starRatings, refundableOnly, minPriceAed, maxPriceAed })
-  const criteriaFrom = (source: { destination: string; checkIn: string; checkOut: string; rooms: number; adults: number; children: number; childAges: number[]; nationality: string }, filters: FilterDraft): SearchCriteria | null => {
+  const criteriaFrom = (source: { destination: string; checkIn: string; checkOut: string; rooms: number; adults: number; children: number; childAges: DraftChildAge[]; nationality: string }, filters: FilterDraft): { criteria: SearchCriteria } | { error: string } => {
     const parsed = criteriaFilters(filters)
-    if (!parsed.ok) return null
+    if (!parsed.ok) return { error: parsed.reason }
+    const ages = resolvedChildAges(source.children, source.childAges)
+    if (!ages) return { error: 'Choose an age for each child.' }
     return {
-      destination: source.destination.trim(),
-      checkIn: source.checkIn,
-      checkOut: source.checkOut,
-      rooms: source.rooms,
-      adults: source.adults,
-      children: source.children,
-      childAges: source.childAges,
-      nationality: source.nationality,
-      currency: DISPLAY_CURRENCY,
-      limit: SEARCH_PAGE_SIZE,
-      ...(parsed.filters ? { filters: parsed.filters } : {}),
+      criteria: {
+        destination: source.destination.trim(),
+        checkIn: source.checkIn,
+        checkOut: source.checkOut,
+        rooms: source.rooms,
+        adults: source.adults,
+        children: source.children,
+        childAges: ages,
+        nationality: source.nationality,
+        currency: DISPLAY_CURRENCY,
+        limit: SEARCH_PAGE_SIZE,
+        ...(parsed.filters ? { filters: parsed.filters } : {}),
+      },
     }
   }
-  const criteria = criteriaFrom({ destination, checkIn, checkOut, rooms, adults, children, childAges, nationality }, draft())
-  const updateChildren = (count: number) => { setChildren(count); setChildAges((ages) => Array.from({ length: count }, (_, index) => ages[index] ?? 0)) }
+  const updateChildren = (count: number) => { setChildren(count); setChildAges((ages) => Array.from({ length: count }, (_, index) => ages[index] ?? null)) }
   const stampSearch = (result: HotelSearchResult): HotelSearchResult => {
     const hotelSearchIds: Record<string, string> = {}
     if (result.searchId) for (const hotel of result.liveHotels) hotelSearchIds[hotel.hotelId] = result.searchId
     return { ...result, hotelSearchIds }
   }
-  const resetSearch = () => { searchGeneration.current += 1; setSearchResult(null); setLoadMoreError(''); setLoadingMore(false); setSearchFailed(false) }
-  const applyOverride = (override?: SearchOverride): SearchCriteria | null => {
+  const resetSearch = () => {
+    const next = invalidateSearchRun({ generation: searchGeneration.current, searching: searchingRef.current })
+    searchGeneration.current = next.generation
+    searchingRef.current = next.searching
+    setSearching(false)
+    setSearchResult(null)
+    setLoadMoreError('')
+    setLoadingMore(false)
+    setSearchFailed(false)
+  }
+  const applyOverride = (override?: SearchOverride): { criteria: SearchCriteria } | { error: string } => {
     const nextDestination = override?.destination ?? destination
     const nextCheckIn = override?.checkIn ?? checkIn
     const nextCheckOut = override?.checkOut ?? checkOut
@@ -138,62 +156,73 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     setNationality(value)
     rememberGuestNationality(window.sessionStorage, identity.user.id, value)
   }
-  async function handleSearch(requested: SearchCriteria | null = criteria) {
-    if (searching) return
-    const generation = searchGeneration.current + 1
-    searchGeneration.current = generation
-    setSearchResult(null)
-    setLoadMoreError('')
-    if (!requested) {
-      show('Enter the price range in whole AED amounts.')
+  async function handleSearch(requested?: SearchCriteria) {
+    const built = requested ? { criteria: requested } : criteriaFrom({ destination, checkIn, checkOut, rooms, adults, children, childAges, nationality }, draft())
+    if ('error' in built) {
+      show(built.error)
       return
     }
-    if (!validSearchCriteria(requested)) {
+    if (!validSearchCriteria(built.criteria)) {
       show('Enter a destination, valid dates and occupancy')
       return
     }
+    const started = beginSearchRun({ generation: searchGeneration.current, searching: searchingRef.current })
+    if (!started) return
+    searchGeneration.current = started.generation
+    searchingRef.current = true
     setSearching(true)
+    setSearchResult(null)
+    setLoadMoreError('')
     setLoadingMore(false)
     dismissToast()
+    const generation = started.generation
     try {
-      const result = await new ApiHotelService().search(requested, tenantId)
-      if (generation !== searchGeneration.current) return
+      const result = await new ApiHotelService().search(built.criteria, tenantId)
+      if (!settleSearchRun({ generation: searchGeneration.current, searching: searchingRef.current }, generation).apply) return
       setSearchResult(stampSearch(result))
       rememberRecentSearch(window.sessionStorage, identity.user.id, {
-        destination: requested.destination,
-        checkIn: requested.checkIn,
-        checkOut: requested.checkOut,
-        rooms: requested.rooms,
-        adults: requested.adults,
-        children: requested.children,
-        childAges: requested.childAges ?? [],
-        nationality: requested.nationality,
-        ...(requested.filters?.starRatings ? { starRatings: requested.filters.starRatings } : {}),
-        ...(requested.filters?.refundableOnly ? { refundableOnly: true } : {}),
-        ...(requested.filters?.minPriceMinor !== undefined ? { minPriceMinor: requested.filters.minPriceMinor } : {}),
-        ...(requested.filters?.maxPriceMinor !== undefined ? { maxPriceMinor: requested.filters.maxPriceMinor } : {}),
+        destination: built.criteria.destination,
+        checkIn: built.criteria.checkIn,
+        checkOut: built.criteria.checkOut,
+        rooms: built.criteria.rooms,
+        adults: built.criteria.adults,
+        children: built.criteria.children,
+        childAges: built.criteria.childAges ?? [],
+        nationality: built.criteria.nationality,
+        ...(built.criteria.filters?.starRatings ? { starRatings: built.criteria.filters.starRatings } : {}),
+        ...(built.criteria.filters?.refundableOnly ? { refundableOnly: true } : {}),
+        ...(built.criteria.filters?.minPriceMinor !== undefined ? { minPriceMinor: built.criteria.filters.minPriceMinor } : {}),
+        ...(built.criteria.filters?.maxPriceMinor !== undefined ? { maxPriceMinor: built.criteria.filters.maxPriceMinor } : {}),
       })
       const notice = searchAttemptNotice({ kind: 'resolved', status: result.status })
       setSearchFailed(Boolean(notice))
       if (notice) show(notice)
     } catch {
-      if (generation === searchGeneration.current) {
+      if (settleSearchRun({ generation: searchGeneration.current, searching: searchingRef.current }, generation).apply) {
         setSearchFailed(true)
         const notice = searchAttemptNotice({ kind: 'thrown' })
         if (notice) show(notice)
       }
     } finally {
-      if (generation === searchGeneration.current) setSearching(false)
+      const settled = settleSearchRun({ generation: searchGeneration.current, searching: searchingRef.current }, generation)
+      if (settled.apply) {
+        searchingRef.current = false
+        setSearching(false)
+      }
     }
   }
   function beginSearch(override?: SearchOverride) {
-    const requested = applyOverride(override)
-    if (!requested || !validSearchCriteria(requested)) {
-      show(requested ? 'Enter a destination, valid dates and occupancy' : 'Enter the price range in whole AED amounts.')
+    const built = applyOverride(override)
+    if ('error' in built) {
+      show(built.error)
+      return
+    }
+    if (!validSearchCriteria(built.criteria)) {
+      show('Enter a destination, valid dates and occupancy')
       return
     }
     setView('search')
-    void handleSearch(requested)
+    void handleSearch(built.criteria)
   }
   function replaySearch(search: RecentSearch) {
     beginSearch({
@@ -214,7 +243,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   async function handleLoadMore() {
     const current = searchResult
     const nextOffset = current?.pagination?.nextOffset
-    if (!current?.pagination?.hasMore || nextOffset === undefined || loadingMore || searching) return
+    if (!current?.pagination?.hasMore || nextOffset === undefined || loadingMore || searchingRef.current) return
     const generation = searchGeneration.current
     setLoadingMore(true)
     setLoadMoreError('')
@@ -225,8 +254,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
         setLoadMoreError('Could not load more hotels. Existing results are unchanged.')
         return
       }
-      const seen = new Set(current.liveHotels.map((hotel) => hotel.hotelId))
-      const added = next.liveHotels.filter((hotel) => !seen.has(hotel.hotelId))
+      const { hotels: mergedHotels, added } = appendHotelPage(current.liveHotels, next.liveHotels)
       if (added.length === 0 && next.pagination?.hasMore) {
         setLoadMoreError('Could not load more hotels. Existing results are unchanged.')
         return
@@ -235,8 +263,8 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
       if (next.searchId) for (const hotel of added) hotelSearchIds[hotel.hotelId] = next.searchId
       setSearchResult({
         ...current,
-        liveHotels: [...current.liveHotels, ...added],
-        total: current.liveHotels.length + added.length,
+        liveHotels: mergedHotels,
+        total: mergedHotels.length,
         pagination: next.pagination ?? { ...current.pagination, hasMore: false, nextOffset: undefined },
         hotelSearchIds,
       })

@@ -50,16 +50,25 @@ function starsKey(stars: number[] | undefined) {
   return [...(stars ?? [])].sort((a, b) => a - b).join(',')
 }
 
+export function recentSearchIdentity(item: RecentSearch): string {
+  return [
+    item.destination.trim().toLowerCase(),
+    item.checkIn,
+    item.checkOut,
+    String(item.rooms),
+    String(item.adults),
+    String(item.children),
+    item.childAges.join(','),
+    item.nationality ?? '',
+    starsKey(item.starRatings),
+    item.refundableOnly ? '1' : '0',
+    item.minPriceMinor ?? '',
+    item.maxPriceMinor ?? '',
+  ].join('|')
+}
+
 function sameSearch(left: RecentSearch, right: RecentSearch) {
-  return left.destination.trim().toLowerCase() === right.destination.trim().toLowerCase()
-    && left.checkIn === right.checkIn && left.checkOut === right.checkOut
-    && left.rooms === right.rooms && left.adults === right.adults && left.children === right.children
-    && left.childAges.join(',') === right.childAges.join(',')
-    && (left.nationality ?? '') === (right.nationality ?? '')
-    && starsKey(left.starRatings) === starsKey(right.starRatings)
-    && Boolean(left.refundableOnly) === Boolean(right.refundableOnly)
-    && (left.minPriceMinor ?? '') === (right.minPriceMinor ?? '')
-    && (left.maxPriceMinor ?? '') === (right.maxPriceMinor ?? '')
+  return recentSearchIdentity(left) === recentSearchIdentity(right)
 }
 
 export function readRecentSearches(storage: Pick<Storage, 'getItem'>, userId: string): RecentSearch[] {

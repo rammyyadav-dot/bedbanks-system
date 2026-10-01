@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { clearRecentSearches, consumeExpiredSession, deleteRecentSearch, markAgentSession, readRecentSearches, recentSearchKey, rememberRecentSearch } from './recent-searches.ts'
+import { clearRecentSearches, consumeExpiredSession, deleteRecentSearch, markAgentSession, readRecentSearches, recentSearchIdentity, recentSearchKey, rememberRecentSearch } from './recent-searches.ts'
 
 function memory() {
   const values = new Map()
@@ -60,6 +60,18 @@ test('stores filters and keeps the newest eight searches', () => {
   assert.deepEqual(saved[0].starRatings, [5])
   assert.equal(saved[0].minPriceMinor, 10000)
   assert.equal(saved.some((item) => item.destination === 'City 0'), false)
+})
+
+test('keeps searches that differ only by refundable or total-stay price', () => {
+  const storage = memory()
+  const priced = { ...search, nationality: 'IN', childAges: [], refundableOnly: true, minPriceMinor: 40000, maxPriceMinor: 90000 }
+  const open = { ...search, nationality: 'IN', childAges: [], minPriceMinor: 40000, maxPriceMinor: 90000 }
+  rememberRecentSearch(storage, 'agent-a', priced)
+  rememberRecentSearch(storage, 'agent-a', open)
+  const saved = readRecentSearches(storage, 'agent-a')
+  assert.equal(saved.length, 2)
+  assert.notEqual(recentSearchIdentity(saved[0]), recentSearchIdentity(saved[1]))
+  assert.equal(saved.some((item) => item.refundableOnly === true), true)
 })
 
 test('marks a session without treating logout as expiry', () => {

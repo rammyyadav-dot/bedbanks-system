@@ -6,8 +6,9 @@ import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import { contactEmail, dubaiSpotlight, editorialDestinations, howItWorks, marketplaceHome, privacyLink, tradeAnnouncements } from '@/lib/marketplace-content'
 import { guestMarketName } from '@/lib/guest-market'
 import { formatStay } from '@/lib/format'
-import { occupancyCompact } from '@/lib/occupancy'
-import { deleteRecentSearch, readRecentSearches, type RecentSearch } from '@/lib/recent-searches'
+import { type DraftChildAge } from '@/lib/occupancy'
+import { deleteRecentSearch, readRecentSearches, recentSearchIdentity, type RecentSearch } from '@/lib/recent-searches'
+import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
 
 export function AgentHome({
   userId,
@@ -30,8 +31,8 @@ export function AgentHome({
   setAdults: (value: number) => void
   children: number
   updateChildren: (value: number) => void
-  childAges: number[]
-  setChildAges: (value: number[]) => void
+  childAges: DraftChildAge[]
+  setChildAges: (value: DraftChildAge[]) => void
   nationality: string
   setNationality: (value: string) => void
   starRatings: number[]
@@ -76,10 +77,11 @@ export function AgentHome({
         {recent.length === 0 ? <p className="trade-muted">{marketplaceHome.recentEmpty}</p> : (
           <ul className="market-recent-grid">
             {visible.map((item) => (
-              <li key={`${item.destination}-${item.checkIn}-${item.checkOut}-${item.rooms}-${item.adults}-${item.children}-${item.nationality ?? ''}-${item.starRatings?.join(',') ?? ''}`}>
+              <li key={recentSearchIdentity(item)}>
                 <strong>{item.destination}</strong>
                 <span>{formatStay(item.checkIn, item.checkOut)}</span>
-                <span>{occupancyCompact(item.rooms, item.adults, item.children)}{item.nationality ? ` · ${guestMarketName(item.nationality)}` : ''}</span>
+                <span>{stayOccupancyLabel(item.rooms, item.adults, item.children, item.childAges)}{item.nationality ? ` · ${guestMarketName(item.nationality)}` : ''}</span>
+                {activeFilterLabel(item) ? <span>{activeFilterLabel(item)}</span> : null}
                 <div>
                   <button type="button" className="portal-link" onClick={() => onReplay(item)}>Search again →</button>
                   <button type="button" className="portal-link market-delete" onClick={() => remove(item)} aria-label={`Delete ${item.destination} search`}>Delete</button>
