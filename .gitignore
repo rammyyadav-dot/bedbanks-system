@@ -4,6 +4,7 @@ apps/**/node_modules/
 packages/**/node_modules/
 
 # Build outputs
+.next/
 apps/**/.next/
 apps/**/out/
 apps/**/dist/
