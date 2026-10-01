@@ -7,11 +7,13 @@ import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
 import { formatMinorAmount, formatStay } from '@/lib/format'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
+import { BookingCheckout } from '@/components/booking/booking-checkout'
 
 export function SearchView({
   destination, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
   guests, liveHotels, result, searching, loadingMore, loadMoreError, onSearch, onLoadMore,
   rooms, setRooms, adults, setAdults, children, updateChildren, childAges, setChildAges, onCriteriaChange,
+  bookingEnabled, tenantId, onBooked, onViewBooking,
 }: {
   destination: string; setDestination: (value: string) => void
   checkIn: string; setCheckIn: (value: string) => void
@@ -23,6 +25,7 @@ export function SearchView({
   children: number; updateChildren: (value: number) => void
   childAges: number[]; setChildAges: (value: number[]) => void
   onCriteriaChange: () => void
+  bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void
 }) {
   const [selectedLive, setSelectedLive] = useState<SearchHotelOffer | null>(null)
   const [validationMessage, setValidationMessage] = useState('')
@@ -49,16 +52,16 @@ export function SearchView({
     </div>{validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}<p>Nationality: IN · Currency: AED. Search uses the dates and occupancy shown above.</p></div>
     {searching && <SearchLoadingState />}
     {result && !searching && <><div className="portal-results-meta"><div><strong>{liveHotels.length}</strong> of <strong>{result.pagination?.total ?? liveHotels.length}</strong> properties in <strong>{result.request.destination}</strong><small>{formatStay(result.request.checkIn, result.request.checkOut)} · {guests} · {result.request.currency}</small></div><button className="portal-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Modify search</button></div>
-      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before any future booking step; booking remains disabled.' :
+      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {result.status === 'available' ? 'Verified supplier offers. Authoritative recheck is required before a booking can be held.' + (bookingEnabled ? '' : ' Booking remains disabled.') :
         result.status === 'partial' ? 'Some suppliers are unavailable. Verified offers from successful providers are shown.' :
         result.status === 'mapping_unavailable' ? 'Supplier offer mapping could not be verified. No rate is displayed.' :
         result.status === 'access_denied' ? 'You do not have access to this workspace.' :
         result.status === 'auth_required' ? 'Your session expired. Sign in again.' :
         result.status === 'empty' ? 'No availability for this search.' :
         'Supplier inventory is unavailable. Booking is disabled.'}</div>
-      {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={result.request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} /> :
+      {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={result.request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onBooked} onViewBooking={onViewBooking} /> :
         <div className="portal-results-layout"><div className="portal-hotel-list" data-result-count={liveHotels.length}>
-          {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} onSelect={() => setSelectedLive(hotel)} />)}
+          {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} bookingEnabled={bookingEnabled} onSelect={() => setSelectedLive(hotel)} />)}
           {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />}
           {liveHotels.length > 0 && result.pagination?.hasMore && <div className="portal-load-more"><button className="portal-secondary" type="button" onClick={onLoadMore} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? 'Loading more hotels…' : 'Load more hotels'}</button></div>}
           {loadMoreError && <p className="portal-load-more-error" role="alert">{loadMoreError}</p>}
@@ -78,11 +81,11 @@ function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchRe
 }
 function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : 'Agency credit' }
 function formatTotal(total: SearchRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
-function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect: () => void }) {
+function LiveHotelCard({ hotel, onSelect, bookingEnabled }: { hotel: SearchHotelOffer; onSelect: () => void; bookingEnabled: boolean }) {
   const firstRate = hotel.rooms.flatMap((room) => room.rates).find((rate) => rate.availability !== 'sold_out')
-  return <article className="portal-hotel-card"><div className="portal-hotel-content"><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.destination}</p><div className="portal-hotel-bottom"><div><small>AUTHORITATIVE TOTAL STAY PRICE</small><strong>{firstRate ? formatTotal(firstRate.total) : 'No available rate'}</strong><span>{firstRate ? `${firstRate.boardBasisName} · Booking remains disabled` : 'No available rate'}</span></div><button className="portal-secondary" onClick={onSelect}>View verified rooms & rates</button></div></div></article>
+  return <article className="portal-hotel-card"><div className="portal-hotel-content"><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.destination}</p><div className="portal-hotel-bottom"><div><small>AUTHORITATIVE TOTAL STAY PRICE</small><strong>{firstRate ? formatTotal(firstRate.total) : 'No available rate'}</strong><span>{firstRate ? `${firstRate.boardBasisName}${bookingEnabled ? '' : ' · Booking remains disabled'}` : 'No available rate'}</span></div><button className="portal-secondary" onClick={onSelect}>View verified rooms & rates</button></div></div></article>
 }
-function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void }) {
+function LiveHotelDetail({ hotel, request, searchId, onBack, bookingEnabled, tenantId, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
@@ -114,17 +117,19 @@ function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHo
       return <div key={rate.offerId} className="portal-rate-option"><span className="portal-eyebrow">RATE PLAN · BOARD BASIS</span><strong>{rate.ratePlanName} · {rate.boardBasisName}</strong><span>{rate.cancellation.summary} · {rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)} total stay</b><small>{rate.total.currency} · taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })} · expires {rate.expiresAt}</small></div><button className="portal-secondary" disabled={!selectable} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select rate for recheck'}</button></div>
     })}</div></div>)}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} />Selected rate expired. Search again for a current offer.</div>}
-    {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected: {hotel.name} · {selection.room.name} · {selection.rate.boardBasisName} · {formatStay(request.checkIn, request.checkOut)} · {request.rooms} room · {request.adults} adults · {request.children} children · quoted {formatTotal(selection.rate.total)}. Offer expires {selection.rate.expiresAt}. Authoritative recheck is required; booking remains disabled.</span></div>
+    {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected: {hotel.name} · {selection.room.name} · {selection.rate.boardBasisName} · {formatStay(request.checkIn, request.checkOut)} · {request.rooms} room · {request.adults} adults · {request.children} children · quoted {formatTotal(selection.rate.total)}. Offer expires {selection.rate.expiresAt}. Authoritative recheck is required{bookingEnabled ? ' before holding.' : '; booking remains disabled.'}</span></div>
       {!recheck || canAcceptChangedPrice || ['unavailable', 'provider_unavailable', 'mapping_invalid', 'rejected'].includes(recheck.status) ? <button className="portal-primary" disabled={rechecking || !searchId} onClick={() => void recheckOffer(canAcceptChangedPrice ? recheck?.sellAmountMinor : undefined)}>{rechecking ? 'Rechecking supplier…' : canAcceptChangedPrice ? 'Accept updated price and recheck' : 'Recheck rate'}</button> : null}
-      {recheck && <RecheckOutcome result={recheck} quotedMinor={selection.rate.sellAmountMinor} quotedCurrency={selection.rate.total.currency} />}</div>}
+      {recheck && <RecheckOutcome result={recheck} quotedMinor={selection.rate.sellAmountMinor} quotedCurrency={selection.rate.total.currency} bookingEnabled={bookingEnabled} />}
+      {bookingEnabled && recheck?.status === 'rechecked' && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} />}</div>}
   </section>
 }
 
-function RecheckOutcome({ result, quotedMinor, quotedCurrency }: { result: OfferRecheckResult; quotedMinor: number; quotedCurrency: string }) {
+function RecheckOutcome({ result, quotedMinor, quotedCurrency, bookingEnabled }: { result: OfferRecheckResult; quotedMinor: number; quotedCurrency: string; bookingEnabled: boolean }) {
+  const tail = bookingEnabled ? '' : ' Booking remains disabled.'
   const messages: Record<OfferRecheckResult['status'], string> = {
-    rechecked: 'Rate rechecked against current contracted inventory. Booking remains disabled.',
+    rechecked: `Rate rechecked against current contracted inventory.${tail}`,
     price_changed: 'The authoritative total changed. The quoted amount stays in place until you accept the new total.',
-    unavailable: 'The rate is no longer available. No inventory was allocated. Booking stays disabled.', offer_expired: 'The offer expired. Search again for a current rate. Booking stays disabled.',
+    unavailable: `The rate is no longer available. No inventory was allocated.${tail}`, offer_expired: `The offer expired. Search again for a current rate.${tail}`,
     mapping_invalid: 'The hotel, room or commercial mapping could not be verified. No inventory was allocated.',
     provider_unavailable: 'The supplier could not be reached safely. No inventory was allocated. Try the recheck again.', rejected: 'The supplier response could not be verified. No inventory was allocated.',
     auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to recheck this offer.',

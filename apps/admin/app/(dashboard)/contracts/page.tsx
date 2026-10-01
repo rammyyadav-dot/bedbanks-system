@@ -1,48 +1,54 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { PageHeader } from '@/components/common/PageHeader'
 import { TableToolbar } from '@/components/tables/TableToolbar'
 import { SearchInput } from '@/components/forms/SearchInput'
+import { SelectField } from '@/components/forms/SelectField'
 import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
-import { DetailDrawer, DrawerField } from '@/components/dialogs/DetailDrawer'
+import { ErrorState } from '@/components/common/ErrorState'
+import { LoadingState } from '@/components/common/LoadingState'
+import { describeApiError } from '@/lib/api/describe-error'
+import { useCan } from '@/lib/auth/capabilities'
 import { getContracts, type AdminContract } from '@/lib/data'
 
+const STATUS_OPTIONS = ['all', 'DRAFT', 'REVIEW', 'ACTIVE', 'SUSPENDED', 'EXPIRED'].map((value) => ({ value, label: value === 'all' ? 'All statuses' : value }))
+
 export default function ContractsPage() {
+  const can = useCan()
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<AdminContract | null>(null)
-  const [allContracts, setContracts] = useState<AdminContract[]>([])
+  const [status, setStatus] = useState('all')
+  const [contracts, setContracts] = useState<AdminContract[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let active = true
-    getContracts().then(rows => { if (active) setContracts(rows) }).catch(() => { if (active) { setContracts([]); setError(true) } }).finally(() => { if (active) setLoading(false) })
+    getContracts().then((rows) => { if (active) setContracts(rows) }).catch((cause) => { if (active) setError(describeApiError(cause, 'load contracts')) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
-  const filtered = allContracts.filter((c) => c.code.toLowerCase().includes(search.toLowerCase()) || c.supplier.displayName.toLowerCase().includes(search.toLowerCase()))
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return contracts.filter((c) => (status === 'all' || c.status === status) && (!q || c.code.toLowerCase().includes(q) || c.supplier.displayName.toLowerCase().includes(q)))
+  }, [contracts, search, status])
 
   const columns: DataTableColumn<AdminContract>[] = [
+    { key: 'code', header: 'Contract', render: (c) => <Link href={`/contracts/${c.id}`} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{c.code}</Link> },
     { key: 'supplier', header: 'Supplier', render: (c) => c.supplier.displayName },
-    { key: 'name', header: 'Contract', render: (c) => c.code },
     { key: 'validity', header: 'Validity', render: (c) => `${c.validFrom.slice(0, 10)} → ${c.validTo.slice(0, 10)}` },
     { key: 'currency', header: 'Currency', render: (c) => c.settlementCurrency },
-    { key: 'status', header: 'Status', render: (c) => <span>{c.status}</span> },
+    { key: 'mapping', header: 'Hotel binding', render: (c) => c.supplierHotelMapping ? `${c.supplierHotelMapping.status}` : 'Unbound' },
+    { key: 'status', header: 'Status', render: (c) => c.status },
   ]
 
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="SUPPLIERS · CONTRACTS" title="Contracts" description="Commercial terms per supplier relationship." />
-      {error && <p role="alert">Contracts are unavailable. Please reload to retry.</p>}
-      {loading && <p role="status">Loading contracts…</p>}
-      <TableToolbar><SearchInput value={search} onChange={setSearch} placeholder="Search contracts…" /></TableToolbar>
-      <DataTable columns={columns} data={filtered} getRowId={(c) => c.id} onRowClick={setSelected} emptyTitle={loading ? "Loading contracts" : error ? "Contracts unavailable" : "No contracts found"} />
-      <DetailDrawer open={!!selected} onClose={() => setSelected(null)} title={selected?.code ?? ''} subtitle={selected?.supplier.displayName}>
-        {selected && (<>
-          <DrawerField label="Validity" value={`${selected.validFrom.slice(0, 10)} → ${selected.validTo.slice(0, 10)}`} />
-          <DrawerField label="Currency" value={selected.settlementCurrency} />
-          <DrawerField label="Status" value={<span>{selected.status}</span>} />
-        </>)}
-      </DetailDrawer>
+      <PageHeader eyebrow="COMMERCIAL · CONTRACTS" title="Contracts" description="Authoritative commercial terms per supplier relationship." actions={can('supply.contracts.manage') ? <Link href="/contracts/new" className="admin-btn admin-btn-primary">New contract</Link> : undefined} />
+      <TableToolbar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by code or supplier…" />
+        <SelectField label="Contract status" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+      </TableToolbar>
+      {loading ? <LoadingState rows={6} /> : error ? <ErrorState title="Contracts unavailable" description={`${error} No fallback data is shown.`} /> : <DataTable columns={columns} data={filtered} getRowId={(c) => c.id} emptyTitle={contracts.length === 0 ? 'No contracts yet' : 'No contracts match the filters'} emptyDescription={contracts.length === 0 ? 'Create the first contract to start building rate plans.' : 'Change the search or status filter.'} />}
     </div>
   )
 }

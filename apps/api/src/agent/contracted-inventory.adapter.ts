@@ -117,8 +117,20 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     }
   }
 
-  async prebook(_request: PrebookRequest, _context: SupplierRequestContext): Promise<{ supplierReference: string; rate: SearchRateOffer }> {
-    throw new Error('Booking is unavailable until supplier, recheck and finance gates are certified.')
+  /**
+   * In-house contracted inventory is already reserved by the caller's PROCESSING hold, so there is no external
+   * supplier to call. Prebook therefore proves the claim instead of re-pricing (re-pricing would count the caller's
+   * own hold against the last room): the stored offer must be unexpired and a PROCESSING hold for exactly this
+   * offer and search must exist in the tenant.
+   */
+  async prebook(request: PrebookRequest, context: SupplierRequestContext): Promise<{ supplierReference: string }> {
+    const stored = await this.readOffer(context.tenantId, request.offerId)
+    if (!stored || Date.parse(stored.expiresAt) <= Date.now()) throw new SupplierProviderError('malformed_response')
+    const hold = await this.prisma.withTenant(context.tenantId, tx => tx.inventoryHold.findFirst({
+      where: { tenantId: context.tenantId, offerId: request.offerId, searchId: request.searchId, status: 'PROCESSING' }, select: { id: true },
+    }))
+    if (!hold) throw new SupplierProviderError('malformed_response')
+    return { supplierReference: `contracted:${hold.id}` }
   }
 
   async cancel(): Promise<{ refundMinor: number }> {
