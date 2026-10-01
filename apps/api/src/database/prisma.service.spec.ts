@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from './prisma.service';
 
@@ -29,6 +30,21 @@ describe('PrismaService', () => {
         .mockRejectedValueOnce(new Error('connection refused'));
 
       await expect(service.isHealthy()).resolves.toBe(false);
+    });
+
+    it('does not log connection strings or SQL when the database check fails', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      jest.spyOn(service, '$queryRaw').mockRejectedValueOnce(
+        new Error('connect postgresql://app:secret-password@db.internal:5432/fbeds failed near SELECT password'),
+      );
+
+      await expect(service.isHealthy()).resolves.toBe(false);
+      const logged = warn.mock.calls.flat().join(' ');
+      expect(logged).toContain('Database health check failed');
+      expect(logged).not.toContain('secret-password');
+      expect(logged).not.toContain('postgresql://');
+      expect(logged).not.toContain('SELECT');
+      warn.mockRestore();
     });
   });
 

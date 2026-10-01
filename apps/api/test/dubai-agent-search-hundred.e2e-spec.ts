@@ -4,7 +4,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, type Prisma } from '@prisma/client'
 import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
@@ -12,6 +12,13 @@ import { hashPassword } from '../src/auth/utils/password'
 
 const prisma = new PrismaClient()
 jest.setTimeout(180000)
+
+async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`
+    return work(tx)
+  }, { timeout: 120_000 })
+}
 
 const measured: { firstSearchMs?: number; repeatSearchMs?: number[]; priceChangedRecheckMs?: number; stopSellRecheckMs?: number } = {}
 
@@ -23,9 +30,14 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   const password = 'dubai-hundred-hotel-certification-password'
   const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
   const utc = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
-  const checkIn = day(14)
-  const checkOut = day(17)
-  const nights = [day(14), day(15), day(16)]
+  const windowStart = 14
+  const sellableNights = Array.from({ length: 7 }, (_, index) => day(windowStart + index))
+  const checkIn = sellableNights[0]
+  const checkOut = day(windowStart + 3)
+  const nights = sellableNights.slice(0, 3)
+  const shiftedCheckIn = sellableNights[3]
+  const shiftedNights = sellableNights.slice(3)
+  const shiftedCheckOut = day(windowStart + 7)
   const hotels = Array.from({ length: HOTEL_COUNT }, (_, index) => {
     const nightMinor = 20_000 + index * 100
     return {
@@ -90,30 +102,32 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     const permissionKeys = ['hotel.search', 'booking.prebook', 'booking.create']
     const permissions = await Promise.all(permissionKeys.map((key) => prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: `${suffix} ${key}` } })))
     const byKey = new Map(permissions.map((permission) => [permission.key, permission.id]))
-    const ownerRole = await prisma.role.create({ data: { tenantId, name: `${suffix}-owner` } })
-    const agentRole = await prisma.role.create({ data: { tenantId, name: `${suffix}-agent` } })
-    const deniedRole = await prisma.role.create({ data: { tenantId, name: `${suffix}-denied` } })
-    const otherRole = await prisma.role.create({ data: { tenantId: otherTenantId, name: `${suffix}-other` } })
-    const emptyRole = await prisma.role.create({ data: { tenantId: emptyTenantId, name: `${suffix}-empty` } })
+    const [ownerRole, agentRole, deniedRole] = await withTenant(tenantId, (tx) => Promise.all([
+      tx.role.create({ data: { tenantId, name: `${suffix}-owner` } }),
+      tx.role.create({ data: { tenantId, name: `${suffix}-agent` } }),
+      tx.role.create({ data: { tenantId, name: `${suffix}-denied` } }),
+    ]))
+    const otherRole = await withTenant(otherTenantId, (tx) => tx.role.create({ data: { tenantId: otherTenantId, name: `${suffix}-other` } }))
+    const emptyRole = await withTenant(emptyTenantId, (tx) => tx.role.create({ data: { tenantId: emptyTenantId, name: `${suffix}-empty` } }))
     roleIds.push(ownerRole.id, agentRole.id, deniedRole.id, otherRole.id, emptyRole.id)
     await prisma.rolePermission.createMany({ data: permissionKeys.map((key) => ({ roleId: ownerRole.id, permissionId: byKey.get(key)! })) })
     await prisma.rolePermission.createMany({ data: ['hotel.search', 'booking.prebook'].map((key) => ({ roleId: agentRole.id, permissionId: byKey.get(key)! })) })
     await prisma.rolePermission.create({ data: { roleId: otherRole.id, permissionId: byKey.get('hotel.search')! } })
     await prisma.rolePermission.create({ data: { roleId: emptyRole.id, permissionId: byKey.get('hotel.search')! } })
-    await prisma.membership.createMany({ data: [
+    await withTenant(tenantId, (tx) => tx.membership.createMany({ data: [
       { tenantId, userId: ownerId, role: 'owner' },
       { tenantId, userId: agentId, role: 'agent' },
       { tenantId, userId: deniedId, role: 'staff' },
-      { tenantId: otherTenantId, userId: otherUserId, role: 'agent' },
-      { tenantId: emptyTenantId, userId: emptyUserId, role: 'agent' },
-    ] })
-    await prisma.userRole.createMany({ data: [
+    ] }))
+    await withTenant(otherTenantId, (tx) => tx.membership.create({ data: { tenantId: otherTenantId, userId: otherUserId, role: 'agent' } }))
+    await withTenant(emptyTenantId, (tx) => tx.membership.create({ data: { tenantId: emptyTenantId, userId: emptyUserId, role: 'agent' } }))
+    await withTenant(tenantId, (tx) => tx.userRole.createMany({ data: [
       { tenantId, userId: ownerId, roleId: ownerRole.id },
       { tenantId, userId: agentId, roleId: agentRole.id },
       { tenantId, userId: deniedId, roleId: deniedRole.id },
-      { tenantId: otherTenantId, userId: otherUserId, roleId: otherRole.id },
-      { tenantId: emptyTenantId, userId: emptyUserId, roleId: emptyRole.id },
-    ] })
+    ] }))
+    await withTenant(otherTenantId, (tx) => tx.userRole.create({ data: { tenantId: otherTenantId, userId: otherUserId, roleId: otherRole.id } }))
+    await withTenant(emptyTenantId, (tx) => tx.userRole.create({ data: { tenantId: emptyTenantId, userId: emptyUserId, roleId: emptyRole.id } }))
     await seedInventory()
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
     app = module.createNestApplication()
@@ -134,116 +148,122 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     mkdirSync('/opt/cursor/artifacts', { recursive: true })
     writeFileSync('/opt/cursor/artifacts/dubai-100-metrics.json', JSON.stringify({
       ...measured, hotels: HOTEL_COUNT, offers: HOTEL_COUNT, activePlans: HOTEL_COUNT * PLANS_PER_HOTEL,
-      cachePolicy: 'contracted-inventory-uncached',
+      sellableNights: sellableNights.length, cachePolicy: 'contracted-inventory-uncached',
     }, null, 2))
     await app?.close()
     const tenantIds = [tenantId, otherTenantId, emptyTenantId].filter(Boolean)
-    if (tenantIds.length) {
-      await prisma.auditEvent.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.dailyRate.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.dailyAvailability.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.ratePlan.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.contract.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.supplierRoomMapping.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.supplierHotelMapping.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.boardBasis.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.roomType.deleteMany({ where: { hotel: { tenantId: { in: tenantIds } } } })
-      await prisma.hotel.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.supplier.deleteMany({ where: { tenantId: { in: tenantIds } } })
+    if (roleIds.length) await prisma.rolePermission.deleteMany({ where: { roleId: { in: roleIds } } })
+    for (const id of tenantIds) {
+      await withTenant(id, async (tx) => {
+        await tx.auditEvent.deleteMany({ where: { tenantId: id } })
+        await tx.inventoryHoldNight.deleteMany({ where: { tenantId: id } })
+        await tx.inventoryHold.deleteMany({ where: { tenantId: id } })
+        await tx.dailyRate.deleteMany({ where: { tenantId: id } })
+        await tx.dailyAvailability.deleteMany({ where: { tenantId: id } })
+        await tx.ratePlan.deleteMany({ where: { tenantId: id } })
+        await tx.contract.deleteMany({ where: { tenantId: id } })
+        await tx.supplierRoomMapping.deleteMany({ where: { tenantId: id } })
+        await tx.supplierHotelMapping.deleteMany({ where: { tenantId: id } })
+        await tx.boardBasis.deleteMany({ where: { tenantId: id } })
+        await tx.roomType.deleteMany({ where: { hotel: { tenantId: id } } })
+        await tx.hotel.deleteMany({ where: { tenantId: id } })
+        await tx.supplier.deleteMany({ where: { tenantId: id } })
+        await tx.userRole.deleteMany({ where: { tenantId: id } })
+        await tx.membership.deleteMany({ where: { tenantId: id } })
+        await tx.role.deleteMany({ where: { tenantId: id } })
+      })
     }
     if (userIds.length) {
-      await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } })
-      await prisma.membership.deleteMany({ where: { userId: { in: userIds } } })
       await prisma.session.deleteMany({ where: { userId: { in: userIds } } })
       await prisma.user.deleteMany({ where: { id: { in: userIds } } })
-    }
-    if (roleIds.length) {
-      await prisma.rolePermission.deleteMany({ where: { roleId: { in: roleIds } } })
-      await prisma.role.deleteMany({ where: { id: { in: roleIds } } })
     }
     if (tenantIds.length) await prisma.tenant.deleteMany({ where: { id: { in: tenantIds } } })
     await prisma.$disconnect()
   }, 180000)
 
   async function seedInventory() {
-    const supplier = await prisma.supplier.create({ data: {
+    const supplier = await withTenant(tenantId, (tx) => tx.supplier.create({ data: {
       tenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier`, displayName: 'Dubai Hundred Supply',
       countryCode: 'AE', defaultCurrency: 'AED',
-    } })
+    } }))
     supplierId = supplier.id
-    const board = await prisma.boardBasis.create({ data: { tenantId, code: 'BB', name: 'Bed & Breakfast', isActive: true } })
+    const board = await withTenant(tenantId, (tx) => tx.boardBasis.create({ data: { tenantId, code: 'BB', name: 'Bed & Breakfast', isActive: true } }))
     boardId = board.id
-    const otherSupplier = await prisma.supplier.create({ data: {
+    const otherSupplier = await withTenant(otherTenantId, (tx) => tx.supplier.create({ data: {
       tenantId: otherTenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Other Supplier`, displayName: 'Other Hundred Supply',
       countryCode: 'AE', defaultCurrency: 'AED',
-    } })
-    const otherBoard = await prisma.boardBasis.create({ data: { tenantId: otherTenantId, code: 'BB', name: 'Bed & Breakfast', isActive: true } })
+    } }))
+    const otherBoard = await withTenant(otherTenantId, (tx) => tx.boardBasis.create({ data: { tenantId: otherTenantId, code: 'BB', name: 'Bed & Breakfast', isActive: true } }))
     const otherHotelId = randomUUID()
     const otherRoomId = randomUUID()
     const otherMappingId = randomUUID()
     const otherContractId = randomUUID()
     const otherPlanId = randomUUID()
-    await prisma.hotel.createMany({ data: [
-      ...hotels.map((hotel) => ({
-        id: hotel.hotelId, tenantId, name: hotel.name, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' as const,
-      })),
-      { id: otherHotelId, tenantId: otherTenantId, name: `${suffix} ZZZ Other Tenant`, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' as const },
-    ] })
-    await prisma.roomType.createMany({ data: [
-      ...hotels.map((hotel) => ({ id: hotel.roomId, hotelId: hotel.hotelId, name: 'King Room', code: 'KG', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true })),
-      { id: otherRoomId, hotelId: otherHotelId, name: 'Other Room', code: 'OR', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true },
-    ] })
-    await prisma.supplierHotelMapping.createMany({ data: [
-      ...hotels.map((hotel) => ({
-        id: hotel.mappingId, tenantId, supplierId, hotelId: hotel.hotelId, supplierHotelId: `${suffix}-${hotel.index}`, status: 'MAPPED' as const,
-      })),
-      { id: otherMappingId, tenantId: otherTenantId, supplierId: otherSupplier.id, hotelId: otherHotelId, supplierHotelId: `${suffix}-other`, status: 'MAPPED' as const },
-    ] })
-    await prisma.supplierRoomMapping.createMany({ data: [
-      ...hotels.map((hotel) => ({
-        id: hotel.roomMappingId, tenantId, supplierHotelMappingId: hotel.mappingId, hotelId: hotel.hotelId, supplierRoomId: `${suffix}-room-${hotel.index}`, roomTypeId: hotel.roomId, status: 'MAPPED' as const,
-      })),
-      { id: randomUUID(), tenantId: otherTenantId, supplierHotelMappingId: otherMappingId, hotelId: otherHotelId, supplierRoomId: `${suffix}-other-room`, roomTypeId: otherRoomId, status: 'MAPPED' as const },
-    ] })
-    await prisma.contract.createMany({ data: [
-      ...hotels.map((hotel) => ({
-        id: hotel.contractId, tenantId, supplierId, supplierHotelMappingId: hotel.mappingId, code: `${suffix}-C-${hotel.index}`, status: 'ACTIVE' as const,
-        validFrom: utc(day(0)), validTo: utc(day(60)), settlementCurrency: 'AED',
-      })),
-      {
-        id: otherContractId, tenantId: otherTenantId, supplierId: otherSupplier.id, supplierHotelMappingId: otherMappingId, code: `${suffix}-other-C`, status: 'ACTIVE' as const,
-        validFrom: utc(day(0)), validTo: utc(day(60)), settlementCurrency: 'AED',
-      },
-    ] })
-    await prisma.ratePlan.createMany({ data: [
-      ...hotels.flatMap((hotel) => [
-        plan(hotel.sellPlanId, hotel, 'FLEX', 1),
-        plan(hotel.minPlanId, hotel, 'MIN', 5),
-        plan(hotel.stopPlanId, hotel, 'STOP', 1),
-      ]),
-      {
-        id: otherPlanId, tenantId: otherTenantId, contractId: otherContractId, roomTypeId: otherRoomId, boardBasisId: otherBoard.id,
-        code: `${suffix}-other-FLEX`, status: 'ACTIVE' as const, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
-      },
-    ] })
-    const rateRows = hotels.flatMap((hotel) => nights.flatMap((stayDate) => [
+    await withTenant(tenantId, (tx) => tx.hotel.createMany({ data: hotels.map((hotel) => ({
+      id: hotel.hotelId, tenantId, name: hotel.name, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' as const,
+    })) }))
+    await withTenant(otherTenantId, (tx) => tx.hotel.create({ data: {
+      id: otherHotelId, tenantId: otherTenantId, name: `${suffix} ZZZ Other Tenant`, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE',
+    } }))
+    await withTenant(tenantId, (tx) => tx.roomType.createMany({ data: hotels.map((hotel) => ({
+      id: hotel.roomId, hotelId: hotel.hotelId, name: 'King Room', code: 'KG', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true,
+    })) }))
+    await withTenant(otherTenantId, (tx) => tx.roomType.create({ data: {
+      id: otherRoomId, hotelId: otherHotelId, name: 'Other Room', code: 'OR', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true,
+    } }))
+    await withTenant(tenantId, (tx) => tx.supplierHotelMapping.createMany({ data: hotels.map((hotel) => ({
+      id: hotel.mappingId, tenantId, supplierId, hotelId: hotel.hotelId, supplierHotelId: `${suffix}-${hotel.index}`, status: 'MAPPED' as const,
+    })) }))
+    await withTenant(otherTenantId, (tx) => tx.supplierHotelMapping.create({ data: {
+      id: otherMappingId, tenantId: otherTenantId, supplierId: otherSupplier.id, hotelId: otherHotelId, supplierHotelId: `${suffix}-other`, status: 'MAPPED',
+    } }))
+    await withTenant(tenantId, (tx) => tx.supplierRoomMapping.createMany({ data: hotels.map((hotel) => ({
+      id: hotel.roomMappingId, tenantId, supplierHotelMappingId: hotel.mappingId, hotelId: hotel.hotelId, supplierRoomId: `${suffix}-room-${hotel.index}`, roomTypeId: hotel.roomId, status: 'MAPPED' as const,
+    })) }))
+    await withTenant(otherTenantId, (tx) => tx.supplierRoomMapping.create({ data: {
+      id: randomUUID(), tenantId: otherTenantId, supplierHotelMappingId: otherMappingId, hotelId: otherHotelId, supplierRoomId: `${suffix}-other-room`, roomTypeId: otherRoomId, status: 'MAPPED',
+    } }))
+    await withTenant(tenantId, (tx) => tx.contract.createMany({ data: hotels.map((hotel) => ({
+      id: hotel.contractId, tenantId, supplierId, supplierHotelMappingId: hotel.mappingId, code: `${suffix}-C-${hotel.index}`, status: 'ACTIVE' as const,
+      validFrom: utc(day(0)), validTo: utc(day(60)), settlementCurrency: 'AED',
+    })) }))
+    await withTenant(otherTenantId, (tx) => tx.contract.create({ data: {
+      id: otherContractId, tenantId: otherTenantId, supplierId: otherSupplier.id, supplierHotelMappingId: otherMappingId, code: `${suffix}-other-C`, status: 'ACTIVE',
+      validFrom: utc(day(0)), validTo: utc(day(60)), settlementCurrency: 'AED',
+    } }))
+    await withTenant(tenantId, (tx) => tx.ratePlan.createMany({ data: hotels.flatMap((hotel) => [
+      plan(hotel.sellPlanId, hotel, 'FLEX', 1),
+      plan(hotel.minPlanId, hotel, 'MIN', 5),
+      plan(hotel.stopPlanId, hotel, 'STOP', 1),
+    ]) }))
+    await withTenant(otherTenantId, (tx) => tx.ratePlan.create({ data: {
+      id: otherPlanId, tenantId: otherTenantId, contractId: otherContractId, roomTypeId: otherRoomId, boardBasisId: otherBoard.id,
+      code: `${suffix}-other-FLEX`, status: 'ACTIVE', occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
+    } }))
+    const rateRows = hotels.flatMap((hotel) => sellableNights.flatMap((stayDate) => [
       rate(hotel.sellPlanId, stayDate, hotel.nightMinor),
       rate(hotel.minPlanId, stayDate, hotel.nightMinor + 1),
       rate(hotel.stopPlanId, stayDate, hotel.nightMinor + 2),
     ]))
-    rateRows.push(...nights.map((stayDate) => ({
+    const otherRateRows = sellableNights.map((stayDate) => ({
       tenantId: otherTenantId, ratePlanId: otherPlanId, stayDate: utc(stayDate), occupancy: 2, amountMinor: 19_900n, amountBasis: 'SELL' as const, currency: 'AED',
-    })))
-    const availabilityRows = hotels.flatMap((hotel) => nights.flatMap((stayDate) => [
+    }))
+    const availabilityRows = hotels.flatMap((hotel) => sellableNights.flatMap((stayDate) => [
       availability(hotel.sellPlanId, stayDate, false),
       availability(hotel.minPlanId, stayDate, false),
       availability(hotel.stopPlanId, stayDate, true),
     ]))
-    availabilityRows.push(...nights.map((stayDate) => ({
+    const otherAvailabilityRows = sellableNights.map((stayDate) => ({
       tenantId: otherTenantId, ratePlanId: otherPlanId, stayDate: utc(stayDate), allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 1,
-    })))
-    for (let offset = 0; offset < rateRows.length; offset += 250) await prisma.dailyRate.createMany({ data: rateRows.slice(offset, offset + 250) })
-    for (let offset = 0; offset < availabilityRows.length; offset += 250) await prisma.dailyAvailability.createMany({ data: availabilityRows.slice(offset, offset + 250) })
+    }))
+    await withTenant(tenantId, async (tx) => {
+      for (let offset = 0; offset < rateRows.length; offset += 250) await tx.dailyRate.createMany({ data: rateRows.slice(offset, offset + 250) })
+      for (let offset = 0; offset < availabilityRows.length; offset += 250) await tx.dailyAvailability.createMany({ data: availabilityRows.slice(offset, offset + 250) })
+    })
+    await withTenant(otherTenantId, async (tx) => {
+      await tx.dailyRate.createMany({ data: otherRateRows })
+      await tx.dailyAvailability.createMany({ data: otherAvailabilityRows })
+    })
   }
 
   function plan(id: string, hotel: typeof hotels[number], code: string, minStay: number) {
@@ -291,7 +311,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   }
 
   it('returns every sellable hotel when more than 200 rate plans match', async () => {
-    const activePlans = await prisma.ratePlan.count({ where: { tenantId, status: 'ACTIVE' } })
+    const activePlans = await withTenant(tenantId, (tx) => tx.ratePlan.count({ where: { tenantId, status: 'ACTIVE' } }))
     expect(activePlans).toBe(HOTEL_COUNT * PLANS_PER_HOTEL)
     const started = process.hrtime.bigint()
     const response = await search().expect(201)
@@ -376,29 +396,29 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     expect(otherPage.body.data.hotels.some((hotel: { hotelId: string }) => seen.has(hotel.hotelId))).toBe(false)
 
     const priced = hotels[10]
-    await prisma.dailyRate.update({
+    await withTenant(tenantId, (tx) => tx.dailyRate.update({
       where: { ratePlanId_stayDate_occupancy: { ratePlanId: priced.sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
       data: { amountMinor: BigInt(priced.nightMinor + 100) },
-    })
+    }))
     const repriced = await search(agentCookie, { limit: pageSize, offset: 0 }).expect(201)
     expect(repriced.body.data.hotels.find((hotel: { hotelId: string }) => hotel.hotelId === priced.hotelId).rooms[0].rates[0].sellAmountMinor).toBe(priced.totalMinor + 100)
-    await prisma.dailyRate.update({
+    await withTenant(tenantId, (tx) => tx.dailyRate.update({
       where: { ratePlanId_stayDate_occupancy: { ratePlanId: priced.sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
       data: { amountMinor: BigInt(priced.nightMinor) },
-    })
+    }))
 
     const stoppedHotel = hotels[30]
-    await prisma.dailyAvailability.update({
+    await withTenant(tenantId, (tx) => tx.dailyAvailability.update({
       where: { ratePlanId_stayDate: { ratePlanId: stoppedHotel.sellPlanId, stayDate: utc(nights[0]) } },
       data: { stopSell: true },
-    })
+    }))
     const afterStop = await search(agentCookie, { limit: pageSize, offset: pageSize }).expect(201)
     expect(afterStop.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === stoppedHotel.hotelId)).toBe(false)
     expect(afterStop.body.data.pagination.total).toBe(HOTEL_COUNT - 1)
-    await prisma.dailyAvailability.update({
+    await withTenant(tenantId, (tx) => tx.dailyAvailability.update({
       where: { ratePlanId_stayDate: { ratePlanId: stoppedHotel.sellPlanId, stayDate: utc(nights[0]) } },
       data: { stopSell: false },
-    })
+    }))
     expect((await search()).body.data.hotels).toHaveLength(HOTEL_COUNT)
   })
 
@@ -413,10 +433,10 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     }).expect(200)
     expect(unchanged.body.data).toMatchObject({ offerId: first.offerId, status: 'rechecked', currency: 'AED', sellAmountMinor: hotels[0].totalMinor })
 
-    await prisma.dailyRate.update({
+    await withTenant(tenantId, (tx) => tx.dailyRate.update({
       where: { ratePlanId_stayDate_occupancy: { ratePlanId: hotels[50].sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
       data: { amountMinor: BigInt(hotels[50].nightMinor + 100) },
-    })
+    }))
     const changedStarted = process.hrtime.bigint()
     const changed = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
       offerId: middle.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: middle.sellAmountMinor,
@@ -424,15 +444,15 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     measured.priceChangedRecheckMs = Number(process.hrtime.bigint() - changedStarted) / 1_000_000
     expect(changed.body.data).toMatchObject({ offerId: middle.offerId, status: 'price_changed', currency: 'AED', sellAmountMinor: hotels[50].totalMinor + 100 })
     expect(middle.sellAmountMinor).toBe(hotels[50].totalMinor)
-    await prisma.dailyRate.update({
+    await withTenant(tenantId, (tx) => tx.dailyRate.update({
       where: { ratePlanId_stayDate_occupancy: { ratePlanId: hotels[50].sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
       data: { amountMinor: BigInt(hotels[50].nightMinor) },
-    })
+    }))
 
-    await prisma.dailyAvailability.update({
+    await withTenant(tenantId, (tx) => tx.dailyAvailability.update({
       where: { ratePlanId_stayDate: { ratePlanId: hotels[99].sellPlanId, stayDate: utc(nights[0]) } },
       data: { stopSell: true },
-    })
+    }))
     const stoppedStarted = process.hrtime.bigint()
     const stopped = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
       offerId: last.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: last.sellAmountMinor,
@@ -443,11 +463,88 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     expect(afterStop.body.data.hotels).toHaveLength(HOTEL_COUNT - 1)
     expect(afterStop.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === hotels[99].hotelId)).toBe(false)
     expect(afterStop.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === hotels[0].hotelId)).toBe(true)
-    await prisma.dailyAvailability.update({
+    await withTenant(tenantId, (tx) => tx.dailyAvailability.update({
       where: { ratePlanId_stayDate: { ratePlanId: hotels[99].sellPlanId, stayDate: utc(nights[0]) } },
       data: { stopSell: false },
-    })
+    }))
     expect((await search()).body.data.hotels).toHaveLength(HOTEL_COUNT)
+  })
+
+  it('sells the same 100 hotels on a later stay inside the seven-day window', async () => {
+    const coverage = await withTenant(tenantId, (tx) => tx.dailyRate.findMany({
+      where: { tenantId, ratePlanId: hotels[0].sellPlanId },
+      select: { stayDate: true },
+      orderBy: { stayDate: 'asc' },
+    }))
+    expect(coverage.map((row) => row.stayDate.toISOString().slice(0, 10))).toEqual(sellableNights)
+    expect(new Set([...nights, ...shiftedNights])).toEqual(new Set(sellableNights))
+    const later = await search(agentCookie, { checkIn: shiftedCheckIn, checkOut: shiftedCheckOut, limit: 100 }).expect(201)
+    expect(later.body.data.status).toBe('available')
+    expect(later.body.data.hotels.map((hotel: { hotelId: string }) => hotel.hotelId)).toEqual(hotels.map((hotel) => hotel.hotelId))
+    expect(later.body.data.hotels[50].rooms[0].rates[0].total).toEqual({ amountMinor: hotels[50].nightMinor * shiftedNights.length, currency: 'AED' })
+    expect(later.body.data.hotels[99].rooms[0].rates[0].ratePlanId).toBe(hotels[99].sellPlanId)
+
+    await withTenant(tenantId, (tx) => tx.dailyAvailability.update({
+      where: { ratePlanId_stayDate: { ratePlanId: hotels[0].sellPlanId, stayDate: utc(nights[0]) } },
+      data: { stopSell: true },
+    }))
+    const primary = await search().expect(201)
+    expect(primary.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === hotels[0].hotelId)).toBe(false)
+    const stillLater = await search(agentCookie, { checkIn: shiftedCheckIn, checkOut: shiftedCheckOut, limit: 100 }).expect(201)
+    expect(stillLater.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === hotels[0].hotelId)).toBe(true)
+    await withTenant(tenantId, (tx) => tx.dailyAvailability.update({
+      where: { ratePlanId_stayDate: { ratePlanId: hotels[0].sellPlanId, stayDate: utc(nights[0]) } },
+      data: { stopSell: false },
+    }))
+    expect((await search()).body.data.hotels).toHaveLength(HOTEL_COUNT)
+  })
+
+  it('reports a decreased price as price_changed and does not create a booking or hold', async () => {
+    const beforeBookings = await withTenant(tenantId, (tx) => tx.booking.count({ where: { tenantId } }))
+    const beforeHolds = await withTenant(tenantId, (tx) => tx.inventoryHold.count({ where: { tenantId } }))
+    const found = await search().expect(201)
+    const sample = hotels[40]
+    const offer = found.body.data.hotels.find((hotel: { hotelId: string }) => hotel.hotelId === sample.hotelId).rooms[0].rates[0]
+    await withTenant(tenantId, (tx) => tx.dailyRate.update({
+      where: { ratePlanId_stayDate_occupancy: { ratePlanId: sample.sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
+      data: { amountMinor: BigInt(sample.nightMinor - 100) },
+    }))
+    const decreased = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
+      offerId: offer.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: offer.sellAmountMinor,
+    }).expect(409)
+    expect(decreased.body.data).toMatchObject({ offerId: offer.offerId, status: 'price_changed', currency: 'AED', sellAmountMinor: sample.totalMinor - 100 })
+    expect(decreased.body.data.sellAmountMinor).toBeLessThan(offer.sellAmountMinor)
+    await withTenant(tenantId, (tx) => tx.dailyRate.update({
+      where: { ratePlanId_stayDate_occupancy: { ratePlanId: sample.sellPlanId, stayDate: utc(nights[0]), occupancy: 2 } },
+      data: { amountMinor: BigInt(sample.nightMinor) },
+    }))
+    expect(await withTenant(tenantId, (tx) => tx.booking.count({ where: { tenantId } }))).toBe(beforeBookings)
+    expect(await withTenant(tenantId, (tx) => tx.inventoryHold.count({ where: { tenantId } }))).toBe(beforeHolds)
+  })
+
+  it('marks an elapsed offer expired and rejects an extreme page size', async () => {
+    await search(agentCookie, { limit: 10_000 }).expect(400)
+    const previousTtl = process.env.AGENT_OFFER_TTL_MS
+    process.env.AGENT_OFFER_TTL_MS = '1000'
+    try {
+      const beforeBookings = await withTenant(tenantId, (tx) => tx.booking.count({ where: { tenantId } }))
+      const found = await search().expect(201)
+      const offer = found.body.data.hotels[2].rooms[0].rates[0]
+      const fresh = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
+        offerId: offer.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: offer.sellAmountMinor,
+      }).expect(200)
+      expect(fresh.body.data.status).toBe('rechecked')
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      const expired = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
+        offerId: offer.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: offer.sellAmountMinor,
+      }).expect(410)
+      expect(expired.body.data.status).toBe('offer_expired')
+      expect(JSON.stringify(expired.body)).not.toContain('postgresql://')
+      expect(await withTenant(tenantId, (tx) => tx.booking.count({ where: { tenantId } }))).toBe(beforeBookings)
+    } finally {
+      if (previousTtl === undefined) delete process.env.AGENT_OFFER_TTL_MS
+      else process.env.AGENT_OFFER_TTL_MS = previousTtl
+    }
   })
 
   it('keeps tenant, permission and booking boundaries at this scale', async () => {

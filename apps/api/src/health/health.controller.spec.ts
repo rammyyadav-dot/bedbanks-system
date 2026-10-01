@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { HealthController } from './health.controller';
+import { HealthController, classifyReadiness } from './health.controller';
 import { PrismaService } from '../database/prisma.service';
 
 describe('HealthController', () => {
@@ -59,17 +59,36 @@ describe('HealthController', () => {
     expect(result.environment).toBe('test');
   });
 
+  it('classifies process, database, dependency, and ready states', () => {
+    expect(classifyReadiness(true, true)).toBe('ready');
+    expect(classifyReadiness(false, true)).toBe('database_unavailable');
+    expect(classifyReadiness(false, false)).toBe('database_unavailable');
+    expect(classifyReadiness(true, false)).toBe('dependency_unavailable');
+  });
+
   it('reports database.status "ok" when Prisma is reachable', async () => {
     prisma.isHealthy.mockResolvedValueOnce(true);
     const result = await controller.check();
     expect(result.database.status).toBe('ok');
+    expect(result.dependencies.status).toBe('ok');
+    expect(result.readiness).toBe('ready');
   });
 
   it('reports database.status "unavailable" without throwing when Prisma is unreachable', async () => {
     prisma.isHealthy.mockResolvedValueOnce(false);
     const result = await controller.check();
     expect(result.database.status).toBe('unavailable');
-    expect(result.status).toBe('ok'); // process liveness is independent of DB state
+    expect(result.readiness).toBe('database_unavailable');
+    expect(result.status).toBe('ok');
+  });
+
+  it('keeps liveness successful when the database check throws a credential-bearing error', async () => {
+    prisma.isHealthy.mockRejectedValueOnce(new Error('postgresql://app:secret-password@db.internal/fbeds SELECT 1'));
+    const result = await controller.check();
+    expect(result.status).toBe('ok');
+    expect(result.database.status).toBe('unavailable');
+    expect(JSON.stringify(result)).not.toContain('secret-password');
+    expect(JSON.stringify(result)).not.toContain('postgresql://');
   });
 
   it('reports ready only when the database is reachable', async () => {
@@ -80,5 +99,23 @@ describe('HealthController', () => {
   it('does not report ready when the database is unreachable', async () => {
     prisma.isHealthy.mockResolvedValueOnce(false);
     await expect(controller.ready()).rejects.toThrow('Database is not ready');
+  });
+
+  it('reports dependency unavailable without leaking configuration values', async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [HealthController],
+      providers: [
+        { provide: ConfigService, useValue: { get: () => undefined } },
+        { provide: PrismaService, useValue: { isHealthy: jest.fn().mockResolvedValue(true) } },
+      ],
+    }).compile();
+    const degraded = module.get<HealthController>(HealthController);
+    const result = await degraded.check();
+    expect(result.status).toBe('ok');
+    expect(result.database.status).toBe('ok');
+    expect(result.dependencies.status).toBe('unavailable');
+    expect(result.readiness).toBe('dependency_unavailable');
+    expect(JSON.stringify(result)).not.toContain('DATABASE_URL');
+    await expect(degraded.ready()).rejects.toThrow('A required dependency is not ready');
   });
 });

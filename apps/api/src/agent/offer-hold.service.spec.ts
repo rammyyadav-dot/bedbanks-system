@@ -51,6 +51,13 @@ describe('authoritative supplier recheck and hold boundary', () => {
     expect(fixture.holds.create).not.toHaveBeenCalled()
   })
 
+  it('returns price_changed when the authoritative price decreases and does not hold', async () => {
+    const fixture = setup({ status: 'available', offer: { ...authority, sellAmountMinor: 124000 } })
+    const { idempotencyKey: _idempotencyKey, ...recheckCommand } = command
+    await expect(fixture.service.recheck(recheckCommand)).resolves.toMatchObject({ status: 'price_changed', currency: 'AED', sellAmountMinor: 124000 })
+    expect(fixture.holds.create).not.toHaveBeenCalled()
+  })
+
   it('fails closed for invalid mappings and malformed authority', async () => {
     const unmapped = setup({ status: 'available', offer: authority }, false)
     await expect(unmapped.service.execute(command)).resolves.toMatchObject({ status: 'mapping_invalid' })
