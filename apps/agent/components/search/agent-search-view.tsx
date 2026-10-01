@@ -78,7 +78,7 @@ function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paym
 function formatTotal(total: SearchRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
 function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect: () => void }) {
   const firstRate = hotel.rooms.flatMap((room) => room.rates).find((rate) => rate.availability !== 'sold_out')
-  return <article className="portal-hotel-card"><div className="portal-hotel-content"><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.destination}</p><div className="portal-hotel-bottom"><div><small>AUTHORITATIVE TOTAL STAY PRICE</small><strong>{firstRate ? formatTotal(firstRate.total) : 'No available rate'}</strong><span>Rate recheck and booking unavailable</span></div><button className="portal-secondary" onClick={onSelect}>View verified rooms & rates</button></div></div></article>
+  return <article className="portal-hotel-card"><div className="portal-hotel-content"><h2>{hotel.name}</h2><p><MapPin size={14} /> {hotel.destination}</p><div className="portal-hotel-bottom"><div><small>AUTHORITATIVE TOTAL STAY PRICE</small><strong>{firstRate ? formatTotal(firstRate.total) : 'No available rate'}</strong><span>{firstRate ? `${firstRate.boardBasisName} · Booking remains disabled` : 'No available rate'}</span></div><button className="portal-secondary" onClick={onSelect}>View verified rooms & rates</button></div></div></article>
 }
 function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void }) {
   const [now, setNow] = useState(() => Date.now())
@@ -86,20 +86,18 @@ function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHo
   const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
   const [recheck, setRecheck] = useState<OfferRecheckResult | null>(null)
   const [rechecking, setRechecking] = useState(false)
-  const [expectedAmount, setExpectedAmount] = useState<number | null>(null)
   const choose = (room: SearchRoomOffer, rate: SearchRateOffer) => {
     if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out') return
-    setSelection({ hotel, room, rate, searchContext: request }); setRecheck(null); setExpectedAmount(rate.sellAmountMinor)
+    setSelection({ hotel, room, rate, searchContext: request }); setRecheck(null)
   }
-  const recheckOffer = async () => {
-    if (!selection || !searchId || rechecking || expectedAmount === null) return
+  const recheckOffer = async (acceptedMinor?: number) => {
+    if (!selection || !searchId || rechecking) return
+    const expectedSellAmountMinor = acceptedMinor ?? selection.rate.sellAmountMinor
     setRechecking(true); setRecheck(null)
-    const rate = { ...selection.rate, sellAmountMinor: expectedAmount,
-      total: { ...selection.rate.total, amountMinor: expectedAmount } }
+    const rate = { ...selection.rate, sellAmountMinor: expectedSellAmountMinor,
+      total: { ...selection.rate.total, amountMinor: expectedSellAmountMinor } }
     try {
-      const result = await new ApiHotelService().recheckOffer(rate, searchId, selection.rate.tenantId)
-      setRecheck(result)
-      if (result.status === 'price_changed' && result.sellAmountMinor !== undefined) setExpectedAmount(result.sellAmountMinor)
+      setRecheck(await new ApiHotelService().recheckOffer(rate, searchId, selection.rate.tenantId))
     } catch {
       setRecheck({ status: 'provider_unavailable', offerId: selection.rate.offerId, searchId, requestId: 'unavailable' })
     } finally {
@@ -107,27 +105,28 @@ function LiveHotelDetail({ hotel, request, searchId, onBack }: { hotel: SearchHo
     }
   }
   const canAcceptChangedPrice = recheck?.status === 'price_changed' && recheck.currency === selection?.rate.total.currency
-  return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><span className="portal-eyebrow">VERIFIED SUPPLIER OFFERS</span><h2>{hotel.name}</h2><p>{hotel.destination}</p></div></div>
+  return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><span className="portal-eyebrow">VERIFIED SUPPLIER OFFERS</span><h2>{hotel.name}</h2><p>{hotel.destination} · {formatStay(request.checkIn, request.checkOut)} · {request.rooms} room · {request.adults} adults · {request.children} children · {request.currency}</p></div></div>
     {hotel.rooms.map((room) => <div className="portal-room" key={room.roomTypeId}><div><span className="portal-eyebrow">ROOM TYPE</span><h3>{room.name}</h3></div><div className="portal-rate">{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
       const selectable = !expired && rate.availability !== 'sold_out'
-      return <div key={rate.offerId} className="portal-rate-option"><span className="portal-eyebrow">RATE PLAN · BOARD BASIS</span><strong>{rate.ratePlanName} · {rate.boardBasisName}</strong><span>{rate.cancellation.summary} · {rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)} total stay</b><small>Includes taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })}</small></div><button className="portal-secondary" disabled={!selectable} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select rate for recheck'}</button></div>
+      return <div key={rate.offerId} className="portal-rate-option"><span className="portal-eyebrow">RATE PLAN · BOARD BASIS</span><strong>{rate.ratePlanName} · {rate.boardBasisName}</strong><span>{rate.cancellation.summary} · {rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)} total stay</b><small>{rate.total.currency} · taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })} · expires {rate.expiresAt}</small></div><button className="portal-secondary" disabled={!selectable} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select rate for recheck'}</button></div>
     })}</div></div>)}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} />Selected rate expired. Search again for a current offer.</div>}
-    {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected: {selection.room.name} · {selection.rate.ratePlanName} · {selection.rate.boardBasisName} · {formatTotal({ ...selection.rate.total, amountMinor: expectedAmount ?? selection.rate.sellAmountMinor })}. Authoritative recheck is required; booking remains disabled.</span></div>
-      {!recheck || canAcceptChangedPrice || ['unavailable', 'provider_unavailable', 'mapping_invalid', 'rejected'].includes(recheck.status) ? <button className="portal-primary" disabled={rechecking || !searchId} onClick={recheckOffer}>{rechecking ? 'Rechecking supplier…' : canAcceptChangedPrice ? 'Accept updated price & recheck' : 'Recheck rate'}</button> : null}
-      {recheck && <RecheckOutcome result={recheck} />}</div>}
+    {selection && Date.parse(selection.rate.expiresAt) > now && <div className="portal-hold-panel" aria-live="polite"><div><ShieldAlert size={16} /><span>Selected: {hotel.name} · {selection.room.name} · {selection.rate.boardBasisName} · {formatStay(request.checkIn, request.checkOut)} · {request.rooms} room · {request.adults} adults · {request.children} children · quoted {formatTotal(selection.rate.total)}. Offer expires {selection.rate.expiresAt}. Authoritative recheck is required; booking remains disabled.</span></div>
+      {!recheck || canAcceptChangedPrice || ['unavailable', 'provider_unavailable', 'mapping_invalid', 'rejected'].includes(recheck.status) ? <button className="portal-primary" disabled={rechecking || !searchId} onClick={() => void recheckOffer(canAcceptChangedPrice ? recheck?.sellAmountMinor : undefined)}>{rechecking ? 'Rechecking supplier…' : canAcceptChangedPrice ? 'Accept updated price and recheck' : 'Recheck rate'}</button> : null}
+      {recheck && <RecheckOutcome result={recheck} quotedMinor={selection.rate.sellAmountMinor} quotedCurrency={selection.rate.total.currency} />}</div>}
   </section>
 }
 
-function RecheckOutcome({ result }: { result: OfferRecheckResult }) {
+function RecheckOutcome({ result, quotedMinor, quotedCurrency }: { result: OfferRecheckResult; quotedMinor: number; quotedCurrency: string }) {
   const messages: Record<OfferRecheckResult['status'], string> = {
-    rechecked: 'Rate rechecked against current supplier and canonical commercial state. Booking remains disabled pending certification.',
-    price_changed: 'The supplier price or currency changed. Review the updated total; a currency change requires a new search.',
-    unavailable: 'The rate is no longer available. No inventory was allocated.', offer_expired: 'The offer expired. Search again for a current rate.',
+    rechecked: 'Rate rechecked against current contracted inventory. Booking remains disabled.',
+    price_changed: 'The authoritative total changed. The quoted amount stays in place until you accept the new total.',
+    unavailable: 'The rate is no longer available. No inventory was allocated. Booking stays disabled.', offer_expired: 'The offer expired. Search again for a current rate. Booking stays disabled.',
     mapping_invalid: 'The hotel, room or commercial mapping could not be verified. No inventory was allocated.',
     provider_unavailable: 'The supplier could not be reached safely. No inventory was allocated. Try the recheck again.', rejected: 'The supplier response could not be verified. No inventory was allocated.',
     auth_required: 'Your session expired. Sign in again.', access_denied: 'You do not have permission to recheck this offer.',
   }
-  return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined && <b>{formatTotal({ currency: result.currency, amountMinor: result.sellAmountMinor })}</b>}</div>
+  const current = result.status === 'price_changed' && result.currency && result.sellAmountMinor !== undefined ? { currency: result.currency, amountMinor: result.sellAmountMinor } : null
+  return <div className={`portal-hold-outcome is-${result.status}`} role={result.status === 'rechecked' ? 'status' : 'alert'}><strong>{result.status === 'rechecked' ? 'Rate rechecked' : result.status.replace(/_/g, ' ')}</strong><span>{messages[result.status]}</span>{current && <b>Previous {formatTotal({ currency: quotedCurrency, amountMinor: quotedMinor })} · Current {formatTotal(current)}</b>}</div>
 }

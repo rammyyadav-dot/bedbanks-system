@@ -36,6 +36,7 @@ export interface SearchRateOffer {
   supplierId: string
   supplierRoomId: string
   ratePlanId: string
+  contractId?: string
   ratePlanName: string
   boardBasisId: string
   boardBasisName: string
