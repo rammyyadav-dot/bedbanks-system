@@ -262,6 +262,9 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .portal-sidebar-footer small, .portal-sidebar-footer strong { letter-spacing: 0; word-break: break-word; }
 .portal-sidebar-footer small { font-size: 12px; color: #566d76; }
 .workspace-page.is-active .workspace-select-label select { flex: 1; min-width: 0; }
+.portal-load-more { display: flex; justify-content: center; margin: 16px 0 8px; }
+.portal-load-more .portal-secondary { min-width: 220px; }
+.portal-load-more-error { color: #9f1239; margin: 8px 0 0; }
 .portal-hotel-content h2 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
 .portal-hotel-content > p { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; color: #566d76; font-size: 14px; }
 .portal-kpi strong { overflow-wrap: anywhere; }

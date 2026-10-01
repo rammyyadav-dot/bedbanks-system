@@ -39,9 +39,10 @@ export class ApiHotelService implements HotelService {
       const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
       const validated = validateAgentSearchResponse(data, criteria)
       if (!validated.ok) return empty('mapping_unavailable')
-      const { status, hotels, request } = validated.response
+      const { status, hotels, request, pagination } = validated.response
       return { liveHotels: hotels, total: hotels.length,
         status: status === 'no_availability' ? 'empty' : status, request,
+        ...(pagination ? { pagination } : {}),
         searchId: validated.response.searchId, requestId: validated.response.requestId,
         generatedAt: validated.response.generatedAt, providerSummary: validated.response.providerSummary }
     } catch {

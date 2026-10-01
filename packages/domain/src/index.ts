@@ -13,6 +13,8 @@ export interface SearchCriteria {
   nationality: string
   currency: string
   limit?: number
+  /** Zero-based index into the stable sellable-hotel order. Omitted means the first page. */
+  offset?: number
   filters?: {
     starRatings?: number[]
     boardBasisIds?: string[]
@@ -73,6 +75,14 @@ export interface SearchHotelOffer {
   supplierHotelId: string
   rooms: SearchRoomOffer[]
 }
+export interface SearchPagination {
+  limit: number
+  offset: number
+  /** Sellable hotels matching the criteria before the page window. */
+  total: number
+  hasMore: boolean
+  nextOffset?: number
+}
 export interface AgentSearchResponse {
   version: 1
   searchId: string
@@ -81,7 +91,9 @@ export interface AgentSearchResponse {
   status: 'available' | 'partial' | 'no_availability' | 'provider_unavailable' | 'mapping_unavailable'
   request: SearchCriteria
   hotels: SearchHotelOffer[]
+  /** Hotels in this page. The matched count lives on `pagination.total`. */
   total: number
+  pagination?: SearchPagination
   providerSummary: { queried: number; succeeded: number; failed: number }
 }
 

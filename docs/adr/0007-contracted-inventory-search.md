@@ -31,6 +31,10 @@ reads active rate plans in batches of 25 hotels. Each batch is ordered by
 rate-plan id and includes only mapped room rows for the requested nights.
 Sellability still drops unsellable plans after those reads. A disposable
 search of 100 Dubai hotels and 300 matching plans still returns every
-sellable hotel. The response limit applies only after that evaluation. Search results for this adapter
+sellable hotel. Hotels are ordered by name, then hotel id. The response
+window is `offset` plus `limit` and is applied once, after evaluation, so
+later pages neither repeat nor skip a sellable hotel. `pagination.total` is
+the matched count; `total` remains the number of hotels in that page. Search
+results for this adapter
 stay uncached. Live supplier booking remains a separate decision. No schema
 change is required. Admin sellability remains a single-night check.
