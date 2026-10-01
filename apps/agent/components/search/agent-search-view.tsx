@@ -70,10 +70,16 @@ export function SearchView({
     {searching && <SearchLoadingState />}
     {result && request && !searching && <>
       <div className="market-criteria-bar">
-        <p>{request.destination} <span>|</span> {formatCompactStay(request.checkIn, request.checkOut)} <span>|</span> {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} <span>|</span> {guestMarketName(request.nationality)}{request.filters && activeFilterLabel({ ...request.filters, currency: request.currency }) ? <><span>|</span> {activeFilterLabel({ ...request.filters, currency: request.currency })}</> : null}</p>
+        <p>
+          <b>{request.destination}</b>
+          <b>{formatCompactStay(request.checkIn, request.checkOut)}</b>
+          <b>{stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)}</b>
+          <b>{guestMarketName(request.nationality)}</b>
+          {request.filters && activeFilterLabel({ ...request.filters, currency: request.currency }) ? <b>{activeFilterLabel({ ...request.filters, currency: request.currency })}</b> : null}
+        </p>
         <button className="portal-link" type="button" onClick={() => document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Modify</button>
       </div>
-      <div className="portal-results-meta"><div>Showing <strong>{liveHotels.length}</strong> of <strong>{total}</strong> hotels<small>{formatStay(request.checkIn, request.checkOut)} · {request.currency}</small></div></div>
+      <div className="portal-results-meta market-results-bar"><p>Showing <strong>{liveHotels.length}</strong> of <strong>{total}</strong> hotels</p><span>{formatStay(request.checkIn, request.checkOut)} · {request.currency}</span></div>
       <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status, bookingEnabled)}</div>
       {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onBooked} onViewBooking={onViewBooking} /> :
         <div className="market-results"><div className="portal-hotel-list" data-result-count={liveHotels.length}>
@@ -107,18 +113,55 @@ function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchRe
 }
 function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : 'Agency credit' }
 function formatTotal(total: SearchRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
-function lowestAvailableRate(hotel: SearchHotelOffer) {
-  const rates = hotel.rooms.flatMap((room) => room.rates).filter((rate) => rate.availability !== 'sold_out')
-  return rates.reduce<SearchRateOffer | null>((best, rate) => {
-    if (!best) return rate
-    if (rate.total.currency !== best.total.currency) return best
-    return rate.sellAmountMinor < best.sellAmountMinor ? rate : best
-  }, null)
+function hotelInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || 'H'
+}
+function starLabel(rating: number) {
+  return Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : 0
+}
+function StarMark({ rating }: { rating: number }) {
+  const stars = starLabel(rating)
+  if (!stars) return null
+  return <span className="market-stars" aria-label={`${stars} star${stars === 1 ? '' : 's'}`}>{'★'.repeat(stars)}<span aria-hidden="true">{'☆'.repeat(5 - stars)}</span></span>
+}
+function cancellationLine(rate: SearchRateOffer) {
+  const summary = rate.cancellation.summary.trim()
+  if (rate.cancellation.refundable && !/free cancellation/i.test(summary)) return summary ? `${summary} · Free cancellation` : 'Free cancellation'
+  return summary || 'Non-refundable'
+}
+function leadStay(hotel: SearchHotelOffer) {
+  let lead: { room: SearchRoomOffer; rate: SearchRateOffer } | null = null
+  for (const room of hotel.rooms) {
+    for (const rate of room.rates) {
+      if (rate.availability === 'sold_out') continue
+      if (!lead || (rate.total.currency === lead.rate.total.currency && rate.sellAmountMinor < lead.rate.sellAmountMinor)) lead = { room, rate }
+    }
+  }
+  return lead
 }
 function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect: () => void }) {
-  const rate = lowestAvailableRate(hotel)
-  const stars = Number.isInteger(hotel.starRating) && hotel.starRating >= 1 && hotel.starRating <= 5 ? `${hotel.starRating}★` : ''
-  return <article className="portal-hotel-card market-hotel-card"><div className="market-hotel-mark" aria-hidden="true">{hotel.name.trim().charAt(0).toUpperCase() || 'H'}</div><div className="portal-hotel-content"><div className="portal-hotel-title"><h2>{hotel.name}</h2>{stars && <span className="portal-stars">{stars}</span>}</div><p><MapPin size={14} /> {hotel.destination}</p>{rate && <div className="market-badges">{rate.cancellation.refundable && <span>Free cancellation</span>}{includesBreakfast(rate.boardBasisName) && <span>Breakfast included</span>}{rate.availability === 'limited' && <span>Limited availability</span>}</div>}<div className="portal-hotel-bottom"><div><small>{rate ? 'From · total stay' : 'Rate'}</small><strong>{rate ? formatTotal(rate.total) : 'No available rate'}</strong><span>{rate ? `${rate.boardBasisName} · total stay` : 'No available rate'}</span></div><button className="portal-secondary" onClick={onSelect}>View rooms →</button></div></div></article>
+  const lead = leadStay(hotel)
+  const rate = lead?.rate
+  const roomCount = `${hotel.rooms.length} ${hotel.rooms.length === 1 ? 'room' : 'rooms'}`
+  return <article className="portal-hotel-card market-hotel-card market-stay-card">
+    <div className="market-hotel-mark" aria-hidden="true">{hotelInitial(hotel.name)}</div>
+    <div className="market-stay-body">
+      <div className="market-stay-copy">
+        <div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div>
+        <p className="market-stay-place"><MapPin size={14} /> {hotel.destination}</p>
+        {lead && <p className="market-stay-room">{lead.room.name}</p>}
+        {rate && <p className="market-stay-facts">{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {cancellationLine(rate)} · {rate.boardBasisName}</p>}
+        {rate && <div className="market-badges">{rate.cancellation.refundable && <span className="is-cancel">Free cancellation</span>}{includesBreakfast(rate.boardBasisName) && <span className="is-meal">Breakfast included</span>}{rate.availability === 'limited' && <span>Limited availability</span>}</div>}
+      </div>
+      <div className="market-stay-price">
+        <small>{rate ? 'Total stay' : 'Rate'}</small>
+        <strong>{rate ? formatTotal(rate.total) : 'No available rate'}</strong>
+        {rate && <span>{rate.boardBasisName}</span>}
+        <button className="portal-primary" type="button" onClick={onSelect} aria-label={`View rooms for ${hotel.name}`}>View rooms</button>
+        {hotel.rooms.length > 0 && <small>{roomCount}</small>}
+      </div>
+    </div>
+  </article>
 }
 function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
   const [now, setNow] = useState(() => Date.now())
@@ -167,12 +210,13 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     ? priceChangeDisplay({ searchQuoteMinor: selection.rate.sellAmountMinor, baselineMinor, currentMinor: recheck.sellAmountMinor })
     : null
   const quoted = selection ? formatTotal(acceptedMinor === null ? selection.rate.total : { currency: selection.rate.total.currency, amountMinor: baselineMinor }) : ''
-  return <section className="portal-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button><div className="portal-detail-header"><div><h2>{hotel.name}</h2><p>{hotel.destination} · {formatStay(request.checkIn, request.checkOut)} · {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
-    {hotel.rooms.map((room) => <div className="portal-room" key={room.roomTypeId}><div><h3>{room.name}</h3></div><div className="portal-rate">{room.rates.map((rate) => {
+  return <section className="portal-detail market-hotel-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button>
+    <div className="market-detail-head"><div className="market-hotel-mark" aria-hidden="true">{hotelInitial(hotel.name)}</div><div><div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div><p>{hotel.destination} · {formatStay(request.checkIn, request.checkOut)} · {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
+    {hotel.rooms.map((room) => <div className="market-room-group" key={room.roomTypeId}><header><h3>{room.name}</h3><span>{room.rates.length} {room.rates.length === 1 ? 'rate' : 'rates'}</span></header><div>{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
       const selectable = !expired && rate.availability !== 'sold_out'
       const selected = selection?.rate.offerId === rate.offerId
-      return <div key={rate.offerId} className="portal-rate-option"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span><span>{rate.cancellation.summary}{rate.cancellation.refundable ? ' · Free cancellation' : ''}</span><span>{rate.availability === 'limited' ? 'Limited availability' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span><div className="portal-rate-price"><b>{formatTotal(rate.total)}</b><small>Total stay · taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })}</small></div><button className="portal-secondary" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select Offer'}</button></div>
+      return <div key={rate.offerId} className={`market-rate-row${selected ? ' is-selected' : ''}`}><div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}</div><div className="market-rate-policy"><span>{cancellationLine(rate)}</span><span>{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {rate.availability === 'limited' ? 'Limited availability' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span></div><div className="market-rate-price"><b>{formatTotal(rate.total)}</b><small>Total stay · taxes {formatTotal({ currency: rate.total.currency, amountMinor: rate.taxAmountMinor })} · fees {formatTotal({ currency: rate.total.currency, amountMinor: rate.feeAmountMinor })}</small></div><button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select Offer'}</button></div>
     })}</div></div>)}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} /> This rate has expired. Refresh the latest rates to continue.</div>}
     {selection && !searchId && <p className="portal-field-error" role="alert">This result has no search identifier, so the offer cannot be rechecked.</p>}

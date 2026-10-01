@@ -432,12 +432,48 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .market-strip, .market-criteria-bar { padding: 12px 14px; border: 1px solid #E5E7EB; border-radius: 12px; background: #FFFFFF; }
 .market-strip p, .market-criteria-bar p { margin: 0; }
 .market-criteria-bar { position: sticky; top: 0; z-index: 5; margin: 14px 0; box-shadow: 0 8px 18px #1f293714; }
-.market-criteria-bar span { margin: 0 4px; color: #D1D5DB; }
+.market-criteria-bar p { display: flex; flex-wrap: wrap; gap: 8px; }
+.market-criteria-bar b { padding: 6px 10px; border: 1px solid #E5E7EB; border-radius: 999px; background: #F7F8FA; color: #1F2937; font-weight: 600; }
 .market-results { display: grid; }
-.market-hotel-card { min-height: 168px; }
+.market-results-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; color: #1F2937; }
+.market-results-bar p { margin: 0; }
+.market-results-bar span { color: #4B5563; font-size: 13px; }
+.market-stay-card { align-items: stretch; min-height: 148px; }
+.market-stay-card .market-hotel-mark { width: 168px; min-height: 148px; background: #F7F8FA; font-size: 42px; font-weight: 700; }
 .market-hotel-mark { display: grid; width: 96px; flex: none; place-items: center; background: #F7F8FA; color: #1F2937; font-family: Montserrat, sans-serif; font-size: 32px; }
-.market-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.market-stay-body { display: flex; flex: 1; gap: 16px; min-width: 0; padding: 14px 16px; }
+.market-stay-copy { display: grid; flex: 1; align-content: start; gap: 4px; min-width: 0; }
+.market-stay-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.market-stay-name h2, .market-hotel-detail h2 { margin: 0; color: #1F2937; font: 700 16px Montserrat, sans-serif; }
+.market-hotel-detail h2 { font-size: 22px; }
+.market-stars { color: #B45309; font-size: 13px; letter-spacing: 1px; }
+.market-stars span { color: #E5E7EB; }
+.market-stay-place, .market-hotel-detail .market-detail-head p { display: flex; align-items: center; gap: 6px; margin: 0; color: #4B5563; font-size: 13px; }
+.market-stay-room { margin: 6px 0 0; color: #1F2937; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.market-stay-facts { margin: 0; color: #4B5563; font-size: 13px; }
+.market-stay-price { display: grid; align-content: center; justify-items: end; gap: 2px; min-width: 168px; padding-left: 12px; border-left: 1px solid #E5E7EB; text-align: right; }
+.market-stay-price small, .market-stay-price > span { color: #4B5563; font-size: 12px; }
+.market-stay-price strong { color: #1F2937; font: 700 20px Montserrat, sans-serif; }
+.market-stay-price .portal-primary { min-height: 36px; margin-top: 8px; }
+.market-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .market-badges span { padding: 4px 7px; border-radius: 999px; background: #F7F8FA; color: #1F2937; font-size: 11px; font-weight: 700; }
+.market-badges .is-cancel, .market-badges .is-meal { background: #ECFDF5; color: #047857; }
+.market-detail-head { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
+.market-detail-head .market-hotel-mark { width: 88px; height: 88px; border: 1px solid #E5E7EB; border-radius: 8px; }
+.market-room-group { margin-top: 12px; overflow: hidden; border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; }
+.market-room-group > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #E5E7EB; background: #F7F8FA; }
+.market-room-group h3 { margin: 0; color: #1F2937; font: 700 13px Montserrat, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+.market-room-group header span { color: #4B5563; font-size: 12px; }
+.market-rate-row { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(180px, 1.2fr) minmax(150px, auto) auto; gap: 12px; align-items: center; padding: 12px 14px; border-top: 1px solid #E5E7EB; background: #FFFFFF; }
+.market-rate-row:first-child { border-top: 0; }
+.market-rate-row.is-selected { background: #F7F8FA; box-shadow: inset 3px 0 0 #D90429; }
+.market-rate-plan, .market-rate-policy, .market-rate-price { display: grid; gap: 2px; min-width: 0; }
+.market-rate-plan strong { color: #1F2937; font-size: 14px; }
+.market-rate-plan span, .market-rate-policy span, .market-rate-price small { color: #4B5563; font-size: 13px; }
+.market-rate-plan em { color: #047857; font-size: 12px; font-style: normal; font-weight: 700; }
+.market-rate-price { justify-items: end; text-align: right; }
+.market-rate-price b { color: #1F2937; font: 700 16px Montserrat, sans-serif; }
+.market-rate-row .portal-primary { min-height: 36px; }
 .portal-rate .portal-primary:not(:disabled) { opacity: 1; cursor: pointer; }
 .portal-hold-outcome strong { text-transform: none; font-size: 14px; }
 .portal-hold-outcome small { color: #4B5563; font-size: 12px; }
@@ -455,6 +491,11 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
   .market-month.is-second { display: none; }
   .market-account small { display: none; }
   .market-search-row, .market-recent-grid, .market-date-entry { grid-template-columns: 1fr; }
-  .market-hotel-card { display: block; }
-  .market-hotel-mark { width: 100%; height: 72px; }
+  .market-stay-card { display: block; }
+  .market-stay-card .market-hotel-mark { width: 100%; height: 72px; min-height: 0; }
+  .market-stay-body { display: grid; }
+  .market-stay-price { justify-items: start; min-width: 0; padding-top: 10px; padding-left: 0; border-top: 1px solid #E5E7EB; border-left: 0; text-align: left; }
+  .market-results-bar, .market-detail-head { align-items: flex-start; flex-direction: column; }
+  .market-rate-row { grid-template-columns: 1fr; }
+  .market-rate-price { justify-items: start; text-align: left; }
 }
