@@ -7,7 +7,7 @@ export class AgentFinanceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async summary(tenantId: string) {
-    const wallet = await this.prisma.withTenant(tenantId, (tx) => tx.wallet.findFirst({ where: { tenantId, currency: 'USD' }, include: { entries: { orderBy: { immutableAt: 'desc' }, take: 25 } } }))
+    const wallet = await this.prisma.withTenant(tenantId, (tx) => tx.wallet.findFirst({ where: { tenantId, currency: 'USD' }, include: { entries: { where: { tenantId }, orderBy: { immutableAt: 'desc' }, take: 25 } } }))
     if (!wallet) return { status: 'not_configured' as const, currency: 'USD', availableCredit: null, ledger: [] }
     const balance = wallet.entries.reduce((total, entry) => total + entry.amountMinor, 0n)
     return {
@@ -24,7 +24,7 @@ export class AgentFinanceService {
     assertSupportedSettlementCurrency(currency)
     const required = BigInt(totalMinor)
     const wallet = await this.prisma.withTenant(tenantId, async (tx) => {
-      const candidate = await tx.wallet.findFirst({ where: { tenantId, currency }, include: { entries: true } })
+      const candidate = await tx.wallet.findFirst({ where: { tenantId, currency }, include: { entries: { where: { tenantId } } } })
       if (!candidate) return null
       const balance = candidate.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n)
       return { ...candidate, availableCredit: candidate.creditLimit + balance }

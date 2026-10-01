@@ -2,10 +2,16 @@ import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AgentRbacGuard } from './rbac.guard';
 import { PERMISSIONS } from './supplier.port';
+import { ACTIVE_TENANT_REQUEST_KEY } from './tenant-context.guard';
 import type { PrismaService } from '../database/prisma.service';
 
-function context(): ExecutionContext {
-  const request = { user: { user: { id: 'user-a' } }, header: (name: string) => (name === 'x-fbeds-tenant-id' ? 'tenant-a' : undefined) };
+function context(activeTenant = 'tenant-a'): ExecutionContext {
+  const request = {
+    user: { user: { id: 'user-a' }, memberships: [{ tenantId: 'tenant-a', tenantName: 'Agency', role: 'agent' }] },
+    headers: { 'x-fbeds-tenant-id': 'tenant-b' },
+    header: () => 'tenant-b',
+    [ACTIVE_TENANT_REQUEST_KEY]: activeTenant,
+  };
   return { switchToHttp: () => ({ getRequest: () => request }), getHandler: () => undefined, getClass: () => undefined } as unknown as ExecutionContext;
 }
 
@@ -19,7 +25,7 @@ describe('AgentRbacGuard', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    membershipFindUnique.mockResolvedValue({ role: 'agent', tenant: { status: 'ACTIVE' } });
+    membershipFindUnique.mockResolvedValue({ tenantId: 'tenant-a', role: 'agent', tenant: { status: 'ACTIVE' } });
     userRoleFindMany.mockResolvedValue([]);
   });
 
@@ -32,11 +38,21 @@ describe('AgentRbacGuard', () => {
     reflected.mockReturnValue(PERMISSIONS.auditRead);
     await expect(guard.canActivate(context())).rejects.toBeInstanceOf(ForbiddenException);
     expect(auditCreate).toHaveBeenCalledTimes(1);
+    expect(withTenant).toHaveBeenCalledWith('tenant-a', expect.any(Function));
   });
 
-  it('allows a formal role permission', async () => {
+  it('allows a formal role permission for the server tenant and ignores a different header', async () => {
     reflected.mockReturnValue(PERMISSIONS.search);
     userRoleFindMany.mockResolvedValue([{ role: { permissions: [{ permission: { key: PERMISSIONS.search } }] } }]);
     await expect(guard.canActivate(context())).resolves.toBe(true);
+    expect(withTenant.mock.calls.every(([tenant]) => tenant === 'tenant-a')).toBe(true);
+  });
+
+  it('rejects a client header when the server has not attached a membership tenant', async () => {
+    reflected.mockReturnValue(PERMISSIONS.search);
+    const request = { user: { user: { id: 'user-a' }, memberships: [{ tenantId: 'tenant-a', tenantName: 'Agency', role: 'agent' }] }, headers: { 'x-fbeds-tenant-id': 'tenant-a' }, header: () => 'tenant-a' };
+    const execution = { switchToHttp: () => ({ getRequest: () => request }), getHandler: () => undefined, getClass: () => undefined } as unknown as ExecutionContext;
+    await expect(guard.canActivate(execution)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(withTenant).not.toHaveBeenCalled();
   });
 });
