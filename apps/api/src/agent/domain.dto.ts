@@ -1,4 +1,5 @@
-import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator'
+import { Type } from 'class-transformer'
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, Min, ValidateNested } from 'class-validator'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 
 export class RateActionDto {
@@ -15,7 +16,7 @@ export class BookingActionDto extends RateActionDto {
 }
 
 export class CancellationDto {
-  @IsOptional() @IsString() reason?: string
+  @IsOptional() @IsString() @Length(0, 500) reason?: string
 }
 
 export class OfferHoldDto {
@@ -34,4 +35,28 @@ export class OfferRecheckDto {
   @IsString() @Length(1, 512) searchId!: string
   @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) expectedCurrency!: string
   @IsInt() @Min(1) expectedSellAmountMinor!: number
+}
+
+export class ReconcileBookingsDto {
+  @IsOptional() @IsBoolean() dryRun?: boolean
+  @IsOptional() @IsInt() @Min(5) @Max(1440) staleMinutes?: number
+  @IsOptional() @IsInt() @Min(15) @Max(10080) prebookMaxMinutes?: number
+}
+
+export class LeadGuestDto {
+  @IsString() @Length(1, 80) firstName!: string
+  @IsString() @Length(1, 80) lastName!: string
+}
+
+export class PrebookBookingDto {
+  @IsString() @Length(1, 128) inventoryHoldId!: string
+  @IsString() @Length(8, 128) @Matches(/^[A-Za-z0-9._:-]+$/) idempotencyKey!: string
+  @IsInt() @Min(1) @Max(8) adults!: number
+  @IsInt() @Min(0) @Max(8) children!: number
+  @IsArray() @ArrayMaxSize(8) @IsInt({ each: true }) @Min(0, { each: true }) @Max(17, { each: true }) childAges!: number[]
+  @ValidateNested() @Type(() => LeadGuestDto) leadGuest!: LeadGuestDto
+}
+
+export class ConfirmBookingDto {
+  @IsString() @Length(1, 128) bookingId!: string
 }

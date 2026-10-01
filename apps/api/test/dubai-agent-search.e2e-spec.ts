@@ -292,12 +292,12 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     expect(recheck.body.data).toMatchObject({ offerId: rate.offerId, status: 'rechecked', currency: 'AED', sellAmountMinor: stayMinor })
 
     const prebook = await api(ownerCookie).post('/api/v1/agent/prebook').send({
-      hotelId, rateId: rate.offerId, idempotencyKey: `${suffix}-prebook`, totalMinor: stayMinor, currency: 'AED',
-    }).expect(201)
+      inventoryHoldId: 'hold-not-used-while-disabled', idempotencyKey: `${suffix}-prebook`, adults: 2, children: 0, childAges: [], leadGuest: { firstName: 'Test', lastName: 'Guest' },
+    }).expect(503)
     expect(prebook.body.data.status).toBe('booking_unavailable')
     const booking = await api(ownerCookie).post('/api/v1/agent/bookings').send({
-      hotelId, rateId: rate.offerId, idempotencyKey: `${suffix}-book`, totalMinor: stayMinor, currency: 'AED',
-    }).expect(201)
+      bookingId: 'booking-not-used-while-disabled',
+    }).expect(503)
     expect(booking.body.data.status).toBe('booking_unavailable')
   })
 

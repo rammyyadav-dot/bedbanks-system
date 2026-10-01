@@ -94,11 +94,36 @@ export class InventoryHoldService {
     }
   }
 
+  /**
+   * Atomically claims a HELD, unexpired hold for a booking attempt (HELD -> PROCESSING).
+   * The expiry sweeper only touches HELD rows, so once claimed the inventory cannot be released
+   * mid-checkout. Re-claiming an already PROCESSING hold is idempotent for safe retries.
+   */
+  async beginProcessing(tenantId: string, holdId: string, requestId: string, userId: string): Promise<void> {
+    await this.prisma.withTenant(tenantId, async tx => {
+      const claimed = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        UPDATE "InventoryHold"
+           SET "status" = 'PROCESSING'::"InventoryHoldStatus", "updated_at" = CURRENT_TIMESTAMP
+         WHERE "id" = ${holdId} AND "tenant_id" = ${tenantId}
+           AND "status" = 'HELD'::"InventoryHoldStatus" AND "expires_at" > CURRENT_TIMESTAMP
+        RETURNING "id"
+      `)
+      if (claimed.length === 1) {
+        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'inventory.hold.processing',
+          entityType: 'inventory_hold', entityId: holdId, payload: { requestId } } })
+        return
+      }
+      const current = await tx.inventoryHold.findFirst({ where: { id: holdId, tenantId }, select: { status: true } })
+      if (current?.status === 'PROCESSING') return
+      throw new ConflictException('Inventory hold is no longer active')
+    })
+  }
+
   async release(tenantId: string, holdId: string, requestId: string,
     actor: { type: 'USER'; userId: string } | { type: 'SYSTEM' }, expired = false): Promise<void> {
     await this.prisma.withTenant(tenantId, async tx => {
       const changed = await tx.inventoryHold.updateMany({
-        where: { id: holdId, tenantId, status: 'HELD' },
+        where: { id: holdId, tenantId, status: expired ? 'HELD' : { in: ['HELD', 'PROCESSING'] } },
         data: { status: expired ? 'EXPIRED' : 'RELEASED', releasedAt: new Date() },
       })
       if (changed.count === 0) return

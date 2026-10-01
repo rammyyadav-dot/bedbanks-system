@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, createParamDecorator } from '@nestjs/common'
 import type { Request } from 'express'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { PrismaService } from '../database/prisma.service'
@@ -83,3 +83,14 @@ export class TenantContextGuard implements CanActivate {
     return true
   }
 }
+
+/**
+ * The tenant that TenantContextGuard validated against the authenticated user's membership.
+ * Handlers must use this instead of reading the raw x-fbeds-tenant-id header; it fails closed
+ * if the guard did not run.
+ */
+export const ActiveTenant = createParamDecorator((_data: unknown, context: ExecutionContext): string => {
+  const tenantId = (context.switchToHttp().getRequest() as Record<string, unknown>)[ACTIVE_TENANT_REQUEST_KEY]
+  if (typeof tenantId !== 'string' || !tenantId) throw new ForbiddenException('Access denied')
+  return tenantId
+})

@@ -15,7 +15,9 @@ function setup() {
   const finance = { authorize: jest.fn().mockResolvedValue({ id: 'hold-ledger' }), release: jest.fn().mockResolvedValue({ id: 'release-ledger' }) }
   const recovery = { compensate: jest.fn().mockResolvedValue({ status: 'compensated', financeReleased: true, inventoryReleased: true }) }
   const supplier = { prebook: jest.fn().mockResolvedValue({ supplierReference: 'supplier-prebook-a', rate: {} }) }
-  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, supplier as any), bookings, finance, recovery, supplier }
+  const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const holds = { beginProcessing: jest.fn().mockResolvedValue(undefined), release: jest.fn().mockResolvedValue(undefined) }
+  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, holds as any, audit as any, supplier as any), bookings, finance, recovery, supplier, holds, audit }
 }
 
 describe('SupplierPrebookOrchestrationService', () => {
@@ -64,5 +66,30 @@ describe('SupplierPrebookOrchestrationService', () => {
     supplier.prebook.mockRejectedValue(new Error('secret supplier credential failure'))
     await expect(service.execute(command)).rejects.toBeInstanceOf(ServiceUnavailableException)
     await expect(service.execute(command)).rejects.not.toThrow('secret supplier credential failure')
+  })
+
+  it('claims the hold before moving money and never calls finance or the supplier if the hold is gone', async () => {
+    const { service, holds, finance, supplier } = setup()
+    holds.beginProcessing.mockRejectedValue(new Error('Inventory hold is no longer active'))
+    await expect(service.execute(command)).rejects.toThrow('Inventory hold is no longer active')
+    expect(finance.authorize).not.toHaveBeenCalled()
+    expect(supplier.prebook).not.toHaveBeenCalled()
+    expect(holds.beginProcessing).toHaveBeenCalledWith('tenant-a', 'hold-a', 'request-a', 'user-a')
+  })
+
+  it('returns only the inventory when finance authorization fails after the claim', async () => {
+    const { service, holds, finance, recovery } = setup()
+    finance.authorize.mockRejectedValue(new Error('Insufficient wallet credit'))
+    await expect(service.execute(command)).rejects.toThrow('Insufficient wallet credit')
+    expect(holds.release).toHaveBeenCalledWith('tenant-a', 'hold-a', 'request-a:authorize-failed', { type: 'USER', userId: 'user-a' })
+    expect(recovery.compensate).not.toHaveBeenCalled()
+  })
+
+  it('records a durable prebook-success marker the reconciliation sweep respects, and survives an audit failure', async () => {
+    const { service, audit } = setup()
+    await service.execute(command)
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', userId: 'user-a', action: 'booking.prebook.succeeded', entityId: 'booking-a' }))
+    audit.record.mockRejectedValue(new Error('audit down'))
+    await expect(service.execute(command)).resolves.toMatchObject({ status: 'prebooked' })
   })
 })

@@ -456,12 +456,12 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     const empty = await search(emptyCookie, {}, emptyTenantId).expect(201)
     expect(empty.body.data).toMatchObject({ status: 'provider_unavailable', hotels: [] })
     const prebook = await api(ownerCookie).post('/api/v1/agent/prebook').send({
-      hotelId: hotels[0].hotelId, rateId: offer.offerId, idempotencyKey: `${suffix}-prebook`, totalMinor: hotels[0].totalMinor, currency: 'AED',
-    }).expect(201)
+      inventoryHoldId: 'hold-not-used-while-disabled', idempotencyKey: `${suffix}-prebook`, adults: 2, children: 0, childAges: [], leadGuest: { firstName: 'Test', lastName: 'Guest' },
+    }).expect(503)
     expect(prebook.body.data.status).toBe('booking_unavailable')
     const booking = await api(ownerCookie).post('/api/v1/agent/bookings').send({
-      hotelId: hotels[0].hotelId, rateId: offer.offerId, idempotencyKey: `${suffix}-book`, totalMinor: hotels[0].totalMinor, currency: 'AED',
-    }).expect(201)
+      bookingId: 'booking-not-used-while-disabled',
+    }).expect(503)
     expect(booking.body.data.status).toBe('booking_unavailable')
   })
 })

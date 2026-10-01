@@ -26,7 +26,7 @@ export function login(email: string, password: string) {
 }
 
 export function getAgentContext() {
-  return request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[] }>('/agent/context')
+  return request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: boolean }>('/agent/context')
 }
 
 export function logout() {

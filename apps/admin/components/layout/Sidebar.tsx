@@ -3,10 +3,15 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { X } from 'lucide-react';
-import { navSections } from './nav-config';
+import { navSections, isActiveRoute } from './nav-config';
+import { useCan } from '@/lib/auth/capabilities';
+import type { AuthenticatedUser } from '@/lib/api/auth-client';
+import { userInitials } from '@/lib/auth/identity';
 
-export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
+export function Sidebar({ mobileOpen, onClose, identity }: { mobileOpen: boolean; onClose: () => void; identity: AuthenticatedUser }) {
   const pathname = usePathname();
+  const can = useCan();
+  const membership = identity.memberships[0];
 
   return (
     <aside className={`enterprise-sidebar ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Admin navigation">
@@ -22,11 +27,11 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
       </div>
 
       <nav className="enterprise-nav" aria-label="Primary">
-        {navSections.map((section, i) => (
+        {navSections.map((section) => ({ ...section, items: section.items.filter((item) => !item.requires || can(item.requires)) })).filter((section) => section.items.length > 0).map((section, i) => (
           <div key={section.label ?? `s${i}`} style={{ marginBottom: 4 }}>
             {section.label && <div className="shell-caption">{section.label.toUpperCase()}</div>}
             {section.items.map((item) => {
-              const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+              const active = isActiveRoute(pathname, item.href);
               const Icon = item.icon;
               return (
                 <Link key={item.href} href={item.href} className={active ? 'active' : ''} onClick={onClose}>
@@ -40,29 +45,14 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose:
       </nav>
 
       <div className="sidebar-footer">
-        <div className="security-note">
-          <ShieldIcon />
+        <div className="session-user" title={identity.user.email}>
+          <span className="user-initials">{userInitials(identity.user)}</span>
           <span>
-            <strong>UI only — mock data</strong>
-            <small>Backend authorization enforced later</small>
-          </span>
-        </div>
-        <div className="session-user">
-          <span className="user-initials">PA</span>
-          <span>
-            <strong>Admin User</strong>
-            <small>Platform Administrator</small>
+            <strong>{identity.user.name ?? identity.user.email}</strong>
+            <small>{membership ? `${membership.role} · ${membership.tenantName}` : identity.user.email}</small>
           </span>
         </div>
       </div>
     </aside>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" />
-    </svg>
   );
 }

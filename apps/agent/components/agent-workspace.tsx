@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown, ShieldAlert } from 'lucide-react'
 import { AgentSignOut } from './agent-auth-gate'
 import { AgentPortal } from './agent-portal'
-import { getFinanceSummary, getSearchStatus, type AgentIdentity, type FinanceSummary } from '@/lib/api-client'
+import { getAgentContext, getFinanceSummary, getSearchStatus, type AgentIdentity, type FinanceSummary } from '@/lib/api-client'
 import { formatMinorAmount } from '@/lib/format'
 
 export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
@@ -12,6 +12,9 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
   const [finance, setFinance] = useState<FinanceSummary | null>(null)
   const [providerStatus, setProviderStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle')
   const [error, setError] = useState('')
+  const [bookingEnabled, setBookingEnabled] = useState(false)
+  useEffect(() => { let alive = true; getAgentContext().then((context) => { if (alive) setBookingEnabled(context.bookingEnabled === true) }).catch(() => { if (alive) setBookingEnabled(false) }); return () => { alive = false } }, [])
+  const refreshFinance = () => { if (tenantId) void getFinanceSummary(tenantId).then(setFinance).catch(() => undefined) }
 
   useEffect(() => {
     if (!tenantId) { setFinance(null); setProviderStatus('idle'); return }
@@ -45,6 +48,6 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       {error && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>{error}</p></div>}
       {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking access…' : providerStatus === 'idle' ? 'Not yet checked' : 'Unavailable'}</strong></div><div><span>Finance status</span><strong>{formatMinorAmount(finance?.availableCredit, finance?.currency) ? `Available credit ${formatMinorAmount(finance?.availableCredit, finance?.currency)}` : 'Not configured'}</strong></div></div>}
     </section>
-    {tenantId && !error && <AgentPortal key={tenantId} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} />}
+    {tenantId && !error && <AgentPortal key={tenantId} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} bookingEnabled={bookingEnabled} onFinanceChanged={refreshFinance} />}
   </main>
 }

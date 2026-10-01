@@ -55,4 +55,14 @@ describe('AgentRbacGuard', () => {
     await expect(guard.canActivate(execution)).rejects.toBeInstanceOf(ForbiddenException);
     expect(withTenant).not.toHaveBeenCalled();
   });
+
+  it('trusts only the guard-validated tenant, never the raw header, and fails closed without it', async () => {
+    reflected.mockReturnValue(PERMISSIONS.search);
+    userRoleFindMany.mockResolvedValue([{ role: { permissions: [{ permission: { key: PERMISSIONS.search } }] } }]);
+    await guard.canActivate(context());
+    expect(withTenant.mock.calls.every(([tenant]) => tenant === 'tenant-a')).toBe(true);
+    const unvalidated = { user: { user: { id: 'user-a' } }, header: () => 'tenant-forged' };
+    const ctx = { switchToHttp: () => ({ getRequest: () => unvalidated }), getHandler: () => undefined, getClass: () => undefined } as unknown as ExecutionContext;
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

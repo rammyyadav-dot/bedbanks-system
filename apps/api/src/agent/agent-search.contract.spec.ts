@@ -1,9 +1,14 @@
+import { BookingReconciliationService } from './booking-reconciliation.service'
+import { BookingTransactionService } from './booking-transaction.service'
+import { BookingCancellationService } from './booking-cancellation.service'
+import { BookingDocumentService } from './booking-document.service'
+import { BookingQueryService } from './booking-query.service'
 import { AgentController } from './agent.controller'
 import type { SupplierAdapter } from './supplier.port'
 import type { AgentFinanceService } from './finance.service'
 import type { AgentAuditService } from './audit.service'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
-import type { Request } from 'express'
+import type { Request, Response } from 'express'
 import type { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 
@@ -28,7 +33,7 @@ function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
   const agentSearch = new AgentSearchService(supplier, audit)
-  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch)
+  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService)
   return { controller, audit, agentSearch }
 }
 const query = () => ({ ...criteria } as Parameters<AgentController['search']>[0])
@@ -99,22 +104,63 @@ describe('Agent canonical search boundary', () => {
     expect(result.status).toBe('provider_unavailable')
     expect(JSON.stringify(result)).not.toContain('secret supplier URL')
   })
-  it('keeps prebook and booking disabled after recheck activation', async () => {
-    const { controller } = setup(jest.fn())
-    const action = { hotelId: 'h1', rateId: 'o1', idempotencyKey: 'key', totalMinor: 1, currency: 'AED' }
-    expect((await controller.prebook(action, identity, request())).status).toBe('booking_unavailable')
-    expect((await controller.createBooking(action, identity, request())).status).toBe('booking_unavailable')
-  })
-  it('audits booking refusals against the server membership, ignoring a caller tenant header', async () => {
+  it('keeps prebook and booking disabled unless BOOKING_ENABLED=true, and delegates to the transaction service when enabled', async () => {
     const { controller, audit } = setup(jest.fn())
-    const action = { hotelId: 'h1', rateId: 'o1', idempotencyKey: 'key', totalMinor: 1, currency: 'AED' }
-    const caller = { requestId: 'request-a', activeTenantId: 'tenant-a', headers: { 'x-fbeds-tenant-id': 'tenant-b' } } as unknown as Request
-    await controller.prebook(action, identity, caller)
-    await controller.createBooking(action, identity, caller)
-    await controller.cancel('booking-1', { reason: 'change' }, identity, caller)
-    expect(audit.record).toHaveBeenCalledTimes(3)
-    expect(audit.record).toHaveBeenNthCalledWith(1, expect.objectContaining({ tenantId: 'tenant-a', action: 'booking.prebook.unavailable' }))
-    expect(audit.record).toHaveBeenNthCalledWith(2, expect.objectContaining({ tenantId: 'tenant-a', action: 'booking.create.unavailable' }))
-    expect(audit.record).toHaveBeenNthCalledWith(3, expect.objectContaining({ tenantId: 'tenant-a', action: 'booking.cancel.requested' }))
+    const response = () => ({ status: jest.fn() }) as unknown as Response
+    const prebookBody = { inventoryHoldId: 'hold-a', idempotencyKey: 'key-12345678', adults: 2, children: 0, childAges: [], leadGuest: { firstName: 'A', lastName: 'B' } }
+    delete process.env.BOOKING_ENABLED
+    const off = response()
+    expect((await controller.prebook(prebookBody, 'tenant-a', identity, request(), off)).status).toBe('booking_unavailable')
+    expect((await controller.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).status).toBe('booking_unavailable')
+    expect(off.status).toHaveBeenCalledWith(503)
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unavailable', payload: { reason: 'booking_disabled' } }))
+
+    const tx = { prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService)
+    process.env.BOOKING_ENABLED = 'true'
+    try {
+      await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
+      expect(tx.prebook).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', inventoryHoldId: 'hold-a' }))
+      await expect(enabled.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CONFIRMED' })
+    } finally { delete process.env.BOOKING_ENABLED }
+  })
+  it('keeps cancellation and its quote disabled unless BOOKING_ENABLED=true, then delegates', async () => {
+    const { controller, audit } = setup(jest.fn())
+    const response = () => ({ status: jest.fn() }) as unknown as Response
+    delete process.env.BOOKING_ENABLED
+    const off = response()
+    expect((await controller.cancel('booking-a', { reason: 'x' }, 'tenant-a', identity, request(), off)).status).toBe('booking_unavailable')
+    expect(off.status).toHaveBeenCalledWith(503)
+    expect((await controller.cancellationQuote('booking-a', 'tenant-a', identity, request(), response()) as { status: string }).status).toBe('booking_unavailable')
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.cancel.unavailable' }))
+    const cancellations = { cancel: jest.fn().mockResolvedValue({ status: 'CANCELLED' }), quote: jest.fn().mockResolvedValue({ refundMinor: '1' }) }
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService)
+    process.env.BOOKING_ENABLED = 'true'
+    try {
+      await expect(enabled.cancel('booking-a', { reason: 'guest' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
+      expect(cancellations.cancel).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', bookingId: 'booking-a', reason: 'guest' }))
+      await expect(enabled.cancellationQuote('booking-a', 'tenant-a', identity, request(), response())).resolves.toEqual({ refundMinor: '1' })
+    } finally { delete process.env.BOOKING_ENABLED }
+  })
+  it('keeps booking documents disabled unless BOOKING_ENABLED=true, serves locked-down HTML when enabled, and rejects unknown types', async () => {
+    const { controller } = setup(jest.fn())
+    delete process.env.BOOKING_ENABLED
+    const off = { status: jest.fn() } as unknown as Response
+    expect((await controller.bookingDocument('booking-a', 'voucher', 'tenant-a', identity, request(), off) as { status: string }).status).toBe('booking_unavailable')
+    expect(off.status).toHaveBeenCalledWith(503)
+    const plain = { status: jest.fn().mockReturnThis(), type: jest.fn().mockReturnThis(), send: jest.fn() }
+    await controller.bookingDocumentHtml('booking-a', 'voucher', 'tenant-a', identity, request(), plain as unknown as Response)
+    expect(plain.status).toHaveBeenCalledWith(503)
+
+    const documents = { get: jest.fn().mockResolvedValue({ type: 'VOUCHER', number: 'VCH-1', issuedAt: '2099-01-01T00:00:00.000Z', bookingStatus: 'CONFIRMED', payload: { bookingReference: 'FB-1' } }) }
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, setup(jest.fn()).audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, documents as unknown as BookingDocumentService, {} as BookingQueryService)
+    process.env.BOOKING_ENABLED = 'true'
+    try {
+      const res = { status: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(), send: jest.fn() }
+      await enabled.bookingDocumentHtml('booking-a', 'voucher', 'tenant-a', identity, request(), res as unknown as Response)
+      expect(res.set).toHaveBeenCalledWith(expect.objectContaining({ 'Content-Security-Policy': expect.stringContaining("default-src 'none'"), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }))
+      expect(res.send).toHaveBeenCalledWith(expect.stringContaining('VCH-1'))
+      await expect(enabled.bookingDocument('booking-a', 'receipt', 'tenant-a', identity, request(), { status: jest.fn() } as unknown as Response)).rejects.toThrow('Unknown document type')
+    } finally { delete process.env.BOOKING_ENABLED }
   })
 })

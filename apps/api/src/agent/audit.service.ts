@@ -7,13 +7,14 @@ import { sanitizeAuditPayload } from './audit-payload'
 export class AgentAuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(input: { tenantId?: string; user?: AuthenticatedUser; action: string; entityType: string; entityId: string; payload: Record<string, unknown> }) {
+  async record(input: { tenantId?: string; user?: AuthenticatedUser; userId?: string; action: string; entityType: string; entityId: string; payload: Record<string, unknown> }) {
     const payload = sanitizeAuditPayload(input.payload)
+    const actorUserId = input.user?.user.id ?? input.userId
     if (!input.tenantId) {
       return this.prisma.auditEvent.create({
         data: {
-          userId: input.user?.user.id,
-          actorType: input.user ? 'USER' : 'SYSTEM',
+          userId: actorUserId,
+          actorType: actorUserId ? 'USER' : 'SYSTEM',
           action: input.action,
           entityType: input.entityType,
           entityId: input.entityId,
@@ -25,8 +26,8 @@ export class AgentAuditService {
     return this.prisma.withTenant(input.tenantId, (tx) => tx.auditEvent.create({
       data: {
         tenantId: input.tenantId,
-        userId: input.user?.user.id,
-        actorType: input.user ? 'USER' : 'SYSTEM',
+        userId: actorUserId,
+        actorType: actorUserId ? 'USER' : 'SYSTEM',
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId,

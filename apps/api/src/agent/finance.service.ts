@@ -2,22 +2,36 @@ import { ForbiddenException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 
+const PREFERRED_CURRENCY = 'AED'
+
 @Injectable()
 export class AgentFinanceService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Wallet summary for the agent portal. Settlement is AED for the Dubai MVP, so the AED wallet is preferred; a tenant
+   * with only another currency sees that wallet, never a made-up zero. The balance is the sum of EVERY ledger entry
+   * (a database aggregate); the ledger list is only the latest 25 for display.
+   */
   async summary(tenantId: string) {
-    const wallet = await this.prisma.withTenant(tenantId, (tx) => tx.wallet.findFirst({ where: { tenantId, currency: 'USD' }, include: { entries: { where: { tenantId }, orderBy: { immutableAt: 'desc' }, take: 25 } } }))
-    if (!wallet) return { status: 'not_configured' as const, currency: 'USD', availableCredit: null, ledger: [] }
-    const balance = wallet.entries.reduce((total, entry) => total + entry.amountMinor, 0n)
-    return {
-      status: 'active' as const,
-      currency: wallet.currency,
-      availableCredit: (wallet.creditLimit + balance).toString(),
-      balance: balance.toString(),
-      creditLimit: wallet.creditLimit.toString(),
-      ledger: wallet.entries.map((entry) => ({ ...entry, amountMinor: entry.amountMinor.toString() })),
-    }
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const wallets = await tx.wallet.findMany({ where: { tenantId }, orderBy: { currency: 'asc' } })
+      const wallet = wallets.find((candidate) => candidate.currency === PREFERRED_CURRENCY) ?? wallets[0]
+      if (!wallet) return { status: 'not_configured' as const, currency: PREFERRED_CURRENCY, availableCredit: null, ledger: [] }
+      const [aggregate, entries] = await Promise.all([
+        tx.ledgerEntry.aggregate({ where: { tenantId, walletId: wallet.id }, _sum: { amountMinor: true } }),
+        tx.ledgerEntry.findMany({ where: { tenantId, walletId: wallet.id }, orderBy: { immutableAt: 'desc' }, take: 25 }),
+      ])
+      const balance = aggregate._sum.amountMinor ?? 0n
+      return {
+        status: 'active' as const,
+        currency: wallet.currency,
+        availableCredit: (wallet.creditLimit + balance).toString(),
+        balance: balance.toString(),
+        creditLimit: wallet.creditLimit.toString(),
+        ledger: entries.map((entry) => ({ ...entry, amountMinor: entry.amountMinor.toString() })),
+      }
+    })
   }
 
   async assertFunds(tenantId: string, totalMinor: number | bigint, currency = 'USD') {
