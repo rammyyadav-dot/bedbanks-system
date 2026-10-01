@@ -7,7 +7,7 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test",
+    "test": "node --import tsx --test format.test.ts",
     "build": "tsc"
   },
   "devDependencies": { "typescript": "^5.7.3" }

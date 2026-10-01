@@ -11,13 +11,14 @@ const RESERVED = new Set(['postgres', API_RUNTIME_GROUP_ROLE, 'fbeds_hold_expiry
 const SELECT_TABLES = [
   'tenants', 'memberships', 'Permission', 'Role', 'UserRole', 'RolePermission',
   'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
+  'supplier_memberships',
   'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
 ] as const
 
 /**
  * Statements the owner runs to grant the API group role. Search and recheck are
- * SELECT. Sessions and audit inserts are the only writes. Wallet, booking,
- * ledger, and credential tables are absent on purpose.
+ * SELECT. Sessions, audit events, and supplier room-note drafts are the writes.
+ * Wallet, booking, ledger, hotel, and credential tables stay read-only or absent.
  */
 export function apiRuntimeGrantStatements(groupRole = API_RUNTIME_GROUP_ROLE): string[] {
   const group = `"${groupRole}"`
@@ -29,6 +30,7 @@ export function apiRuntimeGrantStatements(groupRole = API_RUNTIME_GROUP_ROLE): s
     `GRANT SELECT, INSERT ON "sessions" TO ${group}`,
     `GRANT UPDATE ("last_seen_at", "revoked_at") ON "sessions" TO ${group}`,
     `GRANT SELECT, INSERT ON "AuditEvent" TO ${group}`,
+    `GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts" TO ${group}`,
     ...SELECT_TABLES.map((table) => `GRANT SELECT ON "${table}" TO ${group}`),
   ]
 }

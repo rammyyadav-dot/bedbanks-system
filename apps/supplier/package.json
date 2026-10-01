@@ -8,9 +8,11 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --test"
+    "test": "node --import tsx --test lib/runtime.test.ts"
   },
   "dependencies": {
+    "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/money": "workspace:*",
     "lucide-react": "^1.16.0",
     "next": "16.3.3",
     "react": "19.2.4",

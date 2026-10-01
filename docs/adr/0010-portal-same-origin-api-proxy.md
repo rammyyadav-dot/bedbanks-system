@@ -1,7 +1,7 @@
 # ADR 0010: Portals reach the API through a same-origin proxy
 
 ## Status
-Accepted for Admin (already built this way) and the Agent portal. Supplier adopts it when it gains an authenticated API client (it has none today; `apps/supplier/lib/supply-api.ts` reports the workflow as unavailable).
+Accepted for Admin, the Agent portal, and the Supplier portal. Supplier organization scope is ADR 0011. The supplier portal proxies `/api/v1` and keeps unsupported modules unavailable.
 
 ## Context
 The session is an opaque, host-only `HttpOnly` cookie set by the API (ADR 0001). The API trusted exactly one browser origin, `ADMIN_ORIGIN`, in three places: CORS, `OriginGuard` on `/auth/*`, and the global `CrossSiteRequestGuard` on every unsafe method. The Agent portal called the API directly from the browser with `credentials: 'include'`. Deployed on its own address that cannot work: every login or booking is refused with `Untrusted request origin`, and a cookie set by the API host is a third-party cookie for the Agent origin, which `SameSite=lax` does not send and Chrome and Safari block.

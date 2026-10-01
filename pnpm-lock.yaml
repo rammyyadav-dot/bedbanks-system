@@ -273,6 +273,12 @@ importers:
 
   apps/supplier:
     dependencies:
+      '@bedbanks/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@bedbanks/money':
+        specifier: workspace:*
+        version: link:../../packages/money
       lucide-react:
         specifier: ^1.16.0
         version: 1.43.0(react@19.2.4)

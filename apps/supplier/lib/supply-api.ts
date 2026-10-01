@@ -1,20 +1,12 @@
-export type SupplyWorkflowAvailability =
-  | { status: 'available'; apiBaseUrl: string }
-  | { status: 'unavailable'; reason: string }
+export type SupplyWorkflowAvailability = { status: 'unavailable'; reason: string }
 
 /**
- * This boundary deliberately exposes no mock supply data. It can be replaced with
- * reviewed API calls once Issue #57 delivers authenticated supplier endpoints.
+ * Unsupported supplier modules stay unavailable even when an API URL is configured.
+ * A configured URL must not turn these screens into a successful workflow.
  */
 export function getSupplyWorkflowAvailability(): SupplyWorkflowAvailability {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL
-
-  if (!apiBaseUrl) {
-    return {
-      status: 'unavailable',
-      reason: 'The authenticated supply-workflow API is not configured in this environment.',
-    }
+  return {
+    status: 'unavailable',
+    reason: 'This module is not connected. No record is created, saved, exported, uploaded, invited, or published from this screen.',
   }
-
-  return { status: 'available', apiBaseUrl }
 }

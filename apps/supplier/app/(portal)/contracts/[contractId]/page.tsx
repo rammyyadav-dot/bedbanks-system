@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function ContractDetailPage() {
-  return <OperationalModule config={moduleConfigs.contracts} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Contract"
+      description="Contract detail is not available."
+    />
+  )
 }

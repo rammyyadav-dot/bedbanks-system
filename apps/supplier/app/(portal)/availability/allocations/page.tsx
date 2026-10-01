@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function AllocationsPage() {
-  return <OperationalModule config={moduleConfigs.allotments} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Allocations"
+      description="Allocations are not available."
+    />
+  )
 }

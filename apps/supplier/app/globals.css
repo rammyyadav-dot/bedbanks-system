@@ -138,3 +138,16 @@ button { cursor: pointer; }
   .onboarding-strip { align-items: flex-start; flex-wrap: wrap; }.onboarding-copy { flex: 1; min-width: 180px; }.metric-grid { grid-template-columns: 1fr 1fr; }.summary-grid { grid-template-columns: 1fr 1fr; }.filter-bar { flex-wrap: wrap; }.filter-search { max-width: none; flex-basis: 100%; }.filter-bar > span { margin-left: 0; }.detail-aside { display: flex; }.form-grid { grid-template-columns: 1fr; }.tabs { gap: 13px; overflow-x: auto; }
   .module-stats { grid-template-columns: 1fr 1fr; }.wizard-steps { padding: 10px; }.booking-facts { grid-template-columns: 1fr; }.booking-facts div { border-right: 0; border-bottom: 1px solid #edf0f3; }
 }
+
+.environment-pill.is-offline i { background: var(--warning); box-shadow: 0 0 0 3px #ff9f1c22; }
+.global-search input:disabled { cursor: not-allowed; }
+.supplier-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.supplier-login-card { width: min(440px, 100%); display: grid; gap: 8px; padding: 28px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+.supplier-login-card h1 { margin: 0; font-size: 22px; }
+.supplier-login-card p { margin: 0; color: var(--muted); }
+.supplier-login-card label, .draft-note label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.supplier-login-card input, .context-switcher select, .draft-note textarea { min-height: 36px; padding: 8px 10px; border: 1px solid #d4dae1; border-radius: 4px; background: white; }
+.draft-note { display: grid; gap: 8px; margin-top: 10px; }
+.draft-note textarea { min-height: 84px; }
+.context-switcher select { width: 100%; color: #e5e7eb; background: #1b2534; }
+.sidebar-footer .btn { color: #e5e7eb; background: transparent; }

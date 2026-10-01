@@ -15,6 +15,9 @@ describe('api runtime role grants', () => {
 
   it('grants search reads and session writes without finance or hotel mutation', () => {
     expect(sql).toContain('GRANT SELECT ON "Hotel"')
+    expect(sql).toContain('GRANT SELECT ON "supplier_memberships"')
+    expect(sql).toContain('GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts"')
+    expect(sql).not.toMatch(/GRANT UPDATE ON "supplier_memberships"/)
     expect(sql).toContain('GRANT SELECT ON "HotelSearchIndex"')
     expect(sql).toContain('GRANT SELECT, INSERT ON "sessions"')
     expect(sql).toContain('GRANT SELECT, INSERT ON "AuditEvent"')
