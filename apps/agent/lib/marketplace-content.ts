@@ -150,8 +150,9 @@ export const tradeAnnouncements = [
 ] as const
 
 export const marketplaceHome = {
-  title: 'Search global hotel inventory',
-  supporting: 'Wholesale rates. Verified availability. Built for travel trade.',
+  title: 'Search hotel inventory',
+  supporting: 'Find available hotel rates, compare room and board options, and recheck the selected offer before proceeding.',
+  resultsQuote: 'Search quotes — price and availability require recheck before proceeding.',
   destinationPlaceholder: 'City or destination',
   searchCta: 'Search Hotels',
   searchingCta: 'Searching…',

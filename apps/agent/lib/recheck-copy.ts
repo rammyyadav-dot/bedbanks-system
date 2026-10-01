@@ -2,7 +2,7 @@ import type { OfferRecheckResult } from '../types/hotel'
 
 export function recheckOutcomeTitle(status: OfferRecheckResult['status']) {
   const titles: Record<OfferRecheckResult['status'], string> = {
-    rechecked: 'Rate verified',
+    rechecked: 'Offer rechecked',
     price_changed: 'Price updated',
     unavailable: 'This offer is no longer available',
     offer_expired: 'This rate has expired',
@@ -18,8 +18,8 @@ export function recheckOutcomeTitle(status: OfferRecheckResult['status']) {
 export function recheckOutcomeMessage(status: OfferRecheckResult['status'], bookingEnabled: boolean) {
   const messages: Record<OfferRecheckResult['status'], string> = {
     rechecked: bookingEnabled
-      ? 'Price and availability confirmed.'
-      : 'Price and availability confirmed. Booking activation is not currently available for this account.',
+      ? 'Current price and availability have been verified.'
+      : 'Current price and availability have been verified. Booking activation is not available for this account.',
     price_changed: 'The price changed since this search. Accept the current price to recheck it, or choose another offer.',
     unavailable: 'Availability changed since your search. No inventory was allocated.',
     offer_expired: 'Refresh the latest rates to continue. No inventory was allocated.',
