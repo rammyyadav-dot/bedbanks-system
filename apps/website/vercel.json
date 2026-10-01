@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "npx --yes pnpm@10.4.1 install --frozen-lockfile",
-  "buildCommand": "pnpm exec turbo run build --filter=@bedbanks/website"
+  "buildCommand": "pnpm exec turbo run build --filter=@bedbanks/website",
+  "ignoreCommand": "exit 1"
 }
