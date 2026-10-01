@@ -14,18 +14,20 @@ export function TradeMark({ compact = false }: { compact?: boolean }) {
   )
 }
 
-export function TradeFooter() {
+export function TradeFooter({ quiet = false }: { quiet?: boolean }) {
   return (
-    <footer className="trade-footer">
-      <div>
-        <TradeMark compact />
-        <p>Trade contact: <a href={`mailto:${contactEmail}`}>{contactEmail}</a></p>
-      </div>
+    <footer className={`trade-footer ${quiet ? 'is-quiet' : ''}`}>
+      {quiet ? null : (
+        <div>
+          <TradeMark compact />
+          <p>Trade contact: <a href={`mailto:${contactEmail}`}>{contactEmail}</a></p>
+        </div>
+      )}
       <nav aria-label="Company">
         {entranceCards.map((card) => <Link key={card.href} href={card.href}>{card.title}</Link>)}
         <a href={privacyLink.href}>{privacyLink.label}</a>
       </nav>
-      <p className="trade-footer-note">{privacyLink.note}</p>
+      <p className="trade-footer-note">{privacyLink.note}{quiet ? ` · ${contactEmail}` : ''}</p>
     </footer>
   )
 }
