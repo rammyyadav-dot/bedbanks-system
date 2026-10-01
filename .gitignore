@@ -36,3 +36,7 @@ yarn-error.log*
 # local Redis snapshots
 dump.rdb
 **/dump.rdb
+
+# Local Redis snapshots
+dump.rdb
+**/dump.rdb
