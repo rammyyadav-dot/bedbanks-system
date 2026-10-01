@@ -12,6 +12,7 @@ import { CancellationPolicyService } from '../src/agent/cancellation-policy.serv
 import { LedgerService } from '../src/agent/ledger.service'
 import { BookingDocumentService } from '../src/agent/booking-document.service'
 import { renderBookingDocument } from '../src/agent/booking-document.render'
+import { BookingQueryService } from '../src/agent/booking-query.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 
 describe('booking documents (PostgreSQL)', () => {
@@ -23,6 +24,7 @@ describe('booking documents (PostgreSQL)', () => {
   const recovery = new PrebookCompensationRecoveryService(finance, holds, audit)
   const confirmation = new BookingConfirmationService(prisma)
   const docs = new BookingDocumentService(prisma, audit)
+  const queries = new BookingQueryService(prisma)
   const cancellations = new BookingCancellationService(prisma, new CancellationPolicyService(), new LedgerService(prisma), audit)
   const supplier = { prebook: async () => ({ supplierReference: 'contracted:test' }) } as unknown as SupplierAdapter
   const tx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier), confirmation)
@@ -147,5 +149,24 @@ describe('booking documents (PostgreSQL)', () => {
     expect(reprint).toMatchObject({ id: voucher.id, bookingStatus: 'CANCELLED' })
     expect(renderBookingDocument(reprint)).toContain('THIS BOOKING HAS BEEN CANCELLED')
     expect(renderBookingDocument(note)).toContain('AED 875.70')
+  })
+
+  it('lists and describes bookings for the agent portal, tenant-scoped, with integer-string amounts', async () => {
+    const bookingId = await bookConfirmed(`${suffix}-view`)
+    await get(bookingId, 'VOUCHER')
+    const list = await queries.list(tenantId, 500)
+    const row = list.find((booking) => booking.id === bookingId)!
+    expect(row).toMatchObject({ status: 'CONFIRMED', currency: 'AED', totalMinor: '125099', checkIn: '2099-03-01', checkOut: '2099-03-03', rooms: 1, leadGuest: "Layla O'Hara" })
+    expect(row.hotelName).toBeTruthy()
+    expect(list.length).toBeLessThanOrEqual(100)
+    expect(list.map((booking) => booking.createdAt)).toEqual([...list.map((booking) => booking.createdAt)].sort().reverse())
+    const detail = await queries.detail(tenantId, bookingId)
+    expect(detail).toMatchObject({ cancellable: true, adults: 2, children: 0, documents: [{ type: 'VOUCHER' }] })
+    expect((await queries.detail(tenantId, bookingId, new Date('2099-03-01T00:00:00.000Z'))).cancellable).toBe(false)
+    const other = await prisma.tenant.create({ data: { name: `${suffix}-q`, slug: `${suffix}-q` } })
+    try {
+      expect(await queries.list(other.id)).toEqual([])
+      await expect(queries.detail(other.id, bookingId)).rejects.toThrow('Booking not found')
+    } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
   })
 })

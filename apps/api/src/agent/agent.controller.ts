@@ -21,6 +21,7 @@ import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
+import { BookingQueryService } from './booking-query.service'
 import { renderBookingDocument } from './booking-document.render'
 
 class SearchFiltersDto {
@@ -60,12 +61,13 @@ export class AgentController {
     private readonly bookingTx: BookingTransactionService,
     private readonly cancellations: BookingCancellationService,
     private readonly documents: BookingDocumentService,
+    private readonly bookingQueries: BookingQueryService,
   ) {}
 
   @Get('context')
   @ApiOperation({ summary: 'Return authenticated agent context and memberships' })
   context(@CurrentUser() identity: AuthenticatedUser) {
-    return { user: identity.user, memberships: identity.memberships, capabilities: Object.values(PERMISSIONS) }
+    return { user: identity.user, memberships: identity.memberships, capabilities: Object.values(PERMISSIONS), bookingEnabled: bookingEnabled() }
   }
 
   @Post('offers/:offerId/hold')
@@ -150,6 +152,24 @@ export class AgentController {
     const result = await this.bookingTx.confirm({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId: body.bookingId })
     response.status(result.alreadyConfirmed ? HttpStatus.OK : HttpStatus.CREATED)
     return result
+  }
+
+  @Get('bookings')
+  @ApiOperation({ summary: 'List the tenant\'s bookings, newest first (requires BOOKING_ENABLED=true)' })
+  @RequirePermission(PERMISSIONS.viewBookings)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async listBookings(@Query('limit') limit: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
+    return this.bookingQueries.list(tenantId, Number(limit) || 50)
+  }
+
+  @Get('bookings/:id')
+  @ApiOperation({ summary: 'Booking detail with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
+  @RequirePermission(PERMISSIONS.viewBookings)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
+    return this.bookingQueries.detail(tenantId, bookingId)
   }
 
   @Get('bookings/:id/cancellation-quote')

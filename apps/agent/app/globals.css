@@ -270,3 +270,20 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
   .workspace-page.is-active .workspace-card { padding: 10px 12px; }
   .workspace-page.is-active .workspace-select-label { flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
 }
+
+/* Booking checkout, bookings list and detail */
+.booking-checkout { display: grid; gap: 10px; margin-top: 12px; }
+.booking-guest-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.booking-note { color: #5d7882; font-size: 11px; }
+.booking-done { display: grid; gap: 6px; margin-top: 12px; }
+.booking-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.booking-table-wrap { overflow-x: auto; margin-bottom: 14px; }
+.booking-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.booking-table th { text-align: left; color: #5d7882; font-weight: 600; padding: 8px 10px; border-bottom: 1px solid #d9dee2; white-space: nowrap; }
+.booking-table td { padding: 8px 10px; border-bottom: 1px solid #edf1f3; vertical-align: top; }
+.booking-table tr.is-selected td { background: #f4f8f9; }
+.booking-status { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; background: #e7eef0; color: #35505a; }
+.booking-status.is-confirmed { background: #e0f4ea; color: #1f7a5a; }
+.booking-status.is-cancelled, .booking-status.is-failed { background: #fbe9e7; color: #b3261e; }
+.booking-detail { padding: 16px; margin-top: 14px; display: grid; gap: 6px; }
+.portal-link.danger { color: #b3261e; }

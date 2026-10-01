@@ -72,3 +72,15 @@ read live, never stored). HTML is escaped, script-free, self-contained and serve
 Not covered: tax registration numbers and tenant logos (no source data yet), supplier-issued vouchers for
 non-contracted suppliers, email delivery, and DELETE protection on `BookingDocument` (only UPDATE is blocked, so tenant
 teardown still works).
+
+## Addendum: Agent portal wiring (2026-10-06)
+The Agent portal now drives the flow behind `GET /agent/context -> bookingEnabled` (false unless `BOOKING_ENABLED=true`):
+recheck -> **Hold this rate** (15-minute countdown) -> lead guest -> **Confirm & book** (prebook, then confirm; a failed
+confirmation can be retried because both steps are idempotent) -> **My bookings** with exact totals, voucher / invoice /
+credit-note (fetched with the tenant header and opened as a printable page), and **Cancel booking** which first shows
+the exact penalty and refund from `GET .../cancellation-quote`. With the flag off every booking surface keeps its
+"not enabled" state and shows no records.
+API additions: `GET /agent/bookings` and `GET /agent/bookings/:id` (`booking.read`, tenant-scoped, integer-string
+amounts, `cancellable`, issued documents). `GET /agent/finance/summary` now prefers the AED wallet and sums the whole
+ledger (it previously looked only for a USD wallet and summed only the latest 25 entries).
+Not covered: releasing a hold early from the UI (holds simply expire), email delivery, amendments, and a booking search/filter.
