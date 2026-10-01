@@ -1,3 +1,4 @@
+import { BookingReconciliationService } from './booking-reconciliation.service'
 import { AgentController } from './agent.controller'
 import type { SupplierAdapter } from './supplier.port'
 import type { AgentFinanceService } from './finance.service'
@@ -28,7 +29,7 @@ function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
   const agentSearch = new AgentSearchService(supplier, audit)
-  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch)
+  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService)
   return { controller, audit, agentSearch }
 }
 const query = () => ({ ...criteria } as Parameters<AgentController['search']>[0])

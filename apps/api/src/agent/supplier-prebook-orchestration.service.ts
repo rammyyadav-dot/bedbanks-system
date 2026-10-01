@@ -1,9 +1,10 @@
-import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common'
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { BookingPersistenceService } from './booking-persistence.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { PrebookCompensationRecoveryService } from './prebook-compensation-recovery.service'
 import { InventoryHoldService } from './inventory-hold.service'
+import { AgentAuditService } from './audit.service'
 import { SUPPLIER_ADAPTER, type SupplierAdapter } from './supplier.port'
 
 export interface SupplierPrebookCommand extends BookingTransactionCommand {
@@ -12,11 +13,14 @@ export interface SupplierPrebookCommand extends BookingTransactionCommand {
 
 @Injectable()
 export class SupplierPrebookOrchestrationService {
+  private readonly logger = new Logger(SupplierPrebookOrchestrationService.name)
+
   constructor(
     private readonly bookings: BookingPersistenceService,
     private readonly finance: BookingFinancialAuthorizationService,
     private readonly recovery: PrebookCompensationRecoveryService,
     private readonly holds: InventoryHoldService,
+    private readonly audit: AgentAuditService,
     @Inject(SUPPLIER_ADAPTER) private readonly supplier: SupplierAdapter,
   ) {}
 
@@ -43,6 +47,13 @@ export class SupplierPrebookOrchestrationService {
         { offerId: command.offerId, searchId: command.searchId, idempotencyKey: `booking:${booking.id}:prebook` },
         { tenantId: command.tenantId, userId: command.userId, requestId: command.requestId },
       )
+      // Durable marker: the reconciliation sweep must never release a booking whose supplier prebook succeeded.
+      try {
+        await this.audit.record({ tenantId: command.tenantId, userId: command.userId, action: 'booking.prebook.succeeded', entityType: 'booking', entityId: booking.id,
+          payload: { requestId: command.requestId, inventoryHoldId: command.inventoryHoldId, supplierReference: prebook.supplierReference } })
+      } catch {
+        this.logger.error(`Could not record prebook success booking=${booking.id}; reconciliation may treat it as stale`)
+      }
       return {
         status: 'prebooked' as const,
         bookingId: booking.id,

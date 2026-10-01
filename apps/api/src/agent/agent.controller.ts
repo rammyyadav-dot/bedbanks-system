@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentAuditService } from './audit.service'
-import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, RateActionDto } from './domain.dto'
+import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, RateActionDto, ReconcileBookingsDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
@@ -17,6 +17,7 @@ import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
+import { BookingReconciliationService } from './booking-reconciliation.service'
 
 class SearchFiltersDto {
   @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(5, { each: true }) starRatings?: number[]
@@ -51,6 +52,7 @@ export class AgentController {
     private readonly audit: AgentAuditService,
     private readonly offerHolds: OfferHoldService,
     private readonly agentSearch: AgentSearchService,
+    private readonly reconciliation: BookingReconciliationService,
   ) {}
 
   @Get('context')
@@ -134,6 +136,14 @@ export class AgentController {
   async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
     await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.requested', entityType: 'booking', entityId: bookingId, payload: { reason: body.reason } })
     return { status: 'provider_unavailable', bookingId, message: 'Cancellation is ready for a supplier adapter but none is configured.' }
+  }
+
+  @Post('bookings/reconcile-stale')
+  @ApiOperation({ summary: 'Resolve interrupted booking attempts: return stale PROCESSING holds and unreleased wallet reservations' })
+  @RequirePermission(PERMISSIONS.reconcileBookings)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    return this.reconciliation.reconcileStale({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), staleMinutes: body.staleMinutes, dryRun: body.dryRun })
   }
 
   @Get('finance/summary')

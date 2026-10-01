@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator'
 import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 
 export class RateActionDto {
@@ -34,4 +34,9 @@ export class OfferRecheckDto {
   @IsString() @Length(1, 512) searchId!: string
   @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) expectedCurrency!: string
   @IsInt() @Min(1) expectedSellAmountMinor!: number
+}
+
+export class ReconcileBookingsDto {
+  @IsOptional() @IsBoolean() dryRun?: boolean
+  @IsOptional() @IsInt() @Min(5) @Max(1440) staleMinutes?: number
 }
