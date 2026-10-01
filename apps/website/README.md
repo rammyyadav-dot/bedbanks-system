@@ -52,12 +52,21 @@ Event names use lower-case snake case and describe an interaction, not a person:
 
 ## Security headers
 
-`next.config.ts` applies a Content Security Policy with `frame-ancestors 'none'`, `object-src 'none'`, and `base-uri 'self'`, plus Permissions Policy, strict referrer handling, MIME sniffing protection and frame denial. HSTS and insecure-request upgrades apply only in production. Any new third-party script or connection requires an explicit CSP review.
+`proxy.ts` sets a nonce-based Content Security Policy per document request (ADR 0012, built by `lib/csp.ts`): scripts run only with the request's nonce (`'strict-dynamic'`), production never allows `'unsafe-inline'` or `'unsafe-eval'` for scripts, and no third-party origin is allow-listed. `next.config.ts` adds Permissions Policy, strict referrer handling, MIME sniffing protection, frame denial and (production) HSTS.
+
+Impact of nonces: every page renders on demand instead of being prerendered, HTML is sent with `Cache-Control: private, no-store`, and each page view invokes the server. Any new third-party script or connection needs an explicit CSP review and a browser check (`pnpm test:e2e`).
 
 ## Legal and brand dependencies
 
-Privacy, terms and cookie routes are intentionally unpublished until legally approved text is supplied. Social handles, customer marks, certifications and customer claims are omitted until verified. The repository visibility decision is an owner-level governance dependency; never commit secrets to this repository regardless of visibility.
+The privacy page is a draft (legal approval BLOCKED; see `docs/website-privacy-review.md`): it is `noindex` and excluded from the sitemap until `privacyPolicyApproved` is set. Terms and cookie pages do not exist and stay unpublished until legally approved text is supplied. Social handles, customer marks, certifications and customer claims are omitted until verified. The repository visibility decision is an owner-level governance dependency; never commit secrets to this repository regardless of visibility.
 
 ## Validation
 
-Run `pnpm --filter @bedbanks/website test` for real Node tests and `pnpm --filter @bedbanks/website check:links` for route integrity. The test command fails when no test files are discovered or when an assertion fails.
+- `pnpm --filter @bedbanks/website test`: Node unit and security tests (fails if no tests are found).
+- `pnpm --filter @bedbanks/website check:links`: static route integrity.
+- Against a **started production build** (`NEXT_PUBLIC_SITE_URL=https://www.fbeds.com pnpm build`, then `pnpm exec next start -p 4710`): `pnpm check:site` verifies sitemap routes and canonical URLs, robots, navigation links, in-page and cross-page anchors and portal redirects; add `-- --external` for external links (transient failures warn, 404 and 410 fail). `pnpm test:e2e` runs Playwright: CSP violations, hydration, navigation, the lead form (validation, honeypot, rate limit), fonts, capability copy, axe accessibility (zero serious or critical WCAG 2.1 A/AA violations per page, including colour contrast and labels) and keyboard checks. CI runs all of this in the `website-production-checks` job.
+- Install the browser once with `pnpm --filter @bedbanks/website exec playwright install chromium`.
+
+## Sitemap dates
+
+`app/sitemap.ts` emits `lastModified` only for routes recorded in `lib/content-dates.ts`. Add a `YYYY-MM-DD` entry there when you make an authoritative content change; never use build time. `/privacy` stays out of the sitemap until `privacyPolicyApproved` is set after legal approval.

@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import { ArrowUpRight, ArrowLeft, Building2, Hotel, ShieldCheck } from 'lucide-react'
 import { SiteShell } from '../../components/layout/SiteShell'
+import { pageMetadata } from '../../lib/seo'
 import { portalHref, siteConfig, type PortalKey } from '../../lib/site-config'
 
-export const metadata = { title: 'Sign in to fBeds', description: 'Choose the fBeds workspace that matches your role.' }
+export const metadata = pageMetadata({ title: 'Sign in to fBeds', description: 'Choose the fBeds workspace that matches your role.', path: '/login' })
 
 const portals: { key: PortalKey; title: string; description: string; icon: typeof Hotel }[] = [
   { key: 'agent', title: 'Travel Buyer / Agent Portal', description: 'Search contracted hotel inventory. Booking is in development.', icon: Hotel },

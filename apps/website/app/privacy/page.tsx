@@ -1,10 +1,10 @@
 import { SiteShell } from '../../components/layout/SiteShell'
 import { privacyPolicyApproved } from '../../lib/legal-status'
+import { pageMetadata } from '../../lib/seo'
 import { siteConfig } from '../../lib/site-config'
 
 export const metadata = {
-  title: 'Privacy notice (draft)',
-  description: 'Draft privacy information for the fBeds public website. Not yet legally approved.',
+  ...pageMetadata({ title: 'Privacy notice (draft)', description: 'Draft privacy information for the fBeds public website. Not yet legally approved.', path: '/privacy' }),
   robots: privacyPolicyApproved ? undefined : { index: false, follow: true },
 }
 

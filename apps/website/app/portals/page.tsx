@@ -2,9 +2,10 @@ import Link from 'next/link'
 import { ArrowLeft, CircleAlert, Mail } from 'lucide-react'
 import { Logo } from '../../components/ui/Logo'
 import { portalLabels } from '../../lib/navigation'
+import { pageMetadata } from '../../lib/seo'
 import { siteConfig, type PortalKey } from '../../lib/site-config'
 
-export const metadata = { title: 'Portal configuration required', robots: { index: false, follow: false } }
+export const metadata = { ...pageMetadata({ title: 'Portal configuration required', description: 'Portal routing notice for the fBeds website.', path: '/portals' }), robots: { index: false, follow: false } }
 
 export default async function PortalsPage({ searchParams }: { searchParams: Promise<{ target?: string }> }) {
   const { target } = await searchParams

@@ -117,3 +117,47 @@ jobs:
       - run: pnpm -r --if-present lint
       - run: pnpm -r --if-present test
       - run: pnpm -r --if-present build
+
+  website-production-checks:
+    name: Website production checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SITE_URL: https://www.fbeds.com
+      EXPECTED_SITE_URL: https://www.fbeds.com
+      CHECK_BASE_URL: http://localhost:4710
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bedbanks/website type-check
+      - run: pnpm --filter @bedbanks/website lint
+      - run: pnpm --filter @bedbanks/website test
+      - run: pnpm --filter @bedbanks/website build
+      - run: pnpm --filter @bedbanks/website exec playwright install --with-deps chromium
+      - name: Start the production build
+        run: |
+          pnpm --filter @bedbanks/website exec next start -p 4710 > website-server.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf -o /dev/null "$CHECK_BASE_URL/" && exit 0; sleep 1; done
+          cat website-server.log; exit 1
+      - name: Links, anchors, redirects, sitemap and canonicals (built site)
+        run: pnpm --filter @bedbanks/website check:site
+      - name: Browser checks (CSP, hydration, lead form, accessibility)
+        run: pnpm --filter @bedbanks/website test:e2e
+      - name: "External links (resilient - transient failures warn, 404 and 410 fail)"
+        run: pnpm --filter @bedbanks/website check:site -- --external
+      - name: Upload browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-playwright-report
+          path: |
+            apps/website/playwright-report
+            apps/website/test-results
+          if-no-files-found: ignore
