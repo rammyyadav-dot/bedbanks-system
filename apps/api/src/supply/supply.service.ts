@@ -260,6 +260,8 @@ export class SupplyService {
       ? await this.prisma.withTenant(tenantId, tx => tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId, status: 'MAPPED' } }))
       : null
     const reasons: string[] = evaluateNightSellability(plan, { stayDate, occupancy: input.occupancy })
+    // Non-blocking: the night checks pass, but agent search only lists hotels whose content is COMPLETE.
+    const warnings: string[] = plan && plan.roomType.hotel.contentStatus !== 'COMPLETE' && plan.roomType.hotel.contentStatus !== 'SUSPENDED' ? ['HOTEL_CONTENT_NOT_COMPLETE'] : []
     if (plan) {
       const hotelMapping = plan.contract.supplierHotelMapping
       if (hotelMapping && hotelMapping.hotelId === plan.roomType.hotelId && hotelMapping.status === 'MAPPED' && !roomMapping) reasons.push('ROOM_MAPPING_UNAPPROVED')
@@ -272,6 +274,6 @@ export class SupplyService {
         if (Math.round((checkIn.getTime() - today.getTime()) / 86_400_000) < plan.releaseDays) reasons.push('RELEASE_DAYS_NOT_MET')
       }
     }
-    return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons }
+    return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons, warnings }
   }
 }

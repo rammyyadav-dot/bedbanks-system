@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { navSections, flatNav, isActiveRoute } from '../components/layout/nav-config'
 import { userInitials } from './auth/identity'
-import { summarizeSellability, SELLABILITY_CHECKS } from './sellability'
+import { summarizeSellability, SELLABILITY_CHECKS, WARNING_TEXT } from './sellability'
 import { parseMajorToMinor, minorToMajorInput, formatMinorUnits } from './minor-units'
 import { buildSevenDayRates, dateRange } from './dubai-operations'
 
@@ -105,4 +105,13 @@ test('browser API calls carry the validated active tenant header', () => {
   setActiveTenantId(null); assert.deepEqual(activeTenantHeaders(), {})
   setActiveTenantId('t-owner'); assert.deepEqual(activeTenantHeaders(), { 'x-fbeds-tenant-id': 't-owner' })
   setActiveTenantId(null)
+})
+
+test('sellability warnings are surfaced once, in plain language, without changing the result', () => {
+  const warned = { eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH' as const, reasons: [], warnings: ['HOTEL_CONTENT_NOT_COMPLETE'] }
+  const summary = summarizeSellability([{ stayDate: '2026-10-05', result: warned }, { stayDate: '2026-10-06', result: warned }])
+  assert.equal(summary.sellable, true)
+  assert.deepEqual(summary.warnings, ['HOTEL_CONTENT_NOT_COMPLETE'])
+  assert.match(WARNING_TEXT.HOTEL_CONTENT_NOT_COMPLETE, /not see it in search/)
+  assert.deepEqual(summarizeSellability([{ stayDate: '2026-10-05', result: { eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [] } }]).warnings, [])
 })

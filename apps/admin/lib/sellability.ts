@@ -5,6 +5,11 @@ import type { SellabilityResult } from '@bedbanks/contracts'
  * The API is the only source of truth: a check shows FAIL only when the API returned one of its codes,
  * and any code not listed here is surfaced verbatim under "Other" rather than guessed at or hidden.
  */
+/** Plain-language text for non-blocking warnings the API returns. */
+export const WARNING_TEXT: Record<string, string> = {
+  HOTEL_CONTENT_NOT_COMPLETE: 'The hotel passes every check but its content status is not COMPLETE, so agents will not see it in search. Set it to COMPLETE on the hotel page.',
+}
+
 export const SELLABILITY_CHECKS: ReadonlyArray<{ label: string; codes: readonly string[] }> = [
   { label: 'Hotel', codes: ['HOTEL_INACTIVE'] },
   { label: 'Room', codes: ['ROOM_TYPE_INACTIVE'] },
@@ -24,7 +29,7 @@ export const SELLABILITY_CHECKS: ReadonlyArray<{ label: string; codes: readonly 
 
 export interface NightResult { stayDate: string; result: SellabilityResult }
 export interface CheckSummary { label: string; status: 'PASS' | 'FAIL'; findings: Array<{ stayDate: string; code: string }> }
-export interface SellabilitySummary { sellable: boolean; checks: CheckSummary[]; failures: Array<{ stayDate: string; code: string }> }
+export interface SellabilitySummary { sellable: boolean; checks: CheckSummary[]; failures: Array<{ stayDate: string; code: string }>; warnings: string[] }
 
 export function summarizeSellability(nights: NightResult[]): SellabilitySummary {
   const failures = nights.flatMap(({ stayDate, result }) => result.reasons.map((code) => ({ stayDate, code })))
@@ -35,5 +40,6 @@ export function summarizeSellability(nights: NightResult[]): SellabilitySummary 
   })
   const other = failures.filter((failure) => !known.has(failure.code))
   if (other.length) checks.push({ label: 'Other', status: 'FAIL', findings: other })
-  return { sellable: nights.length > 0 && nights.every(({ result }) => result.eligible), checks, failures }
+  const warnings = [...new Set(nights.flatMap(({ result }) => result.warnings ?? []))]
+  return { sellable: nights.length > 0 && nights.every(({ result }) => result.eligible), checks, failures, warnings }
 }
