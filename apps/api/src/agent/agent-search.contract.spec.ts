@@ -102,7 +102,19 @@ describe('Agent canonical search boundary', () => {
   it('keeps prebook and booking disabled after recheck activation', async () => {
     const { controller } = setup(jest.fn())
     const action = { hotelId: 'h1', rateId: 'o1', idempotencyKey: 'key', totalMinor: 1, currency: 'AED' }
-    expect((await controller.prebook(action, 'tenant-a', identity)).status).toBe('booking_unavailable')
-    expect((await controller.createBooking(action, 'tenant-a', identity)).status).toBe('booking_unavailable')
+    expect((await controller.prebook(action, identity, request())).status).toBe('booking_unavailable')
+    expect((await controller.createBooking(action, identity, request())).status).toBe('booking_unavailable')
+  })
+  it('audits booking refusals against the server membership, ignoring a caller tenant header', async () => {
+    const { controller, audit } = setup(jest.fn())
+    const action = { hotelId: 'h1', rateId: 'o1', idempotencyKey: 'key', totalMinor: 1, currency: 'AED' }
+    const caller = { requestId: 'request-a', activeTenantId: 'tenant-a', headers: { 'x-fbeds-tenant-id': 'tenant-b' } } as unknown as Request
+    await controller.prebook(action, identity, caller)
+    await controller.createBooking(action, identity, caller)
+    await controller.cancel('booking-1', { reason: 'change' }, identity, caller)
+    expect(audit.record).toHaveBeenCalledTimes(3)
+    expect(audit.record).toHaveBeenNthCalledWith(1, expect.objectContaining({ tenantId: 'tenant-a', action: 'booking.prebook.unavailable' }))
+    expect(audit.record).toHaveBeenNthCalledWith(2, expect.objectContaining({ tenantId: 'tenant-a', action: 'booking.create.unavailable' }))
+    expect(audit.record).toHaveBeenNthCalledWith(3, expect.objectContaining({ tenantId: 'tenant-a', action: 'booking.cancel.requested' }))
   })
 })

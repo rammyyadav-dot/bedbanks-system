@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
@@ -8,7 +8,7 @@ import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, Rat
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
-import { ACTIVE_TENANT_REQUEST_KEY, TenantContextGuard } from './tenant-context.guard'
+import { activeTenantId, TenantContextGuard } from './tenant-context.guard'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
@@ -66,7 +66,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async holdOffer(@Param() params: OfferHoldParamsDto, @Body() body: OfferHoldDto,
     @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
@@ -92,7 +92,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
   }
 
@@ -102,7 +102,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async recheck(@Body() body: OfferRecheckDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request,
     @Res({ passthrough: true }) response: Response) {
-    const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]
+    const tenantId = activeTenantId(req)
     const result = await this.offerHolds.recheck({ offerId: body.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
@@ -116,7 +116,8 @@ export class AgentController {
   @Post('prebook')
   @RequirePermission(PERMISSIONS.prebook)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async prebook(@Body() body: RateActionDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
+  async prebook(@Body() body: RateActionDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    const tenantId = activeTenantId(req)
     await this.audit.record({ tenantId, user: identity, action: 'booking.prebook.unavailable', entityType: 'rate', entityId: body.rateId, payload: { reason: 'transactional_gates_incomplete' } })
     return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
   }
@@ -124,7 +125,8 @@ export class AgentController {
   @Post('bookings')
   @RequirePermission(PERMISSIONS.createBooking)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async createBooking(@Body() body: RateActionDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
+  async createBooking(@Body() body: RateActionDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    const tenantId = activeTenantId(req)
     await this.audit.record({ tenantId, user: identity, action: 'booking.create.unavailable', entityType: 'booking', entityId: body.idempotencyKey, payload: { reason: 'transactional_gates_incomplete' } })
     return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck, persistence and finance gates are certified.' }
   }
@@ -132,7 +134,8 @@ export class AgentController {
   @Delete('bookings/:id')
   @RequirePermission(PERMISSIONS.cancelBooking)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @Headers('x-fbeds-tenant-id') tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
+  async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    const tenantId = activeTenantId(req)
     await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.requested', entityType: 'booking', entityId: bookingId, payload: { reason: body.reason } })
     return { status: 'provider_unavailable', bookingId, message: 'Cancellation is ready for a supplier adapter but none is configured.' }
   }
@@ -140,10 +143,10 @@ export class AgentController {
   @Get('finance/summary')
   @RequirePermission(PERMISSIONS.viewFinance)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  finance(@Headers('x-fbeds-tenant-id') tenantId: string) { return this.financeService.summary(tenantId) }
+  finance(@Req() req: Request) { return this.financeService.summary(activeTenantId(req)) }
 
   @Get('audit')
   @RequirePermission(PERMISSIONS.auditRead)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  auditEvents(@Headers('x-fbeds-tenant-id') tenantId: string, @Query('limit') limit?: string) { return this.audit.list(tenantId, Math.max(1, Math.trunc(Number(limit)) || 50)) }
+  auditEvents(@Req() req: Request, @Query('limit') limit?: string) { return this.audit.list(activeTenantId(req), Math.max(1, Math.trunc(Number(limit)) || 50)) }
 }
