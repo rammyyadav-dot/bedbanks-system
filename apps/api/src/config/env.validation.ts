@@ -1,4 +1,5 @@
 import { plainToInstance } from 'class-transformer';
+import { parseOriginList } from './trusted-origins';
 import {
   IsEnum,
   IsIn,
@@ -74,6 +75,12 @@ class EnvironmentVariables {
   @IsUrl({ require_tld: false }, { message: 'ADMIN_ORIGIN must be a valid URL, e.g. http://localhost:3001' })
   @IsOptional()
   ADMIN_ORIGIN: string = 'http://localhost:3001';
+
+  // Comma-separated exact origins of the other portals (Agent, Supplier) whose
+  // same-origin proxies forward cookie-authenticated mutations to this API.
+  @IsString()
+  @IsOptional()
+  TRUSTED_ORIGINS?: string;
 }
 
 /**
@@ -130,6 +137,22 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   }
   if ([Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV) && origin.protocol !== 'https:') {
     throw new Error('Staging and production require an HTTPS ADMIN_ORIGIN');
+  }
+
+  const production = [Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV);
+  for (const trusted of parseOriginList(validatedConfig.TRUSTED_ORIGINS)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(trusted);
+    } catch {
+      throw new Error('TRUSTED_ORIGINS must be a comma-separated list of exact HTTP(S) origins');
+    }
+    if (parsed.origin !== trusted || !['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('TRUSTED_ORIGINS must be a comma-separated list of exact HTTP(S) origins without paths');
+    }
+    if (production && parsed.protocol !== 'https:') {
+      throw new Error('Staging and production require HTTPS TRUSTED_ORIGINS');
+    }
   }
   return validatedConfig;
 }
