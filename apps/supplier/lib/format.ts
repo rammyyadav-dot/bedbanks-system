@@ -1,13 +1,8 @@
-export function formatMoney(minorUnits: number, currency: string): string {
-  if (!Number.isInteger(minorUnits)) {
-    throw new TypeError('Money must use integer minor units')
-  }
+import { formatMinorUnits } from '@bedbanks/money'
 
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(minorUnits / 100)
+export function formatMoney(minorUnits: number, currency: string): string {
+  if (!Number.isSafeInteger(minorUnits)) throw new TypeError('Money must use integer minor units')
+  return formatMinorUnits(minorUnits, currency)
 }
 
 export function formatSupplierType(type: string): string {

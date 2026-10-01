@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function NewPropertyPage() {
-  return <OperationalModule config={{ ...moduleConfigs.settings, eyebrow: 'Property setup', title: 'Add property', description: 'Start a property setup draft. Saving and publishing require the supplier API.', action: 'Save draft' }} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Add property"
+      description="Creating a property is not available."
+    />
+  )
 }

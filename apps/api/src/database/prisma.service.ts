@@ -76,6 +76,26 @@ export class PrismaService
     });
   }
 
+  /**
+   * Tenant plus supplier-organization context for extranet reads and draft notes.
+   * Both identifiers must already have been resolved from the authenticated session.
+   * The supplier setting is transaction-local and is not applied to admin supply queries.
+   */
+  async withSupplier<T>(tenantId: string, supplierId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    if (!tenantId || tenantId.trim() !== tenantId) {
+      throw new Error('A normalized tenant context is required');
+    }
+    if (!supplierId || supplierId.trim() !== supplierId) {
+      throw new Error('A normalized supplier organization is required');
+    }
+
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+      await tx.$executeRaw`SELECT set_config('app.current_supplier_id', ${supplierId}, true)`;
+      return work(tx);
+    });
+  }
+
   async withPlatform<T>(operatorUserId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     if (!operatorUserId || operatorUserId.trim() !== operatorUserId) {
       throw new Error('A normalized platform operator is required');
