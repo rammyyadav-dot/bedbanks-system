@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "set -a; [ ! -f /vercel/share/.env.project ] || . /vercel/share/.env.project; set +a; (cd apps/api && env -u API_PORT -u ADMIN_ORIGIN API_PORT=3002 ADMIN_ORIGIN=http://localhost:3000 pnpm dev) & api_pid=$!; NEXT_PUBLIC_AGENT_API_URL=http://localhost:3002/api/v1 pnpm --dir apps/agent dev; agent_status=$?; kill $api_pid 2>/dev/null || true; wait $api_pid 2>/dev/null || true; exit $agent_status",
     "build": "turbo run build",
+    "vercel-build": "pnpm exec turbo run build --filter=@bedbanks/website && node --import tsx tools/publish-website-next-output.ts",
     "type-check": "turbo run type-check",
     "lint": "turbo run lint",
     "test": "turbo run test",
@@ -18,6 +19,11 @@
     "check:schema": "node --import tsx tools/no-divergent-schema-check.ts",
     "check:public-env": "node --import tsx tools/public-env-check.ts",
     "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:public-env"
+  },
+  "dependencies": {
+    "next": "16.3.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@prisma/client": "^6.2.1",
