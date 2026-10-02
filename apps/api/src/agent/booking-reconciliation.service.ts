@@ -4,6 +4,7 @@ import { AgentAuditService } from './audit.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { InventoryHoldService } from './inventory-hold.service'
 import { readSupplierPrebook } from './supplier-prebook-record'
+import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
 
 export const MIN_STALE_MINUTES = 5
 export const DEFAULT_STALE_MINUTES = 30
@@ -82,8 +83,49 @@ export class BookingReconciliationService {
     // FAILED with a still-PROCESSING hold is an interrupted earlier reconciliation: finish it (every step is idempotent).
     if (booking.status !== 'PENDING' && booking.status !== 'FAILED') return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
 
+    const mutation = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.findFirst({
+      where: { tenantId, bookingId: booking.id, operation: 'PREBOOK' },
+      orderBy: { createdAt: 'desc' },
+    }))
+
     let expiredPrebook = false
-    if (booking.status === 'PENDING') {
+    let journalTerminal: 'not_sent' | 'rejected' | 'expired' | null = null
+    if (mutation) {
+      const uncertain = mutation.status === 'SENDING' || mutation.status === 'UNKNOWN' || (mutation.status === 'RESOLVED' && mutation.supplierStatus === 'unknown')
+      if (uncertain) {
+        if (!dryRun && mutation.status === 'SENDING') {
+          await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.updateMany({
+            where: { id: mutation.id, tenantId, status: 'SENDING' },
+            data: { status: 'UNKNOWN', failureCategory: 'crash', failureCode: 'outcome_unobserved' },
+          })).catch(() => this.logger.error(`Could not mark unobserved supplier mutation unknown mutation=${mutation.id}`))
+          await this.audit.record({
+            tenantId, userId, action: 'supplier.mutation.unknown', entityType: 'supplier_mutation', entityId: mutation.id,
+            payload: { requestId, bookingId: booking.id, mutationId: mutation.id, holdId, supplierKey: mutation.supplierKey, operation: mutation.operation, state: 'UNKNOWN', failureCategory: 'crash' },
+          }).catch(() => undefined)
+        }
+        if (!dryRun) await this.noteManualReview(tenantId, userId, requestId, holdId, booking.id)
+        return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
+      }
+      if (supplierMutationAcceptedReference(mutation)) {
+        if (booking.status !== 'PENDING') {
+          if (!dryRun) await this.noteManualReview(tenantId, userId, requestId, holdId, booking.id)
+          return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
+        }
+        const acknowledgedAt = mutation.acknowledgedAt ?? mutation.updatedAt
+        if (now.getTime() - acknowledgedAt.getTime() < prebookMaxMinutes * 60_000) return { holdId, bookingId: booking.id, outcome: 'prebooked_awaiting_confirmation' }
+        expiredPrebook = true
+        journalTerminal = 'expired'
+      } else if (mutation.status === 'PREPARED') {
+        journalTerminal = 'not_sent'
+      } else if (mutation.status === 'REJECTED') {
+        journalTerminal = 'rejected'
+      } else if (mutation.status === 'RESOLVED' && (mutation.supplierStatus === 'not_sent' || mutation.supplierStatus === 'rejected' || mutation.supplierStatus === 'expired')) {
+        journalTerminal = null
+      } else if (mutation.status !== 'RESOLVED') {
+        if (!dryRun) await this.noteManualReview(tenantId, userId, requestId, holdId, booking.id)
+        return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
+      }
+    } else if (booking.status === 'PENDING') {
       const marker = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.findFirst({
         where: { tenantId, action: 'booking.prebook.succeeded', entityType: 'booking', entityId: booking.id }, orderBy: { createdAt: 'asc' }, select: { createdAt: true },
       }))
@@ -113,6 +155,16 @@ export class BookingReconciliationService {
     }
     await this.holds.release(tenantId, holdId, `${requestId}:reconcile`, { type: 'USER', userId })
     const outcome = expiredPrebook ? 'prebook_expired' : 'reconciled'
+    if (mutation && journalTerminal && mutation.status !== 'RESOLVED') {
+      await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.updateMany({
+        where: { id: mutation.id, tenantId, status: { not: 'RESOLVED' } },
+        data: { status: 'RESOLVED', supplierStatus: journalTerminal, resolvedAt: new Date() },
+      }))
+      await this.audit.record({
+        tenantId, userId, action: 'supplier.mutation.reconciled', entityType: 'supplier_mutation', entityId: mutation.id,
+        payload: { requestId, bookingId: booking.id, mutationId: mutation.id, holdId, operation: mutation.operation, state: 'RESOLVED', supplierStatus: journalTerminal },
+      }).catch(() => this.logger.error(`Could not audit supplier mutation reconciliation mutation=${mutation.id}`))
+    }
     await this.audit.record({ tenantId, userId, action: expiredPrebook ? 'booking.prebook.expired' : 'booking.reconciled', entityType: 'booking', entityId: booking.id,
       payload: { requestId, inventoryHoldId: holdId, outcome, walletReleased: Boolean(reservation), ...(expiredPrebook ? { prebookMaxMinutes } : {}) } })
     return { holdId, bookingId: booking.id, outcome }

@@ -2,10 +2,11 @@ import { BookingReconciliationService, DEFAULT_STALE_MINUTES, MIN_STALE_MINUTES 
 
 const NOW = new Date('2099-01-01T12:00:00.000Z')
 
-function setup(options: { holds?: string[]; booking?: any; prebookedMinutesAgo?: number; reservation?: any; claim?: number; unknown?: boolean; reviewCount?: number } = {}) {
+function setup(options: { holds?: string[]; booking?: any; prebookedMinutesAgo?: number; reservation?: any; claim?: number; unknown?: boolean; reviewCount?: number; mutation?: any } = {}) {
   const tx = {
     inventoryHold: { findMany: jest.fn().mockResolvedValue((options.holds ?? ['hold-a']).map((id) => ({ id }))) },
     booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: NOW } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: options.claim ?? 1 }) },
+    supplierMutation: { findFirst: jest.fn().mockResolvedValue(options.mutation ?? null), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     auditEvent: {
       findFirst: jest.fn().mockImplementation((args: { where?: { action?: string } }) => {
         if (args?.where?.action === 'booking.prebook.succeeded' && options.prebookedMinutesAgo !== undefined) return { createdAt: new Date(NOW.getTime() - options.prebookedMinutesAgo * 60_000) }
@@ -138,6 +139,42 @@ describe('BookingReconciliationService', () => {
     expect(result.items.map((item) => item.outcome)).toEqual(['failed', 'reconciled'])
     expect(holds.release).toHaveBeenCalledTimes(1)
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.reconciliation.failed', entityId: 'hold-a', payload: { requestId: 'req-a', errorName: 'LedgerDown' } }))
+  })
+
+  it('keeps inventory and finance when the supplier mutation was sending', async () => {
+    const mutation = { id: 'mutation-a', status: 'SENDING', supplierKey: 'contracted-inventory', operation: 'PREBOOK', supplierReference: null, supplierStatus: null, acknowledgedAt: null, updatedAt: NOW }
+    const { service, finance, holds, tx } = setup({ mutation })
+    expect((await run(service)).items[0].outcome).toBe('manual_review_required')
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+    expect(tx.booking.updateMany).not.toHaveBeenCalled()
+    expect(tx.supplierMutation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'UNKNOWN' }) }))
+  })
+
+  it('releases a prepared mutation because the supplier was never called', async () => {
+    const mutation = { id: 'mutation-a', status: 'PREPARED', operation: 'PREBOOK', supplierReference: null, supplierStatus: null, updatedAt: NOW }
+    const { service, finance, holds, tx } = setup({ mutation })
+    expect((await run(service)).items[0].outcome).toBe('reconciled')
+    expect(finance.release).toHaveBeenCalledTimes(1)
+    expect(holds.release).toHaveBeenCalledTimes(1)
+    expect(tx.supplierMutation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'RESOLVED', supplierStatus: 'not_sent' }) }))
+  })
+
+  it('keeps an acknowledged supplier reference inside the confirmation window', async () => {
+    const mutation = { id: 'mutation-a', status: 'ACKNOWLEDGED', operation: 'PREBOOK', supplierReference: 'supplier-ref', supplierStatus: 'accepted', acknowledgedAt: new Date(NOW.getTime() - 10 * 60_000), updatedAt: NOW }
+    const { service, finance, holds } = setup({ mutation })
+    expect((await run(service)).items[0].outcome).toBe('prebooked_awaiting_confirmation')
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('is idempotent when the same unknown mutation is reconciled twice', async () => {
+    const mutation = { id: 'mutation-a', status: 'UNKNOWN', operation: 'PREBOOK', supplierReference: null, supplierStatus: null, updatedAt: NOW }
+    const { service, finance, holds, audit } = setup({ mutation, reviewCount: 1 })
+    expect((await run(service)).items[0].outcome).toBe('manual_review_required')
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
   })
 })
 

@@ -11,7 +11,13 @@ export type HoldOutcome = { status: string; holdId?: string; expiresAt?: string;
 export type PrebookData = { status: 'prebooked'; bookingId: string; bookingReference: string }
 export type ConfirmData = { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean }
 export type BookingSummary = { id: string; reference: string; status: string; currency: string; totalMinor: string; createdAt: string; hotelName: string | null; checkIn: string | null; checkOut: string | null; rooms: number | null; leadGuest: string | null }
-export type BookingDetail = BookingSummary & { adults: number | null; children: number | null; cancellable: boolean; documents: Array<{ type: string; number: string }> }
+export type BookingDetail = BookingSummary & {
+  adults: number | null; children: number | null; cancellable: boolean; documents: Array<{ type: string; number: string }>
+  supplierMutation?: {
+    bookingId: string; supplierKey: string; operation: string; mutationId: string; status: string
+    supplierReference: string | null; attemptedAt: string | null; requestId: string; failureCategory: string | null; lastReconciledAt: string | null
+  } | null
+}
 export type CancellationQuote = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; checkIn: string; evaluatedAt: string }
 export type CancellationData = CancellationQuote & { status: 'CANCELLED'; alreadyCancelled: boolean; cancellationId: string }
 export type DocumentType = 'voucher' | 'invoice' | 'credit-note'
