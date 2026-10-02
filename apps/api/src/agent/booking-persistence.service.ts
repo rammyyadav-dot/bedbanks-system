@@ -3,6 +3,27 @@ import { Prisma } from '@prisma/client'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { createHash } from 'crypto'
 import { PrismaService } from '../database/prisma.service'
+import { readSupplierPrebook, type RecordedSupplierPrebook } from './supplier-prebook-record'
+
+const COMMERCIAL_SNAPSHOT_KEYS = [
+  'version', 'requestId', 'offerId', 'searchId', 'inventoryHoldId', 'canonicalHotelId', 'canonicalRoomTypeId',
+  'ratePlanId', 'boardBasisId', 'checkIn', 'checkOut', 'rooms', 'adults', 'children', 'childAges',
+  'currency', 'totalMinor', 'leadGuest',
+] as const
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => stable(item)).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as object).sort().map((key) => `${key}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function sameCommercialSnapshot(stored: Prisma.JsonValue, expected: Prisma.InputJsonObject): boolean {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return false
+  const left = stored as Record<string, unknown>
+  return COMMERCIAL_SNAPSHOT_KEYS.every((key) => stable(left[key]) === stable(expected[key]))
+}
 
 type BookingRecord = {
   id: string
@@ -90,6 +111,35 @@ export class BookingPersistenceService {
     }
   }
 
+  /**
+   * Records the supplier prebook result on the pending booking without changing the commercial snapshot
+   * used for idempotency. Unknown is retained; a later prebooked proof may upgrade it. A recorded
+   * prebook is never downgraded to unknown.
+   */
+  async recordSupplierPrebook(tenantId: string, bookingId: string, record: RecordedSupplierPrebook): Promise<void> {
+    await this.prisma.withTenant(tenantId, async tx => {
+      const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
+      if (!booking || booking.status !== 'PENDING') throw new ConflictException('Booking is not pending')
+      const snapshot = booking.searchSnapshot
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) throw new ConflictException('Booking snapshot is invalid')
+      const prior = readSupplierPrebook(snapshot)
+      if (prior?.outcome === 'prebooked' && record.outcome === 'unknown') throw new ConflictException('Supplier prebook is already recorded')
+      if (prior?.supplierReference && record.supplierReference && prior.supplierReference !== record.supplierReference) {
+        throw new ConflictException('Supplier reference does not match')
+      }
+      if (prior && prior.outcome === record.outcome && prior.supplierReference === record.supplierReference && prior.code === record.code) return
+      const supplierPrebook = {
+        outcome: record.outcome,
+        ...(record.supplierReference ? { supplierReference: record.supplierReference } : {}),
+        ...(record.code ? { code: record.code } : {}),
+      }
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { searchSnapshot: { ...(snapshot as Prisma.JsonObject), supplierPrebook } },
+      })
+    })
+  }
+
   private assertAuthoritativeHold(hold: {
     status: string
     expiresAt: Date
@@ -132,7 +182,7 @@ export class BookingPersistenceService {
       existing.currency !== command.currency ||
       existing.totalMinor !== BigInt(command.totalMinor) ||
       existing.status !== 'PENDING' ||
-      JSON.stringify(existing.searchSnapshot) !== JSON.stringify(snapshot)
+      !sameCommercialSnapshot(existing.searchSnapshot, snapshot)
     ) {
       throw new ConflictException('Booking idempotency key was reused with different booking intent')
     }

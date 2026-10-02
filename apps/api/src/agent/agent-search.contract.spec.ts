@@ -13,9 +13,9 @@ import type { Request, Response } from 'express'
 import type { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 
-// Stay dates are relative to today: the search validator rejects past check-ins, so fixed dates rot.
-const stayDay = (offsetDays: number) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
-const criteria = { destination: 'Dubai', checkIn: stayDay(30), checkOut: stayDay(33),
+const stayStart = new Date(Date.now() + 30 * 86400000)
+const stayEnd = new Date(stayStart.getTime() + 3 * 86400000)
+const criteria = { destination: 'Dubai', checkIn: stayStart.toISOString().slice(0, 10), checkOut: stayEnd.toISOString().slice(0, 10),
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
 const identity = { user: { id: 'user-a' } } as AuthenticatedUser
 const hotel = {
