@@ -193,3 +193,13 @@ test('dashboard sellability card reads the API summary and computes nothing in t
   assert.match(card, /OpsState/, 'failures use the shared distinct states, never zero')
   assert.match(readFileSync(join(root, 'app', '(dashboard)', 'dashboard', 'page.tsx'), 'utf8'), /<SellabilityCard \/>/)
 })
+
+test('dashboard department slices come from the readiness API and the department catalogue', () => {
+  const slices = readFileSync(join(root, 'components', 'dashboard', 'DepartmentSlices.tsx'), 'utf8')
+  assert.match(slices, /getOpsReadiness/)
+  assert.match(slices, /departments\.find/, 'names come from the catalogue')
+  assert.doesNotMatch(slices, /Math\.|reduce\(|toFixed|\* 100|evaluate/, 'no arithmetic or readiness logic in React')
+  assert.match(slices, /state === 'unavailable'/, 'a denied section is shown as denied, never as zeros')
+  for (const planned of ['commercial', 'distribution', 'clients', 'service', 'risk', 'markets', 'reliability']) assert.doesNotMatch(slices, new RegExp(`id="${planned}"`), `${planned} is not built`)
+  assert.match(readFileSync(join(root, 'app', '(dashboard)', 'dashboard', 'page.tsx'), 'utf8'), /<DepartmentSlices \/>/)
+})

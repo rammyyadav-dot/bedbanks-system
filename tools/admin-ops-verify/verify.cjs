@@ -28,14 +28,31 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   check('Sidebar groups live modules by department', ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Finance', 'Platform'].every((g) => new RegExp(g, 'i').test(sidebar)), sidebar.slice(0, 120))
   check('Sidebar lists no planned department module', !/Markups|Promotions|Agencies|Refunds|Risk flags|Cases/.test(sidebar))
 
+  // 0b. dashboard department slices: same numbers as the readiness page, honest per-section denial
+  await page.goto(`${BASE}/dashboard`); await page.waitForSelector('[data-testid=dept-reservations]', { timeout: 20000 })
+  const dept = async (id) => (await page.locator(`[data-testid=dept-${id}]`).innerText()).replace(/\s+/g, ' ')
+  const res = await dept('reservations')
+  check('Reservations slice shows booking counts from the API (1 pending, 1 confirmed, 1 cancelled before reconcile)', /1\s*Pending/.test(res) && /1\s*Confirmed/.test(res) && /1\s*Cancelled/.test(res) && /0\s*Failed/.test(res), res.slice(0, 120))
+  check('Every functional department has a slice', (await Promise.all(['contracting', 'mapping', 'rates', 'connectivity', 'reservations', 'reconciliation'].map((d) => page.locator(`[data-testid=dept-${d}]`).count()))).every((n) => n === 1))
+  check('Slice tile drills into the filtered view', (await page.locator('[data-testid=dept-reservations] a[href="/bookings?status=FAILED"]').count()) === 1)
+  await page.route('**/api/v1/admin/operations/readiness*', async (r) => { const j = await (await r.fetch()).json(); j.data.transactions = { state: 'unavailable', reason: 'OPERATIONS_READ_DENIED' }; await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(j) }) })
+  await page.reload(); await page.waitForSelector('[data-testid=dept-reservations] [data-state=denied]', { timeout: 20000 })
+  check('A denied section shows denied (not zeros) while the other departments keep their data', (await page.locator('[data-testid=dept-reconciliation] [data-state=denied]').count()) === 1 && (await page.locator('[data-testid=dept-connectivity] [data-state=denied]').count()) === 0 && !/0\s*Confirmed/.test(await dept('reservations')))
+  await page.unroute('**/api/v1/admin/operations/readiness*')
+
   // 1. every operations list view renders real data, with table headers and a pager
-  for (const [path, mustContain] of [['/bookings', 'CONFIRMED'], ['/holds', 'HELD'], ['/cancellations', 'MATCH'], ['/finance/wallets', 'Available credit'], ['/finance/ledger', 'DEBIT'], ['/audit?action=booking.', 'booking.'], ['/connectors', 'api_key: configured'], ['/operations/hotels', 'BLOCKED|READY'], ['/reconciliation', 'Stalled hold|PREBOOK_EXPIRED']]) {
+  for (const [path, mustContain] of [['/bookings', 'CONFIRMED'], ['/holds', 'HELD'], ['/cancellations', 'MATCH'], ['/finance/wallets', 'Available credit'], ['/finance/ledger', 'DEBIT'], ['/audit', 'Audit explorer'], ['/connectors', 'api_key: configured'], ['/operations/hotels', 'BLOCKED|READY'], ['/reconciliation', 'Stalled hold|PREBOOK_EXPIRED']]) {
     await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-state], .admin-empty', { timeout: 15000 })
     // a cold server can answer after the first paint: wait for the expected content, and let the check below fail if it never comes
     await page.waitForFunction((src) => new RegExp(src).test(document.body.innerText), mustContain, { timeout: 15000 }).catch(() => {})
     const t = await text(page)
     check(`${path} shows API data`, new RegExp(mustContain).test(t), t.slice(0, 90))
   }
+  // the unfiltered first page can be filled by tenant.context.selected events, so filter through the UI
+  await page.goto(`${BASE}/audit`); await page.waitForSelector('table')
+  await page.getByLabel('Action prefix').fill('booking.'); await page.getByRole('button', { name: 'Apply' }).click()
+  await page.waitForFunction(() => /booking\./.test(document.body.innerText) , null, { timeout: 15000 }).catch(() => {})
+  check('/audit filtered to booking. shows booking events', /booking\./.test(await text(page)))
   await page.goto(`${BASE}/connectors`); await page.waitForSelector('table')
   check('/connectors never renders the secret reference', !(await page.content()).includes('vault://never-shown'))
   await page.goto(`${BASE}/bookings`); await page.waitForSelector('table')
@@ -91,7 +108,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.unroute('**/api/v1/admin/operations/bookings*')
 
   // 6. accessibility (axe) on the data pages
-  for (const path of ['/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
+  for (const path of ['/dashboard', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
     await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-testid=booking-360], section')
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const serious = axe.violations.filter(v => ['serious', 'critical'].includes(v.impact))
