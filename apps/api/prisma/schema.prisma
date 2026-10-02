@@ -57,6 +57,8 @@ enum ApprovalRequestStatus {
   APPROVED
   REJECTED
   CANCELLED
+  /// An APPROVED request that its owning service has claimed and run. Single use.
+  EXECUTED
 }
 
 model ApprovalRequest {
@@ -79,6 +81,9 @@ model ApprovalRequest {
   decidedBy      User?                 @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
   decidedAt      DateTime?             @map("decided_at")
   decisionReason String?               @map("decision_reason")
+  executedById   String?               @map("executed_by_id")
+  executedBy     User?                 @relation("ApprovalExecutor", fields: [executedById], references: [id], onDelete: Restrict)
+  executedAt     DateTime?             @map("executed_at")
   createdAt      DateTime              @default(now()) @map("created_at")
   updatedAt      DateTime              @updatedAt @map("updated_at")
 
@@ -281,6 +286,7 @@ model User {
   auditEvents AuditEvent[]
   approvalsRequested ApprovalRequest[] @relation("ApprovalRequester")
   approvalsDecided ApprovalRequest[] @relation("ApprovalDecider")
+  approvalsExecuted ApprovalRequest[] @relation("ApprovalExecutor")
 
   @@map("users")
 }

@@ -56,6 +56,7 @@ async function main() {
   const all = ['booking.read', 'booking.reconcile', 'booking.cancel', 'finance.read', 'audit.read', 'supply.hotels.read', 'supply.suppliers.read', 'supply.rates.read', 'supply.contracts.read', 'supply.mappings.read']
   const owner = await user(`owner-${tag}@verify.test`, A.t.id, 'owner', all)
   await user(`viewer-${tag}@verify.test`, A.t.id, 'viewer', ['supply.hotels.read'])
+  await user(`checker-${tag}@verify.test`, A.t.id, 'checker', ['booking.read', 'booking.reconcile']) // second person for maker-checker
   await user(`bowner-${tag}@verify.test`, B.t.id, 'owner', all)
   async function book(f: typeof A, key: string, finish: 'confirm' | 'cancel' | 'none') {
     const hold = await holds.create({ tenantId: f.t.id, userId: owner.id, requestId: `${key}-req`, idempotencyKey: key, offerId: `o-${key}`, searchId: `s-${key}`, ratePlanId: f.rp.id, canonicalHotelId: f.hotel.id, canonicalRoomTypeId: f.room.id, boardBasisId: f.board.id, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 125_100, offerExpiresAt: new Date(Date.now() + 3_600_000).toISOString() })
@@ -71,7 +72,7 @@ async function main() {
   await prisma.$executeRaw`UPDATE "SupplierMutation" SET acknowledged_at = now() - interval '2 hours', updated_at = now() - interval '2 hours' WHERE booking_id = ${s.bookingId}`
   await book(B, `${tag}-b`, 'confirm')
   await prisma.connectorDefinition.create({ data: { tenantId: A.t.id, supplierId: A.sup.id, type: 'API_JSON', status: 'DRAFT', name: `${tag} connector`, version: '1', credentialReferences: { create: [{ secretRef: 'vault://never-shown', purpose: 'api_key' }] } } })
-  const out = { password, ownerEmail: `owner-${tag}@verify.test`, viewerEmail: `viewer-${tag}@verify.test`, bownerEmail: `bowner-${tag}@verify.test`, confirmedBookingId: c.bookingId, stuckBookingId: s.bookingId, tenantA: A.t.id, tenantB: B.t.id, hotelAName: `${tag}-a hotel` }
+  const out = { password, ownerEmail: `owner-${tag}@verify.test`, viewerEmail: `viewer-${tag}@verify.test`, checkerEmail: `checker-${tag}@verify.test`, bownerEmail: `bowner-${tag}@verify.test`, confirmedBookingId: c.bookingId, stuckBookingId: s.bookingId, tenantA: A.t.id, tenantB: B.t.id, hotelAName: `${tag}-a hotel` }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed.json', JSON.stringify(out, null, 2)); console.log('seeded', Object.keys(out).join(','))
   await prisma.$disconnect()
 }

@@ -33,6 +33,11 @@ export interface PermissionDef {
   status: PermissionStatus
   /** For a planned key: the enforced key it will eventually refine. Renaming is a separate, reviewed migration. */
   refines?: string
+  /**
+   * An approval action, not a grantable permission: it names what a maker-checker request authorises (ADR 0016).
+   * Access to request, decide and execute it is gated by the permission in `refines`.
+   */
+  approvalOnly?: true
   description: string
 }
 
@@ -79,7 +84,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   planned('connector.recheck.activate', 'connectivity', 'S3', 'Activate recheck capability on a connector'),
   planned('connector.booking.activate', 'connectivity', 'S3', 'Activate booking capability on a connector (technical and release approval)'),
   planned('connector.cancel.activate', 'connectivity', 'S3', 'Activate cancellation capability on a connector'),
-  planned('reconciliation.resolve', 'reconciliation', 'S3', 'Resolve an unknown supplier outcome through the canonical service', 'booking.reconcile'),
+  { key: 'reconciliation.resolve', department: 'reconciliation', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'booking.reconcile', approvalOnly: true, description: 'Approve a reconciliation run through the canonical service (maker-checker, ADR 0017)' },
   planned('credit_limit.approve', 'finance', 'S3', 'Approve an agent credit limit (dual control)'),
   planned('refund.request', 'finance', 'S2', 'Request a refund'),
   planned('refund.approve', 'finance', 'S3', 'Approve a refund (requester and approver differ)'),
@@ -136,19 +141,19 @@ export const departments: readonly DepartmentDef[] = [
   { id: 'clients', label: 'Agents & Clients', summary: 'B2B buyer management', modules: [todo('Agencies'), todo('Agent users'), todo('Commercial profiles')] },
   { id: 'finance', label: 'Finance', summary: 'Money and settlement', modules: [live('/finance/wallets', 'Wallets', 'finance.read'), live('/finance/ledger', 'Ledger', 'finance.read'), todo('Receivables and payables'), todo('Refunds')] },
   { id: 'service', label: 'Service Operations', summary: 'Cases and escalations', modules: [todo('Cases'), todo('Escalations')] },
-  { id: 'risk', label: 'Risk & Compliance', summary: 'Verification and governance', modules: [todo('Verification'), todo('Risk flags'), todo('Access reviews')] },
-  { id: 'markets', label: 'Market Operations', summary: 'Regions, countries and destinations', modules: [todo('Market supply and sellability')] },
+  { id: 'risk', label: 'Risk & Compliance', summary: 'Verification and governance', modules: [live('/access-review', 'Access reviews', 'audit.read'), todo('Verification'), todo('Risk flags')] },
+  { id: 'markets', label: 'Market Operations', summary: 'Regions, countries and destinations', modules: [live('/markets', 'Destinations', 'supply.hotels.read'), todo('Market bookings and revenue')] },
   { id: 'platform', label: 'Platform Administration', summary: 'Tenants, users, roles and configuration', modules: [live('/access', 'Roles & Permissions'), live('/settings', 'Settings'), todo('Tenants'), todo('Users')] },
-  { id: 'reliability', label: 'System & Reliability', summary: 'Platform health', modules: [todo('System and queue health'), todo('Incidents')] },
+  { id: 'reliability', label: 'System & Reliability', summary: 'Platform health', modules: [live('/reliability', 'System health', 'booking.read'), todo('Incidents')] },
   { id: 'audit', label: 'Audit & Security', summary: 'Evidence and investigation', modules: [live('/audit', 'Audit explorer', 'audit.read')] },
 ]
 
 /** Sidebar groups: departments folded into the sections an operator works in. Only live modules render. */
 export const sidebarGroups: ReadonlyArray<{ label: string; departments: readonly DepartmentId[] }> = [
-  { label: 'Control tower', departments: ['executive'] },
+  { label: 'Control tower', departments: ['executive', 'markets'] },
   { label: 'Supply & contracting', departments: ['contracting', 'supply', 'mapping', 'connectivity'] },
   { label: 'Rates & inventory', departments: ['rates'] },
   { label: 'Reservations', departments: ['reservations', 'reconciliation'] },
   { label: 'Finance', departments: ['finance'] },
-  { label: 'Platform', departments: ['platform', 'audit'] },
+  { label: 'Platform', departments: ['platform', 'audit', 'risk', 'reliability'] },
 ]

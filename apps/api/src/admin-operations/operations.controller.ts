@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
-import { operationsPermissions, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest } from '@bedbanks/contracts'
+import { operationsPermissions, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
@@ -10,6 +10,9 @@ import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
 import { OperationsHotelsService } from './operations-hotels.service'
+import { OperationsFinanceAuditService } from './operations-finance-audit.service'
+import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
+import { OperationsGovernanceService } from './operations-governance.service'
 import { OperationsSupplyService } from './operations-supply.service'
 import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -25,7 +28,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -100,6 +103,25 @@ export class OperationsController {
   @Post('reconciliation/run') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
   reconcile(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Body() body: ReconcileRequest) { return this.tx.reconcile(tenantId, identity.user.id, requestIdOf(req), body ?? {}) }
 
+  // ---- maker-checker for a reconciliation run (ADR 0017): both sides hold booking.reconcile; the service enforces maker != checker ----
+  @Post('reconciliation/approvals') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  requestReconciliationApproval(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Body() body: ReconciliationApprovalRequest) { return this.reconApprovals.request(tenantId, identity.user.id, body ?? ({} as ReconciliationApprovalRequest)) }
+
+  @Get('reconciliation/approvals') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  reconciliationApprovals(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.reconApprovals.list(tenantId, identity.user.id, query) }
+
+  @Post('reconciliation/approvals/:approvalId/approve') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  approveReconciliation(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string, @Body() body: ReconciliationApprovalDecision) { return this.reconApprovals.decide(tenantId, identity.user.id, approvalId, 'APPROVED', body) }
+
+  @Post('reconciliation/approvals/:approvalId/reject') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  rejectReconciliation(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string, @Body() body: ReconciliationApprovalDecision) { return this.reconApprovals.decide(tenantId, identity.user.id, approvalId, 'REJECTED', body) }
+
+  @Post('reconciliation/approvals/:approvalId/cancel') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  cancelReconciliationApproval(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.reconApprovals.cancel(tenantId, identity.user.id, approvalId) }
+
+  @Post('reconciliation/approvals/:approvalId/execute') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  executeReconciliationApproval(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Param('approvalId') approvalId: string) { return this.reconApprovals.execute(tenantId, identity.user.id, approvalId, requestIdOf(req)) }
+
   @Get('cancellations') @RequirePermission('booking.cancel') @UseGuards(AgentRbacGuard)
   cancellations(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.cancellations(tenantId, query) }
 
@@ -108,6 +130,24 @@ export class OperationsController {
 
   @Get('ledger') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
+
+  @Get('markets/summary') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
+  marketsSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.markets(tenantId, query) }
+
+  @Get('reliability/summary') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  reliabilitySummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.governance.reliability(tenantId, query) }
+
+  @Get('access-review/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  accessReviewSummary(@ActiveTenant() tenantId: string) { return this.governance.accessReview(tenantId) }
+
+  @Get('access-review/users') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  accessReviewUsers(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.governance.accessReviewUsers(tenantId, query) }
+
+  @Get('finance/summary') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  financeSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.financeSummary(tenantId, query) }
+
+  @Get('audit/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  auditSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.auditSummary(tenantId, query) }
 
   @Get('audit') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   audit(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.audit(tenantId, query) }
