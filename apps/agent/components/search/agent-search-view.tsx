@@ -15,7 +15,7 @@ import { buildRoomStays, type RoomStayDraft } from '@/lib/occupancy'
 import { canSubmitDestination } from '@/lib/destination-suggestions'
 import { criteriaFilters, type FilterDraft } from '@/lib/search-filters'
 import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
-import { recheckOutcomeMessage, recheckOutcomeTitle } from '@/lib/recheck-copy'
+import { canOpenCheckout, recheckOutcomeMessage, recheckOutcomeTitle } from '@/lib/recheck-copy'
 import { priceChangeDisplay, recheckBaselineMinor, recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
@@ -279,7 +279,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       {recheck?.status === 'offer_expired' && !rechecking && <button className="portal-primary" type="button" onClick={onRefresh}>Refresh rates</button>}
       {(recheck?.status === 'provider_unavailable' || recheck?.status === 'rejected' || recheck?.status === 'mapping_invalid') && !rechecking && <button className="portal-primary" type="button" onClick={() => choose(selection.room, selection.rate)}>Try again</button>}
       {recheck && <RecheckOutcome result={recheck} currency={selection.rate.total.currency} priceMove={priceMove} bookingEnabled={bookingEnabled} />}
-      {bookingEnabled && recheck?.status === 'rechecked' && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} />}</div>}
+      {canOpenCheckout(bookingEnabled, recheck?.status) && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} />}</div>}
   </section>
 }
 

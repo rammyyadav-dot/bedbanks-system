@@ -203,6 +203,33 @@ test('keeps per-room occupancy and rejects a flattened mismatch', () => {
   assert.equal(validateSearchHotels([sample], mixed).ok, false)
 })
 
+test('echoes room occupancy, nationality, currency, sort and filters through a paged response', () => {
+  const stays = [{ adults: 2, children: [] }, { adults: 2, children: [{ age: 7 }] }]
+  const pageCriteria = {
+    ...criteria, rooms: 2, adults: 4, children: 1, childAges: [7], roomStays: stays,
+    nationality: 'AE', currency: 'AED', sort: 'name', limit: 25, offset: 0,
+    filters: { starRatings: [5], refundableOnly: true },
+    destinationRef: { type: 'city', id: 'city:AE:dubai', countryCode: 'AE' },
+  }
+  const sample = hotel()
+  sample.rooms[0].rates[0].occupancy = { rooms: 2, adults: 4, children: 1, childAges: [7] }
+  const response = {
+    version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z',
+    status: 'available', request: pageCriteria, hotels: [sample], total: 1,
+    providerSummary: { queried: 1, succeeded: 1, failed: 0 },
+  }
+  const validated = validateAgentSearchResponse(response, pageCriteria)
+  assert.equal(validated.ok, true)
+  assert.deepEqual(validated.response.request.roomStays, stays)
+  assert.equal(validated.response.request.nationality, 'AE')
+  assert.equal(validated.response.request.currency, 'AED')
+  assert.equal(validated.response.request.sort, 'name')
+  assert.deepEqual(validated.response.request.filters, pageCriteria.filters)
+  const later = { ...pageCriteria, offset: 25 }
+  assert.equal(validSearchCriteria(later), true)
+  assert.equal(validateAgentSearchResponse(response, later).ok, false)
+})
+
 test('matches a city exactly and a hotel only by its canonical id', () => {
   const marina = hotel()
   marina.hotelId = 'hotel-b'

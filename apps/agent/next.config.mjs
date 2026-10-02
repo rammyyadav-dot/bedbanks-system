@@ -13,7 +13,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  transpilePackages: ['@bedbanks/ui'],
+  transpilePackages: ['@bedbanks/ui', '@bedbanks/contracts'],
   async rewrites() {
     // The session cookie is host-only on the Agent origin, so browser API calls
     // stay same-origin and are proxied to the API (ADR 0010).

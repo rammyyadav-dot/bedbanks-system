@@ -21,6 +21,7 @@ import { fetchDestinations, fetchFacets, type SearchFacets } from '@/lib/destina
 import { defaultSearchStay } from '@/lib/stay-calendar'
 import { appendHotelPage } from '@/lib/search-page'
 import { beginSearchRun, invalidateSearchRun, settleSearchRun } from '@/lib/search-attempt'
+import { replaceSearchResult } from '@/lib/search-refresh'
 import { canReplayRecentSearch, rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
 import type { HotelSearchResult } from '@/types/hotel'
 
@@ -208,7 +209,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     try {
       const result = await new ApiHotelService().search(built.criteria, tenantId)
       if (!settleSearchRun({ generation: searchGeneration.current, searching: searchingRef.current }, generation).apply) return
-      if (previous && requestFailure(result)) {
+      if (!replaceSearchResult(previous !== null, result.status)) {
         setSearchFailed(true)
         setRefreshError(result.failureMessage || 'This search failed. The hotels below are still the previous successful search.')
         return

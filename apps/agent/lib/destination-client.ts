@@ -1,4 +1,5 @@
 import type { DestinationResolution } from '@bedbanks/domain'
+import { routes } from '@bedbanks/contracts'
 import { agentApiBase } from './api-config.mjs'
 
 export type SearchFacets = { boards: { id: string; name: string }[]; propertyTypes: string[] }
@@ -13,7 +14,7 @@ async function readData(path: string, tenantId: string): Promise<unknown> {
 
 export async function fetchDestinations(query: string, tenantId: string): Promise<DestinationResolution[]> {
   try {
-    const data = await readData(`/agent/destinations?q=${encodeURIComponent(query.trim())}`, tenantId)
+    const data = await readData(`${routes.agent.destinations}?q=${encodeURIComponent(query.trim())}`, tenantId)
     if (!data || typeof data !== 'object' || !('results' in data) || !Array.isArray(data.results)) return []
     return data.results.filter(isResolution)
   } catch {
@@ -23,7 +24,7 @@ export async function fetchDestinations(query: string, tenantId: string): Promis
 
 export async function fetchFacets(tenantId: string): Promise<SearchFacets> {
   try {
-    const data = await readData('/agent/search-facets', tenantId)
+    const data = await readData(routes.agent.searchFacets, tenantId)
     if (!data || typeof data !== 'object') return { boards: [], propertyTypes: [] }
     const row = data as { boards?: unknown; propertyTypes?: unknown }
     const boards = Array.isArray(row.boards) ? row.boards.filter((item): item is { id: string; name: string } => !!item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && typeof (item as { name?: unknown }).name === 'string') : []
