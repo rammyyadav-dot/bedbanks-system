@@ -169,9 +169,9 @@ export interface BookingTransactionCommand {
 }
 
 /**
- * Internal orchestration states. These deliberately do not replace Prisma BookingStatus:
- * InventoryHold remains the temporary inventory authority and supplier confirmation is
- * not enabled by this contract.
+ * Internal orchestration states. These deliberately do not replace Prisma BookingStatus.
+ * InventoryHold remains the temporary inventory authority. UNKNOWN means the supplier
+ * mutation outcome was not observed; it is not a failure and it is not a confirmation.
  */
 export type BookingTransactionState =
   | 'RECHECKED'
@@ -181,3 +181,4 @@ export type BookingTransactionState =
   | 'BOOKING_PENDING'
   | 'CONFIRMED'
   | 'FAILED'
+  | 'UNKNOWN'

@@ -2,11 +2,18 @@ import { BookingReconciliationService, DEFAULT_STALE_MINUTES, MIN_STALE_MINUTES 
 
 const NOW = new Date('2099-01-01T12:00:00.000Z')
 
-function setup(options: { holds?: string[]; booking?: any; prebookedMinutesAgo?: number; reservation?: any; claim?: number } = {}) {
+function setup(options: { holds?: string[]; booking?: any; prebookedMinutesAgo?: number; reservation?: any; claim?: number; unknown?: boolean; reviewCount?: number } = {}) {
   const tx = {
     inventoryHold: { findMany: jest.fn().mockResolvedValue((options.holds ?? ['hold-a']).map((id) => ({ id }))) },
-    booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: options.claim ?? 1 }) },
-    auditEvent: { findFirst: jest.fn().mockResolvedValue(options.prebookedMinutesAgo === undefined ? null : { createdAt: new Date(NOW.getTime() - options.prebookedMinutesAgo * 60_000) }) },
+    booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: NOW } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: options.claim ?? 1 }) },
+    auditEvent: {
+      findFirst: jest.fn().mockImplementation((args: { where?: { action?: string } }) => {
+        if (args?.where?.action === 'booking.prebook.succeeded' && options.prebookedMinutesAgo !== undefined) return { createdAt: new Date(NOW.getTime() - options.prebookedMinutesAgo * 60_000) }
+        if (args?.where?.action === 'booking.prebook.unknown' && options.unknown) return { id: 'unknown-audit' }
+        return null
+      }),
+      count: jest.fn().mockResolvedValue(options.reviewCount ?? 0),
+    },
     ledgerEntry: { findFirst: jest.fn().mockResolvedValue(options.reservation === undefined ? { walletId: 'wallet-a' } : options.reservation) },
   }
   const prisma = { withTenant: jest.fn((_t: string, work: (t: unknown) => unknown) => work(tx)) }
@@ -91,6 +98,37 @@ describe('BookingReconciliationService', () => {
     const result = await run(service, { dryRun: true })
     expect(result).toMatchObject({ dryRun: true, items: [{ outcome: 'would_reconcile' }] })
     expect(finance.release).not.toHaveBeenCalled(); expect(holds.release).not.toHaveBeenCalled(); expect(tx.booking.updateMany).not.toHaveBeenCalled(); expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unknown supplier outcome for manual review and does not release inventory', async () => {
+    const { service, finance, holds, tx, audit } = setup({ unknown: true })
+    expect((await run(service)).items[0]).toEqual({ holdId: 'hold-a', bookingId: 'booking-a', outcome: 'manual_review_required' })
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+    expect(tx.booking.updateMany).not.toHaveBeenCalled()
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.reconciliation.manual_review', entityId: 'booking-a' }))
+    audit.record.mockClear()
+    const repeat = setup({ unknown: true, reviewCount: 1 })
+    expect((await run(repeat.service)).items[0].outcome).toBe('manual_review_required')
+    expect(repeat.audit.record).not.toHaveBeenCalled()
+    expect(repeat.holds.release).not.toHaveBeenCalled()
+  })
+
+  it('treats a durable supplier reference without the success audit as still prebooked', async () => {
+    const snapshot = { supplierPrebook: { outcome: 'prebooked', supplierReference: 'supplier-ref-a' } }
+    const { service, finance, holds } = setup({ booking: { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: new Date(NOW.getTime() - 10 * 60_000), searchSnapshot: snapshot } })
+    expect((await run(service)).items[0].outcome).toBe('prebooked_awaiting_confirmation')
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('keeps a snapshot-only unknown outcome without releasing inventory', async () => {
+    const snapshot = { supplierPrebook: { outcome: 'unknown', code: 'timeout' } }
+    const { service, finance, holds, tx } = setup({ booking: { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: NOW, searchSnapshot: snapshot } })
+    expect((await run(service)).items[0].outcome).toBe('manual_review_required')
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+    expect(tx.booking.updateMany).not.toHaveBeenCalled()
   })
 
   it('isolates a failing item, audits it and continues with the rest', async () => {
