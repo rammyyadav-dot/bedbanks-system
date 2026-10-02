@@ -53,7 +53,7 @@ async function main() {
     return u
   }
   const A = await tenant(`${tag}-a`); const B = await tenant(`${tag}-b`)
-  const all = ['booking.read', 'booking.reconcile', 'booking.cancel', 'finance.read', 'audit.read', 'supply.hotels.read', 'supply.suppliers.read', 'supply.rates.read', 'supply.rates.manage', 'supply.contracts.read', 'supply.mappings.read']
+  const all = ['booking.read', 'booking.reconcile', 'booking.cancel', 'finance.read', 'audit.read', 'supply.hotels.read', 'supply.suppliers.read', 'supply.rates.read', 'supply.rates.manage', 'supply.contracts.read', 'supply.mappings.read', 'agency.read', 'agency.manage', 'case.read', 'case.manage', 'distribution.read', 'distribution.manage']
   const owner = await user(`owner-${tag}@verify.test`, A.t.id, 'owner', all)
   await user(`viewer-${tag}@verify.test`, A.t.id, 'viewer', ['supply.hotels.read'])
   await user(`checker-${tag}@verify.test`, A.t.id, 'checker', ['booking.read', 'booking.reconcile', 'supply.rates.read', 'supply.rates.manage']) // second person for maker-checker

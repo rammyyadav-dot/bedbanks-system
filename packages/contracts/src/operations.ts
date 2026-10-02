@@ -13,7 +13,8 @@ export const operationsPermissions = {
   auditRead: 'audit.read',
 } as const
 export type OperationsPermission = (typeof operationsPermissions)[keyof typeof operationsPermissions]
-export interface OperationsCapabilities { permissions: OperationsPermission[] }
+import type { DepartmentPermission } from './departments'
+export interface OperationsCapabilities { permissions: Array<OperationsPermission | DepartmentPermission> }
 
 /** Machine-readable error codes the Admin branches on (in addition to the generic HTTP-status codes). */
 export const OPERATIONS_READ_DENIED = 'OPERATIONS_READ_DENIED'

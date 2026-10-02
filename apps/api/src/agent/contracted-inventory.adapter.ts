@@ -8,6 +8,7 @@ import { commercialLeadDays, evaluateContractedStay, stayDates } from '../supply
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, type MarkupRuleRow } from '../supply/markup-rules'
 import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
+import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
 import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
@@ -98,7 +99,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       const nights = stayDates(criteria.checkIn, criteria.checkOut)
       const plans = await this.loadPlans(context.tenantId, criteria, nights)
       const rules = await this.markupRules(context.tenantId)
-      const offers = this.toOffers(plans, criteria, context.tenantId, nights, rules)
+      const restrictions = await this.restrictionsFor(context.tenantId, context.userId)
+      const offers = this.toOffers(plans.filter((plan) => !isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })), criteria, context.tenantId, nights, rules)
       return { offers, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
     } catch (error) {
       if (error instanceof SupplierProviderError) throw error
@@ -112,7 +114,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       const stored = await this.readOffer(context.tenantId, request.offerId)
       if (!stored) return { status: 'unavailable' }
       if (Date.parse(stored.expiresAt) <= Date.now()) return { status: 'offer_expired' }
-      const decision = await this.reprice(context.tenantId, stored)
+      const decision = await this.reprice(context.tenantId, stored, await this.restrictionsFor(context.tenantId, context.userId))
       if (!decision) return { status: 'unavailable' }
       const offer: RecheckedOfferAuthority = {
         offerId: stored.offerId,
@@ -243,6 +245,11 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   /** ACTIVE markup rules for NET rates. If the database role cannot read them, NET rates stay unsellable and that is logged. */
   private markupRules(tenantId: string): Promise<MarkupRuleRow[]> {
     return loadActiveMarkupRules(this.prisma, tenantId, () => this.logger.warn('Markup rules are not readable by the API database role; NET rates are not sellable'))
+  }
+
+  /** Distribution restrictions of the searching user's agency. Unreadable means none, and that is logged. */
+  private restrictionsFor(tenantId: string, userId: string | undefined): Promise<DistributionRestrictions> {
+    return loadDistributionRestrictions(this.prisma, tenantId, userId, () => this.logger.warn('Distribution restrictions are not readable by the API database role; none are applied'))
   }
 
   private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[]): SearchHotelOffer[] {
@@ -421,7 +428,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     return { hotel, rate }
   }
 
-  private async reprice(tenantId: string, stored: StoredOffer): Promise<number | null> {
+  private async reprice(tenantId: string, stored: StoredOffer, restrictions: DistributionRestrictions): Promise<number | null> {
     const criteria: SearchCriteria = {
       destination: '',
       canonicalHotelIds: [stored.canonicalHotelId],
@@ -438,7 +445,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const plans = await this.loadPlans(tenantId, criteria, nights)
     const rules = await this.markupRules(tenantId)
     const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
-    if (!plan) return null
+    if (!plan || isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })) return null
     const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, commercialLeadDays(stored.checkIn), stored.expiresAt, rules, false)
     if (!priced || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
     return priced.rate.sellAmountMinor

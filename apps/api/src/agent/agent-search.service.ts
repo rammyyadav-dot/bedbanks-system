@@ -83,7 +83,7 @@ export class AgentSearchService {
 
     let raw: Awaited<ReturnType<SupplierAdapter['search']>>
     try {
-      raw = await this.supplier.search(request, { tenantId, requestId })
+      raw = await this.supplier.search(request, { tenantId, requestId, userId: identity.user.id })
     } catch {
       return { version: 1, searchId, requestId, generatedAt, request, status: 'provider_unavailable', hotels: [], total: 0,
         pagination: this.pagination(request, 0, 0),

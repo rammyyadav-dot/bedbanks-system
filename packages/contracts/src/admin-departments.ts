@@ -68,6 +68,13 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('finance.read', 'finance', 'S0', 'View wallets and ledger'),
   enforced('audit.read', 'audit', 'S0', 'View tenant audit events'),
 
+  enforced('agency.read', 'clients', 'S0', 'View agencies and their members'),
+  enforced('agency.manage', 'clients', 'S1', 'Create and edit agencies and manage their members'),
+  enforced('case.read', 'service', 'S0', 'View service cases'),
+  enforced('case.manage', 'service', 'S1', 'Open, assign, update and add notes to service cases'),
+  enforced('distribution.read', 'distribution', 'S0', 'View distribution restrictions'),
+  enforced('distribution.manage', 'distribution', 'S2', 'Create and retire distribution restrictions that hide inventory from an agency'),
+
   // Planned: named by the department matrix, granted to nobody and enforced nowhere.
   planned('contract.approve', 'contracting', 'S3', 'Approve a commercial contract (maker-checker)', 'supply.contracts.manage'),
   planned('contract.terminate', 'contracting', 'S3', 'Terminate a contract', 'supply.contracts.manage'),
@@ -134,13 +141,13 @@ export const departments: readonly DepartmentDef[] = [
   { id: 'mapping', label: 'Mapping', summary: 'Normalize supplier inventory', modules: [live('/mappings', 'Mappings', 'supply.mappings.read'), todo('Duplicate candidates')] },
   { id: 'rates', label: 'Rates & Inventory', summary: 'Make contracted supply sellable', modules: [live('/board-basis', 'Board Basis', 'supply.rates.read'), live('/rates/plans', 'Rate Plans', 'supply.rates.read'), live('/rates', 'Rates & Inventory', 'supply.rates.read'), live('/sellability', 'Sellability', 'supply.rates.read')] },
   { id: 'commercial', label: 'Commercial', summary: 'Margin and pricing rules', modules: [live('/commercial/markups', 'Markups', 'supply.rates.read'), todo('Promotions'), todo('Pricing analysis')] },
-  { id: 'distribution', label: 'Distribution', summary: 'Where inventory is exposed', modules: [todo('Markets and channels'), todo('Distribution rules'), todo('Search monitor')] },
+  { id: 'distribution', label: 'Distribution', summary: 'Where inventory is exposed', modules: [live('/distribution/restrictions', 'Restrictions', 'distribution.read'), todo('Markets and channels'), todo('Search monitor')] },
   { id: 'connectivity', label: 'Supplier Connectivity', summary: 'External supply integrations', modules: [live('/suppliers', 'Suppliers', 'supply.suppliers.read'), live('/connectors', 'Connectors', 'booking.read')] },
   { id: 'reservations', label: 'Reservations', summary: 'Booking operations', modules: [live('/operations', 'Readiness', 'booking.read'), live('/bookings', 'Bookings', 'booking.read'), live('/holds', 'Inventory holds', 'booking.read'), live('/cancellations', 'Cancellations', 'booking.cancel')] },
   { id: 'reconciliation', label: 'Reconciliation', summary: 'Unknown and pending supplier outcomes', modules: [live('/reconciliation', 'Reconciliation', 'booking.reconcile')] },
-  { id: 'clients', label: 'Agents & Clients', summary: 'B2B buyer management', modules: [todo('Agencies'), todo('Agent users'), todo('Commercial profiles')] },
+  { id: 'clients', label: 'Agents & Clients', summary: 'B2B buyer management', modules: [live('/clients/agencies', 'Agencies', 'agency.read'), todo('Commercial profiles'), todo('Credit and wallet limits')] },
   { id: 'finance', label: 'Finance', summary: 'Money and settlement', modules: [live('/finance/wallets', 'Wallets', 'finance.read'), live('/finance/ledger', 'Ledger', 'finance.read'), todo('Receivables and payables'), todo('Refunds')] },
-  { id: 'service', label: 'Service Operations', summary: 'Cases and escalations', modules: [todo('Cases'), todo('Escalations')] },
+  { id: 'service', label: 'Service Operations', summary: 'Cases and escalations', modules: [live('/service/cases', 'Cases', 'case.read'), todo('Escalation policies')] },
   { id: 'risk', label: 'Risk & Compliance', summary: 'Verification and governance', modules: [live('/access-review', 'Access reviews', 'audit.read'), todo('Verification'), todo('Risk flags')] },
   { id: 'markets', label: 'Market Operations', summary: 'Regions, countries and destinations', modules: [live('/markets', 'Destinations', 'supply.hotels.read'), todo('Market bookings and revenue')] },
   { id: 'platform', label: 'Platform Administration', summary: 'Tenants, users, roles and configuration', modules: [live('/access', 'Roles & Permissions'), live('/settings', 'Settings'), todo('Tenants'), todo('Users')] },
@@ -152,8 +159,9 @@ export const departments: readonly DepartmentDef[] = [
 export const sidebarGroups: ReadonlyArray<{ label: string; departments: readonly DepartmentId[] }> = [
   { label: 'Control tower', departments: ['executive', 'markets'] },
   { label: 'Supply & contracting', departments: ['contracting', 'supply', 'mapping', 'connectivity'] },
-  { label: 'Rates & inventory', departments: ['rates', 'commercial'] },
+  { label: 'Rates & inventory', departments: ['rates', 'commercial', 'distribution'] },
   { label: 'Reservations', departments: ['reservations', 'reconciliation'] },
+  { label: 'Clients & service', departments: ['clients', 'service'] },
   { label: 'Finance', departments: ['finance'] },
   { label: 'Platform', departments: ['platform', 'audit', 'risk', 'reliability'] },
 ]

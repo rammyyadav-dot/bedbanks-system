@@ -2,7 +2,7 @@ import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbank
 
 export type HotelSearchCriteria = SearchCriteria
 export type HotelAvailability = SearchHotelOffer
-export interface SupplierSearchContext { tenantId: string; requestId: string }
+export interface SupplierSearchContext { tenantId: string; requestId: string; /** The searching user, when known. Contracted inventory applies that user's agency distribution restrictions. */ userId?: string }
 export interface SupplierSearchResult {
   offers: SearchHotelOffer[]
   providerSummary: { queried: number; succeeded: number; failed: number }

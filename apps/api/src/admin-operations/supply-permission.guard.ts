@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetadata } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import type { Request } from 'express'
-import type { SupplyPermission } from '@bedbanks/contracts'
+import type { DepartmentPermission, SupplyPermission } from '@bedbanks/contracts'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { PrismaService } from '../database/prisma.service'
 import { activeTenantId, sessionTenantId } from '../agent/tenant-context.guard'
@@ -9,6 +9,8 @@ import { activeTenantId, sessionTenantId } from '../agent/tenant-context.guard'
 export const REQUIRED_SUPPLY_PERMISSION = 'fbeds:required-supply-permission'
 /** Declares which existing `supply.*` permission a hotel-commercial handler needs. No new permission names are introduced. */
 export const RequireSupplyPermission = (permission: SupplyPermission) => SetMetadata(REQUIRED_SUPPLY_PERMISSION, permission)
+/** Same fail-closed formal-role check for the Clients, Service and Distribution permissions (ADR 0019). */
+export const RequireDepartmentPermission = (permission: DepartmentPermission) => SetMetadata(REQUIRED_SUPPLY_PERMISSION, permission)
 
 /**
  * Same rule as the supply endpoints: the caller's formal role assignments in the active tenant must include the key.
@@ -22,7 +24,7 @@ export class SupplyPermissionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>()
     const identity = (request as unknown as { user?: AuthenticatedUser }).user
     if (!identity) throw new ForbiddenException('Access denied')
-    const required = this.reflector.getAllAndOverride<SupplyPermission>(REQUIRED_SUPPLY_PERMISSION, [context.getHandler(), context.getClass()])
+    const required = this.reflector.getAllAndOverride<SupplyPermission | DepartmentPermission>(REQUIRED_SUPPLY_PERMISSION, [context.getHandler(), context.getClass()])
     if (!required) throw new ForbiddenException('Access denied')
     const tenantId = activeTenantId(request)
     if (sessionTenantId(identity, tenantId) !== tenantId) throw new ForbiddenException('Access denied')

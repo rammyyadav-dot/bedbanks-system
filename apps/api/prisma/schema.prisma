@@ -50,6 +50,162 @@ enum BookingDocumentType {
   CREDIT_NOTE
 }
 
+/// Clients, Service and Distribution (ADR 0019). Record-keeping and exposure control only: nothing here moves money,
+/// sets a credit limit, or changes a booking. A restriction hides inventory from one agency's members in Agent search.
+enum AgencyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Agency {
+  id          String       @id @default(cuid())
+  tenantId    String       @map("tenant_id")
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// Short stable code, unique per tenant (for example `GULF-TRAVEL`).
+  code        String
+  name        String
+  countryCode String?      @map("country_code") @db.Char(2)
+  status      AgencyStatus @default(ACTIVE)
+  /// Business notes only. Never guest PII, card data or credentials.
+  notes       String?
+  createdById String       @map("created_by_id")
+  createdBy   User         @relation("AgencyCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  members      AgencyMember[]
+  cases        ServiceCase[]
+  restrictions DistributionRestriction[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+/// A user belongs to at most one agency per tenant.
+model AgencyMember {
+  agencyId  String   @map("agency_id")
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([agencyId, userId])
+  @@unique([tenantId, userId])
+  @@index([tenantId, agencyId])
+}
+
+enum ServiceCaseCategory {
+  BOOKING
+  HOTEL
+  SUPPLIER
+  AGENCY
+  OTHER
+}
+
+enum ServiceCasePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ServiceCaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+/// A support case. It observes other records through optional links and never changes them.
+model ServiceCase {
+  id          String              @id @default(cuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// Human reference, unique per tenant (`SC-` plus eight characters).
+  reference   String
+  subject     String
+  /// Describe the problem with identifiers. Do not enter guest names, contact details or card data.
+  description String
+  category    ServiceCaseCategory
+  priority    ServiceCasePriority @default(NORMAL)
+  status      ServiceCaseStatus   @default(OPEN)
+  bookingId   String?             @map("booking_id")
+  booking     Booking?            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  hotelId     String?             @map("hotel_id")
+  hotel       Hotel?              @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  supplierId  String?             @map("supplier_id")
+  supplier    Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  agencyId    String?             @map("agency_id")
+  agency      Agency?             @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  openedById  String              @map("opened_by_id")
+  openedBy    User                @relation("CaseOpener", fields: [openedById], references: [id], onDelete: Restrict)
+  assigneeId  String?             @map("assignee_id")
+  assignee    User?               @relation("CaseAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  resolvedAt  DateTime?           @map("resolved_at")
+  closedAt    DateTime?           @map("closed_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  notes ServiceCaseNote[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+  @@index([tenantId, assigneeId, status])
+  @@index([tenantId, bookingId])
+}
+
+/// Append-only: the API role is granted INSERT and SELECT only.
+model ServiceCaseNote {
+  id        String      @id @default(cuid())
+  tenantId  String      @map("tenant_id")
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  caseId    String      @map("case_id")
+  case      ServiceCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  authorId  String      @map("author_id")
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  body      String
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([tenantId, caseId, createdAt])
+}
+
+enum DistributionScope {
+  HOTEL
+  SUPPLIER
+}
+
+enum DistributionRestrictionStatus {
+  ACTIVE
+  RETIRED
+}
+
+/// Hides one hotel, or all of one supplier's inventory, from the members of one agency in Agent search, recheck and hold.
+/// At most one ACTIVE restriction per (agency, scope, target): a partial unique index in the migration.
+model DistributionRestriction {
+  id          String                        @id @default(cuid())
+  tenantId    String                        @map("tenant_id")
+  tenant      Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId    String                        @map("agency_id")
+  agency      Agency                        @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  scope       DistributionScope
+  hotelId     String?                       @map("hotel_id")
+  hotel       Hotel?                        @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  supplierId  String?                       @map("supplier_id")
+  supplier    Supplier?                     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  status      DistributionRestrictionStatus @default(ACTIVE)
+  reason      String
+  createdById String                        @map("created_by_id")
+  createdBy   User                          @relation("RestrictionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  retiredAt   DateTime?                     @map("retired_at")
+  createdAt   DateTime                      @default(now()) @map("created_at")
+  updatedAt   DateTime                      @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([tenantId, agencyId, status])
+}
+
 /// Percent markup applied to NET daily rates (ADR 0018). Rules are immutable once created: only the status moves
 /// (DRAFT to ACTIVE through an approved request, ACTIVE or DRAFT to RETIRED). At most one ACTIVE rule exists per
 /// (tenant, scope, supplier, hotel): a partial unique index in the migration, which Prisma cannot model.
@@ -258,6 +414,11 @@ enum ConnectorExecutionStatus {
 }
 
 model Tenant {
+  agencies Agency[]
+  agencyMembers AgencyMember[]
+  serviceCases ServiceCase[]
+  serviceCaseNotes ServiceCaseNote[]
+  distributionRestrictions DistributionRestriction[]
   markupRules CommercialMarkupRule[]
   id        String   @id @default(cuid())
   name      String
@@ -312,6 +473,12 @@ model TenantSettings {
 }
 
 model User {
+  agencyMemberships AgencyMember[]
+  agenciesCreated Agency[] @relation("AgencyCreator")
+  casesOpened ServiceCase[] @relation("CaseOpener")
+  casesAssigned ServiceCase[] @relation("CaseAssignee")
+  caseNotes ServiceCaseNote[]
+  restrictionsCreated DistributionRestriction[] @relation("RestrictionCreator")
   markupRulesCreated CommercialMarkupRule[] @relation("MarkupRuleCreator")
   id           String    @id @default(cuid())
   email        String    @unique
@@ -452,6 +619,7 @@ model PlatformRoleAssignment {
 }
 
 model Booking {
+  serviceCases ServiceCase[]
   id             String         @id @default(cuid())
   tenantId       String         @map("tenant_id")
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -583,6 +751,8 @@ model AuditEvent {
 
 /// Tenant-owned commercial source. Credential material is never persisted here.
 model Supplier {
+  serviceCases ServiceCase[]
+  distributionRestrictions DistributionRestriction[]
   markupRules CommercialMarkupRule[]
   id              String         @id @default(cuid())
   tenantId        String         @map("tenant_id")
@@ -612,6 +782,8 @@ model Supplier {
 
 /// Canonical fBeds property identity, deliberately separate from supplier IDs.
 model Hotel {
+  serviceCases ServiceCase[]
+  distributionRestrictions DistributionRestriction[]
   markupRules CommercialMarkupRule[]
   id            String        @id @default(cuid())
   tenantId      String        @map("tenant_id")

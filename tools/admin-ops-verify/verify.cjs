@@ -26,7 +26,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.goto(`${BASE}/dashboard`); await page.waitForSelector('nav')
   const sidebar = (await page.locator('nav').first().innerText()).replace(/\s+/g, ' ')
   check('Sidebar groups live modules by department', ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Finance', 'Platform'].every((g) => new RegExp(g, 'i').test(sidebar)), sidebar.slice(0, 120))
-  check('Sidebar lists no planned department module', !/Promotions|Agencies|Refunds|Risk flags|Cases/.test(sidebar))
+  check('Sidebar lists no planned department module', !/Promotions|Refunds|Risk flags/.test(sidebar))
 
   // 0b. dashboard department slices: same numbers as the readiness page, honest per-section denial
   await page.goto(`${BASE}/dashboard`); await page.waitForSelector('[data-testid=dept-reservations]', { timeout: 20000 })
@@ -115,7 +115,8 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   const rr = await text(page)
   check('Result shows outcome and request id', /prebook_expired/.test(rr) && /Request id/.test(rr), rr.match(/Request id: \S+/)?.[0])
   await page.reload(); await page.waitForSelector('table, .admin-empty')
-  check('Queue is empty after reconcile (success state, not error)', /Nothing to reconcile/.test(await text(page)))
+  { await page.waitForFunction(() => /Nothing to reconcile/.test(document.body.innerText), null, { timeout: 15000 }).catch(() => {}) // a cold server can answer after the first paint; the check below still fails if it never empties
+    const queueText = await text(page); check('Queue is empty after reconcile (success state, not error)', /Nothing to reconcile/.test(queueText), queueText.slice(0, 400)) }
 
   // 3b. maker-checker for a reconciliation run: the requester cannot decide, a second person approves, it runs once
   await page.goto(`${BASE}/reconciliation`); await page.waitForSelector('[data-testid=recon-approvals]')
@@ -169,6 +170,48 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   const impact = (await page.locator('[data-testid=markup-impact]').innerText()).replace(/\s+/g, ' ')
   check('The impact panel shows the API plan-night counts for NET, unpriced NET, stored sell and unverified basis', ['NET priced by a rule', 'NET with no rule', 'Stored sell rates', 'Basis not verified'].every((t) => impact.includes(t)) && !/NaN|undefined/.test(impact), impact.slice(0, 140))
 
+  // 3d. clients, service and distribution (ADR 0019)
+  await page.goto(`${BASE}/clients/agencies`); await page.waitForSelector('[data-testid=agency-form]', { timeout: 20000 })
+  const agencyCode = `VERIFY-${Date.now().toString(36).toUpperCase()}`
+  await page.getByLabel('Code').fill(agencyCode); await page.getByLabel('Name', { exact: true }).fill('Verify Travel Agency'); await page.getByLabel('Country (ISO-2)').fill('AE'); await page.getByRole('button', { name: 'Create agency' }).click()
+  await page.waitForSelector('[data-testid=agency-active]', { timeout: 15000 })
+  check('A new agency appears as ACTIVE with no members', /Verify Travel Agency/.test(await text(page)) && /ACTIVE/.test(await text(page)))
+  await page.locator('[data-testid=agency-active] button', { hasText: 'Members' }).first().click(); await page.waitForSelector('[data-testid=agency-members]', { timeout: 15000 })
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid=agency-members] select option').length > 1, null, { timeout: 15000 })
+  await page.locator('[data-testid=agency-members] select').selectOption({ index: 1 }); await page.getByRole('button', { name: 'Add member' }).click()
+  await page.waitForSelector('[data-testid=agency-members] table', { timeout: 15000 })
+  check('A user is added to the agency and leaves the picker', (await page.locator('[data-testid=agency-members] tbody tr').count()) === 1)
+  await page.locator('[data-testid=agency-active] button', { hasText: 'Mark inactive' }).first().click(); await page.waitForSelector('[data-testid=agency-inactive]', { timeout: 15000 })
+  check('Marking inactive is described as a directory state only', /directory only/.test(await page.locator('[data-testid=clients-notice]').innerText()))
+
+  await page.goto(`${BASE}/service/cases`); await page.waitForSelector('[data-testid=case-form]', { timeout: 20000 })
+  await page.getByLabel('Subject').fill('Voucher email not received'); await page.getByLabel('Description').fill('Agent reports the voucher email did not arrive for the confirmed booking.'); await page.getByRole('button', { name: 'Open case' }).click()
+  await page.waitForSelector('[data-testid=cases-table] a[href^="/service/cases/"]', { timeout: 15000 })
+  const ref = (await page.locator('[data-testid=cases-table] a[href^="/service/cases/"]').first().innerText()).trim()
+  check('A new case gets an SC- reference and shows OPEN', /^SC-[A-Z2-9]{8}$/.test(ref) && /OPEN/.test(await text(page)), ref)
+  await page.locator('[data-testid=cases-table] a[href^="/service/cases/"]').first().click(); await page.waitForSelector('[data-testid=case-detail]', { timeout: 15000 })
+  check('An OPEN case offers only the moves the API allows', (await page.getByRole('button', { name: 'Start work' }).count()) === 1 && (await page.getByRole('button', { name: 'Close case' }).count()) === 1 && (await page.getByRole('button', { name: 'Mark resolved' }).count()) === 0)
+  await page.getByLabel(/Add a note/).fill('Checked the mail log, resending the voucher'); await page.getByRole('button', { name: 'Add note' }).click()
+  await page.waitForSelector('[data-testid=case-notes] li', { timeout: 15000 })
+  await page.getByRole('button', { name: 'Start work' }).click(); await page.waitForSelector('[data-testid=case-detail] >> text=IN PROGRESS', { timeout: 15000 })
+  await page.getByRole('button', { name: 'Mark resolved' }).click(); await page.getByRole('button', { name: 'Close case' }).waitFor({ timeout: 15000 })
+  await page.getByRole('button', { name: 'Close case' }).click(); await page.waitForSelector('text=A closed case takes no more notes', { timeout: 15000 })
+  check('A closed case is final: no moves, no note form', (await page.locator('[data-testid=case-detail] button').count()) === 0 && (await page.getByRole('button', { name: 'Add note' }).count()) === 0 && (await page.locator('[data-testid=case-notes] li').count()) === 1)
+
+  await page.goto(`${BASE}/distribution/restrictions`); await page.waitForSelector('[data-testid=restriction-form]', { timeout: 20000 })
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid=restriction-form] select')[0].options.length > 1, null, { timeout: 15000 })
+  await page.locator('[data-testid=restriction-form] select').first().selectOption({ index: 1 })
+  await page.getByLabel('Find hotel').fill(seed.hotelAName.slice(0, 4))
+  await page.waitForFunction(() => { const s = document.querySelectorAll('[data-testid=restriction-form] select')[2]; return s && s.options.length > 1 }, null, { timeout: 15000 })
+  await page.locator('[data-testid=restriction-form] select').nth(2).selectOption({ index: 1 }); await page.getByLabel('Reason').fill('Contract dispute'); await page.getByRole('button', { name: 'Create restriction' }).click()
+  await page.waitForSelector('[data-testid=restriction-active]', { timeout: 15000 })
+  check('A restriction is listed as ACTIVE and states it only narrows what an agency sees', /Contract dispute/.test(await text(page)) && /never grants access or changes a price/.test(await text(page)))
+  page.once('dialog', (d) => d.accept()); await page.locator('[data-testid=restriction-active] button', { hasText: 'Retire' }).first().click()
+  await page.waitForSelector('[data-testid=distribution-notice] >> text=visible again', { timeout: 15000 })
+  check('Retiring a restriction says the inventory is visible again', (await page.locator('[data-testid=restriction-active]').count()) === 0)
+  await page.goto(`${BASE}/dashboard`); for (const d of ['clients', 'service', 'distribution']) await page.waitForSelector(`[data-testid=dept-${d}] ul`, { timeout: 20000 })
+  check('Dashboard shows Clients, Service and Distribution slices from their summaries', /Agencies/.test(await dept('clients')) && /Open/.test(await dept('service')) && /Active restrictions/.test(await dept('distribution')))
+
 
 
   // 5. distinct failure states (network interception is test-only; the app has no mock path)
@@ -190,8 +233,8 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.unroute('**/api/v1/admin/operations/bookings*')
 
   // 6. accessibility (axe) on the data pages
-  for (const path of ['/dashboard', '/commercial/markups', '/markets', '/reliability', '/access-review', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
-    await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-testid=booking-360], section')
+  for (const path of ['/dashboard', '/clients/agencies', '/service/cases', '/distribution/restrictions', '/commercial/markups', '/markets', '/reliability', '/access-review', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
+    await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-testid=booking-360], section, .admin-empty')
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const serious = axe.violations.filter(v => ['serious', 'critical'].includes(v.impact))
     check(`axe ${path}: no serious/critical violations`, serious.length === 0, serious.map(v => `${v.id}(${v.nodes.length})`).join(','))

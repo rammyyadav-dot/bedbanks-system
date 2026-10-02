@@ -6,3 +6,4 @@ export * from './operations';
 export * from './hotel-commercial';
 export * from './admin-departments';
 export * from './commercial';
+export * from './departments';
