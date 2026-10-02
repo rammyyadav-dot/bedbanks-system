@@ -3,6 +3,7 @@ import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from './audit.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { InventoryHoldService } from './inventory-hold.service'
+import { readSupplierPrebook } from './supplier-prebook-record'
 
 export const MIN_STALE_MINUTES = 5
 export const DEFAULT_STALE_MINUTES = 30
@@ -15,6 +16,7 @@ export type ReconciliationOutcome =
   | 'orphan_hold_released' // claimed hold with no booking: inventory returned
   | 'prebooked_awaiting_confirmation' // supplier prebook succeeded and is still inside its confirmation window
   | 'prebook_expired' // prebooked but never confirmed within the window: wallet and inventory returned
+  | 'manual_review_required' // supplier outcome was not observed: hold and wallet reservation stay claimed
   | 'booking_not_pending' // booking already progressed: left alone
   | 'would_reconcile' // dry run
   | 'failed' // a step failed; safe to retry
@@ -85,9 +87,14 @@ export class BookingReconciliationService {
       const marker = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.findFirst({
         where: { tenantId, action: 'booking.prebook.succeeded', entityType: 'booking', entityId: booking.id }, orderBy: { createdAt: 'asc' }, select: { createdAt: true },
       }))
-      if (marker) {
-        if (now.getTime() - marker.createdAt.getTime() < prebookMaxMinutes * 60_000) return { holdId, bookingId: booking.id, outcome: 'prebooked_awaiting_confirmation' }
+      const recorded = readSupplierPrebook(booking.searchSnapshot)
+      const succeededAt = marker?.createdAt ?? (recorded?.outcome === 'prebooked' && recorded.supplierReference ? booking.updatedAt : null)
+      if (succeededAt) {
+        if (now.getTime() - succeededAt.getTime() < prebookMaxMinutes * 60_000) return { holdId, bookingId: booking.id, outcome: 'prebooked_awaiting_confirmation' }
         expiredPrebook = true
+      } else if (await this.supplierOutcomeUnknown(tenantId, booking.id, recorded?.outcome === 'unknown')) {
+        if (!dryRun) await this.noteManualReview(tenantId, userId, requestId, holdId, booking.id)
+        return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
       }
     }
     if (dryRun) return { holdId, bookingId: booking.id, outcome: 'would_reconcile' }
@@ -109,5 +116,23 @@ export class BookingReconciliationService {
     await this.audit.record({ tenantId, userId, action: expiredPrebook ? 'booking.prebook.expired' : 'booking.reconciled', entityType: 'booking', entityId: booking.id,
       payload: { requestId, inventoryHoldId: holdId, outcome, walletReleased: Boolean(reservation), ...(expiredPrebook ? { prebookMaxMinutes } : {}) } })
     return { holdId, bookingId: booking.id, outcome }
+  }
+
+  private async supplierOutcomeUnknown(tenantId: string, bookingId: string, snapshotUnknown: boolean): Promise<boolean> {
+    if (snapshotUnknown) return true
+    const unknown = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.findFirst({
+      where: { tenantId, action: 'booking.prebook.unknown', entityType: 'booking', entityId: bookingId }, select: { id: true },
+    }))
+    return Boolean(unknown)
+  }
+
+  /** One audit row per booking. Repeating the sweep must not release inventory or append another review. */
+  private async noteManualReview(tenantId: string, userId: string, requestId: string, holdId: string, bookingId: string): Promise<void> {
+    const existing = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.count({
+      where: { tenantId, action: 'booking.reconciliation.manual_review', entityType: 'booking', entityId: bookingId },
+    }))
+    if (existing > 0) return
+    await this.audit.record({ tenantId, userId, action: 'booking.reconciliation.manual_review', entityType: 'booking', entityId: bookingId,
+      payload: { requestId, inventoryHoldId: holdId, outcome: 'manual_review_required' } })
   }
 }

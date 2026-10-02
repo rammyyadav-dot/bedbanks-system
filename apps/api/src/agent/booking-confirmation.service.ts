@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { readSupplierPrebook } from './supplier-prebook-record'
 
 export interface BookingConfirmationCommand { tenantId: string; userId: string; requestId: string; bookingId: string }
 export interface BookingConfirmationResult { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean }
@@ -25,7 +26,10 @@ export class BookingConfirmationService {
       if (booking.status !== 'PENDING') throw new ConflictException('Booking is not confirmable')
 
       const prebooked = await tx.auditEvent.count({ where: { tenantId, action: 'booking.prebook.succeeded', entityType: 'booking', entityId: bookingId } })
-      if (prebooked === 0) throw new ConflictException('Booking has not been prebooked')
+      const recorded = readSupplierPrebook(booking.searchSnapshot)
+      if (recorded?.outcome === 'unknown' && prebooked === 0) throw new ConflictException('Supplier outcome is unknown')
+      const durablePrebook = recorded?.outcome === 'prebooked' && typeof recorded.supplierReference === 'string'
+      if (prebooked === 0 && !durablePrebook) throw new ConflictException('Booking has not been prebooked')
 
       const holdId = (booking.searchSnapshot as { inventoryHoldId?: unknown } | null)?.inventoryHoldId
       if (typeof holdId !== 'string') throw new ConflictException('Booking has no inventory hold')

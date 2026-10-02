@@ -1,5 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
+import { SupplierProviderError } from './supplier.port'
 
 const command: any = {
   tenantId: 'tenant-a', userId: 'user-a', requestId: 'request-a', idempotencyKey: 'booking-key-123',
@@ -11,7 +12,7 @@ const command: any = {
 const booking = { id: 'booking-a', reference: 'FB-ABC', status: 'PENDING' }
 
 function setup() {
-  const bookings = { persistPending: jest.fn().mockResolvedValue(booking) }
+  const bookings = { persistPending: jest.fn().mockResolvedValue(booking), recordSupplierPrebook: jest.fn().mockResolvedValue(undefined) }
   const finance = { authorize: jest.fn().mockResolvedValue({ id: 'hold-ledger' }), release: jest.fn().mockResolvedValue({ id: 'release-ledger' }) }
   const recovery = { compensate: jest.fn().mockResolvedValue({ status: 'compensated', financeReleased: true, inventoryReleased: true }) }
   const supplier = { prebook: jest.fn().mockResolvedValue({ supplierReference: 'supplier-prebook-a', rate: {} }) }
@@ -91,5 +92,50 @@ describe('SupplierPrebookOrchestrationService', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', userId: 'user-a', action: 'booking.prebook.succeeded', entityId: 'booking-a' }))
     audit.record.mockRejectedValue(new Error('audit down'))
     await expect(service.execute(command)).resolves.toMatchObject({ status: 'prebooked' })
+  })
+
+  it.each(['timeout', 'transport'] as const)('keeps the hold and finance reservation when supplier prebook is %s', async (code) => {
+    const { service, recovery, holds, bookings, audit, supplier } = setup()
+    supplier.prebook.mockRejectedValue(new SupplierProviderError(code))
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook outcome is unknown')
+    expect(recovery.compensate).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+    expect(bookings.recordSupplierPrebook).toHaveBeenCalledWith('tenant-a', 'booking-a', { outcome: 'unknown', code })
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unknown', payload: expect.objectContaining({ code, inventoryHoldId: 'hold-a' }) }))
+  })
+
+  it('still compensates a definitive supplier rejection', async () => {
+    const { service, recovery, supplier, audit } = setup()
+    supplier.prebook.mockRejectedValue(new SupplierProviderError('malformed_response'))
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook unavailable')
+    expect(recovery.compensate).toHaveBeenCalledTimes(1)
+    expect(audit.record).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unknown' }))
+  })
+
+  it('does not retry the supplier or release inventory when the same booking is already unknown', async () => {
+    const { service, supplier, recovery, holds, bookings } = setup()
+    bookings.persistPending.mockResolvedValue({ ...booking, searchSnapshot: { supplierPrebook: { outcome: 'unknown', code: 'timeout' } } })
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook outcome is unknown')
+    expect(supplier.prebook).not.toHaveBeenCalled()
+    expect(recovery.compensate).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('replays a recorded supplier reference without a second supplier call', async () => {
+    const { service, supplier, recovery, bookings } = setup()
+    bookings.persistPending.mockResolvedValue({ ...booking, searchSnapshot: { supplierPrebook: { outcome: 'prebooked', supplierReference: 'supplier-prebook-a' } } })
+    await expect(service.execute(command)).resolves.toMatchObject({ status: 'prebooked', supplierReference: 'supplier-prebook-a' })
+    expect(supplier.prebook).not.toHaveBeenCalled()
+    expect(recovery.compensate).not.toHaveBeenCalled()
+  })
+
+  it('does not compensate when supplier success cannot be persisted', async () => {
+    const { service, recovery, holds, bookings, audit, supplier } = setup()
+    bookings.recordSupplierPrebook.mockRejectedValue(new Error('database down'))
+    audit.record.mockRejectedValue(new Error('audit down'))
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook requires reconciliation')
+    expect(supplier.prebook).toHaveBeenCalledTimes(1)
+    expect(recovery.compensate).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
   })
 })

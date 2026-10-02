@@ -7,6 +7,8 @@ import type { SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
 import { includesBreakfast } from '@/lib/board-basis'
+import { marketplaceHome } from '@/lib/marketplace-content'
+import { selectableRoomCount, selectableRoomLabel } from '@/lib/room-options'
 import { formatCompactStay, formatMinorAmount, formatMinorDelta, formatStay } from '@/lib/format'
 import { guestMarketName } from '@/lib/guest-market'
 import { resolvedChildAges, type DraftChildAge } from '@/lib/occupancy'
@@ -80,7 +82,7 @@ export function SearchView({
         <button className="portal-link" type="button" onClick={() => document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Modify</button>
       </div>
       <div className="portal-results-meta market-results-bar"><p>Showing <strong>{liveHotels.length}</strong> of <strong>{total}</strong> hotels</p><span>{formatStay(request.checkIn, request.checkOut)} · {request.currency}</span></div>
-      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status, bookingEnabled)}</div>
+      <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status)}</div>
       {selectedLive ? <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onBooked} onViewBooking={onViewBooking} /> :
         <div className="market-results"><div className="portal-hotel-list" data-result-count={liveHotels.length}>
           {liveHotels.map((hotel) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} onSelect={() => setSelectedLive(hotel)} />)}
@@ -91,8 +93,8 @@ export function SearchView({
   </>
 }
 
-function statusCopy(status: HotelSearchResult['status'], bookingEnabled: boolean) {
-  if (status === 'available') return `These totals are search quotes. Recheck an offer before you rely on the price.${bookingEnabled ? '' : ' Booking remains disabled.'}`
+function statusCopy(status: HotelSearchResult['status']) {
+  if (status === 'available') return marketplaceHome.resultsQuote
   if (status === 'partial') return 'Some hotel inventory is temporarily unavailable. We could not retrieve rates from one inventory source. Your other available results are still shown.'
   if (status === 'mapping_unavailable') return 'Supplier offer mapping could not be verified. No rate is displayed.'
   if (status === 'access_denied') return 'You do not have access to this workspace.'
@@ -142,7 +144,7 @@ function leadStay(hotel: SearchHotelOffer) {
 function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect: () => void }) {
   const lead = leadStay(hotel)
   const rate = lead?.rate
-  const roomCount = `${hotel.rooms.length} ${hotel.rooms.length === 1 ? 'room' : 'rooms'}`
+  const roomOptions = selectableRoomLabel(selectableRoomCount(hotel.rooms))
   return <article className="portal-hotel-card market-hotel-card market-stay-card">
     <div className="market-hotel-mark" aria-hidden="true">{hotelInitial(hotel.name)}</div>
     <div className="market-stay-body">
@@ -158,7 +160,7 @@ function LiveHotelCard({ hotel, onSelect }: { hotel: SearchHotelOffer; onSelect:
         <strong>{rate ? formatTotal(rate.total) : 'No available rate'}</strong>
         {rate && <span>{rate.boardBasisName}</span>}
         <button className="portal-primary" type="button" onClick={onSelect} aria-label={`View rooms for ${hotel.name}`}>View rooms</button>
-        {hotel.rooms.length > 0 && <small>{roomCount}</small>}
+        {hotel.rooms.length > 0 && <small>{roomOptions}</small>}
       </div>
     </div>
   </article>
