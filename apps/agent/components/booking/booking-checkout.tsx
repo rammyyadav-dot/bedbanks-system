@@ -5,6 +5,7 @@ import { CheckCircle2, Clock, ShieldAlert } from 'lucide-react'
 import type { SearchCriteria, SearchRateOffer } from '@bedbanks/domain'
 import { BookingService, type BookingFailure } from '@/services/booking-service'
 import { formatMinorAmount } from '@/lib/format'
+import { leadGuestError } from '@/lib/guest-validation'
 
 type Phase = 'idle' | 'holding' | 'held' | 'booking' | 'done' | 'failed'
 const newKey = () => `hold-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
@@ -34,7 +35,8 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
   const remaining = hold ? Date.parse(hold.expiresAt) - now : 0
   const expired = phase === 'held' && remaining <= 0
   const failure = (result: BookingFailure) => { setMessage(result.message); if (result.kind === 'auth' || result.kind === 'denied' || result.kind === 'unavailable') setPhase('failed') }
-  const validGuest = guest.firstName.trim().length > 0 && guest.lastName.trim().length > 0 && guest.firstName.length <= 80 && guest.lastName.length <= 80
+  const guestError = leadGuestError(guest.firstName, guest.lastName)
+  const validGuest = guestError === null
 
   async function holdRate() {
     setPhase('holding'); setMessage('')
@@ -85,6 +87,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
         <div className="booking-guest-form"><label className="portal-field"><span>LEAD GUEST FIRST NAME</span><div><input value={guest.firstName} maxLength={80} onChange={(event) => setGuest({ ...guest, firstName: event.target.value })} aria-label="Lead guest first name" /></div></label>
           <label className="portal-field"><span>LEAD GUEST LAST NAME</span><div><input value={guest.lastName} maxLength={80} onChange={(event) => setGuest({ ...guest, lastName: event.target.value })} aria-label="Lead guest last name" /></div></label></div>
         <p className="booking-note">{request.adults} adult{request.adults === 1 ? '' : 's'}{request.children ? `, ${request.children} child${request.children === 1 ? '' : 'ren'} (ages ${request.childAges.join(', ')})` : ''} · {request.rooms} room · charged to agency credit · {rate.cancellation.summary}</p>
+        {guestError && (guest.firstName.length > 0 || guest.lastName.length > 0) && <p className="portal-field-error" role="alert">{guestError}</p>}
         <button className="portal-primary" disabled={!validGuest || phase === 'booking' || /reconciliation/i.test(message)} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
         {!bookingId && <button className="portal-link" disabled={phase === 'booking'} onClick={() => void releaseHold()}>Release hold</button>}</>}
     </div>}

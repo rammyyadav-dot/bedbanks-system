@@ -18,6 +18,8 @@ test('offers Dubai as a canonical city and refuses free text as a destination', 
   assert.equal(canSubmitDestination(null), false)
   assert.equal(canSubmitDestination(dubai[0].ref), true)
   assert.deepEqual(destinationSuggestions('London'), [])
+  assert.deepEqual(destinationSuggestions('ai'), [])
+  assert.equal(destinationSuggestions('du')[0]?.ref.id, 'city:AE:dubai')
   assert.equal(canSubmitDestination({ type: 'hotel', id: 'hotel-1' }), true)
   const text = JSON.stringify(destinationSuggestions('marina'))
   assert.doesNotMatch(text, /airport|landmark|Atlantis|Marriott|destination-text/i)

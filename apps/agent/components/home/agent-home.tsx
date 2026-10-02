@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { BookingService, type BookingSummary } from '@/services/booking-service'
+import { agentFacingBooking } from '@/lib/booking-attention'
 import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import { contactEmail, dubaiSpotlight, editorialDestinations, howItWorks, marketplaceHome, privacyLink, tradeAnnouncements } from '@/lib/marketplace-content'
 import { guestMarketName } from '@/lib/guest-market'
@@ -17,7 +19,7 @@ export function AgentHome({
   roomStays, setRoomStays, currency, setCurrency, sort, setSort,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions, searching, searchFailed, tenantId, onSearch, onSearchDubai, onChange, onReplay,
+  boards, propertyTypeOptions,   searching, searchFailed, tenantId, bookingEnabled, onOpenBookings, onSearch, onSearchDubai, onChange, onReplay,
 }: {
   userId: string
   destination: string
@@ -52,6 +54,8 @@ export function AgentHome({
   searching: boolean
   searchFailed: boolean
   tenantId: string
+  bookingEnabled: boolean
+  onOpenBookings: () => void
   onSearch: () => void
   onSearchDubai: () => void
   onChange: (action: () => void) => void
@@ -99,6 +103,7 @@ export function AgentHome({
           </ul>
         )}
       </section>
+      <ReservationStrip enabled={bookingEnabled} tenantId={tenantId} onOpen={onOpenBookings} />
       <section className="market-strip" aria-label="Dubai search">
         <p>{marketplaceHome.offerStrip}</p>
         <button type="button" className="portal-primary" onClick={onSearchDubai} disabled={searching}>{dubaiSpotlight.action}</button>
@@ -152,4 +157,27 @@ export function AgentHome({
       </footer>
     </div>
   )
+}
+
+function ReservationStrip({ enabled, tenantId, onOpen }: { enabled: boolean; tenantId: string; onOpen: () => void }) {
+  const [rows, setRows] = useState<BookingSummary[] | null>(null)
+  const [note, setNote] = useState('')
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    void new BookingService().list(tenantId).then((result) => {
+      if (!active) return
+      if (result.ok) setRows(result.data.filter((row) => row.status === 'PENDING' || row.status === 'CONFIRMED').slice(0, 3))
+      else setNote(result.kind === 'unavailable' ? 'Booking is not enabled. No reservations are shown.' : 'Reservations could not be loaded.')
+    })
+    return () => { active = false }
+  }, [enabled, tenantId])
+  return <section className="market-recent" aria-label="Reservations">
+    <div className="market-section-head"><h2>Reservations</h2>{enabled && <button type="button" className="portal-link" onClick={onOpen}>My bookings</button>}</div>
+    {!enabled && <p className="trade-muted">Booking is not enabled. No reservations are shown on this page.</p>}
+    {enabled && note && <p className="trade-muted" role="status">{note}</p>}
+    {enabled && !note && rows === null && <p className="trade-muted" role="status">Loading reservations…</p>}
+    {enabled && rows !== null && rows.length === 0 && <p className="trade-muted">No pending or confirmed bookings in the latest list.</p>}
+    {rows !== null && rows.length > 0 && <ul className="market-recent-grid">{rows.map((row) => <li key={row.id}><strong>{row.reference}</strong><span>{row.hotelName ?? 'Hotel'}</span><span>{agentFacingBooking(row.status).label}</span></li>)}</ul>}
+  </section>
 }
