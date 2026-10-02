@@ -1,0 +1,88 @@
+import { Body, Controller, Get, Header, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
+import { randomUUID } from 'node:crypto'
+import type { Request, Response } from 'express'
+import { operationsPermissions, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest } from '@bedbanks/contracts'
+import { CurrentUser } from '../auth/decorators/current-user.decorator'
+import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
+import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
+import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
+import { PrismaService } from '../database/prisma.service'
+import { OperationsSupplyService } from './operations-supply.service'
+import { OperationsTransactionsService } from './operations-transactions.service'
+
+type Q = Record<string, unknown>
+const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).requestId ?? randomUUID()
+
+/**
+ * Read-only Admin operations API, plus one reconcile action that delegates to the existing idempotent service.
+ * Tenant identity is derived by TenantContextGuard from the session; every handler declares a permission.
+ */
+@ApiTags('admin-operations')
+@Controller('admin/operations')
+@UseGuards(SessionAuthGuard, TenantContextGuard)
+export class OperationsController {
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService) {}
+
+  /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
+  @Get('capabilities')
+  async capabilities(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser): Promise<OperationsCapabilities> {
+    const roles = await this.prisma.withTenant(tenantId, t => t.userRole.findMany({ where: { tenantId, userId: identity.user.id, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } }))
+    const keys = new Set(roles.flatMap(r => r.role.permissions.map(p => p.permission.key)))
+    const membership = await this.prisma.withTenant(tenantId, t => t.membership.findUnique({ where: { userId_tenantId: { userId: identity.user.id, tenantId } } }))
+    const all = Object.values(operationsPermissions) as OperationsPermission[]
+    const permissions = all.filter(p => keys.has(p) || membership?.role === 'owner' || (p === 'finance.read' && membership?.role === 'finance'))
+    return { permissions }
+  }
+
+  @Get('readiness') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  readiness(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) {
+    return this.supply.readiness(tenantId, identity.user.id, query, () => this.tx.transactionSummary(tenantId), () => this.tx.connectorSummary(tenantId))
+  }
+
+  @Get('hotels') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  hotels(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.supply.hotels(tenantId, identity.user.id, query) }
+
+  @Get('suppliers') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  suppliers(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.supply.suppliers(tenantId, identity.user.id, query) }
+
+  @Get('holds') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  holds(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.holds(tenantId, query) }
+
+  @Get('holds/:holdId') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  hold(@ActiveTenant() tenantId: string, @Param('holdId') holdId: string) { return this.tx.hold(tenantId, holdId) }
+
+  @Get('bookings') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  bookings(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.bookings(tenantId, query) }
+
+  @Get('bookings/:bookingId') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  booking(@ActiveTenant() tenantId: string, @Param('bookingId') bookingId: string) { return this.tx.booking(tenantId, bookingId) }
+
+  @Get('bookings/:bookingId/documents/:type/html') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  @Header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'") @Header('X-Content-Type-Options', 'nosniff') @Header('Cache-Control', 'private, no-store')
+  async documentHtml(@ActiveTenant() tenantId: string, @Param('bookingId') bookingId: string, @Param('type') type: string, @Res() response: Response) {
+    response.type('text/html; charset=utf-8').send(await this.tx.documentHtml(tenantId, bookingId, type))
+  }
+
+  @Get('reconciliation') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  reconciliation(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) { return this.tx.reconciliationQueue(tenantId, identity.user.id, requestIdOf(req)) }
+
+  @Post('reconciliation/run') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  reconcile(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Body() body: ReconcileRequest) { return this.tx.reconcile(tenantId, identity.user.id, requestIdOf(req), body ?? {}) }
+
+  @Get('cancellations') @RequirePermission('booking.cancel') @UseGuards(AgentRbacGuard)
+  cancellations(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.cancellations(tenantId, query) }
+
+  @Get('wallets') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  wallets(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.wallets(tenantId, query) }
+
+  @Get('ledger') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
+
+  @Get('audit') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  audit(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.audit(tenantId, query) }
+
+  @Get('connectors') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
+  connectors(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.connectors(tenantId, query) }
+}

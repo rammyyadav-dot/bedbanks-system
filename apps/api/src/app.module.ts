@@ -10,6 +10,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { AgentModule } from './agent/agent.module';
 import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
+import { AdminOperationsModule } from './admin-operations/admin-operations.module';
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { SupplyModule } from './supply/supply.module';
@@ -28,6 +29,7 @@ import { SupplierExtranetModule } from './supplier-extranet/supplier-extranet.mo
     HealthModule,
     AgentModule,
     AdminDashboardModule,
+    AdminOperationsModule,
     AdminSettingsModule,
     PlatformAdminModule,
     SupplyModule,
