@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { creditBreakdown, formatCompactStay, formatMinorAmount, formatMinorDelta, formatStay, weekdayShort } from './format.ts'
+import { creditBreakdown, formatCancellationDeadline, formatCompactStay, formatMinorAmount, formatMinorDelta, formatStay, weekdayShort } from './format.ts'
 
 test('formats integer minor units in the stated currency without floating point', () => {
   assert.equal(formatMinorAmount('125000000', 'USD'), 'USD 1,250,000.00')
@@ -32,6 +32,13 @@ test('formats a compact stay and a signed minor-unit difference', () => {
   assert.equal(formatMinorDelta(124500, 131000, 'AED'), '+AED 65.00')
   assert.equal(formatMinorDelta(131000, 124500, 'AED'), 'AED -65.00')
   assert.equal(formatMinorDelta(1.5, 2, 'AED'), null)
+})
+
+test('formats a cancellation deadline in the hotel time zone', () => {
+  assert.equal(formatCancellationDeadline('2026-10-08T20:00:00.000Z', 'Asia/Dubai'), '00:00 on 9 Oct')
+  assert.equal(formatCancellationDeadline('2026-10-12T14:00:00.000Z', 'Asia/Dubai'), '18:00 on 12 Oct')
+  assert.equal(formatCancellationDeadline('not-a-date', 'Asia/Dubai'), null)
+  assert.equal(formatCancellationDeadline('2026-10-12T14:00:00.000Z', ''), null)
 })
 
 test('falls back to the raw dates when they are invalid or out of order', () => {

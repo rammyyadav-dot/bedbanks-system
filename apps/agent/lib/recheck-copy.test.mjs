@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { recheckOutcomeMessage, recheckOutcomeTitle } from './recheck-copy.ts'
+import { canOpenCheckout, recheckOutcomeMessage, recheckOutcomeTitle } from './recheck-copy.ts'
 
 test('describes fixture recheck outcomes without enabling booking', () => {
   assert.equal(recheckOutcomeTitle('rechecked'), 'Offer rechecked')
@@ -13,4 +13,12 @@ test('describes fixture recheck outcomes without enabling booking', () => {
   assert.match(recheckOutcomeMessage('unavailable', false), /Availability changed/)
   assert.equal(recheckOutcomeTitle('offer_expired'), 'This rate has expired')
   assert.match(recheckOutcomeMessage('offer_expired', false), /Refresh the latest rates/)
+  assert.equal(recheckOutcomeTitle('provider_unavailable'), 'Recheck is temporarily unavailable')
+  assert.match(recheckOutcomeMessage('provider_unavailable', false), /No inventory was allocated/)
+  assert.equal(canOpenCheckout(true, 'rechecked'), true)
+  assert.equal(canOpenCheckout(false, 'rechecked'), false)
+  for (const status of ['price_changed', 'unavailable', 'offer_expired', 'provider_unavailable', 'mapping_invalid', 'rejected']) {
+    assert.equal(canOpenCheckout(true, status), false)
+  }
+  assert.equal(canOpenCheckout(true, undefined), false)
 })

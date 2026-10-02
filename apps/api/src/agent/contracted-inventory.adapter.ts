@@ -6,6 +6,7 @@ import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common
 import { PrismaService } from '../database/prisma.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
 const OFFER_PREFIX = 'ci_'
@@ -54,11 +55,33 @@ function commercialKey(rate: SearchRateOffer): string {
   return [rate.hotelId, rate.roomTypeId, rate.boardBasisId, rate.ratePlanId, rate.supplierId, rate.contractId ?? ''].join('|')
 }
 
+function uniformRoomStays(criteria: SearchCriteria): boolean {
+  const stays = criteria.roomStays
+  if (!stays || stays.length === 0) return true
+  const first = stays[0]
+  return stays.every((stay) => stay.adults === first.adults && stay.children.length === first.children.length &&
+    stay.children.every((child, index) => child.age === first.children[index].age))
+}
+
+function decimalText(value: { toString(): string } | null | undefined): string | undefined {
+  if (value == null) return undefined
+  const text = value.toString()
+  return /^-?\d{1,3}(\.\d{1,6})?$/.test(text) ? text : undefined
+}
+
+function storedAddress(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > 240 || trimmed !== value.trim()) return undefined
+  return trimmed
+}
+
 @Injectable()
 export class ContractedInventoryAdapter implements SupplierAdapter {
   readonly name = 'contracted-inventory'
   private readonly logger = new Logger(ContractedInventoryAdapter.name)
   private readonly offers = new Map<string, StoredOffer>()
+  private readonly cancellation = new CancellationPolicyService()
 
   constructor(
     private readonly prisma: PrismaService,
@@ -69,6 +92,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     try {
       const supplierCount = await this.prisma.withTenant(context.tenantId, (tx) => tx.supplier.count({ where: { tenantId: context.tenantId } }))
       if (supplierCount === 0) throw new SupplierProviderError('unconfigured')
+      if (!uniformRoomStays(criteria)) return { offers: [], providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
       const nights = stayDates(criteria.checkIn, criteria.checkOut)
       const plans = await this.loadPlans(context.tenantId, criteria, nights)
       const offers = this.toOffers(plans, criteria, context.tenantId, nights)
@@ -146,7 +170,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           tenantId,
           contentStatus: 'COMPLETE',
           ...(criteria.canonicalHotelIds?.length ? { id: { in: criteria.canonicalHotelIds } } : {}),
-          ...(destination ? { city: { contains: destination, mode: 'insensitive' } } : {}),
+          ...(criteria.filters?.propertyTypes?.length ? { propertyType: { in: criteria.filters.propertyTypes } } : {}),
+          ...(destination ? { city: criteria.destinationRef?.type === 'city' ? { equals: destination, mode: 'insensitive' as const } : { contains: destination, mode: 'insensitive' as const } } : {}),
         },
         select: { id: true },
         orderBy: { id: 'asc' },
@@ -201,6 +226,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         contract: {
           include: {
             supplier: true,
+            cancellationPolicies: true,
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },
@@ -267,10 +293,26 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       name: hotel.name,
       destination: hotel.destination,
       starRating: hotel.starRating,
+      ...(hotel.propertyType ? { propertyType: hotel.propertyType } : {}),
+      ...(hotel.address ? { address: hotel.address } : {}),
+      ...(hotel.latitude && hotel.longitude ? { latitude: hotel.latitude, longitude: hotel.longitude } : {}),
+      ...(hotel.timeZone ? { timeZone: hotel.timeZone } : {}),
       supplierId,
       supplierHotelId: hotel.supplierHotelId,
       rooms: [...rooms.values()].sort((left, right) => left.name.localeCompare(right.name) || left.roomTypeId.localeCompare(right.roomTypeId)),
     }
+  }
+
+  private cancellationSummary(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], checkIn: string): SearchRateOffer['cancellation'] {
+    const summary = plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'
+    const rules: CancellationRule[] = plan.contract.cancellationPolicies.map((rule) => ({
+      daysBeforeCheckin: rule.daysBeforeCheckin,
+      ...(rule.penaltyPercent != null ? { penaltyPercent: rule.penaltyPercent } : {}),
+      ...(rule.penaltyMinor != null ? { penaltyMinor: rule.penaltyMinor } : {}),
+      ...(rule.currency ? { currency: rule.currency } : {}),
+    }))
+    const deadline = this.cancellation.freeCancellationDeadline({ refundable: plan.refundable, checkIn, timeZone: plan.roomType.hotel.timeZone, rules })
+    return { refundable: plan.refundable, summary, ...(deadline ? { deadline } : {}) }
   }
 
   private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], leadDays: number, expiresAt: string, persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
@@ -341,7 +383,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       occupancy: { rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: [...criteria.childAges] },
       availability: remaining <= criteria.rooms ? 'limited' : 'available',
       available: true,
-      cancellation: { refundable: plan.refundable, summary: plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate' },
+      cancellation: this.cancellationSummary(plan, criteria.checkIn),
       total: { amountMinor: sellAmountMinor, currency: criteria.currency },
       netAmountMinor: sellAmountMinor,
       taxAmountMinor: 0,
@@ -352,11 +394,18 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       paymentType: 'prepaid',
       source: sourceFor(plan.contract.supplier.type),
     }
+    const latitude = decimalText(plan.roomType.hotel.latitude)
+    const longitude = decimalText(plan.roomType.hotel.longitude)
+    const address = storedAddress(plan.roomType.hotel.address)
     const hotel: SearchHotelOffer = {
       hotelId: plan.roomType.hotelId,
       name: plan.roomType.hotel.name,
       destination: plan.roomType.hotel.city,
       starRating,
+      ...(plan.roomType.hotel.propertyType ? { propertyType: plan.roomType.hotel.propertyType } : {}),
+      ...(address ? { address } : {}),
+      ...(latitude && longitude ? { latitude, longitude } : {}),
+      ...(plan.roomType.hotel.timeZone ? { timeZone: plan.roomType.hotel.timeZone } : {}),
       supplierId: plan.contract.supplierId,
       supplierHotelId: mapping.supplierHotelId,
       rooms: [{ roomTypeId: plan.roomTypeId, name: plan.roomType.name, supplierRoomId: roomMapping.supplierRoomId, rates: [rate] }],

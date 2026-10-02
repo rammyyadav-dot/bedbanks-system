@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { clearRecentSearches, consumeExpiredSession, deleteRecentSearch, markAgentSession, readRecentSearches, recentSearchIdentity, recentSearchKey, rememberRecentSearch } from './recent-searches.ts'
+import { canReplayRecentSearch, clearRecentSearches, consumeExpiredSession, deleteRecentSearch, markAgentSession, readRecentSearches, recentSearchIdentity, recentSearchKey, rememberRecentSearch } from './recent-searches.ts'
 
 function memory() {
   const values = new Map()
@@ -72,6 +72,24 @@ test('keeps searches that differ only by refundable or total-stay price', () => 
   assert.equal(saved.length, 2)
   assert.notEqual(recentSearchIdentity(saved[0]), recentSearchIdentity(saved[1]))
   assert.equal(saved.some((item) => item.refundableOnly === true), true)
+})
+
+test('does not replay a saved search that has no canonical destination', () => {
+  const storage = memory()
+  rememberRecentSearch(storage, 'agent-a', search)
+  const saved = readRecentSearches(storage, 'agent-a')
+  assert.equal(canReplayRecentSearch(saved[0]), false)
+  const canonical = {
+    ...search,
+    currency: 'AED',
+    destinationRef: { type: 'city', id: 'city:AE:dubai', countryCode: 'AE' },
+    roomStays: [{ adults: 2, children: [] }],
+  }
+  rememberRecentSearch(storage, 'agent-a', canonical)
+  const next = readRecentSearches(storage, 'agent-a')
+  assert.equal(canReplayRecentSearch(next[0]), true)
+  assert.equal(next[0].destinationRef.id, 'city:AE:dubai')
+  assert.deepEqual(next[0].roomStays, [{ adults: 2, children: [] }])
 })
 
 test('marks a session without treating logout as expiry', () => {

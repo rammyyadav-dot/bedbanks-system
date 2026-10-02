@@ -6,45 +6,52 @@ import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import { contactEmail, dubaiSpotlight, editorialDestinations, howItWorks, marketplaceHome, privacyLink, tradeAnnouncements } from '@/lib/marketplace-content'
 import { guestMarketName } from '@/lib/guest-market'
 import { formatStay } from '@/lib/format'
-import { type DraftChildAge } from '@/lib/occupancy'
-import { deleteRecentSearch, readRecentSearches, recentSearchIdentity, type RecentSearch } from '@/lib/recent-searches'
+import type { DestinationRef, SearchSort } from '@bedbanks/domain'
+import { type RoomStayDraft } from '@/lib/occupancy'
+import { canReplayRecentSearch, deleteRecentSearch, readRecentSearches, recentSearchIdentity, type RecentSearch } from '@/lib/recent-searches'
 import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
 
 export function AgentHome({
   userId,
-  destination, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
-  rooms, setRooms, adults, setAdults, children, updateChildren, childAges, setChildAges,
+  destination, destinationRef, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
+  roomStays, setRoomStays, currency, setCurrency, sort, setSort,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
-  minPriceAed, setMinPriceAed, maxPriceAed, setMaxPriceAed,
-  searching, searchFailed, onSearch, onSearchDubai, onChange, onReplay,
+  minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
+  boards, propertyTypeOptions, searching, searchFailed, tenantId, onSearch, onSearchDubai, onChange, onReplay,
 }: {
   userId: string
   destination: string
-  setDestination: (value: string) => void
+  destinationRef: DestinationRef | null
+  setDestination: (label: string, ref: DestinationRef | null, cityName: string) => void
   checkIn: string
   setCheckIn: (value: string) => void
   checkOut: string
   setCheckOut: (value: string) => void
-  rooms: number
-  setRooms: (value: number) => void
-  adults: number
-  setAdults: (value: number) => void
-  children: number
-  updateChildren: (value: number) => void
-  childAges: DraftChildAge[]
-  setChildAges: (value: DraftChildAge[]) => void
+  roomStays: RoomStayDraft[]
+  setRoomStays: (value: RoomStayDraft[]) => void
+  currency: string
+  setCurrency: (value: string) => void
+  sort: SearchSort
+  setSort: (value: SearchSort) => void
   nationality: string
   setNationality: (value: string) => void
   starRatings: number[]
   setStarRatings: (value: number[]) => void
   refundableOnly: boolean
   setRefundableOnly: (value: boolean) => void
-  minPriceAed: string
-  setMinPriceAed: (value: string) => void
-  maxPriceAed: string
-  setMaxPriceAed: (value: string) => void
+  minPrice: string
+  setMinPrice: (value: string) => void
+  maxPrice: string
+  setMaxPrice: (value: string) => void
+  boardBasisIds: string[]
+  setBoardBasisIds: (value: string[]) => void
+  propertyTypes: string[]
+  setPropertyTypes: (value: string[]) => void
+  boards: { id: string; name: string }[]
+  propertyTypeOptions: string[]
   searching: boolean
   searchFailed: boolean
+  tenantId: string
   onSearch: () => void
   onSearchDubai: () => void
   onChange: (action: () => void) => void
@@ -66,11 +73,12 @@ export function AgentHome({
         <p>{marketplaceHome.supporting}</p>
       </section>
       <SearchCriteriaForm
-        destination={destination} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut}
-        rooms={rooms} setRooms={setRooms} adults={adults} setAdults={setAdults} children={children} updateChildren={updateChildren} childAges={childAges} setChildAges={setChildAges}
+        destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut}
+        roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency}
         nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly}
-        minPriceAed={minPriceAed} setMinPriceAed={setMinPriceAed} maxPriceAed={maxPriceAed} setMaxPriceAed={setMaxPriceAed}
-        searching={searching} searchFailed={searchFailed} onSubmit={onSearch} onChange={onChange}
+        minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes}
+        boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort}
+        searching={searching} searchFailed={searchFailed} onSubmit={onSearch} onChange={onChange} tenantId={tenantId}
       />
       <section className="market-recent" aria-label={marketplaceHome.recentTitle}>
         <div className="market-section-head"><h2>{marketplaceHome.recentTitle}</h2>{recent.length > 4 && <button type="button" className="portal-link" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show less' : 'View all'}</button>}</div>
@@ -83,7 +91,7 @@ export function AgentHome({
                 <span>{stayOccupancyLabel(item.rooms, item.adults, item.children, item.childAges)}{item.nationality ? ` · ${guestMarketName(item.nationality)}` : ''}</span>
                 {activeFilterLabel(item) ? <span>{activeFilterLabel(item)}</span> : null}
                 <div>
-                  <button type="button" className="portal-link" onClick={() => onReplay(item)}>Search again →</button>
+                  {canReplayRecentSearch(item) ? <button type="button" className="portal-link" onClick={() => onReplay(item)}>Search again →</button> : <span>This saved search can no longer be replayed.</span>}
                   <button type="button" className="portal-link market-delete" onClick={() => remove(item)} aria-label={`Delete ${item.destination} search`}>Delete</button>
                 </div>
               </li>

@@ -33,6 +33,10 @@ test('HTTP failures map to explicit kinds; only conflict/invalid/gone show the s
     assert.equal(result.ok, false); assert.equal(result.kind, kind)
     assert.equal(result.message.includes('Insufficient wallet credit'), ['conflict', 'invalid', 'gone'].includes(kind), `${status}`)
   }
+  globalThis.fetch = reply(503, { success: false, error: { code: 'RECONCILIATION', message: 'Supplier outcome requires reconciliation' } })
+  const ambiguous = await service().confirm('b1', 't')
+  assert.equal(ambiguous.ok, false)
+  assert.equal(ambiguous.message, 'Reconciliation required')
   globalThis.fetch = async () => { throw new Error('network') }
   assert.equal((await service().confirm('b1', 't')).kind, 'error')
   assert.equal((await new BookingService('', 10).confirm('b1', 't')).kind, 'error')

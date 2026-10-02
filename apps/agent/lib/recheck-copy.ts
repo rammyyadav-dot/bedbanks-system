@@ -1,5 +1,10 @@
 import type { OfferRecheckResult } from '../types/hotel'
 
+/** Checkout stays closed unless booking is enabled and this recheck is an unchanged confirmation. */
+export function canOpenCheckout(bookingEnabled: boolean, status: OfferRecheckResult['status'] | undefined): boolean {
+  return bookingEnabled === true && status === 'rechecked'
+}
+
 export function recheckOutcomeTitle(status: OfferRecheckResult['status']) {
   const titles: Record<OfferRecheckResult['status'], string> = {
     rechecked: 'Offer rechecked',

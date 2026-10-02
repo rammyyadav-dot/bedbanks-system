@@ -7,7 +7,8 @@ import { AgentAuditService } from './audit.service'
 import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, ReconcileBookingsDto, PrebookBookingDto, ConfirmBookingDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
-import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
+import { SupplierAdapter, SUPPLIER_ADAPTER, PERMISSIONS } from './supplier.port'
+import type { SearchCriteria } from '@bedbanks/domain'
 import { ActiveTenant, TenantContextGuard, activeTenantId } from './tenant-context.guard'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
@@ -17,6 +18,7 @@ import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 import { validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
+import { DestinationResolverService } from './destination-resolver.service'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
 import { BookingCancellationService } from './booking-cancellation.service'
@@ -31,9 +33,25 @@ class SearchFiltersDto {
   @IsOptional() @IsBoolean() refundableOnly?: boolean
   @IsOptional() @IsInt() @Min(0) minPriceMinor?: number
   @IsOptional() @IsInt() @Min(0) maxPriceMinor?: number
+  @IsOptional() @IsArray() @IsString({ each: true }) propertyTypes?: string[]
 }
 
-class SearchHotelsDto implements HotelSearchCriteria {
+class DestinationRefDto {
+  @IsIn(['city', 'hotel']) type!: 'city' | 'hotel'
+  @IsString() id!: string
+  @IsOptional() @IsString() countryCode?: string
+}
+
+class RoomChildDto {
+  @IsInt() @Min(0) @Max(17) age!: number
+}
+
+class RoomStayDto {
+  @IsInt() @Min(1) @Max(8) adults!: number
+  @IsArray() @ValidateNested({ each: true }) @Type(() => RoomChildDto) children: RoomChildDto[] = []
+}
+
+class SearchHotelsDto {
   @IsString() destination!: string
   @IsOptional() @IsArray() @IsString({ each: true }) canonicalHotelIds?: string[]
   @IsDateString() checkIn!: string
@@ -46,6 +64,9 @@ class SearchHotelsDto implements HotelSearchCriteria {
   @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
   @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number
   @IsOptional() @IsInt() @Min(0) @Max(10000) offset?: number
+  @IsOptional() @IsIn(['default', 'price', 'stars', 'name']) sort?: 'default' | 'price' | 'stars' | 'name'
+  @IsOptional() @ValidateNested() @Type(() => DestinationRefDto) destinationRef?: DestinationRefDto
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => RoomStayDto) roomStays?: RoomStayDto[]
   @IsOptional() @ValidateNested() @Type(() => SearchFiltersDto) filters?: SearchFiltersDto
 }
 
@@ -65,7 +86,24 @@ export class AgentController {
     private readonly documents: BookingDocumentService,
     private readonly bookingQueries: BookingQueryService,
     private readonly inventoryHolds: InventoryHoldService,
+    private readonly destinationResolver: DestinationResolverService,
   ) {}
+
+  @Get('destinations')
+  @ApiOperation({ summary: 'Resolve a canonical city or hotel. Free text is not a destination.' })
+  @RequirePermission(PERMISSIONS.search)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async listDestinations(@Query('q') query: string | undefined, @ActiveTenant() tenantId: string) {
+    return { results: await this.destinationResolver.search(tenantId, typeof query === 'string' ? query : '') }
+  }
+
+  @Get('search-facets')
+  @ApiOperation({ summary: 'Board and property-type values stored for this tenant' })
+  @RequirePermission(PERMISSIONS.search)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async searchFacets(@ActiveTenant() tenantId: string) {
+    return this.destinationResolver.facets(tenantId)
+  }
 
   @Get('context')
   @ApiOperation({ summary: 'Return authenticated agent context and memberships' })
@@ -94,8 +132,9 @@ export class AgentController {
   @Post('search/status')
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async searchStatus(@Body() criteria: SearchHotelsDto) {
-    if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
+  async searchStatus(@Body() criteria: SearchHotelsDto, @ActiveTenant() tenantId: string) {
+    const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
+    if (!resolved || !validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
     return { status: this.supplier.name === 'unconfigured' ? 'provider_unavailable' : 'not_checked' }
   }
 
@@ -104,9 +143,11 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
-    if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
     const tenantId = activeTenantId(req)
-    return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
+    const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
+    if (!resolved) throw new BadRequestException('Canonical destination is no longer available')
+    if (!validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
+    return this.agentSearch.execute(resolved, tenantId, req.requestId ?? randomUUID(), identity)
   }
 
   @Delete('holds/:holdId')

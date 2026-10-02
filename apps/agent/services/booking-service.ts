@@ -27,6 +27,7 @@ const MINOR = /^-?\d+$/
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const failureFor = (status: number, message: string): BookingFailure => {
+  if (status === 503 && /reconciliation/i.test(message)) return { ok: false, kind: 'error', message: 'Reconciliation required' }
   const kind = status === 401 ? 'auth' : status === 403 ? 'denied' : status === 404 ? 'not_found' : status === 409 || status === 422 ? 'conflict' : status === 410 ? 'gone' : status === 400 ? 'invalid' : 'error'
   const generic: Record<BookingFailure['kind'], string> = { unavailable: 'Booking is not enabled.', auth: 'Your session expired. Sign in again.', denied: 'You do not have permission for this action.', not_found: 'That booking was not found.',
     conflict: 'That could not be completed.', gone: 'That offer or hold has expired.', invalid: 'Some details are invalid.', error: 'The booking service is unavailable. Nothing was changed.' }

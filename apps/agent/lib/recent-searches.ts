@@ -1,18 +1,28 @@
+import type { DestinationRef, SearchRoomStay, SearchSort } from '@bedbanks/domain'
 import { isGuestMarket } from './guest-markets.mjs'
+
+const SELLING_CURRENCIES = ['AED', 'USD', 'EUR', 'GBP', 'INR', 'SAR', 'QAR', 'OMR', 'KWD', 'BHD', 'SGD', 'AUD', 'CAD', 'JPY'] as const
 
 export type RecentSearch = {
   destination: string
+  cityName?: string
+  destinationRef?: DestinationRef
   checkIn: string
   checkOut: string
   rooms: number
   adults: number
   children: number
   childAges: number[]
+  roomStays?: SearchRoomStay[]
   nationality?: string
+  currency?: string
+  sort?: SearchSort
   starRatings?: number[]
   refundableOnly?: boolean
   minPriceMinor?: number
   maxPriceMinor?: number
+  boardBasisIds?: string[]
+  propertyTypes?: string[]
 }
 
 const limit = 8
@@ -29,6 +39,29 @@ export function recentSearchKey(userId: string) {
   return `fbeds.agent.recent-searches.${userId}`
 }
 
+function validRef(value: unknown): value is DestinationRef {
+  if (!value || typeof value !== 'object') return false
+  const ref = value as Record<string, unknown>
+  if (ref.type === 'hotel') return typeof ref.id === 'string' && ref.id.trim().length > 0
+  return ref.type === 'city' && typeof ref.id === 'string' && typeof ref.countryCode === 'string' && ref.id.startsWith(`city:${ref.countryCode}:`)
+}
+
+function validStays(value: unknown): value is SearchRoomStay[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 8) return false
+  return value.every((stay) => {
+    if (!stay || typeof stay !== 'object') return false
+    const row = stay as Record<string, unknown>
+    return Number.isInteger(row.adults) && (row.adults as number) >= 1 && Array.isArray(row.children) &&
+      row.children.every((child) => child && typeof child === 'object' && Number.isInteger((child as { age?: unknown }).age))
+  })
+}
+
+export function canReplayRecentSearch(item: RecentSearch): boolean {
+  if (!validRef(item.destinationRef) || !validStays(item.roomStays) || typeof item.currency !== 'string' || !SELLING_CURRENCIES.includes(item.currency as typeof SELLING_CURRENCIES[number])) return false
+  if (item.destinationRef.type === 'hotel') return typeof item.cityName === 'string' && item.cityName.trim().length > 0
+  return true
+}
+
 function isRecentSearch(value: unknown): value is RecentSearch {
   if (!value || typeof value !== 'object') return false
   const item = value as Record<string, unknown>
@@ -39,6 +72,11 @@ function isRecentSearch(value: unknown): value is RecentSearch {
   if (item.minPriceMinor !== undefined && !validMinor(item.minPriceMinor)) return false
   if (item.maxPriceMinor !== undefined && !validMinor(item.maxPriceMinor)) return false
   if (validMinor(item.minPriceMinor) && validMinor(item.maxPriceMinor) && item.maxPriceMinor < item.minPriceMinor) return false
+  if (item.cityName !== undefined && typeof item.cityName !== 'string') return false
+  if (item.destinationRef !== undefined && !validRef(item.destinationRef)) return false
+  if (item.roomStays !== undefined && !validStays(item.roomStays)) return false
+  if (item.currency !== undefined && !SELLING_CURRENCIES.includes(item.currency as typeof SELLING_CURRENCIES[number])) return false
+  if (item.sort !== undefined && !['default', 'price', 'stars', 'name'].includes(item.sort as string)) return false
   return typeof item.destination === 'string' && item.destination.trim().length > 0
     && typeof item.checkIn === 'string' && typeof item.checkOut === 'string'
     && Number.isInteger(item.rooms) && Number.isInteger(item.adults) && Number.isInteger(item.children)
@@ -52,7 +90,10 @@ function starsKey(stars: number[] | undefined) {
 
 export function recentSearchIdentity(item: RecentSearch): string {
   return [
-    item.destination.trim().toLowerCase(),
+    item.destinationRef ? `${item.destinationRef.type}:${item.destinationRef.id}` : item.destination.trim().toLowerCase(),
+    item.roomStays ? JSON.stringify(item.roomStays) : '',
+    item.currency ?? '',
+    item.sort ?? '',
     item.checkIn,
     item.checkOut,
     String(item.rooms),
@@ -89,6 +130,13 @@ export function readRecentSearches(storage: Pick<Storage, 'getItem'>, userId: st
       ...(item.refundableOnly ? { refundableOnly: true as const } : {}),
       ...(item.minPriceMinor !== undefined ? { minPriceMinor: item.minPriceMinor } : {}),
       ...(item.maxPriceMinor !== undefined ? { maxPriceMinor: item.maxPriceMinor } : {}),
+      ...(typeof item.cityName === 'string' && item.cityName.trim() ? { cityName: item.cityName.trim() } : {}),
+      ...(validRef(item.destinationRef) ? { destinationRef: item.destinationRef.type === 'city' ? { type: 'city' as const, id: item.destinationRef.id, countryCode: item.destinationRef.countryCode } : { type: 'hotel' as const, id: item.destinationRef.id } } : {}),
+      ...(validStays(item.roomStays) ? { roomStays: item.roomStays.map((stay) => ({ adults: stay.adults, children: stay.children.map((child) => ({ age: child.age })) })) } : {}),
+      ...(typeof item.currency === 'string' ? { currency: item.currency } : {}),
+      ...(item.sort ? { sort: item.sort } : {}),
+      ...(Array.isArray(item.boardBasisIds) ? { boardBasisIds: [...item.boardBasisIds] } : {}),
+      ...(Array.isArray(item.propertyTypes) ? { propertyTypes: [...item.propertyTypes] } : {}),
     }))
   } catch {
     return []
@@ -109,6 +157,13 @@ function storedSearch(search: RecentSearch): RecentSearch {
     ...(search.refundableOnly ? { refundableOnly: true as const } : {}),
     ...(search.minPriceMinor !== undefined ? { minPriceMinor: search.minPriceMinor } : {}),
     ...(search.maxPriceMinor !== undefined ? { maxPriceMinor: search.maxPriceMinor } : {}),
+    ...(search.cityName?.trim() ? { cityName: search.cityName.trim() } : {}),
+    ...(validRef(search.destinationRef) ? { destinationRef: search.destinationRef } : {}),
+    ...(validStays(search.roomStays) ? { roomStays: search.roomStays.map((stay) => ({ adults: stay.adults, children: stay.children.map((child) => ({ age: child.age })) })) } : {}),
+    ...(search.currency && SELLING_CURRENCIES.includes(search.currency as typeof SELLING_CURRENCIES[number]) ? { currency: search.currency } : {}),
+    ...(search.sort ? { sort: search.sort } : {}),
+    ...(search.boardBasisIds?.length ? { boardBasisIds: [...search.boardBasisIds] } : {}),
+    ...(search.propertyTypes?.length ? { propertyTypes: [...search.propertyTypes] } : {}),
   }
 }
 
