@@ -165,9 +165,9 @@ function ReservationStrip({ enabled, tenantId, onOpen }: { enabled: boolean; ten
   useEffect(() => {
     if (!enabled) return
     let active = true
-    void new BookingService().list(tenantId).then((result) => {
+    void new BookingService().list(tenantId, { limit: 20 }).then((result) => {
       if (!active) return
-      if (result.ok) setRows(result.data.filter((row) => row.status === 'PENDING' || row.status === 'CONFIRMED').slice(0, 3))
+      if (result.ok) setRows(result.data.items.filter((row) => row.status === 'PENDING' || row.status === 'CONFIRMED').slice(0, 3))
       else setNote(result.kind === 'unavailable' ? 'Booking is not enabled. No reservations are shown.' : 'Reservations could not be loaded.')
     })
     return () => { active = false }
@@ -177,7 +177,7 @@ function ReservationStrip({ enabled, tenantId, onOpen }: { enabled: boolean; ten
     {!enabled && <p className="trade-muted">Booking is not enabled. No reservations are shown on this page.</p>}
     {enabled && note && <p className="trade-muted" role="status">{note}</p>}
     {enabled && !note && rows === null && <p className="trade-muted" role="status">Loading reservations…</p>}
-    {enabled && rows !== null && rows.length === 0 && <p className="trade-muted">No pending or confirmed bookings in the latest list.</p>}
+    {enabled && rows !== null && rows.length === 0 && <p className="trade-muted">No pending or confirmed bookings in the latest page.</p>}
     {rows !== null && rows.length > 0 && <ul className="market-recent-grid">{rows.map((row) => <li key={row.id}><strong>{row.reference}</strong><span>{row.hotelName ?? 'Hotel'}</span><span>{agentFacingBooking(row.status).label}</span></li>)}</ul>}
   </section>
 }
