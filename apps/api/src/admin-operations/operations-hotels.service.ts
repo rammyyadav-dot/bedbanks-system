@@ -10,6 +10,8 @@ import {
 import { PrismaService } from '../database/prisma.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { markupResolverFor } from '../supply/markup-rules'
+import { loadActiveMarkupRulesInTx } from '../supply/markup-rules.loader'
 import {
   assessHotel, contractStateOf, evaluatePlanNight, gateResults, mappingFor, windowDates,
   type AssessContract, type AssessHotelInput, type AssessPlan, type HotelAssessment,
@@ -54,6 +56,7 @@ export class OperationsHotelsService {
 
   // ---- loading (bulk: a fixed number of queries regardless of hotel count) -----------------------------------------------
   private async loadInputs(tx: Prisma.TransactionClient, tenantId: string, hotels: HotelRecord[], win: Win): Promise<Map<string, AssessHotelInput>> {
+    const markupRules = await loadActiveMarkupRulesInTx(tx, tenantId)
     const out = new Map<string, AssessHotelInput>()
     if (hotels.length === 0) return out
     const ids = hotels.map((h) => h.id)
@@ -85,7 +88,7 @@ export class OperationsHotelsService {
         contracts: mappedContracts.filter((c) => c.supplierHotelMapping?.hotelId === hotel.id).map((c): AssessContract => ({ id: c.id, code: c.code, status: c.status, validFrom: c.validFrom, validTo: c.validTo, supplierId: c.supplierId, supplierName: c.supplier.displayName, supplierStatus: c.supplier.status, supplierHotelMappingId: c.supplierHotelMappingId })),
         mappings: mappings.filter((m) => m.hotelId === hotel.id).map((m) => ({ id: m.id, supplierId: m.supplierId, supplierName: m.supplier.displayName, hotelId: m.hotelId, status: m.status, supplierHotelId: m.supplierHotelId, confidence: m.confidence, updatedAt: m.updatedAt })),
         roomMappings: roomMappings.filter((m) => rooms.some((r) => r.id === m.roomTypeId && r.hotelId === hotel.id)),
-        dates: win.dates, today: this.today(), observedAt: this.clock().toISOString(),
+        dates: win.dates, today: this.today(), observedAt: this.clock().toISOString(), markupRules,
       })
     }
     return out
@@ -352,7 +355,7 @@ export class OperationsHotelsService {
         const avail = new Map(plan.availability.map((r) => [day(r.stayDate), r]))
         const cells: CalendarCell[] = win.dates.map((date) => {
           const rate = rates.get(date); const row = avail.get(date)
-          const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating)
+          const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules)
           return {
             date, rateMinor: rate ? rate.amountMinor.toString() : null, currency: rate ? rate.currency : null, amountBasis: rate?.amountBasis === 'SELL' || rate?.amountBasis === 'NET' ? rate.amountBasis : null,
             allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: row ? row.allotment - row.sold - row.held : null,
@@ -386,13 +389,13 @@ export class OperationsHotelsService {
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
         const ownRates = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
-        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates), { checkIn, checkOut, rooms, adults, children, currency: plan.currency, leadDays })
+        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: plan.currency, leadDays })
         const reasons = [...decision.reasons]
         if (!(input.hotel.starRating !== null && input.hotel.starRating >= 1 && input.hotel.starRating <= 5)) reasons.push('HOTEL_STAR_RATING_MISSING')
         const ratesByDate = new Map(ownRates.dailyRates.map((r) => [day(r.stayDate), r]))
         const availByDate = new Map(plan.availability.map((r) => [day(r.stayDate), r]))
         const nightVerdicts: NightVerdict[] = dates.map((date) => {
-          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms })
+          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules)
           const rate = ratesByDate.get(date); const row = availByDate.get(date)
           return { date, sellable: nightReasons.length === 0, reasons: nightReasons, rateMinor: rate ? rate.amountMinor.toString() : null, remaining: row ? row.allotment - row.sold - row.held : null }
         })

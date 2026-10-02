@@ -6,6 +6,8 @@ import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common
 import { PrismaService } from '../database/prisma.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { markupResolverFor, type MarkupRuleRow } from '../supply/markup-rules'
+import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
 const OFFER_PREFIX = 'ci_'
@@ -71,7 +73,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       if (supplierCount === 0) throw new SupplierProviderError('unconfigured')
       const nights = stayDates(criteria.checkIn, criteria.checkOut)
       const plans = await this.loadPlans(context.tenantId, criteria, nights)
-      const offers = this.toOffers(plans, criteria, context.tenantId, nights)
+      const rules = await this.markupRules(context.tenantId)
+      const offers = this.toOffers(plans, criteria, context.tenantId, nights, rules)
       return { offers, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
     } catch (error) {
       if (error instanceof SupplierProviderError) throw error
@@ -211,12 +214,17 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     })
   }
 
-  private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[]): SearchHotelOffer[] {
+  /** ACTIVE markup rules for NET rates. If the database role cannot read them, NET rates stay unsellable and that is logged. */
+  private markupRules(tenantId: string): Promise<MarkupRuleRow[]> {
+    return loadActiveMarkupRules(this.prisma, tenantId, () => this.logger.warn('Markup rules are not readable by the API database role; NET rates are not sellable'))
+  }
+
+  private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[]): SearchHotelOffer[] {
     const expiresAt = new Date(Date.now() + offerTtlMs()).toISOString()
     const leadDays = commercialLeadDays(criteria.checkIn)
     const seen = new Set<string>()
     const priced = plans.flatMap((plan) => {
-      const built = this.pricePlan(plan, criteria, tenantId, nights, leadDays, expiresAt)
+      const built = this.pricePlan(plan, criteria, tenantId, nights, leadDays, expiresAt, rules)
       if (!built || seen.has(commercialKey(built.rate))) return []
       seen.add(commercialKey(built.rate))
       return [built]
@@ -273,7 +281,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     }
   }
 
-  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], leadDays: number, expiresAt: string, persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
+  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], leadDays: number, expiresAt: string, rules: readonly MarkupRuleRow[], persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
     const mapping = plan.contract.supplierHotelMapping
     const roomMapping = mapping?.roomMappings.find((row) => row.tenantId === tenantId && row.roomTypeId === plan.roomTypeId && row.status === 'MAPPED')
     if (!mapping || !roomMapping || mapping.hotelId !== plan.roomType.hotelId) return null
@@ -281,7 +289,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     if (starRating === null || starRating < 1 || starRating > 5) return null
     if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
     if (criteria.filters?.refundableOnly && !plan.refundable) return null
-    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights)
+    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId))
     const decision = evaluateContractedStay(snapshot, {
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,
@@ -343,11 +351,11 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       available: true,
       cancellation: { refundable: plan.refundable, summary: plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate' },
       total: { amountMinor: sellAmountMinor, currency: criteria.currency },
-      netAmountMinor: sellAmountMinor,
+      netAmountMinor: Number(decision.netMinor ?? decision.totalMinor),
       taxAmountMinor: 0,
       feeAmountMinor: 0,
-      totalAmountMinor: sellAmountMinor,
-      markupAmountMinor: 0,
+      totalAmountMinor: Number(decision.netMinor ?? decision.totalMinor), // supplier cost: net plus tax and fees; the offer contract adds markup to reach sell
+      markupAmountMinor: Number(decision.markupMinor ?? 0n),
       sellAmountMinor,
       paymentType: 'prepaid',
       source: sourceFor(plan.contract.supplier.type),
@@ -379,9 +387,10 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     }
     const nights = stayDates(stored.checkIn, stored.checkOut)
     const plans = await this.loadPlans(tenantId, criteria, nights)
+    const rules = await this.markupRules(tenantId)
     const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
     if (!plan) return null
-    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, commercialLeadDays(stored.checkIn), stored.expiresAt, false)
+    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, commercialLeadDays(stored.checkIn), stored.expiresAt, rules, false)
     if (!priced || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
     return priced.rate.sellAmountMinor
   }

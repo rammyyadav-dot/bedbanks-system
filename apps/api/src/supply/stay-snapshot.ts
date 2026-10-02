@@ -27,6 +27,8 @@ export function buildStaySnapshot(
   mapping: { status: string; hotelId: string } | null,
   roomMapping: { status: string } | null,
   nights: string[],
+  /** Markup basis points in force for a night, or null. Omitted means no markup rule (NET rates stay unsellable). */
+  markupFor?: (date: string) => number | null,
 ): ContractedStaySnapshot {
   const rates = new Map(plan.dailyRates.map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
@@ -38,6 +40,7 @@ export function buildStaySnapshot(
       rateAmountMinor: rate ? rate.amountMinor : null,
       rateCurrency: rate?.currency ?? null,
       amountBasis: rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null,
+      markupBasisPoints: rate?.amountBasis === 'NET' && markupFor ? markupFor(date) : null,
       availability: row ? { allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, closedToArrival: row.closedToArrival } : null,
     }
   })

@@ -26,7 +26,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.goto(`${BASE}/dashboard`); await page.waitForSelector('nav')
   const sidebar = (await page.locator('nav').first().innerText()).replace(/\s+/g, ' ')
   check('Sidebar groups live modules by department', ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Finance', 'Platform'].every((g) => new RegExp(g, 'i').test(sidebar)), sidebar.slice(0, 120))
-  check('Sidebar lists no planned department module', !/Markups|Promotions|Agencies|Refunds|Risk flags|Cases/.test(sidebar))
+  check('Sidebar lists no planned department module', !/Promotions|Agencies|Refunds|Risk flags|Cases/.test(sidebar))
 
   // 0b. dashboard department slices: same numbers as the readiness page, honest per-section denial
   await page.goto(`${BASE}/dashboard`); await page.waitForSelector('[data-testid=dept-reservations]', { timeout: 20000 })
@@ -139,6 +139,34 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   check('Approved run executes exactly once (a double click sends one POST)', execPosts === 1, `posts=${execPosts}`)
   check('An executed approval offers no further action', (await page.locator('[data-testid=approval-executed] button').count()) === 0)
 
+  // 3c. commercial markup rule: create a draft, a second person approves, it is activated once
+  await page.goto(`${BASE}/commercial/markups`); await page.waitForSelector('[data-testid=markup-form]', { timeout: 20000 })
+  const today = new Date().toISOString().slice(0, 10)
+  const fillRule = async (percent) => { await page.getByLabel('Markup %').fill(percent); await page.getByLabel('Valid from').fill(today); await page.getByLabel('Reason', { exact: true }).fill('Standard margin on NET contracts'); await page.getByRole('button', { name: 'Create draft' }).click() }
+  await fillRule('101'); await page.waitForSelector('[data-testid=markup-form] [role=alert]', { timeout: 10000 })
+  check('A markup above 100 percent is refused before anything is sent', /0 to 100/.test(await page.locator('[data-testid=markup-form] [role=alert]').innerText()))
+  await fillRule('12.345'); check('A markup with more than two decimals is refused', /two decimals/.test(await page.locator('[data-testid=markup-form] [role=alert]').innerText()))
+  await fillRule('12.5'); await page.waitForSelector('[data-testid=markup-draft]', { timeout: 15000 })
+  const draftRow = (await page.locator('[data-testid=markup-draft]').first().innerText()).replace(/\s+/g, ' ')
+  check('A draft rule shows 12.50 percent and DRAFT, and changes no price', /12\.50%/.test(draftRow) && /DRAFT/.test(draftRow), draftRow.slice(0, 100))
+  page.once('dialog', (d) => d.accept('Policy approved by commercial director'))
+  await page.locator('[data-testid=markup-draft] button', { hasText: 'Request activation' }).first().click()
+  await page.waitForSelector('[data-testid=markup-draft] >> text=PENDING', { timeout: 15000 })
+  check('The requester sees no Approve or Reject on their own rule', (await page.locator('[data-testid=markup-draft] button', { hasText: /^(Approve|Reject)$/ }).count()) === 0)
+  const { ctx: mctx, page: mpage } = await login(browser, seed.checkerEmail)
+  await mpage.goto(`${BASE}/commercial/markups`); await mpage.waitForSelector('[data-testid=markup-draft]', { timeout: 15000 })
+  mpage.once('dialog', (d) => d.accept('Matches the signed policy'))
+  await mpage.locator('[data-testid=markup-draft] button', { hasText: /^Approve$/ }).first().click()
+  await mpage.waitForSelector('[data-testid=markup-draft] >> text=APPROVED', { timeout: 15000 })
+  await mctx.close()
+  await page.reload(); await page.waitForSelector('[data-testid=markup-draft] >> text=APPROVED', { timeout: 15000 })
+  let actPosts = 0; page.on('request', (r) => { if (r.method() === 'POST' && /markups\/approvals\/[^/]+\/execute/.test(r.url())) actPosts++ })
+  await page.evaluate(() => { const b = [...document.querySelectorAll('[data-testid=markup-draft] button')].find((x) => /Activate approved rule/.test(x.textContent)); b.click(); b.click() })
+  await page.waitForSelector('[data-testid=markup-active]', { timeout: 20000 })
+  check('The approved rule is activated exactly once (a double click sends one POST)', actPosts === 1, `posts=${actPosts}`)
+  check('The ACTIVE rule shows its percent and can be retired', /12\.50%/.test(await page.locator('[data-testid=markup-active]').first().innerText()) && (await page.locator('[data-testid=markup-active] button', { hasText: 'Retire' }).count()) === 1)
+
+
 
   // 5. distinct failure states (network interception is test-only; the app has no mock path)
   for (const [status, code, expect, label] of [[401, 'UNAUTHORIZED', 'unauthenticated', '401'], [403, 'FORBIDDEN', 'forbidden', '403'], [503, 'OPERATIONS_READ_DENIED', 'denied', '503 privilege boundary'], [500, 'INTERNAL_SERVER_ERROR', 'error', '500']]) {
@@ -159,7 +187,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.unroute('**/api/v1/admin/operations/bookings*')
 
   // 6. accessibility (axe) on the data pages
-  for (const path of ['/dashboard', '/markets', '/reliability', '/access-review', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
+  for (const path of ['/dashboard', '/commercial/markups', '/markets', '/reliability', '/access-review', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
     await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-testid=booking-360], section')
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const serious = axe.violations.filter(v => ['serious', 'critical'].includes(v.impact))

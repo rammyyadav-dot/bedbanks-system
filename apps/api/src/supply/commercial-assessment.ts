@@ -5,6 +5,7 @@ import {
 } from '@bedbanks/contracts'
 import { evaluateContractedStay } from './contracted-sellability'
 import { buildStaySnapshot, type StayPlanInput } from './stay-snapshot'
+import { markupResolverFor, type MarkupRuleRow } from './markup-rules'
 
 /**
  * Pure commercial assessment of one hotel over a window of nights. It owns no I/O and reads no clock: `today` is injected, so tests
@@ -46,6 +47,8 @@ export interface AssessHotelInput {
   dates: string[]
   today: string
   observedAt: string
+  /** ACTIVE markup rules for NET rates. Omitted means none, so NET rates are unsellable. */
+  markupRules?: readonly MarkupRuleRow[]
 }
 
 // ---- output --------------------------------------------------------------------------------------------------------------
@@ -114,8 +117,8 @@ export function occupancySplit(plan: { occupancy: number; roomType: { maxAdults:
   return { adults, children: plan.occupancy - adults }
 }
 
-export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number }): string[] {
-  const snapshot = buildStaySnapshot(plan, mapping, roomMapping, [date])
+export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number }, markupRules: readonly MarkupRuleRow[] = []): string[] {
+  const snapshot = buildStaySnapshot(plan, mapping, roomMapping, [date], markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId))
   const { adults, children } = guests ?? occupancySplit(plan)
   const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, currency: plan.currency, leadDays: Number.MAX_SAFE_INTEGER })
   const reasons = decision.reasons.filter((reason) => !STAY_CONTEXT_REASONS.has(reason))
@@ -136,7 +139,7 @@ function assessPlan(loaded: AssessPlan, input: AssessHotelInput): PlanAssessment
   const rates = new Map(plan.dailyRates.map((rate) => [dayOf(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayOf(row.stayDate), row]))
   const nights: NightAssessment[] = input.dates.map((date) => {
-    const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating)
+    const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules)
     const row = availability.get(date)
     return { date, reasons, sellable: reasons.length === 0, hasRate: rates.has(date), hasAvailability: Boolean(row), remaining: row ? row.allotment - row.sold - row.held : null, stopSell: row?.stopSell === true }
   })

@@ -183,7 +183,7 @@ test('department navigation (ADR 0015): grouped by department, live modules only
     assert.ok(item.icon, `${item.href} needs an icon`)
     assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
   }
-  for (const planned of ['Markups', 'Promotions', 'Agencies', 'Cases', 'Risk flags', 'Refunds', 'Tenants', 'Users']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+  for (const planned of ['Promotions', 'Agencies', 'Cases', 'Risk flags', 'Refunds', 'Tenants', 'Users']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
 })
 
 test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {
@@ -223,4 +223,12 @@ test('governance slices and pages read their own summary endpoints and do no ari
     assert.match(src, new RegExp(fn)); assert.match(src, /OpsState/); assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed/)
   }
   assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', 'access-review', 'page.tsx'), 'utf8'), /password|passwordHash/i, 'no credential material is ever shown')
+})
+
+test('markup page manages rules only: the API prices, the browser does no pricing arithmetic', () => {
+  const page = readFileSync(join(root, 'app', '(dashboard)', 'commercial', 'markups', 'page.tsx'), 'utf8')
+  assert.match(page, /getMarkupRules/); assert.match(page, /OpsState/)
+  assert.doesNotMatch(page, /parseFloat|toFixed|Math\.round|Math\.floor|\*\s*\(\s*1\s*\+|netAmount|sellAmount/, 'no price or markup arithmetic in React')
+  assert.match(page, /canRequestActivation/); assert.match(page, /approval\??\.canDecide/); assert.match(page, /canExecute/, 'buttons come from the API flags')
+  assert.doesNotMatch(page, /method: 'PATCH'|method: 'PUT'|method: 'DELETE'/, 'rules are immutable: no update or delete')
 })

@@ -53,10 +53,10 @@ async function main() {
     return u
   }
   const A = await tenant(`${tag}-a`); const B = await tenant(`${tag}-b`)
-  const all = ['booking.read', 'booking.reconcile', 'booking.cancel', 'finance.read', 'audit.read', 'supply.hotels.read', 'supply.suppliers.read', 'supply.rates.read', 'supply.contracts.read', 'supply.mappings.read']
+  const all = ['booking.read', 'booking.reconcile', 'booking.cancel', 'finance.read', 'audit.read', 'supply.hotels.read', 'supply.suppliers.read', 'supply.rates.read', 'supply.rates.manage', 'supply.contracts.read', 'supply.mappings.read']
   const owner = await user(`owner-${tag}@verify.test`, A.t.id, 'owner', all)
   await user(`viewer-${tag}@verify.test`, A.t.id, 'viewer', ['supply.hotels.read'])
-  await user(`checker-${tag}@verify.test`, A.t.id, 'checker', ['booking.read', 'booking.reconcile']) // second person for maker-checker
+  await user(`checker-${tag}@verify.test`, A.t.id, 'checker', ['booking.read', 'booking.reconcile', 'supply.rates.read', 'supply.rates.manage']) // second person for maker-checker
   await user(`bowner-${tag}@verify.test`, B.t.id, 'owner', all)
   async function book(f: typeof A, key: string, finish: 'confirm' | 'cancel' | 'none') {
     const hold = await holds.create({ tenantId: f.t.id, userId: owner.id, requestId: `${key}-req`, idempotencyKey: key, offerId: `o-${key}`, searchId: `s-${key}`, ratePlanId: f.rp.id, canonicalHotelId: f.hotel.id, canonicalRoomTypeId: f.room.id, boardBasisId: f.board.id, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 125_100, offerExpiresAt: new Date(Date.now() + 3_600_000).toISOString() })

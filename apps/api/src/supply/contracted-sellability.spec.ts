@@ -43,7 +43,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
 
 describe('contracted stay sellability', () => {
   it('prices three AED nights in integer minor units', () => {
-    expect(evaluateContractedStay(snapshot(), request)).toEqual({ eligible: true, reasons: [], totalMinor: 89700n })
+    expect(evaluateContractedStay(snapshot(), request)).toEqual({ eligible: true, reasons: [], totalMinor: 89700n, netMinor: 89700n, markupMinor: 0n })
   })
 
   it.each([
@@ -100,5 +100,48 @@ describe('contracted stay sellability', () => {
     }
     expect(evaluateNightSellability(plan, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toEqual([])
     expect(evaluateNightSellability(null, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toEqual(['RATE_PLAN_MISSING'])
+  })
+
+  describe('NET rates and markup (ADR 0018)', () => {
+    const net = (bp: number | null | undefined, amount = 10_000n) => night('2026-10-15', { amountBasis: 'NET', rateAmountMinor: amount, markupBasisPoints: bp })
+    const stay = (nights: ReturnType<typeof net>[], rooms = 1) => evaluateContractedStay(snapshot({ nights }), { ...request, checkOut: '2026-10-' + String(15 + nights.length), rooms })
+
+    it('a NET night with a markup rule sells at net plus markup, and reports both parts', () => {
+      const d = stay([net(1_000)])
+      expect(d).toEqual({ eligible: true, reasons: [], totalMinor: 11_000n, netMinor: 10_000n, markupMinor: 1_000n })
+    })
+
+    it('rounds each night half up in integer minor units, then sums', () => {
+      const d = stay([net(1_000, 10_005n), { ...net(1_000, 10_005n), date: '2026-10-16' }])
+      expect(d.markupMinor).toBe(2_002n) // 1001 + 1001, not 2001 from rounding the sum
+      expect(d.totalMinor).toBe(22_012n)
+    })
+
+    it('multiplies by rooms and keeps net, markup and total consistent', () => {
+      const d = stay([net(2_500)], 3)
+      expect(d).toMatchObject({ totalMinor: 37_500n, netMinor: 30_000n, markupMinor: 7_500n })
+      expect(d.netMinor! + d.markupMinor!).toBe(d.totalMinor)
+    })
+
+    it('a NET night with no rule stays unsellable (fail closed), and with an out-of-range rule too', () => {
+      for (const bp of [null, undefined, -1, 10_001, 3 / 2]) {
+        const d = stay([net(bp as number | null)])
+        expect(d.eligible).toBe(false); expect(d.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE'); expect(d.totalMinor).toBeNull(); expect(d.netMinor).toBeNull()
+      }
+    })
+
+    it('one night without a rule blocks the whole stay: no partial pricing', () => {
+      const d = stay([net(1_000), { ...net(null), date: '2026-10-16' }])
+      expect(d.eligible).toBe(false); expect(d.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE')
+    })
+
+    it('SELL rates ignore any markup and are never marked up twice', () => {
+      const d = evaluateContractedStay(snapshot({ nights: [night('2026-10-15', { markupBasisPoints: 5_000 }), night('2026-10-16'), night('2026-10-17')] }), request)
+      expect(d).toMatchObject({ eligible: true, totalMinor: 89_700n, netMinor: 89_700n, markupMinor: 0n })
+    })
+
+    it('a zero-percent rule is a valid rule: NET sells at net', () => {
+      expect(stay([net(0)])).toMatchObject({ eligible: true, totalMinor: 10_000n, markupMinor: 0n })
+    })
   })
 })

@@ -230,7 +230,7 @@ body { letter-spacing: -0.01em; }
 .admin-summary-card span { display: block; color: #7c949a; font-size: 10px; font-weight: 600; margin-bottom: 8px; }
 .admin-summary-card strong { display: block; font-size: 19px; color: #1a3641; letter-spacing: -.4px; }
 
-.admin-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 50px 16px; color: #7e969d; font-size: 11px; text-align: center; }
+.admin-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 50px 16px; color: #4d6577; font-size: 11px; text-align: center; }
 .admin-empty strong { color: #315560; font-size: 13px; }
 .admin-error { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 50px 16px; color: #bc5652; font-size: 11px; text-align: center; }
 
