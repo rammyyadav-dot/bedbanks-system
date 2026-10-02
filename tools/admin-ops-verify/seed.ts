@@ -7,6 +7,7 @@ import { BookingPersistenceService } from '../../apps/api/src/agent/booking-pers
 import { BookingFinancialAuthorizationService } from '../../apps/api/src/agent/booking-financial-authorization.service'
 import { PrebookCompensationRecoveryService } from '../../apps/api/src/agent/prebook-compensation-recovery.service'
 import { SupplierPrebookOrchestrationService } from '../../apps/api/src/agent/supplier-prebook-orchestration.service'
+import { SupplierMutationJournalService } from '../../apps/api/src/agent/supplier-mutation-journal.service'
 import { BookingConfirmationService } from '../../apps/api/src/agent/booking-confirmation.service'
 import { BookingTransactionService } from '../../apps/api/src/agent/booking-transaction.service'
 import { BookingCancellationService } from '../../apps/api/src/agent/booking-cancellation.service'
@@ -23,7 +24,7 @@ async function main() {
   const persistence = new BookingPersistenceService(prisma); const finance = new BookingFinancialAuthorizationService(prisma)
   const recovery = new PrebookCompensationRecoveryService(finance, holds, audit)
   const supplier = { prebook: async () => ({ supplierReference: 'contracted:verify' }) } as any
-  const tx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier), new BookingConfirmationService(prisma))
+  const tx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier), new BookingConfirmationService(prisma))
   const cancels = new BookingCancellationService(prisma, new CancellationPolicyService(), new LedgerService(prisma), audit)
   const password = 'Verify-Passw0rd!'; const hash = await hashPassword(password)
   const stay = new Date(Date.now() + 40 * 86_400_000); const nights = [stay, new Date(stay.getTime() + 86_400_000)]
