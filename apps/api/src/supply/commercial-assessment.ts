@@ -1,5 +1,5 @@
 import {
-  CONTRACT_EXPIRING_DAYS, HOTEL_STAR_RATING_MISSING,
+  COMMERCIAL_REASON_TEXT, CONTRACT_EXPIRING_DAYS, HOTEL_STAR_RATING_MISSING,
   type CommercialIssue, type CommercialIssueCategory, type CommercialReadiness, type ContractState, type GateState, type HotelSection,
   type InventoryState, type IssueSeverity, type MappingState, type ReadinessGate, type SupplyDataState,
 } from '@bedbanks/contracts'
@@ -201,16 +201,7 @@ const SECTION_OF_CATEGORY: Record<CommercialIssueCategory, HotelSection> = {
   UNMAPPED_HOTEL: 'mappings', UNMAPPED_ROOM: 'mappings', CONTRACT_EXPIRED: 'contracts', CONTRACT_EXPIRING: 'contracts', RATE_MISSING: 'rates', RATE_INVALID: 'rates',
   AVAILABILITY_MISSING: 'rates', STOP_SELL: 'rates', INVENTORY_EXHAUSTED: 'rates', OCCUPANCY_UNSUPPORTED: 'rooms', CURRENCY_OR_BASIS: 'rates', ENTITY_INACTIVE: 'overview', HOTEL_CONTENT: 'overview',
 }
-export const REASON_TEXT: Record<string, string> = {
-  HOTEL_INACTIVE: 'Hotel content is not COMPLETE', [HOTEL_STAR_RATING_MISSING]: 'Hotel has no 1-5 star rating, so Agents cannot list it',
-  ROOM_TYPE_INACTIVE: 'Room type is inactive', BOARD_BASIS_INACTIVE: 'Board basis is inactive', SUPPLIER_INACTIVE: 'Supplier is not ACTIVE', RATE_PLAN_INACTIVE: 'Rate plan is not ACTIVE',
-  RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity',
-  SUPPLIER_MAPPING_INVALID: 'Supplier mapping is missing or not approved', OCCUPANCY_UNSUPPORTED: 'Rate plan occupancy exceeds what the room supports',
-  DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency',
-  RATE_AMOUNT_BASIS_UNVERIFIED: 'Rate amount basis is not verified', NET_RATE_MARKUP_UNAVAILABLE: 'Net rate has no markup rule, so no sell price exists',
-  AVAILABILITY_MISSING: 'No availability row is loaded', STOP_SELL: 'Stop-sell is active', NO_INVENTORY: 'No inventory remains (allotment - sold - held = 0)',
-  MIN_STAY_NOT_MET: 'Minimum stay is not met', MAX_STAY_EXCEEDED: 'Maximum stay is exceeded', RELEASE_DAYS_NOT_MET: 'Inside the release period', CLOSED_TO_ARRIVAL: 'Closed to arrival on the check-in date',
-}
+export const REASON_TEXT = COMMERCIAL_REASON_TEXT
 
 // ---- gates ---------------------------------------------------------------------------------------------------------------
 /** Maps a set of canonical reasons onto the readable gate checklist used by the inspector. */

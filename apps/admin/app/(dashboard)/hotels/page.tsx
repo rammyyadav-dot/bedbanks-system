@@ -1,53 +1,103 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS, COMMERCIAL_ISSUE_CATEGORIES } from '@bedbanks/contracts'
 import { PageHeader } from '@/components/common/PageHeader'
+import { LoadingState } from '@/components/common/LoadingState'
 import { TableToolbar } from '@/components/tables/TableToolbar'
-import { SearchInput } from '@/components/forms/SearchInput'
-import { SelectField } from '@/components/forms/SelectField'
-import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
+import { OpsState } from '@/components/ops/OpsState'
+import { Pager } from '@/components/ops/Pager'
+import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { StatusBadge } from '@/components/status/StatusBadge'
-import { AdminLoadingState, AdminServiceUnavailable, AccessDenied, AuthRequired } from '@/components/auth/AuthorizationStates'
-import { apiRequest } from '@/lib/api/client'
-import { ApiResponseError } from '@/lib/api/errors'
+import { ContractChip, InventoryChip, MappingChip, RatesChip, ReadinessChip, ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
+import { HotelsSummary } from '@/components/hotels/HotelsSummary'
+import { getHotelsCommercial, getHotelsSummary } from '@/lib/data/hotel-commercial'
+import { getOpsSuppliers } from '@/lib/data/operations'
+import { hotelHref, listHref, readListQuery, reasonText, starsText, type ListFilterKey } from '@/lib/hotel-ui'
 
-type Hotel = { id: string; name: string; propertyType: string; starRating: number | null; city: string; countryCode: string; contentStatus: string; updatedAt: string }
+const PAGE_SIZE = 25
+const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
+const selectStyle = { minWidth: 120 }
 
-function status(value: string) { return value.toLowerCase() === 'published' ? 'active' : value.toLowerCase() === 'suspended' ? 'suspended' : value.toLowerCase() === 'archived' ? 'inactive' : 'pending' }
+function HotelsList() {
+  const router = useRouter(); const pathname = usePathname(); const params = useSearchParams()
+  const { filters, page } = useMemo(() => readListQuery(params), [params])
+  const [search, setSearch] = useState(filters.search ?? '')
+  useEffect(() => setSearch(filters.search ?? ''), [filters.search])
+  const go = (next: Partial<Record<ListFilterKey, string>>, nextPage = 1) => router.replace(`${pathname}${listHref(next, nextPage).slice('/hotels'.length)}`, { scroll: false })
+  const setFilter = (key: ListFilterKey, value: string) => go({ ...filters, [key]: value || undefined } as never)
 
-export default function HotelsPage() {
-  const [hotels, setHotels] = useState<Hotel[]>([])
-  const [search, setSearch] = useState('')
-  const [destination, setDestination] = useState('all')
-  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'auth' | 'forbidden'>('loading')
+  const summary = useOpsQuery(() => getHotelsSummary(), [])
+  const list = useOpsQuery(() => getHotelsCommercial({ ...filters, page, pageSize: PAGE_SIZE }), [params.toString()])
+  const suppliers = useOpsQuery(() => getOpsSuppliers({ pageSize: 100 }), [])
+  const supplierOptions = suppliers.state.status === 'ready' ? suppliers.state.data.items : []
+  const destinations = list.state.status === 'ready' ? list.state.data.destinations : []
+  const activeFilters = Object.keys(filters).length
 
-  useEffect(() => {
-    let active = true
-    apiRequest<Hotel[]>('/supply/hotels').then((data) => { if (active) { setHotels(data); setState('ready') } }).catch((error) => { if (!active) return; if (error instanceof ApiResponseError && error.status === 401) setState('auth'); else if (error instanceof ApiResponseError && error.status === 403) setState('forbidden'); else setState('error') })
-    return () => { active = false }
-  }, [])
-
-  const destinations = Array.from(new Set(hotels.map((hotel) => hotel.city))).sort()
-  const filtered = useMemo(() => hotels.filter((hotel) => (destination === 'all' || hotel.city === destination) && `${hotel.name} ${hotel.city}`.toLowerCase().includes(search.toLowerCase())), [hotels, search, destination])
-  const columns: DataTableColumn<Hotel>[] = [
-    { key: 'name', header: 'Hotel', render: (hotel) => <Link href={`/hotels/${hotel.id}`} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link> },
-    { key: 'propertyType', header: 'Property type', render: (hotel) => hotel.propertyType },
-    { key: 'destination', header: 'Destination', render: (hotel) => `${hotel.city}, ${hotel.countryCode}` },
-    { key: 'stars', header: 'Stars', render: (hotel) => hotel.starRating ? '★'.repeat(hotel.starRating) : '—', align: 'center' },
-    { key: 'updatedAt', header: 'Updated', render: (hotel) => new Date(hotel.updatedAt).toLocaleDateString() },
-    { key: 'status', header: 'Status', render: (hotel) => <StatusBadge status={status(hotel.contentStatus)} /> },
-  ]
-
-  return <div className="admin-page">
-    <PageHeader eyebrow="HOTEL SUPPLY · HOTELS" title="Hotels" description="Manage authoritative FBEDS hotel master data." actions={<Link href="/hotels/new" className="button primary">+ Add hotel</Link>} />
-    {state === 'loading' && <AdminLoadingState />}
-    {state === 'auth' && <AuthRequired />}
-    {state === 'forbidden' && <AccessDenied permission="supply.hotels.read" />}
-    {state === 'error' && <AdminServiceUnavailable onRetry={() => window.location.reload()} />}
-    {state === 'ready' && <>
-      <TableToolbar><SearchInput value={search} onChange={setSearch} placeholder="Search hotels…" /><SelectField label="Destination" value={destination} onChange={setDestination} options={[{ value: 'all', label: 'All destinations' }, ...destinations.map((city) => ({ value: city, label: city }))]} /></TableToolbar>
-      <DataTable columns={columns} data={filtered} getRowId={(hotel) => hotel.id} emptyTitle={hotels.length === 0 ? 'No hotels in this tenant' : 'No hotels found'} />
-    </>}
-  </div>
+  return (
+    <div className="admin-page">
+      <PageHeader eyebrow="HOTEL SUPPLY · HOTELS" title="Hotels" description="Hotel master data and commercial readiness. Readiness is computed by the API with the same rules Agents are sold by." actions={<Link href="/hotels/new" className="button primary">+ Add hotel</Link>} />
+      {summary.state.status === 'ready' && <HotelsSummary summary={summary.state.data} />}
+      {summary.state.status === 'failed' && <p role="status" data-testid="summary-unavailable" style={{ color: '#8a5a00', fontSize: 12 }}>Commercial summary unavailable ({summary.state.failure}). The list below is unaffected.</p>}
+      <form onSubmit={(event) => { event.preventDefault(); setFilter('search', search.trim()) }} aria-label="Hotel filters">
+        <TableToolbar>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Search hotels</span><input type="search" value={search} maxLength={64} placeholder="Name or hotel code" onChange={(event) => setSearch(event.target.value)} style={{ minWidth: 200 }} /></label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Destination</span>
+            <select value={filters.destination ?? ''} onChange={(event) => setFilter('destination', event.target.value)} style={selectStyle}><option value="">All destinations</option>{destinations.map((city) => <option key={city} value={city}>{city}</option>)}</select></label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Readiness</span>
+            <select value={filters.readiness ?? ''} onChange={(event) => setFilter('readiness', event.target.value)} style={selectStyle}><option value="">All</option><option value="READY">Ready</option><option value="PARTIAL">Partial</option><option value="BLOCKED">Blocked</option></select></label>
+          <button type="submit" className="admin-btn">Search</button>
+          {activeFilters > 0 && <button type="button" className="admin-btn" onClick={() => { setSearch(''); go({}) }}>Clear filters</button>}
+        </TableToolbar>
+        <details style={{ margin: '0 0 12px' }} open={Boolean(filters.supplierId || filters.contentStatus || filters.mapping || filters.contractState || filters.issue || filters.expiresWithinDays)}>
+          <summary style={{ cursor: 'pointer', fontSize: 12 }}>More filters</summary>
+          <TableToolbar>
+            {supplierOptions.length > 0 && <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Supplier</span><select value={filters.supplierId ?? ''} onChange={(event) => setFilter('supplierId', event.target.value)} style={selectStyle}><option value="">All suppliers</option>{supplierOptions.map((s) => <option key={s.id} value={s.id}>{s.displayName}</option>)}</select></label>}
+            <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Hotel status</span><select value={filters.contentStatus ?? ''} onChange={(event) => setFilter('contentStatus', event.target.value)} style={selectStyle}><option value="">All</option>{['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED'].map((v) => <option key={v} value={v}>{v}</option>)}</select></label>
+            <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Hotel mapping</span><select value={filters.mapping ?? ''} onChange={(event) => setFilter('mapping', event.target.value)} style={selectStyle}><option value="">All</option>{[['MAPPED', 'Mapped'], ['PENDING', 'Pending'], ['REJECTED', 'Rejected'], ['NONE', 'Not mapped']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+            <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Contract</span><select value={filters.contractState ?? ''} onChange={(event) => setFilter('contractState', event.target.value)} style={selectStyle}><option value="">All</option>{[['ACTIVE', 'Active'], ['EXPIRING', `Expiring (<${CONTRACT_EXPIRING_DAYS}d)`], ['EXPIRED', 'Expired'], ['INACTIVE', 'Inactive'], ['NONE', 'No contract']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+            <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Contract expires within</span><select value={filters.expiresWithinDays ?? ''} onChange={(event) => setFilter('expiresWithinDays', event.target.value)} style={selectStyle}><option value="">Any time</option>{CONTRACT_EXPIRY_FILTER_DAYS.map((d) => <option key={d} value={d}>{d} days</option>)}</select></label>
+            <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Issue type</span><select value={filters.issue ?? ''} onChange={(event) => setFilter('issue', event.target.value)} style={{ minWidth: 180 }}><option value="">Any issue</option>
+              {filters.issue && !(COMMERCIAL_ISSUE_CATEGORIES as readonly string[]).includes(filters.issue) && <option value={filters.issue}>{reasonText(filters.issue)}</option>}
+              {COMMERCIAL_ISSUE_CATEGORIES.map((c) => <option key={c} value={c}>{c.split('_').join(' ').toLowerCase()}</option>)}</select></label>
+          </TableToolbar>
+        </details>
+      </form>
+      <OpsState state={list.state} onRetry={list.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: activeFilters ? 'No hotels match these filters' : 'No hotels in this tenant', description: activeFilters ? 'The query succeeded and no hotel matches. Clear a filter to widen it.' : 'The query succeeded and this tenant has no hotels yet.' }}>
+        {(data) => (
+          <div className="workspace-panel" data-testid="hotels-table">
+            <ScrollRegion label="Hotels">
+              <table style={tableStyle} aria-label="Hotels and commercial readiness">
+                <thead><tr>{['Hotel', 'Destination', 'Stars', 'Supplier', 'Contract', 'Mapping', 'Rates', 'Inventory', 'Sellability', 'Issues', 'Updated', 'Action'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {data.items.map((hotel) => (
+                    <tr key={hotel.id} data-hotel-id={hotel.id}>
+                      <td style={td}><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.code ?? 'no code'} · <StatusBadge status={entityStatus(hotel.contentStatus)} /></div></td>
+                      <td style={td}>{hotel.city}, {hotel.countryCode}</td>
+                      <td style={td} title={starsText(hotel.starRating)}>{hotel.starRating ? <><span aria-hidden="true">{'★'.repeat(hotel.starRating)}</span><span className="sr-only">{starsText(hotel.starRating)}</span></> : <span>No rating</span>}</td>
+                      <td style={td}>{hotel.suppliers.length ? hotel.suppliers.map((s) => s.displayName).join(', ') : '—'}</td>
+                      <td style={td}><ContractChip value={hotel.contractState} days={hotel.contractDaysToExpiry} /></td>
+                      <td style={td}><MappingChip value={hotel.hotelMapping} /><div style={{ color: '#3f565c', fontSize: 10, marginTop: 2 }}>Rooms {hotel.rooms.mapped}/{hotel.rooms.active} mapped</div></td>
+                      <td style={td}><RatesChip value={hotel.rates} /></td>
+                      <td style={td}><InventoryChip value={hotel.inventory} /></td>
+                      <td style={td}><ReadinessChip value={hotel.readiness} blockers={hotel.blockers} /></td>
+                      <td style={td}>{hotel.issues.total === 0 ? '—' : <span title={hotel.blockers.map(reasonText).join('; ')}>{hotel.issues.total} ({hotel.issues.critical} critical, {hotel.issues.high} high)</span>}{hotel.blockers[0] && <div style={{ fontSize: 10 }}><code>{hotel.blockers[0]}</code></div>}</td>
+                      <td style={td}>{new Date(hotel.updatedAt).toLocaleDateString()}</td>
+                      <td style={td}><Link href={hotelHref(hotel.id)}>Open</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollRegion>
+            <p style={{ color: '#3f565c', fontSize: 10, padding: '6px 14px', margin: 0 }}>Assessed for {data.window.from} → {data.window.to} ({data.window.days} nights).{data.scanCapped ? ' Filters covered only the first alphabetical hotels (scan limit reached).' : ''}</p>
+            <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={(p) => go(filters, p)} />
+          </div>
+        )}
+      </OpsState>
+    </div>
+  )
 }
+
+export default function HotelsPage() { return <Suspense fallback={<LoadingState rows={6} />}><HotelsList /></Suspense> }

@@ -17,7 +17,7 @@ const PAGE_SIZE = 25
  * One server-paginated list: filters are sent to the API (never applied to rows in hand), a filter change returns to page 1,
  * and loading / error / empty are distinct states. The table is rendered only for a successful, non-empty response.
  */
-export function OpsListPage<T>({ eyebrow, title, description, filters = [], load, columns, getRowId, emptyTitle, emptyDescription, actions }: {
+export function OpsListPage<T>({ eyebrow, title, description, filters = [], load, columns, getRowId, emptyTitle, emptyDescription, actions, initial }: {
   eyebrow: string; title: string; description: string
   filters?: FilterField[]
   load: (params: Record<string, string | number | boolean>) => Promise<Paged<T>>
@@ -25,9 +25,12 @@ export function OpsListPage<T>({ eyebrow, title, description, filters = [], load
   getRowId: (row: T) => string
   emptyTitle: string; emptyDescription: string
   actions?: ReactNode
+  /** Starting filter values (for example from the URL). Only keys declared in `filters` are honoured. */
+  initial?: Record<string, string>
 }) {
-  const [draft, setDraft] = useState<Record<string, string | boolean>>({})
-  const [applied, setApplied] = useState<Record<string, string | boolean>>({})
+  const start = useMemo(() => Object.fromEntries(Object.entries(initial ?? {}).filter(([key]) => filters.some((f) => f.key === key))), [initial, filters])
+  const [draft, setDraft] = useState<Record<string, string | boolean>>(start)
+  const [applied, setApplied] = useState<Record<string, string | boolean>>(start)
   const [page, setPage] = useState(1)
   const params = useMemo(() => {
     const out: Record<string, string | number | boolean> = { page, pageSize: PAGE_SIZE }

@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { OperationsPermission, SupplyPermission } from '@bedbanks/contracts';
 import {
   LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
-  BookOpen, Lock, Wrench, Landmark, Receipt, History, Cable, Gauge, Undo2,
+  BookOpen, Lock, Wrench, Landmark, Receipt, History, Cable, Gauge, Undo2, TriangleAlert,
 } from 'lucide-react';
 
 export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission; }
@@ -21,6 +21,7 @@ export const navSections: NavSection[] = [
     items: [
       { href: '/suppliers', label: 'Suppliers', icon: Truck, requires: 'supply.suppliers.read' },
       { href: '/hotels', label: 'Hotels', icon: Hotel, requires: 'supply.hotels.read' },
+      { href: '/exceptions', label: 'Exceptions', icon: TriangleAlert, requires: 'supply.hotels.read' },
       { href: '/board-basis', label: 'Board Basis', icon: Tags, requires: 'supply.rates.read' },
       { href: '/mappings', label: 'Mappings', icon: Link2, requires: 'supply.mappings.read' },
       { href: '/contracts', label: 'Contracts', icon: FileSignature, requires: 'supply.contracts.read' },
@@ -61,7 +62,6 @@ export const navSections: NavSection[] = [
 const hiddenRoutes: NavItem[] = [
   { href: '/rooms', label: 'Rooms', icon: Hotel, requires: 'supply.rooms.read' },
   { href: '/inventory', label: 'Rates & Inventory', icon: CalendarRange },
-  { href: '/operations/hotels', label: 'Hotel readiness', icon: Hotel, requires: 'booking.read' },
 ];
 
 export const flatNav = [...navSections.flatMap((s) => s.items), ...hiddenRoutes];

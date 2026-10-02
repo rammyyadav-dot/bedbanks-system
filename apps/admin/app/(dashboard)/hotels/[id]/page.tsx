@@ -1,25 +1,78 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { Suspense } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import { PageHeader } from '@/components/common/PageHeader'
+import { LoadingState } from '@/components/common/LoadingState'
+import { OpsState } from '@/components/ops/OpsState'
+import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { StatusBadge } from '@/components/status/StatusBadge'
-import { AdminLoadingState, AdminServiceUnavailable, AccessDenied, AuthRequired } from '@/components/auth/AuthorizationStates'
-import { apiRequest } from '@/lib/api/client'
-import { ApiResponseError } from '@/lib/api/errors'
+import { Chip, ContractChip, MappingChip, ReadinessChip } from '@/components/hotels/ui'
+import { OverviewPanel } from '@/components/hotels/panels/OverviewPanel'
+import { RoomsPanel } from '@/components/hotels/panels/RoomsPanel'
+import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
+import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
+import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
+import { SellabilityPanel } from '@/components/hotels/panels/SellabilityPanel'
+import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
+import { AuditPanel } from '@/components/hotels/panels/AuditPanel'
+import { useCan } from '@/lib/auth/capabilities'
+import { getHotel360 } from '@/lib/data/hotel-commercial'
+import { HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/lib/hotel-ui'
 
-type Hotel = { id: string; name: string; propertyType: string; starRating: number | null; address: string | null; city: string; countryCode: string; timeZone: string; contentStatus: string; externalRef: string | null; updatedAt: string; roomTypes?: { id: string; name: string; code: string; maxOccupancy: number }[] }
-function status(value: string) { return value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending' }
-
-export default function HotelDetailPage() {
-  const { id } = useParams<{ id: string }>()
-  const [hotel, setHotel] = useState<Hotel | null>(null)
-  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'auth' | 'forbidden'>('loading')
-  const [saving, setSaving] = useState(false)
-  const [name, setName] = useState('')
-  const [contentStatus, setContentStatus] = useState('DRAFT')
-  useEffect(() => { let active = true; apiRequest<Hotel>(`/supply/hotels/${id}`).then((data) => { if (active) { setHotel(data); setName(data.name); setContentStatus(data.contentStatus); setState('ready') } }).catch((error) => { if (!active) return; if (error instanceof ApiResponseError && error.status === 401) setState('auth'); else if (error instanceof ApiResponseError && [403, 404].includes(error.status)) setState('forbidden'); else setState('error') }); return () => { active = false } }, [id])
-  async function save() { if (!hotel) return; setSaving(true); try { const updated = await apiRequest<Hotel>(`/supply/hotels/${hotel.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, contentStatus }) }); setHotel(updated); setContentStatus(updated.contentStatus) } finally { setSaving(false) } }
-  return <div className="admin-page">{state === 'loading' && <AdminLoadingState />}{state === 'auth' && <AuthRequired />}{state === 'forbidden' && <AccessDenied permission="supply.hotels.read" />}{state === 'error' && <AdminServiceUnavailable onRetry={() => window.location.reload()} />}{state === 'ready' && hotel && <><PageHeader eyebrow={`HOTEL · ${hotel.id}`} title={hotel.name} description={`${hotel.city}, ${hotel.countryCode} · ${hotel.propertyType}`} actions={<StatusBadge status={status(hotel.contentStatus)} />} /><div className="workspace-panel" style={{ display: 'grid', gap: 14, padding: 22, maxWidth: 720 }}><label>HOTEL NAME<input value={name} onChange={(event) => setName(event.target.value)} className="input-wrap" /></label><label>CONTENT STATUS<select aria-label="Content status" value={contentStatus} onChange={(event) => setContentStatus(event.target.value)} className="input-wrap"><option value="DRAFT">DRAFT</option><option value="INCOMPLETE">INCOMPLETE</option><option value="COMPLETE">COMPLETE</option><option value="SUSPENDED">SUSPENDED</option></select></label><p style={{ color: '#698088', fontSize: 12 }}>Only COMPLETE hotels appear in agent search.</p><p style={{ color: '#698088', fontSize: 12 }}>{hotel.address || 'No address recorded'} · {hotel.timeZone}</p><p style={{ color: '#698088', fontSize: 12 }}>Last updated {new Date(hotel.updatedAt).toLocaleString()}</p><button type="button" className="button primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button></div><div className="workspace-panel" style={{ marginTop: 16, padding: 22 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h2>Room types</h2><Link href={`/hotels/${hotel.id}/rooms/new`} className="button primary">+ Add room</Link></div>{hotel.roomTypes?.length ? hotel.roomTypes.map((room) => <p key={room.id}><Link href={`/hotels/${hotel.id}/rooms/${room.id}`}>{room.name}</Link> · {room.code} · max {room.maxOccupancy}</p>) : <p style={{ color: '#698088' }}>No active room types.</p>}</div></>}</div>
+const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'booking.read' | 'audit.read'>> = {
+  mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', bookings: 'booking.read', audit: 'audit.read',
 }
+const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
+
+function Hotel360() {
+  const { id } = useParams<{ id: string }>()
+  const tab = parseTab(useSearchParams().get('tab'))
+  const can = useCan()
+  const { state, reload } = useOpsQuery(() => getHotel360(id), [id])
+  const visibleTabs = HOTEL_TABS.filter((t) => { const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
+
+  return (
+    <div className="admin-page">
+      <OpsState state={state} onRetry={reload}>
+        {(data) => (
+          <>
+            <PageHeader eyebrow={`HOTEL · ${data.hotel.code ?? data.hotel.id}`} title={data.hotel.name} description={`${data.hotel.city}, ${data.hotel.countryCode} · ${data.hotel.propertyType} · ${starsText(data.hotel.starRating)}`} actions={<Link href="/hotels" className="admin-btn">All hotels</Link>} />
+            <dl data-testid="hotel-header" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px 16px', margin: '0 0 12px' }}>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Hotel status</dt><dd style={{ margin: 0 }}><StatusBadge status={entityStatus(data.hotel.contentStatus)} /> {data.hotel.contentStatus}</dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Commercial readiness</dt><dd style={{ margin: 0 }}><ReadinessChip value={data.readiness} blockers={data.blockers} /></dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Sellable to Agents</dt><dd style={{ margin: 0 }}><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Supplier</dt><dd style={{ margin: 0 }}>{data.suppliers.length ? data.suppliers.map((s) => s.displayName).join(', ') : '—'}</dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Hotel mapping</dt><dd style={{ margin: 0 }}><MappingChip value={data.hotelMapping} /></dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Contract</dt><dd style={{ margin: 0 }}><ContractChip value={data.contractState} /></dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Hotel code</dt><dd style={{ margin: 0 }}>{data.hotel.code ?? '—'}</dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Canonical ID</dt><dd style={{ margin: 0 }}><code>{data.hotel.id}</code></dd></div>
+              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Bookings / active holds</dt><dd style={{ margin: 0 }}>{data.counts.bookings ?? 'unavailable'} / {data.counts.activeHolds ?? 'unavailable'}</dd></div>
+            </dl>
+            <p style={{ color: '#3f565c', fontSize: 11, margin: '0 0 8px' }}>Assessed {data.window.from} → {data.window.to} ({data.window.days} nights).</p>
+            <nav aria-label="Hotel sections">
+              <div className="admin-tabs" role="tablist">
+                {visibleTabs.map((t) => (
+                  <Link key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id} aria-controls="hotel-panel" href={hotelHref(id, t.id)} replace scroll={false} className={`admin-tab ${tab === t.id ? 'active' : ''}`}>{t.label}{t.id === 'overview' && data.issues.length > 0 ? ` (${data.issues.length})` : ''}</Link>
+                ))}
+              </div>
+            </nav>
+            <div role="tabpanel" id="hotel-panel" aria-labelledby={`tab-${tab}`} style={{ marginTop: 12 }}>
+              {tab === 'overview' && <OverviewPanel data={data} onChanged={reload} />}
+              {tab === 'rooms' && <RoomsPanel data={data} />}
+              {tab === 'mappings' && <MappingsPanel hotelId={id} />}
+              {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
+              {tab === 'rates' && <RatesInventoryPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'sellability' && <SellabilityPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'bookings' && <BookingsPanel hotelId={id} />}
+              {tab === 'audit' && <AuditPanel hotelId={id} />}
+            </div>
+          </>
+        )}
+      </OpsState>
+    </div>
+  )
+}
+
+export default function HotelDetailPage() { return <Suspense fallback={<LoadingState rows={6} />}><Hotel360 /></Suspense> }

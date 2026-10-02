@@ -282,3 +282,6 @@ body { letter-spacing: -0.01em; }
 
 /* Operations filter bar: explicit colours so native controls meet WCAG AA contrast. */
 .admin-filter-bar label, .admin-filter-bar select, .admin-filter-bar input { color: #2c4a55; }
+
+/* Visually hidden, still announced by assistive technology. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
