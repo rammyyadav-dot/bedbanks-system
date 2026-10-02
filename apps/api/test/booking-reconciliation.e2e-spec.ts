@@ -46,7 +46,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 5 })) })
-    walletId = (await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 1_000_000n, cachedBalance: 0n } })).id
+    walletId = (await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 50_000_000n, cachedBalance: 0n } })).id
   })
 
   afterAll(async () => {
@@ -149,6 +149,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     expect((await reconcile()).items.find((item) => item.holdId === hold.holdId)?.outcome).toBe('prebooked_awaiting_confirmation')
 
     await prisma.$executeRawUnsafe(`UPDATE "AuditEvent" SET "created_at" = now() - interval '2 hours' WHERE "action" = 'booking.prebook.succeeded' AND "entity_id" = '${pre.bookingId}'`)
+    await prisma.$executeRawUnsafe(`UPDATE "SupplierMutation" SET "acknowledged_at" = now() - interval '2 hours', "updated_at" = now() - interval '2 hours' WHERE "booking_id" = '${pre.bookingId}'`)
     expect((await reconcile({ dryRun: true })).items.find((item) => item.holdId === hold.holdId)?.outcome).toBe('would_reconcile')
     const result = await reconcile()
     expect(result.items.find((item) => item.holdId === hold.holdId)).toEqual({ holdId: hold.holdId, bookingId: pre.bookingId, outcome: 'prebook_expired' })
@@ -169,6 +170,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
       const pre = await new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier).execute({ ...commandFor(key, hold.holdId), walletId } as never)
       await backdate(hold.holdId, 45)
       await prisma.$executeRawUnsafe(`UPDATE "AuditEvent" SET "created_at" = now() - interval '2 hours' WHERE "action" = 'booking.prebook.succeeded' AND "entity_id" = '${pre.bookingId}'`)
+      await prisma.$executeRawUnsafe(`UPDATE "SupplierMutation" SET "acknowledged_at" = now() - interval '2 hours', "updated_at" = now() - interval '2 hours' WHERE "booking_id" = '${pre.bookingId}'`)
       const net = await walletNet()
       const [confirmed, swept] = await Promise.allSettled([confirmation.confirm({ tenantId, userId, requestId: `c${round}`, bookingId: pre.bookingId }), reconcile()])
       const booking = await prisma.booking.findUniqueOrThrow({ where: { id: pre.bookingId } })
