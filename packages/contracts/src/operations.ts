@@ -142,3 +142,51 @@ export interface ConnectorRow {
   lastExecution: ConnectorExecutionView | null; lastSuccess: ConnectorExecutionView | null; lastFailure: ConnectorExecutionView | null
 }
 export interface ConnectorExecutionView { operation: string; status: string; latencyMs: number | null; errorClassification: string | null; at: string }
+
+// ---- Finance and audit summaries ---------------------------------------------------------------------------------------
+export type LedgerEntryType = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND'
+/** Trailing window of whole UTC days ending today. */
+export const SUMMARY_WINDOW_DEFAULT_DAYS = 30
+export const SUMMARY_WINDOW_MAX_DAYS = 90
+export interface SummaryWindow { from: string; to: string; days: number }
+
+/**
+ * Per-currency finance position. Currencies are never added together. Money is an integer minor-unit string.
+ * Balance and available credit use the finance service's formula: balance = SUM(all ledger entries), available = credit limit + balance.
+ */
+export interface FinanceCurrencySummary {
+  currency: string
+  wallets: number
+  creditLimitMinor: MinorString
+  balanceMinor: MinorString
+  availableCreditMinor: MinorString
+  /** Wallets whose available credit is below zero. Should be 0; anything else needs a finance investigation. */
+  overdrawnWallets: number
+}
+export interface LedgerWindowSummary {
+  entries: number
+  /** Per currency and entry type, the sum of stored signed amounts in the window. */
+  byCurrency: Array<{ currency: string; entries: number; netMinor: MinorString; byType: Array<{ type: LedgerEntryType; entries: number; sumMinor: MinorString }> }>
+}
+export interface FinanceSummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  wallets: SectionState<{ total: number; currencies: FinanceCurrencySummary[] }>
+  ledger: SectionState<LedgerWindowSummary>
+}
+
+export interface AuditSummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  events: SectionState<{
+    total: number
+    lastEventAt: string | null
+    byActorType: Array<{ actorType: string; events: number }>
+    /** Events grouped by the first dot-separated segment of the action (booking, supplier, approval ...). */
+    byDomain: Array<{ domain: string; events: number }>
+    /** Events that record a refusal or an uncertain outcome and deserve a look. */
+    attention: { denied: number; unknownSupplierOutcomes: number; selfApprovalAttempts: number }
+  }>
+}

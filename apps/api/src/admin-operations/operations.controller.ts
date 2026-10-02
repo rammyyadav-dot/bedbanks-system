@@ -10,6 +10,7 @@ import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
 import { OperationsHotelsService } from './operations-hotels.service'
+import { OperationsFinanceAuditService } from './operations-finance-audit.service'
 import { OperationsSupplyService } from './operations-supply.service'
 import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -25,7 +26,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly finAudit: OperationsFinanceAuditService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -108,6 +109,12 @@ export class OperationsController {
 
   @Get('ledger') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
+
+  @Get('finance/summary') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  financeSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.financeSummary(tenantId, query) }
+
+  @Get('audit/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  auditSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.auditSummary(tenantId, query) }
 
   @Get('audit') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   audit(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.audit(tenantId, query) }

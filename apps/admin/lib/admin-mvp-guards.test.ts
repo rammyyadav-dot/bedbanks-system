@@ -203,3 +203,13 @@ test('dashboard department slices come from the readiness API and the department
   for (const planned of ['commercial', 'distribution', 'clients', 'service', 'risk', 'markets', 'reliability']) assert.doesNotMatch(slices, new RegExp(`id="${planned}"`), `${planned} is not built`)
   assert.match(readFileSync(join(root, 'app', '(dashboard)', 'dashboard', 'page.tsx'), 'utf8'), /<DepartmentSlices \/>/)
 })
+
+test('finance and audit dashboard slices read their summary endpoints, show currencies separately and format only from minor units', () => {
+  const src = readFileSync(join(root, 'components', 'dashboard', 'FinanceAuditSlices.tsx'), 'utf8')
+  assert.match(src, /getFinanceSummary/); assert.match(src, /getAuditSummary/)
+  assert.match(src, /formatMinorUnits/)
+  assert.doesNotMatch(src, /Number\(|parseFloat|toFixed|Math\.|\* 100|BigInt/, 'no floating-point or ad hoc money arithmetic in React')
+  assert.doesNotMatch(src, /availableCreditMinor\s*[+-]|\.reduce\([^)]*Minor/, 'currencies are never added together in the browser')
+  assert.match(src, /state === 'unavailable'/, 'an unreadable section is shown as denied, never zero')
+  assert.match(readFileSync(join(root, 'components', 'dashboard', 'DepartmentSlices.tsx'), 'utf8'), /<FinanceAuditSlices \/>/)
+})

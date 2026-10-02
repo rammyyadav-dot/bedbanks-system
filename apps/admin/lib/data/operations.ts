@@ -1,5 +1,5 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { routes, type AuditSummary, type FinanceSummary, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -10,6 +10,8 @@ const json = { 'Content-Type': 'application/json' }
 
 export const getOpsCapabilities = () => apiRequest<OperationsCapabilities>(ops.capabilities)
 export const getOpsReadiness = (p: Params = {}) => apiRequest<OperationsReadiness>(`${ops.readiness}${opsQuery(p)}`)
+export const getFinanceSummary = (p: Params = {}) => apiRequest<FinanceSummary>(`${ops.financeSummary}${opsQuery(p)}`)
+export const getAuditSummary = (p: Params = {}) => apiRequest<AuditSummary>(`${ops.auditSummary}${opsQuery(p)}`)
 export const getOpsSuppliers = (p: Params) => apiRequest<Paged<SupplierOperationsRow>>(`${ops.suppliers}${opsQuery(p)}`)
 export const getOpsHolds = (p: Params) => apiRequest<Paged<HoldRow>>(`${ops.holds}${opsQuery(p)}`)
 export const getOpsHold = (holdId: string) => apiRequest<HoldDetail>(fill(ops.hold, { holdId }))

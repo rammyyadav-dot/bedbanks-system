@@ -18,7 +18,7 @@ export const routes = {
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
     reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
     cancellations: '/admin/operations/cancellations',
-    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger',
+    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', financeSummary: '/admin/operations/finance/summary', auditSummary: '/admin/operations/audit/summary',
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },
   platform: {
