@@ -20,7 +20,7 @@ async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClie
   }, { timeout: 120_000 })
 }
 
-const measured: { adminReadinessMs?: number; adminHotelPagesMs?: number; firstSearchMs?: number; repeatSearchMs?: number[]; priceChangedRecheckMs?: number; stopSellRecheckMs?: number } = {}
+const measured: { adminPerf?: Record<string, number | string>; adminReadinessMs?: number; adminHotelPagesMs?: number; firstSearchMs?: number; repeatSearchMs?: number[]; priceChangedRecheckMs?: number; stopSellRecheckMs?: number } = {}
 
 const HOTEL_COUNT = 100
 const PLANS_PER_HOTEL = 3
@@ -463,6 +463,45 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     const otherHotels = (await get('/hotels?pageSize=100', otherCookie, otherTenantId)).status
     expect(otherHotels).toBe(403) // the other tenant's agent holds no supply permission either
   }, 180000)
+
+  it('Admin hotel contracting performance at 100 hotels: bounded queries, measured response times', async () => {
+    const { PrismaService } = await import('../src/database/prisma.service')
+    const { OperationsHotelsService } = await import('../src/admin-operations/operations-hotels.service')
+    const queries: string[] = []
+    const probe = new PrismaService({ log: [{ emit: 'event', level: 'query' }] } as never)
+    ;(probe as unknown as { $on: (e: string, cb: (q: { query: string }) => void) => void }).$on('query', (q) => queries.push(q.query))
+    const service = new OperationsHotelsService(probe)
+    const time = async (label: string, run: () => Promise<unknown>) => {
+      queries.length = 0
+      const started = process.hrtime.bigint(); await run()
+      const ms = Math.round(Number(process.hrtime.bigint() - started) / 1_000_00) / 10
+      return { label, ms, statements: queries.filter((q) => /^\s*SELECT/i.test(q)).length }
+    }
+    const win = { from: checkIn, days: '7', pageSize: '100' }
+    const defaultWindow = { pageSize: '100' } // the 30-night default window, over 100 hotels
+    const runs = [
+      await time('list: 25 hotels (page 1)', () => service.list(tenantId, { ...win, pageSize: '25' })),
+      await time('list: 100 hotels, 7 nights', () => service.list(tenantId, win)),
+      await time('list: 100 hotels, 30 nights', () => service.list(tenantId, defaultWindow)),
+      await time('list: readiness filter (computed) over 100 hotels', () => service.list(tenantId, { ...win, readiness: 'PARTIAL' })),
+      await time('summary: 100 hotels, 7 nights', () => service.summary(tenantId, win)),
+      await time('summary: 100 hotels, 30 nights', () => service.summary(tenantId, {})),
+      await time('exceptions: 100 hotels, 30 nights', () => service.exceptions(tenantId, { pageSize: '50' })),
+      await time('hotel 360', () => service.detail(tenantId, hotels[3].hotelId, win)),
+      await time('calendar: 14 nights', () => service.calendar(tenantId, hotels[3].hotelId, { from: checkIn, days: '14' })),
+      await time('sellability inspector', () => service.sellability(tenantId, hotels[3].hotelId, { checkIn, checkOut, adults: '2', children: '0' })),
+    ]
+    await probe.$disconnect()
+    const row = (label: string) => runs.find((r) => r.label === label)!
+    // The number of SQL statements must not depend on how many hotels are assessed (no per-hotel loop).
+    expect(row('list: 100 hotels, 7 nights').statements).toBe(row('list: 25 hotels (page 1)').statements)
+    expect(row('summary: 100 hotels, 7 nights').statements).toBeLessThanOrEqual(row('list: 100 hotels, 7 nights').statements + 2)
+    for (const r of runs) expect({ label: r.label, bounded: r.statements <= 25 }).toEqual({ label: r.label, bounded: true })
+    // A loose ceiling only (a regression guard, not a benchmark); the measured values are recorded below.
+    for (const r of runs) expect({ label: r.label, ok: r.ms < 15_000 }).toEqual({ label: r.label, ok: true })
+    measured.adminPerf = Object.fromEntries(runs.flatMap((r) => [[`${r.label} ms`, r.ms], [`${r.label} statements`, r.statements]]))
+    process.stdout.write(`\nADMIN_HOTEL_PERF ${JSON.stringify(runs)}\n`)
+  }, 120000)
 
   it('walks every sellable hotel through deterministic pages', async () => {
     const pageSize = 25
