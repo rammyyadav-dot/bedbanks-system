@@ -93,6 +93,7 @@ async function openHotel(page, key, tab) {
   check('calendar marks the stop-sold night NOT SELLABLE with the canonical reason', (await stopCell.count()) === 1 && /STOP_SELL/.test(await stopCell.innerText()) && /STOP SELL/.test(await stopCell.innerText()))
   const calText = await page.locator('[data-testid=calendar]').innerText()
   check('calendar shows integer-minor rates as currency (AED 499.00) and remaining inventory', /AED\s?499\.00/.test(calText) && /\b6\b/.test(calText), calText.slice(0, 120))
+  check('the calendar links into the existing rates workbench for the plan (read-only here, edited where validation and audit live)', (await page.locator('a[href^="/rates?ratePlanId="]').count()) >= 1)
   await page.screenshot({ path: `${SHOTS}/hotel-360-calendar.png`, fullPage: true })
 
   await openHotel(page, 'charlie')
@@ -155,6 +156,14 @@ async function openHotel(page, key, tab) {
   await page.locator('[data-testid=exceptions-table] tbody tr a', { hasText: 'Resolve in' }).first().click(); await page.waitForURL(/\/hotels\/.+\?tab=rates/)
   check('an exception links to the exact hotel section to resolve it', /tab=rates/.test(page.url()))
   await page.screenshot({ path: `${SHOTS}/exceptions.png`, fullPage: true })
+
+  // ---- the edit -> recalculate loop: set the missing star rating and COMPLETE on the new hotel; those two issues disappear, the rest remain ----
+  await openHotel(page, 'kilo')
+  check('before: the unrated DRAFT hotel lists the star-rating and content issues', /no 1-5 star rating/i.test(await text(page)) && /content is not COMPLETE/i.test(await text(page)))
+  await page.getByLabel('Star rating (1-5)').fill('4'); await page.getByLabel('Content status').selectOption('COMPLETE')
+  await page.getByRole('button', { name: 'Save changes' }).click(); await page.waitForSelector('text=Hotel master data saved', { timeout: 15000 }); await page.waitForTimeout(800)
+  const after = await text(page)
+  check('after saving, the star-rating and content issues are gone, and the hotel is still BLOCKED by what is genuinely missing', !/no 1-5 star rating/i.test(after.replace(/Agents cannot list this hotel until one is set\./, '')) && !/content is not COMPLETE/i.test(after) && /BLOCKED/.test(await page.locator('[data-testid=hotel-header]').innerText()) && /No rate plan is configured/.test(after), after.slice(0, 80))
 
   // ---- Add Hotel never implies "ready": a hotel created through the real form is BLOCKED until downstream authority exists -------------
   await page.goto(`${BASE}/hotels/new`); await page.waitForSelector('form')

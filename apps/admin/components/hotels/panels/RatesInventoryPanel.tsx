@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { HotelCommercial360 } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
@@ -40,6 +41,7 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
                   <summary style={{ cursor: 'pointer', padding: '6px 0' }}>
                     <strong>{row.roomName}</strong> · {row.boardCode} · <code>{row.ratePlanCode}</code> · {row.currency} · occ {row.occupancy} · {row.supplierName} · <Chip tone={row.planStatus === 'ACTIVE' ? 'ok' : 'warn'}>{row.planStatus}</Chip> · {sellable}/{row.cells.length} nights sellable
                   </summary>
+                  <p style={{ margin: '4px 0 8px', fontSize: 11 }}>This view is read-only. <Link href={`/rates?ratePlanId=${encodeURIComponent(row.ratePlanId)}`}>Edit rates, allotment and stop-sell in the Rates &amp; Inventory workbench</Link>, which applies the existing validation and audit.</p>
                   <ScrollRegion label={`Calendar for ${row.ratePlanCode}`} maxHeight={420}>
                     <table style={tableStyle} aria-label={`Rates and inventory for ${row.ratePlanCode}`}>
                       <thead><tr>{['Date', 'Rate', 'Basis', 'Allotment', 'Sold', 'Held', 'Remaining', 'Stop sell', 'Sellability'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>

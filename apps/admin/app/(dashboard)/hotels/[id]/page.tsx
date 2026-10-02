@@ -30,7 +30,7 @@ function Hotel360() {
   const { id } = useParams<{ id: string }>()
   const tab = parseTab(useSearchParams().get('tab'))
   const can = useCan()
-  const { state, reload } = useOpsQuery(() => getHotel360(id), [id])
+  const { state, reload, refresh } = useOpsQuery(() => getHotel360(id), [id])
   const visibleTabs = HOTEL_TABS.filter((t) => { const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
 
   return (
@@ -59,7 +59,7 @@ function Hotel360() {
               </div>
             </nav>
             <div role="tabpanel" id="hotel-panel" aria-labelledby={`tab-${tab}`} style={{ marginTop: 12 }}>
-              {tab === 'overview' && <OverviewPanel data={data} onChanged={reload} />}
+              {tab === 'overview' && <OverviewPanel data={data} onChanged={refresh} />}
               {tab === 'rooms' && <RoomsPanel data={data} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
