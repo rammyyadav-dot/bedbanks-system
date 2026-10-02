@@ -7,7 +7,7 @@ import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compens
 import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
 import { BookingReconciliationService } from '../src/agent/booking-reconciliation.service'
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
-import type { SupplierAdapter } from '../src/agent/supplier.port'
+import { SupplierProviderError, type SupplierAdapter } from '../src/agent/supplier.port'
 
 describe('interrupted booking reconciliation (PostgreSQL)', () => {
   const prisma = new PrismaService()
@@ -183,5 +183,50 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
         expect(await walletNet()).toBe(net + 125099n)
       }
     }
+  })
+
+  it('retains inventory when supplier prebook times out, and repeated reconciliation stays a manual review', async () => {
+    let supplierCalls = 0
+    const supplier = { prebook: async () => { supplierCalls += 1; throw new SupplierProviderError('timeout') } } as unknown as SupplierAdapter
+    const hold = await newHold(`${suffix}-unknown`)
+    const heldBefore = await heldNights()
+    const netBefore = await walletNet()
+    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
+    const command = { ...commandFor(`${suffix}-unknown`, hold.holdId), walletId }
+    await expect(flow.execute(command as never)).rejects.toThrow('Supplier prebook outcome is unknown')
+    expect(supplierCalls).toBe(1)
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: hold.holdId } })).toMatchObject({ status: 'PROCESSING' })
+    expect(await prisma.booking.findFirst({ where: { tenantId, idempotencyKey: `${suffix}-unknown` } })).toMatchObject({ status: 'PENDING' })
+    expect(await heldNights()).toEqual(heldBefore)
+    expect(await walletNet()).toBe(netBefore - 125099n)
+    await backdate(hold.holdId, 45)
+    const first = await reconcile()
+    const item = first.items.find((entry) => entry.holdId === hold.holdId)
+    expect(item?.outcome).toBe('manual_review_required')
+    const second = await reconcile()
+    expect(second.items.find((entry) => entry.holdId === hold.holdId)?.outcome).toBe('manual_review_required')
+    expect(await heldNights()).toEqual(heldBefore)
+    expect(await walletNet()).toBe(netBefore - 125099n)
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.reconciliation.manual_review', entityId: item?.bookingId ?? 'missing' } })).toBe(1)
+    const confirmation = new BookingConfirmationService(prisma)
+    await expect(confirmation.confirm({ tenantId, userId, requestId: 'unknown-confirm', bookingId: item!.bookingId! })).rejects.toThrow('unknown')
+    await expect(flow.execute(command as never)).rejects.toThrow('Supplier prebook outcome is unknown')
+    expect(supplierCalls).toBe(1)
+  })
+
+  it('confirms from the durable supplier reference when the success audit is missing', async () => {
+    const supplier = { prebook: async () => ({ supplierReference: 'sup-recovered' }) } as unknown as SupplierAdapter
+    const hold = await newHold(`${suffix}-recovered`)
+    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
+    const pre = await flow.execute({ ...commandFor(`${suffix}-recovered`, hold.holdId), walletId } as never)
+    await prisma.auditEvent.deleteMany({ where: { tenantId, entityId: pre.bookingId, action: 'booking.prebook.succeeded' } })
+    await backdate(hold.holdId, 45)
+    const net = await walletNet()
+    const held = await heldNights()
+    expect((await reconcile()).items.find((item) => item.holdId === hold.holdId)?.outcome).toBe('prebooked_awaiting_confirmation')
+    expect(await walletNet()).toBe(net)
+    expect(await heldNights()).toEqual(held)
+    const confirmation = new BookingConfirmationService(prisma)
+    await expect(confirmation.confirm({ tenantId, userId, requestId: 'recovered', bookingId: pre.bookingId })).resolves.toMatchObject({ status: 'CONFIRMED', alreadyConfirmed: false })
   })
 })

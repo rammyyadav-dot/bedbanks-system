@@ -66,6 +66,13 @@ describe('BookingPersistenceService', () => {
     expect(tx.booking.create).not.toHaveBeenCalled()
   })
 
+  it('treats a supplier-prebook overlay as the same commercial intent', async () => {
+    const overlaid = { ...booking, searchSnapshot: { ...booking.searchSnapshot, supplierPrebook: { outcome: 'unknown', code: 'timeout' } } }
+    const { service, tx } = setup({ existing: overlaid })
+    await expect(service.persistPending(command)).resolves.toEqual(overlaid)
+    expect(tx.booking.create).not.toHaveBeenCalled()
+  })
+
   it('rejects reuse of the booking idempotency key with different immutable intent', async () => {
     const { service } = setup({ existing: { ...booking, totalMinor: 1n } })
     await expect(service.persistPending(command)).rejects.toBeInstanceOf(ConflictException)
@@ -87,5 +94,29 @@ describe('BookingPersistenceService', () => {
     expect(data.supplier).toBe('PENDING_SUPPLIER')
     expect(data).not.toHaveProperty('supplierReference')
     expect(data).not.toHaveProperty('paymentReference')
+  })
+
+  it('records an unknown supplier outcome beside the commercial snapshot and does not downgrade a prebook', async () => {
+    const tx = {
+      booking: {
+        findFirst: jest.fn().mockResolvedValue(booking),
+        update: jest.fn().mockResolvedValue(booking),
+      },
+    }
+    const prisma = { withTenant: jest.fn(async (_tenant: string, work: (client: typeof tx) => Promise<unknown>) => work(tx)) }
+    const service = new BookingPersistenceService(prisma as never)
+    await service.recordSupplierPrebook('tenant-a', 'booking-a', { outcome: 'unknown', code: 'timeout' })
+    const written = tx.booking.update.mock.calls[0][0].data.searchSnapshot
+    expect(written.supplierPrebook).toEqual({ outcome: 'unknown', code: 'timeout' })
+    expect(written.totalMinor).toBe(125099)
+    expect(written.offerId).toBe('offer-a')
+
+    tx.booking.findFirst.mockResolvedValue({ ...booking, searchSnapshot: written })
+    tx.booking.update.mockClear()
+    await service.recordSupplierPrebook('tenant-a', 'booking-a', { outcome: 'unknown', code: 'timeout' })
+    expect(tx.booking.update).not.toHaveBeenCalled()
+    await expect(service.recordSupplierPrebook('tenant-a', 'booking-a', { outcome: 'prebooked', supplierReference: 'supplier-ref' })).resolves.toBeUndefined()
+    tx.booking.findFirst.mockResolvedValue({ ...booking, searchSnapshot: { ...written, supplierPrebook: { outcome: 'prebooked', supplierReference: 'supplier-ref' } } })
+    await expect(service.recordSupplierPrebook('tenant-a', 'booking-a', { outcome: 'unknown', code: 'timeout' })).rejects.toBeInstanceOf(ConflictException)
   })
 })
