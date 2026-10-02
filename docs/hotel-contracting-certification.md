@@ -11,7 +11,7 @@ Design record: `docs/adr/0014-hotel-commercial-assessment.md`. Earlier work this
 3. Human review of the final diff is pending.
 
 ## A. Release identity
-STARTING_BRANCH=`feat/admin-authoritative-operations` (the merged PR #208 branch) · STARTING_SHA=`0dea2d1` (#208 head, observed merged) · ORIGIN_MAIN_SHA=`4355dde` · WORKING_TREE=clean · FINAL_BRANCH=`claude/charming-goodall-0jo555` (worked on locally as `feat/admin-hotel-commercial-360`) · FINAL_SHA and DRAFT_PR are in the PR body.
+STARTING_BRANCH=`feat/admin-authoritative-operations` (the merged PR #208 branch) · STARTING_SHA=`0dea2d1` (#208 head, observed merged) · ORIGIN_MAIN_SHA=`fba8ade` (merged into this branch; clean merge) · WORKING_TREE=clean · FINAL_BRANCH=`claude/charming-goodall-0jo555` (worked on locally as `feat/admin-hotel-commercial-360`) · FINAL_SHA and DRAFT_PR are in the PR body.
 
 #208 was verified from the repository, not assumed: the `/admin/operations/*` module, Booking 360, holds, readiness, the reconcile action and the explicit denied states all exist in `main`. Its readiness logic did **not** match the Agent (see defect D1).
 
@@ -100,8 +100,8 @@ N_PLUS_ONE_FOUND: none; the statement count is identical for 25 hotels and 100 h
 ## K. Tests
 | | Result |
 |---|---|
-| API unit | 43 suites, 402 tests, 0 failed |
-| API e2e (full, nothing else running) | 29 suites, 203 tests, 0 failed, 0 skipped |
+| API unit | 44 suites, 413 tests, 0 failed |
+| API e2e (full, nothing else running) | 30 suites, 218 tests, 0 failed, 0 skipped |
 | Admin unit | 31 / 31 |
 | Agent / Supplier / Website | 67 / 4 / 54 |
 | `packages/domain` / `packages/money` | 20 / 3 |
@@ -109,13 +109,13 @@ N_PLUS_ONE_FOUND: none; the statement count is identical for 25 hotels and 100 h
 | Hotel commercial e2e | 24 (HOTEL-OPS-01..21, Agent consistency, exceptions, RLS, runtime role, query counts) |
 | Dubai 100-hotel spec | 10 (DUBAI-01..16, performance, and the unchanged Agent search/pagination/recheck/price-changed/expired/boundary tests) |
 | Browser, hotel workspace | 81 / 81 |
-| Browser, earlier operations views (regression) | 37 / 37 |
+| Browser, earlier operations views (regression) | 37 / 37 (after the merge two expectations were stale, not the product: `main`'s journal now acknowledges the seeded prebook, so Booking 360 shows its reference and recovery ages a prebook by the journal row; the seed now ages that row and the check expects the reference) |
 | Accessibility | axe WCAG A/AA: 0 serious or critical on Hotels list, Hotel 360, Rates & Inventory, Sellability Inspector, Exceptions; no page-level horizontal overflow at 1280, 768 and 390 px; keyboard activation of tabs |
 | Static checks | architecture (contracts, no-float, no-silent-fallback, public-env), schema integrity, `prisma validate`, `prisma generate`: pass |
-| Migration | all 26 replayed into a fresh database; status up to date; no drift before or after the tests; no schema or migration file changed |
+| Migration | all 27 replayed into a fresh database (status up to date); this branch adds no schema or migration file (27th, `202610070001_supplier_mutation_journal`, arrived from `main`). `prisma migrate diff` reports one difference, the pgvector HNSW index on `HotelSearchIndex.embedding` that `main`'s `202610010003` migration creates and Prisma cannot model; it is the same on `main` and unrelated to this work |
 | `pnpm -r type-check` / `pnpm -r lint` | exit 0 / exit 0 |
 
-Agent regression: search, pagination, offer, recheck, price changed, expired, unavailable, provider unavailable and the booking gate are covered by the unchanged Agent specs inside the 203/402 above; the D0→D+6 contract/date boundary is `dubai-commercial-scale.e2e-spec.ts`, and the same `validTo` rule is asserted for Admin. Date-rot: new tests use dates relative to today or the injected fixed clock; the hard-coded dates remaining in touched files are pure parsing/formatting tests.
+Agent regression: search, pagination, offer, recheck, price changed, expired, unavailable, provider unavailable and the booking gate are covered by the unchanged Agent specs inside the 218/413 above; the D0→D+6 contract/date boundary is `dubai-commercial-scale.e2e-spec.ts`, and the same `validTo` rule is asserted for Admin. Date-rot: new tests use dates relative to today or the injected fixed clock; the hard-coded dates remaining in touched files are pure parsing/formatting tests.
 
 ## L. Builds
 API, Admin, Agent, Supplier, Website: all exit 0, built independently on the final code.
@@ -149,6 +149,8 @@ OPEN_P0=0 · OPEN_P1=0.
 - Stop-sell, rates and mappings are edited in their existing workbenches, not inline.
 - The Admin browser verification is a manual script, not CI.
 - `CHAR(3)` board codes are still padded outside the new views.
+
+- The supplier mutation journal from `main` (booking and supplier-reference persistence) was merged in and its specs pass, but this mission did not certify the supplier-mutation boundary; Booking 360 only displays the journal's acknowledged reference.
 
 **Future commercial features (not built, not modelled):** contracting CRM and negotiation workflow, promotions and free nights, CTA/CTD rules beyond the stored flag, complex child pricing and supplements, supplier payables, revenue analytics, automated contract ingestion.
 
