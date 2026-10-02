@@ -207,8 +207,9 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   // ---- reconciliation ----------------------------------------------------------------------------------------------------
   it('ADMIN-RECON: stuck holds surface in the queue, a dry run changes nothing, and a run reconciles through the existing service', async () => {
     await prisma.$executeRaw`UPDATE "InventoryHold" SET updated_at = now() - interval '2 hours' WHERE id = ${stuckA.holdId}`
-    // Inside its confirmation window a prebooked attempt is deliberately left alone; age the marker past it.
+    // Inside its confirmation window a prebooked attempt is deliberately left alone; age both markers past it.
     await prisma.$executeRaw`UPDATE "AuditEvent" SET created_at = now() - interval '2 hours' WHERE action = 'booking.prebook.succeeded' AND entity_id = ${stuckA.bookingId}`
+    await prisma.$executeRaw`UPDATE "SupplierMutation" SET "acknowledged_at" = now() - interval '2 hours', "updated_at" = now() - interval '2 hours' WHERE "booking_id" = ${stuckA.bookingId}`
     const before = await tx.reconciliationQueue(A.tenantId, A.userId, 'req-queue')
     const hit = before.cases.find(c => c.holdId === stuckA.holdId)
     expect(hit).toMatchObject({ source: 'reconciliation_dry_run', holdStatus: 'PROCESSING' })
