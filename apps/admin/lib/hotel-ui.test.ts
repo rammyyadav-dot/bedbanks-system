@@ -24,6 +24,9 @@ test('tabs: every issue section is a real tab, unknown tab values fall back to o
   for (const section of ['overview', 'rooms', 'mappings', 'contracts', 'rates', 'sellability'] as const) assert.ok(ids.includes(sectionTab(section)), section)
   assert.equal(parseTab('rates'), 'rates'); assert.equal(parseTab('nonsense'), 'overview'); assert.equal(parseTab(null), 'overview'); assert.equal(parseTab('__proto__'), 'overview')
   assert.equal(hotelHref('h1'), '/hotels/h1'); assert.equal(hotelHref('h1', 'rates'), '/hotels/h1?tab=rates'); assert.equal(hotelHref('a b/c', 'rooms'), '/hotels/a b/c?tab=rooms')
+  assert.equal(hotelHref('h1', 'rates', { from: '2030-06-15', roomTypeId: 'room-9' }), '/hotels/h1?tab=rates&from=2030-06-15&roomTypeId=room-9')
+  assert.equal(hotelHref('h1', 'rates', { from: 'not-a-date' }), '/hotels/h1?tab=rates') // only a real calendar day is carried
+  assert.equal(hotelHref('h1', 'overview', { from: null, roomTypeId: null }), '/hotels/h1')
   assert.equal(COMMERCIAL_ISSUE_CATEGORIES.length, 13)
 })
 

@@ -39,16 +39,16 @@ function Hotel360() {
         {(data) => (
           <>
             <PageHeader eyebrow={`HOTEL · ${data.hotel.code ?? data.hotel.id}`} title={data.hotel.name} description={`${data.hotel.city}, ${data.hotel.countryCode} · ${data.hotel.propertyType} · ${starsText(data.hotel.starRating)}`} actions={<Link href="/hotels" className="admin-btn">All hotels</Link>} />
-            <dl data-testid="hotel-header" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px 16px', margin: '0 0 12px' }}>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Hotel status</dt><dd style={{ margin: 0 }}><StatusBadge status={entityStatus(data.hotel.contentStatus)} /> {data.hotel.contentStatus}</dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Commercial readiness</dt><dd style={{ margin: 0 }}><ReadinessChip value={data.readiness} blockers={data.blockers} /></dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Sellable to Agents</dt><dd style={{ margin: 0 }}><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Supplier</dt><dd style={{ margin: 0 }}>{data.suppliers.length ? data.suppliers.map((s) => s.displayName).join(', ') : '—'}</dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Hotel mapping</dt><dd style={{ margin: 0 }}><MappingChip value={data.hotelMapping} /></dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Contract</dt><dd style={{ margin: 0 }}><ContractChip value={data.contractState} /></dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Hotel code</dt><dd style={{ margin: 0 }}>{data.hotel.code ?? '—'}</dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Canonical ID</dt><dd style={{ margin: 0 }}><code>{data.hotel.id}</code></dd></div>
-              <div><dt style={{ fontSize: 10, color: '#3f565c' }}>Bookings / active holds</dt><dd style={{ margin: 0 }}>{data.counts.bookings ?? 'unavailable'} / {data.counts.activeHolds ?? 'unavailable'}</dd></div>
+            <dl data-testid="hotel-header" className="hotel-facts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px 16px', margin: '0 0 12px' }}>
+              <div><dt>Hotel status</dt><dd><StatusBadge status={entityStatus(data.hotel.contentStatus)} /> {data.hotel.contentStatus}</dd></div>
+              <div><dt>Commercial readiness</dt><dd><ReadinessChip value={data.readiness} blockers={data.blockers} /></dd></div>
+              <div><dt>Sellable to Agents</dt><dd><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
+              <div><dt>Supplier</dt><dd>{data.suppliers.length ? data.suppliers.map((s) => s.displayName).join(', ') : '—'}</dd></div>
+              <div><dt>Hotel mapping</dt><dd><MappingChip value={data.hotelMapping} /></dd></div>
+              <div><dt>Contract</dt><dd><ContractChip value={data.contractState} /></dd></div>
+              <div><dt>Hotel code</dt><dd>{data.hotel.code ?? '—'}</dd></div>
+              <div><dt>Canonical ID</dt><dd><code>{data.hotel.id}</code></dd></div>
+              <div><dt>Bookings / active holds</dt><dd>{data.counts.bookings ?? 'unavailable'} / {data.counts.activeHolds ?? 'unavailable'}</dd></div>
             </dl>
             <p style={{ color: '#3f565c', fontSize: 11, margin: '0 0 8px' }}>Assessed {data.window.from} → {data.window.to} ({data.window.days} nights).</p>
             <nav aria-label="Hotel sections">

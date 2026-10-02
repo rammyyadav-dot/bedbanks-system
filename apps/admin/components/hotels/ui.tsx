@@ -46,7 +46,7 @@ export function IssuePanel({ issues, hotelId, showHotel = false, emptyText = 'No
         <li key={issue.id} style={{ padding: '8px 0', borderBottom: '1px solid #edf2f3' }} data-severity={issue.severity} data-category={issue.category}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Chip tone={severityTone(issue.severity)}>{issue.severity}</Chip>
-            <Link href={hotelHref(hotelId ?? issue.hotelId, sectionTab(issue.section))} style={{ color: '#17333e', fontWeight: 600 }}>{showHotel ? `${issue.hotelName} · ` : ''}{issue.message}</Link>
+            <Link href={hotelHref(hotelId ?? issue.hotelId, sectionTab(issue.section), issue.section === 'rates' ? { from: issue.from, roomTypeId: issue.roomTypeId } : {})} style={{ color: '#17333e', fontWeight: 600 }}>{showHotel ? `${issue.hotelName} · ` : ''}{issue.message}</Link>
           </div>
           <div style={{ color: '#3f565c', fontSize: 11, marginTop: 2 }}>
             {issue.reason ? <code>{issue.reason}</code> : null}

@@ -29,7 +29,8 @@ export function SellabilityPanel({ hotelId, rooms }: { hotelId: string; rooms: H
       const kind = classifyOpsFailure(error)
       const copy = OPS_FAILURE_COPY[kind]
       // A 400 carries the API's own validation message (for example "Check-in must not be in the past").
-      setFailure({ title: copy.title, body: error instanceof ApiResponseError && error.status === 400 ? describeApiError(error, 'inspect sellability') : copy.body, ref: failureReference(error), kind })
+      const invalid = error instanceof ApiResponseError && error.status === 400
+      setFailure({ title: invalid ? 'Check the stay details' : copy.title, body: invalid ? describeApiError(error, 'inspect sellability') : copy.body, ref: failureReference(error), kind })
     } finally { inFlight.current = false; setRunning(false) }
   }
 

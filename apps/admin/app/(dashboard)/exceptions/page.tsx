@@ -45,7 +45,7 @@ function Exceptions() {
                     <td style={td}>{i.reason ? <span title={reasonText(i.reason)}><code>{i.reason}</code></span> : <span>{i.category.split('_').join(' ').toLowerCase()}</span>}</td>
                     <td style={td}>{i.from ? (i.from === i.to ? i.from : `${i.from} → ${i.to}`) : '—'}{i.nights ? ` (${i.nights}n)` : ''}</td>
                     <td style={td}>{when(i.observedAt)}</td>
-                    <td style={td}><Link href={hotelHref(i.hotelId, sectionTab(i.section))}>Resolve in {i.section}</Link></td>
+                    <td style={td}><Link href={hotelHref(i.hotelId, sectionTab(i.section), i.section === 'rates' ? { from: i.from, roomTypeId: i.roomTypeId } : {})}>Resolve in {i.section}</Link></td>
                   </tr>))}</tbody>
               </table>
             </ScrollRegion>

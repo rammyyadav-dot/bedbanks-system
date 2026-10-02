@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import type { HotelCommercial360 } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
@@ -14,9 +15,11 @@ const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 
 /** Rate, allotment, sold, held, remaining, stop-sell and the canonical verdict per plan and night. Nothing is calculated here: remaining and verdicts come from the API. */
 export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms: HotelCommercial360['rooms'] }) {
-  const [from, setFrom] = useState('')
+  // A link from an issue opens the calendar at the first affected night and room.
+  const linked = useSearchParams()
+  const [from, setFrom] = useState(() => (isDay(linked.get('from') ?? '') ? (linked.get('from') as string) : ''))
   const [days, setDays] = useState(14)
-  const [roomTypeId, setRoomTypeId] = useState('')
+  const [roomTypeId, setRoomTypeId] = useState(() => (rooms.some((r) => r.id === linked.get('roomTypeId')) ? (linked.get('roomTypeId') as string) : ''))
   const params = { from: isDay(from) ? from : undefined, days, roomTypeId: roomTypeId || undefined }
   const { state, reload } = useOpsQuery(() => getHotelCalendar(hotelId, params), [hotelId, params.from, days, roomTypeId])
   return (

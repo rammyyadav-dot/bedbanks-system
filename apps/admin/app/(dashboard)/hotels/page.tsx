@@ -74,7 +74,7 @@ function HotelsList() {
                 <tbody>
                   {data.items.map((hotel) => (
                     <tr key={hotel.id} data-hotel-id={hotel.id}>
-                      <td style={td}><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.code ?? 'no code'} · <StatusBadge status={entityStatus(hotel.contentStatus)} /></div></td>
+                      <td style={{ ...td, minWidth: 190 }}><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.code ?? 'no code'} · <StatusBadge status={entityStatus(hotel.contentStatus)} /></div></td>
                       <td style={td}>{hotel.city}, {hotel.countryCode}</td>
                       <td style={td} title={starsText(hotel.starRating)}>{hotel.starRating ? <><span aria-hidden="true">{'★'.repeat(hotel.starRating)}</span><span className="sr-only">{starsText(hotel.starRating)}</span></> : <span>No rating</span>}</td>
                       <td style={td}>{hotel.suppliers.length ? hotel.suppliers.map((s) => s.displayName).join(', ') : '—'}</td>
@@ -83,7 +83,7 @@ function HotelsList() {
                       <td style={td}><RatesChip value={hotel.rates} /></td>
                       <td style={td}><InventoryChip value={hotel.inventory} /></td>
                       <td style={td}><ReadinessChip value={hotel.readiness} blockers={hotel.blockers} /></td>
-                      <td style={td}>{hotel.issues.total === 0 ? '—' : <span title={hotel.blockers.map(reasonText).join('; ')}>{hotel.issues.total} ({hotel.issues.critical} critical, {hotel.issues.high} high)</span>}{hotel.blockers[0] && <div style={{ fontSize: 10 }}><code>{hotel.blockers[0]}</code></div>}</td>
+                      <td style={{ ...td, minWidth: 190 }}>{hotel.issues.total === 0 ? '—' : <span title={hotel.blockers.map(reasonText).join('; ')}>{hotel.issues.total} issue{hotel.issues.total === 1 ? '' : 's'} · {hotel.issues.critical} critical · {hotel.issues.high} high</span>}{hotel.blockers[0] && <div style={{ fontSize: 10, whiteSpace: 'nowrap' }}><code>{hotel.blockers[0]}</code></div>}</td>
                       <td style={td}>{new Date(hotel.updatedAt).toLocaleDateString()}</td>
                       <td style={td}><Link href={hotelHref(hotel.id)}>Open</Link></td>
                     </tr>

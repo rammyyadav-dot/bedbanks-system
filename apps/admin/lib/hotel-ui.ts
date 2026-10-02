@@ -33,7 +33,16 @@ export function parseTab(value: string | null | undefined): HotelTabId {
 }
 /** A section named by an issue maps one-to-one onto a tab, so every issue links to where it is resolved. */
 export function sectionTab(section: HotelSection): HotelTabId { return section }
-export const hotelHref = (hotelId: string, tab: HotelTabId = 'overview') => (tab === 'overview' ? `/hotels/${hotelId}` : `/hotels/${hotelId}?tab=${tab}`)
+/** Optional context so a link lands on the affected record: the first affected night and the room. Only these two are ever carried. */
+export interface HotelLinkContext { from?: string | null; roomTypeId?: string | null }
+export function hotelHref(hotelId: string, tab: HotelTabId = 'overview', context: HotelLinkContext = {}): string {
+  const query = new URLSearchParams()
+  if (tab !== 'overview') query.set('tab', tab)
+  if (context.from && /^\d{4}-\d{2}-\d{2}$/.test(context.from)) query.set('from', context.from)
+  if (context.roomTypeId) query.set('roomTypeId', context.roomTypeId)
+  const text = query.toString()
+  return text ? `/hotels/${hotelId}?${text}` : `/hotels/${hotelId}`
+}
 
 export const LIST_FILTER_KEYS = ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays'] as const
 export type ListFilterKey = (typeof LIST_FILTER_KEYS)[number]
