@@ -6,6 +6,11 @@ const API_BASE = '/api/v1'
 const REQUEST_TIMEOUT_MS = 10_000
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return (await apiRequestWithMeta<T>(path, init)).data
+}
+
+/** Like apiRequest, but also returns the server request id so mutation results can show it. */
+export async function apiRequestWithMeta<T>(path: string, init: RequestInit = {}): Promise<{ data: T; requestId: string | null }> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -16,8 +21,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       signal: controller.signal,
     })
     const body = await response.json().catch(() => null) as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null
-    if (!response.ok) throw new ApiResponseError(body?.error?.code ?? 'API_REQUEST_FAILED', body?.error?.message ?? 'The request failed.', response.status)
-    return (body?.data ?? body) as T
+    const requestId = response.headers.get('x-request-id')
+    if (!response.ok) throw new ApiResponseError(body?.error?.code ?? 'API_REQUEST_FAILED', body?.error?.message ?? 'The request failed.', response.status, requestId)
+    return { data: (body?.data ?? body) as T, requestId }
   } catch (error) {
     if (error instanceof ApiResponseError) throw error
     if (error instanceof DOMException && error.name === 'AbortError') {

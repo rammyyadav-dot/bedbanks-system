@@ -44,3 +44,4 @@ dump.rdb
 # Playwright
 **/playwright-report/
 **/test-results/
+tools/admin-ops-verify/.seed.json

@@ -39,6 +39,14 @@ const STATUS_CODE_MAP: Record<number, string> = {
   [HttpStatus.INTERNAL_SERVER_ERROR]: 'INTERNAL_SERVER_ERROR',
 };
 
+/** A domain-specific, machine-readable code (e.g. OPERATIONS_READ_DENIED) that an exception may carry in its body. */
+const EXPLICIT_CODE = /^[A-Z][A-Z0-9_]{2,47}$/;
+function explicitCode(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || !('code' in body)) return undefined;
+  const code = (body as { code: unknown }).code;
+  return typeof code === 'string' && EXPLICIT_CODE.test(code) ? code : undefined;
+}
+
 /**
  * Catches every exception thrown anywhere in the app (NestJS
  * HttpExceptions, ValidationPipe errors, and unexpected/unhandled
@@ -87,7 +95,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();
-      const code = STATUS_CODE_MAP[status] ?? 'HTTP_ERROR';
+      const code = explicitCode(body) ?? STATUS_CODE_MAP[status] ?? 'HTTP_ERROR';
 
       // ValidationPipe throws a BadRequestException whose response body
       // is { message: string[], error: 'Bad Request', statusCode: 400 }.
