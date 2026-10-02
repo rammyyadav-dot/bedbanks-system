@@ -62,6 +62,6 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     },
     { provide: SUPPLIER_ADAPTER, useClass: ContractedInventoryAdapter },
   ],
-  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER],
+  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService],
 })
 export class AgentModule {}

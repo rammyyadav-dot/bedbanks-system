@@ -32,10 +32,38 @@ test('Admin money is never converted with floating point', () => {
 
 test('MVP navigation lists only authoritative commercial modules and no stale mock banner', () => {
   const hrefs = flatNav.map((item) => item.href)
-  for (const gone of ['/bookings', '/cancellations', '/finance', '/pricing', '/distribution', '/reports', '/notifications', '/tenants', '/users', '/audit']) assert.ok(!navSections.flatMap((s) => s.items).some((item) => item.href === gone), `${gone} must not be in the sidebar`)
+  for (const gone of ['/finance', '/pricing', '/distribution', '/reports', '/notifications', '/tenants', '/users']) assert.ok(!navSections.flatMap((s) => s.items).some((item) => item.href === gone), `${gone} must not be in the sidebar`)
   for (const present of ['/dashboard', '/suppliers', '/hotels', '/board-basis', '/mappings', '/contracts', '/rates/plans', '/rates', '/sellability', '/access', '/settings']) assert.ok(hrefs.includes(present), present)
   const sidebar = readFileSync(join(root, 'components/layout/Sidebar.tsx'), 'utf8')
   assert.doesNotMatch(sidebar, /mock data|Admin User|Platform Administrator|enforced later/)
+})
+
+test('operations modules are in the sidebar only with a declared permission, and each is backed by a real page', () => {
+  const ops = ['/operations', '/bookings', '/holds', '/reconciliation', '/cancellations', '/connectors', '/finance/wallets', '/finance/ledger', '/audit']
+  for (const href of ops) {
+    const item = flatNav.find((n) => n.href === href)
+    assert.ok(item, `${href} must be listed`)
+    assert.ok(item.requires, `${href} must declare the permission that gates it`)
+    const page = readFileSync(join(root, 'app', '(dashboard)', ...href.split('/').filter(Boolean), 'page.tsx'), 'utf8')
+    assert.doesNotMatch(page, /FeatureUnavailable/, `${href} must not be a placeholder`)
+    assert.match(page, /lib\/data\/operations/, `${href} must read the operations API`)
+  }
+})
+
+test('placeholder routes that remain say so and render no records', () => {
+  for (const rel of ['finance/page.tsx', 'finance/payments/page.tsx', 'reports/page.tsx', 'notifications/page.tsx', 'pricing/page.tsx', 'distribution/page.tsx', 'tenants/page.tsx', 'users/page.tsx']) {
+    assert.match(readFileSync(join(root, 'app', '(dashboard)', rel), 'utf8'), /FeatureUnavailable/, rel)
+  }
+})
+
+test('operations pages never hide a failure behind an empty list or a catch fallback', () => {
+  const files = production.filter((f) => /components\/ops\/|data\/operations/.test(f) || /\(dashboard\)\/(bookings|holds|reconciliation|cancellations|connectors|operations|audit|finance)\//.test(f))
+  assert.ok(files.length >= 10)
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    assert.doesNotMatch(text, /\.catch\(\s*\(\)\s*=>\s*(\[\]|\{\}|null|undefined)/, `${file}: catch must not substitute empty data`)
+    assert.doesNotMatch(text, /DEMO_MODE|demoData|fallbackData/, file)
+  }
 })
 
 test('sidebar highlights only the most specific route', () => {

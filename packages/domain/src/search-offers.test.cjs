@@ -2,8 +2,10 @@ const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { validSearchCriteria, validateSearchHotels, validateAgentSearchResponse } = require('./search-offers.cjs')
 
+// Stay dates are relative to today so these tests do not expire as the calendar moves.
+const stayDay = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
 const criteria = {
-  destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
+  destination: 'Dubai', checkIn: stayDay(30), checkOut: stayDay(33),
   rooms: 1, adults: 2, children: 1, childAges: [8], nationality: 'IN', currency: 'AED',
 }
 function hotel() {
@@ -169,7 +171,7 @@ test('validates version, exact search context and status before rendering', () =
 })
 test('rejects past, overlong, unsupported and unknown search input', () => {
   assert.equal(validSearchCriteria({ ...criteria, checkIn: '2020-01-01', checkOut: '2020-01-02' }), false)
-  assert.equal(validSearchCriteria({ ...criteria, checkOut: '2026-12-01' }), false)
+  assert.equal(validSearchCriteria({ ...criteria, checkOut: stayDay(30 + 61) }), false)
   assert.equal(validSearchCriteria({ ...criteria, currency: 'ZZZ' }), false)
   assert.equal(validSearchCriteria({ ...criteria, nationality: 'ZZ' }), false)
   assert.equal(validSearchCriteria({ ...criteria, unsafe: true }), false)

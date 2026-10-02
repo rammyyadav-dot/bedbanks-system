@@ -8,6 +8,8 @@ export class ApiResponseError extends Error {
     public readonly code: string,
     message: string,
     public readonly status: number,
+    /** Server request id (x-request-id), shown to operators so a failure can be traced in audit and logs. */
+    public readonly requestId: string | null = null,
   ) {
     super(message);
     this.name = 'ApiResponseError';

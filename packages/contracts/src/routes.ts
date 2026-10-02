@@ -5,6 +5,18 @@ export const routes = {
     bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
+  // Read-only operational views over the authoritative transaction chain, plus one confirmed reconciliation action.
+  adminOperations: {
+    capabilities: '/admin/operations/capabilities', readiness: '/admin/operations/readiness',
+    hotels: '/admin/operations/hotels', suppliers: '/admin/operations/suppliers',
+    holds: '/admin/operations/holds', hold: '/admin/operations/holds/:holdId',
+    bookings: '/admin/operations/bookings', booking: '/admin/operations/bookings/:bookingId',
+    bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
+    reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
+    cancellations: '/admin/operations/cancellations',
+    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger',
+    audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
+  },
   platform: {
     tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
