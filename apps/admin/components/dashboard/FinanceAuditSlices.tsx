@@ -8,7 +8,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { OPS_FAILURE_COPY } from '@/lib/ops-state'
 
-function Card({ id, children, window }: { id: DepartmentId; children: React.ReactNode; window?: string }) {
+export function Card({ id, children, window }: { id: DepartmentId; children: React.ReactNode; window?: string }) {
   const dept = departments.find((d) => d.id === id)!
   const home = dept.modules.find((m) => m.readiness === 'live')?.href ?? '/dashboard'
   return (
@@ -19,12 +19,12 @@ function Card({ id, children, window }: { id: DepartmentId; children: React.Reac
   )
 }
 function Denied() { return <div role="status" data-state="denied"><strong>{OPS_FAILURE_COPY.denied.title}</strong><p>{OPS_FAILURE_COPY.denied.body}</p></div> }
-function Section<T>({ section, children }: { section: SectionState<T>; children: (data: T) => React.ReactNode }) { return section.state === 'unavailable' ? <Denied /> : <>{children(section.data)}</> }
-const Stat = ({ label, value, href }: { label: string; value: number | string; href?: string }) => {
+export function Section<T>({ section, children }: { section: SectionState<T>; children: (data: T) => React.ReactNode }) { return section.state === 'unavailable' ? <Denied /> : <>{children(section.data)}</> }
+export const Stat = ({ label, value, href }: { label: string; value: number | string; href?: string }) => {
   const body = <><strong style={{ font: '700 18px system-ui', color: '#17333e' }}>{value}</strong><div style={{ fontSize: 12, color: '#3f565c' }}>{label}</div></>
   return <li>{href ? <Link href={href} style={{ textDecoration: 'none', color: 'inherit' }}>{body}</Link> : body}</li>
 }
-const grid = { listStyle: 'none', margin: '0 0 8px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 } as const
+export const grid = { listStyle: 'none', margin: '0 0 8px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 } as const
 
 /**
  * Finance and Audit slices from the API's own summary endpoints. Currencies are shown separately (the API never adds

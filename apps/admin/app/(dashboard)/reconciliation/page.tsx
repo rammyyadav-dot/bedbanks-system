@@ -10,6 +10,7 @@ import { getOpsReconciliation, runOpsReconciliation } from '@/lib/data/operation
 import { describeApiError } from '@/lib/api/describe-error'
 import { ApiResponseError } from '@/lib/api/errors'
 import type { ReconcileResponse } from '@bedbanks/contracts'
+import { ApprovalsPanel } from '@/components/reconciliation/ApprovalsPanel'
 
 export default function ReconciliationPage() {
   const { state, reload } = useOpsQuery(getOpsReconciliation, [])
@@ -51,6 +52,7 @@ export default function ReconciliationPage() {
           <ul>{outcome.result.items.map(i => <li key={i.holdId}><code>{i.holdId}</code> → {i.outcome}</li>)}</ul>
         </div>
       )}
+      <ApprovalsPanel onExecuted={reload} />
       <OpsState state={state} onRetry={reload} isEmpty={d => d.cases.length === 0} empty={{ title: 'Nothing to reconcile', description: 'The check succeeded: no stalled holds and no consistency flags were found.' }}>
         {data => (
           <div className="workspace-panel">

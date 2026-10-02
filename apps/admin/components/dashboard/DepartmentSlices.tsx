@@ -8,6 +8,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { OPS_FAILURE_COPY } from '@/lib/ops-state'
 import { FinanceAuditSlices } from './FinanceAuditSlices'
+import { GovernanceSlices } from './GovernanceSlices'
 
 interface Tile { label: string; value: number; href: string }
 
@@ -67,7 +68,7 @@ function Slices({ r }: { r: OperationsReadiness }): ReactNode {
 /**
  * Functional department slices. One authoritative readiness call feeds every card; each card names its department
  * from the catalogue and drills into the filtered Admin view. Only departments that have real aggregates appear
- * Finance and Audit come from their own summary endpoints (FinanceAuditSlices).
+ * Finance and Audit come from their own summary endpoints (FinanceAuditSlices); Markets, Reliability and Risk likewise (GovernanceSlices).
  */
 export function DepartmentSlices() {
   const { state, reload } = useOpsQuery(() => getOpsReadiness(), [])
@@ -75,6 +76,7 @@ export function DepartmentSlices() {
     <div data-testid="dashboard-departments" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, margin: '12px 0' }}>
       <OpsState state={state} onRetry={reload}>{(r) => <Slices r={r} />}</OpsState>
       <FinanceAuditSlices />
+      <GovernanceSlices />
     </div>
   )
 }

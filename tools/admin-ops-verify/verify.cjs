@@ -48,6 +48,21 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.reload(); await page.waitForSelector('[data-testid=dept-finance] [data-state=denied]', { timeout: 20000 }); await page.waitForSelector('[data-testid=dept-audit] ul', { timeout: 20000 })
   check('A denied finance summary shows an explicit state inside the Finance card; the audit slice is unaffected', (await page.locator('[data-testid=dept-finance] [data-state=denied]').count()) === 1 && (await page.locator('[data-testid=dept-audit] [data-state]').count()) === 0 && /Audit events/.test(await dept('audit')))
   await page.unroute('**/api/v1/admin/operations/finance/summary*')
+  // governance slices and pages: markets, reliability, access review
+  for (const d of ['markets', 'reliability', 'risk']) await page.waitForSelector(`[data-testid=dept-${d}]`, { timeout: 20000 })
+  await page.waitForSelector('[data-testid=dept-reliability] ul', { timeout: 20000 })
+  const rel = await dept('reliability')
+  check('Reliability slice shows the seeded stalled hold from the API', /1\s*Stalled holds/.test(rel), rel.slice(0, 140))
+  await page.goto(`${BASE}/reliability`); await page.waitForSelector('[aria-labelledby="rel-Holds"]', { timeout: 20000 })
+  const relPage = await text(page)
+  check('System health page lists connectors, executions, supplier outcomes and holds', ['Connectors', 'Connector executions', 'Supplier outcomes', 'Holds'].every((h) => relPage.includes(h)))
+  await page.goto(`${BASE}/markets`); await page.waitForSelector('[data-testid=markets-table]', { timeout: 20000 })
+  check('Destinations page groups the tenant hotels by destination', /Dubai/.test(await text(page)))
+  await page.goto(`${BASE}/access-review`); await page.waitForSelector('[data-testid=access-summary]', { timeout: 20000 }); await page.waitForSelector('[data-testid=access-table]', { timeout: 20000 })
+  const acc = await text(page)
+  check('Access review shows tenant A members only, with sensitive permission holders flagged', /3\s*Members/.test(acc) && /2\s*Hold sensitive permissions/.test(acc) && /booking\.reconcile/.test(acc) && !/bowner/.test(acc), acc.slice(0, 160))
+  check('Access review never renders credential material', !/passwordHash|password_hash|\$argon|\$2[aby]\$/.test(await page.content()))
+  await page.goto(`${BASE}/dashboard`); await page.waitForSelector('[data-testid=dept-finance]', { timeout: 20000 })
   await page.route('**/api/v1/admin/operations/readiness*', async (r) => { const j = await (await r.fetch()).json(); j.data.transactions = { state: 'unavailable', reason: 'OPERATIONS_READ_DENIED' }; await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(j) }) })
   await page.reload(); await page.waitForSelector('[data-testid=dept-reservations] [data-state=denied]', { timeout: 20000 })
   check('A denied section shows denied (not zeros) while the other departments keep their data', (await page.locator('[data-testid=dept-reconciliation] [data-state=denied]').count()) === 1 && (await page.locator('[data-testid=dept-connectivity] [data-state=denied]').count()) === 0 && !/0\s*Confirmed/.test(await dept('reservations')))
@@ -102,6 +117,29 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.reload(); await page.waitForSelector('table, .admin-empty')
   check('Queue is empty after reconcile (success state, not error)', /Nothing to reconcile/.test(await text(page)))
 
+  // 3b. maker-checker for a reconciliation run: the requester cannot decide, a second person approves, it runs once
+  await page.goto(`${BASE}/reconciliation`); await page.waitForSelector('[data-testid=recon-approvals]')
+  await page.getByLabel('Reason for the run').fill('Stalled hold after supplier outage'); await page.getByRole('button', { name: 'Request approval' }).click()
+  await page.waitForSelector('[data-testid=approval-pending]', { timeout: 15000 })
+  const pendingRow = (await page.locator('[data-testid=approval-pending]').first().innerText()).replace(/\s+/g, ' ')
+  check('Requested approval shows PENDING with the stalled-hold evidence seen at request time', /PENDING\s+0\b/.test(pendingRow), pendingRow.slice(0, 100))
+  check('The requester sees no Approve or Reject button on their own request', (await page.locator('[data-testid=approval-pending] button', { hasText: /^(Approve|Reject)$/ }).count()) === 0 && (await page.locator('[data-testid=approval-pending] button', { hasText: 'Cancel request' }).count()) === 1)
+  const { ctx: cctx, page: cpage } = await login(browser, seed.checkerEmail)
+  await cpage.goto(`${BASE}/reconciliation`); await cpage.waitForSelector('[data-testid=approval-pending]', { timeout: 15000 })
+  check('A second person sees Approve and Reject', (await cpage.locator('[data-testid=approval-pending] button', { hasText: /^Approve$/ }).count()) === 1)
+  cpage.once('dialog', (d) => d.accept('Verified against the supplier extranet'))
+  await cpage.locator('[data-testid=approval-pending] button', { hasText: /^Approve$/ }).click()
+  await cpage.waitForSelector('[data-testid=approval-approved]', { timeout: 15000 })
+  check('Approval is recorded as APPROVED', true)
+  await cctx.close()
+  await page.reload(); await page.waitForSelector('[data-testid=approval-approved]', { timeout: 15000 })
+  let execPosts = 0; page.on('request', (r) => { if (r.method() === 'POST' && /approvals\/[^/]+\/execute/.test(r.url())) execPosts++ })
+  await page.evaluate(() => { const b = [...document.querySelectorAll('[data-testid=approval-approved] button')].find((x) => /Run approved reconciliation/.test(x.textContent)); b.click(); b.click() })
+  await page.waitForSelector('[data-testid=approval-executed]', { timeout: 20000 })
+  check('Approved run executes exactly once (a double click sends one POST)', execPosts === 1, `posts=${execPosts}`)
+  check('An executed approval offers no further action', (await page.locator('[data-testid=approval-executed] button').count()) === 0)
+
+
   // 5. distinct failure states (network interception is test-only; the app has no mock path)
   for (const [status, code, expect, label] of [[401, 'UNAUTHORIZED', 'unauthenticated', '401'], [403, 'FORBIDDEN', 'forbidden', '403'], [503, 'OPERATIONS_READ_DENIED', 'denied', '503 privilege boundary'], [500, 'INTERNAL_SERVER_ERROR', 'error', '500']]) {
     await page.route('**/api/v1/admin/operations/bookings*', r => r.fulfill({ status, contentType: 'application/json', headers: { 'x-request-id': 'req-test-123' }, body: JSON.stringify({ success: false, error: { code, message: 'x', details: [] }, meta: {} }) }))
@@ -121,7 +159,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.unroute('**/api/v1/admin/operations/bookings*')
 
   // 6. accessibility (axe) on the data pages
-  for (const path of ['/dashboard', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
+  for (const path of ['/dashboard', '/markets', '/reliability', '/access-review', '/bookings', `/bookings/${seed.confirmedBookingId}`, '/audit', '/operations']) {
     await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-testid=booking-360], section')
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const serious = axe.violations.filter(v => ['serious', 'critical'].includes(v.impact))

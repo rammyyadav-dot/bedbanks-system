@@ -5,7 +5,7 @@ import {
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
   type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
-  type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
+  type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
@@ -173,6 +173,40 @@ export class OperationsHotelsService {
   }
 
   // ---- summary -------------------------------------------------------------------------------------------------------------
+  /** Hotel supply and sellability grouped by destination, from the same assessment as the hotel list (bounded by the scan cap). */
+  async markets(tenantId: string, query: Record<string, unknown>): Promise<MarketsSummary> {
+    const win = this.window(query)
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const total = await tx.hotel.count({ where: { tenantId } })
+      const hotels = await tx.hotel.findMany({ where: { tenantId }, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: COMMERCIAL_SCAN_CAP, select: HOTEL_SELECT })
+      const assessed = await this.assessAll(tx, tenantId, hotels, win)
+      const groups = new Map<string, MarketDestinationRow>()
+      for (const h of hotels) {
+        const a = assessed.get(h.id)
+        if (!a) continue
+        const city = (h.city ?? '').trim() || 'Unspecified'
+        const key = `${h.countryCode}|${city.toLowerCase()}`
+        const g = groups.get(key) ?? { countryCode: h.countryCode, city, hotels: 0, ready: 0, partial: 0, blocked: 0, mappingIssues: 0, rateGaps: 0, availabilityGaps: 0, contractsExpiring: 0 }
+        g.hotels += 1
+        if (a.readiness === 'READY') g.ready += 1; else if (a.readiness === 'PARTIAL') g.partial += 1; else g.blocked += 1
+        if (a.hotelMapping !== 'MAPPED' || a.roomCounts.mapped < a.roomCounts.active) g.mappingIssues += 1
+        if (a.rates === 'GAPS') g.rateGaps += 1
+        if (a.inventory === 'GAPS') g.availabilityGaps += 1
+        if (a.contractState === 'EXPIRING') g.contractsExpiring += 1
+        groups.set(key, g)
+      }
+      return {
+        generatedAt: this.clock().toISOString(), window: { from: win.from, to: win.to, days: win.days }, scanCapped: total > COMMERCIAL_SCAN_CAP, totalHotels: total,
+        destinations: [...groups.values()].sort((x, y) => y.hotels - x.hotels || x.city.localeCompare(y.city)),
+        definitions: {
+          destination: 'A hotel belongs to the destination named by its country code and city. Geography groups supply; it is never a tenant boundary.',
+          readiness: 'READY, PARTIAL and BLOCKED are the Agent-search evaluator verdicts over the window, as on the hotel list.',
+          scope: `Computed over at most ${COMMERCIAL_SCAN_CAP} hotels (alphabetical); scanCapped says when the tenant has more.`,
+        },
+      }
+    })
+  }
+
   async summary(tenantId: string, query: Record<string, unknown>): Promise<HotelCommercialSummary> {
     const win = this.window(query)
     return this.prisma.withTenant(tenantId, async (tx) => {

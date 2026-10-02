@@ -200,7 +200,7 @@ test('dashboard department slices come from the readiness API and the department
   assert.match(slices, /departments\.find/, 'names come from the catalogue')
   assert.doesNotMatch(slices, /Math\.|reduce\(|toFixed|\* 100|evaluate/, 'no arithmetic or readiness logic in React')
   assert.match(slices, /state === 'unavailable'/, 'a denied section is shown as denied, never as zeros')
-  for (const planned of ['commercial', 'distribution', 'clients', 'service', 'risk', 'markets', 'reliability']) assert.doesNotMatch(slices, new RegExp(`id="${planned}"`), `${planned} is not built`)
+  for (const planned of ['commercial', 'distribution', 'clients', 'service']) assert.doesNotMatch(slices, new RegExp(`id="${planned}"`), `${planned} is not built`)
   assert.match(readFileSync(join(root, 'app', '(dashboard)', 'dashboard', 'page.tsx'), 'utf8'), /<DepartmentSlices \/>/)
 })
 
@@ -212,4 +212,15 @@ test('finance and audit dashboard slices read their summary endpoints, show curr
   assert.doesNotMatch(src, /availableCreditMinor\s*[+-]|\.reduce\([^)]*Minor/, 'currencies are never added together in the browser')
   assert.match(src, /state === 'unavailable'/, 'an unreadable section is shown as denied, never zero')
   assert.match(readFileSync(join(root, 'components', 'dashboard', 'DepartmentSlices.tsx'), 'utf8'), /<FinanceAuditSlices \/>/)
+})
+
+test('governance slices and pages read their own summary endpoints and do no arithmetic in the browser', () => {
+  const slices = readFileSync(join(root, 'components', 'dashboard', 'GovernanceSlices.tsx'), 'utf8')
+  for (const fn of ['getMarketsSummary', 'getReliabilitySummary', 'getAccessReviewSummary']) assert.match(slices, new RegExp(fn))
+  assert.doesNotMatch(slices, /Math\.|toFixed|\* 100|\.reduce\(|members\.[a-zA-Z]+ \+ /, 'no counting or percentages in React')
+  for (const [page, fn] of [['markets', 'getMarketsSummary'], ['reliability', 'getReliabilitySummary'], ['access-review', 'getAccessReviewUsers']]) {
+    const src = readFileSync(join(root, 'app', '(dashboard)', page, 'page.tsx'), 'utf8')
+    assert.match(src, new RegExp(fn)); assert.match(src, /OpsState/); assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed/)
+  }
+  assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', 'access-review', 'page.tsx'), 'utf8'), /password|passwordHash/i, 'no credential material is ever shown')
 })

@@ -1,5 +1,5 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, type AuditSummary, type FinanceSummary, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { routes, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -26,3 +26,17 @@ export const getOpsWallets = (p: Params) => apiRequest<Paged<WalletRow>>(`${ops.
 export const getOpsLedger = (p: Params) => apiRequest<Paged<LedgerEntryView>>(`${ops.ledger}${opsQuery(p)}`)
 export const getOpsAudit = (p: Params) => apiRequest<Paged<AuditEventView>>(`${ops.audit}${opsQuery(p)}`)
 export const getOpsConnectors = (p: Params) => apiRequest<Paged<ConnectorRow>>(`${ops.connectors}${opsQuery(p)}`)
+
+// ---- maker-checker for a reconciliation run (ADR 0017) -----------------------------------------------------------------
+const approvalPath = (id: string, route: string) => fill(route, { approvalId: id })
+export const getReconciliationApprovals = (p: Params = {}) => apiRequest<Paged<ReconciliationApprovalView>>(`${ops.reconciliationApprovals}${opsQuery(p)}`)
+export const requestReconciliationApproval = (body: ReconciliationApprovalRequest) => apiRequestWithMeta<ReconciliationApprovalView>(ops.reconciliationApprovals, { method: 'POST', headers: json, body: JSON.stringify(body) })
+export const decideReconciliationApproval = (id: string, decision: 'approve' | 'reject', reason: string) => apiRequestWithMeta<ReconciliationApprovalView>(approvalPath(id, decision === 'approve' ? ops.reconciliationApprovalApprove : ops.reconciliationApprovalReject), { method: 'POST', headers: json, body: JSON.stringify({ reason }) })
+export const cancelReconciliationApproval = (id: string) => apiRequestWithMeta<ReconciliationApprovalView>(approvalPath(id, ops.reconciliationApprovalCancel), { method: 'POST', headers: json, body: '{}' })
+export const executeReconciliationApproval = (id: string) => apiRequestWithMeta<ReconciliationApprovalExecution>(approvalPath(id, ops.reconciliationApprovalExecute), { method: 'POST', headers: json, body: '{}' })
+
+// ---- markets, reliability, access review -------------------------------------------------------------------------------
+export const getMarketsSummary = (p: Params = {}) => apiRequest<MarketsSummary>(`${ops.marketsSummary}${opsQuery(p)}`)
+export const getReliabilitySummary = (p: Params = {}) => apiRequest<ReliabilitySummary>(`${ops.reliabilitySummary}${opsQuery(p)}`)
+export const getAccessReviewSummary = () => apiRequest<AccessReviewSummary>(ops.accessReviewSummary)
+export const getAccessReviewUsers = (p: Params = {}) => apiRequest<AccessReviewPage>(`${ops.accessReviewUsers}${opsQuery(p)}`)

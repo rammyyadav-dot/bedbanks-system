@@ -1,5 +1,5 @@
 -- Maker-checker approval requests (ADR 0016). Foundation only: nothing in the API consumes this table yet.
--- A request records who asked for a sensitive action and who decided it. It never executes the action.
+-- A request records who asked for a sensitive action, who decided it, and (once) who ran it. This table never executes the action itself.
 -- Integrity is enforced here as well as in the service: a decider can never be the requester,
 -- and a decided request always carries a decider and a decision time.
 -- No guest PII, credentials or raw supplier payloads are stored; before/after state is minimal.
@@ -17,7 +17,7 @@
 --   DROP TYPE IF EXISTS "ApprovalRequestStatus";
 
 -- CreateEnum
-CREATE TYPE "ApprovalRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED');
+CREATE TYPE "ApprovalRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXECUTED');
 
 -- CreateTable
 CREATE TABLE "ApprovalRequest" (
@@ -35,6 +35,8 @@ CREATE TABLE "ApprovalRequest" (
     "decided_by_id" TEXT,
     "decided_at" TIMESTAMP(3),
     "decision_reason" TEXT,
+    "executed_by_id" TEXT,
+    "executed_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
@@ -43,7 +45,8 @@ CREATE TABLE "ApprovalRequest" (
     CONSTRAINT "ApprovalRequest_decision_complete" CHECK (
       ("status" = 'PENDING' AND "decided_by_id" IS NULL AND "decided_at" IS NULL)
       OR ("status" = 'CANCELLED')
-      OR ("status" IN ('APPROVED', 'REJECTED') AND "decided_by_id" IS NOT NULL AND "decided_at" IS NOT NULL)
+      OR ("status" IN ('APPROVED', 'REJECTED') AND "decided_by_id" IS NOT NULL AND "decided_at" IS NOT NULL AND "executed_at" IS NULL)
+      OR ("status" = 'EXECUTED' AND "decided_by_id" IS NOT NULL AND "decided_at" IS NOT NULL AND "executed_by_id" IS NOT NULL AND "executed_at" IS NOT NULL)
     )
 );
 
@@ -64,6 +67,9 @@ ALTER TABLE "ApprovalRequest" ADD CONSTRAINT "ApprovalRequest_requested_by_id_fk
 
 -- AddForeignKey
 ALTER TABLE "ApprovalRequest" ADD CONSTRAINT "ApprovalRequest_decided_by_id_fkey" FOREIGN KEY ("decided_by_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ApprovalRequest" ADD CONSTRAINT "ApprovalRequest_executed_by_id_fkey" FOREIGN KEY ("executed_by_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "ApprovalRequest" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ApprovalRequest" FORCE ROW LEVEL SECURITY;
