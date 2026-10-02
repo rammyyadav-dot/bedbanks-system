@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import type { Prisma } from '@prisma/client'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import type { BookingStatus, Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 
 export interface BookingSummaryView {
@@ -18,26 +18,47 @@ export interface SupplierMutationOperationalView {
   failureCategory: string | null
   lastReconciledAt: string | null
 }
+export interface BookingTimelineEvent { type: 'recorded' | 'cancelled'; at: string }
 export interface BookingDetailView extends BookingSummaryView {
   adults: number | null; children: number | null
   cancellable: boolean
   documents: Array<{ type: string; number: string }>
   supplierMutation: SupplierMutationOperationalView | null
+  /** Only timestamps stored on the booking or its cancellation row. Confirmation has no separate timestamp. */
+  timeline: BookingTimelineEvent[]
+}
+export interface BookingListPage {
+  items: BookingSummaryView[]
+  total: number
+  limit: number
+  offset: number
 }
 
-const MAX_LIST = 100
+const DEFAULT_LIMIT = 20
+const MAX_LIST = 50
+const MAX_OFFSET = 10_000
+const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const satisfies readonly BookingStatus[]
+
+function isBookingStatus(value: string): value is BookingStatus {
+  return (BOOKING_STATUSES as readonly string[]).includes(value)
+}
 
 /** Read-only tenant-scoped booking views for the Agent portal. Amounts are integer minor-unit strings. */
 @Injectable()
 export class BookingQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string, limit = 50): Promise<BookingSummaryView[]> {
-    const take = Math.min(MAX_LIST, Math.max(1, Math.trunc(limit) || 50))
+  async list(tenantId: string, options: { limit?: number; offset?: number; status?: string } = {}): Promise<BookingListPage> {
+    const limit = Number.isFinite(options.limit) ? Math.min(MAX_LIST, Math.max(1, Math.trunc(options.limit!))) : DEFAULT_LIMIT
+    const offset = Number.isFinite(options.offset) ? Math.trunc(options.offset!) : 0
+    if (offset < 0 || offset > MAX_OFFSET) throw new BadRequestException('Offset is outside the supported window')
+    if (options.status !== undefined && !isBookingStatus(options.status)) throw new BadRequestException('Unknown booking status')
+    const where = { tenantId, ...(options.status ? { status: options.status } : {}) }
     return this.prisma.withTenant(tenantId, async tx => {
-      const bookings = await tx.booking.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take })
+      const total = await tx.booking.count({ where })
+      const bookings = await tx.booking.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit, skip: offset })
       const names = await this.hotelNames(tx, tenantId, bookings)
-      return bookings.map(booking => this.summary(booking, names))
+      return { items: bookings.map(booking => this.summary(booking, names)), total, limit, offset }
     })
   }
 
@@ -48,6 +69,7 @@ export class BookingQueryService {
         include: {
           documents: { select: { type: true, number: true }, orderBy: { issuedAt: 'asc' } },
           supplierMutations: { where: { operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' }, take: 1 },
+          cancellations: { select: { createdAt: true }, orderBy: { createdAt: 'asc' } },
         },
       })
       if (!booking) throw new NotFoundException('Booking not found')
@@ -78,8 +100,10 @@ export class BookingQueryService {
         failureCategory: mutation.failureCategory,
         lastReconciledAt: review?.createdAt.toISOString() ?? mutation.resolvedAt?.toISOString() ?? null,
       } : null
+      const timeline: BookingTimelineEvent[] = [{ type: 'recorded', at: booking.createdAt.toISOString() }]
+      for (const cancellation of booking.cancellations) timeline.push({ type: 'cancelled', at: cancellation.createdAt.toISOString() })
       return { ...this.summary(booking, names), adults: Number.isInteger(snapshot.adults) ? snapshot.adults : null, children: Number.isInteger(snapshot.children) ? snapshot.children : null,
-        cancellable: booking.status === 'CONFIRMED' && Number.isFinite(checkInMs) && now.getTime() < checkInMs, documents: booking.documents, supplierMutation }
+        cancellable: booking.status === 'CONFIRMED' && Number.isFinite(checkInMs) && now.getTime() < checkInMs, documents: booking.documents, supplierMutation, timeline }
     })
   }
 

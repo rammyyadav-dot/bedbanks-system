@@ -139,7 +139,7 @@ export const editorialDestinations = [
 ] as const
 
 export const howItWorks = [
-  { title: 'Search', text: 'Enter a city or destination, stay dates, rooms, and occupancy. Choose an age for each child before you search. Hotel name, area, landmark, and airport are not search fields.' },
+  { title: 'Search', text: 'Select a canonical city or hotel, stay dates, rooms, and occupancy. Choose an age for each child before you search. Area, landmark, and airport are not search fields.' },
   { title: 'Compare', text: 'Open a hotel to see the room, board basis, and the authoritative total stay price returned for that search.' },
   { title: 'Recheck', text: 'Select an offer and recheck it. A cached search price is not confirmed availability. Booking stays disabled.' },
 ] as const
@@ -159,11 +159,11 @@ export const marketplaceHome = {
   retryCta: 'Retry Search',
   currencyLabel: 'Display currency',
   currencyCode: 'AED',
-  currencyNote: 'The server prices this search in AED.',
+  currencyNote: 'The server prices this search in the selling currency you select.',
   nationalityLabel: 'Guest nationality',
   nationalityHelper: 'Sent with the search. Contracted rates in this workspace are not selected by guest nationality.',
   advancedLabel: 'Advanced Search',
-  advancedNote: 'Star rating, refundable rates, and a whole-dirham total-stay price are sent to search. The price range is the stay total, not a nightly rate. Hotel name, meal plan, and preferred hotels are not filters.',
+  advancedNote: 'Star rating, refundable rates, board, property type, and a total-stay price are sent to search. The price range uses the selected currency and is the stay total, not a nightly rate. Landmark and airport are not filters.',
   recentTitle: 'Recent searches',
   recentEmpty: 'Searches you complete in this browser stay on this device for this account until you sign out. A previous price is not stored or shown.',
   offerStrip: 'Dubai partner search. Run a fresh search for the dates and occupancy above.',

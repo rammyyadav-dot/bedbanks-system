@@ -16,6 +16,8 @@ import { canSubmitDestination } from '@/lib/destination-suggestions'
 import { criteriaFilters, type FilterDraft } from '@/lib/search-filters'
 import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
 import { canOpenCheckout, recheckOutcomeMessage, recheckOutcomeTitle } from '@/lib/recheck-copy'
+import { resultWindow } from '@/lib/result-window'
+import { BookingReview } from '@/components/booking/booking-review'
 import { priceChangeDisplay, recheckBaselineMinor, recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
@@ -89,6 +91,7 @@ export function SearchView({
   const request = result?.request
   const total = result?.pagination?.total ?? liveHotels.length
   const pageSize = result?.pagination?.limit
+  const pageWindow = resultWindow(result?.pagination?.offset ?? 0, liveHotels.length, total)
   return <>
     <SearchCriteriaForm destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes} boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !canSubmitDestination(destinationRef))} tenantId={tenantId} />
     {validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}
@@ -107,7 +110,7 @@ export function SearchView({
       </div>
       {refreshing && <p className="market-refresh" role="status">Refreshing results for the new search. The list below is the previous successful search.</p>}
       {refreshError && <p className="portal-field-error" role="alert">{refreshError}</p>}
-      <div className="portal-results-meta market-results-bar"><p>Showing <strong>{liveHotels.length}</strong> of <strong>{total}</strong> hotels</p><span>{formatStay(request.checkIn, request.checkOut)} · {request.currency}</span>
+      <div className="portal-results-meta market-results-bar"><p>{pageWindow.total === 0 ? <>Showing <strong>0</strong> of <strong>0</strong> hotels</> : <>Showing <strong>{pageWindow.start}–{pageWindow.end}</strong> of <strong>{pageWindow.total}</strong> hotels</>}</p><span>{formatStay(request.checkIn, request.checkOut)} · {request.currency}</span>
         <label>Sort<select aria-label="Sort results" value={sort} onChange={(event) => setSort(event.target.value as SearchSort)}><option value="default">Default order</option><option value="price">Total stay</option><option value="stars">Star rating</option><option value="name">Hotel name</option></select></label>
       </div>
       <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' || result.status === 'destination_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status)}</div>
@@ -127,7 +130,11 @@ export function SearchView({
 function PageLinks({ limit, total, offset, disabled, onPage }: { limit: number; total: number; offset: number; disabled: boolean; onPage: (offset: number) => void }) {
   const pages = Math.ceil(total / limit)
   const current = Math.floor(offset / limit) + 1
-  return <nav className="market-pages" aria-label="Result pages">{Array.from({ length: pages }, (_, index) => <button key={index} type="button" aria-current={index + 1 === current ? 'page' : undefined} disabled={disabled || index + 1 === current} onClick={() => onPage(index * limit)}>{index + 1}</button>)}</nav>
+  return <nav className="market-pages" aria-label="Result pages">
+    <button type="button" disabled={disabled || offset <= 0} onClick={() => onPage(Math.max(0, offset - limit))}>Previous</button>
+    {Array.from({ length: pages }, (_, index) => <button key={index} type="button" aria-current={index + 1 === current ? 'page' : undefined} disabled={disabled || index + 1 === current} onClick={() => onPage(index * limit)}>{index + 1}</button>)}
+    <button type="button" disabled={disabled || offset + limit >= total} onClick={() => onPage(offset + limit)}>Next</button>
+  </nav>
 }
 
 function statusCopy(status: HotelSearchResult['status']) {
@@ -261,6 +268,9 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     ? priceChangeDisplay({ searchQuoteMinor: selection.rate.sellAmountMinor, baselineMinor, currentMinor: recheck.sellAmountMinor })
     : null
   const quoted = selection ? formatTotal(acceptedMinor === null ? selection.rate.total : { currency: selection.rate.total.currency, amountMinor: baselineMinor }) : ''
+  const reviewMinor = selection && recheck?.status === 'rechecked'
+    ? (recheck.currency === selection.rate.total.currency && recheck.sellAmountMinor !== undefined ? recheck.sellAmountMinor : baselineMinor)
+    : null
   return <section className="portal-detail market-hotel-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button>
     <div className="market-detail-head"><div className="market-hotel-mark" aria-hidden="true">{hotelInitial(hotel.name)}</div><div><div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div><p>{hotel.destination}{hotel.propertyType ? ` · ${hotel.propertyType}` : ''}{hotel.address ? ` · ${hotel.address}` : ''} · {formatStay(request.checkIn, request.checkOut)} · {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
     {hotel.rooms.map((room) => <div className="market-room-group" key={room.roomTypeId}><header><h3>{room.name}</h3><span>{room.rates.length} {room.rates.length === 1 ? 'rate' : 'rates'}</span></header><div>{room.rates.map((rate) => {
@@ -279,6 +289,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       {recheck?.status === 'offer_expired' && !rechecking && <button className="portal-primary" type="button" onClick={onRefresh}>Refresh rates</button>}
       {(recheck?.status === 'provider_unavailable' || recheck?.status === 'rejected' || recheck?.status === 'mapping_invalid') && !rechecking && <button className="portal-primary" type="button" onClick={() => choose(selection.room, selection.rate)}>Try again</button>}
       {recheck && <RecheckOutcome result={recheck} currency={selection.rate.total.currency} priceMove={priceMove} bookingEnabled={bookingEnabled} />}
+      {selection && reviewMinor !== null && <BookingReview hotelName={hotel.name} destination={hotel.destination} starRating={hotel.starRating} roomName={selection.room.name} rate={selection.rate} request={request} recheckedMinor={reviewMinor} bookingEnabled={bookingEnabled} />}
       {canOpenCheckout(bookingEnabled, recheck?.status) && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} />}</div>}
   </section>
 }

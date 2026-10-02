@@ -6,11 +6,12 @@ import { searchAttemptNotice } from '@/lib/search-notice'
 import { SearchView } from '@/components/search/agent-search-view'
 import { AgentHome } from '@/components/home/agent-home'
 import { Bookings } from '@/components/booking/agent-bookings'
+import { AgentAccount } from '@/components/account/agent-account'
 import { Wallet } from '@/components/finance/agent-wallet'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import type { DestinationRef, SearchCriteria, SearchSort } from '@bedbanks/domain'
 import { ApiHotelService } from '@/services/hotel-service'
-import { CheckCircle2, CircleHelp, FileText, House, Menu, Search, WalletCards, X } from 'lucide-react'
+import { CheckCircle2, CircleHelp, FileText, House, Menu, Search, UserRound, WalletCards, X } from 'lucide-react'
 import type { AgentIdentity, FinanceSummary } from '@/lib/api-client'
 import { creditBreakdown, formatMinorAmount } from '@/lib/format'
 import { isGuestMarket, readGuestNationality, rememberGuestNationality } from '@/lib/guest-market'
@@ -25,7 +26,7 @@ import { replaceSearchResult } from '@/lib/search-refresh'
 import { canReplayRecentSearch, rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
 import type { HotelSearchResult } from '@/types/hotel'
 
-type View = 'home' | 'search' | 'bookings' | 'wallet'
+type View = 'home' | 'search' | 'bookings' | 'wallet' | 'account'
 type SearchOverride = {
   destinationLabel?: string
   destinationCity?: string
@@ -373,17 +374,18 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
     boards: facets.boards, propertyTypeOptions: facets.propertyTypes, searching, searchFailed, tenantId,
   }
-  const supplierNote = providerStatus === 'checking' ? 'Checking supplier access' : providerStatus === 'unavailable' ? 'Supplier access was not confirmed' : 'Supplier access has not been checked'
+  const supplierNote = providerStatus === 'checking' ? 'Checking supplier access' : providerStatus === 'unavailable' ? 'Supplier access was not confirmed' : 'This status is not a live supplier probe'
 
   return <div className="portal-shell market-shell">
     <header className="portal-header market-header">
       <button className="portal-mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav}><Menu size={20} /></button>
       <button className="portal-brand" onClick={() => nav('home')}><span>f</span><strong>fBeds</strong></button>
       <nav className={`market-nav ${mobileNav ? 'is-open' : ''}`} aria-label="Marketplace">
-        <NavItem icon={<House size={16} />} label="Marketplace" active={view === 'home'} onClick={() => nav('home')} />
+        <NavItem icon={<House size={16} />} label="Home" active={view === 'home'} onClick={() => nav('home')} />
         <NavItem icon={<Search size={16} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} />
-        <NavItem icon={<FileText size={16} />} label="Bookings" active={view === 'bookings'} muted={!bookingEnabled} detail={bookingEnabled ? undefined : 'Not enabled'} onClick={() => nav('bookings')} />
+        <NavItem icon={<FileText size={16} />} label="My bookings" active={view === 'bookings'} muted={!bookingEnabled} detail={bookingEnabled ? undefined : 'Not enabled'} onClick={() => nav('bookings')} />
         <NavItem icon={<WalletCards size={16} />} label="Wallet" active={view === 'wallet'} onClick={() => nav('wallet')} />
+        <NavItem icon={<UserRound size={16} />} label="Account" active={view === 'account'} onClick={() => nav('account')} />
         <a href="/support"><CircleHelp size={16} /> Support</a>
         <button className="market-nav-close" type="button" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button>
       </nav>
@@ -394,10 +396,11 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
       </div>
     </header>
     <div className="portal-body"><main className="portal-main">
-      {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} onChange={changeCriteria} onSearch={() => beginSearch()} onSearchDubai={() => { void searchDubai() }} onReplay={replaySearch} />}
+      {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={bookingEnabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onSearchDubai={() => { void searchDubai() }} onReplay={replaySearch} />}
       {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}
       {view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
       {view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} />}
+      {view === 'account' && <AgentAccount identity={identity} tenantId={tenantId} />}
     </main></div>
     {toast && <div className="portal-toast" role="status"><CheckCircle2 size={16} /> {toast}</div>}
   </div>

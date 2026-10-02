@@ -46,8 +46,12 @@ test('HTTP failures map to explicit kinds; only conflict/invalid/gone show the s
 test('malformed success bodies are rejected instead of trusted', async () => {
   globalThis.fetch = reply(201, { data: { status: 'prebooked' } })
   assert.equal((await service().prebook('h', guest, 't')).ok, false)
-  globalThis.fetch = reply(200, { data: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '12.5' }] })
+  globalThis.fetch = reply(200, { data: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }] })
   assert.equal((await service().list('t')).ok, false)
+  globalThis.fetch = reply(200, { data: { items: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }], total: 51, limit: 20, offset: 20 } })
+  const page = await service().list('t', { limit: 20, offset: 20, status: 'CONFIRMED' })
+  assert.equal(page.ok && page.data.total, 51)
+  assert.equal(page.ok && page.data.items.length, 1)
   globalThis.fetch = reply(200, { data: { bookingId: 'b', currency: 'AED', totalMinor: '100', penaltyMinor: '30', refundMinor: 'x' } })
   assert.equal((await service().cancellationQuote('b', 't')).ok, false)
 })

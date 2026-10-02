@@ -24,7 +24,9 @@ const dubai: DestinationSuggestion = {
 /** Local hints are canonical ids only. Typed text is not a destination until a city or hotel is selected. */
 export function destinationSuggestions(query: string): DestinationSuggestion[] {
   const folded = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
-  if (!folded || 'dubai'.includes(folded) || folded.includes('dubai')) return [dubai]
+  if (!folded) return [dubai]
+  if (folded.length < 2) return []
+  if ('dubai'.startsWith(folded) || folded.includes('dubai')) return [dubai]
   return []
 }
 
