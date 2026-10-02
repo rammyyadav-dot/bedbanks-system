@@ -15,7 +15,7 @@ import {
   type AssessContract, type AssessHotelInput, type AssessPlan, type HotelAssessment,
 } from '../supply/commercial-assessment'
 import { auditView } from './operations-transactions.service'
-import { day, sectionRead } from './operations-read'
+import { day, guardedRead, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 /** The most hotels a computed filter, summary or exception scan will assess in one request. Responses say when it was reached. */
@@ -253,17 +253,18 @@ export class OperationsHotelsService {
       const contractIds = new Set<string>([...input.contracts.map((c) => c.id), ...input.plans.map((p) => p.contract.id)])
       const rows = await tx.contract.findMany({
         where: { tenantId, id: { in: [...contractIds] } },
-        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } }, _count: { select: { cancellationPolicies: true, childPolicies: true, leadTimeRules: true } } },
+        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       })
       const viaMapping = new Set(input.contracts.map((c) => c.id))
+      const policyCounts = await this.policyCounts(tenantId, rows.map((c) => c.id))
       const contracts: HotelContractRow[] = rows.map((c) => {
         const { state, daysToExpiry } = contractStateOf(c, input.today)
         const plans = input.plans.filter((p) => p.contract.id === c.id)
         return {
           id: c.id, code: c.code, supplierId: c.supplierId, supplierName: c.supplier.displayName, status: c.status, state, validFrom: day(c.validFrom), validTo: day(c.validTo), daysToExpiry, currency: c.settlementCurrency, version: c.version, updatedAt: c.updatedAt.toISOString(),
           ratePlans: { total: plans.length, active: plans.filter((p) => p.status === 'ACTIVE').length },
-          policies: { cancellation: c._count.cancellationPolicies, child: c._count.childPolicies, leadTime: c._count.leadTimeRules },
+          policies: policyCounts ? (policyCounts.get(c.id) ?? { cancellation: 0, child: 0, leadTime: 0 }) : null,
           link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId,
         }
       })
@@ -279,6 +280,27 @@ export class OperationsHotelsService {
       })
       return { contracts, ratePlans, expiringDays: CONTRACT_EXPIRING_DAYS }
     })
+  }
+
+  /**
+   * Policy tables are not readable by every runtime role. They are read in their own transactions so that a privilege denial
+   * (42501) leaves the rest of the contracts view intact and is reported as null, not as zero.
+   */
+  private async policyCounts(tenantId: string, contractIds: string[]): Promise<Map<string, { cancellation: number; child: number; leadTime: number }> | null> {
+    if (contractIds.length === 0) return new Map()
+    const read = await sectionRead(() => this.prisma.withTenant(tenantId, async (tx) => {
+      const where = { contractId: { in: contractIds } }
+      const [cancellation, child, leadTime] = await Promise.all([
+        tx.cancellationPolicy.groupBy({ by: ['contractId'], where, _count: { _all: true } }),
+        tx.childPolicy.groupBy({ by: ['contractId'], where, _count: { _all: true } }),
+        tx.bookingLeadTimeRule.groupBy({ by: ['contractId'], where, _count: { _all: true } }),
+      ])
+      const out = new Map<string, { cancellation: number; child: number; leadTime: number }>()
+      const bump = (rows: Array<{ contractId: string; _count: { _all: number } }>, key: 'cancellation' | 'child' | 'leadTime') => { for (const r of rows) out.set(r.contractId, { ...(out.get(r.contractId) ?? { cancellation: 0, child: 0, leadTime: 0 }), [key]: r._count._all }) }
+      bump(cancellation, 'cancellation'); bump(child, 'child'); bump(leadTime, 'leadTime')
+      return out
+    }))
+    return read.state === 'available' ? read.data : null
   }
 
   // ---- rate & inventory calendar -------------------------------------------------------------------------------------------
@@ -361,7 +383,8 @@ export class OperationsHotelsService {
   // ---- audit ---------------------------------------------------------------------------------------------------------------
   async audit(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>): Promise<Paged<AuditEventView>> {
     const page = pageParams(query)
-    return this.prisma.withTenant(tenantId, async (tx) => {
+    // AuditEvent is not readable by every runtime role: a denial is reported as OPERATIONS_READ_DENIED, never as an empty list or a 500.
+    return guardedRead(() => this.prisma.withTenant(tenantId, async (tx) => {
       const hotel = await this.hotelRecord(tx, tenantId, hotelIdRaw)
       const [rooms, plans, contracts, mappings, roomMappings] = await Promise.all([
         tx.roomType.findMany({ where: { hotelId: hotel.id, hotel: { tenantId } }, select: { id: true } }),
@@ -377,7 +400,7 @@ export class OperationsHotelsService {
         tx.auditEvent.count({ where }),
       ])
       return paged(rows.map(auditView), page, total)
-    })
+    }))
   }
 
   // ---- exceptions ----------------------------------------------------------------------------------------------------------

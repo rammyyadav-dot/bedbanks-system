@@ -156,6 +156,14 @@ async function openHotel(page, key, tab) {
   check('an exception links to the exact hotel section to resolve it', /tab=rates/.test(page.url()))
   await page.screenshot({ path: `${SHOTS}/exceptions.png`, fullPage: true })
 
+  // ---- Add Hotel never implies "ready": a hotel created through the real form is BLOCKED until downstream authority exists -------------
+  await page.goto(`${BASE}/hotels/new`); await page.waitForSelector('form')
+  await page.getByLabel(/^name$/i).fill('Brand New Verification Hotel'); await page.getByLabel(/^city$/i).fill('Dubai'); await page.getByLabel(/^country code$/i).fill('AE'); await page.getByLabel(/^external ref$/i).fill('NEW-VERIFY-1')
+  await page.getByRole('button', { name: 'Create hotel' }).click(); await page.waitForURL(/\/hotels\/[^/]+$/, { timeout: 20000 }); await page.waitForSelector('[data-testid=hotel-header]')
+  const created = (await page.locator('[data-testid=hotel-header]').innerText()).replace(/\s+/g, ' ')
+  check('a newly created hotel opens as BLOCKED, "Sellable to Agents NO", status DRAFT', /BLOCKED/.test(created) && /Sellable to Agents\s*NO/.test(created) && /DRAFT/.test(created), created.slice(0, 120))
+  check('a newly created hotel lists RATE_PLAN_MISSING and an unmapped-hotel issue as critical', (await page.locator('[data-testid=issue-list] [data-severity=CRITICAL]').count()) >= 2 && /No rate plan is configured/.test(await text(page)))
+
   // ---- keyboard, responsive, accessibility ----------------------------------------------------------------------------------------
   await openHotel(page, 'alpha'); await page.locator('[role=tab]').first().focus(); await page.keyboard.press('Tab')
   const focusedRole = await page.evaluate(() => document.activeElement?.getAttribute('role'))

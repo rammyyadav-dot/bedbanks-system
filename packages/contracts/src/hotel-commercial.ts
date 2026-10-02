@@ -160,7 +160,8 @@ export interface HotelContractRow {
   id: string; code: string; supplierId: string; supplierName: string; status: string; state: ContractState
   validFrom: string; validTo: string; daysToExpiry: number; currency: string; version: number; updatedAt: string
   ratePlans: { total: number; active: number }
-  policies: { cancellation: number; child: number; leadTime: number }
+  /** null when the API database role cannot read the policy tables (reported as unavailable, never as zero). */
+  policies: { cancellation: number; child: number; leadTime: number } | null
   /** Contract linked to this hotel through a mapping, or reached only through its rate plans. */
   link: 'MAPPING' | 'RATE_PLAN'
   mappingId: string | null

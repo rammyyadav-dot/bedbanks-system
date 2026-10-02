@@ -11,7 +11,9 @@ import { hashPassword } from '../src/auth/utils/password'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentAuditService } from '../src/agent/audit.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
-import { CONTRACT_EXPIRING_DAYS } from '@bedbanks/contracts'
+import { CONTRACT_EXPIRING_DAYS, OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
+import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
+import { OperationsHotelsService } from '../src/admin-operations/operations-hotels.service'
 
 jest.setTimeout(120_000)
 
@@ -509,6 +511,43 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
       const leaked = await asRole(tenantB, async (t) => (await t.$queryRawUnsafe<Array<{ id: string }>>('SELECT id FROM "Hotel"')).map((r) => r.id))
       expect(leaked).not.toContain(hotels.alpha.id)
     } finally { await raw.$disconnect() }
+  })
+
+  it('HOTEL-OPS-RUNTIME-ROLE: under the provisioned non-bypass API runtime role, the hotel commercial views read supply data for the current tenant only; booking/hold counts degrade to "unavailable", never to zero', async () => {
+    const owner = new PrismaClient()
+    const runtimePassword = randomBytes(24).toString('hex')
+    const previous = process.env.DATABASE_URL
+    let runtime: PrismaService | undefined
+    try {
+      await provisionApiRuntimeRole(owner, { password: runtimePassword })
+      const url = new URL(previous as string); url.username = API_RUNTIME_LOGIN_ROLE; url.password = runtimePassword
+      runtime = new PrismaService({ datasourceUrl: url.toString() } as never)
+      await runtime.$connect()
+      const [who] = await runtime.$queryRawUnsafe<Array<{ current_user: string; rolbypassrls: boolean; rolsuper: boolean }>>('SELECT current_user, (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS rolbypassrls, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS rolsuper')
+      expect(who).toEqual({ current_user: API_RUNTIME_LOGIN_ROLE, rolbypassrls: false, rolsuper: false })
+      const service = new OperationsHotelsService(runtime)
+      const q = { from: FROM, days: String(DAYS), pageSize: '100' }
+      const a = await service.list(tenantA, q)
+      expect(a.total).toBe(14); expect(a.items.every((h) => h.id !== hotels.oscar.id)).toBe(true)
+      expect(a.items.find((h) => h.id === hotels.alpha.id)).toMatchObject({ readiness: 'READY', contractState: 'ACTIVE', hotelMapping: 'MAPPED' })
+      expect((await service.list(tenantB, q)).items.map((h) => h.id)).toEqual([hotels.oscar.id])
+      expect((await service.summary(tenantA, q)).totalHotels).toBe(14)
+      const d = await service.detail(tenantA, hotels.alpha.id, q)
+      expect(d.readiness).toBe('READY'); expect(d.counts).toEqual({ bookings: null, activeHolds: null }) // not readable by this role: unavailable, not 0
+      const contracts = (await service.contracts(tenantA, hotels.alpha.id, q)).contracts
+      expect(contracts).toHaveLength(1); expect(contracts[0].policies).toBeNull() // policy tables are outside this role's grants: unavailable, not zero
+      expect(contracts[0]).toMatchObject({ state: 'ACTIVE', supplierName: 'Supplier Alpha' })
+      expect((await service.mappings(tenantA, hotels.alpha.id)).roomMappings).toHaveLength(1)
+      expect((await service.calendar(tenantA, hotels.alpha.id, q)).rows[0].cells[0].rateMinor).toBe('45000')
+      expect((await service.sellability(tenantA, hotels.alpha.id, { checkIn: day(10), checkOut: day(12), adults: '2', children: '0' })).sellable).toBe(true)
+      expect((await service.exceptions(tenantA, q)).items.every((i) => i.hotelId !== hotels.oscar.id)).toBe(true)
+      await expect(service.detail(tenantB, hotels.alpha.id, q)).rejects.toMatchObject({ status: 404 }) // cross-tenant under the runtime role
+      // the hotel audit reads AuditEvent: it either works or reports the privilege boundary explicitly
+      const audit = await service.audit(tenantA, hotels.alpha.id, {}).then((p) => ({ ok: true as const, p }), (e) => ({ ok: false as const, e }))
+      if (!audit.ok) expect((audit.e as { getResponse: () => unknown }).getResponse()).toMatchObject({ code: OPERATIONS_READ_DENIED })
+    } finally {
+      await runtime?.$disconnect(); await owner.$disconnect()
+    }
   })
 
   it('HOTEL-OPS-21 performance: a 14-hotel list, summary and exceptions each run in a fixed number of queries (no per-hotel loops)', async () => {

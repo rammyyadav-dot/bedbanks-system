@@ -293,3 +293,9 @@ dl code { overflow-wrap: anywhere; font-size: 11px; }
 
 /* Form labels inside workspace panels: explicit colour so they meet WCAG AA contrast. */
 .workspace-panel label { color: #3a525a; }
+
+/* Status pills: final, AA-contrast colours (declared last so no earlier rule overrides them). */
+.status-pill.success { color: #1a6a4f; background: #e9f7f1; }
+.status-pill.warning { color: #7a4f08; background: #fff5dc; }
+.status-pill.danger { color: #a6342f; background: #fdf0ef; }
+.status-pill.neutral { color: #4a6268; background: #eef3f4; }
