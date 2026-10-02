@@ -215,6 +215,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
   })
 
   it('confirms from the durable supplier reference when the success audit is missing', async () => {
+    await prisma.wallet.update({ where: { id: walletId }, data: { creditLimit: 10_000_000n } })
     const supplier = { prebook: async () => ({ supplierReference: 'sup-recovered' }) } as unknown as SupplierAdapter
     const hold = await newHold(`${suffix}-recovered`)
     const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
