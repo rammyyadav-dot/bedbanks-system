@@ -278,6 +278,9 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     expect(readiness.transactions).toMatchObject({ state: 'available' })
     const suppliers = await supply.suppliers(A.tenantId, A.userId, {})
     expect(suppliers.items[0].contracts).toEqual({ total: 1, active: 1 })
+    expect((await supply.suppliers(A.tenantId, A.userId, { status: 'ACTIVE' })).total).toBe(1)
+    expect((await supply.suppliers(A.tenantId, A.userId, { status: 'PENDING_REVIEW' })).total).toBe(0)
+    await expect(supply.suppliers(A.tenantId, A.userId, { status: 'NOT_A_STATUS' })).rejects.toBeInstanceOf(BadRequestException)
     await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: false } })
     await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
     await prisma.role.delete({ where: { id: role.id } })
@@ -343,6 +346,34 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
       await prisma.role.delete({ where: { id: role.id } })
     }
   }, 60000)
+
+  // ---- database-level isolation: a non-bypass role under forced RLS ------------------------------------------------------------
+  it('ADMIN-RLS: under a non-bypass role, every transaction table returns only the current tenant', async () => {
+    const raw = new PrismaClient({ datasourceUrl: ownerUrl })
+    const tables = ['Booking', 'InventoryHold', 'LedgerEntry', 'Wallet', 'AuditEvent', 'ConnectorDefinition', 'BookingDocument', 'Hotel', 'Supplier']
+    try {
+      await raw.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fbeds_rls_test') THEN CREATE ROLE fbeds_rls_test NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$;`)
+      await raw.$executeRawUnsafe('GRANT fbeds_rls_test TO CURRENT_USER')
+      await raw.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO fbeds_rls_test')
+      await raw.$executeRawUnsafe(`GRANT SELECT ON TABLE ${tables.map(t => `"${t}"`).join(', ')} TO fbeds_rls_test`)
+      const asRole = <T,>(tenantId: string | null, work: (t: PrismaClient) => Promise<T>) => raw.$transaction(async t => {
+        await t.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test')
+        if (tenantId) await t.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`
+        const [who] = await t.$queryRawUnsafe<Array<{ current_user: string }>>('SELECT current_user')
+        if (who.current_user !== 'fbeds_rls_test') throw new Error('not running as the restricted role')
+        return work(t as unknown as PrismaClient)
+      })
+      const tenantColumn: Record<string, string> = { Booking: 'tenant_id', InventoryHold: 'tenant_id', LedgerEntry: 'tenant_id', Wallet: 'tenant_id', AuditEvent: 'tenant_id', ConnectorDefinition: 'tenant_id', BookingDocument: 'tenant_id', Hotel: 'tenant_id', Supplier: 'tenant_id' }
+      for (const table of tables) {
+        const own = await asRole(B.tenantId, async t => (await t.$queryRawUnsafe<Array<{ tenant: string | null; n: number }>>(`SELECT ${tenantColumn[table]} AS tenant, count(*)::int AS n FROM "${table}" GROUP BY 1`)))
+        expect(own.every(r => r.tenant === B.tenantId)).toBe(true) // never a row of another tenant
+        const none = await asRole(null, async t => (await t.$queryRawUnsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM "${table}"`))[0].n)
+        expect({ table, none }).toEqual({ table, none: 0 }) // no tenant context: nothing
+      }
+      const bBookings = await asRole(B.tenantId, async t => (await t.$queryRawUnsafe<Array<{ id: string }>>('SELECT id FROM "Booking"')).map(r => r.id))
+      expect(bBookings).not.toContain(confirmedA.bookingId)
+    } finally { await raw.$disconnect() }
+  })
 
   // ---- privilege boundary -------------------------------------------------------------------------------------------------
   describe('runtime API role (privilege boundary, not an outage)', () => {

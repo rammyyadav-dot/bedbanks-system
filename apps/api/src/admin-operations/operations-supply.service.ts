@@ -10,6 +10,7 @@ import { DEFAULT_STALE_MINUTES } from './booking-attention'
 const CONTENT_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED'] as const
 const MAPPING_FILTERS = ['MAPPED', 'PENDING', 'REJECTED', 'NONE'] as const
 const READINESS = ['READY', 'BLOCKED', 'NOT_CONFIGURED'] as const
+const SUPPLIER_STATUSES = ['DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'SUSPENDED', 'INACTIVE'] as const
 const DEFAULT_WINDOW_DAYS = 30
 const MAX_WINDOW_DAYS = 90
 const READINESS_HOTEL_CAP = 500
@@ -138,8 +139,8 @@ export class OperationsSupplyService {
     await this.require(tenantId, userId, 'supply.suppliers.read')
     const page = pageParams(query)
     const search = textParam('search', query.search, 64)
-    const status = textParam('status', query.status, 16)
-    const where: Prisma.SupplierWhereInput = { tenantId, ...(status && { status: status as never }), ...(search && { displayName: { startsWith: search, mode: 'insensitive' } }) }
+    const status = enumParam('status', query.status, SUPPLIER_STATUSES)
+    const where: Prisma.SupplierWhereInput = { tenantId, ...(status && { status }), ...(search && { displayName: { startsWith: search, mode: 'insensitive' } }) }
     return this.prisma.withTenant(tenantId, async tx => {
       const [rows, total] = await Promise.all([tx.supplier.findMany({ where, orderBy: [{ displayName: 'asc' }, { id: 'asc' }], skip: page.skip, take: page.take }), tx.supplier.count({ where })])
       const ids = rows.map(r => r.id)

@@ -139,11 +139,21 @@ export class OperationsTransactionsService {
     const ids = bookings.map(b => b.id)
     const [holds, ledger, cancellations, prebooks] = await Promise.all([
       holdIds.length ? tx.inventoryHold.findMany({ where: { tenantId, id: { in: holdIds } }, select: { id: true, status: true, updatedAt: true } }) : [],
-      ids.length ? tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: { in: ids.map(i => `booking:${i}`) } }, ...ids.map(i => ({ idempotencyKey: { startsWith: `booking:${i}:` } }))] }, select: { type: true, amountMinor: true, reference: true, idempotencyKey: true } }) : [],
+      this.ledgerFor(tx, tenantId, ids),
       ids.length ? tx.cancellation.findMany({ where: { bookingId: { in: ids }, booking: { tenantId } }, select: { bookingId: true, refundMinor: true, reason: true, createdAt: true } }) : [],
       ids.length ? tx.auditEvent.findMany({ where: { tenantId, action: 'booking.prebook.succeeded', entityId: { in: ids } }, select: { entityId: true, createdAt: true }, orderBy: { createdAt: 'desc' } }) : [],
     ])
     return { holds: new Map(holds.map(h => [h.id, h])), ledger, cancellations: new Map(cancellations.map(c => [c.bookingId, c])), prebooks: new Map(prebooks.map(p => [p.entityId, p.createdAt])) }
+  }
+
+  /** Ledger rows for these bookings, queried in bounded chunks so the generated OR list stays small. */
+  private async ledgerFor(tx: Prisma.TransactionClient, tenantId: string, ids: string[]) {
+    const rows: Array<{ type: string; amountMinor: bigint; reference: string | null; idempotencyKey: string }> = []
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50)
+      rows.push(...await tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: { in: chunk.map(id => `booking:${id}`) } }, ...chunk.map(id => ({ idempotencyKey: { startsWith: `booking:${id}:` } }))] }, select: { type: true, amountMinor: true, reference: true, idempotencyKey: true } }))
+    }
+    return rows
   }
 
   private attentionFor(booking: { id: string; status: string; searchSnapshot: Prisma.JsonValue }, ev: Awaited<ReturnType<OperationsTransactionsService['evidence']>>, now: Date): BookingAttention[] {

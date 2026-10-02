@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
@@ -60,9 +60,10 @@ export class OperationsController {
   booking(@ActiveTenant() tenantId: string, @Param('bookingId') bookingId: string) { return this.tx.booking(tenantId, bookingId) }
 
   @Get('bookings/:bookingId/documents/:type/html') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
-  @Header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'") @Header('X-Content-Type-Options', 'nosniff') @Header('Cache-Control', 'private, no-store')
   async documentHtml(@ActiveTenant() tenantId: string, @Param('bookingId') bookingId: string, @Param('type') type: string, @Res() response: Response) {
-    response.type('text/html; charset=utf-8').send(await this.tx.documentHtml(tenantId, bookingId, type))
+    const html = await this.tx.documentHtml(tenantId, bookingId, type)
+    // Headers are set explicitly (not via @Header) because @Res() takes over the response.
+    response.status(200).set({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'", 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }).send(html)
   }
 
   @Get('reconciliation') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
