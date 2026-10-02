@@ -58,3 +58,8 @@ Shell GitHub/npm access timed out. Only relevant source files were materialized 
 Dependency-free portal tests: 7 PASS. Website configuration tests: 7 PASS using Node 24 type stripping with only a temporary import-extension adjustment. This does not replace the normal tsx/CI build verification.
 A read-only fetch of the existing serving deployment returned HTTP 200 with the public Website title and https://www.fbeds.com canonical. Authenticated browser flows, API readiness, firewall rules and domain cutover remain unverified.
 
+
+## Follow-up verification
+PR #220 was merged externally at fc44dd54c9e99a54279992d6ffce82b21cd2eaf8 while verification was running. The agent did not merge it. The subsequent Turbo cache-hash verification is submitted separately.
+The deployment configuration workflow at 7360ef2622623c1b8d202c25e06320b1a86197af passed both Portal deployment configuration and Build environment hashing. Eight environment changes each produced different Turbo build hashes. Full CI remains pending at this checkpoint.
+Vercel bot comments on PR #220 report api-deployments-free-per-day (more than 100 deployments; try again in 24 hours). They also reference fbeds-agent, fbeds-agent1, fbeds-supplier and bedbanks-system-3nc2, which are not returned by the connected project listing. Metadata identifies bedbanks-system-3nc2 as apps/agent; direct lookup of its project/deployment returned 404. Therefore the single visible project is a credential visibility result, not a complete team inventory. Do not create duplicate projects without reconciling dashboard inventory.
