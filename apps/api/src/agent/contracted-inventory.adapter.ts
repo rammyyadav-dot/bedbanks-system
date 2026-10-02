@@ -4,7 +4,8 @@ import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbank
 import type { SupplierType } from '@prisma/client'
 import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
 import { PrismaService } from '../database/prisma.service'
-import { commercialLeadDays, evaluateContractedStay, stayDates, type ContractedStaySnapshot, type StayNightSnapshot } from '../supply/contracted-sellability'
+import { commercialLeadDays, evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
+import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
 const OFFER_PREFIX = 'ci_'
@@ -39,10 +40,6 @@ function offerTtlMs(): number {
   const parsed = Number(process.env.AGENT_OFFER_TTL_MS ?? DEFAULT_OFFER_TTL_MS)
   if (!Number.isSafeInteger(parsed)) return DEFAULT_OFFER_TTL_MS
   return Math.min(MAX_OFFER_TTL_MS, Math.max(MIN_OFFER_TTL_MS, parsed))
-}
-
-function dayKey(value: Date): string {
-  return value.toISOString().slice(0, 10)
 }
 
 function sourceFor(type: SupplierType): SearchRateOffer['source'] {
@@ -284,50 +281,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     if (starRating === null || starRating < 1 || starRating > 5) return null
     if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
     if (criteria.filters?.refundableOnly && !plan.refundable) return null
-    const rates = new Map(plan.dailyRates.map((rate) => [dayKey(rate.stayDate), rate]))
-    const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
-    const stayNights: StayNightSnapshot[] = nights.map((date) => {
-      const rate = rates.get(date)
-      const row = availability.get(date)
-      return {
-        date,
-        rateAmountMinor: rate ? rate.amountMinor : null,
-        rateCurrency: rate?.currency ?? null,
-        amountBasis: rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null,
-        availability: row ? {
-          allotment: row.allotment,
-          sold: row.sold,
-          held: row.held,
-          stopSell: row.stopSell,
-          minStay: row.minStay,
-          closedToArrival: row.closedToArrival,
-        } : null,
-      }
-    })
-    const snapshot: ContractedStaySnapshot = {
-      hotelContentStatus: plan.roomType.hotel.contentStatus,
-      roomActive: plan.roomType.isActive,
-      boardActive: plan.boardBasis.isActive,
-      supplierStatus: plan.contract.supplier.status,
-      hotelMappingStatus: mapping.status,
-      hotelMappingHotelId: mapping.hotelId,
-      canonicalHotelId: plan.roomType.hotelId,
-      roomMappingStatus: roomMapping.status,
-      contractStatus: plan.contract.status,
-      contractValidFrom: dayKey(plan.contract.validFrom),
-      contractValidTo: dayKey(plan.contract.validTo),
-      contractCurrency: plan.contract.settlementCurrency,
-      ratePlanStatus: plan.status,
-      ratePlanOccupancy: plan.occupancy,
-      ratePlanCurrency: plan.currency,
-      ratePlanMinStay: plan.minStay,
-      ratePlanMaxStay: plan.maxStay,
-      ratePlanReleaseDays: plan.releaseDays,
-      maxAdults: plan.roomType.maxAdults,
-      maxChildren: plan.roomType.maxChildren,
-      maxOccupancy: plan.roomType.maxOccupancy,
-      nights: stayNights,
-    }
+    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights)
     const decision = evaluateContractedStay(snapshot, {
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,
@@ -363,7 +317,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       expiresAt,
     }
     if (persist) this.remember(stored)
-    const remaining = Math.min(...stayNights.map((night) => {
+    const remaining = Math.min(...snapshot.nights.map((night) => {
       const row = night.availability
       return row ? row.allotment - row.sold - row.held : 0
     }))
