@@ -22,6 +22,12 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   const { ctx, page } = await login(browser, seed.ownerEmail)
   const errors = []; page.on('pageerror', e => errors.push(e.message))
 
+  // 0. department sidebar: grouped by department, only live modules, nothing planned
+  await page.goto(`${BASE}/dashboard`); await page.waitForSelector('nav')
+  const sidebar = (await page.locator('nav').first().innerText()).replace(/\s+/g, ' ')
+  check('Sidebar groups live modules by department', ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Finance', 'Platform'].every((g) => new RegExp(g, 'i').test(sidebar)), sidebar.slice(0, 120))
+  check('Sidebar lists no planned department module', !/Markups|Promotions|Agencies|Refunds|Risk flags|Cases/.test(sidebar))
+
   // 1. every operations list view renders real data, with table headers and a pager
   for (const [path, mustContain] of [['/bookings', 'CONFIRMED'], ['/holds', 'HELD'], ['/cancellations', 'MATCH'], ['/finance/wallets', 'Available credit'], ['/finance/ledger', 'DEBIT'], ['/audit', 'booking.'], ['/connectors', 'api_key: configured'], ['/operations/hotels', 'BLOCKED|READY'], ['/reconciliation', 'Stalled hold|PREBOOK_EXPIRED']]) {
     await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-state], .admin-empty', { timeout: 15000 })
@@ -45,7 +51,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   check('Stuck booking shows an attention flag', /Needs attention/.test(await text(page)), (await text(page)).match(/PREBOOK_EXPIRED_UNRESOLVED|RECONCILIATION_REQUIRED/)?.[0])
 
   // 3. operations readiness numbers come from the API
-  await page.goto(`${BASE}/operations`); await page.waitForSelector('text=Supply')
+  await page.goto(`${BASE}/operations`); await page.waitForSelector('main >> text=Connectors')
   const ops = await text(page)
   check('Readiness shows supply, transactions, connectors sections', /Supply/.test(ops) && /Transactions/.test(ops) && /Connectors/.test(ops))
   await page.screenshot({ path: `${process.env.SHOT_DIR ?? require('os').tmpdir()}/admin-ops-shot-operations.png`, fullPage: true })

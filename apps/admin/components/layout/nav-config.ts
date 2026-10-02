@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import type { OperationsPermission, SupplyPermission } from '@bedbanks/contracts';
+import { departments, sidebarGroups, type OperationsPermission, type SupplyPermission } from '@bedbanks/contracts';
 import {
   LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
   BookOpen, Lock, Wrench, Landmark, Receipt, History, Cable, Gauge, Undo2, TriangleAlert,
@@ -8,55 +8,28 @@ import {
 export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission; }
 export interface NavSection { label?: string; items: NavItem[]; }
 
+const icons: Record<string, LucideIcon> = {
+  '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/hotels': Hotel, '/mappings': Link2,
+  '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
+  '/sellability': ClipboardCheck, '/operations': Gauge, '/bookings': BookOpen, '/holds': Lock, '/cancellations': Undo2,
+  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
+};
+
 /**
- * Dubai MVP navigation. Only modules backed by authoritative APIs are listed.
- * Operations views (bookings, holds, reconciliation, finance, audit, connectors) read the API's read-only
- * `/admin/operations/*` endpoints. Reports, notifications, tenants/users, distribution and the pricing simulator
- * are intentionally absent: their routes render an explicit "not enabled" state instead of data.
+ * Enterprise department navigation (ADR 0015), derived from the department catalogue in `@bedbanks/contracts`.
+ * Only `live` modules render: a planned module has no route, no API and no sidebar entry, so nothing here
+ * presents a placeholder as a capability. A department with no live module does not appear at all.
+ * `requires` hides an item the caller cannot use; it is a UX hint, the API is the authorizer.
  */
-export const navSections: NavSection[] = [
-  { label: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
-  {
-    label: 'Commercial',
-    items: [
-      { href: '/suppliers', label: 'Suppliers', icon: Truck, requires: 'supply.suppliers.read' },
-      { href: '/hotels', label: 'Hotels', icon: Hotel, requires: 'supply.hotels.read' },
-      { href: '/exceptions', label: 'Exceptions', icon: TriangleAlert, requires: 'supply.hotels.read' },
-      { href: '/board-basis', label: 'Board Basis', icon: Tags, requires: 'supply.rates.read' },
-      { href: '/mappings', label: 'Mappings', icon: Link2, requires: 'supply.mappings.read' },
-      { href: '/contracts', label: 'Contracts', icon: FileSignature, requires: 'supply.contracts.read' },
-      { href: '/rates/plans', label: 'Rate Plans', icon: ScrollText, requires: 'supply.rates.read' },
-      { href: '/rates', label: 'Rates & Inventory', icon: CalendarRange, requires: 'supply.rates.read' },
-      { href: '/sellability', label: 'Sellability', icon: ClipboardCheck, requires: 'supply.rates.read' },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      { href: '/operations', label: 'Readiness', icon: Gauge, requires: 'booking.read' },
-      { href: '/bookings', label: 'Bookings', icon: BookOpen, requires: 'booking.read' },
-      { href: '/holds', label: 'Inventory holds', icon: Lock, requires: 'booking.read' },
-      { href: '/reconciliation', label: 'Reconciliation', icon: Wrench, requires: 'booking.reconcile' },
-      { href: '/cancellations', label: 'Cancellations', icon: Undo2, requires: 'booking.cancel' },
-      { href: '/connectors', label: 'Connectors', icon: Cable, requires: 'booking.read' },
-    ],
-  },
-  {
-    label: 'Finance & audit',
-    items: [
-      { href: '/finance/wallets', label: 'Wallets', icon: Landmark, requires: 'finance.read' },
-      { href: '/finance/ledger', label: 'Ledger', icon: Receipt, requires: 'finance.read' },
-      { href: '/audit', label: 'Audit explorer', icon: History, requires: 'audit.read' },
-    ],
-  },
-  {
-    label: 'Control',
-    items: [
-      { href: '/access', label: 'Roles & Permissions', icon: ShieldCheck },
-      { href: '/settings', label: 'Settings', icon: Settings },
-    ],
-  },
-];
+export const navSections: NavSection[] = sidebarGroups
+  .map((group) => ({
+    label: group.label,
+    items: group.departments
+      .flatMap((id) => departments.find((d) => d.id === id)?.modules ?? [])
+      .filter((m): m is typeof m & { href: string } => m.readiness === 'live' && !!m.href)
+      .map((m): NavItem => ({ href: m.href, label: m.label, icon: icons[m.href]!, requires: m.requires as NavItem['requires'] })),
+  }))
+  .filter((section) => section.items.length > 0);
 
 /** Routes that stay reachable (and breadcrumbed) without a sidebar entry. */
 const hiddenRoutes: NavItem[] = [
