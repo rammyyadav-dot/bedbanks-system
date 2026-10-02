@@ -1,7 +1,6 @@
-if (process.env.VERCEL === '1' && !process.env.API_INTERNAL_URL) {
-  throw new Error('API_INTERNAL_URL is required for Vercel deployments of the supplier extranet')
-}
-const apiInternalUrl = (process.env.API_INTERNAL_URL ?? 'http://localhost:3002/api/v1').replace(/\/+$/, '')
+import { portalApiUrl } from '../../tools/deployment/api-url.mjs'
+
+const apiInternalUrl = portalApiUrl()
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -25,3 +24,4 @@ const nextConfig = {
 }
 
 export default nextConfig
+
