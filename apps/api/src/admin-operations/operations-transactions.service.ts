@@ -10,6 +10,7 @@ import { BookingReconciliationService } from '../agent/booking-reconciliation.se
 import { documentKindFromRoute } from '../agent/booking-document.service'
 import { renderBookingDocument } from '../agent/booking-document.render'
 import { bookingAttention, DEFAULT_PREBOOK_MAX_MINUTES, DEFAULT_STALE_MINUTES } from './booking-attention'
+import { supplierMutationAcceptedReference } from '../agent/supplier-mutation-journal.service'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { boolParam, dayParam, endOfDay, enumParam, idParam, intParam, pageParams, paged, textParam } from './query-params'
 
@@ -212,13 +213,14 @@ export class OperationsTransactionsService {
       const views = audit.map(auditView)
       const confirmation = views.find(a => a.action === 'booking.confirmed' || a.action === 'booking.confirm.succeeded') ?? null
       const prebook = views.find(a => a.action === 'booking.prebook.succeeded') ?? null
+      const mutation = await tx.supplierMutation.findFirst({ where: { tenantId, bookingId: booking.id, operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' } })
       const issuable: Array<'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE'> = booking.status === 'CONFIRMED' ? ['VOUCHER', 'INVOICE'] : booking.status === 'CANCELLED' ? ['INVOICE', 'CREDIT_NOTE'] : []
       return {
         booking: { id: booking.id, reference: booking.reference, status: booking.status, createdAt: booking.createdAt.toISOString(), updatedAt: booking.updatedAt.toISOString(), tenantId: booking.tenantId, createdByRequestId: null },
         stay: { hotelId: booking.hotelId, hotelName: hotel?.name ?? null, roomTypeId, roomName: room?.name ?? null, boardBasisId, boardCode: board?.code ?? null, checkIn: str(s.checkIn), checkOut: str(s.checkOut), rooms: int(s.rooms), adults: int(s.adults), children: int(s.children) },
         commercial: { currency: booking.currency, totalMinor: booking.totalMinor.toString(), offerId: str(s.offerId), searchId: str(s.searchId), ratePlanId: str(s.ratePlanId), snapshotVersion: int(s.snapshotVersion) },
         inventory: { holdId, hold: hold ? { status: hold.status as InventoryHoldStatus, expiresAt: hold.expiresAt.toISOString(), releasedAt: iso(hold.releasedAt), rooms: hold.rooms, nights: hold.nights.map(n => this.nightView(n, availability.get(n.availabilityId))) } : null },
-        supplier: { supplier: booking.supplier, supplierBookingReference: null, prebook: prebook ? { at: prebook.at, requestId: prebook.requestId } : null, confirmation: confirmation ? { at: confirmation.at, requestId: confirmation.requestId } : null },
+        supplier: { supplier: booking.supplier, supplierBookingReference: supplierMutationAcceptedReference(mutation), prebook: prebook ? { at: prebook.at, requestId: prebook.requestId } : null, confirmation: confirmation ? { at: confirmation.at, requestId: confirmation.requestId } : null },
         finance: { entries: entries.map(e => this.ledgerView(e, booking.id)), netMinor: entries.reduce((sum, e) => sum + e.amountMinor, 0n).toString() },
         documents: booking.documents.map(d => ({ type: d.type as 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE', number: d.number, issuedAt: d.issuedAt.toISOString() })),
         issuableDocuments: issuable,

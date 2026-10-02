@@ -9,6 +9,7 @@ import { BookingPersistenceService } from '../src/agent/booking-persistence.serv
 import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
 import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compensation-recovery.service'
 import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
+import { SupplierMutationJournalService } from '../src/agent/supplier-mutation-journal.service'
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import { BookingTransactionService } from '../src/agent/booking-transaction.service'
 import { BookingCancellationService } from '../src/agent/booking-cancellation.service'
@@ -37,7 +38,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const docs = new BookingDocumentService(prisma, audit)
   const cancellations = new BookingCancellationService(prisma, new CancellationPolicyService(), new LedgerService(prisma), audit)
   const supplier = { prebook: async () => ({ supplierReference: 'contracted:test' }) } as unknown as SupplierAdapter
-  const bookingTx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier), confirmation)
+  const bookingTx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier), confirmation)
   const reconciliation = new BookingReconciliationService(prisma, finance, holds, audit)
   const tx = new OperationsTransactionsService(prisma, reconciliation)
   const supply = new OperationsSupplyService(prisma)
@@ -74,6 +75,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
     await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
     await prisma.bookingDocument.deleteMany({ where: { tenantId } })
+    await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
@@ -130,7 +132,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     expect(view.inventory.hold?.status).toBe('CONFIRMED')
     expect(view.inventory.hold?.nights).toHaveLength(2)
     expect(view.finance.entries.some(e => e.type === 'DEBIT')).toBe(true)
-    expect(view.supplier.supplierBookingReference).toBeNull()
+    expect(view.supplier.supplierBookingReference).toBe('contracted:test')
     expect(view.attention).toEqual([])
     expect(view.audit.length).toBeGreaterThan(0)
     for (const e of view.finance.entries) expect(e.amountMinor).toMatch(/^-?\d+$/)
