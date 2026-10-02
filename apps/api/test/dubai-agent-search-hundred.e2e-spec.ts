@@ -392,6 +392,16 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     const one = (await get(`/hotels?${window}&search=${encodeURIComponent(hotels[42].name)}`).expect(200)).body.data
     expect(one.total).toBe(1)
     expect(one.items[0].id).toBe(hotels[42].hotelId)
+    // Hotel 1, a hotel past 50, and Hotel 100 are each locatable by search without loading the whole set.
+    for (const index of [0, 50, 51, 99]) {
+      const found = (await get(`/hotels?${window}&search=${encodeURIComponent(hotels[index].name)}&pageSize=5`).expect(200)).body.data
+      expect(found.total).toBe(1)
+      expect(found.items[0]).toMatchObject({ id: hotels[index].hotelId, readiness: 'READY' })
+    }
+    // ... and by page position: hotel 100 (sorted by name) is the last item of page 4 of 25, hotel 51 is on page 3.
+    expect((await get(`/hotels?${window}&page=4&pageSize=25`).expect(200)).body.data.items.at(-1).id).toBe(hotels[99].hotelId)
+    expect((await get(`/hotels?${window}&page=3&pageSize=25`).expect(200)).body.data.items.map((h: { id: string }) => h.id)).toContain(hotels[50].hotelId)
+    expect((await get(`/hotels?${window}&page=1&pageSize=10`).expect(200)).body.data.items).toHaveLength(10) // a page is never the whole set
     expect((await get('/hotels?pageSize=101').expect(400)).body.success).toBe(false)
 
     // ADMIN-01: no session, no data.
