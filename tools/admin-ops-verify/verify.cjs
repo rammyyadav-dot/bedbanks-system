@@ -38,7 +38,7 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.goto(`${BASE}/bookings/${seed.confirmedBookingId}`); await page.waitForSelector('[data-testid=booking-360]')
   const b360 = await text(page)
   check('Booking 360 shows ledger DEBIT, hold CONFIRMED and audit trail', /DEBIT/.test(b360) && /CONFIRMED/.test(b360) && /booking\.prebook\.succeeded/.test(b360))
-  check('Booking 360 states supplier reference is not stored', /Not stored/.test(b360))
+  check('Booking 360 shows the journal-acknowledged supplier reference, never an inferred one', /Supplier booking reference/.test(b360) && !/None acknowledged yet/.test(b360))
   check('Booking 360 money is formatted from minor units (AED 1,251.00)', /1,251\.00/.test(b360), b360.match(/AED[^ ]* ?[\d,.]+/)?.[0])
   await page.screenshot({ path: `${process.env.SHOT_DIR ?? require('os').tmpdir()}/admin-ops-shot-booking360.png`, fullPage: true })
   await page.goto(`${BASE}/bookings/${seed.stuckBookingId}`); await page.waitForSelector('[data-testid=booking-360]')

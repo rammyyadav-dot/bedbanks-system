@@ -66,6 +66,36 @@ test('operations pages never hide a failure behind an empty list or a catch fall
   }
 })
 
+const hotelFiles = () => production.filter((f) => /components[\\/]hotels[\\/]|\(dashboard\)[\\/]hotels[\\/]\[id\][\\/]page|\(dashboard\)[\\/]hotels[\\/]page|\(dashboard\)[\\/]exceptions[\\/]page|lib[\\/]hotel-ui\.ts|lib[\\/]data[\\/]hotel-commercial/.test(f))
+
+test('hotel commercial UI holds no commercial authority: no readiness, remaining-inventory, expiry or sellability rules in React', () => {
+  const files = hotelFiles()
+  assert.ok(files.length >= 14, `expected the hotel commercial files, found ${files.length}`)
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    assert.doesNotMatch(text, /allotment\s*-\s*|\.sold\s*\+|\.held\s*\+|-\s*\w+\.sold/, `${file}: remaining inventory must come from the API`)
+    assert.doesNotMatch(text, /evaluateContractedStay|evaluateNightSellability|buildStaySnapshot|contractStateOf/, `${file}: canonical evaluators live in the API`)
+    assert.doesNotMatch(text, /daysToExpiry\s*[<>]=?\s*\d|CONTRACT_EXPIRING_DAYS\s*[-+*]|new Date\([^)]*validTo/, `${file}: expiry state must come from the API`)
+    assert.doesNotMatch(text, /readiness\s*=\s*['"](READY|PARTIAL|BLOCKED)['"]/, `${file}: readiness is never assigned in the browser`)
+    assert.doesNotMatch(text, /Math\.random|setTimeout|DEMO_MODE|mockData|fallbackData/, `${file}: no simulated data`)
+    assert.doesNotMatch(text, /\.catch\(\s*\(\)\s*=>\s*(\[\]|\{\}|null|undefined)/, `${file}: a failure is never turned into empty data`)
+  }
+})
+
+test('the hotel list is server-paginated: it never loads the whole hotel catalogue into the browser', () => {
+  const list = readFileSync(join(root, 'app', '(dashboard)', 'hotels', 'page.tsx'), 'utf8')
+  assert.doesNotMatch(list, /['"`]\/supply\/hotels/, 'the list must not fetch /supply/hotels')
+  assert.match(list, /getHotelsCommercial/); assert.match(list, /Pager/); assert.match(list, /PAGE_SIZE/)
+  assert.doesNotMatch(list, /\.filter\(\(hotel\)/, 'filtering happens on the server')
+})
+
+test('every issue and gate section is a hotel tab, and tabs requiring a permission are declared', () => {
+  const page = readFileSync(join(root, 'app', '(dashboard)', 'hotels', '[id]', 'page.tsx'), 'utf8')
+  for (const permission of ['supply.contracts.read', 'supply.mappings.read', 'supply.rates.read', 'booking.read', 'audit.read']) assert.match(page, new RegExp(permission.replace('.', '\\.')))
+  assert.ok(flatNav.some((n) => n.href === '/exceptions' && n.requires === 'supply.hotels.read'))
+  assert.equal(flatNav.some((n) => n.href === '/operations/hotels'), false)
+})
+
 test('sidebar highlights only the most specific route', () => {
   assert.equal(isActiveRoute('/rates/plans/abc', '/rates/plans'), true)
   assert.equal(isActiveRoute('/rates/plans/abc', '/rates'), false)

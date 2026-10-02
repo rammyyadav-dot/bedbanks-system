@@ -9,7 +9,9 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
+import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsSupplyService } from './operations-supply.service'
+import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
 
 type Q = Record<string, unknown>
@@ -23,7 +25,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -41,8 +43,34 @@ export class OperationsController {
     return this.supply.readiness(tenantId, identity.user.id, query, () => this.tx.transactionSummary(tenantId), () => this.tx.connectorSummary(tenantId))
   }
 
-  @Get('hotels') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
-  hotels(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.supply.hotels(tenantId, identity.user.id, query) }
+  // ---- hotel commercial operations: existing supply.* permissions, formal roles only (same rule as /supply) ------------------
+  @Get('hotels') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
+  hotels(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.list(tenantId, query) }
+
+  // Declared before `hotels/:hotelId` so "summary" is never read as an id.
+  @Get('hotels/summary') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
+  hotelsSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.summary(tenantId, query) }
+
+  @Get('hotels/:hotelId') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
+  hotel(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.detail(tenantId, hotelId, query) }
+
+  @Get('hotels/:hotelId/contracts') @RequireSupplyPermission('supply.contracts.read') @UseGuards(SupplyPermissionGuard)
+  hotelContracts(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.contracts(tenantId, hotelId, query) }
+
+  @Get('hotels/:hotelId/mappings') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard)
+  hotelMappings(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string) { return this.hotelOps.mappings(tenantId, hotelId) }
+
+  @Get('hotels/:hotelId/calendar') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
+  hotelCalendar(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.calendar(tenantId, hotelId, query) }
+
+  @Get('hotels/:hotelId/sellability') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
+  hotelSellability(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.sellability(tenantId, hotelId, query) }
+
+  @Get('hotels/:hotelId/audit') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  hotelAudit(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.audit(tenantId, hotelId, query) }
+
+  @Get('exceptions') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
+  exceptions(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.exceptions(tenantId, query) }
 
   @Get('suppliers') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
   suppliers(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.supply.suppliers(tenantId, identity.user.id, query) }

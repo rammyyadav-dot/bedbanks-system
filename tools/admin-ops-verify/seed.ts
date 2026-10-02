@@ -67,6 +67,8 @@ async function main() {
   const c = await book(A, `${tag}-confirmed`, 'confirm'); await book(A, `${tag}-cancelled`, 'cancel'); const s = await book(A, `${tag}-stuck`, 'none')
   await prisma.$executeRaw`UPDATE "InventoryHold" SET updated_at = now() - interval '2 hours' WHERE id = ${s.holdId}`
   await prisma.$executeRaw`UPDATE "AuditEvent" SET created_at = now() - interval '2 hours' WHERE action = 'booking.prebook.succeeded' AND entity_id = ${s.bookingId}`
+  // Recovery ages a prebook by the journal's acknowledgement time, so age the journal row too.
+  await prisma.$executeRaw`UPDATE "SupplierMutation" SET acknowledged_at = now() - interval '2 hours', updated_at = now() - interval '2 hours' WHERE booking_id = ${s.bookingId}`
   await book(B, `${tag}-b`, 'confirm')
   await prisma.connectorDefinition.create({ data: { tenantId: A.t.id, supplierId: A.sup.id, type: 'API_JSON', status: 'DRAFT', name: `${tag} connector`, version: '1', credentialReferences: { create: [{ secretRef: 'vault://never-shown', purpose: 'api_key' }] } } })
   const out = { password, ownerEmail: `owner-${tag}@verify.test`, viewerEmail: `viewer-${tag}@verify.test`, bownerEmail: `bowner-${tag}@verify.test`, confirmedBookingId: c.bookingId, stuckBookingId: s.bookingId, tenantA: A.t.id, tenantB: B.t.id, hotelAName: `${tag}-a hotel` }

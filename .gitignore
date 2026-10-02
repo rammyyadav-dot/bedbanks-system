@@ -45,3 +45,4 @@ dump.rdb
 **/playwright-report/
 **/test-results/
 tools/admin-ops-verify/.seed.json
+tools/admin-ops-verify/.seed-hotels.json

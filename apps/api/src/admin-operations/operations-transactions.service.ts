@@ -12,7 +12,7 @@ import { renderBookingDocument } from '../agent/booking-document.render'
 import { bookingAttention, DEFAULT_PREBOOK_MAX_MINUTES, DEFAULT_STALE_MINUTES } from './booking-attention'
 import { supplierMutationAcceptedReference } from '../agent/supplier-mutation-journal.service'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
-import { boolParam, dayParam, endOfDay, enumParam, idParam, intParam, pageParams, paged, textParam } from './query-params'
+import { boolParam, dayParam, endOfDay, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 const HOLD_STATUSES = ['PENDING_RECHECK', 'RECHECKED', 'HOLD_PENDING', 'HELD', 'PROCESSING', 'CONFIRMED', 'RELEASED', 'EXPIRED', 'FAILED'] as const
 const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const
@@ -25,7 +25,7 @@ const str = (value: unknown): string | null => (typeof value === 'string' && val
 const int = (value: unknown): number | null => (Number.isInteger(value) ? (value as number) : null)
 
 /** Audit payloads are sanitised on write; request/correlation ids live in the payload. */
-function auditView(row: { id: string; createdAt: Date; action: string; entityType: string; entityId: string; actorType: string; userId: string | null; payload: Prisma.JsonValue }): AuditEventView {
+export function auditView(row: { id: string; createdAt: Date; action: string; entityType: string; entityId: string; actorType: string; userId: string | null; payload: Prisma.JsonValue }): AuditEventView {
   const payload = row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload) ? (row.payload as Record<string, unknown>) : {}
   return { id: row.id, at: row.createdAt.toISOString(), action: row.action, entityType: row.entityType, entityId: row.entityId, actorType: row.actorType, userId: row.userId, requestId: str(payload.requestId), correlationId: str(payload.correlationId), payload }
 }
@@ -110,7 +110,7 @@ export class OperationsTransactionsService {
     const base: Prisma.BookingWhereInput = {
       tenantId, ...(status && { status }), ...(hotelId && { hotelId }), ...(supplier && { supplier }),
       // Exact or prefix match only; never a contains/wildcard scan.
-      ...(reference && { reference: { startsWith: reference } }),
+      ...(reference && { reference: { startsWith: likeLiteral(reference) } }),
       ...((createdFrom || createdTo) && { createdAt: { ...(createdFrom && { gte: createdFrom }), ...(createdTo && { lte: endOfDay(createdTo) }) } }),
     }
     const inWindow = (b: { searchSnapshot: Prisma.JsonValue }) => {
@@ -152,7 +152,7 @@ export class OperationsTransactionsService {
     const rows: Array<{ type: string; amountMinor: bigint; reference: string | null; idempotencyKey: string }> = []
     for (let i = 0; i < ids.length; i += 50) {
       const chunk = ids.slice(i, i + 50)
-      rows.push(...await tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: { in: chunk.map(id => `booking:${id}`) } }, ...chunk.map(id => ({ idempotencyKey: { startsWith: `booking:${id}:` } }))] }, select: { type: true, amountMinor: true, reference: true, idempotencyKey: true } }))
+      rows.push(...await tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: { in: chunk.map(id => `booking:${id}`) } }, ...chunk.map(id => ({ idempotencyKey: { startsWith: likeLiteral(`booking:${id}:`) } }))] }, select: { type: true, amountMinor: true, reference: true, idempotencyKey: true } }))
     }
     return rows
   }
@@ -206,7 +206,7 @@ export class OperationsTransactionsService {
         this.evidence(tx, tenantId, [booking]),
       ])
       const availability = hold ? await this.availabilityFor(tx, tenantId, hold.nights.map(n => n.availabilityId)) : new Map()
-      const entries = await tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: `booking:${booking.id}` }, { idempotencyKey: { startsWith: `booking:${booking.id}:` } }] }, orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }] })
+      const entries = await tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: `booking:${booking.id}` }, { idempotencyKey: { startsWith: likeLiteral(`booking:${booking.id}:`) } }] }, orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }] })
       const audit = await tx.auditEvent.findMany({ where: { tenantId, OR: [{ entityType: 'booking', entityId: booking.id }, ...(holdId ? [{ entityType: 'inventory_hold', entityId: holdId }] : [])] }, orderBy: { createdAt: 'asc' }, take: 200 })
       const cancellation = ev.cancellations.get(booking.id) ?? null
       const refundPosted = entries.filter(e => e.type === 'REFUND').reduce((sum, e) => sum + e.amountMinor, 0n)
@@ -341,7 +341,7 @@ export class OperationsTransactionsService {
     const to = dayParam('to', query.to)
     const where: Prisma.LedgerEntryWhereInput = {
       tenantId, ...(walletId && { walletId }), ...(type && { type }),
-      ...(bookingId && { OR: [{ reference: `booking:${bookingId}` }, { idempotencyKey: { startsWith: `booking:${bookingId}:` } }] }),
+      ...(bookingId && { OR: [{ reference: `booking:${bookingId}` }, { idempotencyKey: { startsWith: likeLiteral(`booking:${bookingId}:`) } }] }),
       ...((from || to) && { immutableAt: { ...(from && { gte: from }), ...(to && { lte: endOfDay(to) }) } }),
     }
     return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
@@ -365,7 +365,7 @@ export class OperationsTransactionsService {
     const from = dayParam('from', query.from)
     const to = dayParam('to', query.to)
     const where: Prisma.AuditEventWhereInput = {
-      tenantId, ...(action && { action: { startsWith: action } }), ...(entityType && { entityType }), ...(entityId && { entityId }), ...(userId && { userId }),
+      tenantId, ...(action && { action: { startsWith: likeLiteral(action) } }), ...(entityType && { entityType }), ...(entityId && { entityId }), ...(userId && { userId }),
       ...(requestId && { payload: { path: ['requestId'], equals: requestId } }),
       ...(correlationId && { AND: [{ payload: { path: ['correlationId'], equals: correlationId } }] }),
       ...((from || to) && { createdAt: { ...(from && { gte: from }), ...(to && { lte: endOfDay(to) }) } }),

@@ -3,3 +3,4 @@ export * from './routes';
 export * from './supply';
 export * from './admin-settings';
 export * from './operations';
+export * from './hotel-commercial';
