@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookingService, type BookingDetail, type BookingSummary, type CancellationQuote, type DocumentType } from '@/services/booking-service'
+import { BookingService, type BookingDetail, type BookingPage, type CancellationQuote, type DocumentType } from '@/services/booking-service'
 import { agentFacingBooking, supplierReferenceForAgent } from '@/lib/booking-attention'
 import { formatMinorAmount, formatStay } from '@/lib/format'
 
@@ -13,12 +13,14 @@ const FILTERS = [
   { id: 'FAILED', label: 'Not confirmed' },
 ] as const
 type BookingFilter = typeof FILTERS[number]['id']
+const PAGE_SIZE = 20
 
 export function Bookings({ tenantId, bookingEnabled, initialBookingId, onSearch, onChanged, service }: {
   tenantId: string; bookingEnabled: boolean; initialBookingId?: string | null; onSearch: () => void; onChanged: () => void; service?: BookingService
 }) {
   const api = useRef(service ?? new BookingService()).current
-  const [rows, setRows] = useState<BookingSummary[] | null>(null)
+  const [page, setPage] = useState<BookingPage | null>(null)
+  const [offset, setOffset] = useState(0)
   const [listError, setListError] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(initialBookingId ?? null)
   const [detail, setDetail] = useState<BookingDetail | null>(null)
@@ -29,9 +31,9 @@ export function Bookings({ tenantId, bookingEnabled, initialBookingId, onSearch,
   const [filter, setFilter] = useState<BookingFilter>('ALL')
 
   const loadList = useCallback(async () => {
-    const result = await api.list(tenantId)
-    if (result.ok) { setRows(result.data); setListError('') } else { setRows(null); setListError(result.message) }
-  }, [api, tenantId])
+    const result = await api.list(tenantId, { limit: PAGE_SIZE, offset, status: filter === 'ALL' ? undefined : filter })
+    if (result.ok) { setPage(result.data); setListError('') } else { setPage(null); setListError(result.message) }
+  }, [api, tenantId, offset, filter])
   const loadDetail = useCallback(async (id: string) => {
     setDetail(null); setDetailError(''); setQuote(null)
     const result = await api.detail(id, tenantId)
@@ -70,17 +72,21 @@ export function Bookings({ tenantId, bookingEnabled, initialBookingId, onSearch,
 
   const money = (minor: string, currency: string) => formatMinorAmount(minor, currency) ?? 'Amount unavailable'
   const has = (type: string) => detail?.documents.some((doc) => doc.type === type) ?? false
-  const visible = rows?.filter((row) => filter === 'ALL' || row.status === filter) ?? []
+  const rows = page?.items ?? []
   const face = detail ? agentFacingBooking(detail.status, detail.supplierMutation?.status) : null
   const supplierReference = detail ? supplierReferenceForAgent(detail.status, detail.supplierMutation) : null
-  return <section className="portal-bookings"><div className="portal-heading-row"><div><span className="portal-eyebrow">TRANSACTIONS</span><h1>My bookings</h1><p>Latest bookings for this agency. The server limits the list.</p></div><button className="portal-primary" onClick={onSearch}>New search</button></div>
+  const timeline = detail?.timeline?.length ? detail.timeline : (detail ? [{ type: 'recorded' as const, at: detail.createdAt }] : [])
+  const windowStart = page && page.total > 0 ? page.offset + 1 : 0
+  const windowEnd = page ? page.offset + page.items.length : 0
+  return <section className="portal-bookings"><div className="portal-heading-row"><div><span className="portal-eyebrow">TRANSACTIONS</span><h1>My bookings</h1><p>Newest bookings for this agency. The list is paged on the server.</p></div><button className="portal-primary" onClick={onSearch}>New search</button></div>
     {listError && <p className="portal-field-error" role="alert">{listError}</p>}
-    {rows === null && !listError && <p role="status">Loading bookings…</p>}
-    {rows !== null && <div className="market-recheck-actions" role="tablist" aria-label="Booking status">{FILTERS.map((item) => <button key={item.id} type="button" className="portal-link" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}</div>}
-    {rows !== null && rows.length === 0 && <div className="portal-empty"><p>No bookings yet.</p></div>}
-    {rows !== null && rows.length > 0 && visible.length === 0 && <div className="portal-empty"><p>No bookings in this status on the latest page.</p></div>}
-    {visible.length > 0 && <div className="portal-panel booking-table-wrap"><table className="booking-table" aria-label="Bookings"><thead><tr><th>fBeds reference</th><th>Hotel</th><th>Stay</th><th>Lead guest</th><th>Total</th><th>Status</th><th>Updated</th></tr></thead>
-      <tbody>{visible.map((row) => { const rowFace = agentFacingBooking(row.status); return <tr key={row.id} className={row.id === selectedId ? 'is-selected' : ''}><td><button className="portal-link" onClick={() => setSelectedId(row.id)}>{row.reference}</button></td><td>{row.hotelName ?? '—'}</td><td>{row.checkIn && row.checkOut ? formatStay(row.checkIn, row.checkOut) : '—'}</td><td>{row.leadGuest ?? '—'}</td><td>{money(row.totalMinor, row.currency)} {row.currency}</td><td><span className={`booking-status is-${row.status.toLowerCase()}`}>{rowFace.label}</span></td><td>{typeof row.createdAt === 'string' ? row.createdAt.slice(0, 10) : '—'}</td></tr> })}</tbody></table></div>}
+    {page === null && !listError && <p role="status">Loading bookings…</p>}
+    {page !== null && <div className="market-recheck-actions" role="tablist" aria-label="Booking status">{FILTERS.map((item) => <button key={item.id} type="button" className="portal-link" aria-pressed={filter === item.id} onClick={() => { setFilter(item.id); setOffset(0) }}>{item.label}</button>)}</div>}
+    {page !== null && page.total > 0 && <p role="status">Showing {windowStart}–{windowEnd} of {page.total} bookings</p>}
+    {page !== null && page.total === 0 && <div className="portal-empty"><p>No bookings yet.</p></div>}
+    {rows.length > 0 && <div className="portal-panel booking-table-wrap"><table className="booking-table" aria-label="Bookings"><thead><tr><th>fBeds reference</th><th>Hotel</th><th>Stay</th><th>Lead guest</th><th>Total</th><th>Status</th><th>Recorded</th></tr></thead>
+      <tbody>{rows.map((row) => { const rowFace = agentFacingBooking(row.status); return <tr key={row.id} className={row.id === selectedId ? 'is-selected' : ''}><td><button className="portal-link" onClick={() => setSelectedId(row.id)}>{row.reference}</button></td><td>{row.hotelName ?? '—'}</td><td>{row.checkIn && row.checkOut ? formatStay(row.checkIn, row.checkOut) : '—'}</td><td>{row.leadGuest ?? '—'}</td><td>{money(row.totalMinor, row.currency)} {row.currency}</td><td><span className={`booking-status is-${row.status.toLowerCase()}`}>{rowFace.label}</span></td><td>{typeof row.createdAt === 'string' ? row.createdAt.slice(0, 10) : '—'}</td></tr> })}</tbody></table></div>}
+    {page !== null && page.total > page.limit && <nav className="market-recheck-actions" aria-label="Booking pages"><button type="button" className="portal-link" disabled={page.offset === 0} onClick={() => setOffset(Math.max(0, page.offset - page.limit))}>Previous</button><button type="button" className="portal-link" disabled={page.offset + page.items.length >= page.total} onClick={() => setOffset(page.offset + page.limit)}>Next</button></nav>}
     {selectedId && <div className="portal-panel booking-detail" aria-label="Booking detail">
       {detailError && <p className="portal-field-error" role="alert">{detailError}</p>}
       {!detail && !detailError && <p role="status">Loading booking…</p>}
@@ -93,7 +99,7 @@ export function Bookings({ tenantId, bookingEnabled, initialBookingId, onSearch,
         <h3>Commercial</h3>
         <p><b>{money(detail.totalMinor, detail.currency)}</b> {detail.currency}{supplierReference ? ` · supplier reference ${supplierReference}` : ''}</p>
         <h3>Record</h3>
-        <ul><li>Booking recorded {typeof detail.createdAt === 'string' ? detail.createdAt : '—'}</li>{detail.status === 'CONFIRMED' && <li>Booking confirmed</li>}{detail.status === 'CANCELLED' && <li>Booking cancelled</li>}{face.attention && <li>{face.label}</li>}</ul>
+        <ul>{timeline.map((event) => <li key={`${event.type}-${event.at}`}>{event.type === 'cancelled' ? 'Booking cancelled' : 'Booking recorded'} {event.at}</li>)}<li>Current status {face.label}</li></ul>
         <div className="booking-actions">
           {detail.status === 'CONFIRMED' && <><button className="portal-primary" disabled={busy} onClick={() => void openDocument('voucher')}>Voucher</button><button className="portal-link" disabled={busy} onClick={() => void openDocument('invoice')}>Invoice</button></>}
           {detail.status === 'CANCELLED' && <>{has('VOUCHER') && <button className="portal-link" disabled={busy} onClick={() => void openDocument('voucher')}>Voucher (cancelled)</button>}{has('INVOICE') && <button className="portal-link" disabled={busy} onClick={() => void openDocument('invoice')}>Invoice</button>}<button className="portal-primary" disabled={busy} onClick={() => void openDocument('credit-note')}>Credit note</button></>}
