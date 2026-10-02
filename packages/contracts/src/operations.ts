@@ -22,16 +22,7 @@ export interface Paged<T> { items: T[]; page: number; pageSize: number; total: n
 export type MinorString = string
 
 // ---- Hotels, suppliers, readiness -------------------------------------------------------------------------------
-export type HotelReadiness = 'READY' | 'BLOCKED' | 'NOT_CONFIGURED'
-export interface HotelOperationsRow {
-  id: string; name: string; city: string; countryCode: string; contentStatus: string
-  rooms: number; ratePlans: number
-  mappings: { total: number; mapped: number; pending: number; rejected: number }
-  readiness?: HotelReadiness
-  /** Canonical sellability reason codes seen across the window, most frequent first (only when readiness was evaluated). */
-  blockers?: string[]
-}
-export interface HotelsQuery { search?: string; contentStatus?: string; supplierId?: string; mapping?: 'MAPPED' | 'PENDING' | 'REJECTED' | 'NONE'; readiness?: HotelReadiness; from?: string; days?: number; page?: number; pageSize?: number }
+// Hotel commercial rows, queries and readiness live in ./hotel-commercial.
 
 export interface SupplierOperationsRow {
   id: string; displayName: string; legalName: string; type: string; status: string; countryCode: string; defaultCurrency: string
@@ -49,10 +40,10 @@ export interface OperationsReadiness {
   definitions: Record<string, string>
   supply: SectionState<{
     suppliers: { total: number; active: number }
-    hotels: { configured: number; sellable: number; blocked: number; notConfigured: number }
+    hotels: { total: number; ready: number; partial: number; blocked: number }
     hotelMappings: { mapped: number; pending: number; rejected: number }
     roomMappings: { mapped: number; pending: number; rejected: number }
-    rateGapHotels: number; availabilityGapHotels: number; stopSellHotels: number
+    rateGapHotels: number; availabilityGapHotels: number; stopSellHotels: number; contractsExpiring: number
   }>
   transactions: SectionState<{
     holds: { held: number; processing: number; total: number }

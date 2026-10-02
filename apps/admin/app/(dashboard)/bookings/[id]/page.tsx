@@ -48,7 +48,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
               ) : <p>No inventory hold is linked to this booking.</p>}
             </section>
             <section style={section} aria-labelledby="b-sup"><h3 id="b-sup">Supplier</h3>
-              <dl style={dl}><dt>Supplier</dt><dd>{b.supplier.supplier}</dd><dt>Supplier booking reference</dt><dd>Not stored (shown as unavailable, never inferred)</dd>
+              <dl style={dl}><dt>Supplier</dt><dd>{b.supplier.supplier}</dd><dt>Supplier booking reference</dt><dd>{b.supplier.supplierBookingReference ? <code>{b.supplier.supplierBookingReference}</code> : 'None acknowledged yet (never inferred)'}</dd>
                 <dt>Prebook</dt><dd>{b.supplier.prebook ? `${when(b.supplier.prebook.at)} · request ${b.supplier.prebook.requestId ?? '—'}` : '—'}</dd><dt>Confirmation</dt><dd>{b.supplier.confirmation ? `${when(b.supplier.confirmation.at)} · request ${b.supplier.confirmation.requestId ?? '—'}` : '—'}</dd></dl>
             </section>
             <section style={section} aria-labelledby="b-fin"><h3 id="b-fin">Finance</h3>

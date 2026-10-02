@@ -27,3 +27,17 @@ node tools/admin-ops-verify/verify.cjs
 It checks: every operations view shows API data; Booking 360 links; reconcile needs a confirmation and a double click sends one POST;
 401/403/503-denied/500/network/empty render distinct states (responses are intercepted in the test only, the app has no mock path);
 axe WCAG A/AA on four pages; a viewer without `booking.read` sees FORBIDDEN and no operations navigation; tenant B cannot see tenant A.
+
+## Hotel commercial workspace
+
+`seed-hotels.ts` creates tenant A with 34 hotels (ready, partial and blocked scenarios, enough to paginate), a viewer holding only `supply.hotels.read`,
+and tenant B with one hotel; `verify-hotels.cjs` then drives the production Admin build in Chromium. Same disposable-database guard as above.
+
+```bash
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-hotels.ts)
+node tools/admin-ops-verify/verify-hotels.cjs
+```
+
+It checks the list (summary, server pagination, search, every filter, shareable URLs, empty state), the failure states (401, 403, 503 denied, 500, network),
+every Hotel 360 tab, the sellability inspector (including a multi-night failure and a double click), exceptions, forbidden and tenant-B behaviour,
+keyboard use, horizontal overflow at 1280 / 768 / 390 px, and axe (WCAG A/AA) on the list, Hotel 360, Rates & Inventory, the inspector and exceptions.

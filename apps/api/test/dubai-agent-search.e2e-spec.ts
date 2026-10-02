@@ -345,7 +345,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       const restored = await search().expect(201)
       expect({ case: name, hotels: restored.body.data.hotels.length }).toEqual({ case: name, hotels: 1 })
     }
-  })
+  }, 30_000) // nine cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
 
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)

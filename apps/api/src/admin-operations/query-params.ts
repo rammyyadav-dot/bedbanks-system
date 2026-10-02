@@ -41,7 +41,14 @@ export function dayParam(name: string, value: unknown): Date | undefined {
 /** The last instant of a day, for inclusive upper bounds on timestamp columns. */
 export function endOfDay(date: Date): Date { return new Date(date.getTime() + 86_400_000 - 1) }
 
-/** Free text for case-insensitive "contains" search. Length-limited; Prisma escapes LIKE wildcards in `contains`. */
+/**
+ * Escapes LIKE metacharacters so user text is matched literally. Prisma's `contains` / `startsWith` do NOT escape `%` or `_`
+ * (verified: `contains: '%'` matches every row), and PostgreSQL's default LIKE escape character is the backslash.
+ * Wrap every user-supplied value that reaches `contains` or `startsWith` in this.
+ */
+export function likeLiteral(text: string): string { return text.replace(/[\\%_]/g, (character) => `\\${character}`) }
+
+/** Free text for case-insensitive search. Length-limited and control characters rejected; pass the result through `likeLiteral` before `contains`/`startsWith`. */
 export function textParam(name: string, value: unknown, max = 64): string | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'string') throw new BadRequestException(`Invalid ${name}`)

@@ -29,16 +29,16 @@ export default function OperationsPage() {
   const { state, reload } = useOpsQuery(() => getOpsReadiness(), [])
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="DUBAI OPERATIONS" title="Operational readiness" description="Every number is computed by the API from authoritative records for the active tenant. Nothing is estimated in the browser." actions={<Link href="/operations/hotels" className="admin-btn">Hotel readiness</Link>} />
+      <PageHeader eyebrow="DUBAI OPERATIONS" title="Operational readiness" description="Every number is computed by the API from authoritative records for the active tenant. Nothing is estimated in the browser." actions={<Link href="/hotels" className="admin-btn">Hotels</Link>} />
       <OpsState state={state} onRetry={reload}>
         {r => (
           <>
             <p style={{ color: '#3f565c' }}>Generated {when(r.generatedAt)} · sellability window {r.window.from} → {r.window.to} ({r.window.days} nights)</p>
             <Section title="Supply" section={r.supply}>{s => (
               <>
-                <Stat label="Suppliers (active)" value={s.suppliers.active} href="/suppliers" /><Stat label="Hotels sellable" value={s.hotels.sellable} href="/operations/hotels" /><Stat label="Hotels blocked" value={s.hotels.blocked} href="/operations/hotels" /><Stat label="Hotels not configured" value={s.hotels.notConfigured} href="/operations/hotels" />
+                <Stat label="Suppliers (active)" value={s.suppliers.active} href="/suppliers" /><Stat label="Hotels ready" value={s.hotels.ready} href="/hotels?readiness=READY" /><Stat label="Hotels partial" value={s.hotels.partial} href="/hotels?readiness=PARTIAL" /><Stat label="Hotels blocked" value={s.hotels.blocked} href="/hotels?readiness=BLOCKED" />
                 <Stat label="Hotel mappings pending" value={s.hotelMappings.pending} href="/mappings" /><Stat label="Room mappings pending" value={s.roomMappings.pending} href="/mappings" />
-                <Stat label="Hotels with rate gaps" value={s.rateGapHotels} /><Stat label="Hotels with availability gaps" value={s.availabilityGapHotels} /><Stat label="Hotels on stop-sell" value={s.stopSellHotels} />
+                <Stat label="Hotels with rate gaps" value={s.rateGapHotels} href="/hotels?issue=RATE_MISSING" /><Stat label="Hotels with availability gaps" value={s.availabilityGapHotels} href="/hotels?issue=AVAILABILITY_MISSING" /><Stat label="Hotels on stop-sell" value={s.stopSellHotels} href="/hotels?issue=STOP_SELL" /><Stat label="Hotels with contract expiring" value={s.contractsExpiring} href="/hotels?contractState=EXPIRING" />
               </>
             )}</Section>
             <Section title="Transactions" section={r.transactions}>{t => (
