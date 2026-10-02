@@ -185,3 +185,11 @@ test('department navigation (ADR 0015): grouped by department, live modules only
   }
   for (const planned of ['Markups', 'Promotions', 'Agencies', 'Cases', 'Risk flags', 'Refunds', 'Tenants', 'Users']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
 })
+
+test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {
+  const card = readFileSync(join(root, 'components', 'dashboard', 'SellabilityCard.tsx'), 'utf8')
+  assert.match(card, /getHotelsSummary/)
+  assert.doesNotMatch(card, /evaluate|Math\.|reduce\(|\.filter\(|toFixed|\/ s\.totalHotels|\* 100/, 'no readiness or percentage arithmetic in React')
+  assert.match(card, /OpsState/, 'failures use the shared distinct states, never zero')
+  assert.match(readFileSync(join(root, 'app', '(dashboard)', 'dashboard', 'page.tsx'), 'utf8'), /<SellabilityCard \/>/)
+})
