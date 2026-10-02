@@ -32,8 +32,9 @@ describe('Enterprise Admin permission catalogue (ADR 0015)', () => {
     for (const { key } of plannedKeys) expect(apiSource).not.toContain(`'${key}'`)
   })
 
-  it('refines only enforced keys', () => {
-    for (const p of plannedKeys) if (p.refines) expect(enforcedKeys).toContain(p.refines)
+  it('refines only enforced keys, and an approval-only action is gated by a real permission it refines', () => {
+    for (const p of permissionCatalogue) if (p.refines) expect(enforcedKeys).toContain(p.refines)
+    for (const p of permissionCatalogue.filter((x) => x.approvalOnly)) { expect(p.status).toBe('enforced'); expect(p.refines).toBeTruthy(); expect(p.actionClass).toBe('S3') }
   })
 
   it('never defines a forbidden permission', () => {

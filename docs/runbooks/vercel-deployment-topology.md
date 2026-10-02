@@ -48,7 +48,7 @@ After cutover repeat smoke checks and record the source SHA per app.
 Rollback only the affected alias to its recorded previous deployment; never delete the serving project or change DNS as a troubleshooting shortcut.
 
 ## Evidence and unresolved blockers (2 October 2026)
-Base main: 4a9d7eb5209d3a49d81b66da425a6cd36bc78078.
+Initial base main: 4a9d7eb5209d3a49d81b66da425a6cd36bc78078. Updated against main 34e4a0c0b17766b3e78bed5b3808f6970140f3a8 after PR #219 merged; no overlapping files.
 Connector discovery returned only bedbanks-system (prj_lVuB0DvJ2R8OAAEmtT1CqOi02eAI) in team_Nq9NAggwlwknWiH5chkDqACv.
 READY production dpl_BndckUAyKfaUwqUdLgGktzPC5ZU5 at 4355ddedc2c1a82f9701b95644f639b1301d25b2 still holds Agent/Admin/Supplier aliases.
 Failed preview dpl_5ke1nQrWGshMgc2ZJKThx1rHMtvH reports ENOENT for node_modules/.pnpm/node_modules/next. Detailed log retrieval is unavailable; this PR does not claim to fix that failure. Retrieve effective install/build/output/root settings and inspect dependency tracing on a clean remote preview.

@@ -32,10 +32,10 @@ describe('OperationsController authorization wiring', () => {
     expect(names).toEqual(['SessionAuthGuard', 'TenantContextGuard'])
   })
 
-  it('mutates through exactly one handler, which requires booking.reconcile', () => {
+  it('mutates only through reconciliation handlers, every one requiring booking.reconcile (the direct run plus the maker-checker path)', () => {
     const posts = handlers.filter(h => Reflect.getMetadata('method', proto[h] as object) === 1) // RequestMethod.POST
-    expect(posts).toEqual(['reconcile'])
-    expect(meta(REQUIRED_PERMISSION, 'reconcile')).toBe('booking.reconcile')
+    expect(posts.sort()).toEqual(['approveReconciliation', 'cancelReconciliationApproval', 'executeReconciliationApproval', 'reconcile', 'rejectReconciliation', 'requestReconciliationApproval'])
+    for (const h of posts) expect(meta(REQUIRED_PERMISSION, h)).toBe('booking.reconcile')
   })
 
   it('"hotels/summary" is declared before "hotels/:hotelId" so it is never read as an id', () => {

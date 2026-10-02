@@ -6,7 +6,7 @@ import { AgentAuditService } from '../agent/audit.service'
 import { sanitizeAuditPayload } from '../agent/audit-payload'
 
 export type ApprovalDecision = 'APPROVED' | 'REJECTED'
-export type ApprovalStatus = 'PENDING' | ApprovalDecision | 'CANCELLED'
+export type ApprovalStatus = 'PENDING' | ApprovalDecision | 'CANCELLED' | 'EXECUTED'
 
 export interface ApprovalView {
   id: string
@@ -23,6 +23,8 @@ export interface ApprovalView {
   decidedById: string | null
   decidedAt: Date | null
   decisionReason: string | null
+  executedById: string | null
+  executedAt: Date | null
   createdAt: Date
 }
 
@@ -124,6 +126,38 @@ export class ApprovalService {
     return this.view(after)
   }
 
+  /**
+   * Single-use execution of an APPROVED request. The request is claimed (APPROVED to EXECUTED) before `run` starts,
+   * so two callers can never both run it. If `run` throws, the claim is released back to APPROVED so the owner can retry:
+   * the action MUST therefore be idempotent. The caller is responsible for checking that the approved parameters are
+   * exactly what `run` uses, and for re-validating domain rules inside `run`.
+   */
+  async execute<T>(input: { tenantId: string; executorId: string; approvalId: string; expectedAction: string }, run: (approval: ApprovalView) => Promise<T>): Promise<{ approval: ApprovalView; result: T }> {
+    const current = await this.require(input.tenantId, input.approvalId)
+    if (current.action !== input.expectedAction) throw new BadRequestException('Approval is for a different action')
+    if (current.status === 'EXECUTED') throw new ConflictException('Approval was already used')
+    if (current.status !== 'APPROVED') throw new ConflictException(`Approval request is ${current.status.toLowerCase()}, not approved`)
+    const claimedAt = new Date()
+    const claimed = await this.prisma.withTenant(input.tenantId, (tx) => tx.approvalRequest.updateMany({
+      where: { id: input.approvalId, tenantId: input.tenantId, status: 'APPROVED' },
+      data: { status: 'EXECUTED', executedById: input.executorId, executedAt: claimedAt },
+    }))
+    if (claimed.count !== 1) throw new ConflictException('Approval was already used')
+    const approval = this.view(await this.require(input.tenantId, input.approvalId))
+    try {
+      const result = await run(approval)
+      await this.audit.record({ tenantId: input.tenantId, userId: input.executorId, action: 'approval.executed', entityType: 'approval_request', entityId: approval.id, payload: { approvalAction: approval.action, entityType: approval.entityType, entityId: approval.entityId, requestedById: approval.requestedById, decidedById: approval.decidedById } })
+      return { approval, result }
+    } catch (error) {
+      await this.prisma.withTenant(input.tenantId, (tx) => tx.approvalRequest.updateMany({
+        where: { id: input.approvalId, tenantId: input.tenantId, status: 'EXECUTED', executedById: input.executorId },
+        data: { status: 'APPROVED', executedById: null, executedAt: null },
+      }))
+      await this.audit.record({ tenantId: input.tenantId, userId: input.executorId, action: 'approval.execution_failed', entityType: 'approval_request', entityId: approval.id, payload: { approvalAction: approval.action } }).catch(() => undefined)
+      throw error
+    }
+  }
+
   /** Only the maker may withdraw a pending request. */
   async cancel(input: { tenantId: string; requesterId: string; approvalId: string }): Promise<ApprovalView> {
     const current = await this.require(input.tenantId, input.approvalId)
@@ -154,7 +188,7 @@ export class ApprovalService {
     return row
   }
 
-  private view(row: { id: string; tenantId: string; action: string; entityType: string; entityId: string; requestId: string; status: string; requestedById: string; reason: string; beforeState: unknown; proposedState: unknown; decidedById: string | null; decidedAt: Date | null; decisionReason: string | null; createdAt: Date }): ApprovalView {
-    return { id: row.id, tenantId: row.tenantId, action: row.action, entityType: row.entityType, entityId: row.entityId, requestId: row.requestId, status: row.status as ApprovalStatus, requestedById: row.requestedById, reason: row.reason, beforeState: row.beforeState, proposedState: row.proposedState, decidedById: row.decidedById, decidedAt: row.decidedAt, decisionReason: row.decisionReason, createdAt: row.createdAt }
+  private view(row: { id: string; tenantId: string; action: string; entityType: string; entityId: string; requestId: string; status: string; requestedById: string; reason: string; beforeState: unknown; proposedState: unknown; decidedById: string | null; decidedAt: Date | null; decisionReason: string | null; executedById: string | null; executedAt: Date | null; createdAt: Date }): ApprovalView {
+    return { id: row.id, tenantId: row.tenantId, action: row.action, entityType: row.entityType, entityId: row.entityId, requestId: row.requestId, status: row.status as ApprovalStatus, requestedById: row.requestedById, reason: row.reason, beforeState: row.beforeState, proposedState: row.proposedState, decidedById: row.decidedById, decidedAt: row.decidedAt, decisionReason: row.decisionReason, executedById: row.executedById, executedAt: row.executedAt, createdAt: row.createdAt }
   }
 }

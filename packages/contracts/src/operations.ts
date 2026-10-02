@@ -113,6 +113,32 @@ export interface ReconciliationCase {
 }
 export interface ReconciliationQueue { generatedAt: string; staleMinutes: number; total: number; cases: ReconciliationCase[] }
 export interface ReconcileRequest { staleMinutes?: number; prebookMaxMinutes?: number }
+/** Maker-checker for a reconciliation run (ADR 0017). The approved parameters are the only ones the run may use. */
+export type ApprovalStatusName = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+export interface ReconciliationApprovalView {
+  id: string
+  status: ApprovalStatusName
+  requestedById: string
+  reason: string
+  parameters: { staleMinutes: number | null; prebookMaxMinutes: number | null }
+  /** Stalled holds the queue showed when the request was made. Evidence for the approver, not a promise. */
+  stalledHoldsAtRequest: number | null
+  decidedById: string | null
+  decisionReason: string | null
+  decidedAt: string | null
+  executedById: string | null
+  executedAt: string | null
+  createdAt: string
+  /** True when the caller is not the requester, so may approve or reject. The server enforces this regardless. */
+  canDecide: boolean
+  /** True for the requester while the request is pending. */
+  canCancel: boolean
+  /** True once approved and not yet used. Anyone holding booking.reconcile may run it, once. */
+  canExecute: boolean
+}
+export interface ReconciliationApprovalRequest { requestId: string; reason: string; staleMinutes?: number; prebookMaxMinutes?: number }
+export interface ReconciliationApprovalDecision { reason: string }
+export interface ReconciliationApprovalExecution { approval: ReconciliationApprovalView; result: ReconcileResponse }
 export interface ReconcileResponse { dryRun: false; examined: number; items: Array<{ holdId: string; bookingId: string | null; outcome: string }> }
 
 // ---- Cancellations ---------------------------------------------------------------------------------------------------
@@ -142,3 +168,93 @@ export interface ConnectorRow {
   lastExecution: ConnectorExecutionView | null; lastSuccess: ConnectorExecutionView | null; lastFailure: ConnectorExecutionView | null
 }
 export interface ConnectorExecutionView { operation: string; status: string; latencyMs: number | null; errorClassification: string | null; at: string }
+
+// ---- Finance and audit summaries ---------------------------------------------------------------------------------------
+export type LedgerEntryType = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND'
+/** Trailing window of whole UTC days ending today. */
+export const SUMMARY_WINDOW_DEFAULT_DAYS = 30
+export const SUMMARY_WINDOW_MAX_DAYS = 90
+export interface SummaryWindow { from: string; to: string; days: number }
+
+/**
+ * Per-currency finance position. Currencies are never added together. Money is an integer minor-unit string.
+ * Balance and available credit use the finance service's formula: balance = SUM(all ledger entries), available = credit limit + balance.
+ */
+export interface FinanceCurrencySummary {
+  currency: string
+  wallets: number
+  creditLimitMinor: MinorString
+  balanceMinor: MinorString
+  availableCreditMinor: MinorString
+  /** Wallets whose available credit is below zero. Should be 0; anything else needs a finance investigation. */
+  overdrawnWallets: number
+}
+export interface LedgerWindowSummary {
+  entries: number
+  /** Per currency and entry type, the sum of stored signed amounts in the window. */
+  byCurrency: Array<{ currency: string; entries: number; netMinor: MinorString; byType: Array<{ type: LedgerEntryType; entries: number; sumMinor: MinorString }> }>
+}
+export interface FinanceSummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  wallets: SectionState<{ total: number; currencies: FinanceCurrencySummary[] }>
+  ledger: SectionState<LedgerWindowSummary>
+}
+
+export interface AuditSummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  events: SectionState<{
+    total: number
+    lastEventAt: string | null
+    byActorType: Array<{ actorType: string; events: number }>
+    /** Events grouped by the first dot-separated segment of the action (booking, supplier, approval ...). */
+    byDomain: Array<{ domain: string; events: number }>
+    /** Events that record a refusal or an uncertain outcome and deserve a look. */
+    attention: { denied: number; unknownSupplierOutcomes: number; selfApprovalAttempts: number }
+  }>
+}
+
+// ---- Markets, reliability and access review (ADR 0017) -----------------------------------------------------------------
+export interface MarketDestinationRow {
+  countryCode: string; city: string; hotels: number
+  ready: number; partial: number; blocked: number
+  mappingIssues: number; rateGaps: number; availabilityGaps: number; contractsExpiring: number
+}
+export interface MarketsSummary {
+  generatedAt: string
+  window: SummaryWindow
+  scanCapped: boolean
+  totalHotels: number
+  /** Sorted by hotel count, then name. Readiness uses the same evaluator as Agent search. */
+  destinations: MarketDestinationRow[]
+  definitions: Record<string, string>
+}
+
+export interface ReliabilitySummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  connectors: SectionState<{ total: number; enabled: number; unhealthy: number; unknown: number }>
+  /** Connector executions created in the window. Counts only: no rates are computed, so nothing is rounded. */
+  executions: SectionState<{ total: number; succeeded: number; failed: number; retrying: number; byClassification: Array<{ classification: string; count: number }> }>
+  /** Supplier calls whose outcome is not known (sending or unknown). They may have reached the supplier. */
+  supplierOutcomes: SectionState<{ uncertain: number; oldestUncertainAt: string | null }>
+  holds: SectionState<{ stalledProcessing: number; staleMinutes: number }>
+}
+
+export type AccessFlag = 'INACTIVE' | 'NEVER_LOGGED_IN' | 'STALE_LOGIN' | 'NO_ROLE' | 'HOLDS_SENSITIVE'
+export interface AccessReviewSummary {
+  generatedAt: string
+  staleLoginDays: number
+  definitions: Record<string, string>
+  members: { total: number; active: number; inactive: number; neverLoggedIn: number; staleLogin: number; noRole: number; holdingSensitive: number }
+  roles: Array<{ id: string; name: string; members: number; sensitivePermissions: string[] }>
+}
+export interface AccessReviewUserRow {
+  userId: string; email: string; name: string | null; status: string; membershipRole: string
+  roles: string[]; sensitivePermissions: string[]; lastLoginAt: string | null; flags: AccessFlag[]
+}
+export interface AccessReviewPage { items: AccessReviewUserRow[]; page: number; pageSize: number; total: number }
