@@ -21,7 +21,7 @@ function Section<T>({ title, section, children }: { title: string; section: Sect
 }
 const Stat = ({ label, value, href }: { label: string; value: number; href?: string }) => (
   <div style={{ display: 'inline-block', minWidth: 150, margin: '4px 16px 4px 0' }}>
-    <div style={{ font: '700 24px system-ui' }}>{href ? <Link href={href}>{value}</Link> : value}</div><div style={{ color: '#5d767c', fontSize: 11 }}>{label}</div>
+    <div style={{ font: '700 24px system-ui' }}>{href ? <Link href={href}>{value}</Link> : value}</div><div style={{ color: '#3f565c', fontSize: 11 }}>{label}</div>
   </div>
 )
 
@@ -33,7 +33,7 @@ export default function OperationsPage() {
       <OpsState state={state} onRetry={reload}>
         {r => (
           <>
-            <p style={{ color: '#5d767c' }}>Generated {when(r.generatedAt)} · sellability window {r.window.from} → {r.window.to} ({r.window.days} nights)</p>
+            <p style={{ color: '#3f565c' }}>Generated {when(r.generatedAt)} · sellability window {r.window.from} → {r.window.to} ({r.window.days} nights)</p>
             <Section title="Supply" section={r.supply}>{s => (
               <>
                 <Stat label="Suppliers (active)" value={s.suppliers.active} href="/suppliers" /><Stat label="Hotels sellable" value={s.hotels.sellable} href="/operations/hotels" /><Stat label="Hotels blocked" value={s.hotels.blocked} href="/operations/hotels" /><Stat label="Hotels not configured" value={s.hotels.notConfigured} href="/operations/hotels" />

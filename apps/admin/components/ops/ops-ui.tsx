@@ -26,6 +26,6 @@ export const ATTENTION_HELP: Record<string, string> = {
   CANCELLATION_RECORD_MISSING: 'Booking is CANCELLED but has no cancellation record.',
 }
 export function AttentionTags({ flags }: { flags: string[] }) {
-  if (flags.length === 0) return <span style={{ color: '#6b8187' }}>—</span>
+  if (flags.length === 0) return <span style={{ color: '#3f565c' }}>—</span>
   return <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>{flags.map(f => <span key={f} title={ATTENTION_HELP[f]}><Tag tone="bad">{f}</Tag></span>)}</span>
 }

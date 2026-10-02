@@ -133,8 +133,8 @@ export interface CancellationRow {
 // ---- Finance ---------------------------------------------------------------------------------------------------------
 export interface WalletRow {
   id: string; tenantId: string; currency: string; creditLimit: MinorString; balanceMinor: MinorString; availableCreditMinor: MinorString
-  /** Stored balance cache; compared with the ledger sum so drift is visible. */
-  cachedBalanceMinor: MinorString; cacheMatchesLedger: boolean; entryCount: number; updatedAt: string
+  /** The ledger is the only authority. `Wallet.cached_balance` is not maintained by any code path and is deliberately not shown. */
+  entryCount: number; updatedAt: string
 }
 export interface LedgerQuery { walletId?: string; type?: string; bookingId?: string; from?: string; to?: string; page?: number; pageSize?: number }
 

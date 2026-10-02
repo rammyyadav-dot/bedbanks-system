@@ -54,7 +54,7 @@ export default function ReconciliationPage() {
       <OpsState state={state} onRetry={reload} isEmpty={d => d.cases.length === 0} empty={{ title: 'Nothing to reconcile', description: 'The check succeeded: no stalled holds and no consistency flags were found.' }}>
         {data => (
           <div className="workspace-panel">
-            <p style={{ padding: '8px 18px', color: '#5d767c' }}>{data.total} case(s) · generated {when(data.generatedAt)} · stale threshold {data.staleMinutes} min</p>
+            <p style={{ padding: '8px 18px', color: '#3f565c' }}>{data.total} case(s) · generated {when(data.generatedAt)} · stale threshold {data.staleMinutes} min</p>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead><tr>{['Source', 'Finding', 'Booking', 'Hold', 'Detail', 'Observed'].map(h => <th key={h} scope="col" style={{ textAlign: 'left', padding: '10px 14px', borderBottom: '1px solid #e6eef0' }}>{h}</th>)}</tr></thead>
               <tbody>

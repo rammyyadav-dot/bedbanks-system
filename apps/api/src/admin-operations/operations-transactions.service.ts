@@ -311,7 +311,7 @@ export class OperationsTransactionsService {
       return paged(wallets.map(w => {
         const sum = sm.get(w.id)?._sum.amountMinor ?? 0n
         // Same formula as the finance service: available credit = credit limit + SUM(all ledger entries).
-        return { id: w.id, tenantId: w.tenantId, currency: w.currency, creditLimit: w.creditLimit.toString(), balanceMinor: sum.toString(), availableCreditMinor: (w.creditLimit + sum).toString(), cachedBalanceMinor: w.cachedBalance.toString(), cacheMatchesLedger: w.cachedBalance === sum, entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString() }
+        return { id: w.id, tenantId: w.tenantId, currency: w.currency, creditLimit: w.creditLimit.toString(), balanceMinor: sum.toString(), availableCreditMinor: (w.creditLimit + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString() }
       }), page, total)
     }))
   }
