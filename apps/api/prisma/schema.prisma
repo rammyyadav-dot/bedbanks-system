@@ -50,6 +50,43 @@ enum BookingDocumentType {
   CREDIT_NOTE
 }
 
+/// Maker-checker foundation (ADR 0016). A request records who asked for a sensitive action and who decided it.
+/// Approval never executes the action and never replaces domain validation; the owning canonical service does that.
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ApprovalRequest {
+  id             String                @id @default(cuid())
+  tenantId       String                @map("tenant_id")
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// A permission key from the catalogue, for example `refund.approve`.
+  action         String
+  entityType     String                @map("entity_type")
+  entityId       String                @map("entity_id")
+  requestId      String                @map("request_id")
+  status         ApprovalRequestStatus @default(PENDING)
+  requestedById  String                @map("requested_by_id")
+  requestedBy    User                  @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reason         String
+  /// Minimal before/after state. Never guest PII, credentials or raw supplier payloads.
+  beforeState    Json?                 @map("before_state")
+  proposedState  Json?                 @map("proposed_state")
+  decidedById    String?               @map("decided_by_id")
+  decidedBy      User?                 @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?             @map("decided_at")
+  decisionReason String?               @map("decision_reason")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  @@unique([tenantId, action, requestId])
+  @@index([tenantId, status])
+  @@index([tenantId, entityType, entityId])
+}
+
 /// Outbound supplier side-effect boundary. Independent of Booking and AuditEvent.
 enum SupplierMutationOperation {
   PREBOOK
@@ -198,6 +235,7 @@ model Tenant {
   inventoryUpdateEvents InventoryUpdateEvent[]
   inventoryHolds InventoryHold[]
   supplierMutations SupplierMutation[]
+  approvalRequests ApprovalRequest[]
   settings    TenantSettings?
   supplierMemberships SupplierMembership[]
   supplierRoomDrafts SupplierRoomDraft[]
@@ -241,6 +279,8 @@ model User {
   supplierMemberships SupplierMembership[]
   platformRoleAssignments PlatformRoleAssignment[]
   auditEvents AuditEvent[]
+  approvalsRequested ApprovalRequest[] @relation("ApprovalRequester")
+  approvalsDecided ApprovalRequest[] @relation("ApprovalDecider")
 
   @@map("users")
 }

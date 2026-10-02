@@ -173,3 +173,15 @@ test('sellability warnings are surfaced once, in plain language, without changin
   assert.match(WARNING_TEXT.HOTEL_CONTENT_NOT_COMPLETE, /not see it in search/)
   assert.deepEqual(summarizeSellability([{ stayDate: '2026-10-05', result: { eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [] } }]).warnings, [])
 })
+
+test('department navigation (ADR 0015): grouped by department, live modules only, every entry has a real page', () => {
+  assert.deepEqual(navSections.map((s) => s.label), ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Finance', 'Platform'])
+  const items = navSections.flatMap((s) => s.items)
+  assert.equal(new Set(items.map((i) => i.href)).size, items.length, 'a route appears once in the sidebar')
+  for (const item of items) {
+    assert.ok(existsSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx')), `${item.href} needs a page`)
+    assert.ok(item.icon, `${item.href} needs an icon`)
+    assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
+  }
+  for (const planned of ['Markups', 'Promotions', 'Agencies', 'Cases', 'Risk flags', 'Refunds', 'Tenants', 'Users']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+})
