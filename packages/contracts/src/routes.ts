@@ -5,6 +5,18 @@ export const routes = {
     bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
+  // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
+  adminClients: {
+    summary: '/admin/clients/summary', agencies: '/admin/clients/agencies', agency: '/admin/clients/agencies/:agencyId',
+    agencyMembers: '/admin/clients/agencies/:agencyId/members', agencyMember: '/admin/clients/agencies/:agencyId/members/:userId', memberCandidates: '/admin/clients/member-candidates',
+  },
+  adminService: {
+    summary: '/admin/service/summary', cases: '/admin/service/cases', case: '/admin/service/cases/:caseId', caseNotes: '/admin/service/cases/:caseId/notes',
+    caseTransition: '/admin/service/cases/:caseId/transition', caseAssign: '/admin/service/cases/:caseId/assign', assignees: '/admin/service/assignees',
+  },
+  adminDistribution: {
+    summary: '/admin/distribution/summary', restrictions: '/admin/distribution/restrictions', restrictionRetire: '/admin/distribution/restrictions/:restrictionId/retire',
+  },
   // Commercial markup rules for NET rates (ADR 0018). Rules are immutable; activation needs a second person's approval.
   adminCommercial: {
     markups: '/admin/commercial/markups', markupRetire: '/admin/commercial/markups/:ruleId/retire', markupRequestActivation: '/admin/commercial/markups/:ruleId/request-activation',

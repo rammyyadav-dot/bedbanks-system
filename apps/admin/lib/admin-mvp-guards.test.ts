@@ -175,7 +175,7 @@ test('sellability warnings are surfaced once, in plain language, without changin
 })
 
 test('department navigation (ADR 0015): grouped by department, live modules only, every entry has a real page', () => {
-  assert.deepEqual(navSections.map((s) => s.label), ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Finance', 'Platform'])
+  assert.deepEqual(navSections.map((s) => s.label), ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Clients & service', 'Finance', 'Platform'])
   const items = navSections.flatMap((s) => s.items)
   assert.equal(new Set(items.map((i) => i.href)).size, items.length, 'a route appears once in the sidebar')
   for (const item of items) {
@@ -183,7 +183,7 @@ test('department navigation (ADR 0015): grouped by department, live modules only
     assert.ok(item.icon, `${item.href} needs an icon`)
     assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
   }
-  for (const planned of ['Promotions', 'Agencies', 'Cases', 'Risk flags', 'Refunds', 'Tenants', 'Users']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+  for (const planned of ['Promotions', 'Risk flags', 'Refunds', 'Tenants', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
 })
 
 test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {
@@ -200,7 +200,7 @@ test('dashboard department slices come from the readiness API and the department
   assert.match(slices, /departments\.find/, 'names come from the catalogue')
   assert.doesNotMatch(slices, /Math\.|reduce\(|toFixed|\* 100|evaluate/, 'no arithmetic or readiness logic in React')
   assert.match(slices, /state === 'unavailable'/, 'a denied section is shown as denied, never as zeros')
-  for (const planned of ['commercial', 'distribution', 'clients', 'service']) assert.doesNotMatch(slices, new RegExp(`id="${planned}"`), `${planned} is not built`)
+  for (const planned of ['commercial']) assert.doesNotMatch(slices, new RegExp(`id="${planned}"`), `${planned} is not built`)
   assert.match(readFileSync(join(root, 'app', '(dashboard)', 'dashboard', 'page.tsx'), 'utf8'), /<DepartmentSlices \/>/)
 })
 
@@ -237,4 +237,18 @@ test('markup impact panel shows the API counts and money, with no arithmetic or 
   const src = readFileSync(join(root, 'components', 'commercial', 'MarkupImpact.tsx'), 'utf8')
   assert.match(src, /getMarkupImpact/); assert.match(src, /formatMinorUnits/); assert.match(src, /OpsState/)
   assert.doesNotMatch(src, /Number\(|parseFloat|toFixed|Math\.|BigInt|\.reduce\(/, 'no money or count arithmetic in React')
+})
+
+test('clients, service and distribution pages use their own APIs and take no money, credit or pricing action (ADR 0019)', () => {
+  for (const [page, fn] of [['clients/agencies', 'getAgencies'], ['service/cases', 'getCases'], ['distribution/restrictions', 'getRestrictions']]) {
+    const src = readFileSync(join(root, 'app', '(dashboard)', ...page.split('/'), 'page.tsx'), 'utf8')
+    assert.match(src, new RegExp(fn)); assert.match(src, /OpsState/); assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed|creditLimit|from '@\/lib\/data\/(operations|commercial)'|formatMinorUnits/, `${page} must not touch money, wallets or pricing`)
+  }
+  const detail = readFileSync(join(root, 'app', '(dashboard)', 'service', 'cases', '[id]', 'page.tsx'), 'utf8')
+  assert.match(detail, /allowedTransitions/, 'status buttons come from the API'); assert.match(detail, /cannot be edited or removed/)
+  assert.doesNotMatch(detail, /method: 'PUT'|method: 'DELETE'|editNote|deleteNote/, 'notes are append-only')
+  assert.match(readFileSync(join(root, 'app', '(dashboard)', 'clients', 'agencies', 'page.tsx'), 'utf8'), /does not block|still signs in/i, 'states that inactive is a directory state only')
+  const slices = readFileSync(join(root, 'components', 'dashboard', 'DomainSlices.tsx'), 'utf8')
+  for (const fn of ['getClientsSummary', 'getServiceSummary', 'getDistributionSummary']) assert.match(slices, new RegExp(fn))
+  assert.doesNotMatch(slices, /Math\.|toFixed|\.reduce\(/)
 })

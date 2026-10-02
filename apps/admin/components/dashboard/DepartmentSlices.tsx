@@ -9,6 +9,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { OPS_FAILURE_COPY } from '@/lib/ops-state'
 import { FinanceAuditSlices } from './FinanceAuditSlices'
 import { GovernanceSlices } from './GovernanceSlices'
+import { DomainSlices } from './DomainSlices'
 
 interface Tile { label: string; value: number; href: string }
 
@@ -77,6 +78,7 @@ export function DepartmentSlices() {
       <OpsState state={state} onRetry={reload}>{(r) => <Slices r={r} />}</OpsState>
       <FinanceAuditSlices />
       <GovernanceSlices />
+      <DomainSlices />
     </div>
   )
 }

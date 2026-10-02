@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { OperationsPermission, SupplyPermission } from '@bedbanks/contracts'
+import type { DepartmentPermission, OperationsPermission, SupplyPermission } from '@bedbanks/contracts'
 import { getCapabilities } from '@/lib/data'
 import { getOpsCapabilities } from '@/lib/data/operations'
 
@@ -26,5 +26,5 @@ export function CapabilityProvider({ children }: { children: ReactNode }) {
 
 export function useCan() {
   const { known, permissions } = useContext(CapabilityContext)
-  return useMemo(() => (permission: SupplyPermission | OperationsPermission) => !known || permissions.has(permission), [known, permissions])
+  return useMemo(() => (permission: SupplyPermission | OperationsPermission | DepartmentPermission) => !known || permissions.has(permission), [known, permissions])
 }

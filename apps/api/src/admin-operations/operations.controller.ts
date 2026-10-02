@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuard
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
-import { operationsPermissions, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
+import { departmentPermissions, operationsPermissions, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
@@ -38,7 +38,9 @@ export class OperationsController {
     const membership = await this.prisma.withTenant(tenantId, t => t.membership.findUnique({ where: { userId_tenantId: { userId: identity.user.id, tenantId } } }))
     const all = Object.values(operationsPermissions) as OperationsPermission[]
     const permissions = all.filter(p => keys.has(p) || membership?.role === 'owner' || (p === 'finance.read' && membership?.role === 'finance'))
-    return { permissions }
+    // Department permissions (ADR 0019) come from formal roles only, exactly as the guard checks them.
+    const department = (Object.values(departmentPermissions) as DepartmentPermission[]).filter(p => keys.has(p))
+    return { permissions: [...permissions, ...department] }
   }
 
   @Get('readiness') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)

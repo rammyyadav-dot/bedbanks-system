@@ -1,18 +1,18 @@
 import type { LucideIcon } from 'lucide-react';
-import { departments, sidebarGroups, type OperationsPermission, type SupplyPermission } from '@bedbanks/contracts';
+import { departments, sidebarGroups, type DepartmentPermission, type OperationsPermission, type SupplyPermission } from '@bedbanks/contracts';
 import {
   LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
-  BookOpen, Lock, Wrench, Globe, Activity, UserCheck, Percent, Landmark, Receipt, History, Cable, Gauge, Undo2, TriangleAlert,
+  BookOpen, Lock, Wrench, Globe, Activity, UserCheck, Percent, Users, LifeBuoy, EyeOff, Landmark, Receipt, History, Cable, Gauge, Undo2, TriangleAlert,
 } from 'lucide-react';
 
-export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission; }
+export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission | DepartmentPermission; }
 export interface NavSection { label?: string; items: NavItem[]; }
 
 const icons: Record<string, LucideIcon> = {
   '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/hotels': Hotel, '/mappings': Link2,
   '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
   '/sellability': ClipboardCheck, '/operations': Gauge, '/bookings': BookOpen, '/holds': Lock, '/cancellations': Undo2,
-  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/commercial/markups': Percent, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
+  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/commercial/markups': Percent, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
 };
 
 /**
