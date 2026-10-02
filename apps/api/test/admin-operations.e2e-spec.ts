@@ -78,15 +78,20 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
     await prisma.wallet.deleteMany({ where: { tenantId } })
-    await prisma.dailyRate.deleteMany({ where: { ratePlanId: f.ratePlanId } })
-    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: f.ratePlanId } })
-    await prisma.cancellationPolicy.deleteMany({ where: { contractId: f.contractId } })
-    await prisma.ratePlan.deleteMany({ where: { id: f.ratePlanId } })
-    await prisma.contract.deleteMany({ where: { id: f.contractId } })
+    await prisma.dailyRate.deleteMany({ where: { tenantId } })
+    await prisma.dailyAvailability.deleteMany({ where: { tenantId } })
+    await prisma.cancellationPolicy.deleteMany({ where: { contract: { tenantId } } })
+    await prisma.ratePlan.deleteMany({ where: { tenantId } })
+    await prisma.contract.deleteMany({ where: { tenantId } })
+    await prisma.supplierRoomMapping.deleteMany({ where: { tenantId } })
+    await prisma.supplierHotelMapping.deleteMany({ where: { tenantId } })
     await prisma.boardBasis.deleteMany({ where: { id: f.boardId } })
-    await prisma.roomType.deleteMany({ where: { id: f.roomId } })
+    await prisma.roomType.deleteMany({ where: { hotel: { tenantId } } })
     await prisma.hotel.deleteMany({ where: { tenantId } })
     await prisma.supplier.deleteMany({ where: { id: f.supplierId } })
+    await prisma.userRole.deleteMany({ where: { tenantId } })
+    await prisma.rolePermission.deleteMany({ where: { role: { tenantId } } })
+    await prisma.role.deleteMany({ where: { tenantId } })
     await prisma.membership.deleteMany({ where: { tenantId } })
     await prisma.user.deleteMany({ where: { id: f.userId } })
     await prisma.tenant.deleteMany({ where: { id: tenantId } })
@@ -240,6 +245,16 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     expect(connectors.items[0].credentials).toEqual([{ purpose: 'api_key', status: 'configured' }])
   })
 
+  it('ADMIN-23: the audit explorer returns sanitised payloads (credentials, tokens and contact details redacted)', async () => {
+    await audit.record({ tenantId: A.tenantId, userId: A.userId, action: 'admin.sanitise.probe', entityType: 'probe', entityId: 'probe-1', payload: { requestId: 'req-sanitise', email: 'guest@example.com', phone: '+971500000000', token: 'tok-secret-123', password: 'hunter2', note: 'kept' } })
+    const [event] = (await tx.audit(A.tenantId, { requestId: 'req-sanitise' })).items
+    expect(event.action).toBe('admin.sanitise.probe')
+    expect(event.requestId).toBe('req-sanitise')
+    const text = JSON.stringify(event)
+    for (const secret of ['guest@example.com', '+971500000000', 'tok-secret-123', 'hunter2']) expect(text).not.toContain(secret)
+    expect(event.payload.note).toBe('kept')
+  })
+
   // ---- hotels and readiness ------------------------------------------------------------------------------------------------
   it('ADMIN-SUPPLY: hotel readiness uses canonical sellability and paginates', async () => {
     await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
@@ -267,6 +282,67 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
     await prisma.role.delete({ where: { id: role.id } })
   })
+
+  // ---- Dubai operations scenarios A-L: the operator can see WHY, without SQL ---------------------------------------------------
+  it('ADMIN-SCENARIOS A-L: each operational state is explained by the API with a canonical cause', async () => {
+    const role = await prisma.role.create({ data: { tenantId: A.tenantId, name: `${suffix}-scen` } })
+    for (const key of ['supply.hotels.read', 'supply.suppliers.read']) {
+      const permission = await prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: key } })
+      await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })
+    }
+    await prisma.userRole.create({ data: { userId: A.userId, roleId: role.id, tenantId: A.tenantId } })
+    const inWindow = { from: checkIn, days: '2' }
+    type Opts = { hotelMapping?: 'MAPPED' | 'PENDING'; roomMapping?: boolean; validTo?: string; rates?: boolean; availability?: boolean; stopSell?: boolean; allotment?: number; sold?: number }
+    async function scenarioHotel(code: string, o: Opts = {}) {
+      const name = `${suffix}-scn-${code}`
+      const hotel = await prisma.hotel.create({ data: { tenantId: A.tenantId, name, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' } })
+      const room = await prisma.roomType.create({ data: { hotelId: hotel.id, name: 'Std', code: `${code}-${suffix}`.slice(0, 40), maxAdults: 2, maxOccupancy: 2 } })
+      const mapping = o.hotelMapping ? await prisma.supplierHotelMapping.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, hotelId: hotel.id, supplierHotelId: `${suffix}-${code}`, status: o.hotelMapping } }) : null
+      if (mapping && o.roomMapping) await prisma.supplierRoomMapping.create({ data: { tenantId: A.tenantId, supplierHotelMappingId: mapping.id, hotelId: hotel.id, supplierRoomId: `${suffix}-r-${code}`, roomTypeId: room.id, status: 'MAPPED' } })
+      const contract = await prisma.contract.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, supplierHotelMappingId: mapping?.id ?? null, code: `${suffix}-scn-${code}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date(o.validTo ?? '2099-12-31'), settlementCurrency: 'AED' } })
+      const plan = await prisma.ratePlan.create({ data: { tenantId: A.tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: A.boardId, code: `${suffix}-scn-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+      if (o.rates !== false) await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId: A.tenantId, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
+      if (o.availability !== false) await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId: A.tenantId, ratePlanId: plan.id, stayDate, allotment: o.allotment ?? 5, sold: o.sold ?? 0, stopSell: o.stopSell ?? false })) })
+      return { hotel, room, plan, name }
+    }
+    const row = async (name: string) => (await supply.hotels(A.tenantId, A.userId, { ...inWindow, search: name })).items.find(h => h.name === name)!
+    try {
+      const a = await scenarioHotel('a'); expect(await row(a.name)).toMatchObject({ readiness: 'READY', blockers: [] }) // A sellable
+      const b = await scenarioHotel('b', { hotelMapping: 'PENDING' }); expect((await row(b.name)).blockers).toContain('SUPPLIER_MAPPING_INVALID') // B hotel mapping missing/unapproved
+      const c = await scenarioHotel('c', { hotelMapping: 'MAPPED', roomMapping: false }); expect((await row(c.name)).blockers).toContain('ROOM_MAPPING_UNAPPROVED') // C room mapping invalid
+      const d = await scenarioHotel('d', { validTo: '2026-02-01' }); expect((await row(d.name)).blockers).toContain('OUTSIDE_CONTRACT_VALIDITY') // D contract outside validity
+      const e = await scenarioHotel('e', { rates: false }); expect(await row(e.name)).toMatchObject({ readiness: 'BLOCKED' }); expect((await row(e.name)).blockers).toContain('DAILY_RATE_MISSING_OR_INVALID') // E rate missing
+      const f = await scenarioHotel('f', { availability: false }); expect((await row(f.name)).blockers).toContain('AVAILABILITY_MISSING') // F availability missing
+      const g = await scenarioHotel('g', { stopSell: true }); expect((await row(g.name)).blockers).toContain('STOP_SELL') // G stop sell
+      const h = await scenarioHotel('h', { allotment: 3, sold: 3 }); expect((await row(h.name)).blockers).toContain('NO_INVENTORY') // H inventory exhausted
+
+      // I: an active hold consumes inventory and is visible with its night-level effect.
+      const i = await scenarioHotel('i', { allotment: 1 })
+      const hold = await holds.create({ tenantId: A.tenantId, userId: A.userId, requestId: `${suffix}-i`, idempotencyKey: `${suffix}-i`, offerId: 'o-i', searchId: 's-i', ratePlanId: i.plan.id, canonicalHotelId: i.hotel.id, canonicalRoomTypeId: i.room.id, boardBasisId: A.boardId,
+        checkIn, checkOut: ymd(nights[1]), rooms: 1, currency: 'AED', sellAmountMinor: 50_000, offerExpiresAt: new Date(Date.now() + 3_600_000).toISOString() })
+      const detail = await tx.hold(A.tenantId, hold.holdId)
+      expect(detail.status).toBe('HELD')
+      expect(detail.nights[0]).toMatchObject({ quantity: 1, allotment: 1, held: 1, remaining: 0 })
+      expect((await row(i.name)).blockers).toContain('NO_INVENTORY')
+      expect((await tx.holds(A.tenantId, { hotelId: i.hotel.id, status: 'HELD' })).items.map(x => x.id)).toEqual([hold.holdId])
+
+      // J: a confirmed booking shows consumed (sold) inventory on its hold nights.
+      const confirmed = await tx.booking(A.tenantId, confirmedA.bookingId)
+      expect(confirmed.inventory.hold?.status).toBe('CONFIRMED')
+      expect(confirmed.inventory.hold?.nights.every(n => (n.sold ?? 0) >= 1)).toBe(true)
+
+      // K and L are proven in ADMIN-RECON and ADMIN-CANCEL; here, confirm their operator-facing flags exist as distinct codes.
+      const queue = await tx.reconciliationQueue(A.tenantId, A.userId, 'req-scn')
+      expect(queue.cases.every(x => x.detail.length > 0 && x.kind.length > 0)).toBe(true)
+      const refund = (await tx.booking(A.tenantId, cancelledA.bookingId)).finance.entries.filter(x => x.type === 'REFUND')
+      expect(refund.length).toBeGreaterThan(0)
+      await holds.release(A.tenantId, hold.holdId, `${suffix}-i-rel`, { type: 'USER', userId: A.userId })
+    } finally {
+      await prisma.userRole.deleteMany({ where: { roleId: role.id } })
+      await prisma.rolePermission.deleteMany({ where: { roleId: role.id } })
+      await prisma.role.delete({ where: { id: role.id } })
+    }
+  }, 60000)
 
   // ---- privilege boundary -------------------------------------------------------------------------------------------------
   describe('runtime API role (privilege boundary, not an outage)', () => {

@@ -20,7 +20,7 @@ async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClie
   }, { timeout: 120_000 })
 }
 
-const measured: { firstSearchMs?: number; repeatSearchMs?: number[]; priceChangedRecheckMs?: number; stopSellRecheckMs?: number } = {}
+const measured: { adminReadinessMs?: number; adminHotelPagesMs?: number; firstSearchMs?: number; repeatSearchMs?: number[]; priceChangedRecheckMs?: number; stopSellRecheckMs?: number } = {}
 
 const HOTEL_COUNT = 100
 const PLANS_PER_HOTEL = 3
@@ -99,7 +99,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     ])
     ;[ownerId, agentId, deniedId, otherUserId, emptyUserId] = users.map((user) => user.id)
     userIds.push(...users.map((user) => user.id))
-    const permissionKeys = ['hotel.search', 'booking.prebook', 'booking.create']
+    const permissionKeys = ['hotel.search', 'booking.prebook', 'booking.create', 'supply.hotels.read', 'supply.suppliers.read']
     const permissions = await Promise.all(permissionKeys.map((key) => prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: `${suffix} ${key}` } })))
     const byKey = new Map(permissions.map((permission) => [permission.key, permission.id]))
     const [ownerRole, agentRole, deniedRole] = await withTenant(tenantId, (tx) => Promise.all([
@@ -352,6 +352,57 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     }
     measured.repeatSearchMs = repeats
   })
+
+  // Admin operations acceptance over the SAME 100-hotel fixture (read-only; runs before any state-mutating test below).
+  it('Admin operations: lists, filters and certifies readiness for all 100 hotels from the API', async () => {
+    const get = (path: string, cookie = ownerCookie, tenant = tenantId) => request(app.getHttpServer()).get(`/api/v1/admin/operations${path}`).set('Cookie', cookie).set('x-fbeds-tenant-id', tenant)
+    const window = `from=${checkIn}&days=7`
+
+    const startedReadiness = process.hrtime.bigint()
+    const readiness = (await get(`/readiness?${window}`).expect(200)).body.data
+    measured.adminReadinessMs = Number(process.hrtime.bigint() - startedReadiness) / 1_000_000
+    expect(readiness.supply.state).toBe('available')
+    const supply = readiness.supply.data
+    expect(supply.hotels.configured).toBe(HOTEL_COUNT)
+    expect(supply.hotels.sellable).toBe(HOTEL_COUNT) // every hotel has the unrestricted sell plan
+    expect(supply.hotels.blocked + supply.hotels.notConfigured).toBe(0)
+    expect(supply.hotelMappings).toEqual({ mapped: HOTEL_COUNT, pending: 0, rejected: 0 })
+    expect(supply.roomMappings).toEqual({ mapped: HOTEL_COUNT, pending: 0, rejected: 0 })
+    expect(supply.stopSellHotels).toBe(HOTEL_COUNT) // each hotel also carries a stop-sell plan
+    expect(supply.suppliers).toEqual({ total: 1, active: 1 })
+    expect(readiness.transactions.state).toBe('available')
+
+    // Server-side pagination walks all 100 exactly once.
+    const started = process.hrtime.bigint()
+    const seen = new Set<string>()
+    for (let page = 1; page <= 4; page += 1) {
+      const body = (await get(`/hotels?${window}&page=${page}&pageSize=25`).expect(200)).body.data
+      expect(body).toMatchObject({ page, pageSize: 25, total: HOTEL_COUNT })
+      expect(body.items).toHaveLength(25)
+      for (const hotel of body.items) { expect(hotel).toMatchObject({ rooms: 1, ratePlans: PLANS_PER_HOTEL, readiness: 'READY' }); seen.add(hotel.id) }
+    }
+    measured.adminHotelPagesMs = Number(process.hrtime.bigint() - started) / 1_000_000
+    expect(seen).toEqual(new Set(hotels.map((hotel) => hotel.hotelId)))
+
+    // Filters are applied by the API, not over rows in hand.
+    expect((await get(`/hotels?${window}&readiness=READY&pageSize=100`).expect(200)).body.data.total).toBe(HOTEL_COUNT)
+    expect((await get(`/hotels?${window}&readiness=BLOCKED`).expect(200)).body.data.total).toBe(0)
+    expect((await get(`/hotels?mapping=NONE`).expect(200)).body.data.total).toBe(0)
+    expect((await get(`/hotels?mapping=MAPPED&pageSize=100`).expect(200)).body.data.total).toBe(HOTEL_COUNT)
+    const one = (await get(`/hotels?${window}&search=${encodeURIComponent(hotels[42].name)}`).expect(200)).body.data
+    expect(one.total).toBe(1)
+    expect(one.items[0].id).toBe(hotels[42].hotelId)
+    expect((await get('/hotels?pageSize=101').expect(400)).body.success).toBe(false)
+
+    // ADMIN-01: no session, no data.
+    for (const path of ['/readiness', '/hotels', '/bookings', '/audit']) expect((await request(app.getHttpServer()).get(`/api/v1/admin/operations${path}`).expect(401)).body.success).toBe(false)
+
+    // Tenant boundaries: another tenant sees none of these hotels, and a role without the permission is refused.
+    expect((await get('/hotels', agentCookie).expect(403)).body.success).toBe(false) // agent role: no booking.read
+    expect((await get('/readiness', otherCookie, otherTenantId).expect(403)).body.success).toBe(false)
+    expect((await get('/hotels', ownerCookie, otherTenantId).expect(403)).body.success).toBe(false) // owner has no membership in the other tenant
+    expect((await get('/bookings').expect(200)).body.data.total).toBe(0) // no bookings exist in this fixture: an honest zero, with data.items = []
+  }, 120000)
 
   it('walks every sellable hotel through deterministic pages', async () => {
     const pageSize = 25
