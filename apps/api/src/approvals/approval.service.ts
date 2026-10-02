@@ -182,6 +182,13 @@ export class ApprovalService {
     return rows.map((r) => this.view(r))
   }
 
+  /** Approvals for a set of entities of one type, newest first (one query, for lists that show each entity's latest request). */
+  async listForEntities(tenantId: string, entityType: string, entityIds: string[]): Promise<ApprovalView[]> {
+    if (entityIds.length === 0) return []
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.approvalRequest.findMany({ where: { tenantId, entityType, entityId: { in: entityIds } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }))
+    return rows.map((r) => this.view(r))
+  }
+
   private async require(tenantId: string, id: string) {
     const row = await this.prisma.withTenant(tenantId, (tx) => tx.approvalRequest.findFirst({ where: { id, tenantId } }))
     if (!row) throw new NotFoundException('Approval request not found')

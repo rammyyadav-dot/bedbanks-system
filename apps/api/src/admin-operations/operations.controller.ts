@@ -131,6 +131,9 @@ export class OperationsController {
   @Get('ledger') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
 
+  @Get('commercial/impact') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
+  markupImpact(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.markupImpact(tenantId, query) }
+
   @Get('markets/summary') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
   marketsSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.markets(tenantId, query) }
 

@@ -50,6 +50,48 @@ enum BookingDocumentType {
   CREDIT_NOTE
 }
 
+/// Percent markup applied to NET daily rates (ADR 0018). Rules are immutable once created: only the status moves
+/// (DRAFT to ACTIVE through an approved request, ACTIVE or DRAFT to RETIRED). At most one ACTIVE rule exists per
+/// (tenant, scope, supplier, hotel): a partial unique index in the migration, which Prisma cannot model.
+enum MarkupScope {
+  TENANT_DEFAULT
+  SUPPLIER
+  HOTEL
+}
+
+enum MarkupRuleStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+model CommercialMarkupRule {
+  id          String           @id @default(cuid())
+  tenantId    String           @map("tenant_id")
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  scope       MarkupScope
+  supplierId  String?          @map("supplier_id")
+  supplier    Supplier?        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  hotelId     String?          @map("hotel_id")
+  hotel       Hotel?           @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  /// 0 to 10000 (zero to one hundred percent). Integer basis points only.
+  basisPoints Int              @map("basis_points")
+  /// First and last night the rule applies to (inclusive). validTo null means open-ended.
+  validFrom   DateTime         @map("valid_from") @db.Date
+  validTo     DateTime?        @map("valid_to") @db.Date
+  status      MarkupRuleStatus @default(DRAFT)
+  reason      String
+  createdById String           @map("created_by_id")
+  createdBy   User             @relation("MarkupRuleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedAt DateTime?        @map("activated_at")
+  retiredAt   DateTime?        @map("retired_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([tenantId, scope, supplierId, hotelId])
+}
+
 /// Maker-checker foundation (ADR 0016). A request records who asked for a sensitive action and who decided it.
 /// Approval never executes the action and never replaces domain validation; the owning canonical service does that.
 enum ApprovalRequestStatus {
@@ -216,6 +258,7 @@ enum ConnectorExecutionStatus {
 }
 
 model Tenant {
+  markupRules CommercialMarkupRule[]
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
@@ -269,6 +312,7 @@ model TenantSettings {
 }
 
 model User {
+  markupRulesCreated CommercialMarkupRule[] @relation("MarkupRuleCreator")
   id           String    @id @default(cuid())
   email        String    @unique
   name         String?
@@ -539,6 +583,7 @@ model AuditEvent {
 
 /// Tenant-owned commercial source. Credential material is never persisted here.
 model Supplier {
+  markupRules CommercialMarkupRule[]
   id              String         @id @default(cuid())
   tenantId        String         @map("tenant_id")
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -567,6 +612,7 @@ model Supplier {
 
 /// Canonical fBeds property identity, deliberately separate from supplier IDs.
 model Hotel {
+  markupRules CommercialMarkupRule[]
   id            String        @id @default(cuid())
   tenantId      String        @map("tenant_id")
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)

@@ -5,6 +5,12 @@ export const routes = {
     bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
+  // Commercial markup rules for NET rates (ADR 0018). Rules are immutable; activation needs a second person's approval.
+  adminCommercial: {
+    markups: '/admin/commercial/markups', markupRetire: '/admin/commercial/markups/:ruleId/retire', markupRequestActivation: '/admin/commercial/markups/:ruleId/request-activation',
+    markupApprovalApprove: '/admin/commercial/markups/approvals/:approvalId/approve', markupApprovalReject: '/admin/commercial/markups/approvals/:approvalId/reject',
+    markupApprovalCancel: '/admin/commercial/markups/approvals/:approvalId/cancel', markupApprovalExecute: '/admin/commercial/markups/approvals/:approvalId/execute',
+  },
   // Read-only operational views over the authoritative transaction chain, plus one confirmed reconciliation action.
   adminOperations: {
     capabilities: '/admin/operations/capabilities', readiness: '/admin/operations/readiness',
@@ -20,7 +26,7 @@ export const routes = {
     cancellations: '/admin/operations/cancellations',
     wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
-    marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
+    commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
     financeSummary: '/admin/operations/finance/summary', auditSummary: '/admin/operations/audit/summary',
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },

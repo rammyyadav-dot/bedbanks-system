@@ -1,3 +1,4 @@
+import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 /**
  * Shared commercial gates for contracted inventory.
  * The single-night helper preserves the existing admin sellability reasons.
@@ -59,6 +60,8 @@ export interface StayNightSnapshot {
   rateAmountMinor: bigint | null
   rateCurrency: string | null
   amountBasis: 'NET' | 'SELL' | null
+  /** Basis points of the markup rule in force for this night, or null when none applies. Only read for NET rates. */
+  markupBasisPoints?: number | null
   availability: null | {
     allotment: number
     sold: number
@@ -107,7 +110,12 @@ export interface StayRequest {
 export interface StayDecision {
   eligible: boolean
   reasons: string[]
+  /** What the buyer pays for the stay: net plus markup for NET rates, the stored sell rate for SELL rates. */
   totalMinor: bigint | null
+  /** Supplier cost for the stay (equals the total for SELL rates). */
+  netMinor: bigint | null
+  /** Markup included in the total. Zero for SELL rates. */
+  markupMinor: bigint | null
 }
 
 export function stayNightCount(checkIn: string, checkOut: string): number {
@@ -148,6 +156,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (request.leadDays < snapshot.ratePlanReleaseDays) reasons.push('RELEASE_DAYS_NOT_MET')
 
   let perRoom = 0n
+  let perRoomNet = 0n
   let sawRate = false
   let sawInvalidRate = false
   let sawCurrencyMismatch = false
@@ -163,8 +172,12 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
       sawRate = true
       if (night.rateCurrency !== snapshot.ratePlanCurrency || night.rateCurrency !== request.currency) sawCurrencyMismatch = true
       else if (night.amountBasis === null) sawUnverified = true
-      else if (night.amountBasis === 'NET') sawNet = true
-      else perRoom += night.rateAmountMinor
+      else if (night.amountBasis === 'NET') {
+        // NET sells only under a valid markup rule; anything else stays unsellable (fail closed).
+        const bp = night.markupBasisPoints
+        if (bp === null || bp === undefined || !Number.isSafeInteger(bp) || bp < 0 || bp > MAX_MARKUP_BASIS_POINTS) sawNet = true
+        else { perRoomNet += night.rateAmountMinor; perRoom += night.rateAmountMinor + markupMinor(night.rateAmountMinor, bp) }
+      } else { perRoomNet += night.rateAmountMinor; perRoom += night.rateAmountMinor }
     }
     if (!night.availability) sawMissingAvailability = true
     else {
@@ -184,8 +197,9 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (sawNoInventory) reasons.push('NO_INVENTORY')
 
   const unique = [...new Set(reasons)]
-  if (unique.length > 0 || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null }
+  if (unique.length > 0 || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null, netMinor: null, markupMinor: null }
   const total = perRoom * BigInt(request.rooms)
-  if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null }
-  return { eligible: true, reasons: [], totalMinor: total }
+  const net = perRoomNet * BigInt(request.rooms)
+  if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null }
+  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net }
 }
