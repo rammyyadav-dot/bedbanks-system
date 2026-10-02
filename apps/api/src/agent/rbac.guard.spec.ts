@@ -41,6 +41,17 @@ describe('AgentRbacGuard', () => {
     expect(withTenant).toHaveBeenCalledWith('tenant-a', expect.any(Function));
   });
 
+  it('follows the owner and finance membership rules without a second permission list', async () => {
+    reflected.mockReturnValue(PERMISSIONS.createBooking);
+    membershipFindUnique.mockResolvedValue({ tenantId: 'tenant-a', role: 'owner', tenant: { status: 'ACTIVE' } });
+    await expect(guard.canActivate(context())).resolves.toBe(true);
+    membershipFindUnique.mockResolvedValue({ tenantId: 'tenant-a', role: 'finance', tenant: { status: 'ACTIVE' } });
+    reflected.mockReturnValue(PERMISSIONS.viewFinance);
+    await expect(guard.canActivate(context())).resolves.toBe(true);
+    reflected.mockReturnValue(PERMISSIONS.search);
+    await expect(guard.canActivate(context())).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('allows a formal role permission for the server tenant and ignores a different header', async () => {
     reflected.mockReturnValue(PERMISSIONS.search);
     userRoleFindMany.mockResolvedValue([{ role: { permissions: [{ permission: { key: PERMISSIONS.search } }] } }]);

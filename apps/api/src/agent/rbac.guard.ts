@@ -3,7 +3,8 @@ import { Reflector } from '@nestjs/core'
 import type { Request } from 'express'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { PrismaService } from '../database/prisma.service'
-import { PERMISSIONS, type AgentPermission } from './supplier.port'
+import { membershipGrantsPermission } from './agent-permissions'
+import type { AgentPermission } from './supplier.port'
 import { activeTenantId, sessionTenantId } from './tenant-context.guard'
 
 export const REQUIRED_PERMISSION = 'fbeds:required-permission'
@@ -35,8 +36,7 @@ export class AgentRbacGuard implements CanActivate {
       include: { role: { include: { permissions: { include: { permission: true } } } } },
     })) as FormalRoleAssignment[]
     const formalPermissions = roles.flatMap((item) => item.role.permissions.map((permission) => permission.permission.key))
-    const legacyAllowed = membership.role === 'owner' || (required === PERMISSIONS.viewFinance && membership.role === 'finance')
-    if (!formalPermissions.includes(required) && !legacyAllowed) {
+    if (!membershipGrantsPermission(membership.role, formalPermissions, required)) {
       await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: required, payload: { tenantId }, userId: identity.user.id } })).catch(() => undefined)
       throw new ForbiddenException('Access denied')
     }
