@@ -5,6 +5,7 @@ import { BookingPersistenceService } from '../src/agent/booking-persistence.serv
 import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
 import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compensation-recovery.service'
 import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
+import { SupplierMutationJournalService } from '../src/agent/supplier-mutation-journal.service'
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import { BookingTransactionService } from '../src/agent/booking-transaction.service'
 import { BookingCancellationService } from '../src/agent/booking-cancellation.service'
@@ -22,7 +23,8 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
   const confirmation = new BookingConfirmationService(prisma)
   const cancellations = new BookingCancellationService(prisma, new CancellationPolicyService(), new LedgerService(prisma), audit)
   const supplier = { prebook: async () => ({ supplierReference: 'contracted:test' }) } as unknown as SupplierAdapter
-  const tx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier), confirmation)
+  const journal = new SupplierMutationJournalService(prisma, audit)
+  const tx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, journal, supplier), confirmation)
   const suffix = `cancel-${Date.now()}-${Math.random().toString(36).slice(2)}`
   const nights = [new Date('2099-03-01'), new Date('2099-03-02')]
   let tenantId: string, userId: string, supplierId: string, hotelId: string, roomId: string, boardId: string, contractId: string, ratePlanId: string, walletId: string
@@ -49,6 +51,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
     await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })

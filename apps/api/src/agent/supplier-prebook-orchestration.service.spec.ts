@@ -1,6 +1,59 @@
 import { ServiceUnavailableException } from '@nestjs/common'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
 import { SupplierProviderError } from './supplier.port'
+import type { SupplierMutationView } from './supplier-mutation-journal.service'
+
+class MemoryJournal {
+  failPrepare = false
+  failSending = false
+  failAck = false
+  failUnknown = false
+  calls = 0
+  row: SupplierMutationView | null = null
+
+  async findForBooking() { return this.row }
+  async findById() { return this.row }
+  async prepare(input: { tenantId: string; bookingId: string; holdId: string; supplierKey: string; idempotencyKey: string; requestId: string; fingerprint: string }) {
+    if (this.failPrepare) throw new Error('journal prepare failed')
+    if (this.row) return this.row
+    this.row = this.blank(input, 'PREPARED')
+    return this.row
+  }
+  async markSending() {
+    if (this.failSending) throw new Error('journal sending failed')
+    if (!this.row) throw new Error('missing')
+    if (this.row.status !== 'PREPARED') return { claimed: false, record: this.row }
+    this.row = { ...this.row, status: 'SENDING', attemptedAt: new Date() }
+    return { claimed: true, record: this.row }
+  }
+  async acknowledge(input: { supplierReference: string }) {
+    if (this.failAck) throw new Error('journal ack failed')
+    if (!this.row) throw new Error('missing')
+    this.row = { ...this.row, status: 'ACKNOWLEDGED', supplierReference: input.supplierReference, supplierStatus: 'accepted', acknowledgedAt: new Date() }
+    return this.row
+  }
+  async reject() {
+    if (!this.row) throw new Error('missing')
+    this.row = { ...this.row, status: 'REJECTED', supplierStatus: 'rejected' }
+    return this.row
+  }
+  async markUnknown(input: { failureCategory: string; failureCode: string }) {
+    if (this.failUnknown) throw new Error('journal unknown failed')
+    if (!this.row) throw new Error('missing')
+    if (this.row.status === 'ACKNOWLEDGED') return this.row
+    this.row = { ...this.row, status: 'UNKNOWN', failureCategory: input.failureCategory, failureCode: input.failureCode }
+    return this.row
+  }
+  private blank(input: { tenantId: string; bookingId: string; holdId: string; supplierKey: string; idempotencyKey: string; requestId: string; fingerprint: string }, status: SupplierMutationView['status']): SupplierMutationView {
+    const now = new Date()
+    return {
+      id: 'mutation-a', tenantId: input.tenantId, bookingId: input.bookingId, holdId: input.holdId, supplierKey: input.supplierKey,
+      operation: 'PREBOOK', idempotencyKey: input.idempotencyKey, requestId: input.requestId, status,
+      attemptedAt: null, acknowledgedAt: null, resolvedAt: null, supplierReference: null, supplierStatus: null,
+      requestFingerprint: input.fingerprint, failureCategory: null, failureCode: null, createdAt: now, updatedAt: now,
+    }
+  }
+}
 
 const command: any = {
   tenantId: 'tenant-a', userId: 'user-a', requestId: 'request-a', idempotencyKey: 'booking-key-123',
@@ -15,10 +68,11 @@ function setup() {
   const bookings = { persistPending: jest.fn().mockResolvedValue(booking), recordSupplierPrebook: jest.fn().mockResolvedValue(undefined) }
   const finance = { authorize: jest.fn().mockResolvedValue({ id: 'hold-ledger' }), release: jest.fn().mockResolvedValue({ id: 'release-ledger' }) }
   const recovery = { compensate: jest.fn().mockResolvedValue({ status: 'compensated', financeReleased: true, inventoryReleased: true }) }
-  const supplier = { prebook: jest.fn().mockResolvedValue({ supplierReference: 'supplier-prebook-a', rate: {} }) }
+  const supplier = { name: 'test-supplier', prebook: jest.fn().mockResolvedValue({ supplierReference: 'supplier-prebook-a', rate: {} }) }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const holds = { beginProcessing: jest.fn().mockResolvedValue(undefined), release: jest.fn().mockResolvedValue(undefined) }
-  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, holds as any, audit as any, supplier as any), bookings, finance, recovery, supplier, holds, audit }
+  const journal = new MemoryJournal()
+  return { service: new SupplierPrebookOrchestrationService(bookings as any, finance as any, recovery as any, holds as any, audit as any, journal as any, supplier as any), bookings, finance, recovery, supplier, holds, audit, journal }
 }
 
 describe('SupplierPrebookOrchestrationService', () => {
@@ -129,12 +183,58 @@ describe('SupplierPrebookOrchestrationService', () => {
     expect(recovery.compensate).not.toHaveBeenCalled()
   })
 
-  it('does not compensate when supplier success cannot be persisted', async () => {
-    const { service, recovery, holds, bookings, audit, supplier } = setup()
+  it('keeps an acknowledged supplier reference when booking and audit persistence both fail', async () => {
+    const { service, recovery, holds, bookings, audit, supplier, journal } = setup()
     bookings.recordSupplierPrebook.mockRejectedValue(new Error('database down'))
     audit.record.mockRejectedValue(new Error('audit down'))
+    await expect(service.execute(command)).resolves.toMatchObject({ status: 'prebooked', supplierReference: 'supplier-prebook-a' })
+    expect(supplier.prebook).toHaveBeenCalledTimes(1)
+    expect(journal.row?.status).toBe('ACKNOWLEDGED')
+    expect(journal.row?.supplierReference).toBe('supplier-prebook-a')
+    expect(recovery.compensate).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('does not call the supplier when the journal cannot be prepared', async () => {
+    const { service, supplier, recovery, journal } = setup()
+    journal.failPrepare = true
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook unavailable')
+    expect(supplier.prebook).not.toHaveBeenCalled()
+    expect(recovery.compensate).toHaveBeenCalledTimes(1)
+    expect(journal.row).toBeNull()
+  })
+
+  it('does not call the supplier when the sending transition fails and the row stays prepared', async () => {
+    const { service, supplier, recovery, journal } = setup()
+    journal.failSending = true
+    journal.findById = async () => journal.row
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook unavailable')
+    expect(supplier.prebook).not.toHaveBeenCalled()
+    expect(recovery.compensate).toHaveBeenCalledTimes(1)
+    expect(journal.row?.status).toBe('PREPARED')
+  })
+
+  it('does not compensate when supplier success cannot be acknowledged', async () => {
+    const { service, recovery, holds, supplier, journal } = setup()
+    journal.failAck = true
+    journal.failUnknown = true
     await expect(service.execute(command)).rejects.toThrow('Supplier prebook requires reconciliation')
     expect(supplier.prebook).toHaveBeenCalledTimes(1)
+    expect(journal.row?.status).toBe('SENDING')
+    expect(recovery.compensate).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+  })
+
+  it('does not call the supplier again when a mutation is already sending', async () => {
+    const { service, supplier, recovery, holds, journal } = setup()
+    journal.row = {
+      id: 'mutation-a', tenantId: 'tenant-a', bookingId: 'booking-a', holdId: 'hold-a', supplierKey: 'test-supplier',
+      operation: 'PREBOOK', idempotencyKey: 'booking:booking-a:prebook', requestId: 'request-a', status: 'SENDING',
+      attemptedAt: new Date(), acknowledgedAt: null, resolvedAt: null, supplierReference: null, supplierStatus: null,
+      requestFingerprint: 'fp', failureCategory: null, failureCode: null, createdAt: new Date(), updatedAt: new Date(),
+    }
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook outcome is unknown')
+    expect(supplier.prebook).not.toHaveBeenCalled()
     expect(recovery.compensate).not.toHaveBeenCalled()
     expect(holds.release).not.toHaveBeenCalled()
   })

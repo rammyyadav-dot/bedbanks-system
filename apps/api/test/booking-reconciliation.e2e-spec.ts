@@ -5,6 +5,7 @@ import { BookingPersistenceService } from '../src/agent/booking-persistence.serv
 import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
 import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compensation-recovery.service'
 import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
+import { SupplierMutationJournalService } from '../src/agent/supplier-mutation-journal.service'
 import { BookingReconciliationService } from '../src/agent/booking-reconciliation.service'
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import { SupplierProviderError, type SupplierAdapter } from '../src/agent/supplier.port'
@@ -51,6 +52,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
     await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
@@ -100,7 +102,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
   it('never releases a booking whose supplier prebook succeeded, and recovers one whose prebook failed', async () => {
     const supplier = (outcome: 'ok' | 'fail') => ({ prebook: async () => { if (outcome === 'fail') throw new Error('down'); return { supplierReference: 'sup-ref-1', rate: {} } } }) as unknown as SupplierAdapter
     const orchestrate = (key: string, holdId: string, outcome: 'ok' | 'fail') =>
-      new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier(outcome)).execute({ ...commandFor(key, holdId), walletId } as never)
+      new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier(outcome)).execute({ ...commandFor(key, holdId), walletId } as never)
 
     const okHold = await newHold(`${suffix}-ok`)
     await expect(orchestrate(`${suffix}-ok`, okHold.holdId, 'ok')).resolves.toMatchObject({ status: 'prebooked' })
@@ -140,7 +142,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
   it('expires a prebooked-but-never-confirmed booking after the window, and confirmation then refuses', async () => {
     const supplier = { prebook: async () => ({ supplierReference: 'sup-exp' }) } as unknown as SupplierAdapter
     const hold = await newHold(`${suffix}-expire`)
-    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
+    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier)
     const pre = await flow.execute({ ...commandFor(`${suffix}-expire`, hold.holdId), walletId } as never)
     const net = await walletNet()
     await backdate(hold.holdId, 45)
@@ -164,7 +166,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     for (let round = 0; round < 5; round++) {
       const key = `${suffix}-race-${round}`
       const hold = await newHold(key)
-      const pre = await new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier).execute({ ...commandFor(key, hold.holdId), walletId } as never)
+      const pre = await new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier).execute({ ...commandFor(key, hold.holdId), walletId } as never)
       await backdate(hold.holdId, 45)
       await prisma.$executeRawUnsafe(`UPDATE "AuditEvent" SET "created_at" = now() - interval '2 hours' WHERE "action" = 'booking.prebook.succeeded' AND "entity_id" = '${pre.bookingId}'`)
       const net = await walletNet()
@@ -191,7 +193,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     const hold = await newHold(`${suffix}-unknown`)
     const heldBefore = await heldNights()
     const netBefore = await walletNet()
-    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
+    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier)
     const command = { ...commandFor(`${suffix}-unknown`, hold.holdId), walletId }
     await expect(flow.execute(command as never)).rejects.toThrow('Supplier prebook outcome is unknown')
     expect(supplierCalls).toBe(1)
@@ -218,7 +220,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     await prisma.wallet.update({ where: { id: walletId }, data: { creditLimit: 10_000_000n } })
     const supplier = { prebook: async () => ({ supplierReference: 'sup-recovered' }) } as unknown as SupplierAdapter
     const hold = await newHold(`${suffix}-recovered`)
-    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier)
+    const flow = new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier)
     const pre = await flow.execute({ ...commandFor(`${suffix}-recovered`, hold.holdId), walletId } as never)
     await prisma.auditEvent.deleteMany({ where: { tenantId, entityId: pre.bookingId, action: 'booking.prebook.succeeded' } })
     await backdate(hold.holdId, 45)
