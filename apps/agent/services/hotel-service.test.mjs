@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import { ApiHotelService } from './hotel-service.ts'
 
+const stayStart = new Date(Date.now() + 30 * 86400000)
+const stayEnd = new Date(stayStart.getTime() + 3 * 86400000)
 const criteria = {
-  destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
+  destination: 'Dubai', checkIn: stayStart.toISOString().slice(0, 10), checkOut: stayEnd.toISOString().slice(0, 10),
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED',
 }
 const hotel = {
