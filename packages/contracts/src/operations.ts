@@ -89,8 +89,8 @@ export interface BookingOperations {
   inventory: { holdId: string | null; hold: { status: InventoryHoldStatus; expiresAt: string; releasedAt: string | null; rooms: number; nights: HoldNightView[] } | null }
   supplier: {
     supplier: string
-    /** Not persisted on the Booking record: shown as null rather than inferred. */
-    supplierBookingReference: null
+    /** Durable supplier reference from the mutation journal, when the mutation was acknowledged. */
+    supplierBookingReference: string | null
     prebook: { at: string; requestId: string | null } | null
     confirmation: { at: string; requestId: string | null } | null
   }

@@ -50,6 +50,23 @@ enum BookingDocumentType {
   CREDIT_NOTE
 }
 
+/// Outbound supplier side-effect boundary. Independent of Booking and AuditEvent.
+enum SupplierMutationOperation {
+  PREBOOK
+  BOOK
+  CANCEL
+}
+
+/// PREPARED: not sent. SENDING/UNKNOWN: may have been sent. ACKNOWLEDGED/REJECTED/RESOLVED: observed.
+enum SupplierMutationStatus {
+  PREPARED
+  SENDING
+  ACKNOWLEDGED
+  REJECTED
+  UNKNOWN
+  RESOLVED
+}
+
 enum InventoryHoldStatus {
   PENDING_RECHECK
   RECHECKED
@@ -180,6 +197,7 @@ model Tenant {
   connectorDefinitions ConnectorDefinition[]
   inventoryUpdateEvents InventoryUpdateEvent[]
   inventoryHolds InventoryHold[]
+  supplierMutations SupplierMutation[]
   settings    TenantSettings?
   supplierMemberships SupplierMembership[]
   supplierRoomDrafts SupplierRoomDraft[]
@@ -359,9 +377,42 @@ model Booking {
   updatedAt      DateTime       @updatedAt @map("updated_at")
   cancellations  Cancellation[]
   documents      BookingDocument[]
+  supplierMutations SupplierMutation[]
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
+}
+
+/// Durable record of one logical supplier mutation. Written before the adapter is called
+/// and updated with the supplier reference before ordinary booking or audit persistence.
+model SupplierMutation {
+  id                 String                     @id @default(cuid())
+  tenantId           String                     @map("tenant_id")
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId          String                     @map("booking_id")
+  booking            Booking                    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  holdId             String                     @map("hold_id")
+  hold               InventoryHold              @relation(fields: [tenantId, holdId], references: [tenantId, id], onDelete: Restrict)
+  supplierKey        String                     @map("supplier_key")
+  operation          SupplierMutationOperation
+  idempotencyKey     String                     @map("idempotency_key")
+  requestId          String                     @map("request_id")
+  status             SupplierMutationStatus
+  attemptedAt        DateTime?                  @map("attempted_at")
+  acknowledgedAt     DateTime?                  @map("acknowledged_at")
+  resolvedAt         DateTime?                  @map("resolved_at")
+  supplierReference  String?                    @map("supplier_reference")
+  supplierStatus     String?                    @map("supplier_status")
+  requestFingerprint String                     @map("request_fingerprint")
+  failureCategory    String?                    @map("failure_category")
+  failureCode        String?                    @map("failure_code")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+
+  @@unique([tenantId, bookingId, operation, idempotencyKey])
+  @@index([tenantId, status])
+  @@index([tenantId, bookingId])
+  @@index([tenantId, holdId])
 }
 
 model BookingDocument {
@@ -797,6 +848,7 @@ model InventoryHold {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   nights             InventoryHoldNight[]
+  supplierMutations  SupplierMutation[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])
