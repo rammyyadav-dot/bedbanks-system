@@ -13,7 +13,9 @@ import type { Request, Response } from 'express'
 import type { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 
-const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
+// Stay dates are relative to today: the search validator rejects past check-ins, so fixed dates rot.
+const stayDay = (offsetDays: number) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
+const criteria = { destination: 'Dubai', checkIn: stayDay(30), checkOut: stayDay(33),
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
 const identity = { user: { id: 'user-a' } } as AuthenticatedUser
 const hotel = {

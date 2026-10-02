@@ -4,7 +4,9 @@ import type { AgentAuditService } from './audit.service'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import type { CachePort, CacheWriteOptions, CoordinationPort, LockLease } from '../common/cache/cache.port'
 
-const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
+// Stay dates are relative to today: the search validator rejects past check-ins, so fixed dates rot.
+const stayDay = (offsetDays: number) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
+const criteria = { destination: 'Dubai', checkIn: stayDay(30), checkOut: stayDay(33),
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
 const identity = { user: { id: 'user-a' } } as AuthenticatedUser
 const hotel = {
@@ -88,7 +90,7 @@ describe('AgentSearchService cache boundary', () => {
     const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
     const { service } = setup(search)
     await service.execute(criteria, 'tenant-a', 'r1', identity)
-    await service.execute({ ...criteria, checkOut: '2026-10-05' }, 'tenant-a', 'r2', identity)
+    await service.execute({ ...criteria, checkOut: stayDay(34) }, 'tenant-a', 'r2', identity)
     await service.execute({ ...criteria, adults: 3 }, 'tenant-a', 'r3', identity)
     await service.execute({ ...criteria, destination: 'Abu Dhabi' }, 'tenant-a', 'r4', identity)
     await service.execute({ ...criteria, currency: 'USD' }, 'tenant-a', 'r5', identity)
