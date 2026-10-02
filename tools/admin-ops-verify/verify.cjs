@@ -29,8 +29,10 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   check('Sidebar lists no planned department module', !/Markups|Promotions|Agencies|Refunds|Risk flags|Cases/.test(sidebar))
 
   // 1. every operations list view renders real data, with table headers and a pager
-  for (const [path, mustContain] of [['/bookings', 'CONFIRMED'], ['/holds', 'HELD'], ['/cancellations', 'MATCH'], ['/finance/wallets', 'Available credit'], ['/finance/ledger', 'DEBIT'], ['/audit', 'booking.'], ['/connectors', 'api_key: configured'], ['/operations/hotels', 'BLOCKED|READY'], ['/reconciliation', 'Stalled hold|PREBOOK_EXPIRED']]) {
+  for (const [path, mustContain] of [['/bookings', 'CONFIRMED'], ['/holds', 'HELD'], ['/cancellations', 'MATCH'], ['/finance/wallets', 'Available credit'], ['/finance/ledger', 'DEBIT'], ['/audit?action=booking.', 'booking.'], ['/connectors', 'api_key: configured'], ['/operations/hotels', 'BLOCKED|READY'], ['/reconciliation', 'Stalled hold|PREBOOK_EXPIRED']]) {
     await page.goto(`${BASE}${path}`); await page.waitForSelector('table, [data-state], .admin-empty', { timeout: 15000 })
+    // a cold server can answer after the first paint: wait for the expected content, and let the check below fail if it never comes
+    await page.waitForFunction((src) => new RegExp(src).test(document.body.innerText), mustContain, { timeout: 15000 }).catch(() => {})
     const t = await text(page)
     check(`${path} shows API data`, new RegExp(mustContain).test(t), t.slice(0, 90))
   }
