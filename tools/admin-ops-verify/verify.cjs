@@ -165,6 +165,9 @@ const text = async (page) => (await page.locator('main, .admin-page').first().in
   await page.waitForSelector('[data-testid=markup-active]', { timeout: 20000 })
   check('The approved rule is activated exactly once (a double click sends one POST)', actPosts === 1, `posts=${actPosts}`)
   check('The ACTIVE rule shows its percent and can be retired', /12\.50%/.test(await page.locator('[data-testid=markup-active]').first().innerText()) && (await page.locator('[data-testid=markup-active] button', { hasText: 'Retire' }).count()) === 1)
+  await page.waitForSelector('[data-testid=markup-impact] ul', { timeout: 15000 })
+  const impact = (await page.locator('[data-testid=markup-impact]').innerText()).replace(/\s+/g, ' ')
+  check('The impact panel shows the API plan-night counts for NET, unpriced NET, stored sell and unverified basis', ['NET priced by a rule', 'NET with no rule', 'Stored sell rates', 'Basis not verified'].every((t) => impact.includes(t)) && !/NaN|undefined/.test(impact), impact.slice(0, 140))
 
 
 

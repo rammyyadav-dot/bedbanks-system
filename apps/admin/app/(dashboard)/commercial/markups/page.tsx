@@ -12,6 +12,7 @@ import { getSuppliers } from '@/lib/data'
 import { getHotelsCommercial } from '@/lib/data/hotel-commercial'
 import { cancelMarkupApproval, createMarkupRule, decideMarkupApproval, executeMarkupApproval, getMarkupRules, requestMarkupActivation, retireMarkupRule } from '@/lib/data/commercial'
 import { describeApiError } from '@/lib/api/describe-error'
+import { MarkupImpact } from '@/components/commercial/MarkupImpact'
 
 const PAGE_SIZE = 25
 /** Basis points shown as a percent using integer arithmetic only (1250 is 12.50%). */
@@ -28,12 +29,13 @@ export default function MarkupsPage() {
   const { state, reload } = useOpsQuery(() => getMarkupRules({ status: status || undefined, scope: scope || undefined, page, pageSize: PAGE_SIZE }), [status, scope, page])
   const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [version, setVersion] = useState(0) // bumps after any change so the impact panel recounts
   const inFlight = useRef(false)
 
   async function act(key: string, work: () => Promise<string>) {
     if (inFlight.current) return
     inFlight.current = true; setBusy(key); setNotice(null)
-    try { setNotice({ tone: 'ok', text: await work() }); reload() }
+    try { setNotice({ tone: 'ok', text: await work() }); reload(); setVersion((v) => v + 1) }
     catch (error) { setNotice({ tone: 'bad', text: describeApiError(error, 'complete this step') }) }
     finally { inFlight.current = false; setBusy(null) }
   }
@@ -42,7 +44,8 @@ export default function MarkupsPage() {
   return (
     <div className="admin-page">
       <PageHeader eyebrow="COMMERCIAL" title="Markups" description="Percent markup on NET contract rates. Without an active rule a NET rate is not sold. A rule is immutable, and activating one needs a second person's approval." />
-      <CreateRule onCreated={(text) => { setNotice({ tone: 'ok', text }); reload() }} />
+      <MarkupImpact version={version} />
+      <CreateRule onCreated={(text) => { setNotice({ tone: 'ok', text }); reload(); setVersion((v) => v + 1) }} />
       {notice && <div className={notice.tone === 'bad' ? 'admin-error' : 'workspace-panel'} role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="markup-notice" style={{ margin: '8px 0' }}>{notice.text}</div>}
       <form aria-label="Markup filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: '#3f565c', fontSize: 11 }}>
         <label style={{ display: 'grid', gap: 2, color: '#3f565c' }}>Status<select style={{ color: '#17333e' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{MARKUP_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>

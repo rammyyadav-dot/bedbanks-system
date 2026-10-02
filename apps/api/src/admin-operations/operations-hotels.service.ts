@@ -5,12 +5,13 @@ import {
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
   type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
-  type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
+  type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
-import { markupResolverFor } from '../supply/markup-rules'
+import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
+import { markupMinor } from '@bedbanks/pricing'
 import { loadActiveMarkupRulesInTx } from '../supply/markup-rules.loader'
 import {
   assessHotel, contractStateOf, evaluatePlanNight, gateResults, mappingFor, windowDates,
@@ -176,6 +177,55 @@ export class OperationsHotelsService {
   }
 
   // ---- summary -------------------------------------------------------------------------------------------------------------
+  /** What the active markup rules do to ACTIVE rate plans over the window: priced, unpriced and stored-sell plan-nights, per currency. Bounded by the scan cap. */
+  async markupImpact(tenantId: string, query: Record<string, unknown>): Promise<MarkupImpact> {
+    const win = this.window(query)
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const total = await tx.hotel.count({ where: { tenantId } })
+      const hotels = await tx.hotel.findMany({ where: { tenantId }, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: COMMERCIAL_SCAN_CAP, select: HOTEL_SELECT })
+      const inputs = await this.loadInputs(tx, tenantId, hotels, win)
+      const counts = { sell: 0, netPriced: 0, netUnpriced: 0, basisUnverified: 0 }
+      const money = new Map<string, { net: bigint; markup: bigint }>()
+      const affected: Array<{ hotelId: string; hotelName: string; unpricedNights: number }> = []
+      for (const input of inputs.values()) {
+        let unpriced = 0
+        for (const plan of input.plans.filter((p) => p.status === 'ACTIVE')) {
+          const rates = new Map(plan.dailyRates.filter((r) => r.occupancy === plan.occupancy).map((r) => [day(r.stayDate), r]))
+          for (const date of input.dates) {
+            const rate = rates.get(date)
+            if (!rate || rate.amountMinor < 0n || rate.currency !== plan.currency) continue // a missing or invalid rate is a rate gap, reported elsewhere
+            if (rate.amountBasis === 'SELL') counts.sell += 1
+            else if (rate.amountBasis !== 'NET') counts.basisUnverified += 1
+            else {
+              const bp = resolveMarkupBasisPoints(input.markupRules ?? [], { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date)
+              if (bp === null) { counts.netUnpriced += 1; unpriced += 1 }
+              else {
+                counts.netPriced += 1
+                const m = money.get(rate.currency) ?? { net: 0n, markup: 0n }
+                m.net += rate.amountMinor; m.markup += markupMinor(rate.amountMinor, bp)
+                money.set(rate.currency, m)
+              }
+            }
+          }
+        }
+        if (unpriced > 0) affected.push({ hotelId: input.hotel.id, hotelName: input.hotel.name, unpricedNights: unpriced })
+      }
+      affected.sort((a, b) => b.unpricedNights - a.unpricedNights || a.hotelName.localeCompare(b.hotelName))
+      return {
+        generatedAt: this.clock().toISOString(), window: { from: win.from, to: win.to, days: win.days }, scanCapped: total > COMMERCIAL_SCAN_CAP, totalHotels: total,
+        planNights: counts, affectedHotels: affected.slice(0, 10), affectedHotelCount: affected.length,
+        currencies: [...money.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([currency, m]) => ({ currency, netMinor: m.net.toString(), markupMinor: m.markup.toString() })),
+        definitions: {
+          planNights: 'One ACTIVE rate plan on one night of the window, counted with the plan\'s own occupancy. Plan-nights with no rate, an invalid rate or a currency mismatch are rate gaps and are not counted here.',
+          netUnpriced: 'A NET rate with no ACTIVE markup rule in force for that night. It is not sellable until a rule applies.',
+          basisUnverified: 'A rate whose amount basis is not recorded as NET or SELL. It is not sellable, and no markup rule can change that.',
+          currencies: 'Supplier cost and markup for priced NET plan-nights, summed per currency. Currencies are never added together.',
+          scope: `Computed over at most ${COMMERCIAL_SCAN_CAP} hotels (alphabetical); scanCapped says when the tenant has more.`,
+        },
+      }
+    })
+  }
+
   /** Hotel supply and sellability grouped by destination, from the same assessment as the hotel list (bounded by the scan cap). */
   async markets(tenantId: string, query: Record<string, unknown>): Promise<MarketsSummary> {
     const win = this.window(query)

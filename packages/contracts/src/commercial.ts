@@ -60,3 +60,30 @@ export interface MarkupActivationRequest { requestId: string; reason: string }
 export interface MarkupDecision { reason: string }
 export interface MarkupRulePage { items: MarkupRuleView[]; page: number; pageSize: number; total: number }
 export interface MarkupActivationResult { approval: MarkupApprovalView; rule: MarkupRuleView; replacedRuleId: string | null }
+
+/**
+ * What the active markup rules do to the tenant's rate plans over a forward window (ADR 0018). Counts plan-nights of ACTIVE
+ * rate plans, using each plan's own occupancy. Money is an integer minor-unit string per currency and is never added across currencies.
+ */
+export interface MarkupImpact {
+  generatedAt: string
+  window: { from: string; to: string; days: number }
+  scanCapped: boolean
+  totalHotels: number
+  planNights: {
+    /** Stored sell rates: sold as they are, never marked up. */
+    sell: number
+    /** NET rates a rule prices. */
+    netPriced: number
+    /** NET rates with no rule in force: not sellable until a rule applies. */
+    netUnpriced: number
+    /** Rates with no verified basis: not sellable, and no rule can fix that. */
+    basisUnverified: number
+  }
+  /** Hotels with at least one unpriced NET plan-night, most affected first (at most ten). */
+  affectedHotels: Array<{ hotelId: string; hotelName: string; unpricedNights: number }>
+  affectedHotelCount: number
+  /** For priced NET nights: the supplier cost and the markup added, per currency. */
+  currencies: Array<{ currency: string; netMinor: string; markupMinor: string }>
+  definitions: Record<string, string>
+}

@@ -302,4 +302,38 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
       expect(inTx.r.length).toBe(rules.length)
     } finally { await runtime?.$disconnect(); await owner.$disconnect() }
   })
+
+  it('CM-14 impact: counts priced, unpriced and stored-sell plan-nights exactly, per currency, scoped to the tenant', async () => {
+    const impact = async (who = 'maker', qs = '') => (await request(app.getHttpServer()).get(`/api/v1/admin/operations/commercial/impact${qs}`).set('Cookie', cookies[who]).expect(200)).body.data
+    // two hotels x 30 nights of NET rates, no rule yet
+    let i = await impact()
+    expect(i.planNights).toEqual({ sell: 0, netPriced: 0, netUnpriced: 60, basisUnverified: 0 })
+    expect(i.affectedHotelCount).toBe(2); expect(i.affectedHotels).toHaveLength(2); expect(i.affectedHotels[0].unpricedNights).toBe(30); expect(i.currencies).toEqual([])
+    // a default rule prices everything: 60 nights x net 10005, markup 1001 per night (ten percent, half up)
+    await activate(await draft({ basisPoints: 1_000 }))
+    i = await impact()
+    expect(i.planNights).toEqual({ sell: 0, netPriced: 60, netUnpriced: 0, basisUnverified: 0 })
+    expect(i.currencies).toEqual([{ currency: 'AED', netMinor: '600300', markupMinor: '60060' }])
+    expect(i.affectedHotelCount).toBe(0)
+    // a hotel rule overrides the default for that hotel only (twenty percent is 2001 per night)
+    await activate(await draft({ scope: 'HOTEL', hotelId: hotelA, basisPoints: 2_000 }))
+    expect((await impact()).currencies).toEqual([{ currency: 'AED', netMinor: '600300', markupMinor: '90060' }])
+    // one stored SELL night is neither priced nor unpriced, and a rate with no basis is reported separately
+    const plan = await prisma.ratePlan.findFirstOrThrow({ where: { tenantId: tenantA, roomType: { hotelId: otherHotelA } } })
+    await prisma.dailyRate.updateMany({ where: { ratePlanId: plan.id, stayDate: utc(3) }, data: { amountBasis: 'SELL' } })
+    await prisma.dailyRate.updateMany({ where: { ratePlanId: plan.id, stayDate: utc(4) }, data: { amountBasis: null } })
+    i = await impact()
+    expect(i.planNights).toEqual({ sell: 1, netPriced: 58, netUnpriced: 0, basisUnverified: 1 })
+    // the same figure as the Admin hotel assessment: the unverified-basis hotel is blocked on that night
+    expect(i.window.days).toBe(30)
+    // tenant isolation: tenant B sees only its own hotel, and none of tenant A's rules
+    const b = await impact('bmaker')
+    expect(b.totalHotels).toBe(1); expect(b.planNights).toEqual({ sell: 0, netPriced: 0, netUnpriced: 30, basisUnverified: 0 }); expect(b.affectedHotels[0].hotelId).toBe(hotelB)
+    // RBAC and validation
+    await request(app.getHttpServer()).get('/api/v1/admin/operations/commercial/impact').set('Cookie', cookies.viewer).expect(200)
+    await request(app.getHttpServer()).get('/api/v1/admin/operations/commercial/impact').set('Cookie', cookies.none).expect(403)
+    await request(app.getHttpServer()).get('/api/v1/admin/operations/commercial/impact').expect(401)
+    await request(app.getHttpServer()).get('/api/v1/admin/operations/commercial/impact?days=0').set('Cookie', cookies.maker).expect(400)
+    await prisma.dailyRate.updateMany({ where: { ratePlanId: plan.id }, data: { amountBasis: 'NET' } })
+  })
 })

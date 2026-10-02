@@ -232,3 +232,9 @@ test('markup page manages rules only: the API prices, the browser does no pricin
   assert.match(page, /canRequestActivation/); assert.match(page, /approval\??\.canDecide/); assert.match(page, /canExecute/, 'buttons come from the API flags')
   assert.doesNotMatch(page, /method: 'PATCH'|method: 'PUT'|method: 'DELETE'/, 'rules are immutable: no update or delete')
 })
+
+test('markup impact panel shows the API counts and money, with no arithmetic or currency mixing in the browser', () => {
+  const src = readFileSync(join(root, 'components', 'commercial', 'MarkupImpact.tsx'), 'utf8')
+  assert.match(src, /getMarkupImpact/); assert.match(src, /formatMinorUnits/); assert.match(src, /OpsState/)
+  assert.doesNotMatch(src, /Number\(|parseFloat|toFixed|Math\.|BigInt|\.reduce\(/, 'no money or count arithmetic in React')
+})
