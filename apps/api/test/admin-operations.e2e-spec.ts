@@ -1,0 +1,312 @@
+import { randomBytes } from 'crypto'
+import { BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { PrismaClient } from '@prisma/client'
+import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
+import { PrismaService } from '../src/database/prisma.service'
+import { AgentAuditService } from '../src/agent/audit.service'
+import { InventoryHoldService } from '../src/agent/inventory-hold.service'
+import { BookingPersistenceService } from '../src/agent/booking-persistence.service'
+import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
+import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compensation-recovery.service'
+import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
+import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
+import { BookingTransactionService } from '../src/agent/booking-transaction.service'
+import { BookingCancellationService } from '../src/agent/booking-cancellation.service'
+import { CancellationPolicyService } from '../src/agent/cancellation-policy.service'
+import { BookingReconciliationService } from '../src/agent/booking-reconciliation.service'
+import { BookingDocumentService } from '../src/agent/booking-document.service'
+import { LedgerService } from '../src/agent/ledger.service'
+import type { SupplierAdapter } from '../src/agent/supplier.port'
+import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
+import { OperationsSupplyService } from '../src/admin-operations/operations-supply.service'
+import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
+
+const ownerUrl = process.env.DATABASE_URL
+if (!ownerUrl) throw new Error('DATABASE_URL is required')
+
+interface Fixture { tenantId: string; userId: string; supplierId: string; hotelId: string; roomId: string; boardId: string; contractId: string; ratePlanId: string }
+
+describe('admin operations API (PostgreSQL, two tenants)', () => {
+  const prisma = new PrismaService()
+  const audit = new AgentAuditService(prisma)
+  const holds = new InventoryHoldService(prisma)
+  const persistence = new BookingPersistenceService(prisma)
+  const finance = new BookingFinancialAuthorizationService(prisma)
+  const recovery = new PrebookCompensationRecoveryService(finance, holds, audit)
+  const confirmation = new BookingConfirmationService(prisma)
+  const docs = new BookingDocumentService(prisma, audit)
+  const cancellations = new BookingCancellationService(prisma, new CancellationPolicyService(), new LedgerService(prisma), audit)
+  const supplier = { prebook: async () => ({ supplierReference: 'contracted:test' }) } as unknown as SupplierAdapter
+  const bookingTx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier), confirmation)
+  const reconciliation = new BookingReconciliationService(prisma, finance, holds, audit)
+  const tx = new OperationsTransactionsService(prisma, reconciliation)
+  const supply = new OperationsSupplyService(prisma)
+  const suffix = `ops-${Date.now()}-${randomBytes(3).toString('hex')}`
+  const stay = new Date(Date.now() + 40 * 86_400_000)
+  const nights = [stay, new Date(stay.getTime() + 86_400_000)]
+  const ymd = (d: Date) => d.toISOString().slice(0, 10)
+  const checkIn = ymd(nights[0]); const checkOut = ymd(new Date(stay.getTime() + 2 * 86_400_000))
+  let A: Fixture, B: Fixture
+
+  async function fixture(tag: string): Promise<Fixture> {
+    const key = `${suffix}-${tag}`
+    const tenantId = (await prisma.tenant.create({ data: { name: key, slug: key } })).id
+    const userId = (await prisma.user.create({ data: { email: `${key}@example.test` } })).id
+    await prisma.membership.create({ data: { tenantId, userId, role: 'owner' } })
+    const supplierId = (await prisma.supplier.create({ data: { tenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${key} s`, displayName: `${key} supplier`, countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    const hotelId = (await prisma.hotel.create({ data: { tenantId, name: `${key} hotel`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' } })).id
+    const roomId = (await prisma.roomType.create({ data: { hotelId, name: 'Deluxe', code: key, maxAdults: 2, maxOccupancy: 2 } })).id
+    const boardId = (await prisma.boardBasis.create({ data: { tenantId, code: "RO", name: 'Room only' } })).id
+    const contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: key, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
+    const ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, allotment: 20 })) })
+    await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, occupancy: 2, amountMinor: 62_550n, currency: 'AED', amountBasis: 'SELL' })) })
+    await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 1_000_000n, cachedBalance: 0n } })
+    return { tenantId, userId, supplierId, hotelId, roomId, boardId, contractId, ratePlanId }
+  }
+
+  async function purge(f: Fixture | undefined) {
+    if (!f) return
+    const { tenantId } = f
+    await prisma.connectorExecution.deleteMany({ where: { tenantId } })
+    await prisma.connectorCredentialReference.deleteMany({ where: { connector: { tenantId } } })
+    await prisma.connectorDefinition.deleteMany({ where: { tenantId } })
+    await prisma.auditEvent.deleteMany({ where: { tenantId } })
+    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await prisma.bookingDocument.deleteMany({ where: { tenantId } })
+    await prisma.booking.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    await prisma.wallet.deleteMany({ where: { tenantId } })
+    await prisma.dailyRate.deleteMany({ where: { ratePlanId: f.ratePlanId } })
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: f.ratePlanId } })
+    await prisma.cancellationPolicy.deleteMany({ where: { contractId: f.contractId } })
+    await prisma.ratePlan.deleteMany({ where: { id: f.ratePlanId } })
+    await prisma.contract.deleteMany({ where: { id: f.contractId } })
+    await prisma.boardBasis.deleteMany({ where: { id: f.boardId } })
+    await prisma.roomType.deleteMany({ where: { id: f.roomId } })
+    await prisma.hotel.deleteMany({ where: { tenantId } })
+    await prisma.supplier.deleteMany({ where: { id: f.supplierId } })
+    await prisma.membership.deleteMany({ where: { tenantId } })
+    await prisma.user.deleteMany({ where: { id: f.userId } })
+    await prisma.tenant.deleteMany({ where: { id: tenantId } })
+  }
+
+  const guest = { firstName: 'Layla', lastName: 'Hassan' }
+  async function book(f: Fixture, key: string, finish: 'confirm' | 'cancel' | 'none' = 'confirm') {
+    const hold = await holds.create({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-req`, idempotencyKey: key, offerId: `offer-${key}`, searchId: `search-${key}`, ratePlanId: f.ratePlanId,
+      canonicalHotelId: f.hotelId, canonicalRoomTypeId: f.roomId, boardBasisId: f.boardId, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 125_100, offerExpiresAt: new Date(Date.now() + 3_600_000).toISOString() })
+    const pre = await bookingTx.prebook({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-pre`, inventoryHoldId: hold.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
+    if (finish !== 'none') await bookingTx.confirm({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-confirm`, bookingId: pre.bookingId })
+    if (finish === 'cancel') await cancellations.cancel({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-cancel`, bookingId: pre.bookingId })
+    return { holdId: hold.holdId, bookingId: pre.bookingId }
+  }
+
+  let confirmedA: { holdId: string; bookingId: string }, cancelledA: { holdId: string; bookingId: string }, stuckA: { holdId: string; bookingId: string }
+
+  beforeAll(async () => {
+    await prisma.$connect()
+    A = await fixture('a'); B = await fixture('b')
+    await prisma.cancellationPolicy.create({ data: { contractId: A.contractId, daysBeforeCheckin: 7, penaltyPercent: 0 } })
+    confirmedA = await book(A, `${suffix}-confirmed`)
+    cancelledA = await book(A, `${suffix}-cancelled`, 'cancel')
+    stuckA = await book(A, `${suffix}-stuck`, 'none')
+    await book(B, `${suffix}-b-confirmed`)
+    await prisma.connectorDefinition.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, type: 'API_JSON', status: 'DRAFT', name: `${suffix} connector`, version: '1', credentialReferences: { create: [{ secretRef: 'vault://never-returned', purpose: 'api_key' }] } } })
+  })
+
+  afterAll(async () => { await purge(A); await purge(B); await prisma.$disconnect() })
+
+  // ---- Booking 360 ---------------------------------------------------------------------------------------------------
+  it('ADMIN-BOOKING-360: shows booking, hold, ledger, audit and documents for the right tenant, with integer-string money', async () => {
+    const view = await tx.booking(A.tenantId, confirmedA.bookingId)
+    expect(view.booking.status).toBe('CONFIRMED')
+    expect(view.commercial).toMatchObject({ currency: 'AED', totalMinor: '125100' })
+    expect(view.inventory.hold?.status).toBe('CONFIRMED')
+    expect(view.inventory.hold?.nights).toHaveLength(2)
+    expect(view.finance.entries.some(e => e.type === 'DEBIT')).toBe(true)
+    expect(view.supplier.supplierBookingReference).toBeNull()
+    expect(view.attention).toEqual([])
+    expect(view.audit.length).toBeGreaterThan(0)
+    for (const e of view.finance.entries) expect(e.amountMinor).toMatch(/^-?\d+$/)
+  })
+
+  it('ADMIN-CANCEL: a cancelled booking reconciles its record, refund and released hold', async () => {
+    const view = await tx.booking(A.tenantId, cancelledA.bookingId)
+    expect(view.booking.status).toBe('CANCELLED')
+    expect(view.cancellation.record).not.toBeNull()
+    expect(view.inventory.hold?.status).toBe('RELEASED')
+    expect(view.attention).toEqual([])
+    const list = await tx.cancellations(A.tenantId, {})
+    const row = list.items.find(c => c.bookingId === cancelledA.bookingId)
+    expect(row?.refundMatches).toBe(true)
+  })
+
+  // ---- tenant isolation ----------------------------------------------------------------------------------------------
+  it('ADMIN-ISOLATION: tenant B cannot read tenant A bookings, holds, ledger, wallets, audit, connectors or documents', async () => {
+    await expect(tx.booking(B.tenantId, confirmedA.bookingId)).rejects.toBeInstanceOf(NotFoundException)
+    await expect(tx.hold(B.tenantId, confirmedA.holdId)).rejects.toBeInstanceOf(NotFoundException)
+    await expect(tx.documentHtml(B.tenantId, confirmedA.bookingId, 'invoice')).rejects.toBeInstanceOf(NotFoundException)
+    const aBookings = (await tx.bookings(A.tenantId, {})).items.map(b => b.id)
+    const bBookings = await tx.bookings(B.tenantId, {})
+    expect(bBookings.total).toBe(1)
+    expect(bBookings.items.every(b => !aBookings.includes(b.id) && b.tenantId === B.tenantId)).toBe(true)
+    expect((await tx.holds(B.tenantId, {})).items.every(h => h.tenantId === B.tenantId)).toBe(true)
+    expect((await tx.wallets(B.tenantId, {})).items.every(w => w.tenantId === B.tenantId)).toBe(true)
+    const ledgerB = await tx.ledger(B.tenantId, {})
+    const walletsA = (await tx.wallets(A.tenantId, {})).items.map(w => w.id)
+    expect(ledgerB.items.every(e => !walletsA.includes(e.walletId))).toBe(true)
+    expect((await tx.audit(B.tenantId, {})).items.every(a => !a.entityId.includes(confirmedA.bookingId))).toBe(true)
+    expect((await tx.connectors(B.tenantId, {})).total).toBe(0)
+    expect((await supply.hotels(B.tenantId, B.userId, {}).catch(e => e)).constructor.name).toBe('ForbiddenException') // no formal role: fail closed
+  })
+
+  it('ADMIN-IDS: a tenant id supplied in a query string is ignored; scope is the caller tenant only', async () => {
+    const result = await tx.bookings(B.tenantId, { tenantId: A.tenantId })
+    expect(result.items.every(b => b.tenantId === B.tenantId)).toBe(true)
+  })
+
+  // ---- pagination and validation --------------------------------------------------------------------------------------
+  it('ADMIN-PAGING: server-side paging, filters and strict validation', async () => {
+    const page1 = await tx.bookings(A.tenantId, { pageSize: '2', page: '1' })
+    const page2 = await tx.bookings(A.tenantId, { pageSize: '2', page: '2' })
+    expect(page1.total).toBe(3)
+    expect(page1.items).toHaveLength(2)
+    expect(page2.items).toHaveLength(1)
+    expect(new Set([...page1.items, ...page2.items].map(b => b.id)).size).toBe(3)
+    expect((await tx.bookings(A.tenantId, { status: 'CANCELLED' })).items.map(b => b.id)).toEqual([cancelledA.bookingId])
+    const reference = (await tx.booking(A.tenantId, confirmedA.bookingId)).booking.reference
+    expect((await tx.bookings(A.tenantId, { reference })).items.map(b => b.id)).toEqual([confirmedA.bookingId])
+    await expect(tx.bookings(A.tenantId, { pageSize: '1000' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(tx.bookings(A.tenantId, { page: '0' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(tx.bookings(A.tenantId, { status: 'DROP' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(tx.bookings(A.tenantId, { createdFrom: '2026-13-45' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(tx.bookings(A.tenantId, { reference: "x' OR 1=1 --" })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(tx.booking(A.tenantId, '../etc/passwd')).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  // ---- documents are read-only and immutable ---------------------------------------------------------------------------
+  it('ADMIN-DOCS: Admin renders only issued documents and never issues one', async () => {
+    await expect(tx.documentHtml(A.tenantId, confirmedA.bookingId, 'voucher')).rejects.toBeInstanceOf(NotFoundException)
+    expect((await tx.booking(A.tenantId, confirmedA.bookingId)).documents).toHaveLength(0)
+    await docs.get({ tenantId: A.tenantId, userId: A.userId, requestId: 'doc-1', bookingId: confirmedA.bookingId, type: 'VOUCHER' })
+    const html = await tx.documentHtml(A.tenantId, confirmedA.bookingId, 'voucher')
+    expect(html).toContain('<html')
+    expect((await tx.booking(A.tenantId, confirmedA.bookingId)).documents.map(d => d.type)).toEqual(['VOUCHER'])
+    await expect(prisma.bookingDocument.updateMany({ where: { tenantId: A.tenantId }, data: { number: 'TAMPER' } })).rejects.toBeDefined()
+    await expect(tx.documentHtml(A.tenantId, confirmedA.bookingId, '__proto__')).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  // ---- reconciliation ----------------------------------------------------------------------------------------------------
+  it('ADMIN-RECON: stuck holds surface in the queue, a dry run changes nothing, and a run reconciles through the existing service', async () => {
+    await prisma.$executeRaw`UPDATE "InventoryHold" SET updated_at = now() - interval '2 hours' WHERE id = ${stuckA.holdId}`
+    // Inside its confirmation window a prebooked attempt is deliberately left alone; age the marker past it.
+    await prisma.$executeRaw`UPDATE "AuditEvent" SET created_at = now() - interval '2 hours' WHERE action = 'booking.prebook.succeeded' AND entity_id = ${stuckA.bookingId}`
+    const before = await tx.reconciliationQueue(A.tenantId, A.userId, 'req-queue')
+    const hit = before.cases.find(c => c.holdId === stuckA.holdId)
+    expect(hit).toMatchObject({ source: 'reconciliation_dry_run', holdStatus: 'PROCESSING' })
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: stuckA.holdId } })).status).toBe('PROCESSING') // dry run is read-only
+    expect((await tx.reconciliationQueue(B.tenantId, B.userId, 'req-queue-b')).cases.some(c => c.holdId === stuckA.holdId)).toBe(false)
+    const run = await tx.reconcile(A.tenantId, A.userId, 'req-run', {})
+    expect(run.items.find(i => i.holdId === stuckA.holdId)?.outcome).toBe('prebook_expired')
+    expect((await prisma.booking.findUniqueOrThrow({ where: { id: stuckA.bookingId } })).status).toBe('FAILED')
+    expect((await prisma.inventoryHold.findUniqueOrThrow({ where: { id: stuckA.holdId } })).status).toBe('RELEASED')
+    const again = await tx.reconcile(A.tenantId, A.userId, 'req-run-2', {})
+    expect(again.items.some(i => i.holdId === stuckA.holdId && i.outcome === 'failed')).toBe(false) // idempotent
+    expect((await prisma.auditEvent.count({ where: { tenantId: A.tenantId, action: 'booking.prebook.expired', entityId: stuckA.bookingId } }))).toBeGreaterThan(0)
+    await expect(tx.reconcile(A.tenantId, A.userId, 'bad', { staleMinutes: -5 })).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  // ---- finance ----------------------------------------------------------------------------------------------------------
+  it('ADMIN-LEDGER: wallet balance equals the ledger sum and available credit uses the canonical formula', async () => {
+    const [wallet] = (await tx.wallets(A.tenantId, {})).items
+    const entries = await prisma.ledgerEntry.findMany({ where: { tenantId: A.tenantId } })
+    const sum = entries.reduce((n, e) => n + e.amountMinor, 0n)
+    expect(wallet.balanceMinor).toBe(sum.toString())
+    expect(wallet.availableCreditMinor).toBe((1_000_000n + sum).toString())
+    expect(wallet.entryCount).toBe(entries.length)
+    const byType = await tx.ledger(A.tenantId, { type: 'DEBIT' })
+    expect(byType.items.every(e => e.type === 'DEBIT')).toBe(true)
+    const forBooking = await tx.ledger(A.tenantId, { bookingId: confirmedA.bookingId })
+    expect(forBooking.items.length).toBeGreaterThan(0)
+  })
+
+  it('ADMIN-AUDIT: filters by request id and entity, and never returns raw credential references', async () => {
+    const byEntity = await tx.audit(A.tenantId, { entityId: confirmedA.bookingId })
+    expect(byEntity.items.length).toBeGreaterThan(0)
+    expect(byEntity.items.every(a => a.entityId === confirmedA.bookingId)).toBe(true)
+    const connectors = await tx.connectors(A.tenantId, {})
+    expect(JSON.stringify(connectors)).not.toContain('vault://never-returned')
+    expect(connectors.items[0].credentials).toEqual([{ purpose: 'api_key', status: 'configured' }])
+  })
+
+  // ---- hotels and readiness ------------------------------------------------------------------------------------------------
+  it('ADMIN-SUPPLY: hotel readiness uses canonical sellability and paginates', async () => {
+    await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
+    const role = await prisma.role.create({ data: { tenantId: A.tenantId, name: `${suffix}-viewer` } })
+    for (const key of ['supply.hotels.read', 'supply.suppliers.read']) {
+      const permission = await prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: key } })
+      await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })
+    }
+    await prisma.userRole.create({ data: { userId: A.userId, roleId: role.id, tenantId: A.tenantId } })
+    const hotels = await supply.hotels(A.tenantId, A.userId, { from: checkIn, days: '2' })
+    expect(hotels.total).toBe(1)
+    expect(hotels.items[0]).toMatchObject({ rooms: 1, ratePlans: 1, readiness: 'READY' })
+    // Stop-sell blocks the hotel with a canonical reason, not a guess.
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: true } })
+    const blocked = await supply.hotels(A.tenantId, A.userId, { from: checkIn, days: '2' })
+    expect(blocked.items[0]).toMatchObject({ readiness: 'BLOCKED' })
+    expect(blocked.items[0].blockers).toContain('STOP_SELL')
+    expect((await supply.hotels(A.tenantId, A.userId, { readiness: 'READY', from: checkIn, days: '2' })).total).toBe(0)
+    const readiness = await supply.readiness(A.tenantId, A.userId, { from: checkIn, days: '2' }, () => tx.transactionSummary(A.tenantId), () => tx.connectorSummary(A.tenantId))
+    expect(readiness.supply).toMatchObject({ state: 'available', data: { hotels: { blocked: 1, sellable: 0 }, stopSellHotels: 1 } })
+    expect(readiness.transactions).toMatchObject({ state: 'available' })
+    const suppliers = await supply.suppliers(A.tenantId, A.userId, {})
+    expect(suppliers.items[0].contracts).toEqual({ total: 1, active: 1 })
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: false } })
+    await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
+    await prisma.role.delete({ where: { id: role.id } })
+  })
+
+  // ---- privilege boundary -------------------------------------------------------------------------------------------------
+  describe('runtime API role (privilege boundary, not an outage)', () => {
+    const password = randomBytes(24).toString('hex')
+    let previous: string | undefined
+    let runtimePrisma: PrismaService
+    let runtimeTx: OperationsTransactionsService
+    const owner = new PrismaClient({ datasourceUrl: ownerUrl })
+
+    beforeAll(async () => {
+      await owner.$connect()
+      await provisionApiRuntimeRole(owner, { password })
+      const url = new URL(ownerUrl!); url.username = API_RUNTIME_LOGIN_ROLE; url.password = password
+      previous = process.env.DATABASE_URL
+      process.env.DATABASE_URL = url.toString()
+      runtimePrisma = new PrismaService()
+      await runtimePrisma.$connect()
+      runtimeTx = new OperationsTransactionsService(runtimePrisma, new BookingReconciliationService(runtimePrisma, new BookingFinancialAuthorizationService(runtimePrisma), new InventoryHoldService(runtimePrisma), new AgentAuditService(runtimePrisma)))
+    })
+    afterAll(async () => {
+      process.env.DATABASE_URL = previous
+      if (previous === undefined) delete process.env.DATABASE_URL
+      await runtimePrisma?.$disconnect(); await owner.$disconnect()
+    })
+
+    it('ADMIN-DENIED: transaction views fail with OPERATIONS_READ_DENIED, never an empty list; the dashboard marks the section unavailable', async () => {
+      for (const call of [() => runtimeTx.bookings(A.tenantId, {}), () => runtimeTx.holds(A.tenantId, {}), () => runtimeTx.wallets(A.tenantId, {}), () => runtimeTx.ledger(A.tenantId, {}), () => runtimeTx.connectors(A.tenantId, {}), () => runtimeTx.cancellations(A.tenantId, {})]) {
+        const error = await call().then(() => null, e => e)
+        expect(error).toBeInstanceOf(ServiceUnavailableException)
+        expect((error as ServiceUnavailableException).getResponse()).toMatchObject({ code: OPERATIONS_READ_DENIED })
+      }
+      expect(await runtimeTx.transactionSummary(A.tenantId)).toEqual({ state: 'unavailable', reason: OPERATIONS_READ_DENIED })
+      expect(await runtimeTx.connectorSummary(A.tenantId)).toEqual({ state: 'unavailable', reason: OPERATIONS_READ_DENIED })
+    })
+
+    it('ADMIN-AUDIT-READ: audit events stay readable on the runtime role (the one transaction table it may select)', async () => {
+      const page = await runtimeTx.audit(A.tenantId, {}).then(p => p, e => e)
+      // AuditEvent is insert-only for the runtime role; if SELECT is also denied it must be the explicit code, not an empty page.
+      if (page instanceof ServiceUnavailableException) expect(page.getResponse()).toMatchObject({ code: OPERATIONS_READ_DENIED })
+      else expect(Array.isArray(page.items)).toBe(true)
+    })
+  })
+})

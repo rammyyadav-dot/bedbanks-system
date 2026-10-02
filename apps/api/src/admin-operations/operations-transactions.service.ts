@@ -98,7 +98,7 @@ export class OperationsTransactionsService {
   async bookings(tenantId: string, query: Record<string, unknown>): Promise<Paged<BookingRow>> {
     const page = pageParams(query)
     const status = enumParam('status', query.status, BOOKING_STATUSES)
-    const reference = textParam('reference', query.reference, 64)
+    const reference = idParam('reference', query.reference)
     const hotelId = idParam('hotelId', query.hotelId)
     const supplier = textParam('supplier', query.supplier, 64)
     const createdFrom = dayParam('createdFrom', query.createdFrom)
