@@ -8,7 +8,7 @@ export function idleSearchRun(): SearchRunState {
 }
 
 /**
- * Drop the displayed result and any in-flight request.
+ * Abandon the in-flight request without clearing a successful result.
  * Searching returns to false so the next submit can start immediately.
  * The generation still advances, so the abandoned request cannot write results.
  */

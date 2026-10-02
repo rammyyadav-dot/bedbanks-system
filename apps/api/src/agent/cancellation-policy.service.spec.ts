@@ -101,4 +101,14 @@ describe('CancellationPolicyService', () => {
       .toMatchObject({ status: 'manual_review_required' })
   })
 
+  it('states a free-cancellation deadline only when a penalty rule is unambiguous', () => {
+    const deadline = service.freeCancellationDeadline({
+      refundable: true, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 100 }],
+    })
+    expect(deadline).toBe('2026-10-08T20:00:00.000Z')
+    expect(service.freeCancellationDeadline({ refundable: false, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 100 }] })).toBeUndefined()
+    expect(service.freeCancellationDeadline({ refundable: true, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: [] })).toBeUndefined()
+    expect(service.freeCancellationDeadline({ refundable: true, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: 1n }] })).toBeUndefined()
+  })
+
 })

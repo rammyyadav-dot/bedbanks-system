@@ -4,7 +4,8 @@ export type HotelSearchCriteria = SearchCriteria
 export type HotelSearchResult = {
   liveHotels: SearchHotelOffer[]
   total: number
-  status: 'available' | 'partial' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied'
+  status: 'available' | 'partial' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied' | 'destination_unavailable'
+  failureMessage?: string
   request: SearchCriteria
   pagination?: SearchPagination
   /** Search that returned each hotel. Recheck must use that search, not a later page. */

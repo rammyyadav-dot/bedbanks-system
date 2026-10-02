@@ -5,6 +5,7 @@ import type * as SearchOffers from '@bedbanks/domain/search-offers'
 // does not execute the declaration instead of the validators.
 const searchOffers = require('../../../../packages/domain/src/search-offers.cjs') as typeof SearchOffers
 
+export const cityDestinationId = searchOffers.cityDestinationId
 export const validSearchCriteria = searchOffers.validSearchCriteria
 export const validateSearchHotels = searchOffers.validateSearchHotels
 export const validateAgentSearchResponse = searchOffers.validateAgentSearchResponse

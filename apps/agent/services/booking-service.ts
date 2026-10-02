@@ -11,8 +11,11 @@ export type HoldOutcome = { status: string; holdId?: string; expiresAt?: string;
 export type PrebookData = { status: 'prebooked'; bookingId: string; bookingReference: string }
 export type ConfirmData = { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean }
 export type BookingSummary = { id: string; reference: string; status: string; currency: string; totalMinor: string; createdAt: string; hotelName: string | null; checkIn: string | null; checkOut: string | null; rooms: number | null; leadGuest: string | null }
+export type BookingTimelineEvent = { type: 'recorded' | 'cancelled'; at: string }
+export type BookingPage = { items: BookingSummary[]; total: number; limit: number; offset: number }
 export type BookingDetail = BookingSummary & {
   adults: number | null; children: number | null; cancellable: boolean; documents: Array<{ type: string; number: string }>
+  timeline?: BookingTimelineEvent[]
   supplierMutation?: {
     bookingId: string; supplierKey: string; operation: string; mutationId: string; status: string
     supplierReference: string | null; attemptedAt: string | null; requestId: string; failureCategory: string | null; lastReconciledAt: string | null
@@ -27,6 +30,7 @@ const MINOR = /^-?\d+$/
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const failureFor = (status: number, message: string): BookingFailure => {
+  if (status === 503 && /reconciliation/i.test(message)) return { ok: false, kind: 'error', message: 'Reconciliation required' }
   const kind = status === 401 ? 'auth' : status === 403 ? 'denied' : status === 404 ? 'not_found' : status === 409 || status === 422 ? 'conflict' : status === 410 ? 'gone' : status === 400 ? 'invalid' : 'error'
   const generic: Record<BookingFailure['kind'], string> = { unavailable: 'Booking is not enabled.', auth: 'Your session expired. Sign in again.', denied: 'You do not have permission for this action.', not_found: 'That booking was not found.',
     conflict: 'That could not be completed.', gone: 'That offer or hold has expired.', invalid: 'Some details are invalid.', error: 'The booking service is unavailable. Nothing was changed.' }
@@ -93,13 +97,18 @@ export class BookingService {
       (data): data is ConfirmData => isRecord(data) && data.status === 'CONFIRMED' && typeof data.bookingId === 'string' && typeof data.reference === 'string')
   }
 
-  async list(tenantId: string): Promise<BookingResult<BookingSummary[]>> {
-    return this.parse(await this.call('/agent/bookings', tenantId), (data): data is BookingSummary[] => Array.isArray(data) && data.every(isBookingSummary))
+  async list(tenantId: string, query: { limit?: number; offset?: number; status?: string } = {}): Promise<BookingResult<BookingPage>> {
+    const params = new URLSearchParams()
+    if (query.limit !== undefined) params.set('limit', String(query.limit))
+    if (query.offset !== undefined) params.set('offset', String(query.offset))
+    if (query.status) params.set('status', query.status)
+    const suffix = params.size ? `?${params.toString()}` : ''
+    return this.parse(await this.call(`/agent/bookings${suffix}`, tenantId), isBookingPage)
   }
 
   async detail(bookingId: string, tenantId: string): Promise<BookingResult<BookingDetail>> {
     return this.parse(await this.call(`/agent/bookings/${encodeURIComponent(bookingId)}`, tenantId),
-      (data): data is BookingDetail => isBookingSummary(data) && typeof (data as Record<string, unknown>).cancellable === 'boolean' && Array.isArray((data as Record<string, unknown>).documents))
+      (data): data is BookingDetail => isBookingSummary(data) && typeof (data as Record<string, unknown>).cancellable === 'boolean' && Array.isArray((data as Record<string, unknown>).documents) && isTimeline((data as Record<string, unknown>).timeline))
   }
 
   async cancellationQuote(bookingId: string, tenantId: string): Promise<BookingResult<CancellationQuote>> {
@@ -123,6 +132,15 @@ export class BookingService {
   }
 }
 
+function isTimeline(value: unknown): boolean {
+  if (value === undefined) return true
+  return Array.isArray(value) && value.every((event) => isRecord(event) && (event.type === 'recorded' || event.type === 'cancelled') && typeof event.at === 'string' && Number.isFinite(Date.parse(event.at)))
+}
+function isBookingPage(value: unknown): value is BookingPage {
+  if (!isRecord(value) || !Array.isArray(value.items) || !value.items.every(isBookingSummary)) return false
+  const { total, limit, offset, items } = value
+  return Number.isSafeInteger(total) && (total as number) >= 0 && Number.isSafeInteger(limit) && (limit as number) >= 1 && Number.isSafeInteger(offset) && (offset as number) >= 0 && items.length <= (limit as number) && (offset as number) + items.length <= Math.max(total as number, offset as number)
+}
 function isBookingSummary(value: unknown): value is BookingSummary {
   return isRecord(value) && typeof value.id === 'string' && typeof value.reference === 'string' && typeof value.status === 'string' && typeof value.currency === 'string' && typeof value.totalMinor === 'string' && MINOR.test(value.totalMinor)
 }

@@ -1,23 +1,47 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { destinationSuggestions } from './destination-suggestions.ts'
 import { GUEST_MARKETS, clearGuestNationality, guestNationalityKey, isGuestMarket, readGuestNationality, rememberGuestNationality } from './guest-market.ts'
 import { occupancyCompact, occupancySummary, resolvedChildAges } from './occupancy.ts'
-import { criteriaFilters, minorToWholeAmount, parseWholeAmountMinor } from './search-filters.ts'
+import { canSubmitDestination, destinationSuggestions } from './destination-suggestions.ts'
+import { buildRoomStays } from './occupancy.ts'
+import { criteriaFilters, minorToMajorInput, parseMajorAmount } from './search-filters.ts'
 import { activeFilterLabel } from './search-summary.ts'
 import { appendHotelPage } from './search-page.ts'
 import { addUtcDays, applyStayPick, businessToday, defaultSearchStay, monthGrid, nightCount, utcToday } from './stay-calendar.ts'
 
-test('offers Dubai as the only city and never invents hotels, areas, or airports', () => {
-  assert.deepEqual(destinationSuggestions('').map((item) => item.value), ['Dubai'])
-  assert.equal(destinationSuggestions('dub').every((item) => item.kind !== 'destination-text' || item.value === 'dub'), true)
-  const london = destinationSuggestions('London')
-  assert.equal(london.some((item) => item.kind === 'city'), false)
-  assert.equal(london[0].kind, 'destination-text')
-  assert.match(london[0].detail, /destination field only/)
+test('offers Dubai as a canonical city and refuses free text as a destination', () => {
+  const dubai = destinationSuggestions('')
+  assert.deepEqual(dubai.map((item) => item.value), ['Dubai'])
+  assert.equal(dubai[0].ref.type, 'city')
+  assert.equal(dubai[0].ref.id, 'city:AE:dubai')
+  assert.equal(canSubmitDestination(null), false)
+  assert.equal(canSubmitDestination(dubai[0].ref), true)
+  assert.deepEqual(destinationSuggestions('London'), [])
+  assert.deepEqual(destinationSuggestions('ai'), [])
+  assert.equal(destinationSuggestions('du')[0]?.ref.id, 'city:AE:dubai')
+  assert.equal(canSubmitDestination({ type: 'hotel', id: 'hotel-1' }), true)
   const text = JSON.stringify(destinationSuggestions('marina'))
-  assert.doesNotMatch(text, /airport|landmark|Atlantis|Marriott/i)
+  assert.doesNotMatch(text, /airport|landmark|Atlantis|Marriott|destination-text/i)
+})
+
+test('keeps a different occupancy on each room and requires every child age', () => {
+  const one = buildRoomStays([{ adults: 2, childAges: [] }])
+  assert.equal(one.ok, true)
+  if (one.ok) {
+    assert.equal(one.rooms, 1)
+    assert.equal(one.adults, 2)
+    assert.deepEqual(one.roomStays, [{ adults: 2, children: [] }])
+  }
+  const mixed = buildRoomStays([{ adults: 2, childAges: [] }, { adults: 2, childAges: [7] }])
+  assert.equal(mixed.ok, true)
+  if (mixed.ok) {
+    assert.equal(mixed.rooms, 2)
+    assert.equal(mixed.adults, 4)
+    assert.deepEqual(mixed.childAges, [7])
+    assert.equal(mixed.roomStays[1].children[0].age, 7)
+  }
+  assert.equal(buildRoomStays([{ adults: 2, childAges: [null] }]).ok, false)
 })
 
 test('keeps guest markets aligned with search criteria and stores them per account', () => {
@@ -37,20 +61,23 @@ test('keeps guest markets aligned with search criteria and stores them per accou
   assert.equal(storage.getItem(guestNationalityKey('agent-a')), null)
 })
 
-test('converts whole AED amounts to minor units and rejects decimals', () => {
-  assert.deepEqual(parseWholeAmountMinor(''), { state: 'empty' })
-  assert.deepEqual(parseWholeAmountMinor('700'), { state: 'minor', minor: 70000 })
+test('converts AED, USD and OMR major units to integer minor units', () => {
+  assert.deepEqual(parseMajorAmount('', 'AED'), { state: 'empty' })
+  assert.deepEqual(parseMajorAmount('100', 'AED'), { state: 'minor', minor: 10000 })
+  assert.deepEqual(parseMajorAmount('100.00', 'USD'), { state: 'minor', minor: 10000 })
+  assert.deepEqual(parseMajorAmount('100.000', 'OMR'), { state: 'minor', minor: 100000 })
+  assert.deepEqual(parseMajorAmount('100.0001', 'OMR'), { state: 'invalid' })
+  assert.equal(minorToMajorInput(100000, 'OMR'), '100')
   assert.equal(activeFilterLabel({ maxPriceMinor: 70000 }), 'Up to AED 700 total')
   assert.equal(activeFilterLabel({ minPriceMinor: 40000, maxPriceMinor: 90000, starRatings: [5], refundableOnly: true }), '5★ · Refundable · AED 400–900 total')
+  assert.equal(activeFilterLabel({ maxPriceMinor: 100000, currency: 'OMR' }), 'Up to OMR 100 total')
   assert.equal(activeFilterLabel({}), '')
-  assert.deepEqual(parseWholeAmountMinor('700.50'), { state: 'invalid' })
-  assert.equal(minorToWholeAmount(70000), '700')
-  assert.deepEqual(criteriaFilters({ starRatings: [5, 5, 4], refundableOnly: true, minPriceAed: '150', maxPriceAed: '1500' }), {
+  assert.deepEqual(criteriaFilters({ starRatings: [5, 5, 4], refundableOnly: true, minPrice: '150', maxPrice: '1500', currency: 'AED', boardBasisIds: [], propertyTypes: [] }), {
     ok: true,
     filters: { starRatings: [4, 5], refundableOnly: true, minPriceMinor: 15000, maxPriceMinor: 150000 },
   })
-  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPriceAed: '', maxPriceAed: '' }).filters, undefined)
-  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPriceAed: '10', maxPriceAed: '2' }).ok, false)
+  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '', maxPrice: '', currency: 'AED', boardBasisIds: [], propertyTypes: [] }).filters, undefined)
+  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '10', maxPrice: '2', currency: 'USD', boardBasisIds: [], propertyTypes: [] }).ok, false)
 })
 
 test('builds a Monday calendar and refuses a checkout before check-in', () => {

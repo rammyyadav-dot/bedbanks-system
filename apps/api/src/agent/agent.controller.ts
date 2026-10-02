@@ -1,14 +1,18 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
+import { PrismaService } from '../database/prisma.service'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentAuditService } from './audit.service'
 import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, ReconcileBookingsDto, PrebookBookingDto, ConfirmBookingDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
-import { SupplierAdapter, SUPPLIER_ADAPTER, HotelSearchCriteria, PERMISSIONS } from './supplier.port'
-import { ActiveTenant, TenantContextGuard, activeTenantId } from './tenant-context.guard'
+import { SupplierAdapter, SUPPLIER_ADAPTER, PERMISSIONS } from './supplier.port'
+import type { SearchCriteria } from '@bedbanks/domain'
+import { ACTIVE_TENANT_HEADER, ActiveTenant, TenantContextGuard, activeTenantId, sessionTenantId } from './tenant-context.guard'
+import { effectiveAgentPermissions } from './agent-permissions'
+import type { AgentPermission } from './supplier.port'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
@@ -17,6 +21,7 @@ import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
 import { validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
+import { DestinationResolverService } from './destination-resolver.service'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
 import { BookingCancellationService } from './booking-cancellation.service'
@@ -31,9 +36,25 @@ class SearchFiltersDto {
   @IsOptional() @IsBoolean() refundableOnly?: boolean
   @IsOptional() @IsInt() @Min(0) minPriceMinor?: number
   @IsOptional() @IsInt() @Min(0) maxPriceMinor?: number
+  @IsOptional() @IsArray() @IsString({ each: true }) propertyTypes?: string[]
 }
 
-class SearchHotelsDto implements HotelSearchCriteria {
+class DestinationRefDto {
+  @IsIn(['city', 'hotel']) type!: 'city' | 'hotel'
+  @IsString() id!: string
+  @IsOptional() @IsString() countryCode?: string
+}
+
+class RoomChildDto {
+  @IsInt() @Min(0) @Max(17) age!: number
+}
+
+class RoomStayDto {
+  @IsInt() @Min(1) @Max(8) adults!: number
+  @IsArray() @ValidateNested({ each: true }) @Type(() => RoomChildDto) children: RoomChildDto[] = []
+}
+
+class SearchHotelsDto {
   @IsString() destination!: string
   @IsOptional() @IsArray() @IsString({ each: true }) canonicalHotelIds?: string[]
   @IsDateString() checkIn!: string
@@ -46,6 +67,9 @@ class SearchHotelsDto implements HotelSearchCriteria {
   @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
   @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number
   @IsOptional() @IsInt() @Min(0) @Max(10000) offset?: number
+  @IsOptional() @IsIn(['default', 'price', 'stars', 'name']) sort?: 'default' | 'price' | 'stars' | 'name'
+  @IsOptional() @ValidateNested() @Type(() => DestinationRefDto) destinationRef?: DestinationRefDto
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => RoomStayDto) roomStays?: RoomStayDto[]
   @IsOptional() @ValidateNested() @Type(() => SearchFiltersDto) filters?: SearchFiltersDto
 }
 
@@ -65,12 +89,36 @@ export class AgentController {
     private readonly documents: BookingDocumentService,
     private readonly bookingQueries: BookingQueryService,
     private readonly inventoryHolds: InventoryHoldService,
+    private readonly destinationResolver: DestinationResolverService,
+    private readonly prisma: PrismaService,
   ) {}
 
+  @Get('destinations')
+  @ApiOperation({ summary: 'Resolve a canonical city or hotel. Free text is not a destination.' })
+  @RequirePermission(PERMISSIONS.search)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async listDestinations(@Query('q') query: string | undefined, @ActiveTenant() tenantId: string) {
+    return { results: await this.destinationResolver.search(tenantId, typeof query === 'string' ? query : '') }
+  }
+
+  @Get('search-facets')
+  @ApiOperation({ summary: 'Board and property-type values stored for this tenant' })
+  @RequirePermission(PERMISSIONS.search)
+  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  async searchFacets(@ActiveTenant() tenantId: string) {
+    return this.destinationResolver.facets(tenantId)
+  }
+
   @Get('context')
-  @ApiOperation({ summary: 'Return authenticated agent context and memberships' })
-  context(@CurrentUser() identity: AuthenticatedUser) {
-    return { user: identity.user, memberships: identity.memberships, capabilities: Object.values(PERMISSIONS), bookingEnabled: bookingEnabled() }
+  @ApiOperation({ summary: 'Return authenticated agent context, memberships and effective grants for the selected tenant' })
+  async context(@CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    const requested = req.headers[ACTIVE_TENANT_HEADER]
+    if (requested === undefined || requested === '') {
+      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], bookingEnabled: bookingEnabled() }
+    }
+    const tenantId = sessionTenantId(identity, requested)
+    const capabilities = await this.effectiveCapabilities(identity.user.id, tenantId)
+    return { user: identity.user, memberships: identity.memberships, capabilities, bookingEnabled: bookingEnabled() }
   }
 
   @Post('offers/:offerId/hold')
@@ -80,6 +128,11 @@ export class AgentController {
   async holdOffer(@Param() params: OfferHoldParamsDto, @Body() body: OfferHoldDto,
     @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     const tenantId = activeTenantId(req)
+    if (!bookingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.hold.unavailable', entityType: 'offer', entityId: params.offerId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
+    }
     const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
@@ -94,8 +147,9 @@ export class AgentController {
   @Post('search/status')
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async searchStatus(@Body() criteria: SearchHotelsDto) {
-    if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
+  async searchStatus(@Body() criteria: SearchHotelsDto, @ActiveTenant() tenantId: string) {
+    const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
+    if (!resolved || !validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
     return { status: this.supplier.name === 'unconfigured' ? 'provider_unavailable' : 'not_checked' }
   }
 
@@ -104,9 +158,11 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.search)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
-    if (!validSearchCriteria(criteria)) throw new BadRequestException('Invalid search criteria')
     const tenantId = activeTenantId(req)
-    return this.agentSearch.execute(criteria, tenantId, req.requestId ?? randomUUID(), identity)
+    const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
+    if (!resolved) throw new BadRequestException('Canonical destination is no longer available')
+    if (!validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
+    return this.agentSearch.execute(resolved, tenantId, req.requestId ?? randomUUID(), identity)
   }
 
   @Delete('holds/:holdId')
@@ -169,9 +225,9 @@ export class AgentController {
   @ApiOperation({ summary: 'List the tenant\'s bookings, newest first (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
-  async listBookings(@Query('limit') limit: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
-    return this.bookingQueries.list(tenantId, Number(limit) || 50)
+    return this.bookingQueries.list(tenantId, { limit: Number(limit), offset: Number(offset), status: status || undefined })
   }
 
   @Get('bookings/:id')
@@ -242,4 +298,24 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.auditRead)
   @UseGuards(TenantContextGuard, AgentRbacGuard)
   auditEvents(@ActiveTenant() tenantId: string, @Query('limit') limit?: string) { return this.audit.list(tenantId, Math.max(1, Math.trunc(Number(limit)) || 50)) }
+
+  /** Same membership and role rows the RBAC guard uses. Returns nothing for a missing or inactive membership. */
+  private async effectiveCapabilities(userId: string, tenantId: string): Promise<AgentPermission[]> {
+    const membership = await this.prisma.withTenant(tenantId, (tx) => tx.membership.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+      include: { tenant: true },
+    }))
+    if (!membership || membership.tenantId !== tenantId || membership.tenant.status !== 'ACTIVE') {
+      await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({
+        data: { tenantId, actorType: 'USER', action: 'tenant.access.denied', entityType: 'tenant', entityId: tenantId, payload: { reason: 'inactive_or_missing_membership' }, userId },
+      })).catch(() => undefined)
+      throw new ForbiddenException('Access denied')
+    }
+    const roles = await this.prisma.withTenant(tenantId, (tx) => tx.userRole.findMany({
+      where: { userId, tenantId, role: { tenantId } },
+      include: { role: { include: { permissions: { include: { permission: true } } } } },
+    }))
+    const formal = roles.flatMap((item) => item.role.permissions.map((permission) => permission.permission.key))
+    return effectiveAgentPermissions(membership.role, formal)
+  }
 }

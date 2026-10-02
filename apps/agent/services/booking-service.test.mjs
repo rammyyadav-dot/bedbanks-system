@@ -33,6 +33,10 @@ test('HTTP failures map to explicit kinds; only conflict/invalid/gone show the s
     assert.equal(result.ok, false); assert.equal(result.kind, kind)
     assert.equal(result.message.includes('Insufficient wallet credit'), ['conflict', 'invalid', 'gone'].includes(kind), `${status}`)
   }
+  globalThis.fetch = reply(503, { success: false, error: { code: 'RECONCILIATION', message: 'Supplier outcome requires reconciliation' } })
+  const ambiguous = await service().confirm('b1', 't')
+  assert.equal(ambiguous.ok, false)
+  assert.equal(ambiguous.message, 'Reconciliation required')
   globalThis.fetch = async () => { throw new Error('network') }
   assert.equal((await service().confirm('b1', 't')).kind, 'error')
   assert.equal((await new BookingService('', 10).confirm('b1', 't')).kind, 'error')
@@ -42,8 +46,12 @@ test('HTTP failures map to explicit kinds; only conflict/invalid/gone show the s
 test('malformed success bodies are rejected instead of trusted', async () => {
   globalThis.fetch = reply(201, { data: { status: 'prebooked' } })
   assert.equal((await service().prebook('h', guest, 't')).ok, false)
-  globalThis.fetch = reply(200, { data: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '12.5' }] })
+  globalThis.fetch = reply(200, { data: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }] })
   assert.equal((await service().list('t')).ok, false)
+  globalThis.fetch = reply(200, { data: { items: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }], total: 51, limit: 20, offset: 20 } })
+  const page = await service().list('t', { limit: 20, offset: 20, status: 'CONFIRMED' })
+  assert.equal(page.ok && page.data.total, 51)
+  assert.equal(page.ok && page.data.items.length, 1)
   globalThis.fetch = reply(200, { data: { bookingId: 'b', currency: 'AED', totalMinor: '100', penaltyMinor: '30', refundMinor: 'x' } })
   assert.equal((await service().cancellationQuote('b', 't')).ok, false)
 })

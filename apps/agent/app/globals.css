@@ -289,6 +289,10 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
 .booking-status.is-confirmed { background: #e0f4ea; color: #1f7a5a; }
 .booking-status.is-cancelled, .booking-status.is-failed { background: #fbe9e7; color: #b3261e; }
 .booking-detail { padding: 16px; margin-top: 14px; display: grid; gap: 6px; }
+.booking-review { display: grid; gap: 8px; margin: 12px 0; padding: 12px; border: 1px solid #E5E7EB; border-radius: 8px; background: #F7F8FA; }
+.booking-review div { display: grid; grid-template-columns: 140px 1fr; gap: 8px; }
+.booking-review dt { color: #6B7280; font-size: 12px; }
+.booking-review dd { margin: 0; color: #1F2937; }
 .portal-link.danger { color: #b3261e; }
 
 .trade-entrance, .trade-public { color: #1F2937; background: #FFFFFF; overflow-x: clip; }
@@ -498,4 +502,19 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
   .market-results-bar, .market-detail-head { align-items: flex-start; flex-direction: column; }
   .market-rate-row { grid-template-columns: 1fr; }
   .market-rate-price { justify-items: start; text-align: left; }
+  .market-split { display: block; }
+  .market-split .market-results, .market-split .portal-hotel-list { display: none; }
+}
+.market-hotel-card.is-active, .market-hotel-card:focus-within, .portal-hotel-list:focus-visible { outline: 2px solid #1D4ED8; outline-offset: 2px; }
+.market-refresh { margin: 0 0 8px; color: #1D4ED8; font-size: 13px; }
+.market-pages { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.market-pages button { min-width: 32px; min-height: 32px; border: 1px solid #E5E7EB; background: #fff; border-radius: 4px; }
+.market-pages button[aria-current='page'] { background: #111827; color: #fff; }
+.market-room-stay { border: 0; margin: 0 0 8px; padding: 0; }
+.market-room-actions { display: flex; gap: 8px; }
+.market-stay-address { margin: 0; color: #4B5563; font-size: 13px; }
+@media (min-width: 1100px) {
+  .market-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr); gap: 16px; align-items: start; }
+  .market-split .portal-hotel-list { display: grid; }
+  .market-split .market-hotel-detail { position: sticky; top: 12px; }
 }

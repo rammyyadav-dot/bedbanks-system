@@ -34,6 +34,13 @@ export class ApiHotelService implements HotelService {
       }
       if (response.status === 401) return empty('auth_required')
       if (response.status === 403) return empty('access_denied')
+      if (response.status === 400) {
+        const body: unknown = await response.json().catch(() => null)
+        const message = typeof body === 'object' && body !== null && 'error' in body && typeof (body as { error?: { message?: unknown } }).error?.message === 'string'
+          ? (body as { error: { message: string } }).error.message
+          : 'Canonical destination is no longer available'
+        return { ...empty('destination_unavailable'), failureMessage: message }
+      }
       if (!response.ok) return empty('provider_unavailable')
       const envelope: unknown = await response.json()
       const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope

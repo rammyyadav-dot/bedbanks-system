@@ -12,6 +12,8 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import type { Request, Response } from 'express'
 import type { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
+import type { PrismaService } from '../database/prisma.service'
+import { ACTIVE_TENANT_REQUEST_KEY } from './tenant-context.guard'
 
 const stayStart = new Date(Date.now() + 30 * 86400000)
 const stayEnd = new Date(stayStart.getTime() + 3 * 86400000)
@@ -35,9 +37,10 @@ const hotel = {
 function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
+  const offerHolds = { execute: jest.fn(), recheck: jest.fn() } as unknown as OfferHoldService
   const agentSearch = new AgentSearchService(supplier, audit)
-  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
-  return { controller, audit, agentSearch }
+  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, offerHolds, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService)
+  return { controller, audit, agentSearch, offerHolds }
 }
 const query = () => ({ ...criteria } as Parameters<AgentController['search']>[0])
 const request = () => ({ requestId: 'request-a', activeTenantId: 'tenant-a' }) as unknown as Request
@@ -119,7 +122,7 @@ describe('Agent canonical search boundary', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unavailable', payload: { reason: 'booking_disabled' } }))
 
     const tx = { prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService)
     process.env.BOOKING_ENABLED = 'true'
     try {
       await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
@@ -137,7 +140,7 @@ describe('Agent canonical search boundary', () => {
     expect((await controller.cancellationQuote('booking-a', 'tenant-a', identity, request(), response()) as { status: string }).status).toBe('booking_unavailable')
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.cancel.unavailable' }))
     const cancellations = { cancel: jest.fn().mockResolvedValue({ status: 'CANCELLED' }), quote: jest.fn().mockResolvedValue({ refundMinor: '1' }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService)
     process.env.BOOKING_ENABLED = 'true'
     try {
       await expect(enabled.cancel('booking-a', { reason: 'guest' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
@@ -156,7 +159,7 @@ describe('Agent canonical search boundary', () => {
     expect(plain.status).toHaveBeenCalledWith(503)
 
     const documents = { get: jest.fn().mockResolvedValue({ type: 'VOUCHER', number: 'VCH-1', issuedAt: '2099-01-01T00:00:00.000Z', bookingStatus: 'CONFIRMED', payload: { bookingReference: 'FB-1' } }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, setup(jest.fn()).audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, documents as unknown as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, setup(jest.fn()).audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, documents as unknown as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService)
     process.env.BOOKING_ENABLED = 'true'
     try {
       const res = { status: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(), send: jest.fn() }
@@ -165,5 +168,38 @@ describe('Agent canonical search boundary', () => {
       expect(res.send).toHaveBeenCalledWith(expect.stringContaining('VCH-1'))
       await expect(enabled.bookingDocument('booking-a', 'receipt', 'tenant-a', identity, request(), { status: jest.fn() } as unknown as Response)).rejects.toThrow('Unknown document type')
     } finally { delete process.env.BOOKING_ENABLED }
+  })
+
+  it('does not create an inventory hold while booking is disabled, and delegates only for the exact enabled value', async () => {
+    const { controller, audit, offerHolds } = setup(jest.fn())
+    const holdRequest = () => ({ requestId: 'request-a', [ACTIVE_TENANT_REQUEST_KEY]: 'tenant-a' }) as unknown as Request
+    const body = { searchId: 'search-a', expectedCurrency: 'AED' as const, expectedSellAmountMinor: 125099, idempotencyKey: 'hold-key-1' }
+    const response = () => ({ status: jest.fn() }) as unknown as Response
+    const previous = process.env.BOOKING_ENABLED
+    try {
+      for (const value of [undefined, 'false', '', 'TRUE', '1']) {
+        if (value === undefined) delete process.env.BOOKING_ENABLED
+        else process.env.BOOKING_ENABLED = value
+        const off = response()
+        expect((await controller.holdOffer({ offerId: 'offer-a' }, body, identity, holdRequest(), off)).status).toBe('booking_unavailable')
+        expect(off.status).toHaveBeenCalledWith(503)
+      }
+      expect(offerHolds.execute).not.toHaveBeenCalled()
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.hold.unavailable', payload: { reason: 'booking_disabled' } }))
+      process.env.BOOKING_ENABLED = 'true'
+      ;(offerHolds.execute as jest.Mock).mockResolvedValue({ status: 'held', holdId: 'hold-a' })
+      await expect(controller.holdOffer({ offerId: 'offer-a' }, body, identity, holdRequest(), response())).resolves.toMatchObject({ status: 'held', holdId: 'hold-a' })
+      expect(offerHolds.execute).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', offerId: 'offer-a' }))
+    } finally {
+      if (previous === undefined) delete process.env.BOOKING_ENABLED
+      else process.env.BOOKING_ENABLED = previous
+    }
+  })
+
+  it('returns no capability catalogue until a membership tenant is selected', async () => {
+    const { controller } = setup(jest.fn())
+    const session = { user: { id: 'user-a', email: 'a@example.test', name: null, status: 'ACTIVE' as const }, memberships: [{ tenantId: 'tenant-a', tenantName: 'Agency', role: 'agent' }] }
+    await expect(controller.context(session, { headers: {} } as Request)).resolves.toMatchObject({ capabilities: [], user: session.user })
+    await expect(controller.context(session, { headers: { 'x-fbeds-tenant-id': 'tenant-b' } } as unknown as Request)).rejects.toThrow('Access denied')
   })
 })

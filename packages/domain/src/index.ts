@@ -1,26 +1,55 @@
 import type { Money } from '@bedbanks/money'
 
 export interface CanonicalHotel { id: string; name: string; destinationId: string; providerRefs: Record<string, string> }
+
+/** Canonical destination. There is no area entity in the hotel master, so area is not a resolution type. */
+export type DestinationRef =
+  | { type: 'city'; id: string; countryCode: string }
+  | { type: 'hotel'; id: string }
+
+export type DestinationResolution =
+  | { type: 'city'; id: string; name: string; countryCode: string }
+  | { type: 'hotel'; id: string; name: string; cityId: string; cityName: string; countryCode: string }
+
+/** One room's occupancy. Child ages are mandatory for every child in the room. */
+export interface SearchRoomStay {
+  adults: number
+  children: { age: number }[]
+}
+
+export type SearchSort = 'default' | 'price' | 'stars' | 'name'
+
 export interface SearchCriteria {
   destination: string
+  /** When present, the server resolves this id and overwrites destination. Free text is not a destination. */
+  destinationRef?: DestinationRef
   canonicalHotelIds?: string[]
   checkIn: string
   checkOut: string
+  /** Room count. With roomStays, this is the number of room stays. */
   rooms: number
+  /**
+   * Per-room adults when every room stay matches, otherwise the sum of room-stay adults.
+   * Contracted inventory prices only the uniform per-room case.
+   */
   adults: number
   children: number
   childAges: number[]
+  roomStays?: SearchRoomStay[]
   nationality: string
   currency: string
   limit?: number
   /** Zero-based index into the stable sellable-hotel order. Omitted means the first page. */
   offset?: number
+  /** Omitted means the supplier's stable order. Price, stars and name are applied before pagination. */
+  sort?: SearchSort
   filters?: {
     starRatings?: number[]
     boardBasisIds?: string[]
     refundableOnly?: boolean
     minPriceMinor?: number
     maxPriceMinor?: number
+    propertyTypes?: string[]
   }
 }
 export interface CanonicalRate { id: string; hotelId: string; currency: string; totalMinor: number; refundable: boolean }
@@ -71,6 +100,12 @@ export interface SearchHotelOffer {
   name: string
   destination: string
   starRating: number
+  /** Stored hotel master fields. Omitted when the catalogue has no value. */
+  propertyType?: string
+  address?: string
+  latitude?: string
+  longitude?: string
+  timeZone?: string
   supplierId: string
   supplierHotelId: string
   rooms: SearchRoomOffer[]
@@ -166,6 +201,13 @@ export interface BookingTransactionCommand {
     firstName: string
     lastName: string
   }
+  /** Non-commercial checkout notes. They do not change price, occupancy, or idempotency equality. */
+  agencyReference?: string
+  specialRequests?: string
+  roomGuests?: {
+    roomIndex: number
+    guests: { type: 'adult' | 'child'; firstName: string; lastName: string }[]
+  }[]
 }
 
 /**

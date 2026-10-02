@@ -74,6 +74,32 @@ const zonedLocalToUtc = (date: string, time: string, timeZone: string): number |
 
 @Injectable()
 export class CancellationPolicyService {
+  /**
+   * Instant when a positive penalty first applies, in the property timezone.
+   * Returns undefined when the rate is not refundable or the rules do not define one unambiguous deadline.
+   */
+  freeCancellationDeadline(input: { refundable: boolean; checkIn: string; timeZone: string; rules: CancellationRule[] }): string | undefined {
+    if (!input.refundable || !ISO_DATE.test(input.checkIn) || input.rules.length === 0) return undefined
+    let earliestDays: number | undefined
+    for (const rule of input.rules) {
+      if (!Number.isInteger(rule.daysBeforeCheckin) || rule.daysBeforeCheckin < 0) return undefined
+      const hasPercent = rule.penaltyPercent !== undefined
+      const hasFixed = rule.penaltyMinor !== undefined
+      if (hasPercent === hasFixed) return undefined
+      if (hasPercent && (!Number.isInteger(rule.penaltyPercent) || rule.penaltyPercent! < 0 || rule.penaltyPercent! > 100)) return undefined
+      if (hasFixed && rule.penaltyMinor! < 0n) return undefined
+      const penalises = (hasPercent && rule.penaltyPercent! > 0) || (hasFixed && rule.penaltyMinor! > 0n)
+      if (!penalises) continue
+      if (earliestDays === undefined || rule.daysBeforeCheckin > earliestDays) earliestDays = rule.daysBeforeCheckin
+    }
+    if (earliestDays === undefined) return undefined
+    const [year, month, day] = input.checkIn.split('-').map(Number)
+    const start = new Date(Date.UTC(year, month - 1, day))
+    start.setUTCDate(start.getUTCDate() - earliestDays)
+    const instant = zonedLocalToUtc(start.toISOString().slice(0, 10), '00:00', input.timeZone)
+    return instant === undefined ? undefined : new Date(instant).toISOString()
+  }
+
   quote(input: CancellationQuoteInput): CancellationQuote {
     const evaluatedAt = input.requestedAt
     if (input.cancellableAmountMinor < 0n) return { status: 'manual_review_required', reason: 'negative_cancellable_amount', evaluatedAt }

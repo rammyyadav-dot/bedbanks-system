@@ -64,10 +64,38 @@ export function formatCompactStay(checkIn: string, checkOut: string): string {
   return `${dayMonth.format(start)} – ${dayMonth.format(end)}`
 }
 
+/** Formats an absolute cancellation instant in the property timezone without changing the source timestamp. */
+export function formatCancellationDeadline(iso: string, timeZone: string): string | null {
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time) || !timeZone) return null
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', timeZone, hourCycle: 'h23' }).formatToParts(new Date(time))
+    const value = (type: string) => parts.find((part) => part.type === type)?.value
+    const hour = value('hour')
+    const minute = value('minute')
+    const day = value('day')
+    const month = value('month')
+    if (!hour || !minute || !day || !month) return null
+    return `${hour}:${minute} on ${day} ${month}`
+  } catch {
+    return null
+  }
+}
+
 export function weekdayShort(value: string): string | null {
   const time = parseDate(value)
   if (time === null) return null
   return new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' }).format(time)
+}
+
+/** Review amount. This already includes the ISO currency, so the review must not append it again. */
+export function recheckedTotalText(amountMinor: number, currency: string): string {
+  return formatMinorAmount(amountMinor, currency) ?? 'Price unavailable'
+}
+
+/** Stay line for booking review. formatStay already includes the night count. */
+export function bookingReviewStay(checkIn: string, checkOut: string): string {
+  return formatStay(checkIn, checkOut)
 }
 
 /** Signed difference of two minor-unit amounts. Positive values keep a leading plus. */
