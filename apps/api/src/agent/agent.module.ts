@@ -12,6 +12,7 @@ import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { HoldExpirySweeper } from './hold-expiry-sweeper.service'
 import { AgentSearchService } from './agent-search.service'
+import { DestinationResolverService } from './destination-resolver.service'
 import { BookingPersistenceService } from './booking-persistence.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
@@ -40,6 +41,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     { provide: HoldExpirySweeper, useFactory: () => new HoldExpirySweeper() },
     OfferHoldService,
     AgentSearchService,
+    DestinationResolverService,
     BookingPersistenceService,
     BookingFinancialAuthorizationService,
     SupplierPrebookOrchestrationService,

@@ -128,17 +128,26 @@ export class AgentSearchService {
       ...(criteria.filters.refundableOnly !== undefined ? { refundableOnly: criteria.filters.refundableOnly } : {}),
       ...(criteria.filters.minPriceMinor !== undefined ? { minPriceMinor: criteria.filters.minPriceMinor } : {}),
       ...(criteria.filters.maxPriceMinor !== undefined ? { maxPriceMinor: criteria.filters.maxPriceMinor } : {}),
+      ...(criteria.filters.propertyTypes ? { propertyTypes: [...criteria.filters.propertyTypes].sort() } : {}),
     } : undefined
+    const destinationRef = criteria.destinationRef?.type === 'city'
+      ? { type: 'city' as const, id: criteria.destinationRef.id, countryCode: criteria.destinationRef.countryCode }
+      : criteria.destinationRef?.type === 'hotel'
+        ? { type: 'hotel' as const, id: criteria.destinationRef.id }
+        : undefined
     return {
       destination: criteria.destination.trim(),
+      ...(destinationRef ? { destinationRef } : {}),
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,
       rooms: criteria.rooms,
       adults: criteria.adults,
       children: criteria.children,
       childAges: [...criteria.childAges],
+      ...(criteria.roomStays ? { roomStays: criteria.roomStays.map((stay) => ({ adults: stay.adults, children: stay.children.map((child) => ({ age: child.age })) })) } : {}),
       nationality: criteria.nationality.trim().toUpperCase(),
       currency: criteria.currency?.trim().toUpperCase(),
+      ...(criteria.sort && criteria.sort !== 'default' ? { sort: criteria.sort } : {}),
       ...(criteria.canonicalHotelIds ? { canonicalHotelIds: [...criteria.canonicalHotelIds].sort() } : {}),
       ...(criteria.limit ? { limit: criteria.limit } : {}),
       ...(criteria.offset ? { offset: criteria.offset } : {}),

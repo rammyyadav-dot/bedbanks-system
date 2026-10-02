@@ -36,7 +36,7 @@ function setup(search: jest.Mock, name = 'supplier-a') {
   const supplier = { name, search } as unknown as SupplierAdapter
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService
   const agentSearch = new AgentSearchService(supplier, audit)
-  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+  const controller = new AgentController(supplier, {} as AgentFinanceService, audit, {} as OfferHoldService, agentSearch, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never)
   return { controller, audit, agentSearch }
 }
 const query = () => ({ ...criteria } as Parameters<AgentController['search']>[0])
@@ -119,7 +119,7 @@ describe('Agent canonical search boundary', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unavailable', payload: { reason: 'booking_disabled' } }))
 
     const tx = { prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never)
     process.env.BOOKING_ENABLED = 'true'
     try {
       await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
@@ -137,7 +137,7 @@ describe('Agent canonical search boundary', () => {
     expect((await controller.cancellationQuote('booking-a', 'tenant-a', identity, request(), response()) as { status: string }).status).toBe('booking_unavailable')
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.cancel.unavailable' }))
     const cancellations = { cancel: jest.fn().mockResolvedValue({ status: 'CANCELLED' }), quote: jest.fn().mockResolvedValue({ refundMinor: '1' }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never)
     process.env.BOOKING_ENABLED = 'true'
     try {
       await expect(enabled.cancel('booking-a', { reason: 'guest' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
@@ -156,7 +156,7 @@ describe('Agent canonical search boundary', () => {
     expect(plain.status).toHaveBeenCalledWith(503)
 
     const documents = { get: jest.fn().mockResolvedValue({ type: 'VOUCHER', number: 'VCH-1', issuedAt: '2099-01-01T00:00:00.000Z', bookingStatus: 'CONFIRMED', payload: { bookingReference: 'FB-1' } }) }
-    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, setup(jest.fn()).audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, documents as unknown as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService)
+    const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, setup(jest.fn()).audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, documents as unknown as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never)
     process.env.BOOKING_ENABLED = 'true'
     try {
       const res = { status: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(), send: jest.fn() }

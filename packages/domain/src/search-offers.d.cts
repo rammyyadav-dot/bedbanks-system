@@ -1,5 +1,6 @@
 import type { AgentSearchResponse, SearchCriteria, SearchHotelOffer } from './index'
 
+export function cityDestinationId(countryCode: string, cityName: string): string
 export function validSearchCriteria(criteria: unknown): criteria is SearchCriteria
 export function validateSearchHotels(input: unknown, criteria: SearchCriteria, now?: number, expectedTenantId?: string, paginate?: boolean):
   | { ok: true; hotels: SearchHotelOffer[]; matchedTotal: number }

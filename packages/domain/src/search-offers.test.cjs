@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { validSearchCriteria, validateSearchHotels, validateAgentSearchResponse } = require('./search-offers.cjs')
+const { cityDestinationId, validSearchCriteria, validateSearchHotels, validateAgentSearchResponse } = require('./search-offers.cjs')
 
 // Stay dates are relative to today so these tests do not expire as the calendar moves.
 const stayDay = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
@@ -175,4 +175,102 @@ test('rejects past, overlong, unsupported and unknown search input', () => {
   assert.equal(validSearchCriteria({ ...criteria, currency: 'ZZZ' }), false)
   assert.equal(validSearchCriteria({ ...criteria, nationality: 'ZZ' }), false)
   assert.equal(validSearchCriteria({ ...criteria, unsafe: true }), false)
+})
+
+test('accepts a canonical city or hotel and keeps free-text searches valid for existing callers', () => {
+  const city = { type: 'city', id: cityDestinationId('AE', 'Dubai'), countryCode: 'AE' }
+  assert.equal(city.id, 'city:AE:dubai')
+  assert.equal(validSearchCriteria({ ...criteria, destinationRef: city }), true)
+  assert.equal(validSearchCriteria({ ...criteria, destinationRef: { type: 'hotel', id: 'hotel-a' } }), true)
+  assert.equal(validSearchCriteria({ ...criteria, destinationRef: { type: 'area', id: 'marina' } }), false)
+  assert.equal(validSearchCriteria({ ...criteria, destinationRef: { type: 'city', id: 'city:AE:not a city', countryCode: 'AE' } }), false)
+  assert.equal(validSearchCriteria(criteria), true)
+})
+
+test('keeps per-room occupancy and rejects a flattened mismatch', () => {
+  const uniform = { ...criteria, rooms: 2, adults: 2, children: 0, childAges: [], roomStays: [{ adults: 2, children: [] }, { adults: 2, children: [] }] }
+  assert.equal(validSearchCriteria(uniform), true)
+  const mixed = {
+    ...criteria, rooms: 2, adults: 4, children: 1, childAges: [7],
+    roomStays: [{ adults: 2, children: [] }, { adults: 2, children: [{ age: 7 }] }],
+  }
+  assert.equal(validSearchCriteria(mixed), true)
+  assert.equal(validSearchCriteria({ ...mixed, adults: 2 }), false)
+  assert.equal(validSearchCriteria({ ...uniform, roomStays: [{ adults: 2, children: [{ age: null }] }, { adults: 2, children: [] }] }), false)
+  const sample = hotel()
+  sample.rooms[0].rates[0].occupancy = { rooms: 2, adults: 2, children: 0, childAges: [] }
+  assert.equal(validateSearchHotels([sample], uniform).ok, true)
+  assert.equal(validateSearchHotels([sample], mixed).ok, false)
+})
+
+test('matches a city exactly and a hotel only by its canonical id', () => {
+  const marina = hotel()
+  marina.hotelId = 'hotel-b'
+  marina.name = 'Marina Hotel'
+  marina.destination = 'Dubai Marina'
+  marina.rooms[0].roomTypeId = 'room-b'
+  marina.rooms[0].rates[0].offerId = 'offer-b'
+  marina.rooms[0].rates[0].hotelId = 'hotel-b'
+  marina.rooms[0].rates[0].canonicalHotelId = 'hotel-b'
+  marina.rooms[0].rates[0].roomTypeId = 'room-b'
+  marina.rooms[0].rates[0].canonicalRoomTypeId = 'room-b'
+  const city = { ...criteria, destinationRef: { type: 'city', id: 'city:AE:dubai', countryCode: 'AE' } }
+  const matched = validateSearchHotels([hotel(), marina], city)
+  assert.equal(matched.ok, true)
+  assert.deepEqual(matched.hotels.map((item) => item.hotelId), ['hotel-a'])
+  const property = { ...criteria, destination: 'Dubai', canonicalHotelIds: ['hotel-b'], destinationRef: { type: 'hotel', id: 'hotel-b' } }
+  const only = validateSearchHotels([hotel(), marina], property)
+  assert.equal(only.ok, true)
+  assert.deepEqual(only.hotels.map((item) => item.hotelId), ['hotel-b'])
+})
+
+test('sorts and filters before the 25-hotel page window', () => {
+  const hotels = Array.from({ length: 30 }, (_, index) => {
+    const sample = hotel()
+    const id = `hotel-${String(index).padStart(2, '0')}`
+    sample.hotelId = id
+    sample.name = `Hotel ${String.fromCharCode(90 - (index % 26))}${index}`
+    sample.starRating = (index % 5) + 1
+    sample.propertyType = index % 2 === 0 ? 'Hotel' : 'Apartment'
+    sample.rooms[0].rates[0].offerId = `offer-${index}`
+    sample.rooms[0].rates[0].hotelId = id
+    sample.rooms[0].rates[0].canonicalHotelId = id
+    sample.rooms[0].rates[0].sellAmountMinor = 100000 - index * 100
+    sample.rooms[0].rates[0].totalAmountMinor = sample.rooms[0].rates[0].sellAmountMinor
+    sample.rooms[0].rates[0].netAmountMinor = sample.rooms[0].rates[0].sellAmountMinor
+    sample.rooms[0].rates[0].taxAmountMinor = 0
+    sample.rooms[0].rates[0].feeAmountMinor = 0
+    sample.rooms[0].rates[0].markupAmountMinor = 0
+    sample.rooms[0].rates[0].total.amountMinor = sample.rooms[0].rates[0].sellAmountMinor
+    return sample
+  })
+  const priced = { ...criteria, limit: 25, sort: 'price', filters: { propertyTypes: ['Hotel'] } }
+  const page = validateSearchHotels(hotels, priced)
+  assert.equal(page.ok, true)
+  assert.equal(page.hotels.length, 15)
+  assert.equal(page.matchedTotal, 15)
+  assert.equal(page.hotels.every((item) => item.propertyType === 'Hotel'), true)
+  const prices = page.hotels.map((item) => item.rooms[0].rates[0].sellAmountMinor)
+  assert.deepEqual(prices, [...prices].sort((left, right) => left - right))
+  const second = validateSearchHotels(hotels, { ...criteria, limit: 25, offset: 25, sort: 'name' })
+  assert.equal(second.ok, true)
+  assert.equal(second.hotels.length, 5)
+  assert.equal(second.hotels[0].rooms[0].rates[0].occupancy.childAges[0], 8)
+})
+
+test('keeps stored address and drops a hotel with a malformed coordinate', () => {
+  const sample = hotel()
+  sample.address = '1 Sheikh Zayed Road'
+  sample.propertyType = 'Hotel'
+  sample.latitude = '25.204849'
+  sample.longitude = '55.270782'
+  sample.timeZone = 'Asia/Dubai'
+  const result = validateSearchHotels([sample], criteria)
+  assert.equal(result.ok, true)
+  assert.equal(result.hotels[0].address, '1 Sheikh Zayed Road')
+  assert.equal(result.hotels[0].latitude, '25.204849')
+  assert.equal('photoUrl' in result.hotels[0], false)
+  const broken = hotel()
+  broken.latitude = '25.2'
+  assert.equal(validateSearchHotels([broken], criteria).ok, false)
 })
