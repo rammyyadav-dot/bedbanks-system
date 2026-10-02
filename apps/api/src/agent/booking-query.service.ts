@@ -6,10 +6,23 @@ export interface BookingSummaryView {
   id: string; reference: string; status: string; currency: string; totalMinor: string; createdAt: string
   hotelName: string | null; checkIn: string | null; checkOut: string | null; rooms: number | null; leadGuest: string | null
 }
+export interface SupplierMutationOperationalView {
+  bookingId: string
+  supplierKey: string
+  operation: string
+  mutationId: string
+  status: string
+  supplierReference: string | null
+  attemptedAt: string | null
+  requestId: string
+  failureCategory: string | null
+  lastReconciledAt: string | null
+}
 export interface BookingDetailView extends BookingSummaryView {
   adults: number | null; children: number | null
   cancellable: boolean
   documents: Array<{ type: string; number: string }>
+  supplierMutation: SupplierMutationOperationalView | null
 }
 
 const MAX_LIST = 100
@@ -30,13 +43,43 @@ export class BookingQueryService {
 
   async detail(tenantId: string, bookingId: string, now = new Date()): Promise<BookingDetailView> {
     return this.prisma.withTenant(tenantId, async tx => {
-      const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, include: { documents: { select: { type: true, number: true }, orderBy: { issuedAt: 'asc' } } } })
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, tenantId },
+        include: {
+          documents: { select: { type: true, number: true }, orderBy: { issuedAt: 'asc' } },
+          supplierMutations: { where: { operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+      })
       if (!booking) throw new NotFoundException('Booking not found')
       const names = await this.hotelNames(tx, tenantId, [booking])
       const snapshot = booking.searchSnapshot as Record<string, any>
       const checkInMs = typeof snapshot.checkIn === 'string' ? Date.parse(`${snapshot.checkIn}T00:00:00.000Z`) : NaN
+      const mutation = booking.supplierMutations[0] ?? null
+      const review = await tx.auditEvent.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { entityType: 'booking', entityId: booking.id, action: { in: ['booking.reconciliation.manual_review', 'booking.reconciled', 'booking.prebook.expired'] } },
+            ...(mutation ? [{ entityType: 'supplier_mutation', entityId: mutation.id, action: { in: ['supplier.mutation.reconciled', 'supplier.mutation.unknown'] } }] : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      })
+      const supplierMutation: SupplierMutationOperationalView | null = mutation ? {
+        bookingId: booking.id,
+        supplierKey: mutation.supplierKey,
+        operation: mutation.operation,
+        mutationId: mutation.id,
+        status: mutation.status,
+        supplierReference: mutation.supplierReference,
+        attemptedAt: mutation.attemptedAt?.toISOString() ?? null,
+        requestId: mutation.requestId,
+        failureCategory: mutation.failureCategory,
+        lastReconciledAt: review?.createdAt.toISOString() ?? mutation.resolvedAt?.toISOString() ?? null,
+      } : null
       return { ...this.summary(booking, names), adults: Number.isInteger(snapshot.adults) ? snapshot.adults : null, children: Number.isInteger(snapshot.children) ? snapshot.children : null,
-        cancellable: booking.status === 'CONFIRMED' && Number.isFinite(checkInMs) && now.getTime() < checkInMs, documents: booking.documents }
+        cancellable: booking.status === 'CONFIRMED' && Number.isFinite(checkInMs) && now.getTime() < checkInMs, documents: booking.documents, supplierMutation }
     })
   }
 
