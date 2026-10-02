@@ -96,6 +96,8 @@ export interface HotelCommercialSummary {
   mappingIssueHotels: number
   rateGapHotels: number
   availabilityGapHotels: number
+  /** Hotels where at least one assessed plan-night is on stop-sell. */
+  stopSellHotels: number
   /** Hotels with an ACTIVE contract ending inside CONTRACT_EXPIRING_DAYS. */
   contractsExpiring: number
   contractsExpired: number

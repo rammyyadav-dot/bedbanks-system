@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { boolParam, dayParam, enumParam, idParam, intParam, pageParams, textParam } from './query-params'
+import { boolParam, dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, textParam } from './query-params'
 
 describe('operations query parameters', () => {
   it('defaults and bounds pagination, and rejects instead of widening', () => {
@@ -38,5 +38,13 @@ describe('operations query parameters', () => {
     expect(() => boolParam('attention', 'yes')).toThrow(BadRequestException)
     expect(intParam('days', '7', 1, 31)).toBe(7)
     expect(() => intParam('days', '32', 1, 31)).toThrow(BadRequestException)
+  })
+
+  it('likeLiteral escapes LIKE metacharacters so user text is matched literally', () => {
+    expect(likeLiteral('plain text')).toBe('plain text')
+    expect(likeLiteral('50%')).toBe('50\\%')
+    expect(likeLiteral('a_b')).toBe('a\\_b')
+    expect(likeLiteral('back\\slash')).toBe('back\\\\slash')
+    expect(likeLiteral('%_\\')).toBe('\\%\\_\\\\')
   })
 })

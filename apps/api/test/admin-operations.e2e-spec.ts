@@ -19,6 +19,7 @@ import { LedgerService } from '../src/agent/ledger.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
 import { OperationsSupplyService } from '../src/admin-operations/operations-supply.service'
+import { OperationsHotelsService } from '../src/admin-operations/operations-hotels.service'
 import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
 
 const ownerUrl = process.env.DATABASE_URL
@@ -40,7 +41,8 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const bookingTx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, supplier), confirmation)
   const reconciliation = new BookingReconciliationService(prisma, finance, holds, audit)
   const tx = new OperationsTransactionsService(prisma, reconciliation)
-  const supply = new OperationsSupplyService(prisma)
+  const hotelOps = new OperationsHotelsService(prisma)
+  const supply = new OperationsSupplyService(prisma, hotelOps)
   const suffix = `ops-${Date.now()}-${randomBytes(3).toString('hex')}`
   const stay = new Date(Date.now() + 40 * 86_400_000)
   const nights = [stay, new Date(stay.getTime() + 86_400_000)]
@@ -54,10 +56,12 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     const userId = (await prisma.user.create({ data: { email: `${key}@example.test` } })).id
     await prisma.membership.create({ data: { tenantId, userId, role: 'owner' } })
     const supplierId = (await prisma.supplier.create({ data: { tenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${key} s`, displayName: `${key} supplier`, countryCode: 'AE', defaultCurrency: 'AED' } })).id
-    const hotelId = (await prisma.hotel.create({ data: { tenantId, name: `${key} hotel`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' } })).id
+    const hotelId = (await prisma.hotel.create({ data: { tenantId, name: `${key} hotel`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 5 } })).id
     const roomId = (await prisma.roomType.create({ data: { hotelId, name: 'Deluxe', code: key, maxAdults: 2, maxOccupancy: 2 } })).id
     const boardId = (await prisma.boardBasis.create({ data: { tenantId, code: "RO", name: 'Room only' } })).id
-    const contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: key, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
+    const mappingId = (await prisma.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId, supplierHotelId: `${key}-sup`, status: 'MAPPED' } })).id
+    await prisma.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: mappingId, hotelId, supplierRoomId: `${key}-sup-room`, roomTypeId: roomId, status: 'MAPPED' } })
+    const contractId = (await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: mappingId, code: key, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     const ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, allotment: 20 })) })
     await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, occupancy: 2, amountMinor: 62_550n, currency: 'AED', amountBasis: 'SELL' })) })
@@ -163,7 +167,8 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     expect(ledgerB.items.every(e => !walletsA.includes(e.walletId))).toBe(true)
     expect((await tx.audit(B.tenantId, {})).items.every(a => !a.entityId.includes(confirmedA.bookingId))).toBe(true)
     expect((await tx.connectors(B.tenantId, {})).total).toBe(0)
-    expect((await supply.hotels(B.tenantId, B.userId, {}).catch(e => e)).constructor.name).toBe('ForbiddenException') // no formal role: fail closed
+    const bHotels = await hotelOps.list(B.tenantId, { pageSize: '100' })
+    expect(bHotels.items.map(h => h.id)).toEqual([B.hotelId]) // never tenant A's hotel
   })
 
   it('ADMIN-IDS: a tenant id supplied in a query string is ignored; scope is the caller tenant only', async () => {
@@ -255,8 +260,8 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     expect(event.payload.note).toBe('kept')
   })
 
-  // ---- hotels and readiness ------------------------------------------------------------------------------------------------
-  it('ADMIN-SUPPLY: hotel readiness uses canonical sellability and paginates', async () => {
+  // ---- suppliers and the dashboard supply section ------------------------------------------------------------------------------
+  it('ADMIN-SUPPLY: suppliers paginate and filter, and the dashboard supply section comes from the canonical hotel assessment', async () => {
     await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
     const role = await prisma.role.create({ data: { tenantId: A.tenantId, name: `${suffix}-viewer` } })
     for (const key of ['supply.hotels.read', 'supply.suppliers.read']) {
@@ -264,30 +269,27 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
       await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })
     }
     await prisma.userRole.create({ data: { userId: A.userId, roleId: role.id, tenantId: A.tenantId } })
-    const hotels = await supply.hotels(A.tenantId, A.userId, { from: checkIn, days: '2' })
-    expect(hotels.total).toBe(1)
-    expect(hotels.items[0]).toMatchObject({ rooms: 1, ratePlans: 1, readiness: 'READY' })
-    // Stop-sell blocks the hotel with a canonical reason, not a guess.
-    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: true } })
-    const blocked = await supply.hotels(A.tenantId, A.userId, { from: checkIn, days: '2' })
-    expect(blocked.items[0]).toMatchObject({ readiness: 'BLOCKED' })
-    expect(blocked.items[0].blockers).toContain('STOP_SELL')
-    expect((await supply.hotels(A.tenantId, A.userId, { readiness: 'READY', from: checkIn, days: '2' })).total).toBe(0)
-    const readiness = await supply.readiness(A.tenantId, A.userId, { from: checkIn, days: '2' }, () => tx.transactionSummary(A.tenantId), () => tx.connectorSummary(A.tenantId))
-    expect(readiness.supply).toMatchObject({ state: 'available', data: { hotels: { blocked: 1, sellable: 0 }, stopSellHotels: 1 } })
-    expect(readiness.transactions).toMatchObject({ state: 'available' })
-    const suppliers = await supply.suppliers(A.tenantId, A.userId, {})
-    expect(suppliers.items[0].contracts).toEqual({ total: 1, active: 1 })
-    expect((await supply.suppliers(A.tenantId, A.userId, { status: 'ACTIVE' })).total).toBe(1)
-    expect((await supply.suppliers(A.tenantId, A.userId, { status: 'PENDING_REVIEW' })).total).toBe(0)
-    await expect(supply.suppliers(A.tenantId, A.userId, { status: 'NOT_A_STATUS' })).rejects.toBeInstanceOf(BadRequestException)
-    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: false } })
-    await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
-    await prisma.role.delete({ where: { id: role.id } })
+    try {
+      const readiness = await supply.readiness(A.tenantId, A.userId, { from: checkIn, days: '2' }, () => tx.transactionSummary(A.tenantId), () => tx.connectorSummary(A.tenantId))
+      expect(readiness.supply).toMatchObject({ state: 'available', data: { hotels: { total: 1, ready: 1, partial: 0, blocked: 0 }, stopSellHotels: 0 } })
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: true } })
+      const blocked = await supply.readiness(A.tenantId, A.userId, { from: checkIn, days: '2' }, () => tx.transactionSummary(A.tenantId), () => tx.connectorSummary(A.tenantId))
+      expect(blocked.supply).toMatchObject({ state: 'available', data: { hotels: { ready: 0, blocked: 1 }, stopSellHotels: 1 } })
+      expect(readiness.transactions).toMatchObject({ state: 'available' })
+      const suppliers = await supply.suppliers(A.tenantId, A.userId, {})
+      expect(suppliers.items[0].contracts).toEqual({ total: 1, active: 1 })
+      expect((await supply.suppliers(A.tenantId, A.userId, { status: 'ACTIVE' })).total).toBe(1)
+      expect((await supply.suppliers(A.tenantId, A.userId, { status: 'PENDING_REVIEW' })).total).toBe(0)
+      await expect(supply.suppliers(A.tenantId, A.userId, { status: 'NOT_A_STATUS' })).rejects.toBeInstanceOf(BadRequestException)
+    } finally {
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId: A.ratePlanId }, data: { stopSell: false } })
+      await prisma.userRole.deleteMany({ where: { tenantId: A.tenantId } })
+      await prisma.role.delete({ where: { id: role.id } })
+    }
   })
 
   // ---- Dubai operations scenarios A-L: the operator can see WHY, without SQL ---------------------------------------------------
-  it('ADMIN-SCENARIOS A-L: each operational state is explained by the API with a canonical cause', async () => {
+  it('ADMIN-SCENARIOS I-L: holds, sold inventory, reconciliation and refunds are visible without SQL (A-H are in hotel-commercial.e2e-spec.ts)', async () => {
     const role = await prisma.role.create({ data: { tenantId: A.tenantId, name: `${suffix}-scen` } })
     for (const key of ['supply.hotels.read', 'supply.suppliers.read']) {
       const permission = await prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: key } })
@@ -298,27 +300,18 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     type Opts = { hotelMapping?: 'MAPPED' | 'PENDING'; roomMapping?: boolean; validTo?: string; rates?: boolean; availability?: boolean; stopSell?: boolean; allotment?: number; sold?: number }
     async function scenarioHotel(code: string, o: Opts = {}) {
       const name = `${suffix}-scn-${code}`
-      const hotel = await prisma.hotel.create({ data: { tenantId: A.tenantId, name, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' } })
+      const hotel = await prisma.hotel.create({ data: { tenantId: A.tenantId, name, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 4 } })
       const room = await prisma.roomType.create({ data: { hotelId: hotel.id, name: 'Std', code: `${code}-${suffix}`.slice(0, 40), maxAdults: 2, maxOccupancy: 2 } })
-      const mapping = o.hotelMapping ? await prisma.supplierHotelMapping.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, hotelId: hotel.id, supplierHotelId: `${suffix}-${code}`, status: o.hotelMapping } }) : null
-      if (mapping && o.roomMapping) await prisma.supplierRoomMapping.create({ data: { tenantId: A.tenantId, supplierHotelMappingId: mapping.id, hotelId: hotel.id, supplierRoomId: `${suffix}-r-${code}`, roomTypeId: room.id, status: 'MAPPED' } })
+      const mapping = (o.hotelMapping ?? 'MAPPED') ? await prisma.supplierHotelMapping.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, hotelId: hotel.id, supplierHotelId: `${suffix}-${code}`, status: o.hotelMapping ?? 'MAPPED' } }) : null
+      if (mapping && o.roomMapping !== false) await prisma.supplierRoomMapping.create({ data: { tenantId: A.tenantId, supplierHotelMappingId: mapping.id, hotelId: hotel.id, supplierRoomId: `${suffix}-r-${code}`, roomTypeId: room.id, status: 'MAPPED' } })
       const contract = await prisma.contract.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, supplierHotelMappingId: mapping?.id ?? null, code: `${suffix}-scn-${code}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date(o.validTo ?? '2099-12-31'), settlementCurrency: 'AED' } })
       const plan = await prisma.ratePlan.create({ data: { tenantId: A.tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: A.boardId, code: `${suffix}-scn-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
       if (o.rates !== false) await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId: A.tenantId, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
       if (o.availability !== false) await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId: A.tenantId, ratePlanId: plan.id, stayDate, allotment: o.allotment ?? 5, sold: o.sold ?? 0, stopSell: o.stopSell ?? false })) })
       return { hotel, room, plan, name }
     }
-    const row = async (name: string) => (await supply.hotels(A.tenantId, A.userId, { ...inWindow, search: name })).items.find(h => h.name === name)!
+    const row = async (name: string) => (await hotelOps.list(A.tenantId, { ...inWindow, search: name })).items.find(h => h.name === name)!
     try {
-      const a = await scenarioHotel('a'); expect(await row(a.name)).toMatchObject({ readiness: 'READY', blockers: [] }) // A sellable
-      const b = await scenarioHotel('b', { hotelMapping: 'PENDING' }); expect((await row(b.name)).blockers).toContain('SUPPLIER_MAPPING_INVALID') // B hotel mapping missing/unapproved
-      const c = await scenarioHotel('c', { hotelMapping: 'MAPPED', roomMapping: false }); expect((await row(c.name)).blockers).toContain('ROOM_MAPPING_UNAPPROVED') // C room mapping invalid
-      const d = await scenarioHotel('d', { validTo: '2026-02-01' }); expect((await row(d.name)).blockers).toContain('OUTSIDE_CONTRACT_VALIDITY') // D contract outside validity
-      const e = await scenarioHotel('e', { rates: false }); expect(await row(e.name)).toMatchObject({ readiness: 'BLOCKED' }); expect((await row(e.name)).blockers).toContain('DAILY_RATE_MISSING_OR_INVALID') // E rate missing
-      const f = await scenarioHotel('f', { availability: false }); expect((await row(f.name)).blockers).toContain('AVAILABILITY_MISSING') // F availability missing
-      const g = await scenarioHotel('g', { stopSell: true }); expect((await row(g.name)).blockers).toContain('STOP_SELL') // G stop sell
-      const h = await scenarioHotel('h', { allotment: 3, sold: 3 }); expect((await row(h.name)).blockers).toContain('NO_INVENTORY') // H inventory exhausted
-
       // I: an active hold consumes inventory and is visible with its night-level effect.
       const i = await scenarioHotel('i', { allotment: 1 })
       const hold = await holds.create({ tenantId: A.tenantId, userId: A.userId, requestId: `${suffix}-i`, idempotencyKey: `${suffix}-i`, offerId: 'o-i', searchId: 's-i', ratePlanId: i.plan.id, canonicalHotelId: i.hotel.id, canonicalRoomTypeId: i.room.id, boardBasisId: A.boardId,
