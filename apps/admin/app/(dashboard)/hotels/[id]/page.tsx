@@ -12,6 +12,9 @@ import { Chip, ContractChip, MappingChip, ReadinessChip } from '@/components/hot
 import { OverviewPanel } from '@/components/hotels/panels/OverviewPanel'
 import { SetupPanel } from '@/components/hotels/panels/SetupPanel'
 import { RoomsPanel } from '@/components/hotels/panels/RoomsPanel'
+import { AmenitiesPanel } from '@/components/hotels/panels/AmenitiesPanel'
+import { ImagesPanel } from '@/components/hotels/panels/ImagesPanel'
+import { PoliciesPanel } from '@/components/hotels/panels/PoliciesPanel'
 import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
 import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
@@ -22,8 +25,8 @@ import { useCan } from '@/lib/auth/capabilities'
 import { getHotel360 } from '@/lib/data/hotel-commercial'
 import { HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/lib/hotel-ui'
 
-const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'booking.read' | 'audit.read'>> = {
-  mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', bookings: 'booking.read', audit: 'audit.read',
+const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'supply.rooms.read' | 'booking.read' | 'audit.read'>> = {
+  rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', bookings: 'booking.read', audit: 'audit.read',
 }
 const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
 
@@ -62,7 +65,10 @@ function Hotel360() {
             <div role="tabpanel" id="hotel-panel" aria-labelledby={`tab-${tab}`} style={{ marginTop: 12 }}>
               {tab === 'overview' && <OverviewPanel data={data} onChanged={refresh} />}
               {tab === 'setup' && <SetupPanel hotelId={id} onChanged={refresh} />}
-              {tab === 'rooms' && <RoomsPanel data={data} />}
+              {tab === 'rooms' && <RoomsPanel data={data} onChanged={refresh} />}
+              {tab === 'amenities' && <AmenitiesPanel hotelId={id} onChanged={refresh} />}
+              {tab === 'images' && <ImagesPanel />}
+              {tab === 'policies' && <PoliciesPanel hotelId={id} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
               {tab === 'rates' && <RatesInventoryPanel hotelId={id} rooms={data.rooms} />}

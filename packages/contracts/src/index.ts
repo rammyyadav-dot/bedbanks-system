@@ -8,3 +8,4 @@ export * from './admin-departments';
 export * from './commercial';
 export * from './departments';
 export * from './hotel-setup';
+export * from './hotel-rooms';

@@ -61,7 +61,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const response = await request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email, password }).expect(200)
     return (response.headers['set-cookie'][0] as string).split(';')[0]
   }
-  const api = (method: 'get' | 'post' | 'patch' | 'delete', path: string, who: string, body?: object) => {
+  const api = (method: 'get' | 'post' | 'patch' | 'put' | 'delete', path: string, who: string, body?: object) => {
     const r = request(app.getHttpServer())[method](`/api/v1${path}`); const c = who === 'anon' ? r : r.set('Cookie', cookies[who]); return body ? c.send(body) : c
   }
   const setupPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup`
@@ -79,11 +79,11 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     tenantB = (await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })).id
     supplier1 = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Alpha`, displayName: 'Alpha', countryCode: 'AE', defaultCurrency: 'AED' } as never })).id
     await buildHotel(tenantA, supplier1, 'sold')
-    const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage'])
-    const reader = await user('reader', tenantA, ['supply.hotels.read'])
+    const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage'])
+    const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read'])
     const none = await user('none', tenantA, [])
     const agent = await user('agent', tenantA, ['hotel.search'])
-    const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage'])
+    const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage'])
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
     app = module.createNestApplication()
     app.use(cookieParser()); app.setGlobalPrefix('api/v1')
@@ -97,8 +97,11 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     await app?.close()
     for (const tenantId of [tenantA, tenantB].filter(Boolean)) {
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
+      await prisma.roomAmenity.deleteMany({ where: { tenantId } })
+      await prisma.hotelAmenity.deleteMany({ where: { tenantId } })
       await prisma.hotelExternalIdentifier.deleteMany({ where: { tenantId } })
       await prisma.hotelProfile.deleteMany({ where: { tenantId } })
+      await prisma.childPolicy.deleteMany({ where: { contract: { tenantId } } })
       await prisma.dailyRate.deleteMany({ where: { tenantId } })
       await prisma.dailyAvailability.deleteMany({ where: { tenantId } })
       await prisma.ratePlan.deleteMany({ where: { tenantId } })
@@ -303,5 +306,114 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     await api('get', '/admin/operations/hotels?stars=9', 'reader').expect(400)
     // the hotel that has an approved supplier mapping reports it, and a hotel with none reports zero
     expect((await list(`search=${suffix} sold`)).items[0].verifiedMappings).toBe(1)
+  })
+  const roomsPath = (hotelId: string, tail = '') => `/admin/hotels/${hotelId}/rooms${tail}`
+  const loadRooms = async (hotelId: string, who = 'manager') => (await api('get', roomsPath(hotelId), who).expect(200)).body.data
+  const roomBody = (patch: object = {}, idem = key()) => ({ idempotencyKey: idem, name: 'Deluxe King', code: `DK-${++seq}`, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, ...patch })
+
+  it('HR-01 rooms list with usage, parsed bedding, contract child-age rules, and amenities availability', async () => {
+    const view = await loadRooms(hotels.sold)
+    expect(view.hotelId).toBe(hotels.sold); expect(view.amenitiesAvailable).toBe(true)
+    const room = view.rooms[0]
+    expect(room.usage).toMatchObject({ ratePlans: 1, activeRatePlans: 1, mappings: { mapped: 1, pending: 0, rejected: 0 } })
+    expect(room.bedding).toEqual({ description: null, beds: [], extraBed: 'UNKNOWN' })
+    const contract = await prisma.contract.findFirstOrThrow({ where: { tenantId: tenantA, ratePlans: { some: { roomType: { hotelId: hotels.sold } } } } })
+    await prisma.childPolicy.create({ data: { contractId: contract.id, minAge: 2, maxAge: 11, extraBedAllowed: true, supplementMinor: 2_500n, currency: 'AED' } })
+    const again = await loadRooms(hotels.sold)
+    expect(again.childPolicies).toEqual([expect.objectContaining({ minAge: 2, maxAge: 11, extraBedAllowed: true, supplementMinor: '2500', currency: 'AED', contractCode: contract.code })])
+    await api('get', roomsPath(hotels.sold), 'none').expect(403)
+    await api('get', roomsPath(hotels.sold), 'bmanager').expect(404)
+  })
+
+  it('HR-02 a room is created once, validated by the canonical occupancy rule, and unique by code', async () => {
+    const id = await newDraft('rooms')
+    const body = roomBody({ bedding: { description: 'One king bed', beds: [{ type: 'KING', count: 1 }], extraBed: 'SUPPORTED' }, amenities: [{ code: 'BALCONY', feeType: 'FREE' }, { code: 'WIFI', feeType: 'PAID' }] })
+    const created = (await api('post', roomsPath(id), 'manager', body).expect(201)).body.data
+    expect(created.replayed).toBe(false)
+    expect(created.room).toMatchObject({ name: 'Deluxe King', maxAdults: 2, maxChildren: 1, maxOccupancy: 3, isActive: true, bedding: { description: 'One king bed', beds: [{ type: 'KING', count: 1 }], extraBed: 'SUPPORTED' } })
+    expect(created.room.amenities).toEqual([{ code: 'BALCONY', feeType: 'FREE' }, { code: 'WIFI', feeType: 'PAID' }])
+    const replay = (await api('post', roomsPath(id), 'manager', body).expect(201)).body.data
+    expect(replay.replayed).toBe(true); expect(replay.room.id).toBe(created.room.id)
+    expect((await loadRooms(id)).rooms).toHaveLength(1)
+    const conflict = await api('post', roomsPath(id), 'manager', roomBody({ code: created.room.code })).expect(409)
+    expect(conflict.body.error.code).toBe('ROOM_CODE_CONFLICT')
+    const bad = await api('post', roomsPath(id), 'manager', roomBody({ maxAdults: 3, maxChildren: 2, maxOccupancy: 4, code: 'bad code!', bedding: { beds: [{ type: 'WATERBED', count: 1 }], extraBed: 'MAYBE' }, amenities: [{ code: 'POOL', feeType: 'FREE' }, { code: 'NOPE', feeType: 'FREE' }], secret: 1 })).expect(400)
+    const details = bad.body.error.details.join(' | ')
+    expect(details).toMatch(/maxOccupancy: must be at least/); expect(details).toMatch(/code:/); expect(details).toMatch(/bedding.beds\[0\].type/); expect(details).toMatch(/bedding.extraBed/)
+    expect(details).toMatch(/amenities\[0\].code: is not in the room amenity catalogue/); expect(details).toMatch(/amenities\[1\].code/); expect(details).toMatch(/secret: is not a supported field/)
+    expect((await loadRooms(id)).rooms).toHaveLength(1) // nothing from the failed request persisted
+    await api('post', roomsPath(id), 'reader', roomBody()).expect(403)
+    await api('post', roomsPath(id), 'bmanager', roomBody()).expect(404)
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: created.room.id, action: 'hotel.room.created' } })
+    expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.manager)
+  })
+
+  it('HR-03 an edit changes only what was sent, preserves unknown bedding keys, replaces amenities, and a stale token fails', async () => {
+    const id = await newDraft('room-edit')
+    const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Twin', code: 'TW1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, beddingMetadata: { legacyKey: 'keep-me', description: 'Old text' } } })
+    let view = (await loadRooms(id)).rooms[0]
+    const patch = (token: string, body: object) => api('patch', roomsPath(id, `/${room.id}`), 'manager', { idempotencyKey: key(), expectedToken: token, ...body })
+    const saved = (await patch(view.concurrencyToken, { name: 'Twin Superior', bedding: { description: 'Two single beds', beds: [{ type: 'TWIN', count: 1 }] }, amenities: [{ code: 'TV', feeType: 'FREE' }] }).expect(200)).body.data.room
+    expect(saved).toMatchObject({ name: 'Twin Superior', code: 'TW1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, bedding: { description: 'Two single beds', beds: [{ type: 'TWIN', count: 1 }], extraBed: 'UNKNOWN' } })
+    expect((await prisma.roomType.findUniqueOrThrow({ where: { id: room.id } })).beddingMetadata).toMatchObject({ legacyKey: 'keep-me', description: 'Two single beds' })
+    const stale = await patch(view.concurrencyToken, { name: 'Other' }).expect(409)
+    expect(stale.body.error.code).toBe('ROOM_STALE')
+    view = (await loadRooms(id)).rooms[0]
+    expect(view.name).toBe('Twin Superior')
+    const replaced = (await patch(view.concurrencyToken, { amenities: [{ code: 'WIFI', feeType: 'FREE' }, { code: 'SEA_VIEW', feeType: 'UNKNOWN' }] }).expect(200)).body.data.room
+    expect(replaced.amenities).toEqual([{ code: 'SEA_VIEW', feeType: 'UNKNOWN' }, { code: 'WIFI', feeType: 'FREE' }]) // TV was removed, unknown stays explicit
+    await patch(replaced.concurrencyToken, { maxOccupancy: 1 }).expect(400) // below adults plus children
+    await patch(replaced.concurrencyToken, {}).expect(400)
+    const audit = (await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: room.id, action: 'hotel.room.updated' }, orderBy: { createdAt: 'asc' } }))[0].payload as { changes: Record<string, { from: unknown; to: unknown }>; fields: string[] }
+    expect(audit.changes.name).toEqual({ from: 'Twin', to: 'Twin Superior' }); expect(audit.fields.sort()).toEqual(['amenities', 'bedding', 'name'])
+  })
+
+  it('HR-04 archiving never deletes: rate plans and mappings stay, the last room of a published hotel is protected, and restore works', async () => {
+    const before = await prisma.ratePlan.count({ where: { tenantId: tenantA, roomType: { hotelId: hotels.sold } } })
+    const extra = (await api('post', roomsPath(hotels.sold), 'manager', roomBody()).expect(201)).body.data.room
+    const sold = (await loadRooms(hotels.sold)).rooms.find((r: { id: string }) => r.id !== extra.id)
+    const archive = (token: string, id: string, reason = 'Closed for renovation') => api('post', roomsPath(hotels.sold, `/${id}/archive`), 'manager', { idempotencyKey: key(), expectedToken: token, reason })
+    await api('post', roomsPath(hotels.sold, `/${sold.id}/archive`), 'manager', { idempotencyKey: key(), expectedToken: sold.concurrencyToken, reason: '' }).expect(400)
+    const archived = (await archive(sold.concurrencyToken, sold.id).expect(200)).body.data.room
+    expect(archived.isActive).toBe(false); expect(archived.usage).toMatchObject({ ratePlans: 1, mappings: { mapped: 1 } })
+    expect(await prisma.ratePlan.count({ where: { tenantId: tenantA, roomType: { hotelId: hotels.sold } } })).toBe(before)
+    expect(await prisma.supplierRoomMapping.count({ where: { tenantId: tenantA, roomTypeId: sold.id } })).toBe(1)
+    const ev = (await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: tenantA, entityId: sold.id, action: 'hotel.room.archived' } })).payload as { activeRatePlans: number; reason: string }
+    expect(ev).toMatchObject({ activeRatePlans: 1, reason: 'Closed for renovation' })
+    await archive(archived.concurrencyToken, sold.id).expect(409) // already archived
+    // the last active room of a published hotel cannot be archived
+    const guard = await archive(extra.concurrencyToken, extra.id).expect(422)
+    expect(guard.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENT_LOST')
+    const restored = (await api('post', roomsPath(hotels.sold, `/${sold.id}/restore`), 'manager', { idempotencyKey: key(), expectedToken: archived.concurrencyToken, reason: 'Reopened' }).expect(200)).body.data.room
+    expect(restored.isActive).toBe(true)
+    await api('delete', roomsPath(hotels.sold, `/${sold.id}`), 'manager').expect(404) // there is no delete
+    expect(await prisma.roomType.count({ where: { id: sold.id } })).toBe(1)
+  })
+
+  it('HR-05 hotel amenities: controlled catalogue, explicit fee type, shared concurrency with Setup, idempotent, audited without values', async () => {
+    const id = await newDraft('amenities')
+    const get = async () => (await api('get', `/admin/hotels/${id}/amenities`, 'manager').expect(200)).body.data
+    const put = (token: string, amenities: unknown, idem = key(), who = 'manager') => api('put', `/admin/hotels/${id}/amenities`, who, { idempotencyKey: idem, expectedToken: token, amenities })
+    let a = await get()
+    expect(a.hotel).toEqual([]); expect(a.catalogue.some((c: { code: string }) => c.code === 'POOL')).toBe(true); expect(a.catalogue.some((c: { code: string }) => c.code === 'BALCONY')).toBe(false) // room-only codes are not offered
+    const setupBefore = (await load(id)).concurrencyToken
+    expect(setupBefore).toBe(a.concurrencyToken)
+    const idem = key()
+    const saved = (await put(a.concurrencyToken, [{ code: 'POOL', feeType: 'FREE' }, { code: 'SPA', feeType: 'PAID' }, { code: 'GYM', feeType: 'UNKNOWN' }], idem).expect(200)).body.data
+    expect(saved.replayed).toBe(false); expect(saved.amenities.hotel).toEqual([{ code: 'GYM', feeType: 'UNKNOWN' }, { code: 'POOL', feeType: 'FREE' }, { code: 'SPA', feeType: 'PAID' }])
+    expect((await put(a.concurrencyToken, [{ code: 'POOL', feeType: 'FREE' }], idem).expect(200)).body.data.replayed).toBe(true)
+    // a Setup form opened before the amenity save is now stale
+    await save(id, setupBefore, { area: 'Stale area' }).expect(409)
+    a = await get()
+    await put(a.concurrencyToken, [{ code: 'BALCONY', feeType: 'FREE' }]).expect(400)
+    await put(a.concurrencyToken, [{ code: 'POOL', feeType: 'FREE' }, { code: 'POOL', feeType: 'PAID' }]).expect(400)
+    await put(a.concurrencyToken, [{ code: 'POOL', feeType: 'FREE?' }]).expect(400)
+    await put(a.concurrencyToken, [{ code: 'POOL', feeType: 'FREE' }], key(), 'reader').expect(403)
+    await api('get', `/admin/hotels/${id}/amenities`, 'bmanager').expect(404)
+    const removed = (await put(a.concurrencyToken, [{ code: 'SPA', feeType: 'FREE' }]).expect(200)).body.data.amenities.hotel
+    expect(removed).toEqual([{ code: 'SPA', feeType: 'FREE' }])
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: id, action: 'hotel.amenities.updated' }, orderBy: { createdAt: 'asc' } })
+    expect(events).toHaveLength(2)
+    expect(events[1].payload).toMatchObject({ added: [], removed: expect.arrayContaining(['POOL', 'GYM']), feeChanged: ['SPA'] })
   })
 })

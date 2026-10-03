@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
 import { idParam } from '../admin-operations/query-params'
+import { setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
 
 const STATUS_CHANGED = 'hotel.setup.status_changed'
@@ -30,7 +31,7 @@ const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).repl
 export class HotelSetupService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private token(hotel: Pick<HotelRow, 'updatedAt'>, profile: Pick<ProfileRow, 'version'> | null): string { return `${profile?.version ?? 0}.${hotel.updatedAt.getTime()}` }
+  private token(hotel: Pick<HotelRow, 'updatedAt'>, profile: Pick<ProfileRow, 'version'> | null): string { return setupToken(hotel, profile) }
 
   private async load(tx: Tx, tenantId: string, hotelIdRaw: string) {
     const hotelId = idParam('hotelId', hotelIdRaw)

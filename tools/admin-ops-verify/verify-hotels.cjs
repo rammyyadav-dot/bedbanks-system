@@ -219,6 +219,51 @@ async function openHotel(page, key, tab) {
   check('a newly created hotel opens as BLOCKED, "Sellable to Agents NO", status DRAFT', /BLOCKED/.test(created) && /Sellable to Agents\s*NO/.test(created) && /DRAFT/.test(created), created.slice(0, 120))
   check('a newly created hotel lists RATE_PLAN_MISSING and an unmapped-hotel issue as critical', (await page.locator('[data-testid=issue-list] [data-severity=CRITICAL]').count()) >= 2 && /No rate plan is configured/.test(await text(page)))
 
+  // ---- Rooms, amenities, policies and images (ADR 0021, stage 2) ----
+  await openHotel(page, 'kilo', 'rooms'); await page.waitForSelector('[data-testid=hotels-rooms], table[aria-label=Rooms]')
+  const roomsBefore = await page.locator('table[aria-label=Rooms] tbody tr').count()
+  await page.getByRole('button', { name: '+ Add room' }).click(); await page.waitForSelector('[data-testid=room-editor]')
+  await page.getByLabel('Room name').fill('Verification Suite'); await page.getByLabel('Room code').fill('VS-1')
+  await page.getByLabel('Max adults').fill('2'); await page.getByLabel('Max children').fill('3'); await page.getByLabel('Max total occupancy').fill('3')
+  await page.getByTestId('room-save').click(); await page.waitForSelector('[data-testid=room-error]')
+  check('a room that breaks the occupancy rule is refused with the rule named, and the typed values stay', /maxOccupancy: must be at least/.test(await page.getByTestId('room-error').innerText()) && (await page.getByLabel('Room name').inputValue()) === 'Verification Suite' && (await page.getByLabel('Max children').inputValue()) === '3')
+  await page.getByLabel('Max total occupancy').fill('5'); await page.getByLabel('King beds').fill('1'); await page.getByLabel('Extra bed').selectOption('SUPPORTED'); await page.getByLabel('Balcony', { exact: true }).check()
+  await page.getByTestId('room-save').click(); await page.waitForSelector('[data-testid=rooms-flash]:has-text("Room created")', { timeout: 15000 })
+  await page.waitForFunction((n) => document.querySelectorAll('table[aria-label=Rooms] tbody tr').length === n + 1, roomsBefore, { timeout: 15000 })
+  check('a valid room is created once and listed with its bedding and amenity', /1 King/.test(await page.locator('tr', { hasText: 'Verification Suite' }).innerText()) && /Balcony/.test(await page.locator('tr', { hasText: 'Verification Suite' }).innerText()) && /Extra bed: supported/.test(await page.locator('tr', { hasText: 'Verification Suite' }).innerText()))
+  await page.reload(); await page.waitForSelector('table[aria-label=Rooms]')
+  check('after a reload the room and its bedding are read back from the server', (await page.locator('table[aria-label=Rooms] tbody tr').count()) === roomsBefore + 1 && /Verification Suite/.test(await text(page)))
+  const suiteRow = () => page.locator('table[aria-label=Rooms] tbody tr', { hasText: 'Verification Suite' })
+  await suiteRow().getByRole('button', { name: 'Edit' }).click(); await page.waitForSelector('[data-testid=room-editor]')
+  await page.getByTestId('room-archive').click(); await page.waitForSelector('[data-testid=archive-confirm]')
+  check('archiving explains that nothing is deleted and needs a reason', /does not delete anything/.test(await page.getByTestId('archive-confirm').innerText()) && (await page.getByTestId('archive-confirm-button').isDisabled()))
+  await page.getByLabel(/^Reason/).fill('Closed for verification'); await page.getByTestId('archive-confirm-button').click(); await page.waitForSelector('[data-testid=rooms-flash]:has-text("archived")', { timeout: 15000 })
+  await page.waitForFunction(() => [...document.querySelectorAll('table[aria-label=Rooms] tbody tr')].some((r) => r.textContent.includes('Verification Suite') && r.getAttribute('data-active') === 'false'), null, { timeout: 15000 })
+  check('an archived room stays listed as ARCHIVED (never deleted) and can be restored', /ARCHIVED/.test(await suiteRow().innerText()) && (await suiteRow().getByRole('button', { name: 'Edit' }).count()) === 1)
+  await suiteRow().getByRole('button', { name: 'Edit' }).click(); await page.waitForSelector('[data-testid=room-editor]')
+  check('the editor of an archived room offers Restore', /Restore room/.test(await page.getByTestId('room-editor').innerText()))
+  await page.getByTestId('room-archive').click(); await page.waitForSelector('[data-testid=room-error]')
+  check('restoring without a reason is refused before anything is sent', /reason/i.test(await page.getByTestId('room-error').innerText()))
+  await page.getByLabel(/^Reason/).fill('Reopened after verification'); await page.getByTestId('room-archive').click(); await page.waitForSelector('[data-testid=rooms-flash]:has-text("restored")', { timeout: 15000 })
+  await page.waitForFunction(() => [...document.querySelectorAll('table[aria-label=Rooms] tbody tr')].some((r) => r.textContent.includes('Verification Suite') && r.getAttribute('data-active') === 'true'), null, { timeout: 15000 })
+  check('a restored room is ACTIVE again', /ACTIVE/.test(await suiteRow().innerText()))
+  check('child-age rules are shown read-only from contracts', (await page.getByTestId('child-age-rules').count()) === 1 && /contract policies, not room data/.test(await page.getByTestId('child-age-rules').innerText()))
+  await openHotel(page, 'kilo', 'amenities'); await page.waitForSelector('[data-testid=amenities-form]')
+  await page.getByLabel('Swimming pool', { exact: true }).check(); await page.getByLabel('Swimming pool fee').selectOption('PAID'); await page.getByLabel('Spa', { exact: true }).check()
+  await page.getByTestId('amenities-save').click(); await page.waitForSelector('[data-testid=amenities-flash]:has-text("Amenities saved")', { timeout: 15000 })
+  await page.reload(); await page.waitForSelector('[data-testid=amenities-form]')
+  check('hotel amenities persist with an explicit fee type; an untouched one stays unrecorded', (await page.getByLabel('Swimming pool', { exact: true }).isChecked()) && (await page.getByLabel('Swimming pool fee').inputValue()) === 'PAID' && (await page.getByLabel('Spa fee').inputValue()) === 'UNKNOWN' && !(await page.getByLabel('Gym', { exact: false }).first().isChecked().catch(() => false)))
+  check('room-only amenities are not offered at hotel level', (await page.getByLabel('Balcony', { exact: true }).count()) === 0)
+  await openHotel(page, 'kilo', 'policies'); await page.waitForSelector('[data-testid=policies-form]')
+  await page.getByLabel(/^Children/).fill('Children under 12 stay free in existing bedding.')
+  await page.getByTestId('policies-save').click(); await page.waitForSelector('[data-testid=policies-flash]:has-text("Hotel policies saved")', { timeout: 15000 })
+  await page.reload(); await page.waitForSelector('[data-testid=policies-form]')
+  check('hotel policies persist and are kept apart from rate-specific cancellation terms', (await page.getByLabel(/^Children/).inputValue()).startsWith('Children under 12') && (await page.getByTestId('contract-terms').count()) === 1 && /never replaces them/.test(await page.getByTestId('contract-terms').innerText()))
+  await openHotel(page, 'kilo', 'images'); await page.waitForSelector('[data-testid=images-unavailable]')
+  check('Images states the missing storage dependency and offers no upload', /not available yet/.test(await text(page)) && (await page.locator('input[type=file]').count()) === 0 && (await page.getByRole('button', { name: /upload|add image/i }).count()) === 0)
+  await page.goto(`${BASE}/hotels/${H.kilo}/rooms/new`); await page.waitForURL(/tab=rooms&room=new/, { timeout: 15000 }); await page.waitForSelector('[data-testid=room-editor]')
+  check('the old Add room route forwards to the Rooms tab editor', /tab=rooms/.test(page.url()))
+
   // ---- directory: search by canonical id and external id, filters persist in the URL ----
   await page.goto(`${BASE}/hotels`); await page.waitForSelector('[data-testid=hotels-table]')
   await page.getByLabel('Search hotels').fill('GV-'); await page.getByLabel('Search hotels').press('Enter'); await page.waitForFunction(() => location.search.includes('search=GV-'))
@@ -245,8 +290,8 @@ async function openHotel(page, key, tab) {
   check('tabs are keyboard reachable and activate with Enter', focusedRole === 'tab' && /tab=rooms/.test(page.url()))
   for (const [w, h] of [[1280, 900], [768, 900], [390, 800]]) {
     await page.setViewportSize({ width: w, height: h })
-    for (const url of [`${BASE}/hotels`, `${BASE}/hotels/${H.alpha}?tab=rates`, `${BASE}/hotels/${H.alpha}?tab=setup`, `${BASE}/exceptions`]) {
-      await page.goto(url); await page.waitForSelector('table, [data-state], [data-testid=setup-form]'); await page.waitForTimeout(500)
+    for (const url of [`${BASE}/hotels`, `${BASE}/hotels/${H.alpha}?tab=rates`, `${BASE}/hotels/${H.alpha}?tab=setup`, `${BASE}/hotels/${H.alpha}?tab=rooms`, `${BASE}/hotels/${H.alpha}?tab=policies`, `${BASE}/exceptions`]) {
+      await page.goto(url); await page.waitForSelector('table, [data-state], [data-testid=setup-form], [data-testid=policies-form]'); await page.waitForTimeout(500)
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
       const focusable = await page.evaluate(() => [...document.querySelectorAll('[role=region][aria-label]')].every((r) => r.scrollWidth <= r.clientWidth + 1 || r.getAttribute('tabindex') === '0'))
       check(`no page-level horizontal overflow at ${w}px on ${new URL(url).pathname}${new URL(url).search}`, overflow <= 1 && focusable, `overflow=${overflow}`)
@@ -254,7 +299,7 @@ async function openHotel(page, key, tab) {
   }
   await page.setViewportSize({ width: 1280, height: 900 })
   await openHotel(page, 'bravo', 'sellability'); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-testid=sellability-result]')
-  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
+  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Rooms', `${BASE}/hotels/${H.alpha}?tab=rooms`, 'table[aria-label=Rooms]'], ['Amenities', `${BASE}/hotels/${H.alpha}?tab=amenities`, '[data-testid=amenities-form]'], ['Policies', `${BASE}/hotels/${H.alpha}?tab=policies`, '[data-testid=policies-form]'], ['Images', `${BASE}/hotels/${H.alpha}?tab=images`, '[data-testid=images-unavailable]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
     if (url) { await page.goto(url); await page.waitForSelector(wait) }
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const bad = axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))

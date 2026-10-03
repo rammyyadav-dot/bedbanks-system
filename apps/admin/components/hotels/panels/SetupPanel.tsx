@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState } from 'react'
 import {
-  HOTEL_CONTACT_KINDS, HOTEL_POLICY_KEYS, HOTEL_POLICY_LABELS, HOTEL_PROFILE_STATUSES, HOTEL_PROPERTY_TYPES, KNOWN_EXTERNAL_SCHEMES,
-  type HotelContactKind, type HotelPolicyKey, type HotelProfileStatus, type HotelSetupSave, type HotelSetupView,
+  HOTEL_CONTACT_KINDS, HOTEL_PROFILE_STATUSES, HOTEL_PROPERTY_TYPES, KNOWN_EXTERNAL_SCHEMES,
+  type HotelContactKind, type HotelProfileStatus, type HotelSetupSave, type HotelSetupView,
 } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
@@ -20,7 +20,6 @@ type Form = {
   shortDescription: string; fullDescription: string; languages: string
   checkInTime: string; checkOutTime: string; operationalNotes: string
   contacts: Record<HotelContactKind, { name: string; email: string; phone: string }>
-  policies: Record<HotelPolicyKey, string>
   sourceSystem: string
   identifiers: Array<{ scheme: string; value: string }>
 }
@@ -28,14 +27,13 @@ type Form = {
 const blank = (v: string | null | undefined) => v ?? ''
 function toForm(s: HotelSetupView): Form {
   const contacts = Object.fromEntries(HOTEL_CONTACT_KINDS.map((k) => [k, { name: blank(s.contacts?.[k]?.name), email: blank(s.contacts?.[k]?.email), phone: blank(s.contacts?.[k]?.phone) }])) as Form['contacts']
-  const policies = Object.fromEntries(HOTEL_POLICY_KEYS.map((k) => [k, blank(s.policies[k])])) as Form['policies']
   return {
     name: s.identity.name, propertyType: s.identity.propertyType, legalName: blank(s.identity.legalName), chainName: blank(s.identity.chainName), brandName: blank(s.identity.brandName),
     countryCode: s.location.countryCode, city: s.location.city, area: blank(s.location.area), address: blank(s.location.address), postalCode: blank(s.location.postalCode), latitude: blank(s.location.latitude), longitude: blank(s.location.longitude), timeZone: s.location.timeZone,
     starRating: s.classification.starRating === null ? '' : String(s.classification.starRating), starSource: blank(s.classification.source), starVerified: s.classification.verified,
     shortDescription: blank(s.content.shortDescription), fullDescription: blank(s.content.fullDescription), languages: s.content.languages.join(', '),
     checkInTime: blank(s.operations.checkInTime), checkOutTime: blank(s.operations.checkOutTime), operationalNotes: blank(s.operations.notes),
-    contacts, policies, sourceSystem: blank(s.governance.sourceSystem), identifiers: s.identity.externalIdentifiers.map((i) => ({ scheme: i.scheme, value: i.value })),
+    contacts, sourceSystem: blank(s.governance.sourceSystem), identifiers: s.identity.externalIdentifiers.map((i) => ({ scheme: i.scheme, value: i.value })),
   }
 }
 
@@ -56,7 +54,6 @@ function diff(initial: Form, now: Form, canContacts: boolean): Omit<HotelSetupSa
   if (initial.languages !== now.languages) out.languages = now.languages.split(',').map((l) => l.trim()).filter(Boolean)
   text('checkInTime', 'checkInTime', true); text('checkOutTime', 'checkOutTime', true); text('sourceSystem', 'sourceSystem', true)
   if (canContacts && !same(initial.contacts, now.contacts)) out.contacts = Object.fromEntries(HOTEL_CONTACT_KINDS.map((k) => [k, { name: nul(now.contacts[k].name), email: nul(now.contacts[k].email), phone: nul(now.contacts[k].phone) }]))
-  if (!same(initial.policies, now.policies)) out.policies = Object.fromEntries(HOTEL_POLICY_KEYS.map((k) => [k, nul(now.policies[k])]))
   if (!same(initial.identifiers, now.identifiers)) out.externalIdentifiers = now.identifiers.filter((i) => i.scheme.trim() || i.value.trim()).map((i) => ({ scheme: i.scheme.trim(), value: i.value.trim() }))
   return out as never
 }
@@ -198,9 +195,7 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
               </div>
             ))}
           </>, 'Never shown to Agents, the Website or suppliers. Do not enter guest details.')}
-        {section('Hotel policies', <>
-          {HOTEL_POLICY_KEYS.map((k) => <label key={k} style={{ ...field, gridColumn: '1 / -1' }}>{HOTEL_POLICY_LABELS[k]}<textarea className="input-wrap" rows={2} maxLength={1000} value={form.policies[k]} readOnly={ro} onChange={(e) => set('policies', { ...form.policies, [k]: e.target.value })} /></label>)}
-        </>, 'Hotel information only. Rate-specific cancellation terms are set on contracts and are never overwritten here.')}
+        <p style={note} data-testid="policies-moved">Hotel policies (children, extra beds, pets, accessibility, local charges) are edited on the Policies tab, apart from rate-specific cancellation terms. Amenities and images have their own tabs.</p>
         {section('Governance', <>
           {input('sourceSystem', 'Content source', { maxLength: 80 })}
           <div style={field}><span>Owner</span><span>{setup.governance.ownerUserId ? <code>{setup.governance.ownerUserId}</code> : 'Not set'}</span><span style={note}>Choosing an owner needs a tenant member picker that is not available yet.</span></div>

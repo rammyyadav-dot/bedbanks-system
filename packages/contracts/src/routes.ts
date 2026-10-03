@@ -8,6 +8,9 @@ export const routes = {
   // Hotel Setup (ADR 0021): descriptive and operational hotel content, saved with optimistic concurrency.
   adminHotelSetup: {
     setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status',
+    rooms: '/admin/hotels/:hotelId/rooms', room: '/admin/hotels/:hotelId/rooms/:roomId',
+    roomArchive: '/admin/hotels/:hotelId/rooms/:roomId/archive', roomRestore: '/admin/hotels/:hotelId/rooms/:roomId/restore',
+    amenities: '/admin/hotels/:hotelId/amenities',
   },
   // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
   adminClients: {

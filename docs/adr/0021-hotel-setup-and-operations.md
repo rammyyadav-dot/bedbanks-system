@@ -1,7 +1,7 @@
 # ADR 0021: Hotel Setup and Hotel Operations
 
 ## Status
-Accepted for stage 1 (Hotel Setup). Adds the reviewed forward-only migration `202610120001_hotel_profile`, replayed only on disposable local databases. It carries conditional `GRANT`s for the API runtime role, which are production privilege changes in effect and need the ADR 0013 human decision before the migration is applied anywhere persistent. Later stages append to this ADR.
+Accepted for stages 1 and 2 (Hotel Setup; rooms, amenities, policies, images). Adds the reviewed forward-only migrations `202610120001_hotel_profile` and `202610130001_hotel_amenities`, replayed only on disposable local databases. It carries conditional `GRANT`s for the API runtime role, which are production privilege changes in effect and need the ADR 0013 human decision before the migration is applied anywhere persistent. Later stages append to this ADR.
 
 ## Context
 The Hotels module already had a directory, a Hotel 360 view and commercial tabs (ADR 0014), but the hotel record held only name, type, rating, address, city, country, coordinates, time zone, a content status and one external reference. There was nowhere to store legal name, chain, brand, area, descriptions, languages, check-in and check-out times, private contacts, hotel-level policies, classification verification, approval metadata, or external identifiers such as GIATA. Hotel content could be set to COMPLETE by anyone holding `supply.hotels.manage`, with no completeness check and no concurrency control.
@@ -17,6 +17,15 @@ The Hotels module already had a directory, a Hotel 360 view and commercial tabs 
 8. **Directory.** Rows gain verified supplier-mapping count and a profile summary (completeness, star verification, area, last editor, external ids). Search matches name, legacy code, exact canonical id and external identifier value. Property type and star filters are added. A denied profile read (42501) is reported as "unavailable", never as "no profile".
 9. **Permissions.** No new permission key: `supply.hotels.read` and `supply.hotels.manage`.
 
+## Stage 2: rooms, amenities, policies, images
+10. **Room Master stays `RoomType`.** The Admin room API (`/admin/hotels/:id/rooms`) creates, edits, archives and restores rooms with the same concurrency token, idempotency key and audit as Setup. The occupancy rule is shared with the supply API (`supply/room-rules.ts`) so the two cannot diverge. Rooms are never deleted: archiving sets `isActive` false and leaves rate plans, mappings and history; archiving the last active room of a published hotel is refused; the audit records the active rate plans and mappings it left in place. The older create and edit pages overwrote `beddingMetadata`; they now forward to the Rooms tab, and edits merge into the stored JSON and preserve unknown keys.
+11. **Bedding and extra beds** are stored in the existing `beddingMetadata` column under three known keys (`description`, `beds`, `extraBed`), validated by the API. No column was added.
+12. **Child-age rules are contract policies** (`ChildPolicy`). They are shown read-only beside the rooms, with the contract and supplier, and are not editable on a room, because the schema has no room-level child-age model and inventing one would create a second source of truth.
+13. **Amenities** come from a controlled catalogue in `@bedbanks/contracts` and are stored in `HotelAmenity` and `RoomAmenity` (composite foreign key to the room's hotel). A missing row means "not recorded"; fee type FREE, PAID or UNKNOWN is explicit. Hotel amenities share the Setup concurrency token, so a stale Setup form cannot overwrite them.
+14. **Policies tab.** Hotel-level information policies (children, extra beds, pets, accessibility, local charges) are edited there and saved through the Setup API. Rate-specific cancellation terms are shown read-only from each contract and are never overwritten by a hotel policy.
+15. **Images are not built.** The repository has no approved storage mechanism (no bucket, signed upload, malware scan or rights model). The Images tab says so, offers no upload and no thumbnails are shown. Dependency: an approved storage service with type and size limits, scanning, no server-side URL fetching, and recovery rules.
+16. **Guarded reads.** Room amenities, child policies and profile summaries are read behind SAVEPOINTs, run one after another, and report "unavailable" when the API database role has not been granted the tables.
+
 ## Known gaps and decisions for the owner
 - **Legacy hotel endpoints.** `POST` and `PATCH /supply/hotels` still accept `contentStatus: COMPLETE` directly (existing end-to-end tests rely on it). The Admin UI no longer offers that path: new hotels are created as DRAFT and published through the gated status change. Closing the API path is a breaking change to be decided.
 - **Single-actor approval.** Existing policy lets one holder of `supply.hotels.manage` edit and publish. This ADR does not add maker-checker; `hotel.activate` (planned, S2) is the natural place if the business wants it.
@@ -24,4 +33,4 @@ The Hotels module already had a directory, a Hotel 360 view and commercial tabs 
 - **Owner picker.** Choosing a profile owner needs a tenant member list that hotel managers cannot read; the owner field is stored but not editable in the UI.
 
 ## Consequences
-- Rollback is a later forward migration (`DROP TABLE "HotelExternalIdentifier", "HotelProfile"`); do not edit the applied file.
+- Rollback is a later forward migration (`DROP TABLE "RoomAmenity", "HotelAmenity", "HotelExternalIdentifier", "HotelProfile"; DROP TYPE "AmenityFeeType"`); do not edit an applied file.
