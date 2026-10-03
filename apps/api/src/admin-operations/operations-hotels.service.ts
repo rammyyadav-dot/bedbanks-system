@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
-  type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
+  type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
 } from '@bedbanks/contracts'
@@ -17,6 +17,7 @@ import {
   assessHotel, contractStateOf, evaluatePlanNight, gateResults, mappingFor, windowDates,
   type AssessContract, type AssessHotelInput, type AssessPlan, type HotelAssessment,
 } from '../supply/commercial-assessment'
+import { loadProfileSummaries } from '../hotel-setup/hotel-profile-summary'
 import { auditView } from './operations-transactions.service'
 import { day, guardedRead, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
@@ -24,6 +25,7 @@ import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged,
 /** The most hotels a computed filter, summary or exception scan will assess in one request. Responses say when it was reached. */
 export const COMMERCIAL_SCAN_CAP = 500
 const CONTENT_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED'] as const
+const STARS = ['1', '2', '3', '4', '5', 'UNRATED'] as const
 const READINESS = ['READY', 'PARTIAL', 'BLOCKED'] as const
 const MAPPING = ['MAPPED', 'PENDING', 'REJECTED', 'NONE'] as const
 const CONTRACT_STATES = ['ACTIVE', 'EXPIRING', 'EXPIRED', 'INACTIVE', 'NONE'] as const
@@ -35,7 +37,7 @@ const ISSUE_FILTER = /^[A-Z][A-Z_]{2,47}$/
 const AUDIT_ENTITY_LIMIT = 2000
 
 type Win = { from: string; days: number; to: string; dates: string[] }
-type HotelRecord = { id: string; name: string; externalRef: string | null; city: string; countryCode: string; starRating: number | null; propertyType: string; contentStatus: string; timeZone: string; address: string | null; updatedAt: Date }
+type HotelRecord = { id: string; name: string; externalRef: string | null; city: string; countryCode: string; starRating: number | null; propertyType: string; contentStatus: string; timeZone: string; address: string | null; latitude: Prisma.Decimal | null; longitude: Prisma.Decimal | null; updatedAt: Date }
 
 /** Read-only hotel commercial views. Every readiness, gate, issue and reason comes from the shared canonical assessor. */
 @Injectable()
@@ -108,14 +110,21 @@ export class OperationsHotelsService {
     return hotel
   }
 
-  private row(hotel: HotelRecord, a: HotelAssessment): HotelCommercialRow {
+  private row(hotel: HotelRecord, a: HotelAssessment, extra: { profile: HotelRowProfile | null; verifiedMappings: number }): HotelCommercialRow {
     const count = (s: IssueSeverity) => a.issues.filter((i) => i.severity === s).length
     return {
       id: hotel.id, name: hotel.name, code: hotel.externalRef, city: hotel.city, countryCode: hotel.countryCode, starRating: hotel.starRating, propertyType: hotel.propertyType, contentStatus: hotel.contentStatus,
       suppliers: a.suppliers, contractState: a.contractState, contractDaysToExpiry: a.contractDaysToExpiry, hotelMapping: a.hotelMapping,
       rooms: a.roomCounts, ratePlans: a.planCounts, rates: a.rates, inventory: a.inventory, readiness: a.readiness, blockers: a.blockers,
       issues: { total: a.issues.length, critical: count('CRITICAL'), high: count('HIGH'), warning: count('WARNING') }, updatedAt: hotel.updatedAt.toISOString(),
+      verifiedMappings: extra.verifiedMappings, profile: extra.profile,
     }
+  }
+
+  private async rowExtras(tx: Prisma.TransactionClient, tenantId: string, hotels: HotelRecord[], assessed: Map<string, HotelAssessment>) {
+    const active = new Map(hotels.map((h) => [h.id, assessed.get(h.id)!.roomCounts.active]))
+    const { profiles, verifiedMappings } = await loadProfileSummaries(tx, tenantId, hotels, active)
+    return { available: profiles !== null, for: (id: string) => ({ profile: profiles?.get(id) ?? null, verifiedMappings: verifiedMappings.get(id) ?? 0 }) }
   }
 
   // ---- list ----------------------------------------------------------------------------------------------------------------
@@ -125,8 +134,15 @@ export class OperationsHotelsService {
     const contentStatus = enumParam('contentStatus', query.contentStatus, CONTENT_STATUSES)
     const supplierId = idParam('supplierId', query.supplierId)
     const mapping = enumParam('mapping', query.mapping, MAPPING)
+    const propertyType = textParam('propertyType', query.propertyType, 32)
+    if (propertyType !== undefined && !/^[A-Z][A-Z_]{1,31}$/.test(propertyType)) throw new BadRequestException('Invalid propertyType')
+    const stars = enumParam('stars', query.stars, STARS)
     const and: Prisma.HotelWhereInput[] = []
-    if (search) and.push({ OR: [{ name: { contains: likeLiteral(search), mode: 'insensitive' } }, { externalRef: { startsWith: likeLiteral(search), mode: 'insensitive' } }] })
+    // Name, the legacy code, the canonical id (exact) or an external identifier such as a GIATA id.
+    if (search) and.push({ OR: [{ name: { contains: likeLiteral(search), mode: 'insensitive' } }, { externalRef: { startsWith: likeLiteral(search), mode: 'insensitive' } }, { id: search }, { externalIdentifiers: { some: { value: { startsWith: likeLiteral(search), mode: 'insensitive' } } } }] })
+    if (propertyType) and.push({ propertyType })
+    if (stars === 'UNRATED') and.push({ starRating: null })
+    else if (stars) and.push({ starRating: Number(stars) })
     if (supplierId) and.push({ OR: [{ mappings: { some: { supplierId } } }, { roomTypes: { some: { ratePlans: { some: { contract: { supplierId } } } } } }] })
     if (mapping === 'NONE') and.push({ mappings: { none: {} } })
     else if (mapping) and.push({ mappings: { some: { status: mapping } } })
@@ -156,7 +172,8 @@ export class OperationsHotelsService {
       if (!f.any) {
         const [hotels, total] = await Promise.all([tx.hotel.findMany({ where, orderBy: order, skip: page.skip, take: page.take, select: HOTEL_SELECT }), tx.hotel.count({ where })])
         const assessed = await this.assessAll(tx, tenantId, hotels, win)
-        return { ...paged(hotels.map((h) => this.row(h, assessed.get(h.id)!)), page, total), window: { from: win.from, to: win.to, days: win.days }, scanCapped: false, destinations }
+        const extras = await this.rowExtras(tx, tenantId, hotels, assessed)
+        return { ...paged(hotels.map((h) => this.row(h, assessed.get(h.id)!, extras.for(h.id))), page, total), profilesAvailable: extras.available, window: { from: win.from, to: win.to, days: win.days }, scanCapped: false, destinations }
       }
       // Computed filters need the assessment, so a bounded set is assessed first and then paged. The response says when the cap is hit.
       const candidates = await tx.hotel.findMany({ where, orderBy: order, take: COMMERCIAL_SCAN_CAP + 1, select: HOTEL_SELECT })
@@ -172,7 +189,8 @@ export class OperationsHotelsService {
         return true
       })
       const slice = kept.slice(page.skip, page.skip + page.take)
-      return { ...paged(slice.map((h) => this.row(h, assessed.get(h.id)!)), page, kept.length), window: { from: win.from, to: win.to, days: win.days }, scanCapped, destinations }
+      const extras = await this.rowExtras(tx, tenantId, slice, assessed)
+      return { ...paged(slice.map((h) => this.row(h, assessed.get(h.id)!, extras.for(h.id))), page, kept.length), profilesAvailable: extras.available, window: { from: win.from, to: win.to, days: win.days }, scanCapped, destinations }
     })
   }
 
@@ -517,4 +535,4 @@ export class OperationsHotelsService {
   }
 }
 
-const HOTEL_SELECT = { id: true, name: true, externalRef: true, city: true, countryCode: true, starRating: true, propertyType: true, contentStatus: true, timeZone: true, address: true, updatedAt: true } as const
+const HOTEL_SELECT = { id: true, name: true, externalRef: true, city: true, countryCode: true, starRating: true, propertyType: true, contentStatus: true, timeZone: true, address: true, latitude: true, longitude: true, updatedAt: true } as const

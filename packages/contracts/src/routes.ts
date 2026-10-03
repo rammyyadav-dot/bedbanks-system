@@ -5,6 +5,10 @@ export const routes = {
     bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
+  // Hotel Setup (ADR 0021): descriptive and operational hotel content, saved with optimistic concurrency.
+  adminHotelSetup: {
+    setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status',
+  },
   // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
   adminClients: {
     summary: '/admin/clients/summary', agencies: '/admin/clients/agencies', agency: '/admin/clients/agencies/:agencyId',

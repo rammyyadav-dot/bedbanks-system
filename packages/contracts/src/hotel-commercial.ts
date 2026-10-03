@@ -70,8 +70,24 @@ export interface CommercialIssue {
 }
 
 export interface HotelSupplierRef { id: string; displayName: string }
+/** Profile summary for one directory row (ADR 0021). The row's `profile` is null when the API database role cannot read profiles. */
+export interface HotelRowProfile {
+  /** False until the first Hotel Setup save; completeness is still computed from the hotel record. */
+  exists: boolean
+  completenessPercent: number
+  publishable: boolean
+  starVerified: boolean
+  area: string | null
+  /** Name or email of the last person to save the setup. */
+  updatedBy: string | null
+  externalIdentifiers: Array<{ scheme: string; value: string }>
+}
+
 export interface HotelCommercialRow {
   id: string; name: string; /** Hotel.externalRef */ code: string | null
+  /** Approved (MAPPED) supplier hotel mappings. A hotel may have several. */
+  verifiedMappings: number
+  profile: HotelRowProfile | null
   city: string; countryCode: string; starRating: number | null; propertyType: string
   /** Entity status (`Hotel.contentStatus`). Not commercial readiness. */
   contentStatus: string
@@ -97,7 +113,7 @@ export interface HotelCommercialQuery {
   from?: string; days?: number; page?: number; pageSize?: number
 }
 /** Present when a computed filter had to scan the bounded hotel set (cap) rather than the whole tenant. */
-export interface HotelCommercialPage { items: HotelCommercialRow[]; page: number; pageSize: number; total: number; window: { from: string; to: string; days: number }; scanCapped: boolean; destinations: string[] }
+export interface HotelCommercialPage { items: HotelCommercialRow[]; profilesAvailable: boolean; page: number; pageSize: number; total: number; window: { from: string; to: string; days: number }; scanCapped: boolean; destinations: string[] }
 
 export interface HotelCommercialSummary {
   generatedAt: string

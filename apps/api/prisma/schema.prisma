@@ -415,6 +415,8 @@ enum ConnectorExecutionStatus {
 
 model Tenant {
   agencies Agency[]
+  hotelProfiles HotelProfile[]
+  hotelExternalIdentifiers HotelExternalIdentifier[]
   agencyMembers AgencyMember[]
   serviceCases ServiceCase[]
   serviceCaseNotes ServiceCaseNote[]
@@ -785,6 +787,8 @@ model Hotel {
   serviceCases ServiceCase[]
   distributionRestrictions DistributionRestriction[]
   markupRules CommercialMarkupRule[]
+  profile HotelProfile?
+  externalIdentifiers HotelExternalIdentifier[]
   id            String        @id @default(cuid())
   tenantId      String        @map("tenant_id")
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -811,6 +815,63 @@ model Hotel {
   @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
   @@index([tenantId, contentStatus])
+}
+
+/// Operational and descriptive hotel content (ADR 0021). One row per canonical hotel, created lazily by the first save.
+/// Optimistic concurrency: `version` starts at 1 and increases by one on every save. Contacts are private: no Agent,
+/// Website or supplier API reads this table. Actor ids are plain identifiers (no foreign key) so history survives user removal.
+model HotelProfile {
+  id        String @id @default(cuid())
+  tenantId  String @map("tenant_id")
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String @unique @map("hotel_id")
+  hotel     Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  legalName        String?  @map("legal_name")
+  chainName        String?  @map("chain_name")
+  brandName        String?  @map("brand_name")
+  area             String?
+  postalCode       String?  @map("postal_code")
+  shortDescription String?  @map("short_description")
+  fullDescription  String?  @map("full_description")
+  languages        String[] @default([])
+  checkInTime      String?  @map("check_in_time") @db.Char(5)
+  checkOutTime     String?  @map("check_out_time") @db.Char(5)
+  operationalNotes String?  @map("operational_notes")
+  /// Private reservations, commercial, finance and emergency contacts. Never returned by Agent or public APIs.
+  contacts         Json     @default("{}")
+  /// Hotel-level information only (children, extra beds, pets, accessibility, local charges). Never rate cancellation terms.
+  policies         Json     @default("{}")
+  sourceSystem     String?  @map("source_system")
+  ownerUserId      String?  @map("owner_user_id")
+  starSource       String?  @map("star_source")
+  starVerifiedAt   DateTime? @map("star_verified_at")
+  starVerifiedById String?  @map("star_verified_by_id")
+  approvedById     String?  @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  version          Int      @default(1)
+  updatedById      String   @map("updated_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, hotelId])
+}
+
+/// External hotel identifiers (for example GIATA), stored apart from the canonical id. One value per scheme per hotel,
+/// and a value identifies at most one hotel per tenant and scheme.
+model HotelExternalIdentifier {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String   @map("hotel_id")
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  scheme      String
+  value       String
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, scheme, value])
+  @@unique([hotelId, scheme])
+  @@index([tenantId, hotelId])
 }
 
 /// Normalized identity used only to propose canonical hotel candidates.
