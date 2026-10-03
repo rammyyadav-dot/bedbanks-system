@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import type { Request } from 'express'
 import { ApiTags } from '@nestjs/swagger'
 import type { HotelSetupSave, HotelSetupStatusChange } from '@bedbanks/contracts'
@@ -23,6 +23,9 @@ export class HotelSetupController {
   async get(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string) {
     return this.setup.get(tenantId, hotelId, await this.setup.holds(tenantId, identity.user.id, 'supply.hotels.manage'))
   }
+
+  @Get('owner-candidates') @RequireSupplyPermission('supply.hotels.manage') @UseGuards(SupplyPermissionGuard)
+  ownerCandidates(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query('search') search?: string) { return this.setup.ownerCandidates(tenantId, hotelId, search) }
 
   @Patch() @HttpCode(200) @RequireSupplyPermission('supply.hotels.manage') @UseGuards(SupplyPermissionGuard)
   save(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string, @Body() body: HotelSetupSave, @Req() req: Request) {

@@ -1,11 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
-  HOTEL_PROFILE_STATUSES, type HotelContacts, type HotelPolicies, type HotelProfileStatus, type HotelSetupSave, type HotelSetupSaved, type HotelSetupStatusChange, type HotelSetupView,
+  HOTEL_PROFILE_STATUSES, type HotelContacts, type HotelOwnerCandidate, type HotelPolicies, type HotelProfileStatus, type HotelSetupSave, type HotelSetupSaved, type HotelSetupStatusChange, type HotelSetupView,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
-import { idParam } from '../admin-operations/query-params'
+import { idParam, likeLiteral, textParam } from '../admin-operations/query-params'
 import { setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
 
@@ -44,7 +44,10 @@ export class HotelSetupService {
       tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } }),
       tx.roomType.count({ where: { hotelId: hotel.id } }),
     ])
-    return { hotel, profile, identifiers, activeRooms, totalRooms }
+    // Resolved only while the owner is still a member of this tenant; a stale id shows as "not set" rather than leaking a foreign user.
+    const ownerRow = profile?.ownerUserId ? await tx.membership.findUnique({ where: { userId_tenantId: { userId: profile.ownerUserId, tenantId } }, select: { user: { select: { id: true, name: true, email: true } } } }) : null
+    const owner = ownerRow ? { userId: ownerRow.user.id, name: ownerRow.user.name, email: ownerRow.user.email } : null
+    return { hotel, profile, identifiers, activeRooms, totalRooms, owner }
   }
 
   private current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number): CurrentSetup {
@@ -56,7 +59,7 @@ export class HotelSetupService {
   }
 
   private toView(data: Awaited<ReturnType<HotelSetupService['load']>>, includeContacts: boolean): HotelSetupView {
-    const { hotel, profile, identifiers, activeRooms, totalRooms } = data
+    const { hotel, profile, identifiers, activeRooms, totalRooms, owner } = data
     return {
       generatedAt: new Date().toISOString(), hotelId: hotel.id, concurrencyToken: this.token(hotel, profile), profileExists: profile !== null,
       identity: { name: hotel.name, propertyType: hotel.propertyType, legalName: profile?.legalName ?? null, chainName: profile?.chainName ?? null, brandName: profile?.brandName ?? null, code: hotel.externalRef, externalIdentifiers: identifiers.map((i) => ({ scheme: i.scheme, value: i.value, createdAt: i.createdAt.toISOString() })) },
@@ -66,7 +69,7 @@ export class HotelSetupService {
       operations: { checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null, notes: profile?.operationalNotes ?? null },
       contacts: includeContacts ? asContacts(profile?.contacts) : null,
       policies: asPolicies(profile?.policies),
-      governance: { status: hotel.contentStatus as HotelProfileStatus, sourceSystem: profile?.sourceSystem ?? null, ownerUserId: profile?.ownerUserId ?? null, approvedById: profile?.approvedById ?? null, approvedAt: iso(profile?.approvedAt), updatedById: profile?.updatedById ?? null, updatedAt: hotel.updatedAt.toISOString() },
+      governance: { status: hotel.contentStatus as HotelProfileStatus, sourceSystem: profile?.sourceSystem ?? null, ownerUserId: profile?.ownerUserId ?? null, owner, approvedById: profile?.approvedById ?? null, approvedAt: iso(profile?.approvedAt), updatedById: profile?.updatedById ?? null, updatedAt: hotel.updatedAt.toISOString() },
       rooms: { active: activeRooms, total: totalRooms },
       completeness: assessCompleteness(this.current(hotel, profile, activeRooms)),
     }
@@ -76,6 +79,19 @@ export class HotelSetupService {
   async holds(tenantId: string, userId: string, key: string): Promise<boolean> {
     const roles = await this.prisma.withTenant(tenantId, (tx) => tx.userRole.findMany({ where: { userId, tenantId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } }))
     return roles.some((a) => a.role.permissions.some((p) => p.permission.key === key))
+  }
+
+  /** Tenant members who can be named owner. Search matches name or email; capped at 50. Needs supply.hotels.manage because it lists staff e-mail addresses. */
+  async ownerCandidates(tenantId: string, hotelIdRaw: string, searchRaw: unknown): Promise<HotelOwnerCandidate[]> {
+    const search = textParam('search', searchRaw, 64)
+    return guardedRead(() => this.prisma.withTenant(tenantId, async (tx) => {
+      await this.load(tx, tenantId, hotelIdRaw)
+      const rows = await tx.membership.findMany({
+        where: { tenantId, ...(search && { user: { OR: [{ email: { contains: likeLiteral(search), mode: 'insensitive' } }, { name: { contains: likeLiteral(search), mode: 'insensitive' } }] } }) },
+        select: { user: { select: { id: true, email: true, name: true } } }, orderBy: { createdAt: 'asc' }, take: 50,
+      })
+      return rows.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email }))
+    }))
   }
 
   async get(tenantId: string, hotelId: string, includeContacts: boolean): Promise<HotelSetupView> {

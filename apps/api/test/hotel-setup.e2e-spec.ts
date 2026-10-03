@@ -314,6 +314,36 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   const loadRooms = async (hotelId: string, who = 'manager') => (await api('get', roomsPath(hotelId), who).expect(200)).body.data
   const roomBody = (patch: object = {}, idem = key()) => ({ idempotencyKey: idem, name: 'Deluxe King', code: `DK-${++seq}`, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, ...patch })
 
+  it('HS-12 the owner is chosen from this tenant\'s members, listed only for managers, shown by name, and never from another tenant', async () => {
+    const id = await newDraft('owner')
+    const candidates = `${setupPath(id)}/owner-candidates`
+    const listed = (await api('get', candidates, 'manager').expect(200)).body.data as Array<{ userId: string; email: string }>
+    expect(listed.map((c) => c.userId)).toEqual(expect.arrayContaining([ids.manager, ids.reader]))
+    expect(listed.map((c) => c.userId)).not.toContain(ids.bmanager) // another tenant's staff never appear
+    const searched = (await api('get', `${candidates}?search=${encodeURIComponent('READER')}`, 'manager').expect(200)).body.data as Array<{ userId: string }>
+    expect(searched.map((c) => c.userId)).toEqual([ids.reader])
+    expect((await api('get', `${candidates}?search=${encodeURIComponent('%')}`, 'manager').expect(200)).body.data).toEqual([]) // wildcard is a literal
+    await api('get', candidates, 'reader').expect(403) // staff e-mail addresses need supply.hotels.manage
+    await api('get', candidates, 'anon').expect(401)
+    await api('get', `/admin/hotels/${id}/setup/owner-candidates`, 'bmanager').expect(404) // hotel of another tenant
+    await api('get', `/admin/hotels/does-not-exist/setup/owner-candidates`, 'manager').expect(404)
+
+    const first = await load(id)
+    expect(first.governance.owner).toBeNull()
+    await save(id, first.concurrencyToken, { ownerUserId: ids.bmanager }).expect(400) // not a member of this tenant
+    const saved = (await save(id, first.concurrencyToken, { ownerUserId: ids.reader }).expect(200)).body.data.setup
+    expect(saved.governance.ownerUserId).toBe(ids.reader)
+    expect(saved.governance.owner).toMatchObject({ userId: ids.reader, name: 'reader', email: `${suffix}-reader@example.test` })
+    const cleared = (await save(id, saved.concurrencyToken, { ownerUserId: null }).expect(200)).body.data.setup
+    expect(cleared.governance.ownerUserId).toBeNull(); expect(cleared.governance.owner).toBeNull()
+    // a member who later leaves the tenant is no longer shown as owner
+    const again = (await save(id, cleared.concurrencyToken, { ownerUserId: ids.none }).expect(200)).body.data.setup
+    await prisma.membership.delete({ where: { userId_tenantId: { userId: ids.none, tenantId: tenantA } } })
+    expect((await load(id)).governance).toMatchObject({ ownerUserId: ids.none, owner: null })
+    expect(again.governance.owner).toMatchObject({ userId: ids.none })
+    await prisma.membership.create({ data: { tenantId: tenantA, userId: ids.none, role: 'agent' } })
+  })
+
   it('HR-01 rooms list with usage, parsed bedding, contract child-age rules, and amenities availability', async () => {
     const view = await loadRooms(hotels.sold)
     expect(view.hotelId).toBe(hotels.sold); expect(view.amenitiesAvailable).toBe(true)
