@@ -22,6 +22,12 @@ import { auditView } from './operations-transactions.service'
 import { day, guardedRead, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
+/** Only a short `source` string is surfaced from stored source metadata, which may hold raw supplier payloads. */
+const provenanceOf = (metadata: Prisma.JsonValue): string | null => {
+  const source = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? (metadata as Record<string, unknown>).source : undefined
+  return typeof source === 'string' && source.length > 0 && source.length <= 80 && !/[\u0000-\u001f]/.test(source) ? source : null
+}
+
 /** The most hotels a computed filter, summary or exception scan will assess in one request. Responses say when it was reached. */
 export const COMMERCIAL_SCAN_CAP = 500
 const CONTENT_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED'] as const
@@ -35,6 +41,8 @@ const CALENDAR_MAX_PLANS = 100
 const INSPECT_MAX_NIGHTS = 31
 const ISSUE_FILTER = /^[A-Z][A-Z_]{2,47}$/
 const AUDIT_ENTITY_LIMIT = 2000
+/** Entity types the hotel audit view can be narrowed to (the mapping history view uses the first two). */
+const AUDIT_ENTITY_TYPES = ['supplier_hotel_mapping', 'supplier_room_mapping', 'hotel', 'room_type', 'contract', 'rate_plan'] as const
 
 type Win = { from: string; days: number; to: string; dates: string[] }
 type HotelRecord = { id: string; name: string; externalRef: string | null; city: string; countryCode: string; starRating: number | null; propertyType: string; contentStatus: string; timeZone: string; address: string | null; latitude: Prisma.Decimal | null; longitude: Prisma.Decimal | null; updatedAt: Date }
@@ -341,8 +349,8 @@ export class OperationsHotelsService {
       ])
       const unmapped = hotelMappings.flatMap((m) => rooms.filter((r) => !roomMappings.some((rm) => rm.supplierHotelMappingId === m.id && rm.roomTypeId === r.id && rm.status === 'MAPPED')).map((r) => ({ roomTypeId: r.id, roomName: r.name, hotelMappingId: m.id, supplierName: m.supplier.displayName })))
       return {
-        hotelMappings: hotelMappings.map((m) => ({ id: m.id, supplierId: m.supplierId, supplierName: m.supplier.displayName, supplierHotelId: m.supplierHotelId, status: m.status, confidence: m.confidence, updatedAt: m.updatedAt.toISOString() })),
-        roomMappings: roomMappings.map((m) => ({ id: m.id, hotelMappingId: m.supplierHotelMappingId, roomTypeId: m.roomTypeId, roomName: m.roomType.name, supplierRoomId: m.supplierRoomId, status: m.status, confidence: m.confidence, updatedAt: m.updatedAt.toISOString() })),
+        hotelMappings: hotelMappings.map((m) => ({ id: m.id, supplierId: m.supplierId, supplierName: m.supplier.displayName, supplierHotelId: m.supplierHotelId, status: m.status, confidence: m.confidence, provenance: provenanceOf(m.sourceMetadata), createdAt: m.createdAt.toISOString(), updatedAt: m.updatedAt.toISOString() })),
+        roomMappings: roomMappings.map((m) => ({ id: m.id, hotelMappingId: m.supplierHotelMappingId, roomTypeId: m.roomTypeId, roomName: m.roomType.name, supplierRoomId: m.supplierRoomId, status: m.status, confidence: m.confidence, provenance: provenanceOf(m.sourceMetadata), createdAt: m.createdAt.toISOString(), updatedAt: m.updatedAt.toISOString() })),
         unmappedRooms: unmapped,
       }
     })
@@ -499,7 +507,8 @@ export class OperationsHotelsService {
         tx.supplierRoomMapping.findMany({ where: { tenantId, hotelId: hotel.id }, select: { id: true } }),
       ])
       const ids = [...new Set([hotel.id, ...rooms.map((r) => r.id), ...plans.map((p) => p.id), ...contracts.map((c) => c.id), ...mappings.map((m) => m.id), ...roomMappings.map((m) => m.id)])].slice(0, AUDIT_ENTITY_LIMIT)
-      const where: Prisma.AuditEventWhereInput = { tenantId, entityId: { in: ids } }
+      const entityType = enumParam('entityType', query.entityType, AUDIT_ENTITY_TYPES)
+      const where: Prisma.AuditEventWhereInput = { tenantId, entityId: { in: ids }, ...(entityType && { entityType }) }
       const [rows, total] = await Promise.all([
         tx.auditEvent.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take }),
         tx.auditEvent.count({ where }),

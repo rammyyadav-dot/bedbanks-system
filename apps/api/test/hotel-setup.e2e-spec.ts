@@ -79,11 +79,11 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     tenantB = (await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })).id
     supplier1 = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Alpha`, displayName: 'Alpha', countryCode: 'AE', defaultCurrency: 'AED' } as never })).id
     await buildHotel(tenantA, supplier1, 'sold')
-    const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage'])
-    const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read'])
+    const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'audit.read'])
+    const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read', 'supply.mappings.read'])
     const none = await user('none', tenantA, [])
     const agent = await user('agent', tenantA, ['hotel.search'])
-    const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage'])
+    const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage'])
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
     app = module.createNestApplication()
     app.use(cookieParser()); app.setGlobalPrefix('api/v1')
@@ -415,5 +415,59 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: id, action: 'hotel.amenities.updated' }, orderBy: { createdAt: 'asc' } })
     expect(events).toHaveLength(2)
     expect(events[1].payload).toMatchObject({ added: [], removed: expect.arrayContaining(['POOL', 'GYM']), feeChanged: ['SPA'] })
+  })
+  const mapBase = '/supply/mappings/hotels'
+  const mapAudit = (hotelId: string, extra = '') => api('get', `/admin/operations/hotels/${hotelId}/audit?${extra}`, 'manager').expect(200).then((r) => r.body.data)
+
+  it('MP-01 a supplier mapping is created as PENDING (never auto-approved) and every conflict is a coded 409 naming what it collides with', async () => {
+    const a = await newDraft('map-a'); const b = await newDraft('map-b')
+    const created = (await api('post', mapBase, 'manager', { supplierId: supplier1, hotelId: a, supplierHotelId: `${suffix}-SH1`, confidence: 80, sourceMetadata: { source: 'supplier content feed', rawPayload: { secret: 'do-not-show' } } }).expect(201)).body.data
+    expect(created.status).toBe('PENDING')
+    const view = (await api('get', `/admin/operations/hotels/${a}/mappings`, 'reader').expect(200)).body.data
+    expect(view.hotelMappings[0]).toMatchObject({ supplierHotelId: `${suffix}-SH1`, status: 'PENDING', confidence: 80, provenance: 'supplier content feed' })
+    expect(JSON.stringify(view)).not.toContain('do-not-show') // raw source metadata is never returned
+    const sameHotel = await api('post', mapBase, 'manager', { supplierId: supplier1, hotelId: a, supplierHotelId: `${suffix}-SH2` }).expect(409)
+    expect(sameHotel.body.error.code).toBe('SUPPLIER_ALREADY_MAPPED_TO_HOTEL'); expect(sameHotel.body.error.message).toContain(`${suffix}-SH1`)
+    const sameId = await api('post', mapBase, 'manager', { supplierId: supplier1, hotelId: b, supplierHotelId: `${suffix}-SH1` }).expect(409)
+    expect(sameId.body.error.code).toBe('SUPPLIER_HOTEL_ID_CONFLICT'); expect(sameId.body.error.message).toContain(`${suffix} map-a`); expect(sameId.body.error.message).toContain(a)
+    expect(await prisma.supplierHotelMapping.count({ where: { tenantId: tenantA, hotelId: b } })).toBe(0) // the refused request left nothing behind
+    // a second supplier may map the same hotel (a hotel is not owned by one supplier)
+    const supplier2 = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Beta`, displayName: 'Beta', countryCode: 'AE', defaultCurrency: 'AED' } as never })).id
+    await api('post', mapBase, 'manager', { supplierId: supplier2, hotelId: a, supplierHotelId: `${suffix}-SH1` }).expect(201) // same id, different supplier: a different identifier space
+    expect(((await api('get', `/admin/operations/hotels/${a}/mappings`, 'reader').expect(200)).body.data.hotelMappings as unknown[]).length).toBe(2)
+    // cross-tenant references are refused
+    await api('post', mapBase, 'manager', { supplierId: supplier1, hotelId: await newDraft('other-tenant', tenantB), supplierHotelId: `${suffix}-X` }).expect(400)
+    await api('post', mapBase, 'bmanager', { supplierId: supplier1, hotelId: a, supplierHotelId: `${suffix}-Y` }).expect(400)
+    await api('post', mapBase, 'reader', { supplierId: supplier1, hotelId: b, supplierHotelId: `${suffix}-Z` }).expect(403)
+  })
+
+  it('MP-02 decisions are explicit, carry a reason into the audit, and keep the hotel-before-room order', async () => {
+    const id = await newDraft('map-decide')
+    const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'DM1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    const hm = (await api('post', mapBase, 'manager', { supplierId: supplier1, hotelId: id, supplierHotelId: `${suffix}-D1` }).expect(201)).body.data.id as string
+    const rm = (await api('post', `${mapBase}/${hm}/rooms`, 'manager', { supplierRoomId: `${suffix}-R1`, roomTypeId: room.id }).expect(201)).body.data.id as string
+    await api('post', `${mapBase}/${hm}/rooms`, 'manager', { supplierRoomId: `${suffix}-R1`, roomTypeId: room.id }).expect(409).then((r) => expect(r.body.error.code).toBe('SUPPLIER_ROOM_ID_CONFLICT'))
+    await api('post', `${mapBase}/${hm}/rooms/${rm}/approve`, 'manager', { reason: 'Matches the supplier extranet' }).expect(400) // hotel first
+    await api('post', `${mapBase}/${hm}/approve`, 'manager', { reason: 'x' }).expect(400) // reason too short
+    expect((await api('post', `${mapBase}/${hm}/approve`, 'manager', { reason: 'Verified against the supplier contract' }).expect(201)).body.data.status).toBe('MAPPED')
+    await api('post', `${mapBase}/${hm}/rooms/${rm}/approve`, 'manager', { reason: 'Same bedding and occupancy' }).expect(201)
+    await api('post', `${mapBase}/${hm}/reopen`, 'manager', { reason: 'Re-check the property' }).expect(400) // approved rooms must be reopened first
+    await api('post', `${mapBase}/${hm}/rooms/${rm}/reopen`, 'manager', { reason: 'Re-check room' }).expect(201)
+    await api('post', `${mapBase}/${hm}/reject`, 'manager', { reason: 'Wrong property' }).expect(400) // only a pending mapping can be rejected
+    await api('post', `${mapBase}/${hm}/reopen`, 'manager', { reason: 'Re-check the property' }).expect(201)
+    await api('post', `${mapBase}/${hm}/reject`, 'manager', { reason: 'Wrong property' }).expect(201)
+    await api('post', `${mapBase}/${hm}/approve`, 'reader', { reason: 'Not allowed to decide' }).expect(403)
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: hm, action: { startsWith: 'supply.hotel_mapping.' } }, orderBy: { createdAt: 'asc' } })
+    expect(events.map((e) => e.action)).toEqual(['supply.hotel_mapping.created', 'supply.hotel_mapping.approved', 'supply.hotel_mapping.reopened', 'supply.hotel_mapping.rejected'])
+    expect(events[1].userId).toBe(ids.manager); expect(events[1].payload).toMatchObject({ reason: 'Verified against the supplier contract', previousStatus: 'PENDING', newStatus: 'MAPPED' })
+    expect((events[1].payload as { requestId: string | null }).requestId).toBeTruthy()
+    // history view: narrowed to mapping entity types, with the reason and status change
+    const history = await mapAudit(id, 'entityType=supplier_hotel_mapping&pageSize=50')
+    expect(history.items.map((e: { action: string }) => e.action).sort()).toEqual(['supply.hotel_mapping.approved', 'supply.hotel_mapping.created', 'supply.hotel_mapping.rejected', 'supply.hotel_mapping.reopened'])
+    const roomHistory = await mapAudit(id, 'entityType=supplier_room_mapping&pageSize=50')
+    expect(roomHistory.items.length).toBeGreaterThanOrEqual(3)
+    await api('get', `/admin/operations/hotels/${id}/audit?entityType=nonsense`, 'manager').expect(400)
+    // a rejected mapping is not verified, so the hotel stays unmapped for sellability
+    expect((await api('get', `/admin/operations/hotels/${id}/mappings`, 'reader').expect(200)).body.data.hotelMappings[0].status).toBe('REJECTED')
   })
 })

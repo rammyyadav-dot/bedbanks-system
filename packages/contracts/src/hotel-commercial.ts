@@ -168,8 +168,9 @@ export interface HotelCommercial360 {
   hotelMapping: MappingState
 }
 
-export interface HotelMappingRow { id: string; supplierId: string; supplierName: string; supplierHotelId: string; status: string; confidence: number | null; updatedAt: string }
-export interface RoomMappingRow { id: string; hotelMappingId: string; roomTypeId: string; roomName: string; supplierRoomId: string; status: string; confidence: number | null; updatedAt: string }
+/** `provenance` is the mapping's recorded `sourceMetadata.source` when it is a short string; raw source metadata is never returned. */
+export interface HotelMappingRow { id: string; supplierId: string; supplierName: string; supplierHotelId: string; status: string; confidence: number | null; provenance: string | null; createdAt: string; updatedAt: string }
+export interface RoomMappingRow { id: string; hotelMappingId: string; roomTypeId: string; roomName: string; supplierRoomId: string; status: string; confidence: number | null; provenance: string | null; createdAt: string; updatedAt: string }
 export interface HotelMappingsView { hotelMappings: HotelMappingRow[]; roomMappings: RoomMappingRow[]; unmappedRooms: Array<{ roomTypeId: string; roomName: string; hotelMappingId: string; supplierName: string }> }
 
 export interface HotelContractRow {

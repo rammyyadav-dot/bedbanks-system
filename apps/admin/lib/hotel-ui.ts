@@ -22,7 +22,7 @@ export const HOTEL_TABS = [
   { id: 'amenities', label: 'Amenities' },
   { id: 'images', label: 'Images' },
   { id: 'policies', label: 'Policies' },
-  { id: 'mappings', label: 'Mappings' },
+  { id: 'mappings', label: 'Supplier Mapping' },
   { id: 'contracts', label: 'Contracts' },
   { id: 'rates', label: 'Rates & Inventory' },
   { id: 'sellability', label: 'Sellability' },

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, MappingStatus } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 
@@ -18,6 +18,12 @@ function confidence(value: unknown): number | null {
   if (value === undefined || value === null) return null
   if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 100) throw new BadRequestException('Invalid confidence')
   return value as number
+}
+/** An optional decision reason, recorded in the audit payload only. */
+function reasonOf(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'string' || value.trim().length < 3 || value.trim().length > 500) throw new BadRequestException('reason must be 3 to 500 characters')
+  return value.trim()
 }
 function metadata(value: unknown): Prisma.InputJsonObject {
   if (value === undefined) return {}
@@ -80,11 +86,31 @@ export class MappingService {
       return tx.supplierHotelMapping.findUnique({ where: { id: mappingId }, include: { supplier: true, hotel: true } })
     })
   }
+  /**
+   * A unique-constraint failure is a mapping conflict, not a server error: it is reported as 409 with a machine-readable code and,
+   * when it can be found inside this tenant, the record it collides with. A supplier hotel or room id identifies one record per supplier.
+   */
+  private async guardUnique<T>(tenantId: string, ctx: { supplierId?: string; supplierHotelId?: string; hotelId?: string; mappingId?: string; supplierRoomId?: string }, work: () => Promise<T>): Promise<T> {
+    try { return await work() } catch (error) {
+      if ((error as { code?: string }).code !== 'P2002') throw error
+      const target = JSON.stringify((error as { meta?: { target?: unknown } }).meta?.target ?? '')
+      if (ctx.mappingId && ctx.supplierRoomId) {
+        throw new ConflictException({ message: `Supplier room id "${ctx.supplierRoomId}" is already mapped under this supplier hotel mapping.`, code: 'SUPPLIER_ROOM_ID_CONFLICT' })
+      }
+      if (ctx.supplierId && /hotel_id/.test(target) && !/supplier_hotel_id/.test(target)) {
+        const own = await this.prisma.withTenant(tenantId, tx => tx.supplierHotelMapping.findFirst({ where: { tenantId, supplierId: ctx.supplierId, hotelId: ctx.hotelId }, select: { supplierHotelId: true, status: true } }))
+        throw new ConflictException({ message: `This hotel already has a mapping from this supplier${own ? ` (supplier hotel id ${own.supplierHotelId}, ${own.status})` : ''}. Reopen or reject that mapping instead of creating another.`, code: 'SUPPLIER_ALREADY_MAPPED_TO_HOTEL' })
+      }
+      const other = ctx.supplierId ? await this.prisma.withTenant(tenantId, tx => tx.supplierHotelMapping.findFirst({ where: { tenantId, supplierId: ctx.supplierId, supplierHotelId: ctx.supplierHotelId }, select: { hotelId: true, status: true, hotel: { select: { name: true } } } })) : null
+      throw new ConflictException({ message: `Supplier hotel id "${ctx.supplierHotelId}" is already mapped for this supplier${other ? ` to "${other.hotel.name}" (${other.hotelId}, ${other.status})` : ''}. A supplier hotel id identifies exactly one canonical hotel.`, code: 'SUPPLIER_HOTEL_ID_CONFLICT' })
+    }
+  }
+
   async createHotel(tenantId: string, userId: string, input: Input, requestId?: string) {
     keys(input, ['supplierId', 'hotelId', 'supplierHotelId', 'confidence', 'sourceMetadata'], ['supplierId', 'hotelId', 'supplierHotelId'])
     const supplierId = id(input.supplierId, 'supplierId'), hotelId = id(input.hotelId, 'hotelId'), supplierHotelId = id(input.supplierHotelId, 'supplierHotelId')
     const score = confidence(input.confidence), sourceMetadata = metadata(input.sourceMetadata)
-    return this.write(tenantId, userId, requestId, 'created', 'hotel', async tx => {
+    return this.guardUnique(tenantId, { supplierId, supplierHotelId, hotelId }, () => this.write(tenantId, userId, requestId, 'created', 'hotel', async tx => {
       const [supplier, hotel] = await Promise.all([
         tx.supplier.findFirst({ where: { id: supplierId, tenantId } }),
         tx.hotel.findFirst({ where: { id: hotelId, tenantId } }),
@@ -92,7 +118,7 @@ export class MappingService {
       if (!supplier || !hotel) throw new BadRequestException('Invalid mapping relationship')
       const value = await tx.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId, supplierHotelId, confidence: score, sourceMetadata } })
       return { id: value.id, value, payload: { supplierId, supplierHotelId, hotelId, status: value.status, confidence: score } }
-    })
+    }))
   }
   async updateHotel(tenantId: string, userId: string, mappingId: string, input: Input, requestId?: string) {
     keys(input, ['confidence', 'sourceMetadata']); if (!Object.keys(input).length) throw new BadRequestException('No fields to update')
@@ -123,13 +149,13 @@ export class MappingService {
     keys(input, ['supplierRoomId', 'roomTypeId', 'confidence', 'sourceMetadata'], ['supplierRoomId', 'roomTypeId'])
     const supplierRoomId = id(input.supplierRoomId, 'supplierRoomId'), roomTypeId = id(input.roomTypeId, 'roomTypeId')
     const score = confidence(input.confidence), sourceMetadata = metadata(input.sourceMetadata)
-    return this.write(tenantId, userId, requestId, 'created', 'room', async tx => {
+    return this.guardUnique(tenantId, { mappingId, supplierRoomId }, () => this.write(tenantId, userId, requestId, 'created', 'room', async tx => {
       const parent = await this.parent(tx, tenantId, mappingId)
       const room = await tx.roomType.findFirst({ where: { id: roomTypeId, hotelId: parent.hotelId } })
       if (!room) throw new BadRequestException('Room type does not belong to mapped hotel')
       const value = await tx.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: mappingId, hotelId: parent.hotelId, supplierRoomId, roomTypeId, confidence: score, sourceMetadata } })
       return { id: value.id, value, payload: { supplierId: parent.supplierId, supplierHotelId: parent.supplierHotelId, supplierRoomId, hotelId: parent.hotelId, roomTypeId, status: value.status, confidence: score } }
-    })
+    }))
   }
   async updateRoom(tenantId: string, userId: string, mappingId: string, roomMappingId: string, input: Input, requestId?: string) {
     keys(input, ['confidence', 'sourceMetadata']); if (!Object.keys(input).length) throw new BadRequestException('No fields to update')
@@ -142,7 +168,8 @@ export class MappingService {
       return { id: roomMappingId, value, payload: { supplierId: parent.supplierId, supplierHotelId: parent.supplierHotelId, supplierRoomId: prior.supplierRoomId, hotelId: parent.hotelId, roomTypeId: prior.roomTypeId, previousStatus: prior.status, newStatus: value.status, confidence: value.confidence } }
     })
   }
-  async decide(tenantId: string, userId: string, kind: MappingKind, mappingId: string, decision: 'approve' | 'reject' | 'reopen', requestId?: string, parentId?: string) {
+  async decide(tenantId: string, userId: string, kind: MappingKind, mappingId: string, decision: 'approve' | 'reject' | 'reopen', requestId?: string, parentId?: string, reasonRaw?: unknown) {
+    const reason = reasonOf(reasonRaw)
     return this.write(tenantId, userId, requestId, decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'reopened', kind, async tx => {
       // Serialize parent decisions with room approvals. A room cannot become
       // MAPPED while its Hotel mapping is concurrently reopened or rejected.
@@ -170,7 +197,7 @@ export class MappingService {
       return { id: mappingId, value, payload: { supplierId: kind === 'hotel' ? (prior as { supplierId: string }).supplierId : parent!.supplierId,
         hotelId: prior.hotelId, supplierHotelId: kind === 'hotel' ? (prior as { supplierHotelId: string }).supplierHotelId : parent!.supplierHotelId,
         ...(kind === 'room' ? { supplierRoomId: (prior as { supplierRoomId: string }).supplierRoomId, roomTypeId: (prior as { roomTypeId: string }).roomTypeId } : {}),
-        previousStatus: prior.status, newStatus: status, confidence: prior.confidence } }
+        previousStatus: prior.status, newStatus: status, confidence: prior.confidence, ...(reason ? { reason } : {}) } }
     })
   }
 }

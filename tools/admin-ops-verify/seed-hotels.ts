@@ -46,7 +46,7 @@ async function main() {
   await hotel('mike', 'Corniche Abu Dhabi Hotel', { city: 'Abu Dhabi' })
   for (let i = 0; i < 22; i++) await hotel(`f${String(i).padStart(2, '0')}`, `Filler Dubai Hotel ${String(i + 1).padStart(2, '0')}`)
   await hotel('oscar', 'Other Tenant Hotel', { tenant: 'B' })
-  const perms = ['supply.hotels.read', 'supply.contracts.read', 'supply.mappings.read', 'supply.rates.read', 'supply.suppliers.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'audit.read', 'booking.read']
+  const perms = ['supply.hotels.read', 'supply.contracts.read', 'supply.mappings.read', 'supply.mappings.manage', 'supply.rates.read', 'supply.suppliers.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'audit.read', 'booking.read']
   async function user(label: string, tenantId: string, keys: string[], role = 'agent') {
     const email = `${label}-${tag}@verify.test`
     const u = await prisma.user.create({ data: { email, name: label, passwordHash: hash, status: 'ACTIVE' } })
