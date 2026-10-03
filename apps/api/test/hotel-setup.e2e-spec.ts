@@ -80,7 +80,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     supplier1 = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Alpha`, displayName: 'Alpha', countryCode: 'AE', defaultCurrency: 'AED' } as never })).id
     await buildHotel(tenantA, supplier1, 'sold')
     const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'audit.read'])
-    const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read', 'supply.mappings.read'])
+    const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read', 'supply.mappings.read', 'supply.contracts.read', 'supply.rates.read'])
     const none = await user('none', tenantA, [])
     const agent = await user('agent', tenantA, ['hotel.search'])
     const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage'])
@@ -469,5 +469,21 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     await api('get', `/admin/operations/hotels/${id}/audit?entityType=nonsense`, 'manager').expect(400)
     // a rejected mapping is not verified, so the hotel stays unmapped for sellability
     expect((await api('get', `/admin/operations/hotels/${id}/mappings`, 'reader').expect(200)).body.data.hotelMappings[0].status).toBe('REJECTED')
+  })
+  it('CM-01 contracts show recorded markets as not applied, and the calendar reports closed-to-departure and source freshness without inventing values', async () => {
+    const contract = await prisma.contract.findFirstOrThrow({ where: { tenantId: tenantA, ratePlans: { some: { roomType: { hotelId: hotels.sold } } } }, include: { ratePlans: true } })
+    await prisma.contract.update({ where: { id: contract.id }, data: { salesMarkets: ['AE', 'IN'], nationalities: ['IN'] } })
+    const planId = contract.ratePlans[0].id
+    const stamp = new Date(`${day(10)}T06:00:00.000Z`)
+    await prisma.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: utc(10) } }, data: { closedToDeparture: true, sourceUpdatedAt: stamp } })
+    await prisma.dailyRate.update({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: planId, stayDate: utc(10), occupancy: 2 } }, data: { sourceUpdatedAt: stamp } })
+    const contracts = (await api('get', `/admin/operations/hotels/${hotels.sold}/contracts`, 'reader').expect(200)).body.data
+    expect(contracts.contracts[0]).toMatchObject({ salesMarkets: ['AE', 'IN'], nationalities: ['IN'] })
+    const cal = (await api('get', `/admin/operations/hotels/${hotels.sold}/calendar?from=${day(9)}&days=3`, 'reader').expect(200)).body.data
+    const cells = cal.rows[0].cells as Array<{ date: string; closedToDeparture: boolean | null; rateSourceUpdatedAt: string | null; availabilitySourceUpdatedAt: string | null; closedToArrival: boolean | null }>
+    expect(cells.find((c) => c.date === day(10))).toMatchObject({ closedToDeparture: true, rateSourceUpdatedAt: stamp.toISOString(), availabilitySourceUpdatedAt: stamp.toISOString() })
+    expect(cells.find((c) => c.date === day(9))).toMatchObject({ closedToDeparture: false, rateSourceUpdatedAt: null, availabilitySourceUpdatedAt: null }) // no stamp recorded means unknown, never "fresh"
+    // closed-to-departure is stored but not applied: the night stays sellable
+    expect((cal.rows[0].cells as Array<{ date: string; sellable: boolean }>).find((c) => c.date === day(10))!.sellable).toBe(true)
   })
 })

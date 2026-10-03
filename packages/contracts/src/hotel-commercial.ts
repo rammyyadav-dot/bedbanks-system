@@ -182,6 +182,9 @@ export interface HotelContractRow {
   /** Contract linked to this hotel through a mapping, or reached only through its rate plans. */
   link: 'MAPPING' | 'RATE_PLAN'
   mappingId: string | null
+  /** Recorded sales markets and nationalities. They are stored on the contract but Agent search does not apply them yet, so they restrict nothing today. */
+  salesMarkets: string[]
+  nationalities: string[]
 }
 export interface HotelRatePlanRow {
   id: string; code: string; status: string; contractId: string; contractCode: string
@@ -202,6 +205,10 @@ export interface CalendarCell {
   /** allotment - sold - held, computed with the canonical formula; null when no availability row exists. */
   remaining: number | null
   stopSell: boolean | null; closedToArrival: boolean | null; minStay: number | null
+  /** Stored, but not applied by the evaluator or Agent search, so it blocks nothing today. */
+  closedToDeparture: boolean | null
+  /** When the supplier last updated this night's rate and availability, if the source recorded it. A missing value means unknown, not fresh. */
+  rateSourceUpdatedAt: string | null; availabilitySourceUpdatedAt: string | null
   sellable: boolean
   /** Canonical reasons for this night (stay-length rules excluded). */
   reasons: string[]

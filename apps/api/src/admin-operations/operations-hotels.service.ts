@@ -19,8 +19,10 @@ import {
 } from '../supply/commercial-assessment'
 import { loadProfileSummaries } from '../hotel-setup/hotel-profile-summary'
 import { auditView } from './operations-transactions.service'
-import { day, guardedRead, sectionRead } from './operations-read'
+import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
+
+const stringList = (value: Prisma.JsonValue): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 40).slice(0, 100) : [])
 
 /** Only a short `source` string is surfaced from stored source metadata, which may hold raw supplier payloads. */
 const provenanceOf = (metadata: Prisma.JsonValue): string | null => {
@@ -366,7 +368,7 @@ export class OperationsHotelsService {
       const contractIds = new Set<string>([...input.contracts.map((c) => c.id), ...input.plans.map((p) => p.contract.id)])
       const rows = await tx.contract.findMany({
         where: { tenantId, id: { in: [...contractIds] } },
-        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
+        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       })
       const viaMapping = new Set(input.contracts.map((c) => c.id))
@@ -378,7 +380,7 @@ export class OperationsHotelsService {
           id: c.id, code: c.code, supplierId: c.supplierId, supplierName: c.supplier.displayName, status: c.status, state, validFrom: day(c.validFrom), validTo: day(c.validTo), daysToExpiry, currency: c.settlementCurrency, version: c.version, updatedAt: c.updatedAt.toISOString(),
           ratePlans: { total: plans.length, active: plans.filter((p) => p.status === 'ACTIVE').length },
           policies: policyCounts ? (policyCounts.get(c.id) ?? { cancellation: 0, child: 0, leadTime: 0 }) : null,
-          link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId,
+          link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId, salesMarkets: stringList(c.salesMarkets), nationalities: stringList(c.nationalities),
         }
       })
       const assessedById = new Map(a.plans.map((p) => [p.plan.id, p]))
@@ -425,6 +427,13 @@ export class OperationsHotelsService {
       const input = (await this.loadInputs(tx, tenantId, [hotel], win)).get(hotel.id)!
       const all = input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))
       const plans = all.slice(0, CALENDAR_MAX_PLANS)
+      // Fields the shared stay snapshot does not carry: closed-to-departure and the source freshness stamps. Read in one bounded query per table.
+      const planIds = plans.map((p) => p.id); const gte = new Date(`${win.dates[0]}T00:00:00.000Z`); const lte = new Date(`${win.dates[win.dates.length - 1]}T00:00:00.000Z`)
+      const [extraAvail, extraRates] = planIds.length === 0 ? [[], []] : await Promise.all([
+        tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { gte, lte } }, select: { ratePlanId: true, stayDate: true, closedToDeparture: true, sourceUpdatedAt: true } }),
+        tx.dailyRate.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { gte, lte } }, select: { ratePlanId: true, stayDate: true, occupancy: true, sourceUpdatedAt: true } }),
+      ])
+      const availExtra = new Map(extraAvail.map((r) => [`${r.ratePlanId}:${day(r.stayDate)}`, r])); const rateExtra = new Map(extraRates.map((r) => [`${r.ratePlanId}:${day(r.stayDate)}:${r.occupancy}`, r]))
       const rows: CalendarRow[] = plans.map((plan) => {
         const { mapping, roomMapping } = mappingFor(plan, input)
         const rates = new Map(plan.dailyRates.filter((r) => r.occupancy === plan.occupancy).map((r) => [day(r.stayDate), r]))
@@ -436,6 +445,8 @@ export class OperationsHotelsService {
             date, rateMinor: rate ? rate.amountMinor.toString() : null, currency: rate ? rate.currency : null, amountBasis: rate?.amountBasis === 'SELL' || rate?.amountBasis === 'NET' ? rate.amountBasis : null,
             allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: row ? row.allotment - row.sold - row.held : null,
             stopSell: row ? row.stopSell : null, closedToArrival: row ? row.closedToArrival : null, minStay: row ? row.minStay : null, sellable: reasons.length === 0, reasons,
+            closedToDeparture: availExtra.has(`${plan.id}:${date}`) ? availExtra.get(`${plan.id}:${date}`)!.closedToDeparture : null,
+            rateSourceUpdatedAt: iso(rateExtra.get(`${plan.id}:${date}:${plan.occupancy}`)?.sourceUpdatedAt), availabilitySourceUpdatedAt: iso(availExtra.get(`${plan.id}:${date}`)?.sourceUpdatedAt),
           }
         })
         return { ratePlanId: plan.id, ratePlanCode: plan.code, planStatus: plan.status, roomTypeId: plan.roomTypeId, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), currency: plan.currency, occupancy: plan.occupancy, contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName, cells }
