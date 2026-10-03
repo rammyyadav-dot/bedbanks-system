@@ -1,6 +1,6 @@
 /**
  * Contracts for Clients, Service and Distribution (ADR 0019).
- * Record-keeping and exposure control only: nothing here moves money, sets a credit limit or changes a booking.
+ * Record-keeping and exposure control only: nothing here moves money or changes a booking. The credit limit (ADR 0024) is an exposure ceiling, not a wallet or ledger.
  */
 
 export const departmentPermissions = {
@@ -27,6 +27,8 @@ export interface AgencyView {
   id: string; code: string; name: string; countryCode: string | null; status: AgencyStatusName; notes: string | null; memberCount: number; createdAt: string
   /** Latest open (pending or approved) suspension or reinstatement request, if any. Present on the detail view only. */
   suspension?: AgencySuspensionApprovalView | null
+  /** Credit limit, exposure and the open change request. Present on the detail view only. */
+  credit?: AgencyCreditView
 }
 export interface AgencyCreate { code: string; name: string; countryCode?: string; notes?: string }
 /** Fields left out are unchanged; null clears countryCode or notes. The code never changes. */
@@ -45,6 +47,48 @@ export interface AgencySuspensionApprovalView {
 export interface AgencySuspensionRequest { requestId: string; change: AgencySuspensionChange; reason: string }
 export interface AgencySuspensionDecision { reason: string }
 export interface AgencySuspensionResult { approval: AgencySuspensionApprovalView; agency: AgencyView }
+
+// ---- Credit limit (ADR 0024) -------------------------------------------------------------------------------------------
+/** Returned as a 403 `error.code` when a new hold would take an agency over its limit. There is no override. */
+export const AGENCY_CREDIT_LIMIT_EXCEEDED_CODE = 'AGENCY_CREDIT_LIMIT_EXCEEDED'
+/** The agency has a limit in one currency and the hold is in another. No conversion is done. */
+export const AGENCY_CREDIT_CURRENCY_MISMATCH_CODE = 'AGENCY_CREDIT_CURRENCY_MISMATCH'
+/** The limit could not be read, so the hold is refused rather than the limit ignored. */
+export const AGENCY_CREDIT_UNAVAILABLE_CODE = 'AGENCY_CREDIT_UNAVAILABLE'
+/** Share of the limit, in whole percent, from which Admin flags an agency as near its limit. A fixed default, not configurable. */
+export const AGENCY_CREDIT_NEAR_LIMIT_PERCENT = 80
+/** Integer minor units as a decimal string (BigInt-safe). */
+export type MinorUnits = string
+export interface AgencyCreditApprovalView {
+  id: string
+  status: string
+  /** The proposed limit; null means remove the limit. */
+  currency: string | null
+  limitMinor: MinorUnits | null
+  previousLimitMinor: MinorUnits | null
+  reason: string
+  requestedById: string
+  decidedById: string | null
+  decisionReason: string | null
+  canDecide: boolean
+  canCancel: boolean
+  canExecute: boolean
+}
+export interface AgencyCreditView {
+  /** null = no limit configured: nothing is enforced for this agency. */
+  limit: { currency: string; limitMinor: MinorUnits } | null
+  /** Held, processing and confirmed holds of the agency's members, in the limit currency. null when there is no limit. */
+  committedMinor: MinorUnits | null
+  /** limit minus committed, never below zero. null when there is no limit. */
+  availableMinor: MinorUnits | null
+  /** True when committed is at or above AGENCY_CREDIT_NEAR_LIMIT_PERCENT of the limit. Computed by the API; display only, it blocks nothing. */
+  nearLimit: boolean
+  open: AgencyCreditApprovalView | null
+}
+/** `limitMinor: null` removes the limit. `currency` is required when setting one. */
+export interface AgencyCreditLimitRequest { requestId: string; reason: string; currency?: string; limitMinor: MinorUnits | null }
+export interface AgencyCreditDecision { reason: string }
+export interface AgencyCreditResult { approval: AgencyCreditApprovalView; agency: AgencyView }
 export interface AgencyMemberView { userId: string; email: string; name: string | null; userStatus: string; addedAt: string }
 export interface AgencyMemberCandidate { userId: string; email: string; name: string | null }
 export interface AgencyPage { items: AgencyView[]; page: number; pageSize: number; total: number }

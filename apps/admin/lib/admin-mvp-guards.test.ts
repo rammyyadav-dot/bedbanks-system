@@ -244,6 +244,9 @@ test('clients, service and distribution pages use their own APIs and take no mon
     const src = readFileSync(join(root, 'app', '(dashboard)', ...page.split('/'), 'page.tsx'), 'utf8')
     assert.match(src, new RegExp(fn)); assert.match(src, /OpsState/); assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed|creditLimit|from '@\/lib\/data\/(operations|commercial)'|formatMinorUnits/, `${page} must not touch money, wallets or pricing`)
   }
+  const credit = readFileSync(join(root, 'components', 'clients', 'AgencyCreditPanel.tsx'), 'utf8')
+  assert.match(credit, /formatMinorUnits/); assert.match(credit, /parseMajorToMinor/); assert.match(credit, /OpsState/)
+  assert.doesNotMatch(credit, /Math\.|toFixed|parseFloat|Number\(/, 'credit amounts are integer minor units, never floats')
   const detail = readFileSync(join(root, 'app', '(dashboard)', 'service', 'cases', '[id]', 'page.tsx'), 'utf8')
   assert.match(detail, /allowedTransitions/, 'status buttons come from the API'); assert.match(detail, /cannot be edited or removed/)
   assert.doesNotMatch(detail, /method: 'PUT'|method: 'DELETE'|editNote|deleteNote/, 'notes are append-only')

@@ -9,6 +9,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { addAgencyMember, cancelAgencySuspension, createAgency, decideAgencySuspension, executeAgencySuspension, requestAgencySuspensionChange, getAgencies, getAgencyMembers, getClientsSummary, getMemberCandidates, removeAgencyMember, updateAgency } from '@/lib/data/departments'
+import { AgencyCreditPanel } from '@/components/clients/AgencyCreditPanel'
 import { describeApiError } from '@/lib/api/describe-error'
 
 const PAGE_SIZE = 25
@@ -18,7 +19,7 @@ const field = { color: '#17333e' } as const
 /** Agencies and their members (ADR 0019). INACTIVE is a directory state; SUSPENDED blocks the members from searching and booking and is reached only through a maker-checker request (ADR 0020). */
 export default function AgenciesPage() {
   const [status, setStatus] = useState(''); const [search, setSearch] = useState(''); const [page, setPage] = useState(1)
-  const [version, setVersion] = useState(0); const [open, setOpen] = useState<string | null>(null)
+  const [version, setVersion] = useState(0); const [open, setOpen] = useState<string | null>(null); const [creditOpen, setCreditOpen] = useState<string | null>(null)
   const list = useOpsQuery(() => getAgencies({ status: status || undefined, search: search.trim() || undefined, page, pageSize: PAGE_SIZE }), [status, search, page, version])
   const summary = useOpsQuery(() => getClientsSummary(), [version])
   const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)
@@ -30,7 +31,7 @@ export default function AgenciesPage() {
   }
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="AGENTS & CLIENTS" title="Agencies" description="Agency records and their members. An inactive agency still signs in, searches and books. A suspended agency cannot search, recheck, hold or book; suspending and reinstating need a second person's approval. Credit, pricing profiles and wallets are not managed here." />
+      <PageHeader eyebrow="AGENTS & CLIENTS" title="Agencies" description="Agency records and their members. An inactive agency still signs in, searches and books. A suspended agency cannot search, recheck, hold or book; suspending and reinstating need a second person's approval. A credit limit caps the holds an agency can place; setting one needs a second person's approval (Credit button). Pricing profiles and wallets are not managed here." />
       <OpsState state={summary.state} onRetry={summary.reload}>
         {(s) => (
           <ul data-testid="clients-summary" style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
@@ -58,6 +59,7 @@ export default function AgenciesPage() {
                     <td style={td}>{a.countryCode ?? '—'}</td><td style={td}><Tag tone={a.status === 'ACTIVE' ? 'ok' : a.status === 'SUSPENDED' ? 'bad' : 'warn'}>{a.status}</Tag></td><td style={td}>{a.memberCount}</td><td style={td}>{when(a.createdAt)}</td>
                     <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button type="button" className="admin-btn" aria-expanded={open === a.id} onClick={() => setOpen(open === a.id ? null : a.id)}>Members</button>
+                      <button type="button" className="admin-btn" aria-expanded={creditOpen === a.id} onClick={() => setCreditOpen(creditOpen === a.id ? null : a.id)}>Credit</button>
                       <button type="button" className="admin-btn" disabled={busy} onClick={() => { const name = window.prompt('Agency name', a.name)?.trim(); if (name && name !== a.name) void act(async () => { await updateAgency(a.id, { name }); return 'Agency renamed.' }) }}>Rename</button>
                       {a.status !== 'SUSPENDED' && <button type="button" className="admin-btn" disabled={busy} onClick={() => void act(async () => { await updateAgency(a.id, { status: a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }); return a.status === 'ACTIVE' ? 'Agency marked inactive (directory only).' : 'Agency marked active.' })}>{a.status === 'ACTIVE' ? 'Mark inactive' : 'Mark active'}</button>}
                       <Suspension agency={a} busy={busy} act={act} />
@@ -70,6 +72,7 @@ export default function AgenciesPage() {
         )}
       </OpsState>
       {open && <Members agencyId={open} version={version} busy={busy} act={act} />}
+      {creditOpen && <AgencyCreditPanel agencyId={creditOpen} version={version} busy={busy} act={act} />}
     </div>
   )
 }

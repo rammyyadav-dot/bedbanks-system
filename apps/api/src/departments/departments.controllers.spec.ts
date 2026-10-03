@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { GUARDS_METADATA } from '@nestjs/common/constants'
 import { departmentPermissions } from '@bedbanks/contracts'
 import { REQUIRED_SUPPLY_PERMISSION, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
+import { AgencyCreditController } from './agency-credit.controller'
 import { ClientsController } from './clients.controller'
 import { ServiceCasesController } from './service-cases.controller'
 import { DistributionController } from './distribution.controller'
@@ -40,5 +41,12 @@ describe('no cross-domain or money authority', () => {
       const names = Object.getOwnPropertyNames(Ctrl.prototype)
       for (const n of names) expect(n).not.toMatch(/credit|wallet|ledger|refund|price|markup|book|cancel|confirm/i)
     }
+  })
+})
+
+describe('credit limit authority (ADR 0024)', () => {
+  it('lives only in its own controller, and offers exactly request, approve, reject, withdraw and execute', () => {
+    const handlers = Object.getOwnPropertyNames(AgencyCreditController.prototype).filter((n) => n !== 'constructor').sort()
+    expect(handlers).toEqual(['approveCredit', 'executeCredit', 'rejectCredit', 'requestCredit', 'withdrawCredit'])
   })
 })

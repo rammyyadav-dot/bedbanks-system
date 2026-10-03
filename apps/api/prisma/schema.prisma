@@ -58,6 +58,23 @@ enum AgencyStatus {
   SUSPENDED
 }
 
+/// Credit limit for one agency in one currency (ADR 0024). No row means no limit is configured (not enforced).
+/// Integer minor units only. Changed only through an approved maker-checker request.
+model AgencyCreditLimit {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agencyId    String   @unique @map("agency_id")
+  agency      Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  currency    String   @db.Char(3)
+  limitMinor  BigInt   @map("limit_minor")
+  updatedById String   @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, agencyId])
+}
+
 model Agency {
   id          String       @id @default(cuid())
   tenantId    String       @map("tenant_id")
@@ -77,6 +94,7 @@ model Agency {
   members      AgencyMember[]
   cases        ServiceCase[]
   restrictions DistributionRestriction[]
+  creditLimit  AgencyCreditLimit?
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -416,6 +434,7 @@ enum ConnectorExecutionStatus {
 
 model Tenant {
   agencies Agency[]
+  agencyCreditLimits AgencyCreditLimit[]
   hotelProfiles HotelProfile[]
   hotelExternalIdentifiers HotelExternalIdentifier[]
   hotelAmenities HotelAmenity[]
@@ -1225,6 +1244,7 @@ model InventoryHold {
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])
   @@index([tenantId, status, expiresAt])
+  @@index([tenantId, createdByUserId, status])
   @@index([tenantId, ratePlanId, checkIn, checkOut])
 }
 

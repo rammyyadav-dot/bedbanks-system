@@ -1,6 +1,6 @@
 // Clients, Service and Distribution API access (ADR 0019). Record-keeping and exposure control: no money, no pricing.
 import {
-  routes, type AgencyCreate, type AgencyMemberCandidate, type AgencyMemberView, type AgencyPage, type AgencySuspensionRequest, type AgencySuspensionResult, type AgencyUpdate, type AgencyView, type CaseAssign, type CaseAssignee, type CaseCreate,
+  routes, type AgencyCreate, type AgencyCreditLimitRequest, type AgencyCreditResult, type AgencyMemberCandidate, type AgencyMemberView, type AgencyPage, type AgencySuspensionRequest, type AgencySuspensionResult, type AgencyUpdate, type AgencyView, type CaseAssign, type CaseAssignee, type CaseCreate,
   type CaseDetail, type CasePage, type CaseTransition, type ClientsSummary, type DistributionSummary, type RestrictionCreate, type RestrictionPage, type RestrictionView, type ServiceSummary,
 } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
@@ -44,3 +44,11 @@ export const decideAgencySuspension = (approvalId: string, decision: 'approve' |
   apiRequestWithMeta<AgencyView>(fill(decision === 'approve' ? c.agencySuspensionApprove : c.agencySuspensionReject, { approvalId }), post({ reason }))
 export const cancelAgencySuspension = (approvalId: string) => apiRequestWithMeta<AgencyView>(fill(c.agencySuspensionCancel, { approvalId }), post())
 export const executeAgencySuspension = (approvalId: string) => apiRequestWithMeta<AgencySuspensionResult>(fill(c.agencySuspensionExecute, { approvalId }), post())
+
+// ---- Agency credit limit (ADR 0024): maker-checker, enforced when a hold is placed
+export const getAgency = (agencyId: string) => apiRequest<AgencyView>(fill(c.agency, { agencyId }))
+export const requestAgencyCreditLimit = (agencyId: string, body: AgencyCreditLimitRequest) => apiRequestWithMeta<AgencyView>(fill(c.agencyCreditRequest, { agencyId }), post(body))
+export const decideAgencyCredit = (approvalId: string, decision: 'approve' | 'reject', reason: string) =>
+  apiRequestWithMeta<AgencyView>(fill(decision === 'approve' ? c.agencyCreditApprove : c.agencyCreditReject, { approvalId }), post({ reason }))
+export const cancelAgencyCredit = (approvalId: string) => apiRequestWithMeta<AgencyView>(fill(c.agencyCreditCancel, { approvalId }), post())
+export const executeAgencyCredit = (approvalId: string) => apiRequestWithMeta<AgencyCreditResult>(fill(c.agencyCreditExecute, { approvalId }), post())
