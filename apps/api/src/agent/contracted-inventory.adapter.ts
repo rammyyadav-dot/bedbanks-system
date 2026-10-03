@@ -101,7 +101,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       const rules = await this.markupRules(context.tenantId)
       const restrictions = await this.restrictionsFor(context.tenantId, context.userId)
       const offers = this.toOffers(plans.filter((plan) => !isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })), criteria, context.tenantId, nights, rules)
-      return { offers, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+      return { offers: await this.withPrimaryImages(context.tenantId, offers), providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
     } catch (error) {
       if (error instanceof SupplierProviderError) throw error
       this.logger.warn(`Contracted inventory search failed requestId=${context.requestId}`)
@@ -250,6 +250,26 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   /** Distribution restrictions of the searching user's agency. Unreadable means none, and that is logged. */
   private restrictionsFor(tenantId: string, userId: string | undefined): Promise<DistributionRestrictions> {
     return loadDistributionRestrictions(this.prisma, tenantId, userId, () => this.logger.warn('Distribution restrictions are not readable by the API database role; none are applied'))
+  }
+
+  /**
+   * Adds each hotel's primary image reference (ADR 0027). Search only returns published hotels, so an image is never attached to a draft.
+   * If images cannot be read (for example the runtime role has no grant yet) the hotels are returned without images and a warning is
+   * logged: leaving an image out is never misleading, unlike leaving a price out.
+   */
+  private async withPrimaryImages(tenantId: string, offers: SearchHotelOffer[]): Promise<SearchHotelOffer[]> {
+    if (offers.length === 0) return offers
+    try {
+      const rows = await this.prisma.withTenant(tenantId, (tx) => tx.hotelImage.findMany({
+        where: { tenantId, isPrimary: true, hotelId: { in: offers.map((o) => o.hotelId) } },
+        select: { id: true, hotelId: true, altText: true, width: true, height: true },
+      }))
+      const byHotel = new Map(rows.map((r) => [r.hotelId, r]))
+      return offers.map((o) => { const r = byHotel.get(o.hotelId); return r ? { ...o, primaryImage: { imageId: r.id, altText: r.altText, width: r.width, height: r.height } } : o })
+    } catch (error) {
+      this.logger.warn(`Hotel images unreadable; search returned without images (${(error as { code?: string }).code ?? 'unknown'})`)
+      return offers
+    }
   }
 
   private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[]): SearchHotelOffer[] {

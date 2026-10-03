@@ -13,6 +13,7 @@ const allowedKeys = (value, keys) => record(value) && Object.keys(value).every((
 const CITY_ID = /^city:([A-Z]{2}):([a-z0-9]+(?:-[a-z0-9]+)*)$/
 const propertyTypeOk = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9 .&-]{0,39}$/.test(value)
 const coordinateOk = (value) => typeof value === 'string' && /^-?\d{1,3}(\.\d{1,6})?$/.test(value)
+const imageOk = (v) => record(v) && id(v.imageId) && typeof v.altText === 'string' && v.altText.length > 0 && v.altText.length <= 200 && natural(v.width, 1) && natural(v.height, 1)
 const addressOk = (value) => typeof value === 'string' && value.length > 0 && value.length <= 240 && value.trim() === value && !/[\u0000-\u001f]/.test(value)
 const timeZoneOk = (value) => {
   if (typeof value !== 'string' || value.length < 1 || value.length > 64) return false
@@ -157,6 +158,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
           ((hotel.latitude !== undefined) !== (hotel.longitude !== undefined)) ||
           (hotel.latitude !== undefined && (!coordinateOk(hotel.latitude) || !coordinateOk(hotel.longitude))) ||
           (hotel.timeZone !== undefined && !timeZoneOk(hotel.timeZone)) ||
+          (hotel.primaryImage !== undefined && !imageOk(hotel.primaryImage)) ||
           !id(hotel.supplierId) || !id(hotel.supplierHotelId) ||
           !Array.isArray(hotel.rooms) || hotel.rooms.length === 0 ||
           hotelIds.has(hotel.hotelId))
@@ -228,6 +230,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
         ...(hotel.address === undefined ? {} : { address: hotel.address }),
         ...(hotel.latitude === undefined ? {} : { latitude: hotel.latitude, longitude: hotel.longitude }),
         ...(hotel.timeZone === undefined ? {} : { timeZone: hotel.timeZone }),
+        ...(hotel.primaryImage === undefined ? {} : { primaryImage: { imageId: hotel.primaryImage.imageId, altText: hotel.primaryImage.altText, width: hotel.primaryImage.width, height: hotel.primaryImage.height } }),
         supplierId: hotel.supplierId, supplierHotelId: hotel.supplierHotelId, rooms }
     })
     const requestedHotelIds = criteria.canonicalHotelIds === undefined ? undefined : new Set(criteria.canonicalHotelIds)
