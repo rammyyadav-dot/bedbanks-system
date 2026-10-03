@@ -14,6 +14,7 @@ import { OfferHoldService } from './offer-hold.service'
 import { HoldExpirySweeper } from './hold-expiry-sweeper.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
+import { AgentHotelImageService } from './agent-hotel-image.service'
 import { BookingPersistenceService } from './booking-persistence.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
@@ -44,6 +45,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     OfferHoldService,
     AgentSearchService,
     DestinationResolverService,
+    AgentHotelImageService,
     BookingPersistenceService,
     BookingFinancialAuthorizationService,
     SupplierPrebookOrchestrationService,

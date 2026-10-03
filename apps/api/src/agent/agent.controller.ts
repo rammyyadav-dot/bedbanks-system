@@ -8,6 +8,7 @@ import { AgentAuditService } from './audit.service'
 import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, ReconcileBookingsDto, PrebookBookingDto, ConfirmBookingDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
 import { AgencySuspensionGuard, AllowWhenAgencySuspended } from './agency-suspension.guard'
+import { AgentHotelImageService } from './agent-hotel-image.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, PERMISSIONS } from './supplier.port'
 import type { SearchCriteria } from '@bedbanks/domain'
@@ -92,6 +93,7 @@ export class AgentController {
     private readonly inventoryHolds: InventoryHoldService,
     private readonly destinationResolver: DestinationResolverService,
     private readonly prisma: PrismaService,
+    private readonly hotelImages: AgentHotelImageService,
   ) {}
 
   @Get('destinations')
@@ -101,6 +103,19 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async listDestinations(@Query('q') query: string | undefined, @ActiveTenant() tenantId: string) {
     return { results: await this.destinationResolver.search(tenantId, typeof query === 'string' ? query : '') }
+  }
+
+  @Get('hotels/:hotelId/images/:imageId/content')
+  @ApiOperation({ summary: 'Image of a published hotel (ADR 0027)' })
+  @RequirePermission(PERMISSIONS.search)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
+  async hotelImage(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Param('imageId') imageId: string, @Res() res: Response) {
+    const file = await this.hotelImages.content(tenantId, hotelId, imageId)
+    res.set({
+      'Content-Type': file.contentType, 'Content-Length': String(file.data.length), ETag: `"${file.sha256}"`,
+      'Cache-Control': 'private, max-age=300', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox",
+    })
+    res.status(200).end(file.data)
   }
 
   @Get('search-facets')
