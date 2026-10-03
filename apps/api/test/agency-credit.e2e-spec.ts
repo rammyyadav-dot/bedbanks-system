@@ -129,7 +129,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
 
   it('CR-01 a limit is set by request, a different approver and a single apply, and the position is read back', async () => {
     const a = await newAgency([])
-    expect(await credit(a)).toEqual({ limit: null, committedMinor: null, availableMinor: null, open: null }) // nothing configured, nothing enforced
+    expect(await credit(a)).toEqual({ limit: null, committedMinor: null, availableMinor: null, nearLimit: false, open: null }) // nothing configured, nothing enforced
     const made = (await ask(a, 'admin', { currency: 'AED', limitMinor: '100000' }).expect(200)).body.data.credit.open
     expect(made).toMatchObject({ status: 'PENDING', currency: 'AED', limitMinor: '100000', previousLimitMinor: null, canDecide: false, canCancel: true })
     await api('post', `${base}/credit-approvals/${made.id}/approve`, 'admin', { reason: 'Self' }).expect(403)
@@ -140,7 +140,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
     const done = (await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(200)).body.data
     expect(done.approval.status).toBe('EXECUTED')
-    expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, committedMinor: '0', availableMinor: '100000', open: null })
+    expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, committedMinor: '0', availableMinor: '100000', nearLimit: false, open: null })
     await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(409) // single use
     const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'agency.credit_limit.changed', entityId: a } })
     expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.admin)
@@ -180,11 +180,14 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     const over = await refusal(hold('agentin2', 50000)) // a different member of the same agency counts toward the same limit
     expect(over).toMatchObject({ code: 'AGENCY_CREDIT_LIMIT_EXCEEDED', details: { availableMinor: '40000' } })
     expect(await prisma.inventoryHold.count({ where: { tenantId: tenantA, createdByUserId: ids.agentin2 } })).toBe(0) // nothing was written
-    const exact = await hold('agentin2', 40000) // exactly at the limit is allowed
+    expect((await credit(a)).nearLimit).toBe(false) // 60% committed
+    const eighty = await hold('agentin2', 20000) // 80% is the near-limit line
+    expect((await credit(a)).nearLimit).toBe(true)
+    const exact = await hold('agentin2', 20000) // exactly at the limit is allowed
     expect(await credit(a)).toMatchObject({ committedMinor: '100000', availableMinor: '0' })
     await expect(hold('agentin', 1)).rejects.toMatchObject({ status: 403 })
     // an idempotent replay returns the stored hold even when the agency is now at its limit
-    const replay = await holds.create({ tenantId: tenantA, userId: ids.agentin2, requestId: 'x-req', idempotencyKey: (await prisma.inventoryHold.findFirstOrThrow({ where: { id: exact.holdId } })).idempotencyKey, offerId: 'offer', searchId: 'search', ratePlanId, canonicalHotelId: hotelId, canonicalRoomTypeId: roomId, boardBasisId: boardId, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 40000, offerExpiresAt: '2099-03-01T12:00:00.000Z' })
+    const replay = await holds.create({ tenantId: tenantA, userId: ids.agentin2, requestId: 'x-req', idempotencyKey: (await prisma.inventoryHold.findFirstOrThrow({ where: { id: exact.holdId } })).idempotencyKey, offerId: 'offer', searchId: 'search', ratePlanId, canonicalHotelId: hotelId, canonicalRoomTypeId: roomId, boardBasisId: boardId, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 20000, offerExpiresAt: '2099-03-01T12:00:00.000Z' })
     expect(replay.status).toBe('already_held')
     // another currency is refused, not converted
     expect(await refusal(hold('agentin', 1, 'USD'))).toMatchObject({ code: 'AGENCY_CREDIT_CURRENCY_MISMATCH' })
@@ -193,6 +196,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     const free = await newAgency([]); expect((await credit(free)).limit).toBeNull()
     // releasing a hold frees its credit; an expired HELD hold stops counting
     await holds.release(tenantA, exact.holdId, `${suffix}-rel`, { type: 'USER', userId: ids.agentin2 })
+    await holds.release(tenantA, eighty.holdId, `${suffix}-rel2`, { type: 'USER', userId: ids.agentin2 })
     expect((await credit(a)).committedMinor).toBe('60000')
     await prisma.inventoryHold.updateMany({ where: { tenantId: tenantA, createdByUserId: ids.agentin }, data: { createdAt: new Date(Date.now() - 7_200_000), expiresAt: new Date(Date.now() - 60_000) } }) // the table requires expiry after creation
     expect((await credit(a)).committedMinor).toBe('0')

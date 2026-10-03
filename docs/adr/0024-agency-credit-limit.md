@@ -19,8 +19,10 @@ ADR 0019 left credit limits out ("nothing here sets a credit limit"). Agencies p
 10. **Audit.** Applying writes `agency.credit_limit.changed` with the approval id, currency, new and previous limit minor units; the reason stays in the approval record.
 11. **Membership edge.** Exposure follows current membership. Removing a member removes their holds from the agency's committed total; moving a user to another agency moves their exposure with them. Not addressed here.
 
+12. **Near-limit flag.** The API sets `nearLimit` when committed is at least 80% of the limit (`AGENCY_CREDIT_NEAR_LIMIT_PERCENT`, a fixed default, integer arithmetic on bigint). Admin shows a "near limit" tag. It is display only: it blocks nothing and notifies no one.
+
 ## Not built
-Per-user limits, multi-currency limits, limits on bookings or confirmed totals separate from holds, warning thresholds, notifications, wallet or payment-backed credit, an Agent-app message for the refusal (the Agent app shows its generic hold error until a follow-up reads the code).
+Per-user limits, multi-currency limits, limits on bookings or confirmed totals separate from holds, configurable thresholds, notifications, wallet or payment-backed credit, an Agent-app message for the refusal (the Agent app shows its generic hold error until a follow-up reads the code).
 
 ## Consequences
 - Admin Agencies gets a Credit panel (position, request, approve, reject, withdraw, apply).

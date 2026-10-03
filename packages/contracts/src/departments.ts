@@ -52,6 +52,8 @@ export const AGENCY_CREDIT_LIMIT_EXCEEDED_CODE = 'AGENCY_CREDIT_LIMIT_EXCEEDED'
 export const AGENCY_CREDIT_CURRENCY_MISMATCH_CODE = 'AGENCY_CREDIT_CURRENCY_MISMATCH'
 /** The limit could not be read, so the hold is refused rather than the limit ignored. */
 export const AGENCY_CREDIT_UNAVAILABLE_CODE = 'AGENCY_CREDIT_UNAVAILABLE'
+/** Share of the limit, in whole percent, from which Admin flags an agency as near its limit. A fixed default, not configurable. */
+export const AGENCY_CREDIT_NEAR_LIMIT_PERCENT = 80
 /** Integer minor units as a decimal string (BigInt-safe). */
 export type MinorUnits = string
 export interface AgencyCreditApprovalView {
@@ -76,6 +78,8 @@ export interface AgencyCreditView {
   committedMinor: MinorUnits | null
   /** limit minus committed, never below zero. null when there is no limit. */
   availableMinor: MinorUnits | null
+  /** True when committed is at or above AGENCY_CREDIT_NEAR_LIMIT_PERCENT of the limit. Computed by the API; display only, it blocks nothing. */
+  nearLimit: boolean
   open: AgencyCreditApprovalView | null
 }
 /** `limitMinor: null` removes the limit. `currency` is required when setting one. */

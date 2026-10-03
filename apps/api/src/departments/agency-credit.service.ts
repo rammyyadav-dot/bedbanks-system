@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import type { AgencyCreditApprovalView, AgencyCreditDecision, AgencyCreditLimitRequest, AgencyCreditResult, AgencyCreditView, AgencyPage, AgencyView } from '@bedbanks/contracts'
+import { AGENCY_CREDIT_NEAR_LIMIT_PERCENT, type AgencyCreditApprovalView, AgencyCreditDecision, AgencyCreditLimitRequest, AgencyCreditResult, AgencyCreditView, AgencyPage, AgencyView } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import { agencyCommitted } from '../agent/agency-credit'
@@ -45,10 +45,10 @@ export class AgencyCreditService {
     const limit = await this.prisma.withTenant(tenantId, (tx) => tx.agencyCreditLimit.findFirst({ where: { tenantId, agencyId } }))
     const open = await this.openFor(tenantId, agencyId)
     const openView = open ? this.approvalView(open, me) : null
-    if (!limit) return { limit: null, committedMinor: null, availableMinor: null, open: openView }
+    if (!limit) return { limit: null, committedMinor: null, availableMinor: null, nearLimit: false, open: openView }
     const committed = await this.prisma.withTenant(tenantId, (tx) => agencyCommitted(tx, tenantId, agencyId, limit.currency))
     const available = limit.limitMinor > committed ? limit.limitMinor - committed : 0n
-    return { limit: { currency: limit.currency, limitMinor: limit.limitMinor.toString() }, committedMinor: committed.toString(), availableMinor: available.toString(), open: openView }
+    return { limit: { currency: limit.currency, limitMinor: limit.limitMinor.toString() }, committedMinor: committed.toString(), availableMinor: available.toString(), nearLimit: committed * 100n >= limit.limitMinor * BigInt(AGENCY_CREDIT_NEAR_LIMIT_PERCENT), open: openView }
   }
 
   async detail(tenantId: string, me: string, agencyId: string): Promise<AgencyView> {
