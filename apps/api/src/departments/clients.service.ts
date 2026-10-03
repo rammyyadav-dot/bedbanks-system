@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
-  AGENCY_CODE_PATTERN, AGENCY_STATUSES,
+  AGENCY_CODE_PATTERN, AGENCY_EDITABLE_STATUSES, AGENCY_STATUSES,
   type AgencyCreate, type AgencyMemberCandidate, type AgencyMemberView, type AgencyPage, type AgencyUpdate, type AgencyView, type ClientsSummary,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
@@ -13,8 +13,8 @@ type AgencyRow = Prisma.AgencyGetPayload<{ include: { _count: { select: { member
 const INCLUDE = { _count: { select: { members: true } } } as const
 
 /**
- * Agencies and their members (ADR 0019). Record-keeping only: it never touches credit, wallets or pricing, and an INACTIVE
- * agency does not block sign-in or booking. Tenant comes from the session; every change is audited with identifiers, never free text.
+ * Agencies and their members (ADR 0019). Record-keeping only: it never touches credit, wallets or pricing. An INACTIVE
+ * agency does not block anything; a SUSPENDED one does (ADR 0020). Tenant comes from the session; every change is audited with identifiers, never free text.
  */
 @Injectable()
 export class ClientsService {
@@ -86,8 +86,10 @@ export class ClientsService {
     }
     if (body?.notes !== undefined) { data.notes = body.notes === null ? null : this.text('notes', body.notes, 1000, false) ?? null; changed.push('notes') }
     if (body?.status !== undefined) {
-      const status = enumParam('status', body.status, AGENCY_STATUSES)
+      const status = enumParam('status', body.status, AGENCY_EDITABLE_STATUSES)
       if (!status) throw new BadRequestException('status must be ACTIVE or INACTIVE')
+      // SUSPENDED is entered and left only through an approved request (ADR 0020), so an edit can neither set nor clear it.
+      if (current.status === 'SUSPENDED') throw new ConflictException('A suspended agency can only be reinstated through an approved request')
       data.status = status; changed.push('status')
     }
     if (changed.length === 0) return this.view(current)
@@ -149,10 +151,10 @@ export class ClientsService {
     const n = (s: string) => byStatus.find((x) => x.status === s)?._count._all ?? 0
     return {
       generatedAt: new Date().toISOString(),
-      agencies: { total: n('ACTIVE') + n('INACTIVE'), active: n('ACTIVE'), inactive: n('INACTIVE') },
+      agencies: { total: n('ACTIVE') + n('INACTIVE') + n('SUSPENDED'), active: n('ACTIVE'), inactive: n('INACTIVE'), suspended: n('SUSPENDED') },
       members: { total: totalMembers, inAnAgency: inAgency, notInAnyAgency: Math.max(totalMembers - inAgency, 0) },
       definitions: {
-        agencies: 'Agency records for this tenant. INACTIVE is a directory state only: it does not block sign-in, search or booking.',
+        agencies: 'Agency records for this tenant. INACTIVE is a directory state only. SUSPENDED blocks the members of the agency from searching, rechecking, holding and booking.',
         members: 'Tenant members, split by whether an agency record includes them. A user belongs to at most one agency.',
       },
     }

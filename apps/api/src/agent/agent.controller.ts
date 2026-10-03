@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { AgentAuditService } from './audit.service'
 import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, ReconcileBookingsDto, PrebookBookingDto, ConfirmBookingDto } from './domain.dto'
 import { AgentFinanceService } from './finance.service'
+import { AgencySuspensionGuard, AllowWhenAgencySuspended } from './agency-suspension.guard'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, PERMISSIONS } from './supplier.port'
 import type { SearchCriteria } from '@bedbanks/domain'
@@ -96,7 +97,8 @@ export class AgentController {
   @Get('destinations')
   @ApiOperation({ summary: 'Resolve a canonical city or hotel. Free text is not a destination.' })
   @RequirePermission(PERMISSIONS.search)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async listDestinations(@Query('q') query: string | undefined, @ActiveTenant() tenantId: string) {
     return { results: await this.destinationResolver.search(tenantId, typeof query === 'string' ? query : '') }
   }
@@ -104,7 +106,8 @@ export class AgentController {
   @Get('search-facets')
   @ApiOperation({ summary: 'Board and property-type values stored for this tenant' })
   @RequirePermission(PERMISSIONS.search)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async searchFacets(@ActiveTenant() tenantId: string) {
     return this.destinationResolver.facets(tenantId)
   }
@@ -124,7 +127,7 @@ export class AgentController {
   @Post('offers/:offerId/hold')
   @ApiOperation({ summary: 'Authoritatively recheck a canonical offer and create a non-bookable inventory hold' })
   @RequirePermission(PERMISSIONS.prebook)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async holdOffer(@Param() params: OfferHoldParamsDto, @Body() body: OfferHoldDto,
     @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     const tenantId = activeTenantId(req)
@@ -146,7 +149,7 @@ export class AgentController {
 
   @Post('search/status')
   @RequirePermission(PERMISSIONS.search)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async searchStatus(@Body() criteria: SearchHotelsDto, @ActiveTenant() tenantId: string) {
     const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
     if (!resolved || !validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
@@ -156,7 +159,7 @@ export class AgentController {
   @Post('search')
   @ApiOperation({ summary: 'Version 1 canonical hotel, room and rate offers; booking stays unavailable' })
   @RequirePermission(PERMISSIONS.search)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async search(@Body() criteria: SearchHotelsDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     const tenantId = activeTenantId(req)
     const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
@@ -168,7 +171,8 @@ export class AgentController {
   @Delete('holds/:holdId')
   @ApiOperation({ summary: 'Release your own un-booked inventory hold before it expires' })
   @RequirePermission(PERMISSIONS.prebook)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async releaseHold(@Param('holdId') holdId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     return this.inventoryHolds.releaseOwn(tenantId, holdId, identity.user.id, req.requestId ?? randomUUID())
   }
@@ -176,7 +180,7 @@ export class AgentController {
   @Post('rates/recheck')
   @ApiOperation({ summary: 'Authoritatively recheck a canonical offer without allocating inventory' })
   @RequirePermission(PERMISSIONS.search)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async recheck(@Body() body: OfferRecheckDto, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request,
     @Res({ passthrough: true }) response: Response) {
     const tenantId = activeTenantId(req)
@@ -193,7 +197,7 @@ export class AgentController {
   @Post('prebook')
   @ApiOperation({ summary: 'Claim a held offer, reserve wallet credit and prebook it (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.prebook)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async prebook(@Body() body: PrebookBookingDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) {
       await this.audit.record({ tenantId, user: identity, action: 'booking.prebook.unavailable', entityType: 'inventory_hold', entityId: body.inventoryHoldId, payload: { reason: 'booking_disabled' } })
@@ -209,7 +213,7 @@ export class AgentController {
   @Post('bookings')
   @ApiOperation({ summary: 'Confirm a prebooked booking atomically: inventory sold, wallet debited (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.createBooking)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async createBooking(@Body() body: ConfirmBookingDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) {
       await this.audit.record({ tenantId, user: identity, action: 'booking.create.unavailable', entityType: 'booking', entityId: body.bookingId, payload: { reason: 'booking_disabled' } })
@@ -224,7 +228,8 @@ export class AgentController {
   @Get('bookings')
   @ApiOperation({ summary: 'List the tenant\'s bookings, newest first (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
     return this.bookingQueries.list(tenantId, { limit: Number(limit), offset: Number(offset), status: status || undefined })
@@ -233,7 +238,8 @@ export class AgentController {
   @Get('bookings/:id')
   @ApiOperation({ summary: 'Booking detail with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
     return this.bookingQueries.detail(tenantId, bookingId)
@@ -242,7 +248,8 @@ export class AgentController {
   @Get('bookings/:id/cancellation-quote')
   @ApiOperation({ summary: 'Quote the penalty and refund for cancelling a confirmed booking now (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.cancelBooking)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async cancellationQuote(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Cancellation is unavailable until booking gates are certified.' } }
     return this.cancellations.quote({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId })
@@ -251,7 +258,8 @@ export class AgentController {
   @Get('bookings/:id/documents/:type')
   @ApiOperation({ summary: 'Issue (once) or return an immutable booking document: voucher, invoice or credit-note (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDocument(@Param('id') bookingId: string, @Param('type') type: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Booking documents are unavailable until booking gates are certified.' } }
     return this.documents.get({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, type: documentKindFromRoute(type) })
@@ -260,7 +268,8 @@ export class AgentController {
   @Get('bookings/:id/documents/:type/html')
   @ApiOperation({ summary: 'Printable HTML of an immutable booking document (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDocumentHtml(@Param('id') bookingId: string, @Param('type') type: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res() response: Response) {
     if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE).type('text/plain').send('Booking documents are unavailable.'); return }
     const document = await this.documents.get({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, type: documentKindFromRoute(type) })
@@ -271,7 +280,8 @@ export class AgentController {
   @Delete('bookings/:id')
   @ApiOperation({ summary: 'Cancel a confirmed booking atomically: policy penalty, inventory returned, refund posted (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.cancelBooking)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingEnabled()) {
       await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.unavailable', entityType: 'booking', entityId: bookingId, payload: { reason: 'booking_disabled' } })
@@ -284,19 +294,22 @@ export class AgentController {
   @Post('bookings/reconcile-stale')
   @ApiOperation({ summary: 'Resolve interrupted booking attempts: return stale PROCESSING holds and unreleased wallet reservations' })
   @RequirePermission(PERMISSIONS.reconcileBookings)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     return this.reconciliation.reconcileStale({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), staleMinutes: body.staleMinutes, prebookMaxMinutes: body.prebookMaxMinutes, dryRun: body.dryRun })
   }
 
   @Get('finance/summary')
   @RequirePermission(PERMISSIONS.viewFinance)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   finance(@ActiveTenant() tenantId: string) { return this.financeService.summary(tenantId) }
 
   @Get('audit')
   @RequirePermission(PERMISSIONS.auditRead)
-  @UseGuards(TenantContextGuard, AgentRbacGuard)
+  @AllowWhenAgencySuspended()
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   auditEvents(@ActiveTenant() tenantId: string, @Query('limit') limit?: string) { return this.audit.list(tenantId, Math.max(1, Math.trunc(Number(limit)) || 50)) }
 
   /** Same membership and role rows the RBAC guard uses. Returns nothing for a missing or inactive membership. */

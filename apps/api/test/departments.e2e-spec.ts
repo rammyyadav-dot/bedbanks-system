@@ -82,6 +82,8 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
     const admin = await user('admin', tenantA, ALL)
     const reader = await user('reader', tenantA, ['agency.read', 'case.read', 'distribution.read'])
     const none = await user('none', tenantA, [])
+    const checker = await user('checker', tenantA, ALL)
+    const agentSus = await user('agentsus', tenantA, ['hotel.search', 'booking.prebook', 'booking.create', 'booking.read'])
     const agentIn = await user('agentin', tenantA, ['hotel.search', 'booking.prebook', 'booking.create'])
     const agentOut = await user('agentout', tenantA, ['hotel.search', 'booking.prebook', 'booking.create'])
     const bAdmin = await user('badmin', tenantB, ALL); await user('bmember', tenantB, [])
@@ -91,13 +93,14 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     app.useGlobalFilters(new HttpExceptionFilter()); app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
-    for (const [label, email] of Object.entries({ admin, reader, none, agentin: agentIn, agentout: agentOut, badmin: bAdmin })) cookies[label] = await login(email)
+    for (const [label, email] of Object.entries({ admin, reader, none, agentin: agentIn, agentout: agentOut, badmin: bAdmin, checker, agentsus: agentSus })) cookies[label] = await login(email)
   })
 
   afterAll(async () => {
     await app?.close()
     for (const tenantId of [tenantA, tenantB].filter(Boolean)) {
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
+      await prisma.approvalRequest.deleteMany({ where: { tenantId } })
       await prisma.distributionRestriction.deleteMany({ where: { tenantId } })
       await prisma.serviceCaseNote.deleteMany({ where: { tenantId } })
       await prisma.serviceCase.deleteMany({ where: { tenantId } })
@@ -196,7 +199,7 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
     await api('post', `/admin/service/cases/${c.id}/assign`, 'admin', { assigneeId: ids.reader }).expect(400) // reader lacks case.manage
     expect((await api('post', `/admin/service/cases/${c.id}/assign`, 'admin', { assigneeId: ids.admin }).expect(200)).body.data.assignee.id).toBe(ids.admin)
     expect((await api('post', `/admin/service/cases/${c.id}/assign`, 'admin', { assigneeId: null }).expect(200)).body.data.assignee).toBeNull()
-    expect((await api('get', '/admin/service/assignees', 'admin').expect(200)).body.data.map((a: { id: string }) => a.id)).toEqual([ids.admin])
+    expect((await api('get', '/admin/service/assignees', 'admin').expect(200)).body.data.map((a: { id: string }) => a.id)).toEqual([ids.admin, ids.checker].sort())
     await api('post', `/admin/service/cases/${c.id}/notes`, 'admin', { body: 'First' }).expect(201)
     const two = (await api('post', `/admin/service/cases/${c.id}/notes`, 'admin', { body: 'Second' }).expect(201)).body.data
     expect(two.notes.map((n: { body: string }) => n.body)).toEqual(['First', 'Second'])
@@ -295,6 +298,86 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
     expect((await seen('agentout')).has(hotels.alpha)).toBe(false)
     await api('delete', `/admin/clients/agencies/${agency.id}/members/${ids.agentout}`, 'admin').expect(200)
     expect((await seen('agentout')).has(hotels.alpha)).toBe(true) // leaving the agency lifts the restriction for that user
+  })
+
+  it('SU-01 suspension is maker-checker, blocks new commercial activity for that agency\'s members only, and reinstatement restores it', async () => {
+    const agency = await newAgency()
+    await api('post', `/admin/clients/agencies/${agency.id}/members`, 'admin', { userId: ids.agentsus }).expect(200)
+    expect((await search('agentsus')).status).toBe(201)
+
+    const ask = (change: string, requestId: string, who = 'admin', agencyId = agency.id) => api('post', `/admin/clients/agencies/${agencyId}/request-suspension-change`, who, { change, requestId, reason: 'Unpaid invoices escalated by finance' })
+    await ask('SUSPEND', `${suffix}-s0`, 'reader').expect(403)
+    await ask('REINSTATE', `${suffix}-s0`).expect(409) // not suspended
+    await ask('PAUSE', `${suffix}-s0`).expect(400)
+    await ask('SUSPEND', `${suffix}-s0`, 'badmin').expect(404) // other tenant cannot see it
+    const requested = (await ask('SUSPEND', `${suffix}-s1`).expect(200)).body.data
+    expect(requested.status).toBe('ACTIVE')
+    expect(requested.suspension).toMatchObject({ change: 'SUSPEND', status: 'PENDING', canDecide: false, canCancel: true })
+    expect((await ask('SUSPEND', `${suffix}-s1`).expect(200)).body.data.suspension.id).toBe(requested.suspension.id) // idempotent
+    await ask('SUSPEND', `${suffix}-s2`).expect(409) // one open request at a time
+    const approvalId = requested.suspension.id as string
+    const step = (verb: string, who: string, body: object = { reason: 'Reviewed the ledger summary' }) => api('post', `/admin/clients/agencies/suspension-approvals/${approvalId}/${verb}`, who, body)
+
+    await step('approve', 'admin').expect(403) // the maker cannot approve
+    await step('execute', 'admin').expect(409) // nothing approved yet
+    expect((await search('agentsus')).status).toBe(201) // still not suspended
+    const approved = (await step('approve', 'checker').expect(200)).body.data
+    expect(approved.suspension).toMatchObject({ status: 'APPROVED', canExecute: true })
+    expect((await search('agentsus')).status).toBe(201) // approval alone changes nothing
+    const done = (await step('execute', 'admin').expect(200)).body.data
+    expect(done.agency.status).toBe('SUSPENDED')
+    await step('execute', 'admin').expect(409) // single use
+
+    // Enforcement: new commercial activity is refused for the suspended agency's member...
+    const blocked = async (res: request.Test) => expect((await res).status).toBe(403)
+    await blocked(search('agentsus'))
+    await blocked(request(app.getHttpServer()).post('/api/v1/agent/search/status').set('Cookie', cookies.agentsus).send({}))
+    await blocked(request(app.getHttpServer()).post('/api/v1/agent/rates/recheck').set('Cookie', cookies.agentsus).send({}))
+    await blocked(request(app.getHttpServer()).post('/api/v1/agent/offers/x/hold').set('Cookie', cookies.agentsus).send({}))
+    await blocked(request(app.getHttpServer()).post('/api/v1/agent/prebook').set('Cookie', cookies.agentsus).send({}))
+    await blocked(request(app.getHttpServer()).post('/api/v1/agent/bookings').set('Cookie', cookies.agentsus).send({}))
+    // ...reads and winding down stay available...
+    // (the bookings list may answer 503 when booking is switched off in this environment; what matters is that suspension does not refuse it)
+    expect((await request(app.getHttpServer()).get('/api/v1/agent/bookings').set('Cookie', cookies.agentsus)).status).not.toBe(403)
+    await request(app.getHttpServer()).get('/api/v1/agent/destinations?q=Dub').set('Cookie', cookies.agentsus).expect(200)
+    // ...and nobody else is affected.
+    expect((await search('agentout')).status).toBe(201)
+
+    // A plain edit can neither clear nor set SUSPENDED.
+    await api('patch', `/admin/clients/agencies/${agency.id}`, 'admin', { status: 'ACTIVE' }).expect(409)
+    await api('patch', `/admin/clients/agencies/${agency.id}`, 'admin', { status: 'SUSPENDED' }).expect(400)
+    await api('patch', `/admin/clients/agencies/${agency.id}`, 'admin', { name: 'Renamed while suspended' }).expect(200)
+    await ask('SUSPEND', `${suffix}-s3`).expect(409) // already suspended
+
+    // Reinstatement is also maker-checker.
+    const back = (await ask('REINSTATE', `${suffix}-r1`).expect(200)).body.data
+    expect(back.suspension).toMatchObject({ change: 'REINSTATE', status: 'PENDING' })
+    const reinstateId = back.suspension.id as string
+    const rstep = (verb: string, who: string) => api('post', `/admin/clients/agencies/suspension-approvals/${reinstateId}/${verb}`, who, { reason: 'Invoices settled' })
+    await rstep('approve', 'admin').expect(403)
+    await rstep('approve', 'checker').expect(200)
+    expect((await rstep('execute', 'checker').expect(200)).body.data.agency.status).toBe('ACTIVE')
+    expect((await search('agentsus')).status).toBe(201)
+
+    // A rejected request changes nothing, and the trail holds identifiers and no free text.
+    const again = (await ask('SUSPEND', `${suffix}-s4`).expect(200)).body.data.suspension.id as string
+    await api('post', `/admin/clients/agencies/suspension-approvals/${again}/reject`, 'checker', { reason: 'Not warranted' }).expect(200)
+    await api('post', `/admin/clients/agencies/suspension-approvals/${again}/execute`, 'admin').expect(409)
+    expect((await search('agentsus')).status).toBe(201)
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityType: 'agency', entityId: agency.id, action: { in: ['agency.suspended', 'agency.reinstated'] } }, orderBy: { createdAt: 'asc' } })
+    expect(events.map((e) => e.action)).toEqual(['agency.suspended', 'agency.reinstated'])
+    expect(JSON.stringify(events.map((e) => e.payload))).not.toMatch(/Unpaid|invoices|ledger/i)
+    // Summary counts it.
+    expect((await api('get', '/admin/clients/summary', 'admin').expect(200)).body.data.agencies).toHaveProperty('suspended')
+  })
+
+  it('SU-02 an approval for another entity cannot be used to suspend an agency', async () => {
+    const a = await newAgency(); const other = await newAgency()
+    const r = (await api('post', `/admin/clients/agencies/${a.id}/request-suspension-change`, 'admin', { change: 'SUSPEND', requestId: `${suffix}-x1`, reason: 'Check separation of entities' }).expect(200)).body.data.suspension.id as string
+    await api('post', `/admin/clients/agencies/suspension-approvals/${r}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    await api('post', `/admin/clients/agencies/suspension-approvals/${r}/execute`, 'badmin').expect(404)
+    expect((await api('get', `/admin/clients/agencies/${other.id}`, 'admin').expect(200)).body.data.status).toBe('ACTIVE')
+    expect((await api('get', `/admin/clients/agencies/${a.id}`, 'admin').expect(200)).body.data.status).toBe('ACTIVE')
   })
 
   it('DS-04 under the non-bypass API runtime role an unreadable restriction table applies none and says so; nothing aborts', async () => {

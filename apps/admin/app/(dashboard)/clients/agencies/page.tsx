@@ -1,21 +1,21 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { AGENCY_STATUSES } from '@bedbanks/contracts'
+import { AGENCY_STATUSES, type AgencyView } from '@bedbanks/contracts'
 import { PageHeader } from '@/components/common/PageHeader'
 import { OpsState } from '@/components/ops/OpsState'
 import { Pager } from '@/components/ops/Pager'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
-import { addAgencyMember, createAgency, getAgencies, getAgencyMembers, getClientsSummary, getMemberCandidates, removeAgencyMember, updateAgency } from '@/lib/data/departments'
+import { addAgencyMember, cancelAgencySuspension, createAgency, decideAgencySuspension, executeAgencySuspension, requestAgencySuspensionChange, getAgencies, getAgencyMembers, getClientsSummary, getMemberCandidates, removeAgencyMember, updateAgency } from '@/lib/data/departments'
 import { describeApiError } from '@/lib/api/describe-error'
 
 const PAGE_SIZE = 25
 const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
 const field = { color: '#17333e' } as const
 
-/** Agencies and their members (ADR 0019). A directory: INACTIVE does not block sign-in, search or booking. */
+/** Agencies and their members (ADR 0019). INACTIVE is a directory state; SUSPENDED blocks the members from searching and booking and is reached only through a maker-checker request (ADR 0020). */
 export default function AgenciesPage() {
   const [status, setStatus] = useState(''); const [search, setSearch] = useState(''); const [page, setPage] = useState(1)
   const [version, setVersion] = useState(0); const [open, setOpen] = useState<string | null>(null)
@@ -30,11 +30,11 @@ export default function AgenciesPage() {
   }
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="AGENTS & CLIENTS" title="Agencies" description="Agency records and their members. This is a directory: an inactive agency still signs in, searches and books. Credit, pricing profiles and wallets are not managed here." />
+      <PageHeader eyebrow="AGENTS & CLIENTS" title="Agencies" description="Agency records and their members. An inactive agency still signs in, searches and books. A suspended agency cannot search, recheck, hold or book; suspending and reinstating need a second person's approval. Credit, pricing profiles and wallets are not managed here." />
       <OpsState state={summary.state} onRetry={summary.reload}>
         {(s) => (
           <ul data-testid="clients-summary" style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-            {[['Agencies', s.agencies.total], ['Active', s.agencies.active], ['Inactive', s.agencies.inactive], ['Members in an agency', s.members.inAnAgency], ['Members in none', s.members.notInAnyAgency]].map(([l, v]) => (
+            {[['Agencies', s.agencies.total], ['Active', s.agencies.active], ['Inactive', s.agencies.inactive], ['Suspended', s.agencies.suspended], ['Members in an agency', s.members.inAnAgency], ['Members in none', s.members.notInAnyAgency]].map(([l, v]) => (
               <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: '#17333e' }}>{v}</div><div style={{ color: '#3f565c', fontSize: 11 }}>{l}</div></li>
             ))}
           </ul>
@@ -55,11 +55,12 @@ export default function AgenciesPage() {
                 <tbody>{d.items.map((a) => (
                   <tr key={a.id} data-testid={`agency-${a.status.toLowerCase()}`}>
                     <td style={td}><code>{a.code}</code></td><td style={td}><strong>{a.name}</strong>{a.notes ? <div style={{ fontSize: 10 }}>{a.notes}</div> : null}</td>
-                    <td style={td}>{a.countryCode ?? '—'}</td><td style={td}><Tag tone={a.status === 'ACTIVE' ? 'ok' : 'warn'}>{a.status}</Tag></td><td style={td}>{a.memberCount}</td><td style={td}>{when(a.createdAt)}</td>
+                    <td style={td}>{a.countryCode ?? '—'}</td><td style={td}><Tag tone={a.status === 'ACTIVE' ? 'ok' : a.status === 'SUSPENDED' ? 'bad' : 'warn'}>{a.status}</Tag></td><td style={td}>{a.memberCount}</td><td style={td}>{when(a.createdAt)}</td>
                     <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button type="button" className="admin-btn" aria-expanded={open === a.id} onClick={() => setOpen(open === a.id ? null : a.id)}>Members</button>
                       <button type="button" className="admin-btn" disabled={busy} onClick={() => { const name = window.prompt('Agency name', a.name)?.trim(); if (name && name !== a.name) void act(async () => { await updateAgency(a.id, { name }); return 'Agency renamed.' }) }}>Rename</button>
-                      <button type="button" className="admin-btn" disabled={busy} onClick={() => void act(async () => { await updateAgency(a.id, { status: a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }); return a.status === 'ACTIVE' ? 'Agency marked inactive (directory only).' : 'Agency marked active.' })}>{a.status === 'ACTIVE' ? 'Mark inactive' : 'Mark active'}</button>
+                      {a.status !== 'SUSPENDED' && <button type="button" className="admin-btn" disabled={busy} onClick={() => void act(async () => { await updateAgency(a.id, { status: a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }); return a.status === 'ACTIVE' ? 'Agency marked inactive (directory only).' : 'Agency marked active.' })}>{a.status === 'ACTIVE' ? 'Mark inactive' : 'Mark active'}</button>}
+                      <Suspension agency={a} busy={busy} act={act} />
                     </td>
                   </tr>))}</tbody>
               </table>
@@ -70,6 +71,28 @@ export default function AgenciesPage() {
       </OpsState>
       {open && <Members agencyId={open} version={version} busy={busy} act={act} />}
     </div>
+  )
+}
+
+const askReason = (verb: string) => (typeof window === 'undefined' ? '' : window.prompt(`Reason to ${verb} (required)`) ?? '').trim()
+
+/** Maker-checker controls for one agency (ADR 0020). The server enforces a different approver and single use; the buttons only mirror it. */
+function Suspension({ agency: a, busy, act }: { agency: AgencyView; busy: boolean; act: (w: () => Promise<string>) => Promise<void> }) {
+  const p = a.suspension
+  if (!p) {
+    const change = a.status === 'SUSPENDED' ? 'REINSTATE' : 'SUSPEND'
+    const label = change === 'SUSPEND' ? 'Request suspension' : 'Request reinstatement'
+    return <button type="button" className="admin-btn" disabled={busy} onClick={() => { const reason = askReason(label.toLowerCase()); if (reason) void act(async () => { await requestAgencySuspensionChange(a.id, { requestId: crypto.randomUUID(), change, reason }); return `${label.replace('Request ', '')} requested; a second person must approve it.` }) }}>{label}</button>
+  }
+  const what = p.change === 'SUSPEND' ? 'suspension' : 'reinstatement'
+  return (
+    <>
+      <Tag tone="warn">{`${what} ${p.status.toLowerCase()}`}</Tag>
+      {p.canDecide && <button type="button" className="admin-btn" disabled={busy} onClick={() => { const reason = askReason(`approve the ${what}`); if (reason) void act(async () => { await decideAgencySuspension(p.id, 'approve', reason); return 'Approved.' }) }}>Approve {what}</button>}
+      {p.canDecide && <button type="button" className="admin-btn" disabled={busy} onClick={() => { const reason = askReason(`reject the ${what}`); if (reason) void act(async () => { await decideAgencySuspension(p.id, 'reject', reason); return 'Rejected.' }) }}>Reject</button>}
+      {p.canCancel && <button type="button" className="admin-btn" disabled={busy} onClick={() => void act(async () => { await cancelAgencySuspension(p.id); return 'Request withdrawn.' })}>Withdraw</button>}
+      {p.canExecute && <button type="button" className="admin-btn" disabled={busy} onClick={() => void act(async () => { await executeAgencySuspension(p.id); return p.change === 'SUSPEND' ? 'Agency suspended.' : 'Agency reinstated.' })}>Apply {what}</button>}
+    </>
   )
 }
 
