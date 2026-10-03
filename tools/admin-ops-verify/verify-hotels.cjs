@@ -68,7 +68,7 @@ async function openHotel(page, key, tab) {
     check(`filter ${label} (server-side)`, body.includes(expectName) && (expectCount === null || n === expectCount), `${n} rows`)
   }
   await page.goto(`${BASE}/hotels?readiness=BLOCKED`); await page.waitForSelector('[data-testid=hotels-table]')
-  const chips = await page.locator('[data-testid=hotels-table] tbody tr td:nth-child(9)').allInnerTexts()
+  const chips = await page.locator('[data-testid=hotels-table] tbody tr td:nth-child(11)').allInnerTexts()
   check('every row of the BLOCKED filter shows a BLOCKED chip', chips.length > 0 && chips.every((c) => /BLOCKED/.test(c)), chips.join(','))
   await page.goto(`${BASE}/hotels?search=zzzzzzzz`); await page.waitForSelector('[data-state=empty]')
   check('no match is the EMPTY state with a successful message, not an error', /No hotels match these filters/.test(await text(page)) && (await page.locator('[role=alert]:not(#__next-route-announcer__)').count()) === 0)
@@ -169,11 +169,45 @@ async function openHotel(page, key, tab) {
   check('an exception links to the exact hotel section to resolve it', /tab=rates/.test(page.url()))
   await page.screenshot({ path: `${SHOTS}/exceptions.png`, fullPage: true })
 
-  // ---- the edit -> recalculate loop: set the missing star rating and COMPLETE on the new hotel; those two issues disappear, the rest remain ----
+  // ---- Hotel Setup (ADR 0021): validation keeps input, stale edits fail, a draft saves incomplete and persists, publication is gated ----
   await openHotel(page, 'kilo')
   check('before: the unrated DRAFT hotel lists the star-rating and content issues', /no 1-5 star rating/i.test(await text(page)) && /content is not COMPLETE/i.test(await text(page)))
-  await page.getByLabel('Star rating (1-5)').fill('4'); await page.getByLabel('Content status').selectOption('COMPLETE')
-  await page.getByRole('button', { name: 'Save changes' }).click(); await page.waitForSelector('text=Hotel master data saved', { timeout: 15000 }); await page.waitForTimeout(800)
+  await page.waitForSelector('[data-testid=profile-completeness]', { timeout: 15000 })
+  check('the Overview shows an explicit completeness figure and names what is missing', /of 12 publication requirements met/.test(await text(page)) && (await page.locator('[data-testid=profile-completeness] [data-met=false]').count()) > 0)
+  check('the Overview no longer carries a master-data form or placeholder summary', (await page.getByRole('button', { name: 'Save changes' }).count()) === 0 && !/mock summary/i.test(await text(page)))
+  await page.getByRole('tab', { name: 'Hotel Setup' }).click(); await page.waitForSelector('[data-testid=setup-form]')
+  check('Hotel Setup shows the immutable canonical id', (await page.locator('[data-testid=canonical-id]').innerText()).trim() === H.kilo)
+  // a failed save keeps what was typed and says why
+  await page.getByLabel('Latitude').fill('95'); await page.getByLabel('Longitude').fill('55.2'); await page.getByLabel('Area').fill('Business Bay')
+  await page.getByTestId('setup-save').click(); await page.waitForSelector('[data-testid=setup-error]')
+  const badNotice = await page.getByTestId('setup-error').innerText()
+  check('a validation failure names the field and keeps the typed values', /latitude/i.test(badNotice) && (await page.getByLabel('Latitude').inputValue()) === '95' && (await page.getByLabel('Area').inputValue()) === 'Business Bay')
+  // a stale edit from a second window fails visibly
+  const { ctx: c2, page: p2 } = await login(browser, seed.ownerEmail)
+  await p2.goto(`${BASE}/hotels/${H.kilo}?tab=setup`); await p2.waitForSelector('[data-testid=setup-form]')
+  await page.getByLabel('Latitude').fill('25.1'); await page.getByLabel('Longitude').fill('55.2')
+  await page.getByLabel('Street address').fill('1 Verification Road'); await page.getByLabel('Star category').selectOption('4'); await page.getByLabel('Category verified').check()
+  await page.getByLabel('Source of the category').fill('Verification register')
+  await page.getByLabel('Short description (max 500)').fill('A verification hotel in Business Bay.')
+  await page.getByLabel('Check-in time (hotel local)').fill('14:00'); await page.getByLabel('Check-out time (hotel local)').fill('12:00')
+  await page.getByLabel('reservations name').fill('Front desk'); await page.getByLabel('reservations email').fill('verify-res@hotel.test')
+  await page.getByRole('button', { name: 'Add identifier' }).click(); await page.locator('[data-testid=external-identifiers] input').nth(1).fill(`GV-${Date.now()}`)
+  await page.getByTestId('setup-save').click(); await page.waitForSelector('[data-testid=setup-notice]:has-text("Saved")', { timeout: 15000 })
+  const saveRequestId = await page.getByTestId('setup-request-id').innerText()
+  check('a save shows the persisted result and the server request id', saveRequestId.length > 8)
+  await p2.getByLabel('Area').fill('Somewhere else'); await p2.getByTestId('setup-save').click(); await p2.waitForSelector('[data-testid=setup-error]')
+  check('a stale edit fails visibly and offers to load the latest version', /changed after you loaded/i.test(await p2.getByTestId('setup-error').innerText()) && (await p2.getByRole('button', { name: /Load the latest version/ }).count()) === 1)
+  await c2.close()
+  await page.reload(); await page.waitForSelector('[data-testid=setup-form]')
+  check('after a reload the saved draft is read back from the server', (await page.getByLabel('Street address').inputValue()) === '1 Verification Road' && (await page.getByLabel('Area').inputValue()) === 'Business Bay' && (await page.getByLabel('Star category').inputValue()) === '4')
+  check('the audit trail records the same server request id', await (async () => { await page.goto(`${BASE}/hotels/${H.kilo}?tab=audit`); await page.waitForSelector('table[aria-label="Hotel audit events"]'); return (await text(page)).includes(saveRequestId) && /hotel\.setup\.updated/.test(await text(page)) })())
+  // publication is gated, then allowed once the requirements are met
+  await page.goto(`${BASE}/hotels/${H.kilo}?tab=setup`); await page.waitForSelector('[data-testid=status-form]')
+  check('the status form states that publication enables no booking or payment path', /does not enable booking, payment or supplier access/.test(await page.getByTestId('status-form').innerText()))
+  await page.getByLabel('Reason (required)').fill('Reviewed against the verification register'); await page.getByRole('button', { name: 'Apply status' }).click()
+  await page.waitForSelector('[data-testid=status-notice]:has-text("Status is now COMPLETE")', { timeout: 15000 }); await page.waitForTimeout(800)
+  check('a complete profile can be published, and the status persists', (await page.getByTestId('profile-status').innerText()).trim() === 'COMPLETE')
+  await openHotel(page, 'kilo')
   const after = await text(page)
   check('after saving, the star-rating and content issues are gone, and the hotel is still BLOCKED by what is genuinely missing', !/no 1-5 star rating/i.test(after.replace(/Agents cannot list this hotel until one is set\./, '')) && !/content is not COMPLETE/i.test(after) && /BLOCKED/.test(await page.locator('[data-testid=hotel-header]').innerText()) && /No rate plan is configured/.test(after), after.slice(0, 80))
 
@@ -185,6 +219,25 @@ async function openHotel(page, key, tab) {
   check('a newly created hotel opens as BLOCKED, "Sellable to Agents NO", status DRAFT', /BLOCKED/.test(created) && /Sellable to Agents\s*NO/.test(created) && /DRAFT/.test(created), created.slice(0, 120))
   check('a newly created hotel lists RATE_PLAN_MISSING and an unmapped-hotel issue as critical', (await page.locator('[data-testid=issue-list] [data-severity=CRITICAL]').count()) >= 2 && /No rate plan is configured/.test(await text(page)))
 
+  // ---- directory: search by canonical id and external id, filters persist in the URL ----
+  await page.goto(`${BASE}/hotels`); await page.waitForSelector('[data-testid=hotels-table]')
+  await page.getByLabel('Search hotels').fill('GV-'); await page.getByLabel('Search hotels').press('Enter'); await page.waitForFunction(() => location.search.includes('search=GV-'))
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid=hotels-table] tbody tr').length === 1, null, { timeout: 15000 })
+  check('searching an external identifier finds exactly the hotel it belongs to', (await page.locator('[data-testid=hotel-canonical-id]').first().innerText()).trim() === H.kilo)
+  await page.goto(`${BASE}/hotels?search=${H.alpha}`); await page.waitForSelector('[data-testid=hotels-table]')
+  check('searching a canonical id finds that hotel', (await rows(page)) === 1 && (await page.locator('[data-testid=hotel-canonical-id]').first().innerText()).trim() === H.alpha)
+  await page.goto(`${BASE}/hotels?stars=UNRATED`); await page.waitForSelector('[data-testid=hotels-table], [data-state]')
+  check('the unrated star filter is URL-persisted and applied by the server', /stars=UNRATED/.test(page.url()) && (await page.locator('[data-testid=hotels-table] tbody tr td:nth-child(4)').allInnerTexts()).every((t) => /Unrated/.test(t)))
+
+  // ---- read-only people and other tenants ----
+  const { ctx: vctx, page: vpage } = await login(browser, seed.viewerEmail)
+  await vpage.goto(`${BASE}/hotels/${H.alpha}?tab=setup`); await vpage.waitForSelector('[data-testid=setup-form]', { timeout: 20000 })
+  const patched = await vpage.evaluate(async ([id, tenant]) => (await fetch(`/api/v1/admin/hotels/${id}/setup`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenant }, body: JSON.stringify({ idempotencyKey: 'viewer-attempt-1', expectedToken: 'x', area: 'Nope' }) })).status, [H.alpha, seed.tenantA])
+  check('a read-only user sees no save control and no private contacts, and the API refuses the mutation', (await vpage.getByTestId('setup-save').count()) === 0 && (await vpage.getByTestId('contacts-hidden').count()) === 1 && patched === 403, `status=${patched}`)
+  await vctx.close()
+  const crossTenant = await page.evaluate(async ([id, tenant]) => (await fetch(`/api/v1/admin/hotels/${id}/setup`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenant } })).status, [H.oscar, seed.tenantA])
+  check("another tenant's hotel setup is not readable", crossTenant === 404, `status=${crossTenant}`)
+
   // ---- keyboard, responsive, accessibility ----------------------------------------------------------------------------------------
   await openHotel(page, 'alpha'); await page.locator('[role=tab]').first().focus(); await page.keyboard.press('Tab')
   const focusedRole = await page.evaluate(() => document.activeElement?.getAttribute('role'))
@@ -192,8 +245,8 @@ async function openHotel(page, key, tab) {
   check('tabs are keyboard reachable and activate with Enter', focusedRole === 'tab' && /tab=rooms/.test(page.url()))
   for (const [w, h] of [[1280, 900], [768, 900], [390, 800]]) {
     await page.setViewportSize({ width: w, height: h })
-    for (const url of [`${BASE}/hotels`, `${BASE}/hotels/${H.alpha}?tab=rates`, `${BASE}/exceptions`]) {
-      await page.goto(url); await page.waitForSelector('table, [data-state]'); await page.waitForTimeout(500)
+    for (const url of [`${BASE}/hotels`, `${BASE}/hotels/${H.alpha}?tab=rates`, `${BASE}/hotels/${H.alpha}?tab=setup`, `${BASE}/exceptions`]) {
+      await page.goto(url); await page.waitForSelector('table, [data-state], [data-testid=setup-form]'); await page.waitForTimeout(500)
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
       const focusable = await page.evaluate(() => [...document.querySelectorAll('[role=region][aria-label]')].every((r) => r.scrollWidth <= r.clientWidth + 1 || r.getAttribute('tabindex') === '0'))
       check(`no page-level horizontal overflow at ${w}px on ${new URL(url).pathname}${new URL(url).search}`, overflow <= 1 && focusable, `overflow=${overflow}`)
@@ -201,7 +254,7 @@ async function openHotel(page, key, tab) {
   }
   await page.setViewportSize({ width: 1280, height: 900 })
   await openHotel(page, 'bravo', 'sellability'); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-testid=sellability-result]')
-  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
+  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
     if (url) { await page.goto(url); await page.waitForSelector(wait) }
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const bad = axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))

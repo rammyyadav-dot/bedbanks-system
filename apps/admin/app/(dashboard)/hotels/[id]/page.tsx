@@ -10,6 +10,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { Chip, ContractChip, MappingChip, ReadinessChip } from '@/components/hotels/ui'
 import { OverviewPanel } from '@/components/hotels/panels/OverviewPanel'
+import { SetupPanel } from '@/components/hotels/panels/SetupPanel'
 import { RoomsPanel } from '@/components/hotels/panels/RoomsPanel'
 import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
@@ -60,6 +61,7 @@ function Hotel360() {
             </nav>
             <div role="tabpanel" id="hotel-panel" aria-labelledby={`tab-${tab}`} style={{ marginTop: 12 }}>
               {tab === 'overview' && <OverviewPanel data={data} onChanged={refresh} />}
+              {tab === 'setup' && <SetupPanel hotelId={id} onChanged={refresh} />}
               {tab === 'rooms' && <RoomsPanel data={data} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
