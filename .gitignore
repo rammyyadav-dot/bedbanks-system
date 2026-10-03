@@ -47,3 +47,4 @@ dump.rdb
 tools/admin-ops-verify/.seed.json
 tools/admin-ops-verify/.seed-hotels.json
 tools/admin-ops-verify/.seed-credit.json
+tools/admin-ops-verify/.seed-agent-images.json
