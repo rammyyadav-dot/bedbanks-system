@@ -97,7 +97,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   planned('refund.approve', 'finance', 'S3', 'Approve a refund (requester and approver differ)'),
   planned('adjustment.request', 'finance', 'S2', 'Request a ledger adjustment'),
   planned('adjustment.approve', 'finance', 'S3', 'Approve a ledger adjustment (requester and approver differ)'),
-  planned('agency.suspend', 'clients', 'S3', 'Suspend an agency'),
+  { key: 'agency.suspend', department: 'clients', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'agency.manage', approvalOnly: true, description: 'Suspend or reinstate an agency; a suspended agency cannot search or book (maker-checker, ADR 0020)' },
   planned('role_permission.assign', 'platform', 'S3', 'Change the permissions of a role (anti self-escalation)', undefined, 'PLATFORM'),
   planned('user_role.assign', 'platform', 'S3', 'Assign a role to a user (anti self-escalation)', undefined, 'PLATFORM'),
   planned('audit.export', 'audit', 'S3', 'Export audit events'),

@@ -5,6 +5,7 @@ import { AgentAuditService } from './audit.service'
 import { LedgerService } from './ledger.service'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard } from './rbac.guard'
+import { AgencySuspensionGuard } from './agency-suspension.guard'
 import { TenantContextGuard } from './tenant-context.guard'
 import { ContractedInventoryAdapter } from './contracted-inventory.adapter'
 import { SUPPLIER_ADAPTER } from './supplier.port'
@@ -33,6 +34,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
   controllers: [AgentController],
   providers: [
     AgentRbacGuard,
+    AgencySuspensionGuard,
     TenantContextGuard,
     AgentAuditService,
     LedgerService,

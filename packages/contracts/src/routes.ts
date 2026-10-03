@@ -13,6 +13,9 @@ export const routes = {
   adminClients: {
     summary: '/admin/clients/summary', agencies: '/admin/clients/agencies', agency: '/admin/clients/agencies/:agencyId',
     agencyMembers: '/admin/clients/agencies/:agencyId/members', agencyMember: '/admin/clients/agencies/:agencyId/members/:userId', memberCandidates: '/admin/clients/member-candidates',
+    agencySuspensionRequest: '/admin/clients/agencies/:agencyId/request-suspension-change',
+    agencySuspensionApprove: '/admin/clients/agencies/suspension-approvals/:approvalId/approve', agencySuspensionReject: '/admin/clients/agencies/suspension-approvals/:approvalId/reject',
+    agencySuspensionCancel: '/admin/clients/agencies/suspension-approvals/:approvalId/cancel', agencySuspensionExecute: '/admin/clients/agencies/suspension-approvals/:approvalId/execute',
   },
   adminService: {
     summary: '/admin/service/summary', cases: '/admin/service/cases', case: '/admin/service/cases/:caseId', caseNotes: '/admin/service/cases/:caseId/notes',
