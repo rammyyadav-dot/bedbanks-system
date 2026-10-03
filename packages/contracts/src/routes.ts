@@ -8,6 +8,9 @@ export const routes = {
   // Hotel Setup (ADR 0021): descriptive and operational hotel content, saved with optimistic concurrency.
   adminHotelSetup: {
     setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status', ownerCandidates: '/admin/hotels/:hotelId/setup/owner-candidates',
+    publicationRequest: '/admin/hotels/:hotelId/setup/publication/request',
+    publicationApprove: '/admin/hotels/:hotelId/setup/publication/:approvalId/approve', publicationReject: '/admin/hotels/:hotelId/setup/publication/:approvalId/reject',
+    publicationCancel: '/admin/hotels/:hotelId/setup/publication/:approvalId/cancel', publicationExecute: '/admin/hotels/:hotelId/setup/publication/:approvalId/execute',
     rooms: '/admin/hotels/:hotelId/rooms', room: '/admin/hotels/:hotelId/rooms/:roomId',
     roomArchive: '/admin/hotels/:hotelId/rooms/:roomId/archive', roomRestore: '/admin/hotels/:hotelId/rooms/:roomId/restore',
     amenities: '/admin/hotels/:hotelId/amenities',

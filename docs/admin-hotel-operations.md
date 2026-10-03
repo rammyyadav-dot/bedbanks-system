@@ -27,6 +27,7 @@ Every figure, state and verdict comes from the API; the browser renders and subm
 - Changes carry an idempotency key and, where a record can be edited by two people, a concurrency token. A stale token is a 409 with a code.
 - Every change writes an audit event with actor, server request id, reason where required and field names. Contacts, descriptions, notes and identifier values are never written to audit.
 - Money is integer minor units plus ISO currency. Quick Update converts with `@bedbanks/money`.
+- Publishing needs two people (ADR 0022): one manager requests, a different manager approves, then it is applied once; an edit in between voids the request.
 - Publishing a hotel is catalogue state. It does not enable booking, payment or any supplier connection.
 
 ## Not built, and why
