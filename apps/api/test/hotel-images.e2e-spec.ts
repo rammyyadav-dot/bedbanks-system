@@ -202,6 +202,21 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
     expect(ev).toHaveLength(1); expect(ev[0].payload).toMatchObject({ count: 3 })
   })
 
+  it('HI-09 the hotel directory carries the primary image reference, and null when there is none', async () => {
+    await newHotel('dir-with'); await newHotel('dir-without')
+    const up = (await upload('dir-with', 'manager', png(1600, 1200, 'dir-a'), 'image/png', 'Front of the hotel').expect(201)).body.data
+    await upload('dir-with', 'manager', png(1600, 1200, 'dir-b'), 'image/png', 'Pool').expect(201)
+    const rows = async (term: string, who = 'reader') => (await call('get', `/admin/operations/hotels?search=${encodeURIComponent(term)}&pageSize=50`, who).expect(200)).body.data.items as Array<{ id: string; primaryImage: { imageId: string; altText: string } | null }>
+    const [withImg] = await rows(`${suffix} dir-with`)
+    expect(withImg.primaryImage).toEqual({ imageId: up.id, altText: 'Front of the hotel' }) // the primary, no bytes, no URL
+    expect(JSON.stringify(withImg)).not.toMatch(/"data"|base64/)
+    const [without] = await rows(`${suffix} dir-without`)
+    expect(without.primaryImage).toBeNull()
+    expect(await rows(`${suffix} dir-with`, 'bmanager')).toEqual([]) // another tenant sees neither the hotel nor its image
+    await call('patch', `${base('dir-with')}/${(await list('dir-with')).items[1].id}`, 'manager').send({ isPrimary: true }).expect(200)
+    expect((await rows(`${suffix} dir-with`))[0].primaryImage?.altText).toBe('Pool') // follows the primary
+  })
+
   it('HI-07 concurrent uploads keep one primary, distinct positions and an exact count', async () => {
     const results = await Promise.all(Array.from({ length: 6 }, (_, i) => upload('race', 'manager', png(1600, 1200, `race-${i}`), 'image/png', `Race ${i}`)))
     expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201, 201, 201])

@@ -45,3 +45,21 @@ export async function loadProfileSummaries(tx: Prisma.TransactionClient, tenantI
     return { profiles: null, verifiedMappings }
   }
 }
+
+/**
+ * Primary image reference per hotel for one page of the directory (ADR 0027): one query, never the bytes. Like the profile read it
+ * runs behind a SAVEPOINT, so a denied read (no grant yet) gives `null` and the directory simply shows no pictures.
+ */
+export async function loadPrimaryImages(tx: Prisma.TransactionClient, tenantId: string, hotelIds: string[]): Promise<Map<string, { imageId: string; altText: string }> | null> {
+  if (hotelIds.length === 0) return new Map()
+  await tx.$executeRawUnsafe('SAVEPOINT hotel_image_read')
+  try {
+    const rows = await tx.hotelImage.findMany({ where: { tenantId, isPrimary: true, hotelId: { in: hotelIds } }, select: { id: true, hotelId: true, altText: true } })
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT hotel_image_read')
+    return new Map(rows.map((r) => [r.hotelId, { imageId: r.id, altText: r.altText }]))
+  } catch (error) {
+    if (!isBookingReadDenied(error)) throw error
+    await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT hotel_image_read')
+    return null
+  }
+}

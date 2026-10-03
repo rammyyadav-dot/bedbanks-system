@@ -6,7 +6,8 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Tag } from '@/components/ops/ops-ui'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
-import { deleteHotelImage, getHotelImages, hotelImageSrc, reorderHotelImages, updateHotelImage, uploadHotelImage } from '@/lib/data/hotel-images'
+import { AuthImage } from '@/components/hotels/AuthImage'
+import { deleteHotelImage, getHotelImages, reorderHotelImages, updateHotelImage, uploadHotelImage } from '@/lib/data/hotel-images'
 import { useCan } from '@/lib/auth/capabilities'
 
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
@@ -79,7 +80,7 @@ function ImageCard({ img, index, count, busy, canManage, onMove, onSaveAlt, onPr
   const [text, setText] = useState(img.altText)
   return (
     <li data-testid="image-card" data-primary={img.isPrimary} style={{ border: '1px solid #d7e1e4', borderRadius: 8, padding: 8, display: 'grid', gap: 6, background: '#fff' }}>
-      <img src={hotelImageSrc(img.contentPath)} alt={img.altText} loading="lazy" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 6, background: '#eef3f5' }} />
+      <AuthImage contentPath={img.contentPath} alt={img.altText} width={img.width} height={img.height} fallback={<div style={{ width: '100%', aspectRatio: '4 / 3', borderRadius: 6, background: '#eef3f5' }} aria-hidden="true" />} style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 6, background: '#eef3f5' }} />
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         {img.isPrimary && <Tag tone="ok">primary</Tag>}
         <span style={note}>{img.width}x{img.height} · {Math.round(img.bytes / 1024)} KB · {img.contentType.replace('image/', '').toUpperCase()}</span>
