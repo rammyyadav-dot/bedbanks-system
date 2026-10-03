@@ -4,6 +4,7 @@ import { createHash } from 'crypto'
 import type { InventoryHoldRequest, InventoryHoldResponse } from '@bedbanks/domain'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
+import { assertAgencyCredit } from './agency-credit'
 
 export interface AuthoritativeHoldCommand extends InventoryHoldRequest {
   tenantId: string
@@ -44,6 +45,7 @@ export class InventoryHoldService {
           where: { tenantId_idempotencyKey: { tenantId: command.tenantId, idempotencyKey: command.idempotencyKey } },
         })
         if (existing) return this.existing(existing, fingerprint)
+        await assertAgencyCredit(tx, command.tenantId, command.userId, command.currency, BigInt(command.sellAmountMinor)) // ADR 0024
 
         const holdExpiry = new Date(Math.min(Date.parse(command.offerExpiresAt), Date.now() + 15 * 60_000))
         const hold = await tx.inventoryHold.create({ data: {

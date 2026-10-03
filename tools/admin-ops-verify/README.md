@@ -45,3 +45,12 @@ keyboard use, horizontal overflow at 1280 / 768 / 390 px, and axe (WCAG A/AA) on
 ## Hotel Operations (ADR 0021)
 
 `verify-hotels.cjs` also covers Hotel Setup, rooms, amenities, policies, images, supplier mapping governance, Quick Update, Distribution & Readiness, the directory's identifier search, a read-only user and a cross-tenant request. Re-seed with `seed-hotels.ts` before every run: the run edits the seeded hotels (it publishes one, creates mappings and applies a rate change), so a second run on the same seed starts from changed data.
+
+## Agency credit limit
+
+`seed-credit.ts` creates a tenant with an agency and two Admin users who can read and manage agencies; `verify-credit.cjs` drives the Credit panel in Chromium (request, a second person approves and applies, removal is also a request). Same disposable-database guard as above.
+
+```bash
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-credit.ts)
+node tools/admin-ops-verify/verify-credit.cjs
+```

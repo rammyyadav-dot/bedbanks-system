@@ -92,7 +92,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   planned('connector.booking.activate', 'connectivity', 'S3', 'Activate booking capability on a connector (technical and release approval)'),
   planned('connector.cancel.activate', 'connectivity', 'S3', 'Activate cancellation capability on a connector'),
   { key: 'reconciliation.resolve', department: 'reconciliation', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'booking.reconcile', approvalOnly: true, description: 'Approve a reconciliation run through the canonical service (maker-checker, ADR 0017)' },
-  planned('credit_limit.approve', 'finance', 'S3', 'Approve an agent credit limit (dual control)'),
+  { key: 'credit_limit.approve', department: 'finance', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'agency.manage', approvalOnly: true, description: 'Set, change or remove an agency credit limit; new holds are refused over the limit (maker-checker, ADR 0024)' },
   planned('refund.request', 'finance', 'S2', 'Request a refund'),
   planned('refund.approve', 'finance', 'S3', 'Approve a refund (requester and approver differ)'),
   planned('adjustment.request', 'finance', 'S2', 'Request a ledger adjustment'),

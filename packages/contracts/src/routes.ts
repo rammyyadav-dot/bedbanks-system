@@ -20,6 +20,9 @@ export const routes = {
   adminClients: {
     summary: '/admin/clients/summary', agencies: '/admin/clients/agencies', agency: '/admin/clients/agencies/:agencyId',
     agencyMembers: '/admin/clients/agencies/:agencyId/members', agencyMember: '/admin/clients/agencies/:agencyId/members/:userId', memberCandidates: '/admin/clients/member-candidates',
+    agencyCreditRequest: '/admin/clients/agencies/:agencyId/request-credit-limit',
+    agencyCreditApprove: '/admin/clients/agencies/credit-approvals/:approvalId/approve', agencyCreditReject: '/admin/clients/agencies/credit-approvals/:approvalId/reject',
+    agencyCreditCancel: '/admin/clients/agencies/credit-approvals/:approvalId/cancel', agencyCreditExecute: '/admin/clients/agencies/credit-approvals/:approvalId/execute',
     agencySuspensionRequest: '/admin/clients/agencies/:agencyId/request-suspension-change',
     agencySuspensionApprove: '/admin/clients/agencies/suspension-approvals/:approvalId/approve', agencySuspensionReject: '/admin/clients/agencies/suspension-approvals/:approvalId/reject',
     agencySuspensionCancel: '/admin/clients/agencies/suspension-approvals/:approvalId/cancel', agencySuspensionExecute: '/admin/clients/agencies/suspension-approvals/:approvalId/execute',

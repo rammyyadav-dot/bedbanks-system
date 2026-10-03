@@ -8,6 +8,7 @@ import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { RequireDepartmentPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { ClientsService } from './clients.service'
 import { AgencySuspensionService } from './agency-suspension.service'
+import { AgencyCreditService } from './agency-credit.service'
 
 type Q = Record<string, unknown>
 
@@ -16,7 +17,7 @@ type Q = Record<string, unknown>
 @Controller('admin/clients')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class ClientsController {
-  constructor(private readonly clients: ClientsService, private readonly suspension: AgencySuspensionService) {}
+  constructor(private readonly clients: ClientsService, private readonly suspension: AgencySuspensionService, private readonly credit: AgencyCreditService) {}
 
   @Get('summary') @RequireDepartmentPermission('agency.read') @UseGuards(SupplyPermissionGuard)
   summary(@ActiveTenant() tenantId: string) { return this.clients.summary(tenantId) }
@@ -31,7 +32,7 @@ export class ClientsController {
   candidates(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.clients.candidates(tenantId, query) }
 
   @Get('agencies/:agencyId') @RequireDepartmentPermission('agency.read') @UseGuards(SupplyPermissionGuard)
-  get(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('agencyId') agencyId: string) { return this.suspension.detail(tenantId, identity.user.id, agencyId) }
+  get(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('agencyId') agencyId: string) { return this.credit.detail(tenantId, identity.user.id, agencyId) }
 
   @Patch('agencies/:agencyId') @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
   update(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('agencyId') agencyId: string, @Body() body: AgencyUpdate) { return this.clients.update(tenantId, identity.user.id, agencyId, body ?? {}) }
@@ -60,4 +61,5 @@ export class ClientsController {
 
   @Post('agencies/suspension-approvals/:approvalId/execute') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
   executeSuspension(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.suspension.execute(tenantId, identity.user.id, approvalId) }
+
 }
