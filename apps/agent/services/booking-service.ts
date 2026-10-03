@@ -1,4 +1,5 @@
 import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspension.mjs'
+import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
 
 /**
@@ -61,6 +62,8 @@ export class BookingService {
     if (isRecord(data) && data.status === 'booking_unavailable') return { ok: false, kind: 'unavailable', message: 'Booking is not enabled for this workspace yet.' }
     if (result.status >= 200 && result.status < 300) return accept(data) ? { ok: true, data } : failureFor(500, '')
     if (result.status === 403 && isAgencySuspended(result.body)) return { ok: false, kind: 'denied', message: agencySuspendedMessage }
+    const credit = result.status === 403 || result.status === 503 ? creditRefusal(result.body) : null
+    if (credit) return { ok: false, kind: result.status === 403 ? 'denied' : 'error', message: credit.message }
     const message = isRecord(result.body) && isRecord(result.body.error) && typeof result.body.error.message === 'string' ? result.body.error.message : ''
     return failureFor(result.status, message)
   }
