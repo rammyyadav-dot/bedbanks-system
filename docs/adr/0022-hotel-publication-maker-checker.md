@@ -18,5 +18,5 @@ ADR 0021 let one holder of `supply.hotels.manage` edit a hotel and publish it (`
 ## Consequences
 - A tenant needs at least two people holding `supply.hotels.manage` to publish a hotel. With one, hotels stay unpublished. This is intended and not configurable.
 - The Admin Setup tab gets a Publication section (request, approve, reject, withdraw, publish now); the status form no longer offers COMPLETE.
-- The legacy `POST/PATCH /supply/hotels` that still accept `contentStatus: COMPLETE` bypass this flow until ADR 0023 closes them.
+- The legacy `POST/PATCH /supply/hotels` paths are closed by ADR 0023.
 - Rollback: revert the API and Admin. Open requests stay in `ApprovalRequest` and are inert; no data change to undo.
