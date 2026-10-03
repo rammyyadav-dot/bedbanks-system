@@ -421,6 +421,25 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(down.body.data.setup.governance).toMatchObject({ status: 'SUSPENDED', approvedById: null })
   })
 
+  it('HS-14 the generic hotel endpoints cannot publish; moving a published hotel down clears its approver', async () => {
+    const created = await api('post', '/supply/hotels', 'manager', { name: `${suffix} legacy`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' }).expect(409)
+    expect(created.body.error.code).toBe('HOTEL_PUBLICATION_REQUIRES_APPROVAL')
+    expect(await prisma.hotel.count({ where: { tenantId: tenantA, name: `${suffix} legacy` } })).toBe(0)
+    const drafted = (await api('post', '/supply/hotels', 'manager', { name: `${suffix} legacy`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'DRAFT' }).expect(201)).body.data
+    const refused = await api('patch', `/supply/hotels/${drafted.id}`, 'manager', { contentStatus: 'COMPLETE' }).expect(409)
+    expect(refused.body.error.code).toBe('HOTEL_PUBLICATION_REQUIRES_APPROVAL')
+    expect((await prisma.hotel.findUniqueOrThrow({ where: { id: drafted.id } })).contentStatus).toBe('DRAFT')
+
+    // a hotel published through the approved flow can be edited with its status unchanged, and moved down by the generic endpoint
+    const id = await newDraft('legacy-down')
+    await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    expect((await publish(id)).setup.governance.approvedById).toBe(ids.manager2)
+    await api('patch', `/supply/hotels/${id}`, 'manager', { contentStatus: 'COMPLETE', city: 'Dubai' }).expect(200)
+    await api('patch', `/supply/hotels/${id}`, 'manager', { contentStatus: 'SUSPENDED' }).expect(200)
+    expect((await load(id)).governance).toMatchObject({ status: 'SUSPENDED', approvedById: null, approvedAt: null })
+  })
+
   it('HR-01 rooms list with usage, parsed bedding, contract child-age rules, and amenities availability', async () => {
     const view = await loadRooms(hotels.sold)
     expect(view.hotelId).toBe(hotels.sold); expect(view.amenitiesAvailable).toBe(true)

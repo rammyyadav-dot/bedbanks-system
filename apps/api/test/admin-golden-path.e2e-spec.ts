@@ -166,7 +166,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
   it('reaches SELLABLE for every night of the seven-night stay', async () => {
     // A DRAFT hotel passes every commercial check but is flagged as invisible to agent search.
     for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [], warnings: ['HOTEL_CONTENT_NOT_COMPLETE'] })
-    await api(operator).patch(`/supply/hotels/${ids.hotel}`, { contentStatus: 'COMPLETE' }).expect(200)
+    await prisma.hotel.update({ where: { id: ids.hotel }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
     for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [], warnings: [] })
     // AED amounts are read back as integer minor-unit strings, never floats.
     const rates = (await api(operator).get(`/supply/daily-rates?from=${start}&to=${nights[6]}&ratePlanId=${ids.ratePlan}`).expect(200)).body.data as Array<{ amountMinor: string }>
