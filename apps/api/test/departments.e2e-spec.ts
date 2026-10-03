@@ -329,7 +329,7 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
     await step('execute', 'admin').expect(409) // single use
 
     // Enforcement: new commercial activity is refused for the suspended agency's member...
-    const blocked = async (res: request.Test) => expect((await res).status).toBe(403)
+    const blocked = async (res: request.Test) => { const r = await res; expect(r.status).toBe(403); expect(r.body.error.code).toBe('AGENCY_SUSPENDED') }
     await blocked(search('agentsus'))
     await blocked(request(app.getHttpServer()).post('/api/v1/agent/search/status').set('Cookie', cookies.agentsus).send({}))
     await blocked(request(app.getHttpServer()).post('/api/v1/agent/rates/recheck').set('Cookie', cookies.agentsus).send({}))

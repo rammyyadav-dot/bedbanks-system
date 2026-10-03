@@ -1,4 +1,4 @@
-const REQUEST_FAILURES = new Set(['provider_unavailable', 'auth_required', 'access_denied', 'destination_unavailable'])
+const REQUEST_FAILURES = new Set(['provider_unavailable', 'auth_required', 'access_denied', 'agency_suspended', 'destination_unavailable'])
 
 export function isSearchRequestFailure(status: string): boolean {
   return REQUEST_FAILURES.has(status)

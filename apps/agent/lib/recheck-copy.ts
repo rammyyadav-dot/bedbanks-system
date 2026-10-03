@@ -1,4 +1,5 @@
 import type { OfferRecheckResult } from '../types/hotel'
+import { agencySuspendedMessage, agencySuspendedTitle } from './agency-suspension.mjs'
 
 /** Checkout stays closed unless booking is enabled and this recheck is an unchanged confirmation. */
 export function canOpenCheckout(bookingEnabled: boolean, status: OfferRecheckResult['status'] | undefined): boolean {
@@ -16,6 +17,7 @@ export function recheckOutcomeTitle(status: OfferRecheckResult['status']) {
     rejected: 'This offer could not be verified',
     auth_required: 'Sign in again',
     access_denied: 'Recheck denied',
+    agency_suspended: agencySuspendedTitle,
   }
   return titles[status]
 }
@@ -33,6 +35,7 @@ export function recheckOutcomeMessage(status: OfferRecheckResult['status'], book
     rejected: 'The supplier response could not be verified. No inventory was allocated.',
     auth_required: 'Your session expired. Sign in again.',
     access_denied: 'You do not have permission to recheck this offer.',
+    agency_suspended: agencySuspendedMessage,
   }
   return messages[status]
 }

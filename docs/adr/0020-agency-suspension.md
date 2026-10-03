@@ -17,5 +17,5 @@ ADR 0019 left `agency.suspend` (S3) planned: INACTIVE is a directory state that 
 
 ## Consequences
 - `agency.suspend` becomes enforced. The Admin agencies page shows request, approve, reject, withdraw and apply controls, and the summary counts suspended agencies.
-- A suspended agent receives HTTP 403 with a message on new commercial routes; the Agent app does not yet render a dedicated suspended state.
+- A suspended agent receives HTTP 403 with the error code `AGENCY_SUSPENDED` on new commercial routes. The Agent app maps that code, and only that code, to a dedicated "Your agency is suspended" state for search, recheck, hold and booking, with no retry prompt; any other 403 stays a plain access denial.
 - Rollback: reinstate every suspended agency before reverting the API; PostgreSQL cannot drop an enum value, and the unused value is harmless.

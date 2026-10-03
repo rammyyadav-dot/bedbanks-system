@@ -94,6 +94,16 @@ test('empty and forbidden responses are distinct', async () => {
   globalThis.fetch = async () => new Response(null, { status: 403 })
   assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-b')).status, 'access_denied')
 })
+test('a suspended agency is told so, and an ordinary 403 stays a plain denial (search and recheck)', async () => {
+  const suspended = () => new Response(JSON.stringify({ success: false, error: { code: 'AGENCY_SUSPENDED', message: 'Your agency is suspended.', details: [] } }), { status: 403 })
+  globalThis.fetch = async () => suspended()
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'agency_suspended')
+  const rate = hotel.rooms[0].rates[0]
+  assert.equal((await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')).status, 'agency_suspended')
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied', details: [] } }), { status: 403 })
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'access_denied')
+  assert.equal((await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')).status, 'access_denied')
+})
 test('recheck sends only canonical offer identity and expected display amount without allocating inventory', async () => {
   const rate = hotel.rooms[0].rates[0]
   globalThis.fetch = async (url, init) => {

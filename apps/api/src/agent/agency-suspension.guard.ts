@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger, SetMetadata } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import type { Request } from 'express'
+import { AGENCY_SUSPENDED_CODE, AGENCY_SUSPENDED_MESSAGE } from '@bedbanks/contracts'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { PrismaService } from '../database/prisma.service'
 import { activeTenantId } from './tenant-context.guard'
@@ -35,7 +36,7 @@ export class AgencySuspensionGuard implements CanActivate {
     } catch (error) {
       this.logger.warn(`Agency status unreadable; suspension not enforced for this request (${(error as { code?: string }).code ?? 'unknown'})`)
     }
-    if (suspended) throw new ForbiddenException('Your agency is suspended. Contact your account manager.')
+    if (suspended) throw new ForbiddenException({ message: AGENCY_SUSPENDED_MESSAGE, code: AGENCY_SUSPENDED_CODE })
     return true
   }
 }

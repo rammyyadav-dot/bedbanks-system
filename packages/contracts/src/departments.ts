@@ -16,6 +16,9 @@ export type AgencyStatusName = (typeof AGENCY_STATUSES)[number]
 /** Statuses a plain edit may set. SUSPENDED is reached and left only through an approved maker-checker request (ADR 0020). */
 export const AGENCY_EDITABLE_STATUSES = ['ACTIVE', 'INACTIVE'] as const
 export type AgencyEditableStatusName = (typeof AGENCY_EDITABLE_STATUSES)[number]
+/** Error code on the 403 an Agent receives for new commercial activity while their agency is suspended (ADR 0020). */
+export const AGENCY_SUSPENDED_CODE = 'AGENCY_SUSPENDED' as const;
+export const AGENCY_SUSPENDED_MESSAGE = 'Your agency is suspended. New searches and bookings are blocked. Contact your account manager.';
 export const AGENCY_SUSPENSION_CHANGES = ['SUSPEND', 'REINSTATE'] as const
 export type AgencySuspensionChange = (typeof AGENCY_SUSPENSION_CHANGES)[number]
 export const AGENCY_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{0,38}[A-Z0-9]$/

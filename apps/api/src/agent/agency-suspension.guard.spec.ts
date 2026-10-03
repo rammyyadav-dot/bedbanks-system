@@ -20,7 +20,9 @@ describe('AgencySuspensionGuard (ADR 0020)', () => {
 
   it('blocks a member of a SUSPENDED agency on a handler that did not opt out', async () => {
     const guard = new AgencySuspensionGuard(reflector, prisma(async () => ({ agency: { status: 'SUSPENDED' } })))
-    await expect(guard.canActivate(ctx(probe.blocked))).rejects.toBeInstanceOf(ForbiddenException)
+    const error = await guard.canActivate(ctx(probe.blocked)).catch((e) => e)
+    expect(error).toBeInstanceOf(ForbiddenException)
+    expect((error as ForbiddenException).getResponse()).toMatchObject({ code: 'AGENCY_SUSPENDED' })
   })
 
   it('lets a handler that opted out through, without reading the agency', async () => {
