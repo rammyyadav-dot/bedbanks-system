@@ -88,6 +88,8 @@ export interface HotelCommercialRow {
   /** Approved (MAPPED) supplier hotel mappings. A hotel may have several. */
   verifiedMappings: number
   profile: HotelRowProfile | null
+  /** The hotel's primary image (ADR 0027), or null when it has none or images cannot be read. Never a placeholder. */
+  primaryImage: { imageId: string; altText: string } | null
   city: string; countryCode: string; starRating: number | null; propertyType: string
   /** Entity status (`Hotel.contentStatus`). Not commercial readiness. */
   contentStatus: string

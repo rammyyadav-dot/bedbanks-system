@@ -19,7 +19,7 @@ import {
   assessHotel, contractStateOf, evaluatePlanNight, gateResults, mappingFor, windowDates,
   type AssessContract, type AssessHotelInput, type AssessPlan, type HotelAssessment,
 } from '../supply/commercial-assessment'
-import { loadProfileSummaries } from '../hotel-setup/hotel-profile-summary'
+import { loadPrimaryImages, loadProfileSummaries } from '../hotel-setup/hotel-profile-summary'
 import { auditView } from './operations-transactions.service'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
@@ -122,21 +122,22 @@ export class OperationsHotelsService {
     return hotel
   }
 
-  private row(hotel: HotelRecord, a: HotelAssessment, extra: { profile: HotelRowProfile | null; verifiedMappings: number }): HotelCommercialRow {
+  private row(hotel: HotelRecord, a: HotelAssessment, extra: { profile: HotelRowProfile | null; verifiedMappings: number; primaryImage: { imageId: string; altText: string } | null }): HotelCommercialRow {
     const count = (s: IssueSeverity) => a.issues.filter((i) => i.severity === s).length
     return {
       id: hotel.id, name: hotel.name, code: hotel.externalRef, city: hotel.city, countryCode: hotel.countryCode, starRating: hotel.starRating, propertyType: hotel.propertyType, contentStatus: hotel.contentStatus,
       suppliers: a.suppliers, contractState: a.contractState, contractDaysToExpiry: a.contractDaysToExpiry, hotelMapping: a.hotelMapping,
       rooms: a.roomCounts, ratePlans: a.planCounts, rates: a.rates, inventory: a.inventory, readiness: a.readiness, blockers: a.blockers,
       issues: { total: a.issues.length, critical: count('CRITICAL'), high: count('HIGH'), warning: count('WARNING') }, updatedAt: hotel.updatedAt.toISOString(),
-      verifiedMappings: extra.verifiedMappings, profile: extra.profile,
+      verifiedMappings: extra.verifiedMappings, profile: extra.profile, primaryImage: extra.primaryImage,
     }
   }
 
   private async rowExtras(tx: Prisma.TransactionClient, tenantId: string, hotels: HotelRecord[], assessed: Map<string, HotelAssessment>) {
     const active = new Map(hotels.map((h) => [h.id, assessed.get(h.id)!.roomCounts.active]))
     const { profiles, verifiedMappings } = await loadProfileSummaries(tx, tenantId, hotels, active)
-    return { available: profiles !== null, for: (id: string) => ({ profile: profiles?.get(id) ?? null, verifiedMappings: verifiedMappings.get(id) ?? 0 }) }
+    const images = await loadPrimaryImages(tx, tenantId, hotels.map((h) => h.id)) // sequential: each guarded read owns its SAVEPOINT
+    return { available: profiles !== null, for: (id: string) => ({ profile: profiles?.get(id) ?? null, verifiedMappings: verifiedMappings.get(id) ?? 0, primaryImage: images?.get(id) ?? null }) }
   }
 
   // ---- list ----------------------------------------------------------------------------------------------------------------

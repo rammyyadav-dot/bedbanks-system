@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { AuthImage } from '@/components/hotels/AuthImage'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS, COMMERCIAL_ISSUE_CATEGORIES, HOTEL_PROPERTY_TYPES } from '@bedbanks/contracts'
@@ -78,7 +79,7 @@ function HotelsList() {
                 <tbody>
                   {data.items.map((hotel) => (
                     <tr key={hotel.id} data-hotel-id={hotel.id}>
-                      <td style={{ ...td, minWidth: 190 }}><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.propertyType}{hotel.code ? ` · ${hotel.code}` : ''}{hotel.profile?.externalIdentifiers.length ? ` · ${hotel.profile.externalIdentifiers.map((i) => `${i.scheme} ${i.value}`).join(', ')}` : ''}</div></td>
+                      <td style={{ ...td, minWidth: 190 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><HotelThumb hotel={hotel} /><div><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.propertyType}{hotel.code ? ` · ${hotel.code}` : ''}{hotel.profile?.externalIdentifiers.length ? ` · ${hotel.profile.externalIdentifiers.map((i) => `${i.scheme} ${i.value}`).join(', ')}` : ''}</div></div></div></td>
                       <td style={td}><code data-testid="hotel-canonical-id" style={{ fontSize: 10 }}>{hotel.id}</code></td>
                       <td style={td}>{hotel.countryCode} · {hotel.city}{hotel.profile?.area ? <div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile.area}</div> : null}</td>
                       <td style={td} title={starsText(hotel.starRating)}>{hotel.starRating ? <><span aria-hidden="true">{'★'.repeat(hotel.starRating)}</span><span className="sr-only">{starsText(hotel.starRating)}</span><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile ? (hotel.profile.starVerified ? 'Verified' : 'Unverified') : ''}</div></> : <span>Unrated</span>}</td>
@@ -107,3 +108,11 @@ function HotelsList() {
 }
 
 export default function HotelsPage() { return <Suspense fallback={<LoadingState rows={6} />}><HotelsList /></Suspense> }
+
+/** The hotel's primary image, or its initial. No picture is ever invented (ADR 0027). */
+function HotelThumb({ hotel }: { hotel: { id: string; name: string; primaryImage: { imageId: string; altText: string } | null } }) {
+  const box = { width: 56, height: 42, borderRadius: 6, flex: 'none', overflow: 'hidden', background: '#eef3f5', color: '#3f565c', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16 } as const
+  const initial = <div style={box} aria-hidden="true" data-testid="hotel-initial">{hotel.name.trim().charAt(0).toUpperCase() || 'H'}</div>
+  if (!hotel.primaryImage) return initial
+  return <div style={box} data-testid="hotel-thumb"><AuthImage contentPath={`/admin/hotels/${hotel.id}/images/${hotel.primaryImage.imageId}/content`} alt={hotel.primaryImage.altText} width={56} height={42} fallback={initial} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
+}
