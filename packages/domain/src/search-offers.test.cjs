@@ -301,3 +301,14 @@ test('keeps stored address and drops a hotel with a malformed coordinate', () =>
   broken.latitude = '25.2'
   assert.equal(validateSearchHotels([broken], criteria).ok, false)
 })
+
+test('keeps a well-formed primary image reference and rejects a malformed one (ADR 0027)', () => {
+  const image = { imageId: 'img-1', altText: 'Pool at sunset', width: 1600, height: 1200 }
+  const kept = validateSearchHotels([{ ...hotel(), primaryImage: { ...image, url: 'https://evil.example/x.png', extra: 1 } }], criteria)
+  assert.equal(kept.ok, true)
+  assert.deepEqual(kept.hotels[0].primaryImage, image) // unknown fields, including any URL, are stripped
+  assert.equal(validateSearchHotels([hotel()], criteria).hotels[0].primaryImage, undefined) // omitted, never a placeholder
+  for (const bad of [{}, { ...image, imageId: '' }, { ...image, altText: '' }, { ...image, altText: 'x'.repeat(201) }, { ...image, width: 0 }, { ...image, height: 1.5 }, 'img-1', null]) {
+    assert.equal(validateSearchHotels([{ ...hotel(), primaryImage: bad }], criteria).ok, false, JSON.stringify(bad))
+  }
+})

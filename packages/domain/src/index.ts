@@ -95,6 +95,8 @@ export interface SearchRoomOffer {
   supplierRoomId: string
   rates: SearchRateOffer[]
 }
+/** Primary image of a published hotel (ADR 0027). No URL: the transport layer builds one from the hotel and image ids. */
+export interface SearchHotelImage { imageId: string; altText: string; width: number; height: number }
 export interface SearchHotelOffer {
   hotelId: string
   name: string
@@ -106,6 +108,8 @@ export interface SearchHotelOffer {
   latitude?: string
   longitude?: string
   timeZone?: string
+  /** Omitted when the hotel has no image; never a placeholder. */
+  primaryImage?: SearchHotelImage
   supplierId: string
   supplierHotelId: string
   rooms: SearchRoomOffer[]

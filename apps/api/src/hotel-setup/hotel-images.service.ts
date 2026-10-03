@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, PayloadTooLargeException, UnprocessableEntityException, UnsupportedMediaTypeException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
-import { HOTEL_IMAGE_ERROR_CODES, HOTEL_IMAGE_LIMITS, type HotelImageList, type HotelImageUpdate, type HotelImageView } from '@bedbanks/contracts'
+import { HOTEL_IMAGE_ERROR_CODES, HOTEL_IMAGE_LIMITS, type HotelImageList, type HotelImageReorder, type HotelImageUpdate, type HotelImageView } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
 import { idParam } from '../admin-operations/query-params'
@@ -11,6 +11,7 @@ type Tx = Prisma.TransactionClient
 /** Everything except the bytes: list queries must never read the "data" column. */
 const META = { id: true, contentType: true, bytes: true, width: true, height: true, altText: true, sortOrder: true, isPrimary: true, uploadedById: true, createdAt: true } as const
 type Row = Prisma.HotelImageGetPayload<{ select: typeof META }>
+const REORDERED = 'hotel.image.reordered'
 const UPLOADED = 'hotel.image.uploaded'; const UPDATED = 'hotel.image.updated'; const DELETED = 'hotel.image.deleted'
 
 /**
@@ -98,6 +99,28 @@ export class HotelImagesService {
       if (body.isPrimary) await tx.hotelImage.updateMany({ where: { hotelId, tenantId, isPrimary: true, NOT: { id: imageId } }, data: { isPrimary: false } })
       await tx.hotelImage.update({ where: { id: imageId }, data: { ...(alt !== undefined && { altText: alt }), ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }), ...(body.isPrimary && { isPrimary: true }) } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: UPDATED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId, fields: keys.sort() } as Prisma.InputJsonValue } })
+      return this.listIn(tx, tenantId, hotelId)
+    })
+  }
+
+  /**
+   * Sets the whole order in one transaction. The request must name every image of the hotel exactly once; if the hotel changed in the
+   * meantime (an image added or deleted) the order is refused with 409 and nothing is written, so a stale screen cannot scramble it.
+   */
+  async reorder(tenantId: string, userId: string, hotelIdRaw: string, body: HotelImageReorder, requestId: string | null): Promise<HotelImageList> {
+    const ids = body?.imageIds
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > HOTEL_IMAGE_LIMITS.maxPerHotel || ids.some((v) => typeof v !== 'string' || !idParam('imageId', v))) {
+      throw new BadRequestException({ message: [`imageIds: the list of every image id, first to last (1 to ${HOTEL_IMAGE_LIMITS.maxPerHotel})`], error: 'Bad Request' })
+    }
+    if (new Set(ids).size !== ids.length) throw new BadRequestException({ message: ['imageIds: an image can appear only once'], error: 'Bad Request' })
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
+      await this.lock(tx, hotelId)
+      const current = await tx.hotelImage.findMany({ where: { tenantId, hotelId }, select: { id: true } })
+      const have = new Set(current.map((c) => c.id))
+      if (have.size !== ids.length || ids.some((v) => !have.has(v))) throw new ConflictException({ message: 'The hotel images changed. Reload and reorder again.', code: HOTEL_IMAGE_ERROR_CODES.orderMismatch })
+      for (const [position, id] of ids.entries()) await tx.hotelImage.update({ where: { id }, data: { sortOrder: position } })
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: REORDERED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, count: ids.length } as Prisma.InputJsonValue } })
       return this.listIn(tx, tenantId, hotelId)
     })
   }

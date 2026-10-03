@@ -62,3 +62,12 @@ node tools/admin-ops-verify/verify-credit.cjs
 ```bash
 node tools/admin-ops-verify/verify-images.cjs
 ```
+
+## Agent hotel thumbnail
+
+`seed-agent-images.ts` creates a tenant with two published, sellable Dubai hotels (one with a real decodable primary image), plus an Agent user. `verify-agent-images.cjs` signs in to the production **Agent** build (port 3003), searches Dubai and checks the thumbnail, the initial-mark fallback, the detail header and overflow. Start the API with `TRUSTED_ORIGINS=http://localhost:3003` and the Agent with `cd apps/agent && pnpm exec next start -p 3003`.
+
+```bash
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-agent-images.ts)
+node tools/admin-ops-verify/verify-agent-images.cjs
+```

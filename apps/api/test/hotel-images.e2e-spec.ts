@@ -51,7 +51,7 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
     return (response.headers['set-cookie'][0] as string).split(';')[0]
   }
   const base = (hotel: string) => `/admin/hotels/${hotels[hotel] ?? hotel}/images`
-  const call = (method: 'get' | 'post' | 'patch' | 'delete', path: string, who: string) => {
+  const call = (method: 'get' | 'post' | 'patch' | 'put' | 'delete', path: string, who: string) => {
     const r = request(app.getHttpServer())[method](`/api/v1${path}`); return who === 'anon' ? r : r.set('Cookie', cookies[who])
   }
   const upload = (hotel: string, who: string, bytes: Buffer, type = 'image/png', alt: string | null = 'Pool at sunset') =>
@@ -179,6 +179,27 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
     await call('get', `${base('btenant')}/${one.id}/content`, 'bmanager').expect(404) // image id of tenant A under tenant B's own hotel
     await call('get', `/admin/hotels/does-not-exist/images`, 'manager').expect(404)
     expect(await prisma.hotelImage.count({ where: { tenantId: tenantB } })).toBe(0)
+  })
+
+  it('HI-08 the whole order is set atomically, and a stale or partial list changes nothing', async () => {
+    await newHotel('order')
+    const made = [] as Array<{ id: string }>
+    for (const i of [0, 1, 2]) made.push((await upload('order', 'manager', png(1600, 1200, `o${i}`)).expect(201)).body.data)
+    const [a, b, c] = made.map((m) => m.id)
+    const put = (who: string, body: object, hotel = 'order') => call('put', `${base(hotel)}/order`, who).send(body)
+    const l = (await put('manager', { imageIds: [c, a, b] }).expect(200)).body.data
+    expect(l.items.map((i: { id: string; sortOrder: number }) => [i.id, i.sortOrder])).toEqual([[c, 0], [a, 1], [b, 2]])
+    expect(l.items.find((i: { isPrimary: boolean }) => i.isPrimary).id).toBe(a) // order does not change which image is primary
+    for (const bad of [{}, { imageIds: [] }, { imageIds: 'x' }, { imageIds: [a, b] }, { imageIds: [a, a, b] }, { imageIds: [a, b, c, c] }, { imageIds: [a, b, 'not-mine'] }, { imageIds: [a, b, 42] }]) {
+      const r = await put('manager', bad); expect([400, 409]).toContain(r.status)
+    }
+    expect((await put('manager', { imageIds: [a, b] }).expect(409)).body.error.code).toBe('HOTEL_IMAGE_ORDER_MISMATCH')
+    expect((await list('order')).items.map((i: { id: string }) => i.id)).toEqual([c, a, b]) // unchanged by every refusal
+    await put('reader', { imageIds: [a, b, c] }).expect(403); await put('anon', { imageIds: [a, b, c] }).expect(401); await put('bmanager', { imageIds: [a, b, c] }).expect(404)
+    const other = (await upload('main', 'manager', png(1600, 1200, 'other-hotel')).expect(201)).body.data.id
+    expect((await put('manager', { imageIds: [a, b, other] }).expect(409)).body.error.code).toBe('HOTEL_IMAGE_ORDER_MISMATCH') // another hotel's image cannot be slipped in
+    const ev = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: hotels.order, action: 'hotel.image.reordered' } })
+    expect(ev).toHaveLength(1); expect(ev[0].payload).toMatchObject({ count: 3 })
   })
 
   it('HI-07 concurrent uploads keep one primary, distinct positions and an exact count', async () => {

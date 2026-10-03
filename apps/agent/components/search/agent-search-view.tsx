@@ -21,6 +21,7 @@ import { BookingReview } from '@/components/booking/booking-review'
 import { priceChangeDisplay, recheckBaselineMinor, recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
+import { HotelThumbnail } from '@/components/search/hotel-thumbnail'
 import { agencySuspendedMessage, agencySuspendedTitle } from '@/lib/agency-suspension.mjs'
 
 export function SearchView({
@@ -117,7 +118,7 @@ export function SearchView({
       <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' || result.status === 'destination_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status)}</div>
       <div className={selectedLive ? 'market-split' : 'market-results'}>
         <div className="portal-hotel-list" data-result-count={liveHotels.length} tabIndex={0} ref={listRef} onKeyDown={moveCursor} aria-label="Hotel results">
-          {liveHotels.map((hotel, index) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} active={index === cursor} onSelect={() => { setCursor(index); setSelectedLive(hotel) }} />)}
+          {liveHotels.map((hotel, index) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} tenantId={tenantId} active={index === cursor} onSelect={() => { setCursor(index); setSelectedLive(hotel) }} />)}
           {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />}
           {liveHotels.length > 0 && result.pagination?.hasMore && <div className="portal-load-more"><button className="portal-secondary" type="button" onClick={onLoadMore} disabled={loadingMore || refreshing} aria-busy={loadingMore}>{loadingMore ? 'Loading more hotels…' : pageSize ? `Load ${pageSize} more hotels` : 'Load more hotels'}</button></div>}
           {pageSize && total > pageSize && <PageLinks limit={pageSize} total={total} offset={result.pagination?.offset ?? 0} disabled={loadingMore || refreshing} onPage={onPage} />}
@@ -198,13 +199,13 @@ function leadStay(hotel: SearchHotelOffer) {
   }
   return lead
 }
-function LiveHotelCard({ hotel, active, onSelect }: { hotel: SearchHotelOffer; active: boolean; onSelect: () => void }) {
+function LiveHotelCard({ hotel, tenantId, active, onSelect }: { hotel: SearchHotelOffer; tenantId: string; active: boolean; onSelect: () => void }) {
   const lead = leadStay(hotel)
   const rate = lead?.rate
   const roomOptions = selectableRoomLabel(selectableRoomCount(hotel.rooms))
   const deadline = rate ? cancellationDeadline(rate, hotel.timeZone) : null
   return <article className={`portal-hotel-card market-hotel-card market-stay-card${active ? ' is-active' : ''}`}>
-    <div className="market-hotel-mark" aria-hidden="true">{hotelInitial(hotel.name)}</div>
+    <HotelThumbnail hotel={hotel} tenantId={tenantId} initial={hotelInitial(hotel.name)} />
     <div className="market-stay-body">
       <div className="market-stay-copy">
         <div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div>
@@ -275,7 +276,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     ? (recheck.currency === selection.rate.total.currency && recheck.sellAmountMinor !== undefined ? recheck.sellAmountMinor : baselineMinor)
     : null
   return <section className="portal-detail market-hotel-detail"><button className="portal-link back-link" onClick={onBack}>← Back to results</button>
-    <div className="market-detail-head"><div className="market-hotel-mark" aria-hidden="true">{hotelInitial(hotel.name)}</div><div><div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div><p>{hotel.destination}{hotel.propertyType ? ` · ${hotel.propertyType}` : ''}{hotel.address ? ` · ${hotel.address}` : ''} · {formatStay(request.checkIn, request.checkOut)} · {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
+    <div className="market-detail-head"><HotelThumbnail hotel={hotel} tenantId={tenantId} initial={hotelInitial(hotel.name)} /><div><div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div><p>{hotel.destination}{hotel.propertyType ? ` · ${hotel.propertyType}` : ''}{hotel.address ? ` · ${hotel.address}` : ''} · {formatStay(request.checkIn, request.checkOut)} · {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
     {hotel.rooms.map((room) => <div className="market-room-group" key={room.roomTypeId}><header><h3>{room.name}</h3><span>{room.rates.length} {room.rates.length === 1 ? 'rate' : 'rates'}</span></header><div>{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
       const selectable = !expired && rate.availability !== 'sold_out'
