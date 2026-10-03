@@ -11,7 +11,7 @@ Every figure, state and verdict comes from the API; the browser renders and subm
 | Hotel Setup | Identity, external identifiers (GIATA style), location, classification, content, operations, private contacts, governance; gated publication | `GET`/`PATCH /admin/hotels/:id/setup`, `POST .../setup/status` |
 | Rooms | Create, edit, archive and restore canonical rooms; bedding and extra beds; room amenities; read-only contract child-age rules | `/admin/hotels/:id/rooms*` |
 | Amenities | Hotel amenities from the controlled catalogue with free, paid or unknown fee type | `GET`/`PUT /admin/hotels/:id/amenities` |
-| Images | States the missing storage dependency. No upload is offered | none |
+| Images | Upload, alt text, order, primary and delete; stored in PostgreSQL behind a storage port (ADR 0027). Not yet shown to Agents or the Website | `supply.hotels.read` / `supply.hotels.manage` |
 | Policies | Hotel information policies, apart from read-only contract cancellation terms | Setup API, `GET /supply/contracts/:id` |
 | Supplier Mapping | Many suppliers per hotel, PENDING REVIEW / VERIFIED / REJECTED, decisions with a reason, room mappings, mapping history | `/supply/mappings/*`, hotel audit |
 | Contracts & Rate Plans | Contracts, validity, currency, recorded markets, rate plans, board, occupancy | `GET /admin/operations/hotels/:id/contracts` |
@@ -34,7 +34,7 @@ Every figure, state and verdict comes from the API; the browser renders and subm
 
 | Capability | Why |
 |---|---|
-| Image upload, ordering, cover, rights | No approved storage mechanism exists in the repository |
+| Images on the Agent app and Website, rights and source records, malware scanning, EXIF stripping, object storage | Not built; see ADR 0027 |
 | Lock Dates and Apply & Lock | Lock scope, permissions, expiry and override behaviour are undefined |
 | Allotment pools | The schema has no shared pool; inventory is per rate plan |
 | Board basis mapping | The schema has no supplier board code mapping |
