@@ -66,6 +66,14 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const r = request(app.getHttpServer())[method](`/api/v1${path}`); const c = who === 'anon' ? r : r.set('Cookie', cookies[who]); return body ? c.send(body) : c
   }
   const setupPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup`
+  const pubPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup/publication`
+  /** Maker-checker publication: manager requests, manager2 approves, manager applies. */
+  const publish = async (hotelId: string) => {
+    const token = (await load(hotelId)).concurrencyToken
+    const made = (await api('post', `${pubPath(hotelId)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed against the register' }).expect(200)).body.data
+    await api('post', `${pubPath(hotelId)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked' }).expect(200)
+    return (await api('post', `${pubPath(hotelId)}/${made.approval.id}/execute`, 'manager', {}).expect(200)).body.data
+  }
   const key = () => `${suffix}-k${++seq}-${randomBytes(2).toString('hex')}`
   const load = async (hotelId: string, who = 'manager') => (await api('get', setupPath(hotelId), who).expect(200)).body.data
   const save = (hotelId: string, token: string, patch: object, who = 'manager', idem = key()) => api('patch', setupPath(hotelId), who, { idempotencyKey: idem, expectedToken: token, ...patch })
@@ -83,6 +91,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'audit.read', 'supply.rates.read', 'supply.rates.manage', 'supply.availability.manage'])
     const ratesOnly = await user('ratesonly', tenantA, ['supply.rates.read', 'supply.rates.manage'])
     const availOnly = await user('availonly', tenantA, ['supply.rates.read', 'supply.availability.manage'])
+    const manager2 = await user('manager2', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'audit.read', 'supply.rates.read', 'supply.rates.manage', 'supply.availability.manage']) // the checker for publication
     const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read', 'supply.mappings.read', 'supply.contracts.read', 'supply.rates.read'])
     const none = await user('none', tenantA, [])
     const agent = await user('agent', tenantA, ['hotel.search'])
@@ -93,7 +102,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     app.useGlobalFilters(new HttpExceptionFilter()); app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
-    for (const [label, email] of Object.entries({ manager, reader, none, agent, bmanager: bManager, ratesonly: ratesOnly, availonly: availOnly })) cookies[label] = await login(email)
+    for (const [label, email] of Object.entries({ manager, manager2, reader, none, agent, bmanager: bManager, ratesonly: ratesOnly, availonly: availOnly })) cookies[label] = await login(email)
   })
 
   afterAll(async () => {
@@ -115,6 +124,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
       await prisma.roomType.deleteMany({ where: { hotel: { tenantId } } })
       await prisma.hotel.deleteMany({ where: { tenantId } })
       await prisma.supplier.deleteMany({ where: { tenantId } })
+      await prisma.approvalRequest.deleteMany({ where: { tenantId } })
       await prisma.userRole.deleteMany({ where: { tenantId } })
       await prisma.rolePermission.deleteMany({ where: { role: { tenantId } } })
       await prisma.role.deleteMany({ where: { tenantId } })
@@ -199,7 +209,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const id = await newDraft('publish')
     const status = (to: string, token: string, reason = 'Reviewed against the register', idem = key()) => api('post', `${setupPath(id)}/status`, 'manager', { idempotencyKey: idem, expectedToken: token, to, reason })
     let setup = await load(id)
-    const blocked = await status('COMPLETE', setup.concurrencyToken).expect(422)
+    const blocked = await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: setup.concurrencyToken, reason: 'Ready to publish' }).expect(422)
     expect(blocked.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENTS_UNMET'); expect(blocked.body.error.message).toMatch(/Street address|Verified star category/)
     await status('COMPLETE', setup.concurrencyToken, '').expect(400) // a reason is required
     await save(id, setup.concurrencyToken, FULL).expect(200)
@@ -208,8 +218,9 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     setup = await load(id)
     expect(setup.completeness.publishable).toBe(true)
-    const published = (await status('COMPLETE', setup.concurrencyToken).expect(200)).body.data.setup
-    expect(published.governance).toMatchObject({ status: 'COMPLETE', approvedById: ids.manager })
+    await status('COMPLETE', setup.concurrencyToken).expect(409) // single-actor publication is closed: it needs a second approver (ADR 0022)
+    const published = (await publish(id)).setup
+    expect(published.governance).toMatchObject({ status: 'COMPLETE', approvedById: ids.manager2 })
     expect(published.governance.approvedAt).toBeTruthy()
     await status('COMPLETE', published.concurrencyToken).expect(409) // already complete
 
@@ -342,6 +353,91 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect((await load(id)).governance).toMatchObject({ ownerUserId: ids.none, owner: null })
     expect(again.governance.owner).toMatchObject({ userId: ids.none })
     await prisma.membership.create({ data: { tenantId: tenantA, userId: ids.none, role: 'agent' } })
+  })
+
+  it('HS-13 publication is maker-checker: a different approver, bound to the reviewed version, single use, audited, and un-publishing stays single-actor', async () => {
+    const id = await newDraft('pubmc')
+    await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    const ask = (who: string, token: string, requestId = key(), reason = 'Reviewed against the register') => api('post', `${pubPath(id)}/request`, who, { requestId, expectedToken: token, reason })
+    const token = (await load(id)).concurrencyToken
+
+    await ask('reader', token).expect(403); await ask('anon', token).expect(401); await ask('bmanager', token).expect(404)
+    await ask('manager', 'stale-token').expect(409)
+    await ask('manager', token, key(), '').expect(400)
+    const rid = key()
+    const made = (await ask('manager', token, rid).expect(200)).body.data
+    expect(made.approval).toMatchObject({ status: 'PENDING', canDecide: false, canCancel: true, canExecute: false, changedSinceRequest: false })
+    expect((await ask('manager', token, rid).expect(200)).body.data.approval.id).toBe(made.approval.id) // same key, same request
+    await ask('manager', token).expect(409) // one open request per hotel
+    const approvalId = made.approval.id
+    expect((await load(id)).publication).toMatchObject({ id: approvalId, status: 'PENDING' })
+    expect((await api('get', setupPath(id), 'manager2').expect(200)).body.data.publication).toMatchObject({ canDecide: true, canCancel: false })
+
+    // separation of duties and permissions
+    await api('post', `${pubPath(id)}/${approvalId}/approve`, 'manager', { reason: 'Self' }).expect(403)
+    await api('post', `${pubPath(id)}/${approvalId}/approve`, 'reader', { reason: 'No' }).expect(403)
+    await api('post', `${pubPath(id)}/${approvalId}/approve`, 'bmanager', { reason: 'Other tenant' }).expect(404)
+    await api('post', `${pubPath(id)}/${approvalId}/execute`, 'manager', {}).expect(409) // not approved yet
+    expect((await load(id)).governance.status).toBe('DRAFT')
+
+    // an approval made for one hotel cannot be used on another
+    const other = await newDraft('pubmc-other')
+    await api('post', `${pubPath(other)}/${approvalId}/approve`, 'manager2', { reason: 'Wrong hotel' }).expect(404)
+
+    // an edit after the request cannot be approved; after approval it can no longer be applied
+    await save(id, (await load(id)).concurrencyToken, { area: 'Business Bay' }).expect(200)
+    expect((await api('post', `${pubPath(id)}/${approvalId}/approve`, 'manager2', { reason: 'Checked' }).expect(409)).body.error.code).toBe('HOTEL_CHANGED_AFTER_REQUEST')
+    await api('post', `${pubPath(id)}/${approvalId}/cancel`, 'manager', {}).expect(200)
+    const again = (await ask('manager', (await load(id)).concurrencyToken).expect(200)).body.data.approval.id
+    await api('post', `${pubPath(id)}/${again}/approve`, 'manager2', { reason: 'Checked' }).expect(200)
+    await save(id, (await load(id)).concurrencyToken, { area: 'Marina' }).expect(200)
+    expect((await load(id)).publication).toBeNull() // the stale approval is no longer shown as open
+    const refused = await api('post', `${pubPath(id)}/${again}/execute`, 'manager', {}).expect(409)
+    expect(refused.body.error.code).toBe('HOTEL_CHANGED_AFTER_APPROVAL')
+    expect((await load(id)).governance.status).toBe('DRAFT')
+
+    // the approved-but-stale request no longer blocks: a new request is allowed
+    const second = (await ask('manager', (await load(id)).concurrencyToken).expect(200)).body.data.approval.id
+    await api('post', `${pubPath(id)}/${second}/reject`, 'manager2', { reason: 'Photos missing' }).expect(200)
+    await api('post', `${pubPath(id)}/${second}/execute`, 'manager', {}).expect(409) // rejected requests cannot be applied
+    const third = (await ask('manager', (await load(id)).concurrencyToken).expect(200)).body.data.approval.id
+    await api('post', `${pubPath(id)}/${third}/cancel`, 'manager', {}).expect(200) // the maker may withdraw a pending request
+    const fourth = (await ask('manager', (await load(id)).concurrencyToken).expect(200)).body.data.approval.id
+    await api('post', `${pubPath(id)}/${fourth}/approve`, 'manager2', { reason: 'Checked' }).expect(200)
+    const done = (await api('post', `${pubPath(id)}/${fourth}/execute`, 'manager2', {}).expect(200)).body.data
+    expect(done.setup.governance).toMatchObject({ status: 'COMPLETE', approvedById: ids.manager2 })
+    expect(done.approval.status).toBe('EXECUTED')
+    await api('post', `${pubPath(id)}/${fourth}/execute`, 'manager', {}).expect(409) // single use
+    expect((await load(id)).publication).toBeNull()
+
+    // the audit trail names who executed it and who approved it, never the reason text
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityType: 'hotel', entityId: id, action: 'hotel.setup.status_changed' } })
+    expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.manager2); expect(events[0].payload).toMatchObject({ approvalId: fourth, approvedById: ids.manager2, from: 'DRAFT', to: 'COMPLETE' })
+    expect(JSON.stringify(events[0].payload)).not.toContain('Checked')
+
+    // un-publishing is the safe direction and stays single-actor
+    const down = await api('post', `${setupPath(id)}/status`, 'manager', { idempotencyKey: key(), expectedToken: (await load(id)).concurrencyToken, to: 'SUSPENDED', reason: 'Withdrawn pending check' }).expect(200)
+    expect(down.body.data.setup.governance).toMatchObject({ status: 'SUSPENDED', approvedById: null })
+  })
+
+  it('HS-14 the generic hotel endpoints cannot publish; moving a published hotel down clears its approver', async () => {
+    const created = await api('post', '/supply/hotels', 'manager', { name: `${suffix} legacy`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' }).expect(409)
+    expect(created.body.error.code).toBe('HOTEL_PUBLICATION_REQUIRES_APPROVAL')
+    expect(await prisma.hotel.count({ where: { tenantId: tenantA, name: `${suffix} legacy` } })).toBe(0)
+    const drafted = (await api('post', '/supply/hotels', 'manager', { name: `${suffix} legacy`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'DRAFT' }).expect(201)).body.data
+    const refused = await api('patch', `/supply/hotels/${drafted.id}`, 'manager', { contentStatus: 'COMPLETE' }).expect(409)
+    expect(refused.body.error.code).toBe('HOTEL_PUBLICATION_REQUIRES_APPROVAL')
+    expect((await prisma.hotel.findUniqueOrThrow({ where: { id: drafted.id } })).contentStatus).toBe('DRAFT')
+
+    // a hotel published through the approved flow can be edited with its status unchanged, and moved down by the generic endpoint
+    const id = await newDraft('legacy-down')
+    await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    expect((await publish(id)).setup.governance.approvedById).toBe(ids.manager2)
+    await api('patch', `/supply/hotels/${id}`, 'manager', { contentStatus: 'COMPLETE', city: 'Dubai' }).expect(200)
+    await api('patch', `/supply/hotels/${id}`, 'manager', { contentStatus: 'SUSPENDED' }).expect(200)
+    expect((await load(id)).governance).toMatchObject({ status: 'SUSPENDED', approvedById: null, approvedAt: null })
   })
 
   it('HR-01 rooms list with usage, parsed bedding, contract child-age rules, and amenities availability', async () => {
@@ -699,9 +795,8 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     // publishing changes catalogue state only: the platform booking switch is the same before and after
     const bookingBefore = dd.transaction.bookingEnabled
     await prisma.roomType.create({ data: { hotelId: draft, name: 'Std', code: 'S1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
-    let setup = await load(draft)
-    setup = (await save(draft, setup.concurrencyToken, FULL).expect(200)).body.data.setup
-    await api('post', `${setupPath(draft)}/status`, 'manager', { idempotencyKey: key(), expectedToken: setup.concurrencyToken, to: 'COMPLETE', reason: 'Reviewed' }).expect(200)
+    await save(draft, (await load(draft)).concurrencyToken, FULL).expect(200)
+    await publish(draft)
     const after = await read(draft)
     expect(after.catalogue).toMatchObject({ published: true, eligible: true }); expect(after.transaction.bookingEnabled).toBe(bookingBefore); expect(after.agentSellable).toBe(false) // still nothing to sell
     await api('post', `${setupPath(draft)}/status`, 'manager', { idempotencyKey: key(), expectedToken: (await load(draft)).concurrencyToken, to: 'SUSPENDED', reason: 'Withdrawn' }).expect(200)

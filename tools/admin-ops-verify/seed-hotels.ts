@@ -56,10 +56,10 @@ async function main() {
     await prisma.userRole.create({ data: { userId: u.id, roleId: r.id, tenantId } })
     return email
   }
-  const owner = await user('owner', A, perms, 'owner'); const viewer = await user('viewer', A, ['supply.hotels.read']); const bowner = await user('bowner', B, perms, 'owner')
+  const owner = await user('owner', A, perms, 'owner'); const viewer = await user('viewer', A, ['supply.hotels.read']); const bowner = await user('bowner', B, perms, 'owner'); const checker = await user('checker', A, perms, 'owner')
   await prisma.booking.create({ data: { tenantId: A, reference: `${tag}-BK1`, supplier: 'contracted', hotelId: ids.alpha, status: 'CONFIRMED', currency: 'AED', totalMinor: 149_700n, idempotencyKey: `${tag}-bk`, searchSnapshot: { checkIn: new Date(day(10)).toISOString().slice(0, 10), checkOut: new Date(day(13)).toISOString().slice(0, 10) } } })
   await prisma.auditEvent.create({ data: { tenantId: A, userId: null, actorType: 'SYSTEM', action: 'supply.hotel.updated', entityType: 'hotel', entityId: ids.alpha, payload: { requestId: 'req-verify-1', note: 'seeded' } } })
-  const out = { password, ownerEmail: owner, viewerEmail: viewer, bownerEmail: bowner, hotels: ids, tenantA: A, tenantB: B, tag }
+  const out = { password, ownerEmail: owner, checkerEmail: checker, viewerEmail: viewer, bownerEmail: bowner, hotels: ids, tenantA: A, tenantB: B, tag }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-hotels.json', JSON.stringify(out, null, 2))
   console.log('seeded', Object.keys(ids).length, 'hotels')
   await prisma.$disconnect()

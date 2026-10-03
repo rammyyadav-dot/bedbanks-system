@@ -260,8 +260,9 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     otherSupplierId = otherSupplier.body.data.id
     const otherBoard = await otherAdmin.post('/api/v1/supply/board-bases').send({ code: 'BB', name: 'Bed & Breakfast' }).expect(201)
     const otherHotel = await otherAdmin.post('/api/v1/supply/hotels').send({
-      name: `${suffix} 99 Other Tenant Hotel`, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE',
+      name: `${suffix} 99 Other Tenant Hotel`, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE',
     }).expect(201)
+    await prisma.hotel.update({ where: { id: otherHotel.body.data.id }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
     hiddenHotelIds.add(otherHotel.body.data.id)
     const otherRoom = await otherAdmin.post(`/api/v1/supply/hotels/${otherHotel.body.data.id}/rooms`).send({
       name: 'Other Room', code: 'OR', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true,
@@ -310,8 +311,9 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     sellable?: boolean
   }) {
     const hotel = await admin.post('/api/v1/supply/hotels').send({
-      name: `${suffix} ${input.hotel}`, propertyType: 'HOTEL', starRating: 5, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE',
+      name: `${suffix} ${input.hotel}`, propertyType: 'HOTEL', starRating: 5, city: 'Dubai', countryCode: 'AE',
     }).expect(201)
+    await prisma.hotel.update({ where: { id: hotel.body.data.id }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
     const room = await admin.post(`/api/v1/supply/hotels/${hotel.body.data.id}/rooms`).send({
       name: input.room, code: input.code, maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true,
     }).expect(201)
