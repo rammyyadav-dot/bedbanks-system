@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
-import { assertSupportedSettlementCurrency } from './currency'
+import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from './currency'
 
 const PREFERRED_CURRENCY = 'AED'
 
@@ -34,7 +34,7 @@ export class AgentFinanceService {
     })
   }
 
-  async assertFunds(tenantId: string, totalMinor: number | bigint, currency = 'USD') {
+  async assertFunds(tenantId: string, totalMinor: number | bigint, currency: string = defaultSettlementCurrency()) {
     assertSupportedSettlementCurrency(currency)
     const required = BigInt(totalMinor)
     const wallet = await this.prisma.withTenant(tenantId, async (tx) => {

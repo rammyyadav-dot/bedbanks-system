@@ -18,7 +18,7 @@ import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Ma
 import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
-import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
+import { defaultSettlementCurrency, enabledSettlementCurrencies } from './currency'
 import { validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
@@ -65,7 +65,7 @@ class SearchHotelsDto {
   @IsInt() @Min(0) children!: number
   @IsArray() @IsInt({ each: true }) @Min(0, { each: true }) @Max(17, { each: true }) childAges!: number[]
   @IsString() nationality!: string
-  @IsOptional() @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) currency = 'USD'
+  @IsOptional() @IsIn(enabledSettlementCurrencies() as unknown as string[]) currency: string = defaultSettlementCurrency()
   @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number
   @IsOptional() @IsInt() @Min(0) @Max(10000) offset?: number
   @IsOptional() @IsIn(['default', 'price', 'stars', 'name']) sort?: 'default' | 'price' | 'stars' | 'name'
@@ -117,11 +117,11 @@ export class AgentController {
   async context(@CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     const requested = req.headers[ACTIVE_TENANT_HEADER]
     if (requested === undefined || requested === '') {
-      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], bookingEnabled: bookingEnabled() }
+      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], bookingEnabled: bookingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
     }
     const tenantId = sessionTenantId(identity, requested)
     const capabilities = await this.effectiveCapabilities(identity.user.id, tenantId)
-    return { user: identity.user, memberships: identity.memberships, capabilities, bookingEnabled: bookingEnabled() }
+    return { user: identity.user, memberships: identity.memberships, capabilities, bookingEnabled: bookingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
   }
 
   @Post('offers/:offerId/hold')

@@ -6,6 +6,7 @@ import { AgentSignOut } from './agent-auth-gate'
 import { AgentPortal } from './agent-portal'
 import { getFinanceSummary, getSearchStatus, type AgentIdentity, type FinanceSummary } from '@/lib/api-client'
 import { formatMinorAmount } from '@/lib/format'
+import { CurrencyOptionsContext } from '@/components/search/currency-options'
 
 export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
   const [tenantId, setTenantId] = useState(identity.memberships.length === 1 ? identity.memberships[0].tenantId : '')
@@ -50,6 +51,6 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       {error && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>{error}</p></div>}
       {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking access…' : providerStatus === 'idle' ? 'Not yet checked' : 'Unavailable'}</strong></div><div><span>Finance status</span><strong>{formatMinorAmount(finance?.availableCredit, finance?.currency) ? `Available credit ${formatMinorAmount(finance?.availableCredit, finance?.currency)}` : 'Not configured'}</strong></div></div>}
     </section>
-    {tenantId && !error && <AgentPortal key={tenantId} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} bookingEnabled={bookingEnabled} onFinanceChanged={refreshFinance} />}
+    {tenantId && !error && <CurrencyOptionsContext.Provider value={identity.settlementCurrencies}><AgentPortal key={tenantId} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} bookingEnabled={bookingEnabled} onFinanceChanged={refreshFinance} /></CurrencyOptionsContext.Provider>}
   </main>
 }
