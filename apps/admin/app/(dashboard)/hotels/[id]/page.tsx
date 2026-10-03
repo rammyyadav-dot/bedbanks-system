@@ -12,18 +12,22 @@ import { Chip, ContractChip, MappingChip, ReadinessChip } from '@/components/hot
 import { OverviewPanel } from '@/components/hotels/panels/OverviewPanel'
 import { SetupPanel } from '@/components/hotels/panels/SetupPanel'
 import { RoomsPanel } from '@/components/hotels/panels/RoomsPanel'
+import { AmenitiesPanel } from '@/components/hotels/panels/AmenitiesPanel'
+import { ImagesPanel } from '@/components/hotels/panels/ImagesPanel'
+import { PoliciesPanel } from '@/components/hotels/panels/PoliciesPanel'
+import { QuickUpdatePanel } from '@/components/hotels/panels/QuickUpdatePanel'
 import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
 import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
-import { SellabilityPanel } from '@/components/hotels/panels/SellabilityPanel'
+import { DistributionPanel } from '@/components/hotels/panels/DistributionPanel'
 import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
 import { AuditPanel } from '@/components/hotels/panels/AuditPanel'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotel360 } from '@/lib/data/hotel-commercial'
 import { HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/lib/hotel-ui'
 
-const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'booking.read' | 'audit.read'>> = {
-  mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', bookings: 'booking.read', audit: 'audit.read',
+const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'supply.rooms.read' | 'booking.read' | 'audit.read'>> = {
+  rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', bookings: 'booking.read', audit: 'audit.read',
 }
 const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
 
@@ -32,7 +36,7 @@ function Hotel360() {
   const tab = parseTab(useSearchParams().get('tab'))
   const can = useCan()
   const { state, reload, refresh } = useOpsQuery(() => getHotel360(id), [id])
-  const visibleTabs = HOTEL_TABS.filter((t) => { const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
+  const visibleTabs = HOTEL_TABS.filter((t) => { if (t.id === 'quick') return can('supply.rates.manage') || can('supply.availability.manage'); const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
 
   return (
     <div className="admin-page">
@@ -62,11 +66,15 @@ function Hotel360() {
             <div role="tabpanel" id="hotel-panel" aria-labelledby={`tab-${tab}`} style={{ marginTop: 12 }}>
               {tab === 'overview' && <OverviewPanel data={data} onChanged={refresh} />}
               {tab === 'setup' && <SetupPanel hotelId={id} onChanged={refresh} />}
-              {tab === 'rooms' && <RoomsPanel data={data} />}
+              {tab === 'rooms' && <RoomsPanel data={data} onChanged={refresh} />}
+              {tab === 'amenities' && <AmenitiesPanel hotelId={id} onChanged={refresh} />}
+              {tab === 'images' && <ImagesPanel />}
+              {tab === 'policies' && <PoliciesPanel hotelId={id} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
               {tab === 'rates' && <RatesInventoryPanel hotelId={id} rooms={data.rooms} />}
-              {tab === 'sellability' && <SellabilityPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'quick' && <QuickUpdatePanel hotelId={id} data={data} />}
+              {tab === 'sellability' && <DistributionPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'bookings' && <BookingsPanel hotelId={id} />}
               {tab === 'audit' && <AuditPanel hotelId={id} />}
             </div>

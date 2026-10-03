@@ -1,3 +1,4 @@
+import { occupancyProblems } from './room-rules'
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
@@ -124,7 +125,7 @@ export class SupplyService {
     const maxAdults = input.maxAdults
     const maxChildren = input.maxChildren ?? 0
     const maxOccupancy = input.maxOccupancy
-    if (!name || !code || !Number.isInteger(maxAdults) || !Number.isInteger(maxChildren) || !Number.isInteger(maxOccupancy) || maxAdults < 1 || maxChildren < 0 || maxOccupancy < maxAdults + maxChildren) throw new BadRequestException('Invalid room fields')
+    if (!name || !code || occupancyProblems(maxAdults, maxChildren, maxOccupancy).length) throw new BadRequestException('Invalid room fields')
     if (input.beddingMetadata !== undefined && (input.beddingMetadata === null || Array.isArray(input.beddingMetadata) || typeof input.beddingMetadata !== 'object')) throw new BadRequestException('Invalid bedding metadata')
     if (input.isActive !== undefined && typeof input.isActive !== 'boolean') throw new BadRequestException('Invalid room status')
     return { name, code, maxAdults, maxChildren, maxOccupancy, beddingMetadata: input.beddingMetadata ?? {}, isActive: input.isActive ?? true }

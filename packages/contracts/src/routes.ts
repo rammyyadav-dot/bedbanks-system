@@ -8,6 +8,10 @@ export const routes = {
   // Hotel Setup (ADR 0021): descriptive and operational hotel content, saved with optimistic concurrency.
   adminHotelSetup: {
     setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status',
+    rooms: '/admin/hotels/:hotelId/rooms', room: '/admin/hotels/:hotelId/rooms/:roomId',
+    roomArchive: '/admin/hotels/:hotelId/rooms/:roomId/archive', roomRestore: '/admin/hotels/:hotelId/rooms/:roomId/restore',
+    amenities: '/admin/hotels/:hotelId/amenities',
+    quickUpdatePreview: '/admin/hotels/:hotelId/quick-update/preview', quickUpdateApply: '/admin/hotels/:hotelId/quick-update/apply',
   },
   // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
   adminClients: {
@@ -37,7 +41,7 @@ export const routes = {
     hotelsSummary: '/admin/operations/hotels/summary', hotel: '/admin/operations/hotels/:hotelId',
     hotelContracts: '/admin/operations/hotels/:hotelId/contracts', hotelMappings: '/admin/operations/hotels/:hotelId/mappings',
     hotelCalendar: '/admin/operations/hotels/:hotelId/calendar', hotelSellability: '/admin/operations/hotels/:hotelId/sellability',
-    hotelAudit: '/admin/operations/hotels/:hotelId/audit', exceptions: '/admin/operations/exceptions',
+    hotelAudit: '/admin/operations/hotels/:hotelId/audit', hotelDistribution: '/admin/operations/hotels/:hotelId/distribution', exceptions: '/admin/operations/exceptions',
     holds: '/admin/operations/holds', hold: '/admin/operations/holds/:holdId',
     bookings: '/admin/operations/bookings', booking: '/admin/operations/bookings/:bookingId',
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',

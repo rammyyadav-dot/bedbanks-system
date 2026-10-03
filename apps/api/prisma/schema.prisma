@@ -418,6 +418,8 @@ model Tenant {
   agencies Agency[]
   hotelProfiles HotelProfile[]
   hotelExternalIdentifiers HotelExternalIdentifier[]
+  hotelAmenities HotelAmenity[]
+  roomAmenities RoomAmenity[]
   agencyMembers AgencyMember[]
   serviceCases ServiceCase[]
   serviceCaseNotes ServiceCaseNote[]
@@ -790,6 +792,7 @@ model Hotel {
   markupRules CommercialMarkupRule[]
   profile HotelProfile?
   externalIdentifiers HotelExternalIdentifier[]
+  amenities HotelAmenity[]
   id            String        @id @default(cuid())
   tenantId      String        @map("tenant_id")
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -875,6 +878,48 @@ model HotelExternalIdentifier {
   @@index([tenantId, hotelId])
 }
 
+enum AmenityFeeType {
+  FREE
+  PAID
+  UNKNOWN
+}
+
+/// A hotel-level amenity selected from the controlled catalogue (`@bedbanks/contracts` HOTEL_AMENITY_CATALOGUE). A row means the
+/// amenity was recorded for the hotel; no row means nothing is recorded, never "absent". `feeType` UNKNOWN is an explicit answer.
+model HotelAmenity {
+  id          String         @id @default(cuid())
+  tenantId    String         @map("tenant_id")
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String         @map("hotel_id")
+  hotel       Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  code        String
+  feeType     AmenityFeeType @default(UNKNOWN) @map("fee_type")
+  updatedById String         @map("updated_by_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@unique([hotelId, code])
+  @@index([tenantId, hotelId])
+}
+
+/// A room-level amenity. The composite foreign key keeps the room inside the hotel the row names.
+model RoomAmenity {
+  id          String         @id @default(cuid())
+  tenantId    String         @map("tenant_id")
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String         @map("hotel_id")
+  roomTypeId  String         @map("room_type_id")
+  roomType    RoomType       @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Cascade)
+  code        String
+  feeType     AmenityFeeType @default(UNKNOWN) @map("fee_type")
+  updatedById String         @map("updated_by_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@unique([roomTypeId, code])
+  @@index([tenantId, hotelId])
+}
+
 /// Normalized identity used only to propose canonical hotel candidates.
 /// Embeddings are a retrieval signal. They never approve a mapping by themselves.
 model HotelSearchIndex {
@@ -916,6 +961,7 @@ model RoomType {
   ratePlans RatePlan[]
   supplierRoomMappings SupplierRoomMapping[]
   supplierRoomDrafts SupplierRoomDraft[]
+  amenities RoomAmenity[]
 
   @@unique([hotelId, code])
   @@unique([hotelId, id])

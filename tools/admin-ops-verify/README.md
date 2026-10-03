@@ -41,3 +41,7 @@ node tools/admin-ops-verify/verify-hotels.cjs
 It checks the list (summary, server pagination, search, every filter, shareable URLs, empty state), the failure states (401, 403, 503 denied, 500, network),
 every Hotel 360 tab, the sellability inspector (including a multi-night failure and a double click), exceptions, forbidden and tenant-B behaviour,
 keyboard use, horizontal overflow at 1280 / 768 / 390 px, and axe (WCAG A/AA) on the list, Hotel 360, Rates & Inventory, the inspector and exceptions.
+
+## Hotel Operations (ADR 0021)
+
+`verify-hotels.cjs` also covers Hotel Setup, rooms, amenities, policies, images, supplier mapping governance, Quick Update, Distribution & Readiness, the directory's identifier search, a read-only user and a cross-tenant request. Re-seed with `seed-hotels.ts` before every run: the run edits the seeded hotels (it publishes one, creates mappings and applies a rate change), so a second run on the same seed starts from changed data.

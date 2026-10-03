@@ -13,6 +13,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { ContractChip, InventoryChip, MappingChip, RatesChip, ReadinessChip, ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { HotelsSummary } from '@/components/hotels/HotelsSummary'
+import { useCan } from '@/lib/auth/capabilities'
 import { getHotelsCommercial, getHotelsSummary } from '@/lib/data/hotel-commercial'
 import { getOpsSuppliers } from '@/lib/data/operations'
 import { hotelHref, listHref, readListQuery, reasonText, starsText, type ListFilterKey } from '@/lib/hotel-ui'
@@ -23,6 +24,7 @@ const selectStyle = { minWidth: 120 }
 
 function HotelsList() {
   const router = useRouter(); const pathname = usePathname(); const params = useSearchParams()
+  const can = useCan()
   const { filters, page } = useMemo(() => readListQuery(params), [params])
   const [search, setSearch] = useState(filters.search ?? '')
   useEffect(() => setSearch(filters.search ?? ''), [filters.search])
@@ -38,7 +40,7 @@ function HotelsList() {
 
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="HOTEL SUPPLY · HOTELS" title="Hotels" description="Hotel master data and commercial readiness. Readiness is computed by the API with the same rules Agents are sold by." actions={<Link href="/hotels/new" className="button primary">+ Add hotel</Link>} />
+      <PageHeader eyebrow="HOTEL SUPPLY · HOTELS" title="Hotels" description="Hotel master data and commercial readiness. Readiness is computed by the API with the same rules Agents are sold by." actions={can('supply.hotels.manage') ? <Link href="/hotels/new" className="button primary">+ Add hotel</Link> : undefined} />
       {summary.state.status === 'ready' && <HotelsSummary summary={summary.state.data} />}
       {summary.state.status === 'failed' && <p role="status" data-testid="summary-unavailable" style={{ color: '#8a5a00', fontSize: 12 }}>Commercial summary unavailable ({summary.state.failure}). The list below is unaffected.</p>}
       <form onSubmit={(event) => { event.preventDefault(); setFilter('search', search.trim()) }} aria-label="Hotel filters">

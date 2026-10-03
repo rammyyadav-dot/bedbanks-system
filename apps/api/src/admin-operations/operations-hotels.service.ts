@@ -3,11 +3,13 @@ import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
-  type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
+  type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { bookingEnabled } from '../agent/booking-transaction.service'
+import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
@@ -19,8 +21,16 @@ import {
 } from '../supply/commercial-assessment'
 import { loadProfileSummaries } from '../hotel-setup/hotel-profile-summary'
 import { auditView } from './operations-transactions.service'
-import { day, guardedRead, sectionRead } from './operations-read'
+import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
+
+const stringList = (value: Prisma.JsonValue): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 40).slice(0, 100) : [])
+
+/** Only a short `source` string is surfaced from stored source metadata, which may hold raw supplier payloads. */
+const provenanceOf = (metadata: Prisma.JsonValue): string | null => {
+  const source = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? (metadata as Record<string, unknown>).source : undefined
+  return typeof source === 'string' && source.length > 0 && source.length <= 80 && !/[\u0000-\u001f]/.test(source) ? source : null
+}
 
 /** The most hotels a computed filter, summary or exception scan will assess in one request. Responses say when it was reached. */
 export const COMMERCIAL_SCAN_CAP = 500
@@ -35,6 +45,8 @@ const CALENDAR_MAX_PLANS = 100
 const INSPECT_MAX_NIGHTS = 31
 const ISSUE_FILTER = /^[A-Z][A-Z_]{2,47}$/
 const AUDIT_ENTITY_LIMIT = 2000
+/** Entity types the hotel audit view can be narrowed to (the mapping history view uses the first two). */
+const AUDIT_ENTITY_TYPES = ['supplier_hotel_mapping', 'supplier_room_mapping', 'hotel', 'room_type', 'contract', 'rate_plan'] as const
 
 type Win = { from: string; days: number; to: string; dates: string[] }
 type HotelRecord = { id: string; name: string; externalRef: string | null; city: string; countryCode: string; starRating: number | null; propertyType: string; contentStatus: string; timeZone: string; address: string | null; latitude: Prisma.Decimal | null; longitude: Prisma.Decimal | null; updatedAt: Date }
@@ -341,8 +353,8 @@ export class OperationsHotelsService {
       ])
       const unmapped = hotelMappings.flatMap((m) => rooms.filter((r) => !roomMappings.some((rm) => rm.supplierHotelMappingId === m.id && rm.roomTypeId === r.id && rm.status === 'MAPPED')).map((r) => ({ roomTypeId: r.id, roomName: r.name, hotelMappingId: m.id, supplierName: m.supplier.displayName })))
       return {
-        hotelMappings: hotelMappings.map((m) => ({ id: m.id, supplierId: m.supplierId, supplierName: m.supplier.displayName, supplierHotelId: m.supplierHotelId, status: m.status, confidence: m.confidence, updatedAt: m.updatedAt.toISOString() })),
-        roomMappings: roomMappings.map((m) => ({ id: m.id, hotelMappingId: m.supplierHotelMappingId, roomTypeId: m.roomTypeId, roomName: m.roomType.name, supplierRoomId: m.supplierRoomId, status: m.status, confidence: m.confidence, updatedAt: m.updatedAt.toISOString() })),
+        hotelMappings: hotelMappings.map((m) => ({ id: m.id, supplierId: m.supplierId, supplierName: m.supplier.displayName, supplierHotelId: m.supplierHotelId, status: m.status, confidence: m.confidence, provenance: provenanceOf(m.sourceMetadata), createdAt: m.createdAt.toISOString(), updatedAt: m.updatedAt.toISOString() })),
+        roomMappings: roomMappings.map((m) => ({ id: m.id, hotelMappingId: m.supplierHotelMappingId, roomTypeId: m.roomTypeId, roomName: m.roomType.name, supplierRoomId: m.supplierRoomId, status: m.status, confidence: m.confidence, provenance: provenanceOf(m.sourceMetadata), createdAt: m.createdAt.toISOString(), updatedAt: m.updatedAt.toISOString() })),
         unmappedRooms: unmapped,
       }
     })
@@ -358,7 +370,7 @@ export class OperationsHotelsService {
       const contractIds = new Set<string>([...input.contracts.map((c) => c.id), ...input.plans.map((p) => p.contract.id)])
       const rows = await tx.contract.findMany({
         where: { tenantId, id: { in: [...contractIds] } },
-        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
+        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       })
       const viaMapping = new Set(input.contracts.map((c) => c.id))
@@ -370,7 +382,7 @@ export class OperationsHotelsService {
           id: c.id, code: c.code, supplierId: c.supplierId, supplierName: c.supplier.displayName, status: c.status, state, validFrom: day(c.validFrom), validTo: day(c.validTo), daysToExpiry, currency: c.settlementCurrency, version: c.version, updatedAt: c.updatedAt.toISOString(),
           ratePlans: { total: plans.length, active: plans.filter((p) => p.status === 'ACTIVE').length },
           policies: policyCounts ? (policyCounts.get(c.id) ?? { cancellation: 0, child: 0, leadTime: 0 }) : null,
-          link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId,
+          link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId, salesMarkets: stringList(c.salesMarkets), nationalities: stringList(c.nationalities),
         }
       })
       const assessedById = new Map(a.plans.map((p) => [p.plan.id, p]))
@@ -417,6 +429,13 @@ export class OperationsHotelsService {
       const input = (await this.loadInputs(tx, tenantId, [hotel], win)).get(hotel.id)!
       const all = input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))
       const plans = all.slice(0, CALENDAR_MAX_PLANS)
+      // Fields the shared stay snapshot does not carry: closed-to-departure and the source freshness stamps. Read in one bounded query per table.
+      const planIds = plans.map((p) => p.id); const gte = new Date(`${win.dates[0]}T00:00:00.000Z`); const lte = new Date(`${win.dates[win.dates.length - 1]}T00:00:00.000Z`)
+      const [extraAvail, extraRates] = planIds.length === 0 ? [[], []] : await Promise.all([
+        tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { gte, lte } }, select: { ratePlanId: true, stayDate: true, closedToDeparture: true, sourceUpdatedAt: true } }),
+        tx.dailyRate.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { gte, lte } }, select: { ratePlanId: true, stayDate: true, occupancy: true, sourceUpdatedAt: true } }),
+      ])
+      const availExtra = new Map(extraAvail.map((r) => [`${r.ratePlanId}:${day(r.stayDate)}`, r])); const rateExtra = new Map(extraRates.map((r) => [`${r.ratePlanId}:${day(r.stayDate)}:${r.occupancy}`, r]))
       const rows: CalendarRow[] = plans.map((plan) => {
         const { mapping, roomMapping } = mappingFor(plan, input)
         const rates = new Map(plan.dailyRates.filter((r) => r.occupancy === plan.occupancy).map((r) => [day(r.stayDate), r]))
@@ -428,12 +447,64 @@ export class OperationsHotelsService {
             date, rateMinor: rate ? rate.amountMinor.toString() : null, currency: rate ? rate.currency : null, amountBasis: rate?.amountBasis === 'SELL' || rate?.amountBasis === 'NET' ? rate.amountBasis : null,
             allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: row ? row.allotment - row.sold - row.held : null,
             stopSell: row ? row.stopSell : null, closedToArrival: row ? row.closedToArrival : null, minStay: row ? row.minStay : null, sellable: reasons.length === 0, reasons,
+            closedToDeparture: availExtra.has(`${plan.id}:${date}`) ? availExtra.get(`${plan.id}:${date}`)!.closedToDeparture : null,
+            rateSourceUpdatedAt: iso(rateExtra.get(`${plan.id}:${date}:${plan.occupancy}`)?.sourceUpdatedAt), availabilitySourceUpdatedAt: iso(availExtra.get(`${plan.id}:${date}`)?.sourceUpdatedAt),
           }
         })
         return { ratePlanId: plan.id, ratePlanCode: plan.code, planStatus: plan.status, roomTypeId: plan.roomTypeId, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), currency: plan.currency, occupancy: plan.occupancy, contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName, cells }
       })
       return { hotelId: hotel.id, window: { from: win.from, to: win.to, days: win.days }, rows, truncated: all.length > plans.length }
     })
+  }
+
+  // ---- distribution and readiness ------------------------------------------------------------------------------------------
+  /** Catalogue publication, transaction enablement and a seven-day coverage assessment from the same evaluator Agent search uses. Read-only. */
+  async distribution(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>): Promise<HotelDistribution> {
+    const calendar = await this.calendar(tenantId, hotelIdRaw, { ...query, days: 7, roomTypeId: undefined })
+    const { hotel, restrictions } = await this.prisma.withTenant(tenantId, async (tx) => {
+      const record = await this.hotelRecord(tx, tenantId, hotelIdRaw)
+      const suppliers = (await tx.supplierHotelMapping.findMany({ where: { tenantId, hotelId: record.id }, select: { supplierId: true } })).map((m) => m.supplierId)
+      await tx.$executeRawUnsafe('SAVEPOINT distribution_restrictions_read')
+      try {
+        const [hotelScoped, supplierScoped] = await Promise.all([
+          tx.distributionRestriction.count({ where: { tenantId, status: 'ACTIVE', scope: 'HOTEL', hotelId: record.id } }),
+          suppliers.length ? tx.distributionRestriction.count({ where: { tenantId, status: 'ACTIVE', scope: 'SUPPLIER', supplierId: { in: suppliers } } }) : Promise.resolve(0),
+        ])
+        await tx.$executeRawUnsafe('RELEASE SAVEPOINT distribution_restrictions_read')
+        return { hotel: record, restrictions: { hotel: hotelScoped, supplier: supplierScoped } as HotelDistribution['restrictions'] }
+      } catch (error) {
+        if (!isBookingReadDenied(error)) throw error
+        await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT distribution_restrictions_read')
+        return { hotel: record, restrictions: null as HotelDistribution['restrictions'] }
+      }
+    })
+    const published = hotel.contentStatus === 'COMPLETE'; const suspended = hotel.contentStatus === 'SUSPENDED'; const starOk = hotel.starRating !== null && hotel.starRating >= 1 && hotel.starRating <= 5
+    const reasons = [...(published ? [] : [suspended ? 'HOTEL_SUSPENDED' : 'HOTEL_NOT_PUBLISHED']), ...(starOk ? [] : ['HOTEL_STAR_RATING_MISSING'])]
+    const blockers = new Map<string, { nights: number; dates: Set<string>; rooms: Set<string>; plans: Set<string>; suppliers: Set<string> }>()
+    const byRoom = new Map<string, DistributionCoverageRow>(); const bySupplier = new Map<string, DistributionCoverageRow>()
+    let sellable = 0; let planNights = 0
+    for (const row of calendar.rows) {
+      const room = byRoom.get(row.roomName) ?? { label: row.roomName, planNights: 0, sellable: 0 }; const sup = bySupplier.get(row.supplierName) ?? { label: row.supplierName, planNights: 0, sellable: 0 }
+      for (const cell of row.cells) {
+        planNights++; room.planNights++; sup.planNights++
+        if (cell.sellable) { sellable++; room.sellable++; sup.sellable++; continue }
+        for (const reason of cell.reasons) {
+          const b = blockers.get(reason) ?? { nights: 0, dates: new Set(), rooms: new Set(), plans: new Set(), suppliers: new Set() }
+          b.nights++; b.dates.add(cell.date); b.rooms.add(row.roomName); b.plans.add(row.ratePlanCode); b.suppliers.add(row.supplierName); blockers.set(reason, b)
+        }
+      }
+      byRoom.set(row.roomName, room); bySupplier.set(row.supplierName, sup)
+    }
+    const list: DistributionBlocker[] = [...blockers.entries()].map(([reason, b]) => ({ reason, nights: b.nights, dates: [...b.dates].sort(), rooms: [...b.rooms].sort().slice(0, 50), ratePlans: [...b.plans].sort().slice(0, 50), suppliers: [...b.suppliers].sort().slice(0, 50) })).sort((a, b) => b.nights - a.nights || a.reason.localeCompare(b.reason))
+    return {
+      generatedAt: new Date().toISOString(), hotelId: hotel.id,
+      catalogue: { status: hotel.contentStatus, published, suspended, starRatingValid: starOk, eligible: published && starOk, reasons },
+      transaction: { bookingEnabled: bookingEnabled() },
+      // Agent search lists only published, rated hotels, so a night being sellable is not enough on its own.
+      restrictions, agentSellable: published && starOk && sellable > 0,
+      coverage: { window: calendar.window, planNights, sellableNights: sellable, byRoom: [...byRoom.values()], bySupplier: [...bySupplier.values()], truncated: calendar.truncated },
+      blockers: list,
+    }
   }
 
   // ---- sellability inspector (stay level) ----------------------------------------------------------------------------------
@@ -499,7 +570,8 @@ export class OperationsHotelsService {
         tx.supplierRoomMapping.findMany({ where: { tenantId, hotelId: hotel.id }, select: { id: true } }),
       ])
       const ids = [...new Set([hotel.id, ...rooms.map((r) => r.id), ...plans.map((p) => p.id), ...contracts.map((c) => c.id), ...mappings.map((m) => m.id), ...roomMappings.map((m) => m.id)])].slice(0, AUDIT_ENTITY_LIMIT)
-      const where: Prisma.AuditEventWhereInput = { tenantId, entityId: { in: ids } }
+      const entityType = enumParam('entityType', query.entityType, AUDIT_ENTITY_TYPES)
+      const where: Prisma.AuditEventWhereInput = { tenantId, entityId: { in: ids }, ...(entityType && { entityType }) }
       const [rows, total] = await Promise.all([
         tx.auditEvent.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take }),
         tx.auditEvent.count({ where }),
