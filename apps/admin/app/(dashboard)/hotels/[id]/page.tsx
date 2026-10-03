@@ -15,6 +15,7 @@ import { RoomsPanel } from '@/components/hotels/panels/RoomsPanel'
 import { AmenitiesPanel } from '@/components/hotels/panels/AmenitiesPanel'
 import { ImagesPanel } from '@/components/hotels/panels/ImagesPanel'
 import { PoliciesPanel } from '@/components/hotels/panels/PoliciesPanel'
+import { QuickUpdatePanel } from '@/components/hotels/panels/QuickUpdatePanel'
 import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
 import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
@@ -35,7 +36,7 @@ function Hotel360() {
   const tab = parseTab(useSearchParams().get('tab'))
   const can = useCan()
   const { state, reload, refresh } = useOpsQuery(() => getHotel360(id), [id])
-  const visibleTabs = HOTEL_TABS.filter((t) => { const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
+  const visibleTabs = HOTEL_TABS.filter((t) => { if (t.id === 'quick') return can('supply.rates.manage') || can('supply.availability.manage'); const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
 
   return (
     <div className="admin-page">
@@ -72,6 +73,7 @@ function Hotel360() {
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
               {tab === 'rates' && <RatesInventoryPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'quick' && <QuickUpdatePanel hotelId={id} data={data} />}
               {tab === 'sellability' && <SellabilityPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'bookings' && <BookingsPanel hotelId={id} />}
               {tab === 'audit' && <AuditPanel hotelId={id} />}

@@ -11,6 +11,7 @@ import { hashPassword } from '../src/auth/utils/password'
 import { PrismaService } from '../src/database/prisma.service'
 import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
 import { HotelSetupService } from '../src/hotel-setup/hotel-setup.service'
+import { HotelQuickUpdateService } from '../src/hotel-setup/hotel-quick-update.service'
 
 jest.setTimeout(180_000)
 
@@ -79,18 +80,20 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     tenantB = (await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })).id
     supplier1 = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Alpha`, displayName: 'Alpha', countryCode: 'AE', defaultCurrency: 'AED' } as never })).id
     await buildHotel(tenantA, supplier1, 'sold')
-    const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'audit.read'])
+    const manager = await user('manager', tenantA, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'audit.read', 'supply.rates.read', 'supply.rates.manage', 'supply.availability.manage'])
+    const ratesOnly = await user('ratesonly', tenantA, ['supply.rates.read', 'supply.rates.manage'])
+    const availOnly = await user('availonly', tenantA, ['supply.rates.read', 'supply.availability.manage'])
     const reader = await user('reader', tenantA, ['supply.hotels.read', 'supply.rooms.read', 'supply.mappings.read', 'supply.contracts.read', 'supply.rates.read'])
     const none = await user('none', tenantA, [])
     const agent = await user('agent', tenantA, ['hotel.search'])
-    const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage'])
+    const bManager = await user('bmanager', tenantB, ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.mappings.read', 'supply.mappings.manage', 'supply.rates.read', 'supply.rates.manage', 'supply.availability.manage'])
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
     app = module.createNestApplication()
     app.use(cookieParser()); app.setGlobalPrefix('api/v1')
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     app.useGlobalFilters(new HttpExceptionFilter()); app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
-    for (const [label, email] of Object.entries({ manager, reader, none, agent, bmanager: bManager })) cookies[label] = await login(email)
+    for (const [label, email] of Object.entries({ manager, reader, none, agent, bmanager: bManager, ratesonly: ratesOnly, availonly: availOnly })) cookies[label] = await login(email)
   })
 
   afterAll(async () => {
@@ -485,5 +488,162 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(cells.find((c) => c.date === day(9))).toMatchObject({ closedToDeparture: false, rateSourceUpdatedAt: null, availabilitySourceUpdatedAt: null }) // no stamp recorded means unknown, never "fresh"
     // closed-to-departure is stored but not applied: the night stays sellable
     expect((cal.rows[0].cells as Array<{ date: string; sellable: boolean }>).find((c) => c.date === day(10))!.sellable).toBe(true)
+  })
+  const qu = (hotelId: string, verb: 'preview' | 'apply', who: string, body: object) => api('post', `/admin/hotels/${hotelId}/quick-update/${verb}`, who, body)
+  const planOf = async (hotelId: string) => (await prisma.ratePlan.findFirstOrThrow({ where: { tenantId: tenantA, roomType: { hotelId } } })).id
+  const scope = (planId: string, from: number, to: number, weekdays?: string[]) => ({ ratePlanIds: [planId], ranges: [{ from: day(from), to: day(to) }], ...(weekdays ? { weekdays } : {}) })
+  const rateAt = async (planId: string, offset: number) => (await prisma.dailyRate.findUniqueOrThrow({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: planId, stayDate: utc(offset), occupancy: 2 } } }))
+  const availAt = async (planId: string, offset: number) => prisma.dailyAvailability.findUnique({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: utc(offset) } } })
+  const apply = (hotelId: string, preview: { fingerprint: string }, request: object, who = 'manager', idem = key(), reason = 'Seasonal rate review') => qu(hotelId, 'apply', who, { ...request, idempotencyKey: idem, expectedFingerprint: preview.fingerprint, reason })
+
+  it('QU-01 preview shows exact dates, old and new values and unsupported operations, and writes nothing', async () => {
+    const planId = await planOf(hotels.sold)
+    const request = { scope: scope(planId, 12, 18), changes: { price: { amount: '450.50', basis: 'SELL' } } }
+    const before = await rateAt(planId, 12)
+    const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    expect(preview.counts).toEqual({ records: 7, willChange: 7, unchanged: 0, invalid: 0 }); expect(preview.canApply).toBe(true)
+    expect(preview.dates).toEqual([12, 13, 14, 15, 16, 17, 18].map(day)); expect(preview.plans[0]).toMatchObject({ id: planId, currency: 'AED', occupancy: 2 })
+    expect(preview.rows[0]).toMatchObject({ date: day(12), outcome: 'CHANGE', changes: [{ field: 'price', from: '10000', to: '45050', currency: 'AED' }] })
+    expect(preview.unsupported.join(' ')).toMatch(/Lock dates/); expect(preview.unsupported.join(' ')).toMatch(/Allotment pools/); expect(preview.timeZone).toBe('Asia/Dubai')
+    expect((await rateAt(planId, 12)).amountMinor).toBe(before.amountMinor) // preview wrote nothing
+    expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(0)
+    await qu(hotels.sold, 'preview', 'manager', { scope: scope(planId, 12, 14), changes: {} }).expect(400) // nothing opted in
+    await qu(hotels.sold, 'preview', 'manager', { scope: scope(planId, 12, 14), changes: { price: { amount: '', basis: 'SELL' } } }).expect(400) // blank is not zero, it is not a request
+  })
+
+  it('QU-02 apply changes only the selected field on the selected dates, is audited with actor and request id, and is idempotent', async () => {
+    const planId = await planOf(hotels.sold)
+    await prisma.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: utc(5) } }, data: { stopSell: true, minStay: 3, allotment: 7 } })
+    const request = { scope: scope(planId, 4, 8, ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']), changes: { price: { amount: '321.00', basis: 'NET' } } }
+    const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    const idem = key()
+    const res = await apply(hotels.sold, preview, request, 'manager', idem).expect(200)
+    expect(res.body.data).toMatchObject({ replayed: false, records: 5, changed: { rates: 5, availabilityRows: 0 } }); expect(res.body.data.auditRequestId).toBe(res.headers['x-request-id'])
+    for (const o of [4, 5, 6, 7, 8]) expect(await rateAt(planId, o)).toMatchObject({ amountMinor: 32_100n, amountBasis: 'NET', currency: 'AED' })
+    expect((await rateAt(planId, 9)).amountMinor).toBe(10_000n); expect((await rateAt(planId, 3)).amountMinor).toBe(10_000n) // outside the range
+    expect(await availAt(planId, 5)).toMatchObject({ stopSell: true, minStay: 3, allotment: 7 }) // an untouched field stayed exactly as stored
+    // a repeated request has no second effect
+    const replay = (await apply(hotels.sold, preview, request, 'manager', idem).expect(200)).body.data
+    expect(replay).toMatchObject({ replayed: true, records: 5 }); expect(replay.fingerprintAfter).toBe(res.body.data.fingerprintAfter)
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })
+    expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.manager)
+    expect(events[0].payload).toMatchObject({ reason: 'Seasonal rate review', fields: ['price'], records: 5, changedRecords: 5, ratePlanIds: [planId], idempotencyKey: idem })
+    expect((events[0].payload as { requestId: string }).requestId).toBe(res.headers['x-request-id'])
+    // a fresh preview of the same scope now reports nothing to change and the same fingerprint
+    const again = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    expect(again.counts).toMatchObject({ willChange: 0, unchanged: 5 }); expect(again.fingerprint).toBe(res.body.data.fingerprintAfter); expect(again.canApply).toBe(false)
+    await apply(hotels.sold, again, request).expect(409).then((r) => expect(r.body.error.code).toBe('QUICK_UPDATE_NO_CHANGE'))
+  })
+
+  it('QU-03 a stale preview is refused and writes nothing; a fresh preview then applies', async () => {
+    const planId = await planOf(hotels.sold)
+    const request = { scope: scope(planId, 20, 22), changes: { availability: { allotment: 3 } } }
+    const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    await prisma.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: utc(21) } }, data: { stopSell: true } }) // someone else edits a record in scope
+    const stale = await apply(hotels.sold, preview, request).expect(409)
+    expect(stale.body.error.code).toBe('QUICK_UPDATE_STALE')
+    for (const o of [20, 21, 22]) expect((await availAt(planId, o))!.allotment).toBe(5)
+    const fresh = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    expect((await apply(hotels.sold, fresh, request).expect(200)).body.data.changed.availabilityRows).toBe(3)
+    for (const o of [20, 21, 22]) expect((await availAt(planId, o))!.allotment).toBe(3)
+    expect((await availAt(planId, 21))!.stopSell).toBe(true) // the other person's change survived
+  })
+
+  it('QU-04 the batch is atomic: one invalid record means nothing is written', async () => {
+    const planId = await planOf(hotels.sold)
+    await prisma.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: utc(25) } }, data: { sold: 3, held: 1 } })
+    const request = { scope: scope(planId, 24, 26), changes: { availability: { allotment: 2 }, restrictions: { minStay: 2 } } }
+    const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    expect(preview.counts).toMatchObject({ records: 3, invalid: 1, willChange: 2 }); expect(preview.canApply).toBe(false)
+    const bad = preview.rows.find((r: { outcome: string }) => r.outcome === 'INVALID')
+    expect(bad).toMatchObject({ date: day(25) }); expect(bad.problems.join(' ')).toMatch(/below the 4 already sold or held/)
+    const auditsBefore = await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })
+    const refused = await apply(hotels.sold, preview, request).expect(422)
+    expect(refused.body.error.code).toBe('QUICK_UPDATE_INVALID')
+    for (const o of [24, 26]) expect(await availAt(planId, o)).toMatchObject({ allotment: 5, minStay: 1 })
+    expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(auditsBefore) // a refused batch is not recorded as applied
+  })
+
+  it('QU-05 availability and restrictions: stop-sell, minimum stay and closed-to-arrival leave the other fields alone; missing inventory is not turned into zero', async () => {
+    const planId = await planOf(hotels.sold)
+    const request = { scope: scope(planId, 26, 28), changes: { availability: { stopSell: 'SET' }, restrictions: { minStay: 2, closedToArrival: 'SET' } } }
+    const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    await apply(hotels.sold, preview, request).expect(200)
+    for (const o of [26, 27, 28]) expect(await availAt(planId, o)).toMatchObject({ allotment: 5, sold: 0, stopSell: true, minStay: 2, closedToArrival: true })
+    // clearing one flag leaves the rest
+    const clear = { scope: scope(planId, 27, 27), changes: { availability: { stopSell: 'CLEAR' } } }
+    await apply(hotels.sold, (await qu(hotels.sold, 'preview', 'manager', clear).expect(200)).body.data, clear).expect(200)
+    expect(await availAt(planId, 27)).toMatchObject({ stopSell: false, minStay: 2, closedToArrival: true, allotment: 5 })
+    // a night with no inventory row: a restriction alone is refused, an allotment creates the row
+    const noRow = { scope: scope(planId, 40, 41), changes: { availability: { stopSell: 'SET' } } }
+    const p1 = (await qu(hotels.sold, 'preview', 'manager', noRow).expect(200)).body.data
+    expect(p1.counts.invalid).toBe(2); expect(p1.rows[0].problems.join(' ')).toMatch(/unknown, not zero/); expect(await availAt(planId, 40)).toBeNull()
+    const withAllotment = { scope: scope(planId, 40, 41), changes: { availability: { allotment: 2, stopSell: 'SET' } } }
+    await apply(hotels.sold, (await qu(hotels.sold, 'preview', 'manager', withAllotment).expect(200)).body.data, withAllotment).expect(200)
+    expect(await availAt(planId, 40)).toMatchObject({ allotment: 2, sold: 0, held: 0, stopSell: true })
+  })
+
+  it('QU-06 money is validated server-side: zero, over-precise and malformed amounts are invalid and nothing is written', async () => {
+    const planId = await planOf(hotels.sold)
+    for (const amount of ['0', '10.505', '1e3', '-5', 'ten', '99999999999.99']) {
+      const preview = (await qu(hotels.sold, 'preview', 'manager', { scope: scope(planId, 29, 29), changes: { price: { amount, basis: 'SELL' } } }).expect(200)).body.data
+      expect(preview.counts.invalid).toBe(1); expect(preview.canApply).toBe(false)
+    }
+    expect((await rateAt(planId, 29)).amountMinor).toBe(10_000n)
+  })
+
+  it("QU-07 the hotel's own calendar day decides what is the past", async () => {
+    const planId = await planOf(hotels.sold)
+    const svc = app.get(HotelQuickUpdateService, { strict: false })
+    const original = svc.clock
+    try {
+      svc.clock = () => new Date(utc(0).getTime() + 23 * 3_600_000) // 23:00 UTC on today's date
+      const request = { scope: scope(planId, 0, 0), changes: { availability: { allotment: 5 } } }
+      await prisma.hotel.update({ where: { id: hotels.sold }, data: { timeZone: 'Pacific/Kiritimati' } }) // UTC+14: already tomorrow there
+      const early = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+      expect(early.hotelToday).toBe(day(1)); expect(early.rows[0].outcome).toBe('INVALID'); expect(early.rows[0].problems.join(' ')).toMatch(/before today in the hotel's time zone/)
+      await prisma.hotel.update({ where: { id: hotels.sold }, data: { timeZone: 'Pacific/Pago_Pago' } }) // UTC-11: still today
+      const late = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+      expect(late.hotelToday).toBe(day(0)); expect(late.rows[0].outcome).not.toBe('INVALID')
+    } finally { svc.clock = original; await prisma.hotel.update({ where: { id: hotels.sold }, data: { timeZone: 'Asia/Dubai' } }) }
+  })
+
+  it('QU-08 each panel needs its own permission; plans of another hotel or tenant are refused; unauthenticated and cross-tenant calls fail', async () => {
+    const planId = await planOf(hotels.sold)
+    const price = { scope: scope(planId, 12, 12), changes: { price: { amount: '100.01', basis: 'SELL' } } }
+    const avail = { scope: scope(planId, 12, 12), changes: { availability: { stopSell: 'SET' } } }
+    await qu(hotels.sold, 'preview', 'reader', price).expect(403) // read-only
+    await qu(hotels.sold, 'preview', 'availonly', price).expect(403)
+    await qu(hotels.sold, 'preview', 'ratesonly', avail).expect(403)
+    await qu(hotels.sold, 'preview', 'ratesonly', price).expect(200)
+    await qu(hotels.sold, 'preview', 'availonly', avail).expect(200)
+    const p = (await qu(hotels.sold, 'preview', 'manager', price).expect(200)).body.data
+    await apply(hotels.sold, p, price, 'ratesonly').expect(200)
+    await apply(hotels.sold, p, price, 'availonly').expect(403)
+    await qu(hotels.sold, 'preview', 'none', price).expect(403)
+    await qu(hotels.sold, 'preview', 'anon', price).expect(401)
+    await qu(hotels.sold, 'preview', 'bmanager', price).expect(404) // another tenant cannot see the hotel
+    const other = await newDraft('other-hotel')
+    const foreign = (await qu(other, 'preview', 'manager', price).expect(200)).body.data // the plan is not this hotel's
+    expect(foreign.errors.join(' ')).toMatch(/does not belong to this hotel/); expect(foreign.canApply).toBe(false)
+    await apply(other, { fingerprint: foreign.fingerprint }, price).expect(422)
+    await qu(hotels.sold, 'apply', 'manager', { ...price, idempotencyKey: key(), reason: 'No preview first' }).expect(400) // a fingerprint is required
+    await qu(hotels.sold, 'apply', 'manager', { ...price, idempotencyKey: key(), expectedFingerprint: 'a'.repeat(64), reason: '' }).expect(400)
+  })
+  it('QU-09 two applies at once serialise: with different keys exactly one wins, with the same key there is one effect', async () => {
+    const planId = await planOf(hotels.sold)
+    const request = { scope: scope(planId, 10, 11), changes: { price: { amount: '222.22', basis: 'SELL' } } }
+    const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
+    const results = await Promise.all([apply(hotels.sold, preview, request), apply(hotels.sold, preview, request)])
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]); expect(results.find((r) => r.status === 409)!.body.error.code).toBe('QUICK_UPDATE_STALE')
+    expect((await rateAt(planId, 10)).amountMinor).toBe(22_222n)
+    const next = { scope: scope(planId, 10, 11), changes: { price: { amount: '333.33', basis: 'SELL' } } }
+    const p2 = (await qu(hotels.sold, 'preview', 'manager', next).expect(200)).body.data
+    const idem = key()
+    const before = await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })
+    const same = await Promise.all([apply(hotels.sold, p2, next, 'manager', idem), apply(hotels.sold, p2, next, 'manager', idem)])
+    expect(same.map((r) => r.status)).toEqual([200, 200]); expect(same.map((r) => r.body.data.replayed).sort()).toEqual([false, true])
+    expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(before + 1)
+    expect((await rateAt(planId, 11)).amountMinor).toBe(33_333n)
   })
 })

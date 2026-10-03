@@ -25,6 +25,7 @@ export const HOTEL_TABS = [
   { id: 'mappings', label: 'Supplier Mapping' },
   { id: 'contracts', label: 'Contracts & Rate Plans' },
   { id: 'rates', label: 'Rates & Inventory' },
+  { id: 'quick', label: 'Quick Update' },
   { id: 'sellability', label: 'Sellability' },
   { id: 'bookings', label: 'Bookings' },
   { id: 'audit', label: 'Audit' },

@@ -304,6 +304,51 @@ async function openHotel(page, key, tab) {
   check('a read-only user sees mappings without decision or add controls', (await viewerMap.page.getByRole('button', { name: /Approve|Reject|Reopen|Add supplier mapping/ }).count()) === 0)
   await viewerMap.ctx.close()
 
+  // ---- Quick Update (ADR 0021, stage 5): scope, opt-in panels, preview, review, apply, stale, atomic ----
+  const dayIso = (offset) => new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').getTime() + offset * 86_400_000
+  const ymd = (offset) => new Date(dayIso(offset)).toISOString().slice(0, 10)
+  const openQuick = async (pg) => { await pg.goto(`${BASE}/hotels/${H.alpha}?tab=quick`); await pg.waitForSelector('[data-testid=quick-update] table[aria-label="Rate plans to update"]', { timeout: 20000 }) }
+  const scopeAlpha = async (pg, from, to) => { await pg.locator('[data-testid=quick-update] tbody tr').first().getByRole('checkbox').check(); await pg.locator('[data-testid=quick-update] input[type=date]').nth(0).fill(from); await pg.locator('[data-testid=quick-update] input[type=date]').nth(1).fill(to) }
+  await openQuick(page)
+  check('Quick Update names the plan currency, offers no lock actions and says allotment pools are unsupported', /AED/.test(await page.getByTestId('quick-update').innerText()) && !/lock dates|apply & lock/i.test(await page.getByTestId('quick-update').innerText().then((t) => t.replace(/What Quick Update does not do[\s\S]*$/, ''))) && /Not supported: inventory is edited per rate plan/.test(await page.getByTestId('quick-update').innerText()))
+  await scopeAlpha(page, ymd(6), ymd(10))
+  check('nothing can be previewed until a panel is ticked and filled', await page.getByTestId('qu-preview').isDisabled())
+  await page.getByLabel('Change price').check(); await page.getByLabel(/^Amount per night/).fill('456.78')
+  check('untouched panels stay closed (availability and restrictions are not sent)', (await page.locator('[data-panel=availability] input[inputmode=numeric]').count()) === 0 && (await page.locator('[data-panel=restrictions] input[inputmode=numeric]').count()) === 0)
+  await page.getByTestId('qu-preview').click(); await page.waitForSelector('[data-testid=qu-preview-result]')
+  const quCounts = await page.getByTestId('qu-counts').innerText()
+  check('the preview states the exact record count and what will change', /5 records over 5 nights/.test(quCounts) && /5 will change/.test(quCounts) && /0 invalid/.test(quCounts), quCounts.slice(0, 120))
+  const firstRow = await page.locator('[data-testid=qu-preview-result] tbody tr').first().innerText()
+  check('the preview shows old and new values with the currency, and unsupported operations', /price:/.test(firstRow) && /456\.78/.test(firstRow) && /→/.test(firstRow) && /Lock dates/.test(await page.getByTestId('qu-unsupported').textContent()) && /Allotment pools/.test(await page.getByTestId('qu-unsupported').textContent()))
+  check('apply needs a reason', await page.getByTestId('qu-apply').isDisabled())
+  await page.getByLabel(/Reason \(required/).fill('Verification rate review')
+  await page.getByLabel(/^Amount per night/).fill('456.79')
+  check('changing the form after a preview forces a new preview', (await page.getByTestId('qu-stale-form').count()) === 1 && (await page.getByTestId('qu-apply').isDisabled()))
+  await page.getByTestId('qu-preview').click(); await page.waitForFunction(() => !document.querySelector('[data-testid=qu-stale-form]'), null, { timeout: 15000 })
+  // a second person previews the same scope, then this person applies first
+  const { ctx: q2, page: qp2 } = await login(browser, seed.ownerEmail)
+  await openQuick(qp2); await scopeAlpha(qp2, ymd(6), ymd(10)); await qp2.getByLabel('Change price').check(); await qp2.getByLabel(/^Amount per night/).fill('500.00')
+  await qp2.getByTestId('qu-preview').click(); await qp2.waitForSelector('[data-testid=qu-preview-result]'); await qp2.getByLabel(/Reason \(required/).fill('Second window')
+  await page.getByLabel(/Reason \(required/).fill('Verification rate review'); await page.getByTestId('qu-apply').click(); await page.waitForSelector('[data-testid=qu-result]', { timeout: 20000 })
+  const applied = await page.getByTestId('qu-result').innerText(); const auditRef = await page.getByTestId('qu-request-id').innerText()
+  check('apply reports what was written and an audit reference', /Applied 5 records: 5 rates and 0 inventory rows written/.test(applied) && auditRef.length > 8, applied.slice(0, 100))
+  await qp2.getByTestId('qu-apply').click(); await qp2.waitForSelector('[data-testid=qu-error]', { timeout: 15000 })
+  check('a stale preview fails visibly and nothing is written', /changed after you previewed/i.test(await qp2.getByTestId('qu-error').innerText()))
+  await q2.close()
+  await openHotel(page, 'alpha', 'rates'); await page.waitForSelector('[data-testid=calendar]')
+  const rowText = await page.locator(`[data-testid=calendar] tr[data-date="${ymd(6)}"]`).first().innerText()
+  const outside = await page.locator(`[data-testid=calendar] tr[data-date="${ymd(11)}"]`).first().innerText()
+  check('the Rates & Inventory view shows the persisted price on the selected dates only, with the stop-sell and allotment untouched', /456\.79/.test(rowText) && !/456\.79/.test(outside) && /No/.test(rowText))
+  check('the audit trail records the same request id', await (async () => { await page.goto(`${BASE}/hotels/${H.alpha}?tab=audit`); await page.waitForSelector('table[aria-label="Hotel audit events"]'); return (await text(page)).includes(auditRef) && /hotel\.quick_update\.applied/.test(await text(page)) })())
+  // an invalid record (a past date) makes the whole batch unappliable
+  await openQuick(page); await scopeAlpha(page, ymd(-2), ymd(1)); await page.getByLabel('Change availability').check(); await page.getByLabel(/^Allotment/).fill('4')
+  await page.getByTestId('qu-preview').click(); await page.waitForSelector('[data-testid=qu-preview-result]')
+  check('a past date is invalid in the hotel time zone, and the batch cannot be applied', /before today in the hotel/.test(await page.getByTestId('qu-preview-result').innerText()) && /whole or not at all/.test(await page.getByTestId('qu-preview-result').innerText()))
+  await page.getByLabel(/Reason \(required/).fill('Should not be possible'); check('apply stays disabled while any record is invalid', await page.getByTestId('qu-apply').isDisabled())
+  const qv = await login(browser, seed.viewerEmail); await qv.page.goto(`${BASE}/hotels/${H.alpha}`); await qv.page.waitForSelector('[data-testid=hotel-header]', { timeout: 20000 })
+  check('a user without rate or availability rights does not see the Quick Update tab', (await qv.page.getByRole('tab', { name: 'Quick Update' }).count()) === 0)
+  await qv.ctx.close()
+
   // ---- directory: search by canonical id and external id, filters persist in the URL ----
   await page.goto(`${BASE}/hotels`); await page.waitForSelector('[data-testid=hotels-table]')
   await page.getByLabel('Search hotels').fill('GV-'); await page.getByLabel('Search hotels').press('Enter'); await page.waitForFunction(() => location.search.includes('search=GV-'))
@@ -339,7 +384,7 @@ async function openHotel(page, key, tab) {
   }
   await page.setViewportSize({ width: 1280, height: 900 })
   await openHotel(page, 'bravo', 'sellability'); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-testid=sellability-result]')
-  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Supplier Mapping', `${BASE}/hotels/${H.alpha}?tab=mappings`, '[data-testid=hotel-mappings]'], ['Rooms', `${BASE}/hotels/${H.alpha}?tab=rooms`, 'table[aria-label=Rooms]'], ['Amenities', `${BASE}/hotels/${H.alpha}?tab=amenities`, '[data-testid=amenities-form]'], ['Policies', `${BASE}/hotels/${H.alpha}?tab=policies`, '[data-testid=policies-form]'], ['Images', `${BASE}/hotels/${H.alpha}?tab=images`, '[data-testid=images-unavailable]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
+  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Quick Update', `${BASE}/hotels/${H.alpha}?tab=quick`, '[data-testid=quick-update]'], ['Supplier Mapping', `${BASE}/hotels/${H.alpha}?tab=mappings`, '[data-testid=hotel-mappings]'], ['Rooms', `${BASE}/hotels/${H.alpha}?tab=rooms`, 'table[aria-label=Rooms]'], ['Amenities', `${BASE}/hotels/${H.alpha}?tab=amenities`, '[data-testid=amenities-form]'], ['Policies', `${BASE}/hotels/${H.alpha}?tab=policies`, '[data-testid=policies-form]'], ['Images', `${BASE}/hotels/${H.alpha}?tab=images`, '[data-testid=images-unavailable]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
     if (url) { await page.goto(url); await page.waitForSelector(wait) }
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const bad = axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))
