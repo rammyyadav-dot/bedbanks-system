@@ -1,6 +1,6 @@
 // Clients, Service and Distribution API access (ADR 0019). Record-keeping and exposure control: no money, no pricing.
 import {
-  routes, type AgencyCreate, type AgencyMemberCandidate, type AgencyMemberView, type AgencyPage, type AgencyUpdate, type AgencyView, type CaseAssign, type CaseAssignee, type CaseCreate,
+  routes, type AgencyCreate, type AgencyMemberCandidate, type AgencyMemberView, type AgencyPage, type AgencySuspensionRequest, type AgencySuspensionResult, type AgencyUpdate, type AgencyView, type CaseAssign, type CaseAssignee, type CaseCreate,
   type CaseDetail, type CasePage, type CaseTransition, type ClientsSummary, type DistributionSummary, type RestrictionCreate, type RestrictionPage, type RestrictionView, type ServiceSummary,
 } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
@@ -37,3 +37,10 @@ export const getDistributionSummary = () => apiRequest<DistributionSummary>(d.su
 export const getRestrictions = (p: Params = {}) => apiRequest<RestrictionPage>(`${d.restrictions}${opsQuery(p)}`)
 export const createRestriction = (body: RestrictionCreate) => apiRequestWithMeta<RestrictionView>(d.restrictions, post(body))
 export const retireRestriction = (restrictionId: string) => apiRequestWithMeta<RestrictionView>(fill(d.restrictionRetire, { restrictionId }), post())
+
+// ---- Agency suspension (ADR 0020): maker-checker
+export const requestAgencySuspensionChange = (agencyId: string, body: AgencySuspensionRequest) => apiRequestWithMeta<AgencyView>(fill(c.agencySuspensionRequest, { agencyId }), post(body))
+export const decideAgencySuspension = (approvalId: string, decision: 'approve' | 'reject', reason: string) =>
+  apiRequestWithMeta<AgencyView>(fill(decision === 'approve' ? c.agencySuspensionApprove : c.agencySuspensionReject, { approvalId }), post({ reason }))
+export const cancelAgencySuspension = (approvalId: string) => apiRequestWithMeta<AgencyView>(fill(c.agencySuspensionCancel, { approvalId }), post())
+export const executeAgencySuspension = (approvalId: string) => apiRequestWithMeta<AgencySuspensionResult>(fill(c.agencySuspensionExecute, { approvalId }), post())

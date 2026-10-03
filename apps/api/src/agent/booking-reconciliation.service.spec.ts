@@ -181,6 +181,7 @@ describe('BookingReconciliationService', () => {
 import 'reflect-metadata'
 import { AgentController } from './agent.controller'
 import { REQUIRED_PERMISSION, AgentRbacGuard } from './rbac.guard'
+import { AgencySuspensionGuard } from './agency-suspension.guard'
 import { TenantContextGuard } from './tenant-context.guard'
 import { PERMISSIONS } from './supplier.port'
 
@@ -188,6 +189,6 @@ describe('reconcile-stale endpoint authorization', () => {
   const handler = AgentController.prototype.reconcileStale
   it('is permission-guarded behind tenant validation and RBAC', () => {
     expect(Reflect.getMetadata(REQUIRED_PERMISSION, handler)).toBe(PERMISSIONS.reconcileBookings)
-    expect(Reflect.getMetadata('__guards__', handler)).toEqual([TenantContextGuard, AgentRbacGuard])
+    expect(Reflect.getMetadata('__guards__', handler)).toEqual([TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard])
   })
 })

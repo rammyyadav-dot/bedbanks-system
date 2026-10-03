@@ -55,6 +55,7 @@ enum BookingDocumentType {
 enum AgencyStatus {
   ACTIVE
   INACTIVE
+  SUSPENDED
 }
 
 model Agency {

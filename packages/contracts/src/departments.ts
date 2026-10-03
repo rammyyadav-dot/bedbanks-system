@@ -11,22 +11,43 @@ export const departmentPermissions = {
 export type DepartmentPermission = (typeof departmentPermissions)[keyof typeof departmentPermissions]
 
 // ---- Clients ---------------------------------------------------------------------------------------------------------
-export const AGENCY_STATUSES = ['ACTIVE', 'INACTIVE'] as const
+export const AGENCY_STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED'] as const
 export type AgencyStatusName = (typeof AGENCY_STATUSES)[number]
+/** Statuses a plain edit may set. SUSPENDED is reached and left only through an approved maker-checker request (ADR 0020). */
+export const AGENCY_EDITABLE_STATUSES = ['ACTIVE', 'INACTIVE'] as const
+export type AgencyEditableStatusName = (typeof AGENCY_EDITABLE_STATUSES)[number]
+export const AGENCY_SUSPENSION_CHANGES = ['SUSPEND', 'REINSTATE'] as const
+export type AgencySuspensionChange = (typeof AGENCY_SUSPENSION_CHANGES)[number]
 export const AGENCY_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{0,38}[A-Z0-9]$/
 
 export interface AgencyView {
   id: string; code: string; name: string; countryCode: string | null; status: AgencyStatusName; notes: string | null; memberCount: number; createdAt: string
+  /** Latest open (pending or approved) suspension or reinstatement request, if any. Present on the detail view only. */
+  suspension?: AgencySuspensionApprovalView | null
 }
 export interface AgencyCreate { code: string; name: string; countryCode?: string; notes?: string }
 /** Fields left out are unchanged; null clears countryCode or notes. The code never changes. */
-export interface AgencyUpdate { name?: string; countryCode?: string | null; notes?: string | null; status?: AgencyStatusName }
+export interface AgencyUpdate { name?: string; countryCode?: string | null; notes?: string | null; status?: AgencyEditableStatusName }
+export interface AgencySuspensionApprovalView {
+  id: string
+  change: AgencySuspensionChange
+  status: string
+  requestedById: string
+  decidedById: string | null
+  decisionReason: string | null
+  canDecide: boolean
+  canCancel: boolean
+  canExecute: boolean
+}
+export interface AgencySuspensionRequest { requestId: string; change: AgencySuspensionChange; reason: string }
+export interface AgencySuspensionDecision { reason: string }
+export interface AgencySuspensionResult { approval: AgencySuspensionApprovalView; agency: AgencyView }
 export interface AgencyMemberView { userId: string; email: string; name: string | null; userStatus: string; addedAt: string }
 export interface AgencyMemberCandidate { userId: string; email: string; name: string | null }
 export interface AgencyPage { items: AgencyView[]; page: number; pageSize: number; total: number }
 export interface ClientsSummary {
   generatedAt: string
-  agencies: { total: number; active: number; inactive: number }
+  agencies: { total: number; active: number; inactive: number; suspended: number }
   /** Tenant members, split by whether an agency record includes them. */
   members: { total: number; inAnAgency: number; notInAnyAgency: number }
   definitions: Record<string, string>
