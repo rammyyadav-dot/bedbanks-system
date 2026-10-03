@@ -1,6 +1,8 @@
-# ADR 0025: Hotel images (PROPOSED, not accepted, nothing built)
+# ADR 0025: Hotel images (PROPOSAL, superseded by ADR 0027)
 
 ## Status
+**Superseded by [ADR 0027](0027-hotel-images.md)**, which built hotel images with the image bytes in PostgreSQL behind a storage port instead of Vercel Blob (no account or token needed, fully testable). This file is kept as the record of the original proposal; moving to object storage later would be a new ADR. Original status follows.
+
 **Proposed.** Written for the owner to accept, change or reject. No code, migration or storage account exists for it, and the Images tab keeps stating that upload is unavailable (ADR 0021) until this is accepted and built. The numbers ADR 0022 to 0024 are used by the publication and credit-limit work; this file does not depend on them.
 
 ## Context

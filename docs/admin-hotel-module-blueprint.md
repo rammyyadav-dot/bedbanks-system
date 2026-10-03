@@ -4,7 +4,7 @@ Audience: CTO, product, engineering, operations. Purpose: one reference for how 
 
 Status key: **Built (main)** is merged. **Built (PR #232)** is implemented and tested on an open draft PR, not yet in `main`. **Proposed** is a draft decision awaiting the owner. **Not built** has a stated dependency.
 
-A note on the screenshot that prompted this: a hotel page with an "Image gallery placeholder" and tabs Overview, Rooms, Amenities, Images, Policies, Supplier Mapping, Rates, Inventory, Audit is the old mock. Current code has 13 tabs (below) and the Images tab states that upload is unavailable instead of showing a fake gallery. The hosted environment was not reachable from the build environment, so what a given hosted URL shows depends on what has been deployed.
+A note on the screenshot that prompted this: a hotel page with an "Image gallery placeholder" and tabs Overview, Rooms, Amenities, Images, Policies, Supplier Mapping, Rates, Inventory, Audit is the old mock. Current code has 13 tabs (below) and the Images tab is a working feature (upload, alt text, order, primary, delete; ADR 0027) instead of a fake gallery. The hosted environment was not reachable from the build environment, so what a given hosted URL shows depends on what has been deployed.
 
 ## 1. What the module is for
 
@@ -68,7 +68,7 @@ Approval-only keys (`hotel.activate`, `markup.activate`, `credit_limit.approve`,
 | Publication (Setup tab) | Request, approve, reject, withdraw, publish now (section 3.1). | Built (PR #232) |
 | Rooms | Create, edit, archive, restore; never deleted. Occupancy validated by the canonical rule (max occupancy ≥ adults, bedding parsed and unknown keys preserved, contract child-age rules shown read-only). Code unique per hotel. The last active room of a published hotel cannot be archived. | Built (main) |
 | Amenities | Controlled catalogue only, explicit fee type (free, paid, unknown); never free text. Hotel and room level. Shares the Setup concurrency token. | Built (main) |
-| Images | Today: states that upload is unavailable. Proposed: Vercel Blob behind an API upload path, size/type/dimension limits, alt text required, primary image, audit, shown only for published hotels (ADR 0025). | **Not built; Proposed** |
+| Images | Upload, alt text (required), primary image, atomic reorder and delete. Bytes in PostgreSQL behind a storage port; JPEG/PNG/WebP, up to 5 MB, 800x600 to 8000x8000, 30 per hotel, duplicates refused, type read from the bytes. Agents see the primary image of **published** hotels (ADR 0027). Not built: Website display, EXIF stripping, malware scan, rights records. | Built (images, atomic reorder and Agent display on main or open PRs #238 and #239) |
 | Policies | Children, extra beds, pets, accessibility, local charges, apart from rate-specific cancellation terms (those belong to rate plans). | Built (main) |
 | Supplier Mapping | Many suppliers per hotel; create as PENDING; decide with a reason; reopen; history with who, when, status change, reason and request id. | Built (main) |
 | Contracts & Rate Plans | Read-only 360 of contracts, plans, board bases, validity and recorded markets, labelled "recorded, not applied" where Agent search ignores them. Editing contracts is on the Contracts module. | Built (main) |
@@ -105,7 +105,7 @@ Agencies can be suspended (maker-checker, ADR 0020) and given a credit limit tha
 
 ## 7. Data model (summary)
 
-`Hotel` (canonical identity, status, stars, address, time zone) · `HotelProfile` (descriptive and operational content, private contacts, policies, approval and star-verification metadata, version for optimistic concurrency) · `HotelExternalIdentifier` · `HotelAmenity` / `RoomAmenity` · `RoomType` (archive flag) · `SupplierHotelMapping` / `SupplierRoomMapping` · `Contract` · `RatePlan` · `DailyRate` · `DailyAvailability` · `ApprovalRequest` (maker-checker) · `AuditEvent`. All tenant-scoped with forced row-level security. Proposed: `HotelImage` (ADR 0025), `RateLock` (ADR 0026).
+`Hotel` (canonical identity, status, stars, address, time zone) · `HotelProfile` (descriptive and operational content, private contacts, policies, approval and star-verification metadata, version for optimistic concurrency) · `HotelExternalIdentifier` · `HotelAmenity` / `RoomAmenity` · `RoomType` (archive flag) · `SupplierHotelMapping` / `SupplierRoomMapping` · `Contract` · `RatePlan` · `DailyRate` · `DailyAvailability` · `ApprovalRequest` (maker-checker) · `AuditEvent`. All tenant-scoped with forced row-level security. `HotelImage` (ADR 0027). Proposed: `RateLock` (ADR 0026).
 
 ## 8. API surface (all under `/admin/hotels/:hotelId/...` unless noted; contracts in `@bedbanks/contracts`)
 
@@ -128,17 +128,17 @@ A capability counts as real only when it persists real data, enforces permission
 | Item | Why it is open | Needed |
 |---|---|---|
 | Merge PR #232 | Publication approval and the closed legacy path are not in `main` yet; carries a migration | Review, and the ADR 0013 database-grant decision |
-| Hotel images | No approved storage | Storage choice, limits (ADR 0025) |
+| Hotel images beyond the MVP | Metadata stripping, malware scan, rights records, object storage, Website display | Owner decisions (ADR 0027 "Not built") |
 | Lock Dates / Apply & Lock | Undefined meaning; no live connector writes rates | Define the lock, or defer (ADR 0026) |
 | Allotment pools, board mapping | No schema | Business rules and a design |
 | Closed-to-departure, markets, nationalities as enforced restrictions | Agent search does not apply them | Decision to implement in the evaluator, with tests |
-| Publication requirement: at least one image? | Depends on images | Owner decision |
+| Publication requirement: at least one image? | Images now exist; making one mandatory is policy | Owner decision |
 | Hotel-level approval of contract terms | Contract maker-checker is planned (`contract.approve`), not built | Business rule |
 | Minimum two managers per tenant to publish | Consequence of maker-checker | Staffing or a break-glass policy (not proposed; weakens the control) |
 | Migrations | Never applied to a persistent database by this work | Human decision (ADR 0013) |
 
 ## 12. Suggested rollout
 
-1. Merge #232 after review and CI; decide the database grants. 2. Staff at least two hotel managers per tenant. 3. Import or create the Dubai hotels as drafts, complete content, request publication in batches (one approver reviews against the verification register). 4. Map and contract per supplier, then use Distribution & Readiness as the go/no-go view. 5. Decide images and locks. 6. Only then consider enabling booking, through its own gated change.
+1. Merged so far: publication approval, closed legacy path, credit limit (#232) and images (#237); decide the database grants for their migrations. 2. Staff at least two hotel managers per tenant. 3. Import or create the Dubai hotels as drafts, complete content, request publication in batches (one approver reviews against the verification register). 4. Map and contract per supplier, then use Distribution & Readiness as the go/no-go view. 5. Decide images and locks. 6. Only then consider enabling booking, through its own gated change.
 
 Related: `docs/admin-hotel-operations.md`, ADR 0021 (setup and operations), 0022 (publication approval), 0023 (legacy path), 0024 (credit limit), 0025 and 0026 (proposals).
