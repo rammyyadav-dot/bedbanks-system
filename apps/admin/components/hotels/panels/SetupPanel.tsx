@@ -3,13 +3,13 @@
 import { useMemo, useRef, useState } from 'react'
 import {
   HOTEL_CONTACT_KINDS, HOTEL_PROFILE_STATUSES, HOTEL_PROPERTY_TYPES, KNOWN_EXTERNAL_SCHEMES,
-  type HotelContactKind, type HotelProfileStatus, type HotelSetupSave, type HotelSetupView,
+  type HotelContactKind, type HotelOwnerCandidate, type HotelProfileStatus, type HotelSetupSave, type HotelSetupView,
 } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Completeness } from '../Completeness'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
-import { changeHotelStatus, getHotelSetup, saveHotelSetup } from '@/lib/data/hotel-setup'
+import { changeHotelStatus, getHotelSetup, getOwnerCandidates, saveHotelSetup } from '@/lib/data/hotel-setup'
 import { useCan } from '@/lib/auth/capabilities'
 import { when } from '@/components/ops/ops-ui'
 
@@ -20,7 +20,7 @@ type Form = {
   shortDescription: string; fullDescription: string; languages: string
   checkInTime: string; checkOutTime: string; operationalNotes: string
   contacts: Record<HotelContactKind, { name: string; email: string; phone: string }>
-  sourceSystem: string
+  sourceSystem: string; ownerUserId: string
   identifiers: Array<{ scheme: string; value: string }>
 }
 
@@ -33,7 +33,7 @@ function toForm(s: HotelSetupView): Form {
     starRating: s.classification.starRating === null ? '' : String(s.classification.starRating), starSource: blank(s.classification.source), starVerified: s.classification.verified,
     shortDescription: blank(s.content.shortDescription), fullDescription: blank(s.content.fullDescription), languages: s.content.languages.join(', '),
     checkInTime: blank(s.operations.checkInTime), checkOutTime: blank(s.operations.checkOutTime), operationalNotes: blank(s.operations.notes),
-    contacts, sourceSystem: blank(s.governance.sourceSystem), identifiers: s.identity.externalIdentifiers.map((i) => ({ scheme: i.scheme, value: i.value })),
+    contacts, sourceSystem: blank(s.governance.sourceSystem), ownerUserId: blank(s.governance.ownerUserId), identifiers: s.identity.externalIdentifiers.map((i) => ({ scheme: i.scheme, value: i.value })),
   }
 }
 
@@ -52,7 +52,7 @@ function diff(initial: Form, now: Form, canContacts: boolean): Omit<HotelSetupSa
   if (initial.starVerified !== now.starVerified) out.starVerified = now.starVerified
   text('shortDescription', 'shortDescription', true); text('fullDescription', 'fullDescription', true); text('operationalNotes', 'operationalNotes', true)
   if (initial.languages !== now.languages) out.languages = now.languages.split(',').map((l) => l.trim()).filter(Boolean)
-  text('checkInTime', 'checkInTime', true); text('checkOutTime', 'checkOutTime', true); text('sourceSystem', 'sourceSystem', true)
+  text('checkInTime', 'checkInTime', true); text('checkOutTime', 'checkOutTime', true); text('sourceSystem', 'sourceSystem', true); text('ownerUserId', 'ownerUserId', true)
   if (canContacts && !same(initial.contacts, now.contacts)) out.contacts = Object.fromEntries(HOTEL_CONTACT_KINDS.map((k) => [k, { name: nul(now.contacts[k].name), email: nul(now.contacts[k].email), phone: nul(now.contacts[k].phone) }]))
   if (!same(initial.identifiers, now.identifiers)) out.externalIdentifiers = now.identifiers.filter((i) => i.scheme.trim() || i.value.trim()).map((i) => ({ scheme: i.scheme.trim(), value: i.value.trim() }))
   return out as never
@@ -61,6 +61,38 @@ function diff(initial: Form, now: Form, canContacts: boolean): Omit<HotelSetupSa
 const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as const
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 } as const
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+
+const personLabel = (p: { name: string | null; email: string }) => (p.name ? `${p.name} (${p.email})` : p.email)
+
+/** Searches tenant members through the API; the selected owner is validated again server-side as a member of this tenant. */
+function OwnerPicker({ hotelId, value, stored, readOnly, onChange }: { hotelId: string; value: string; stored: HotelSetupView['governance']['owner']; readOnly: boolean; onChange: (v: string) => void }) {
+  const [search, setSearch] = useState('')
+  const [options, setOptions] = useState<HotelOwnerCandidate[] | null>(null)
+  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const find = async () => {
+    setState('loading')
+    try { setOptions(await getOwnerCandidates(hotelId, search)); setState('idle') } catch { setOptions(null); setState('error') }
+  }
+  const current = options?.find((o) => o.userId === value) ?? (stored && stored.userId === value ? stored : null)
+  return (
+    <div style={{ ...field, gridColumn: '1 / -1' }} data-testid="owner-picker">
+      <span>Owner</span>
+      <span data-testid="owner-current">{value ? (current ? personLabel(current) : 'Selected member') : 'Not set'}</span>
+      {!readOnly && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input className="input-wrap" aria-label="Search members" placeholder="Search members by name or e-mail" value={search} maxLength={64} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void find() } }} />
+          <button type="button" className="admin-btn" onClick={() => void find()} disabled={state === 'loading'} data-testid="owner-search">{state === 'loading' ? 'Searching…' : 'Find'}</button>
+          {value && <button type="button" className="admin-btn" onClick={() => onChange('')} data-testid="owner-clear">Clear owner</button>}
+        </div>
+      )}
+      {state === 'error' && <span role="alert" style={{ ...note, color: '#9a1c1c' }}>Members could not be loaded. You may lack permission to list members.</span>}
+      {options && (options.length === 0
+        ? <span style={note} data-testid="owner-empty">No members match.</span>
+        : <select className="input-wrap" aria-label="Choose owner" size={Math.min(options.length, 6)} value={value} onChange={(e) => onChange(e.target.value)} data-testid="owner-options">{options.map((o) => <option key={o.userId} value={o.userId}>{personLabel(o)}</option>)}</select>)}
+      <span style={note}>The owner is an internal contact for this hotel profile. It grants no access and changes no permissions.</span>
+    </div>
+  )
+}
 
 type Flash = { kind: 'save' | 'status'; text: string; requestId: string | null }
 
@@ -198,7 +230,7 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
         <p style={note} data-testid="policies-moved">Hotel policies (children, extra beds, pets, accessibility, local charges) are edited on the Policies tab, apart from rate-specific cancellation terms. Amenities and images have their own tabs.</p>
         {section('Governance', <>
           {input('sourceSystem', 'Content source', { maxLength: 80 })}
-          <div style={field}><span>Owner</span><span>{setup.governance.ownerUserId ? <code>{setup.governance.ownerUserId}</code> : 'Not set'}</span><span style={note}>Choosing an owner needs a tenant member picker that is not available yet.</span></div>
+          <OwnerPicker hotelId={hotelId} value={form.ownerUserId} stored={setup.governance.owner} readOnly={ro} onChange={(v) => set('ownerUserId', v)} />
           <div style={field}><span>Last saved</span><span>{when(setup.governance.updatedAt)}{setup.governance.updatedById ? <> by <code>{setup.governance.updatedById}</code></> : null}</span></div>
         </>)}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', position: 'sticky', bottom: 0, background: '#fff', padding: '8px 0' }}>

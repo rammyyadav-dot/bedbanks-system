@@ -64,10 +64,13 @@ export interface HotelSetupView {
   /** Private. Returned only to callers holding supply.hotels.manage. */
   contacts: HotelContacts | null
   policies: HotelPolicies
-  governance: { status: HotelProfileStatus; sourceSystem: string | null; ownerUserId: string | null; approvedById: string | null; approvedAt: string | null; updatedById: string | null; updatedAt: string }
+  governance: { status: HotelProfileStatus; sourceSystem: string | null; ownerUserId: string | null; /** Resolved for display; null when unset or the user is no longer a tenant member. */ owner: HotelOwnerCandidate | null; approvedById: string | null; approvedAt: string | null; updatedById: string | null; updatedAt: string }
   rooms: { active: number; total: number }
   completeness: HotelCompleteness
 }
+
+/** A tenant member who may be named the internal owner of a hotel profile. Returned only to callers holding supply.hotels.manage. */
+export interface HotelOwnerCandidate { userId: string; name: string | null; email: string }
 
 /** Every field is optional: an omitted field is unchanged, `null` clears it. Contacts, policies and identifiers replace the stored set when sent. */
 export interface HotelSetupSave {
