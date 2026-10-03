@@ -67,6 +67,8 @@ export interface HotelSetupView {
   governance: { status: HotelProfileStatus; sourceSystem: string | null; ownerUserId: string | null; /** Resolved for display; null when unset or the user is no longer a tenant member. */ owner: HotelOwnerCandidate | null; approvedById: string | null; approvedAt: string | null; updatedById: string | null; updatedAt: string }
   rooms: { active: number; total: number }
   completeness: HotelCompleteness
+  /** The open (pending or approved) publication request, if any. Present on the detail read only. */
+  publication?: HotelPublicationApproval | null
 }
 
 /** A tenant member who may be named the internal owner of a hotel profile. Returned only to callers holding supply.hotels.manage. */
@@ -92,3 +94,21 @@ export interface HotelSetupSave {
 export interface HotelSetupStatusChange { idempotencyKey: string; expectedToken: string; to: HotelProfileStatus; reason: string }
 /** `auditRequestId` is the server request id recorded on the audit event. */
 export interface HotelSetupSaved { setup: HotelSetupView; auditRequestId: string; replayed: boolean }
+
+/** Publishing a hotel needs two people (ADR 0022). The maker requests, a different holder of supply.hotels.manage approves, then it is applied once. */
+export interface HotelPublicationApproval {
+  id: string
+  status: string
+  reason: string
+  requestedById: string
+  decidedById: string | null
+  decisionReason: string | null
+  canDecide: boolean
+  canCancel: boolean
+  canExecute: boolean
+  /** True when the hotel was edited after the request; applying it would be refused and a new request is needed. */
+  changedSinceRequest: boolean
+}
+export interface HotelPublicationRequest { requestId: string; expectedToken: string; reason: string }
+export interface HotelPublicationDecision { reason: string }
+export interface HotelPublicationResult { approval: HotelPublicationApproval; setup: HotelSetupView }

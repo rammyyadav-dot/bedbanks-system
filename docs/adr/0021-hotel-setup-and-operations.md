@@ -45,8 +45,8 @@ The Hotels module already had a directory, a Hotel 360 view and commercial tabs 
 28. **Not offered.** Lock Dates and Apply & Lock (lock scope, permissions, expiry and override behaviour are undefined), allotment pools (no schema), closed to departure (not enforced), and plan or contract level terms (maximum stay, release days, lead time, cancellation). The preview lists these.
 
 ## Known gaps and decisions for the owner
-- **Legacy hotel endpoints.** `POST` and `PATCH /supply/hotels` still accept `contentStatus: COMPLETE` directly (existing end-to-end tests rely on it). The Admin UI no longer offers that path: new hotels are created as DRAFT and published through the gated status change. Closing the API path is a breaking change to be decided.
-- **Single-actor approval.** Existing policy lets one holder of `supply.hotels.manage` edit and publish. This ADR does not add maker-checker; `hotel.activate` (planned, S2) is the natural place if the business wants it.
+- **Legacy hotel endpoints (closed by ADR 0023).** `POST` and `PATCH /supply/hotels` can no longer set `contentStatus: COMPLETE`.
+- **Single-actor approval (closed by ADR 0022).** Publication now needs a second approver.
 - **Images** have no approved storage mechanism in the repository, so no upload is offered and no thumbnail is shown.
 - **Owner picker (built).** `GET /admin/hotels/:hotelId/setup/owner-candidates` lists up to 50 members of the session's tenant (name/e-mail search, wildcard characters literal) and needs `supply.hotels.manage`, because it exposes staff e-mail addresses. The saved owner must be a member of the tenant (validated server-side) and is displayed by name; if the member later leaves, the owner shows as not set while the stored id is kept. The owner is an internal contact only: it grants no access and changes no permission.
 

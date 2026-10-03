@@ -199,9 +199,10 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
       type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier`, displayName: 'Gate Supply', countryCode: 'AE', defaultCurrency: 'AED',
     }).expect(201)
     const hotel = await admin.post('/api/v1/supply/hotels').send({
-      name: `${suffix} Hotel`, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE',
+      name: `${suffix} Hotel`, propertyType: 'HOTEL', starRating: 4, city: 'Dubai', countryCode: 'AE',
     }).expect(201)
     hotelId = hotel.body.data.id
+    await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
     const room = await admin.post(`/api/v1/supply/hotels/${hotelId}/rooms`).send({
       name: 'King', code: 'KNG', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true,
     }).expect(201)

@@ -78,7 +78,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   // Planned: named by the department matrix, granted to nobody and enforced nowhere.
   planned('contract.approve', 'contracting', 'S3', 'Approve a commercial contract (maker-checker)', 'supply.contracts.manage'),
   planned('contract.terminate', 'contracting', 'S3', 'Terminate a contract', 'supply.contracts.manage'),
-  planned('hotel.activate', 'supply', 'S2', 'Activate a hotel after canonical validation', 'supply.hotels.manage'),
+  { key: 'hotel.activate', department: 'supply', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'supply.hotels.manage', approvalOnly: true, description: 'Publish a hotel profile after the publication requirements are met (maker-checker, ADR 0022)' },
   planned('hotel.deactivate', 'supply', 'S2', 'Deactivate a hotel', 'supply.hotels.manage'),
   planned('mapping.override', 'mapping', 'S3', 'Override a mapping with audit evidence', 'supply.mappings.manage'),
   planned('rate.bulk_update', 'rates', 'S3', 'Bulk rate change', 'supply.rates.manage'),

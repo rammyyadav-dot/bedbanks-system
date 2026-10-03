@@ -186,10 +186,11 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }).expect(201)
     supplierId = supplier.body.data.id
     const hotel = await admin.post('/api/v1/supply/hotels').send({
-      name: hotelName, propertyType: 'HOTEL', starRating: 5, city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE',
+      name: hotelName, propertyType: 'HOTEL', starRating: 5, city: 'Dubai', countryCode: 'AE',
     }).expect(201)
     hotelId = hotel.body.data.id
-    const audited = await admin.patch(`/api/v1/supply/hotels/${hotelId}`).set('x-request-id', `${suffix}-hotel`).send({ contentStatus: 'COMPLETE' }).expect(200)
+    await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
+    const audited = await admin.patch(`/api/v1/supply/hotels/${hotelId}`).set('x-request-id', `${suffix}-hotel`).send({ address: 'Sheikh Zayed Road' }).expect(200)
     expect(audited.body.data.contentStatus).toBe('COMPLETE')
     const room = await admin.post(`/api/v1/supply/hotels/${hotelId}/rooms`).send({
       name: roomName, code: 'DLX', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, isActive: true,
@@ -235,7 +236,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     await prisma.supplierHotelMapping.update({ where: { id: mappingId }, data: { status: 'MAPPED' } })
     await prisma.supplierRoomMapping.update({ where: { id: roomMappingId }, data: { status: 'MAPPED' } })
     await admin.patch(`/api/v1/supply/suppliers/${supplierId}`).send({ status: 'ACTIVE' }).expect(200)
-    await admin.patch(`/api/v1/supply/hotels/${hotelId}`).send({ contentStatus: 'COMPLETE' }).expect(200)
+    await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'COMPLETE' } }) // fixture reset: re-publishing is maker-checker (ADR 0022)
     await admin.patch(`/api/v1/supply/hotels/${hotelId}/rooms/${roomId}`).send({ isActive: true }).expect(200)
     await admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: true }).expect(200)
     await admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'ACTIVE', validFrom: day(0), validTo: day(60) }).expect(200)

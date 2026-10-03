@@ -31,9 +31,9 @@ const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).repl
 export class HotelSetupService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private token(hotel: Pick<HotelRow, 'updatedAt'>, profile: Pick<ProfileRow, 'version'> | null): string { return setupToken(hotel, profile) }
+  token(hotel: Pick<HotelRow, 'updatedAt'>, profile: Pick<ProfileRow, 'version'> | null): string { return setupToken(hotel, profile) }
 
-  private async load(tx: Tx, tenantId: string, hotelIdRaw: string) {
+  async load(tx: Tx, tenantId: string, hotelIdRaw: string) {
     const hotelId = idParam('hotelId', hotelIdRaw)
     if (!hotelId) throw new BadRequestException('Invalid hotelId')
     const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId } })
@@ -50,7 +50,7 @@ export class HotelSetupService {
     return { hotel, profile, identifiers, activeRooms, totalRooms, owner }
   }
 
-  private current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number): CurrentSetup {
+  current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number): CurrentSetup {
     return {
       name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
       starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
@@ -58,7 +58,7 @@ export class HotelSetupService {
     }
   }
 
-  private toView(data: Awaited<ReturnType<HotelSetupService['load']>>, includeContacts: boolean): HotelSetupView {
+  toView(data: Awaited<ReturnType<HotelSetupService['load']>>, includeContacts: boolean): HotelSetupView {
     const { hotel, profile, identifiers, activeRooms, totalRooms, owner } = data
     return {
       generatedAt: new Date().toISOString(), hotelId: hotel.id, concurrencyToken: this.token(hotel, profile), profileExists: profile !== null,
@@ -110,7 +110,7 @@ export class HotelSetupService {
     return { requestId }
   }
 
-  private stale(): never {
+  stale(): never {
     throw new ConflictException({ message: 'This hotel changed after you loaded it. Reload to see the latest version, then re-apply your change.', code: 'HOTEL_SETUP_STALE' })
   }
 
@@ -197,13 +197,10 @@ export class HotelSetupService {
         if (again) return { setup: this.toView(before, true), auditRequestId: again.requestId ?? '', replayed: true }
         if (body.expectedToken !== this.token(before.hotel, before.profile)) this.stale()
         if (before.hotel.contentStatus === body.to) throw new ConflictException('The hotel already has this status')
-        if (body.to === 'COMPLETE') {
-          const c = assessCompleteness(this.current(before.hotel, before.profile, before.activeRooms))
-          if (!c.publishable) throw new UnprocessableEntityException({ message: `Cannot publish: ${c.requirements.filter((r) => !r.met).map((r) => r.label).join('; ')}.`, code: 'HOTEL_PUBLICATION_REQUIREMENTS_UNMET' })
-        }
+        if (body.to === 'COMPLETE') throw new ConflictException({ message: 'Publishing a hotel needs a second approver. Make a publication request instead.', code: 'HOTEL_PUBLICATION_REQUIRES_APPROVAL' })
         const now = new Date()
         await tx.hotel.update({ where: { id: before.hotel.id }, data: { contentStatus: body.to, updatedAt: now } })
-        const approval = body.to === 'COMPLETE' ? { approvedById: userId, approvedAt: now } : { approvedById: null, approvedAt: null }
+        const approval = { approvedById: null, approvedAt: null } // only the approved publication flow stamps an approver
         if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id }, data: { ...approval, updatedById: userId, version: { increment: 1 } } })
         else await tx.hotelProfile.create({ data: { ...approval, tenantId, hotelId: before.hotel.id, updatedById: userId, version: 1 } })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: STATUS_CHANGED, entityType: 'hotel', entityId: before.hotel.id, payload: { outcome: 'allowed', requestId, idempotencyKey: key, reason, from: before.hotel.contentStatus, to: body.to, fromVersion: before.profile?.version ?? 0, toVersion: (before.profile?.version ?? 0) + 1 } as Prisma.InputJsonValue } })

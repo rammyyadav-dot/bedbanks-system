@@ -9,7 +9,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Completeness } from '../Completeness'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
-import { changeHotelStatus, getHotelSetup, getOwnerCandidates, saveHotelSetup } from '@/lib/data/hotel-setup'
+import { approveHotelPublication, cancelHotelPublication, changeHotelStatus, executeHotelPublication, getHotelSetup, getOwnerCandidates, rejectHotelPublication, requestHotelPublication, saveHotelSetup } from '@/lib/data/hotel-setup'
 import { useCan } from '@/lib/auth/capabilities'
 import { when } from '@/components/ops/ops-ui'
 
@@ -247,18 +247,18 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
           </div>
         )}
       </form>
+      {canManage && <PublicationControl hotelId={hotelId} setup={setup} onDone={onSaved} />}
       {canManage && <StatusControl hotelId={hotelId} setup={setup} token={setup.concurrencyToken} onDone={onSaved} />}
     </div>
   )
 }
 
 function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; setup: HotelSetupView; token: string; onDone: (flash: Flash) => void }) {
-  const [to, setTo] = useState<HotelProfileStatus>(setup.governance.status === 'COMPLETE' ? 'SUSPENDED' : 'COMPLETE')
+  const [to, setTo] = useState<HotelProfileStatus>(setup.governance.status === 'COMPLETE' ? 'SUSPENDED' : 'DRAFT')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false); const inFlight = useRef(false)
   const key = useRef<string | null>(null)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string; requestId: string | null } | null>(null)
-  const unmet = setup.completeness.requirements.filter((r) => !r.met)
   async function submit() {
     if (inFlight.current) return
     inFlight.current = true; setBusy(true); setNotice(null); key.current ??= crypto.randomUUID()
@@ -271,14 +271,69 @@ function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; set
   return (
     <form className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10 }} aria-label="Profile approval" data-testid="status-form" onSubmit={(e) => { e.preventDefault(); void submit() }}>
       <h2 style={{ fontSize: 14, margin: 0 }}>Profile approval</h2>
-      <p style={note}>Current status: <strong data-testid="profile-status">{setup.governance.status}</strong>{setup.governance.approvedAt ? ` · approved ${when(setup.governance.approvedAt)}` : ''}. Publishing makes the hotel eligible for the Agent catalogue. It does not enable booking, payment or supplier access; commercial readiness is assessed separately.</p>
+      <p style={note}>Current status: <strong data-testid="profile-status">{setup.governance.status}</strong>{setup.governance.approvedAt ? ` · approved ${when(setup.governance.approvedAt)}` : ''}. Publishing needs a second approver (see Publication). Publishing makes the hotel eligible for the Agent catalogue. It does not enable booking, payment or supplier access; commercial readiness is assessed separately. Withdrawing or suspending a hotel takes effect at once.</p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
-        <label style={field}>Change to<select className="input-wrap" value={to} onChange={(e) => { key.current = null; setTo(e.target.value as HotelProfileStatus) }}>{HOTEL_PROFILE_STATUSES.filter((s) => s !== setup.governance.status).map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+        <label style={field}>Change to<select className="input-wrap" value={to} onChange={(e) => { key.current = null; setTo(e.target.value as HotelProfileStatus) }}>{HOTEL_PROFILE_STATUSES.filter((s) => s !== setup.governance.status && s !== 'COMPLETE').map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
         <label style={{ ...field, minWidth: 260 }}>Reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { key.current = null; setReason(e.target.value) }} /></label>
         <button type="submit" className="button primary" disabled={busy || reason.trim().length < 3}>{busy ? 'Applying…' : 'Apply status'}</button>
       </div>
-      {to === 'COMPLETE' && unmet.length > 0 && <p role="note" style={{ ...note, color: '#8a1c1c' }}>Publishing is blocked until: {unmet.map((r) => r.label).join('; ')}.</p>}
       {notice && <p role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="status-notice" style={{ margin: 0, color: notice.tone === 'bad' ? '#a11d1d' : '#0b6b55' }}>{notice.text}{notice.requestId ? ` Request id: ${notice.requestId}` : ''}</p>}
     </form>
+  )
+}
+
+/** Maker-checker publication (ADR 0022): request, a different manager approves, then apply. The API enforces every rule; this only offers what the caller may do. */
+function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup: HotelSetupView; onDone: (flash: Flash) => void }) {
+  const open = setup.publication ?? null
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false); const inFlight = useRef(false)
+  const requestKey = useRef<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const unmet = setup.completeness.requirements.filter((r) => !r.met)
+  if (setup.governance.status === 'COMPLETE') return null
+  async function run(label: string, call: (key: string) => ReturnType<typeof requestHotelPublication>, done: string, reuseKey = false) {
+    if (inFlight.current) return
+    inFlight.current = true; setBusy(true); setNotice(null)
+    if (reuseKey) requestKey.current ??= crypto.randomUUID()
+    try {
+      const { requestId } = await call(requestKey.current ?? '')
+      if (reuseKey) requestKey.current = null
+      setReason('')
+      onDone({ kind: 'status', text: done, requestId: requestId || null })
+    } catch (error) { const p = apiErrorParts(error, label); setNotice([p.message, ...p.details].join(' ') + (p.requestId ? ` Request id: ${p.requestId}` : '')) } finally { inFlight.current = false; setBusy(false) }
+  }
+  const text = reason.trim()
+  return (
+    <section className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10 }} aria-label="Publication" data-testid="publication">
+      <h2 style={{ fontSize: 14, margin: 0 }}>Publication</h2>
+      {!open && (
+        <>
+          <p style={note}>Publishing needs two people: you request it, then a different hotel manager approves it, then it is applied. The request is tied to the version you reviewed; any edit afterwards means a new request.</p>
+          {unmet.length > 0 && <p role="note" style={{ ...note, color: '#8a1c1c' }} data-testid="publication-blocked">A request cannot be made until: {unmet.map((r) => r.label).join('; ')}.</p>}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
+            <label style={{ ...field, minWidth: 260 }}>Reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { requestKey.current = null; setReason(e.target.value) }} /></label>
+            <button type="button" className="button primary" data-testid="publication-request" disabled={busy || unmet.length > 0 || text.length < 3}
+              onClick={() => void run('request publication', (k) => requestHotelPublication(hotelId, { requestId: k, expectedToken: setup.concurrencyToken, reason: text }), 'Publication requested. A different manager must approve it.', true)}>{busy ? 'Requesting…' : 'Request publication'}</button>
+          </div>
+        </>
+      )}
+      {open && (
+        <>
+          <p style={note} data-testid="publication-state">Publication request: <strong>{open.status}</strong>. Requested by <code>{open.requestedById}</code>{open.decidedById ? <>, decided by <code>{open.decidedById}</code></> : null}. Reason: {open.reason}</p>
+          {open.changedSinceRequest && <p role="alert" style={{ ...note, color: '#8a1c1c' }}>The hotel was edited after this request was made, so it cannot be approved or applied. {open.canCancel ? 'Withdraw it and make a new request.' : 'Reject it so a new request can be made.'}</p>}
+          {open.canDecide && (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
+              <label style={{ ...field, minWidth: 260 }}>Decision reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></label>
+              <button type="button" className="button primary" data-testid="publication-approve" disabled={busy || text.length < 3 || open.changedSinceRequest} onClick={() => void run('approve publication', () => approveHotelPublication(hotelId, open.id, { reason: text }), 'Publication approved. It is applied when someone presses Publish now.')}>Approve</button>
+              <button type="button" className="admin-btn" data-testid="publication-reject" disabled={busy || text.length < 3} onClick={() => void run('reject publication', () => rejectHotelPublication(hotelId, open.id, { reason: text }), 'Publication request rejected.')}>Reject</button>
+            </div>
+          )}
+          {open.canCancel && <div><button type="button" className="admin-btn" data-testid="publication-cancel" disabled={busy} onClick={() => void run('withdraw the request', () => cancelHotelPublication(hotelId, open.id), 'Publication request withdrawn.')}>Withdraw request</button></div>}
+          {open.canExecute && <div><button type="button" className="button primary" data-testid="publication-execute" disabled={busy || open.changedSinceRequest} onClick={() => void run('publish', () => executeHotelPublication(hotelId, open.id), 'Status is now COMPLETE.')}>Publish now</button></div>}
+          {!open.canDecide && !open.canCancel && !open.canExecute && <p style={note}>Waiting for another manager.</p>}
+        </>
+      )}
+      {notice && <p role="alert" data-testid="publication-notice" style={{ margin: 0, color: '#a11d1d' }}>{notice}</p>}
+    </section>
   )
 }
