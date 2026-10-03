@@ -6,7 +6,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Tag } from '@/components/ops/ops-ui'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
-import { deleteHotelImage, getHotelImages, hotelImageSrc, updateHotelImage, uploadHotelImage } from '@/lib/data/hotel-images'
+import { deleteHotelImage, getHotelImages, hotelImageSrc, reorderHotelImages, updateHotelImage, uploadHotelImage } from '@/lib/data/hotel-images'
 import { useCan } from '@/lib/auth/capabilities'
 
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
@@ -39,9 +39,9 @@ export function ImagesPanel({ hotelId }: { hotelId: string }) {
         {(d) => {
           const items = d.items
           const move = (i: number, dir: -1 | 1) => {
-            const a = items[i]; const b = items[i + dir]
-            if (!a || !b) return
-            void act('reorder the images', async () => { await updateHotelImage(hotelId, a.id, { sortOrder: b.sortOrder }); await updateHotelImage(hotelId, b.id, { sortOrder: a.sortOrder }) }, 'Order updated.')
+            if (!items[i] || !items[i + dir]) return
+            const next = items.map((x) => x.id); [next[i], next[i + dir]] = [next[i + dir], next[i]]
+            void act('reorder the images', async () => { await reorderHotelImages(hotelId, { imageIds: next }) }, 'Order updated.')
           }
           return (
             <>

@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res, UseGuards, PayloadTooLargeException } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Req, Res, UseGuards, PayloadTooLargeException } from '@nestjs/common'
 import type { Request, Response } from 'express'
 import { ApiTags } from '@nestjs/swagger'
-import { HOTEL_IMAGE_ERROR_CODES, HOTEL_IMAGE_LIMITS, type HotelImageUpdate } from '@bedbanks/contracts'
+import { HOTEL_IMAGE_ERROR_CODES, HOTEL_IMAGE_LIMITS, type HotelImageReorder, type HotelImageUpdate } from '@bedbanks/contracts'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
@@ -42,6 +42,11 @@ export class HotelImagesController {
   async upload(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string, @Query('altText') altText: string, @Req() req: Request) {
     const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase()
     return this.images.upload(tenantId, identity.user.id, hotelId, await readBody(req, HOTEL_IMAGE_LIMITS.maxBytes), type, altText, rid(req))
+  }
+
+  @Put('order') @HttpCode(200) @RequireSupplyPermission('supply.hotels.manage') @UseGuards(SupplyPermissionGuard)
+  reorder(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string, @Body() body: HotelImageReorder, @Req() req: Request) {
+    return this.images.reorder(tenantId, identity.user.id, hotelId, body ?? ({} as HotelImageReorder), rid(req))
   }
 
   @Get(':imageId/content') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
