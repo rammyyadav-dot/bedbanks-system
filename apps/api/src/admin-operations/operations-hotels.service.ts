@@ -3,11 +3,13 @@ import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
-  type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
+  type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { bookingEnabled } from '../agent/booking-transaction.service'
+import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { commercialLeadDays, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
@@ -453,6 +455,56 @@ export class OperationsHotelsService {
       })
       return { hotelId: hotel.id, window: { from: win.from, to: win.to, days: win.days }, rows, truncated: all.length > plans.length }
     })
+  }
+
+  // ---- distribution and readiness ------------------------------------------------------------------------------------------
+  /** Catalogue publication, transaction enablement and a seven-day coverage assessment from the same evaluator Agent search uses. Read-only. */
+  async distribution(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>): Promise<HotelDistribution> {
+    const calendar = await this.calendar(tenantId, hotelIdRaw, { ...query, days: 7, roomTypeId: undefined })
+    const { hotel, restrictions } = await this.prisma.withTenant(tenantId, async (tx) => {
+      const record = await this.hotelRecord(tx, tenantId, hotelIdRaw)
+      const suppliers = (await tx.supplierHotelMapping.findMany({ where: { tenantId, hotelId: record.id }, select: { supplierId: true } })).map((m) => m.supplierId)
+      await tx.$executeRawUnsafe('SAVEPOINT distribution_restrictions_read')
+      try {
+        const [hotelScoped, supplierScoped] = await Promise.all([
+          tx.distributionRestriction.count({ where: { tenantId, status: 'ACTIVE', scope: 'HOTEL', hotelId: record.id } }),
+          suppliers.length ? tx.distributionRestriction.count({ where: { tenantId, status: 'ACTIVE', scope: 'SUPPLIER', supplierId: { in: suppliers } } }) : Promise.resolve(0),
+        ])
+        await tx.$executeRawUnsafe('RELEASE SAVEPOINT distribution_restrictions_read')
+        return { hotel: record, restrictions: { hotel: hotelScoped, supplier: supplierScoped } as HotelDistribution['restrictions'] }
+      } catch (error) {
+        if (!isBookingReadDenied(error)) throw error
+        await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT distribution_restrictions_read')
+        return { hotel: record, restrictions: null as HotelDistribution['restrictions'] }
+      }
+    })
+    const published = hotel.contentStatus === 'COMPLETE'; const suspended = hotel.contentStatus === 'SUSPENDED'; const starOk = hotel.starRating !== null && hotel.starRating >= 1 && hotel.starRating <= 5
+    const reasons = [...(published ? [] : [suspended ? 'HOTEL_SUSPENDED' : 'HOTEL_NOT_PUBLISHED']), ...(starOk ? [] : ['HOTEL_STAR_RATING_MISSING'])]
+    const blockers = new Map<string, { nights: number; dates: Set<string>; rooms: Set<string>; plans: Set<string>; suppliers: Set<string> }>()
+    const byRoom = new Map<string, DistributionCoverageRow>(); const bySupplier = new Map<string, DistributionCoverageRow>()
+    let sellable = 0; let planNights = 0
+    for (const row of calendar.rows) {
+      const room = byRoom.get(row.roomName) ?? { label: row.roomName, planNights: 0, sellable: 0 }; const sup = bySupplier.get(row.supplierName) ?? { label: row.supplierName, planNights: 0, sellable: 0 }
+      for (const cell of row.cells) {
+        planNights++; room.planNights++; sup.planNights++
+        if (cell.sellable) { sellable++; room.sellable++; sup.sellable++; continue }
+        for (const reason of cell.reasons) {
+          const b = blockers.get(reason) ?? { nights: 0, dates: new Set(), rooms: new Set(), plans: new Set(), suppliers: new Set() }
+          b.nights++; b.dates.add(cell.date); b.rooms.add(row.roomName); b.plans.add(row.ratePlanCode); b.suppliers.add(row.supplierName); blockers.set(reason, b)
+        }
+      }
+      byRoom.set(row.roomName, room); bySupplier.set(row.supplierName, sup)
+    }
+    const list: DistributionBlocker[] = [...blockers.entries()].map(([reason, b]) => ({ reason, nights: b.nights, dates: [...b.dates].sort(), rooms: [...b.rooms].sort().slice(0, 50), ratePlans: [...b.plans].sort().slice(0, 50), suppliers: [...b.suppliers].sort().slice(0, 50) })).sort((a, b) => b.nights - a.nights || a.reason.localeCompare(b.reason))
+    return {
+      generatedAt: new Date().toISOString(), hotelId: hotel.id,
+      catalogue: { status: hotel.contentStatus, published, suspended, starRatingValid: starOk, eligible: published && starOk, reasons },
+      transaction: { bookingEnabled: bookingEnabled() },
+      // Agent search lists only published, rated hotels, so a night being sellable is not enough on its own.
+      restrictions, agentSellable: published && starOk && sellable > 0,
+      coverage: { window: calendar.window, planNights, sellableNights: sellable, byRoom: [...byRoom.values()], bySupplier: [...bySupplier.values()], truncated: calendar.truncated },
+      blockers: list,
+    }
   }
 
   // ---- sellability inspector (stay level) ----------------------------------------------------------------------------------

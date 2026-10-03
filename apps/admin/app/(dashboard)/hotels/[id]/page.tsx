@@ -19,7 +19,7 @@ import { QuickUpdatePanel } from '@/components/hotels/panels/QuickUpdatePanel'
 import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
 import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
-import { SellabilityPanel } from '@/components/hotels/panels/SellabilityPanel'
+import { DistributionPanel } from '@/components/hotels/panels/DistributionPanel'
 import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
 import { AuditPanel } from '@/components/hotels/panels/AuditPanel'
 import { useCan } from '@/lib/auth/capabilities'
@@ -74,7 +74,7 @@ function Hotel360() {
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
               {tab === 'rates' && <RatesInventoryPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'quick' && <QuickUpdatePanel hotelId={id} data={data} />}
-              {tab === 'sellability' && <SellabilityPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'sellability' && <DistributionPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'bookings' && <BookingsPanel hotelId={id} />}
               {tab === 'audit' && <AuditPanel hotelId={id} />}
             </div>

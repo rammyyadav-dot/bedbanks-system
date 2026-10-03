@@ -248,3 +248,53 @@ export interface SellabilityInspection {
 // ---- Exceptions centre -------------------------------------------------------------------------------------------
 export interface ExceptionsQuery { severity?: IssueSeverity; category?: CommercialIssueCategory; supplierId?: string; hotelId?: string; from?: string; days?: number; page?: number; pageSize?: number }
 export interface ExceptionsPage { items: CommercialIssue[]; page: number; pageSize: number; total: number; scanCapped: boolean; window: { from: string; to: string; days: number }; counts: Record<IssueSeverity, number> }
+
+// ---- Distribution & readiness (ADR 0021, stage 6) ------------------------------------------------------------------
+export interface DistributionBlocker {
+  /** Canonical reason code (see COMMERCIAL_REASON_TEXT). */
+  reason: string
+  nights: number
+  dates: string[]
+  rooms: string[]
+  ratePlans: string[]
+  suppliers: string[]
+}
+export interface DistributionCoverageRow { label: string; planNights: number; sellable: number }
+
+/**
+ * Catalogue publication, distribution eligibility, transaction enablement and a seven-day coverage assessment, kept apart on purpose:
+ * a published hotel is eligible for the catalogue, eligibility is not sellability, and neither enables booking or payment.
+ * Everything is computed by the same evaluator Agent search uses; this view only reads.
+ */
+export interface HotelDistribution {
+  generatedAt: string
+  hotelId: string
+  catalogue: {
+    /** `Hotel.contentStatus`, the profile approval state. */
+    status: string
+    published: boolean
+    suspended: boolean
+    starRatingValid: boolean
+    /** Published, not suspended, and with a 1-5 star rating: the hotel may appear in Agent search if something is sellable. Not a sellability verdict. */
+    eligible: boolean
+    reasons: string[]
+  }
+  transaction: {
+    /** The platform booking switch. Publishing a hotel never changes it. */
+    bookingEnabled: boolean
+  }
+  /** Agency distribution restrictions (ADR 0019) touching this hotel or its suppliers. null when the API database role cannot read them. */
+  restrictions: { hotel: number; supplier: number } | null
+  agentSellable: boolean
+  coverage: {
+    window: { from: string; to: string; days: number }
+    planNights: number
+    sellableNights: number
+    byRoom: DistributionCoverageRow[]
+    bySupplier: DistributionCoverageRow[]
+    /** True when more rate plans exist than the assessment covers. */
+    truncated: boolean
+  }
+  /** Why nights are not sellable, grouped by reason, with the dates, rooms, rate plans and suppliers affected. */
+  blockers: DistributionBlocker[]
+}

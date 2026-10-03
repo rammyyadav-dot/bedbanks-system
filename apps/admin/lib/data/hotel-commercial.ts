@@ -1,6 +1,6 @@
 // Hotel commercial operations API access. Read-only; no mock or fallback data lives here.
 import {
-  routes, type AuditEventView, type ExceptionsPage, type HotelCalendar, type HotelCommercial360, type HotelCommercialPage, type HotelCommercialSummary,
+  routes, type AuditEventView, type ExceptionsPage, type HotelCalendar, type HotelDistribution, type HotelCommercial360, type HotelCommercialPage, type HotelCommercialSummary,
   type HotelContractsView, type HotelMappingsView, type Paged, type SellabilityInspection,
 } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
@@ -17,5 +17,6 @@ export const getHotelContracts = (hotelId: string, p: Params = {}) => apiRequest
 export const getHotelMappings = (hotelId: string) => apiRequest<HotelMappingsView>(fill(ops.hotelMappings, { hotelId }))
 export const getHotelCalendar = (hotelId: string, p: Params) => apiRequest<HotelCalendar>(`${fill(ops.hotelCalendar, { hotelId })}${opsQuery(p)}`)
 export const inspectHotelSellability = (hotelId: string, p: Params) => apiRequest<SellabilityInspection>(`${fill(ops.hotelSellability, { hotelId })}${opsQuery(p)}`)
+export const getHotelDistribution = (hotelId: string, p: Params = {}) => apiRequest<HotelDistribution>(`${fill(ops.hotelDistribution, { hotelId })}${opsQuery(p)}`)
 export const getHotelAudit = (hotelId: string, p: Params) => apiRequest<Paged<AuditEventView>>(`${fill(ops.hotelAudit, { hotelId })}${opsQuery(p)}`)
 export const getCommercialExceptions = (p: Params) => apiRequest<ExceptionsPage>(`${ops.exceptions}${opsQuery(p)}`)

@@ -646,4 +646,60 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(before + 1)
     expect((await rateAt(planId, 11)).amountMinor).toBe(33_333n)
   })
+  it('DR-01 distribution separates catalogue publication from transaction enablement and explains seven-day coverage by date, room, plan and supplier', async () => {
+    await buildHotel(tenantA, supplier1, 'cover')
+    const id = hotels.cover; const planId = await planOf(id)
+    await prisma.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: utc(2) } }, data: { stopSell: true } })
+    await prisma.dailyRate.delete({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: planId, stayDate: utc(3), occupancy: 2 } } })
+    const read = async (hotelId: string, who = 'reader') => (await api('get', `/admin/operations/hotels/${hotelId}/distribution?from=${day(0)}`, who).expect(200)).body.data
+    const d = await read(id)
+    expect(d.coverage.window).toEqual({ from: day(0), to: day(6), days: 7 }); expect(d.coverage).toMatchObject({ planNights: 7, sellableNights: 5, truncated: false })
+    expect(d.agentSellable).toBe(true); expect(d.coverage.byRoom).toEqual([{ label: 'Deluxe', planNights: 7, sellable: 5 }]); expect(d.coverage.bySupplier).toEqual([{ label: 'Alpha', planNights: 7, sellable: 5 }])
+    expect(d.blockers).toHaveLength(2)
+    const byDate = Object.fromEntries(d.blockers.map((b: { dates: string[]; reason: string }) => [b.dates[0], b]))
+    expect(byDate[day(2)]).toMatchObject({ nights: 1, rooms: ['Deluxe'], ratePlans: ['cover-BB'], suppliers: ['Alpha'] }); expect(byDate[day(3)]).toMatchObject({ nights: 1, rooms: ['Deluxe'], ratePlans: ['cover-BB'], suppliers: ['Alpha'] })
+    expect(new Set(d.blockers.map((b: { reason: string }) => b.reason)).size).toBe(2)
+    expect(d.catalogue).toMatchObject({ status: 'COMPLETE', published: true, suspended: false, starRatingValid: true, eligible: true, reasons: [] })
+    expect([null, { hotel: 0, supplier: 0 }]).toContainEqual(d.restrictions)
+
+    // an unpublished, unrated draft is not eligible, and eligibility is a separate fact from sellability
+    const draft = await newDraft('not-published')
+    const dd = await read(draft)
+    expect(dd.catalogue).toMatchObject({ status: 'DRAFT', published: false, eligible: false }); expect(dd.catalogue.reasons).toEqual(['HOTEL_NOT_PUBLISHED', 'HOTEL_STAR_RATING_MISSING']); expect(dd.agentSellable).toBe(false)
+    // publishing changes catalogue state only: the platform booking switch is the same before and after
+    const bookingBefore = dd.transaction.bookingEnabled
+    await prisma.roomType.create({ data: { hotelId: draft, name: 'Std', code: 'S1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    let setup = await load(draft)
+    setup = (await save(draft, setup.concurrencyToken, FULL).expect(200)).body.data.setup
+    await api('post', `${setupPath(draft)}/status`, 'manager', { idempotencyKey: key(), expectedToken: setup.concurrencyToken, to: 'COMPLETE', reason: 'Reviewed' }).expect(200)
+    const after = await read(draft)
+    expect(after.catalogue).toMatchObject({ published: true, eligible: true }); expect(after.transaction.bookingEnabled).toBe(bookingBefore); expect(after.agentSellable).toBe(false) // still nothing to sell
+    await api('post', `${setupPath(draft)}/status`, 'manager', { idempotencyKey: key(), expectedToken: (await load(draft)).concurrencyToken, to: 'SUSPENDED', reason: 'Withdrawn' }).expect(200)
+    expect((await read(draft)).catalogue).toMatchObject({ suspended: true, eligible: false, reasons: ['HOTEL_SUSPENDED'] })
+    await api('get', `/admin/operations/hotels/${id}/distribution`, 'none').expect(403)
+    await api('get', `/admin/operations/hotels/${id}/distribution`, 'bmanager').expect(404)
+    await api('get', `/admin/operations/hotels/${id}/distribution?from=2026-02-30`, 'reader').expect(400)
+  })
+  it('DR-02 the Admin readiness view agrees with what Agent search actually offers (read-only compatibility)', async () => {
+    await buildHotel(tenantA, supplier1, 'compat')
+    const id = hotels.compat; const planId = await planOf(id)
+    const offered = async () => new Set<string>(((await search('agent').expect(201)).body.data.hotels as Array<{ hotelId: string }>).map((h) => h.hotelId))
+    const adminSays = async () => (await api('get', `/admin/operations/hotels/${id}/distribution?from=${day(10)}`, 'reader').expect(200)).body.data
+    // sellable and published: both agree
+    expect((await adminSays()).agentSellable).toBe(true); expect((await offered()).has(id)).toBe(true)
+    // a stop-sell on every night: both agree it is not sellable
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: planId }, data: { stopSell: true } })
+    expect((await adminSays()).agentSellable).toBe(false); expect((await offered()).has(id)).toBe(false)
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: planId }, data: { stopSell: false } })
+    expect((await offered()).has(id)).toBe(true)
+    // withdrawn from the catalogue: Agent search stops listing it and the Admin says so, while the rates themselves are unchanged
+    await prisma.hotel.update({ where: { id }, data: { contentStatus: 'SUSPENDED' } })
+    const suspended = await adminSays()
+    expect(suspended.catalogue).toMatchObject({ suspended: true, eligible: false }); expect(suspended.agentSellable).toBe(false); expect((await offered()).has(id)).toBe(false)
+    await prisma.hotel.update({ where: { id }, data: { contentStatus: 'DRAFT' } })
+    const draft = await adminSays()
+    expect(draft.catalogue).toMatchObject({ published: false, eligible: false }); expect(draft.agentSellable).toBe(false); expect((await offered()).has(id)).toBe(false)
+    // eligible is false in both unpublished cases, so the page never presents an unpublished hotel as ready for Agents
+    expect([suspended.catalogue.eligible, draft.catalogue.eligible]).toEqual([false, false])
+  })
 })

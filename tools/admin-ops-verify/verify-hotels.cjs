@@ -349,6 +349,20 @@ async function openHotel(page, key, tab) {
   check('a user without rate or availability rights does not see the Quick Update tab', (await qv.page.getByRole('tab', { name: 'Quick Update' }).count()) === 0)
   await qv.ctx.close()
 
+  // ---- Distribution & Readiness (ADR 0021, stage 6): publication, eligibility, transaction enablement and coverage are separate ----
+  await openHotel(page, 'alpha', 'sellability'); await page.waitForSelector('[data-testid=dist-coverage]')
+  const catalogueText = await page.getByTestId('dist-catalogue').innerText(); const txText = await page.getByTestId('dist-transaction').innerText()
+  check('catalogue publication, distribution and transaction enablement are shown apart', /COMPLETE/.test(catalogueText) && /ELIGIBLE FOR THE CATALOGUE/.test(catalogueText) && (await page.getByTestId('dist-distribution').count()) === 1 && /BOOKING NOT ENABLED/.test(txText))
+  check('the page says publishing never changes the booking switch and eligibility is not sellability', /never changes it/.test(txText) && /Eligibility is not sellability/.test(catalogueText))
+  check('seven-day coverage states sellable plan-nights out of the total', /\d+ of \d+\s+plan-nights are sellable/.test(await page.getByTestId('dist-coverage-summary').innerText()) && /next 7 nights/.test(await page.getByTestId('dist-coverage').innerText()))
+  await openHotel(page, 'foxtrot', 'sellability'); await page.waitForSelector('[data-testid=dist-coverage]')
+  const fox = await page.getByTestId('dist-coverage').innerText()
+  check('blockers are listed by reason with the dates, rooms, rate plans and suppliers affected', (await page.locator('[data-testid=dist-coverage] tr[data-reason]').count()) >= 1 && /Gulf Direct/.test(fox) && /Deluxe Sea View/.test(fox) && /Family Suite/.test(fox) && new RegExp(ymd(0)).test(fox) && /0 of \d+\s+plan-nights are sellable/.test(fox))
+  check('a hotel with nothing sellable is not shown as sellable to Agents', /NOT SELLABLE TO AGENTS/.test(await page.getByTestId('dist-distribution').innerText()))
+  await openHotel(page, 'kilo', 'sellability'); await page.waitForSelector('[data-testid=dist-coverage]')
+  check('a hotel with no rate plan says there is nothing to assess', /no rate plan, so there is nothing to assess/.test(await page.getByTestId('dist-coverage').innerText()))
+  check('the stay evaluator remains available and read-only', (await page.getByRole('button', { name: 'Check sellability' }).count()) === 1 && /creates no hold and no booking/.test(await text(page)))
+
   // ---- directory: search by canonical id and external id, filters persist in the URL ----
   await page.goto(`${BASE}/hotels`); await page.waitForSelector('[data-testid=hotels-table]')
   await page.getByLabel('Search hotels').fill('GV-'); await page.getByLabel('Search hotels').press('Enter'); await page.waitForFunction(() => location.search.includes('search=GV-'))
@@ -384,7 +398,7 @@ async function openHotel(page, key, tab) {
   }
   await page.setViewportSize({ width: 1280, height: 900 })
   await openHotel(page, 'bravo', 'sellability'); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-testid=sellability-result]')
-  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Quick Update', `${BASE}/hotels/${H.alpha}?tab=quick`, '[data-testid=quick-update]'], ['Supplier Mapping', `${BASE}/hotels/${H.alpha}?tab=mappings`, '[data-testid=hotel-mappings]'], ['Rooms', `${BASE}/hotels/${H.alpha}?tab=rooms`, 'table[aria-label=Rooms]'], ['Amenities', `${BASE}/hotels/${H.alpha}?tab=amenities`, '[data-testid=amenities-form]'], ['Policies', `${BASE}/hotels/${H.alpha}?tab=policies`, '[data-testid=policies-form]'], ['Images', `${BASE}/hotels/${H.alpha}?tab=images`, '[data-testid=images-unavailable]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
+  for (const [label, url, wait] of [['Hotels list', `${BASE}/hotels`, '[data-testid=hotels-table]'], ['Hotel 360', `${BASE}/hotels/${H.alpha}`, '[data-testid=readiness-gates]'], ['Rate & Inventory', `${BASE}/hotels/${H.bravo}?tab=rates`, '[data-testid=calendar]'], ['Hotel Setup', `${BASE}/hotels/${H.alpha}?tab=setup`, '[data-testid=setup-form]'], ['Distribution & Readiness', `${BASE}/hotels/${H.alpha}?tab=sellability`, '[data-testid=dist-coverage]'], ['Quick Update', `${BASE}/hotels/${H.alpha}?tab=quick`, '[data-testid=quick-update]'], ['Supplier Mapping', `${BASE}/hotels/${H.alpha}?tab=mappings`, '[data-testid=hotel-mappings]'], ['Rooms', `${BASE}/hotels/${H.alpha}?tab=rooms`, 'table[aria-label=Rooms]'], ['Amenities', `${BASE}/hotels/${H.alpha}?tab=amenities`, '[data-testid=amenities-form]'], ['Policies', `${BASE}/hotels/${H.alpha}?tab=policies`, '[data-testid=policies-form]'], ['Images', `${BASE}/hotels/${H.alpha}?tab=images`, '[data-testid=images-unavailable]'], ['Sellability Inspector', null, '[data-testid=sellability-result]'], ['Exceptions', `${BASE}/exceptions`, '[data-testid=exceptions-table]']]) {
     if (url) { await page.goto(url); await page.waitForSelector(wait) }
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     const bad = axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))

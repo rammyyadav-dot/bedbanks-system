@@ -26,7 +26,7 @@ export const HOTEL_TABS = [
   { id: 'contracts', label: 'Contracts & Rate Plans' },
   { id: 'rates', label: 'Rates & Inventory' },
   { id: 'quick', label: 'Quick Update' },
-  { id: 'sellability', label: 'Sellability' },
+  { id: 'sellability', label: 'Distribution & Readiness' },
   { id: 'bookings', label: 'Bookings' },
   { id: 'audit', label: 'Audit' },
 ] as const
