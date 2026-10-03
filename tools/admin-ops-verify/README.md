@@ -54,3 +54,11 @@ keyboard use, horizontal overflow at 1280 / 768 / 390 px, and axe (WCAG A/AA) on
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-credit.ts)
 node tools/admin-ops-verify/verify-credit.cjs
 ```
+
+## Hotel images
+
+`verify-images.cjs` reuses the hotels seed (`seed-hotels.ts`, reseed first) and drives the Images tab in Chromium with real, decodable PNGs: upload, size and type refusals, duplicate refusal, primary, order, alt text, delete, persistence, phone overflow, and a read-only user.
+
+```bash
+node tools/admin-ops-verify/verify-images.cjs
+```

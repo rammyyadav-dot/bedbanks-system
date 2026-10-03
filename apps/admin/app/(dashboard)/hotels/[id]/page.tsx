@@ -68,7 +68,7 @@ function Hotel360() {
               {tab === 'setup' && <SetupPanel hotelId={id} onChanged={refresh} />}
               {tab === 'rooms' && <RoomsPanel data={data} onChanged={refresh} />}
               {tab === 'amenities' && <AmenitiesPanel hotelId={id} onChanged={refresh} />}
-              {tab === 'images' && <ImagesPanel />}
+              {tab === 'images' && <ImagesPanel hotelId={id} />}
               {tab === 'policies' && <PoliciesPanel hotelId={id} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}

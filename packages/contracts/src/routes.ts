@@ -6,6 +6,9 @@ export const routes = {
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
   // Hotel Setup (ADR 0021): descriptive and operational hotel content, saved with optimistic concurrency.
+  adminHotelImages: {
+    images: '/admin/hotels/:hotelId/images', image: '/admin/hotels/:hotelId/images/:imageId', imageContent: '/admin/hotels/:hotelId/images/:imageId/content',
+  },
   adminHotelSetup: {
     setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status', ownerCandidates: '/admin/hotels/:hotelId/setup/owner-candidates',
     publicationRequest: '/admin/hotels/:hotelId/setup/publication/request',

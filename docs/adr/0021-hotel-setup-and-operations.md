@@ -47,7 +47,7 @@ The Hotels module already had a directory, a Hotel 360 view and commercial tabs 
 ## Known gaps and decisions for the owner
 - **Legacy hotel endpoints (closed by ADR 0023).** `POST` and `PATCH /supply/hotels` can no longer set `contentStatus: COMPLETE`.
 - **Single-actor approval (closed by ADR 0022).** Publication now needs a second approver.
-- **Images** have no approved storage mechanism in the repository, so no upload is offered and no thumbnail is shown.
+- **Images (built later, ADR 0027)** are stored in PostgreSQL behind a storage port.
 - **Owner picker (built).** `GET /admin/hotels/:hotelId/setup/owner-candidates` lists up to 50 members of the session's tenant (name/e-mail search, wildcard characters literal) and needs `supply.hotels.manage`, because it exposes staff e-mail addresses. The saved owner must be a member of the tenant (validated server-side) and is displayed by name; if the member later leaves, the owner shows as not set while the stored id is kept. The owner is an internal contact only: it grants no access and changes no permission.
 
 ## Consequences

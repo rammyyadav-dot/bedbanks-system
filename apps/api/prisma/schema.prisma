@@ -75,6 +75,30 @@ model AgencyCreditLimit {
   @@index([tenantId, agencyId])
 }
 
+/// Hotel image (ADR 0027). Bytes are stored in PostgreSQL behind a storage port; list queries must omit `data`.
+model HotelImage {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String   @map("hotel_id")
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  contentType  String   @map("content_type")
+  bytes        Int
+  width        Int
+  height       Int
+  sha256       String   @db.Char(64)
+  altText      String   @map("alt_text")
+  sortOrder    Int      @default(0) @map("sort_order")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  data         Bytes
+  uploadedById String   @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, sha256])
+  @@index([tenantId, hotelId, sortOrder])
+}
+
 model Agency {
   id          String       @id @default(cuid())
   tenantId    String       @map("tenant_id")
@@ -434,6 +458,7 @@ enum ConnectorExecutionStatus {
 
 model Tenant {
   agencies Agency[]
+  hotelImages HotelImage[]
   agencyCreditLimits AgencyCreditLimit[]
   hotelProfiles HotelProfile[]
   hotelExternalIdentifiers HotelExternalIdentifier[]
@@ -812,6 +837,7 @@ model Hotel {
   profile HotelProfile?
   externalIdentifiers HotelExternalIdentifier[]
   amenities HotelAmenity[]
+  images HotelImage[]
   id            String        @id @default(cuid())
   tenantId      String        @map("tenant_id")
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
