@@ -21,7 +21,7 @@ export function AgentAuthGate() {
     try {
       const context = await getAgentContext()
       if (sessionEpoch.current !== generation) return
-      setIdentity(agentSession(context, context.bookingEnabled))
+      setIdentity(agentSession(context, context.bookingEnabled, context.settlementCurrencies))
       setSessionExpired(false)
     } catch (error) {
       if (sessionEpoch.current !== generation) return
@@ -36,16 +36,16 @@ export function AgentAuthGate() {
 
   const acceptSignIn = useCallback(async (signedIn: AgentIdentity) => {
     const generation = ++sessionEpoch.current
-    setIdentity(agentSession(signedIn, false))
+    setIdentity(agentSession(signedIn, false, signedIn.settlementCurrencies))
     setSessionExpired(false)
     setRestoreError(false)
     try {
       const context = await getAgentContext()
       if (sessionEpoch.current !== generation) return
-      setIdentity(agentSession(context, context.bookingEnabled))
+      setIdentity(agentSession(context, context.bookingEnabled, context.settlementCurrencies))
     } catch {
       if (sessionEpoch.current !== generation) return
-      setIdentity(agentSession(signedIn, false))
+      setIdentity(agentSession(signedIn, false, signedIn.settlementCurrencies))
     }
   }, [])
 

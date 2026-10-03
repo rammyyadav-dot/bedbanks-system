@@ -284,7 +284,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
       checkOut: search.checkOut,
       roomStays: search.roomStays.map((stay) => ({ adults: stay.adults, childAges: stay.children.map((child) => child.age) })),
       ...(search.nationality ? { nationality: search.nationality } : {}),
-      currency: search.currency,
+      currency: identity.settlementCurrencies.includes(search.currency) ? search.currency : identity.settlementCurrencies[0], // a saved search in a currency that is no longer enabled (ADR 0029) replays in the default
       ...(search.sort ? { sort: search.sort } : {}),
       starRatings: search.starRatings ?? [],
       refundableOnly: Boolean(search.refundableOnly),

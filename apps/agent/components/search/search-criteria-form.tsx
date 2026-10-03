@@ -6,7 +6,8 @@ import type { DestinationRef, DestinationResolution, SearchSort } from '@bedbank
 import { marketplaceHome } from '@/lib/marketplace-content'
 import { canSubmitDestination, destinationSuggestions } from '@/lib/destination-suggestions'
 import { fetchDestinations } from '@/lib/destination-client'
-import { criteriaFilters, SELLING_CURRENCIES } from '@/lib/search-filters'
+import { criteriaFilters } from '@/lib/search-filters'
+import { useCurrencyOptions } from '@/components/search/currency-options'
 import { GUEST_MARKETS, guestMarketName } from '@/lib/guest-market'
 import { buildRoomStays, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, roomStaySummary, type RoomStayDraft } from '@/lib/occupancy'
 import { formatCompactStay, weekdayShort } from '@/lib/format'
@@ -58,6 +59,7 @@ export function SearchCriteriaForm({
   destinationInvalid?: boolean
   tenantId: string
 }) {
+  const currencyOptions = useCurrencyOptions()
   const [advanced, setAdvanced] = useState(false)
   const [formError, setFormError] = useState('')
   const submitLabel = searching ? marketplaceHome.searchingCta : searchFailed ? marketplaceHome.retryCta : marketplaceHome.searchCta
@@ -84,7 +86,7 @@ export function SearchCriteriaForm({
       </div>
       <div className="market-search-tools">
         <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>
-        <label><span>{marketplaceHome.currencyLabel}</span> <select aria-label="Selling currency" value={currency} onChange={(event) => change(() => setCurrency(event.target.value))}>{SELLING_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
+        <label><span>{marketplaceHome.currencyLabel}</span> <select aria-label="Selling currency" value={currency} onChange={(event) => change(() => setCurrency(event.target.value))}>{currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
       </div>
       {formError && <p className="portal-field-error" role="alert">{formError}</p>}
       <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} {marketplaceHome.residencyNote} A search total is not confirmed availability.</p>

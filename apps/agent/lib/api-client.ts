@@ -6,6 +6,8 @@ export type AgentIdentity = {
   memberships: Array<{ tenantId: string; tenantName: string; role: string }>
   /** Server context only. True solely when the API sends boolean true. Never a booking permission. */
   bookingEnabled: boolean
+  /** Currencies the server enables (ADR 0029). Fails closed to AED when the server sends nothing usable. */
+  settlementCurrencies: string[]
 }
 
 /** Fail closed. Only an explicit boolean true from agent context enables the booking UI. */
@@ -13,8 +15,13 @@ export function bookingEnabledFromContext(value: unknown): boolean {
   return value === true
 }
 
-export function agentSession(identity: { user: AgentIdentity['user']; memberships: AgentIdentity['memberships'] }, bookingEnabled: unknown): AgentIdentity {
-  return { user: identity.user, memberships: identity.memberships, bookingEnabled: bookingEnabledFromContext(bookingEnabled) }
+export function settlementCurrenciesFromContext(value: unknown): string[] {
+  const list = Array.isArray(value) ? value.filter((c): c is string => typeof c === 'string' && /^[A-Z]{3}$/.test(c)) : []
+  return list.length > 0 ? [...new Set(list)] : ['AED']
+}
+
+export function agentSession(identity: { user: AgentIdentity['user']; memberships: AgentIdentity['memberships'] }, bookingEnabled: unknown, settlementCurrencies?: unknown): AgentIdentity {
+  return { user: identity.user, memberships: identity.memberships, bookingEnabled: bookingEnabledFromContext(bookingEnabled), settlementCurrencies: settlementCurrenciesFromContext(settlementCurrencies) }
 }
 
 const apiBase = agentApiBase
@@ -43,8 +50,8 @@ export async function login(email: string, password: string) {
 }
 
 export async function getAgentContext() {
-  const context = await request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: unknown }>('/agent/context')
-  return { ...context, bookingEnabled: bookingEnabledFromContext(context.bookingEnabled) }
+  const context = await request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: unknown; settlementCurrencies?: unknown }>('/agent/context')
+  return { ...context, bookingEnabled: bookingEnabledFromContext(context.bookingEnabled), settlementCurrencies: settlementCurrenciesFromContext(context.settlementCurrencies) }
 }
 
 export function logout() {

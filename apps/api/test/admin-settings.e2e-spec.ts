@@ -80,8 +80,8 @@ describe('Admin settings HTTP', () => {
   it('lazily creates defaults for the authenticated tenant', async () => {
     const response = await request(app.getHttpServer()).get('/api/v1/admin/settings').set('Cookie', await login(ownerEmail)).expect(200)
     expect(response.body.data).toMatchObject({
-      tenantId, slug: `settings-a-${suffix}`, defaultLanguage: 'en', timeZone: 'UTC', defaultCurrency: 'USD',
-      lowBalanceThreshold: { amountMinor: '0', currency: 'USD' }, supportEmail: null,
+      tenantId, slug: `settings-a-${suffix}`, defaultLanguage: 'en', timeZone: 'UTC', defaultCurrency: 'AED',
+      lowBalanceThreshold: { amountMinor: '0', currency: 'AED' }, supportEmail: null,
     })
   })
 
@@ -111,6 +111,6 @@ describe('Admin settings HTTP', () => {
     const response = await request(app.getHttpServer()).get('/api/v1/admin/settings').set('Cookie', await login(otherOwnerEmail)).expect(200)
     expect(response.body.data.tenantId).toBe(otherTenantId)
     expect(JSON.stringify(response.body.data)).not.toContain('ops@tenant-a.test')
-    expect(response.body.data.lowBalanceThreshold).toEqual({ amountMinor: '0', currency: 'USD' })
+    expect(response.body.data.lowBalanceThreshold).toEqual({ amountMinor: '0', currency: 'AED' })
   })
 })

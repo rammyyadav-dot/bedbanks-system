@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
+import { defaultSettlementCurrency, enabledSettlementCurrencies } from '../agent/currency'
 import { createHash } from 'node:crypto'
 import type { TenantSettingsView } from '@bedbanks/contracts'
 import {
@@ -106,7 +107,7 @@ export class AdminSettingsService {
 
   private async ensureRow(tx: Prisma.TransactionClient, tenantId: string): Promise<SettingsRow> {
     // ON CONFLICT DO NOTHING keeps concurrent first reads from aborting the transaction.
-    await tx.tenantSettings.createMany({ data: [{ tenantId, defaultCurrency: 'USD', lowBalanceCurrency: 'USD' }], skipDuplicates: true })
+    await tx.tenantSettings.createMany({ data: [{ tenantId, defaultCurrency: defaultSettlementCurrency(), lowBalanceCurrency: defaultSettlementCurrency() }], skipDuplicates: true })
     return tx.tenantSettings.findUniqueOrThrow({ where: { tenantId }, include: { tenant: true } })
   }
 
@@ -154,6 +155,6 @@ export class AdminSettingsService {
   }
 
   private assertCurrency(value: string): void {
-    if (!(TENANT_SETTING_CURRENCIES as readonly string[]).includes(value)) throw new BadRequestException('Unsupported currency')
+    if (!(TENANT_SETTING_CURRENCIES as readonly string[]).includes(value) || !(enabledSettlementCurrencies() as readonly string[]).includes(value)) throw new BadRequestException('Unsupported currency')
   }
 }

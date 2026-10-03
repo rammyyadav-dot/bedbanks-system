@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer'
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, Min, ValidateNested } from 'class-validator'
-import { SUPPORTED_SETTLEMENT_CURRENCIES } from './currency'
+import { enabledSettlementCurrencies } from './currency'
 
 export class RateActionDto {
   @IsString() hotelId!: string
@@ -21,7 +21,7 @@ export class CancellationDto {
 
 export class OfferHoldDto {
   @IsString() @Length(1, 512) searchId!: string
-  @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) expectedCurrency!: string
+  @IsIn(enabledSettlementCurrencies() as unknown as string[]) expectedCurrency!: string
   @IsInt() @Min(1) expectedSellAmountMinor!: number
   @IsString() @Length(8, 128) @Matches(/^[A-Za-z0-9._:-]+$/) idempotencyKey!: string
 }
@@ -33,7 +33,7 @@ export class OfferHoldParamsDto {
 export class OfferRecheckDto {
   @IsString() @Length(1, 512) offerId!: string
   @IsString() @Length(1, 512) searchId!: string
-  @IsIn(SUPPORTED_SETTLEMENT_CURRENCIES) expectedCurrency!: string
+  @IsIn(enabledSettlementCurrencies() as unknown as string[]) expectedCurrency!: string
   @IsInt() @Min(1) expectedSellAmountMinor!: number
 }
 
