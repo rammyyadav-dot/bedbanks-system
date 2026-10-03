@@ -94,7 +94,7 @@ Default: **back to the agency account** as a REFUND (instant, no payment-provide
 - Segregation of duties: declarer, verifier and approver differ above the threshold; all enforced by the service and by approval records.
 - Limits: a maximum single receipt, a daily total per agency, and a hold on first-time large receipts.
 - AML and sanctions: payer name matching against the agency, third-party and cash handling, and screening policy are **owner and legal decisions**; this ADR does not set them.
-- Tax and invoicing (VAT, tax invoice numbering) are separate; this model only provides the amounts and references.
+- Tax and invoicing (VAT, tax invoice numbering) are separate; this model only provides the amounts and references. Net rates are all-inclusive and the launch currency is AED (ADR 0029); how VAT on the margin and the invoice are presented is an accountant decision.
 - Retention of receipts and proof of transfer, and who may see payer details.
 
 ## 8. Build plan (each slice small, reviewed, behind flags, no live money until the last)
@@ -115,7 +115,7 @@ Each slice ships with tests for concurrency (one winner on the last funds), idem
 6. **Provider fees:** absorb or surcharge.
 7. **Refund default:** to the account (recommended) with refund-to-source by finance approval.
 8. **Compliance:** AML, sanctions, cash and third-party payer policy; retention.
-9. **Currencies at launch** from the 14 supported (AED and USD only is simplest).
+9. **Currencies at launch: decided, AED only** (ADR 0029). Net rates are all-inclusive of taxes (ADR 0029), so this model carries no tax lines.
 
 ## 10. Consequences if accepted
 Two to four migrations over the slices (agency accounts, receipts, payment intents, adjustment and reversal ledger types), several approval-only permission keys, new Agent and Admin screens, and a change to the hold authorisation check. Nothing changes until slice 1 is built; no money moves until slice 2 and the go-live gates. Rollback per slice is a feature flag plus a forward migration; ledger rows are never deleted.
