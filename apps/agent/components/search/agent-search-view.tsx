@@ -21,6 +21,7 @@ import { BookingReview } from '@/components/booking/booking-review'
 import { priceChangeDisplay, recheckBaselineMinor, recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
+import { agencySuspendedMessage, agencySuspendedTitle } from '@/lib/agency-suspension.mjs'
 
 export function SearchView({
   destination, destinationRef, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
@@ -142,6 +143,7 @@ function statusCopy(status: HotelSearchResult['status']) {
   if (status === 'partial') return 'Some hotel inventory is temporarily unavailable. We could not retrieve rates from one inventory source. Your other available results are still shown.'
   if (status === 'mapping_unavailable') return 'Supplier offer mapping could not be verified. No rate is displayed.'
   if (status === 'access_denied') return 'You do not have access to this workspace.'
+  if (status === 'agency_suspended') return agencySuspendedMessage
   if (status === 'auth_required') return 'Your session expired. Sign in again.'
   if (status === 'destination_unavailable') return 'This saved destination is no longer in the canonical catalogue.'
   if (status === 'empty') return 'No hotels matched this search. This is not a supplier outage.'
@@ -152,6 +154,7 @@ function SearchLoadingState() {
   return <section className="portal-search-loading" aria-live="polite" aria-busy="true"><div className="portal-search-loading-heading"><span className="portal-spinner" aria-hidden="true" /><div><strong>Searching available hotels…</strong><p>Checking supplier availability and rates</p></div></div><div className="portal-skeleton-list"><span /><span /><span /></div></section>
 }
 function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchResult['status']; onRetry: () => void; onEdit: () => void }) {
+  if (status === 'agency_suspended') return <div className="portal-empty portal-outcome" role="alert" data-testid="agency-suspended"><Search size={20} /><h2>{agencySuspendedTitle}</h2><p>{agencySuspendedMessage}</p></div>
   const unavailable = ['provider_unavailable', 'auth_required', 'access_denied', 'destination_unavailable'].includes(status)
   const mapping = status === 'mapping_unavailable'
   const title = unavailable ? 'Search is temporarily unavailable.' : mapping ? 'This offer is not available for booking yet' : status === 'empty' ? 'No hotels matched this search.' : 'We couldn’t complete this hotel search'

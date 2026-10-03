@@ -25,6 +25,15 @@ test('a disabled booking API is reported as unavailable, never as success', asyn
   assert.equal(doc.kind, 'unavailable')
 })
 
+test('a suspended agency gets a specific denial for holds and bookings, never a retry prompt', async () => {
+  globalThis.fetch = reply(403, { success: false, error: { code: 'AGENCY_SUSPENDED', message: 'server text', details: [] } })
+  const result = await service().confirm('b1', 't')
+  assert.equal(result.ok, false); assert.equal(result.kind, 'denied')
+  assert.match(result.message, /Your agency is suspended/); assert.match(result.message, /Contact your account manager/)
+  globalThis.fetch = reply(403, { success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } })
+  assert.equal((await service().confirm('b1', 't')).message, 'You do not have permission for this action.')
+})
+
 test('HTTP failures map to explicit kinds; only conflict/invalid/gone show the server message', async () => {
   const cases = [[401, 'auth'], [403, 'denied'], [404, 'not_found'], [409, 'conflict'], [410, 'gone'], [400, 'invalid'], [500, 'error'], [503, 'error']]
   for (const [status, kind] of cases) {

@@ -185,7 +185,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
     setNationality(value)
     rememberGuestNationality(window.sessionStorage, identity.user.id, value)
   }
-  const requestFailure = (result: HotelSearchResult) => result.status === 'provider_unavailable' || result.status === 'auth_required' || result.status === 'access_denied' || result.status === 'destination_unavailable'
+  const requestFailure = (result: HotelSearchResult) => result.status === 'provider_unavailable' || result.status === 'auth_required' || result.status === 'access_denied' || result.status === 'agency_suspended' || result.status === 'destination_unavailable'
   async function handleSearch(requested?: SearchCriteria) {
     const built = requested ? { criteria: requested } : criteriaFrom({ destinationCity, destinationRef, checkIn, checkOut, roomStays, nationality, currency, sort }, draft())
     if ('error' in built) {

@@ -2,6 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { canOpenCheckout, recheckOutcomeMessage, recheckOutcomeTitle } from './recheck-copy.ts'
 
+test('a suspended agency sees a specific recheck title and message', () => {
+  assert.equal(recheckOutcomeTitle('agency_suspended'), 'Your agency is suspended')
+  assert.match(recheckOutcomeMessage('agency_suspended', true), /Contact your account manager/)
+  assert.equal(canOpenCheckout(true, 'agency_suspended'), false)
+})
+
 test('describes fixture recheck outcomes without enabling booking', () => {
   assert.equal(recheckOutcomeTitle('rechecked'), 'Offer rechecked')
   assert.equal(recheckOutcomeMessage('rechecked', false), 'Current price and availability have been verified. Booking activation is not available for this account.')
