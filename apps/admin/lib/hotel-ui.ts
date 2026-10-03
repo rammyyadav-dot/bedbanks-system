@@ -17,6 +17,7 @@ export const reasonText = (code: string): string => COMMERCIAL_REASON_TEXT[code]
 
 export const HOTEL_TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'setup', label: 'Hotel Setup' },
   { id: 'rooms', label: 'Rooms' },
   { id: 'mappings', label: 'Mappings' },
   { id: 'contracts', label: 'Contracts' },
@@ -44,7 +45,7 @@ export function hotelHref(hotelId: string, tab: HotelTabId = 'overview', context
   return text ? `/hotels/${hotelId}?${text}` : `/hotels/${hotelId}`
 }
 
-export const LIST_FILTER_KEYS = ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays'] as const
+export const LIST_FILTER_KEYS = ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars'] as const
 export type ListFilterKey = (typeof LIST_FILTER_KEYS)[number]
 
 /** Reads only known filters from a URL, so a pasted link cannot inject unknown parameters into the API call. */

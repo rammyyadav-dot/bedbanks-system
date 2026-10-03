@@ -20,9 +20,9 @@ export async function apiRequestWithMeta<T>(path: string, init: RequestInit = {}
       headers: { Accept: 'application/json', ...activeTenantHeaders(), ...init.headers },
       signal: controller.signal,
     })
-    const body = await response.json().catch(() => null) as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null
+    const body = await response.json().catch(() => null) as { success?: boolean; data?: T; error?: { code?: string; message?: string; details?: unknown[] } } | null
     const requestId = response.headers.get('x-request-id')
-    if (!response.ok) throw new ApiResponseError(body?.error?.code ?? 'API_REQUEST_FAILED', body?.error?.message ?? 'The request failed.', response.status, requestId)
+    if (!response.ok) throw new ApiResponseError(body?.error?.code ?? 'API_REQUEST_FAILED', body?.error?.message ?? 'The request failed.', response.status, requestId, (body?.error?.details ?? []).filter((d): d is string => typeof d === 'string'))
     return { data: (body?.data ?? body) as T, requestId }
   } catch (error) {
     if (error instanceof ApiResponseError) throw error

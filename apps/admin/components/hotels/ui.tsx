@@ -15,7 +15,7 @@ export const GateChip = ({ state }: { state: GateState }) => <Chip tone={gateTon
 
 /** Horizontally scrollable table region that is reachable by keyboard (a scrollable region must be focusable). */
 export function ScrollRegion({ label, children, maxHeight }: { label: string; children: ReactNode; maxHeight?: number }) {
-  return <div role="region" aria-label={label} tabIndex={0} style={{ overflow: 'auto', maxHeight }}>{children}</div>
+  return <div role="region" aria-label={label} tabIndex={0} style={{ overflow: 'auto', maxHeight, position: 'relative' }}>{children}</div>
 }
 export const th: React.CSSProperties = { textAlign: 'left', padding: '10px 14px', color: '#3f565c', borderBottom: '1px solid #e6eef0', whiteSpace: 'nowrap', background: '#fff', position: 'sticky', top: 0 }
 export const td: React.CSSProperties = { padding: '10px 14px', color: '#2c4a55', verticalAlign: 'middle', borderBottom: '1px solid #edf2f3' }
