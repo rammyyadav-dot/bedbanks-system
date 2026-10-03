@@ -100,3 +100,15 @@ test('releasing a hold uses DELETE on the hold and only trusts a RELEASED/EXPIRE
   const refused = await service().releaseHold('h', 't')
   assert.equal(refused.ok, false); assert.equal(refused.kind, 'conflict'); assert.match(refused.message, /no longer be released/)
 })
+
+test('a hold refused for credit says so; a credit check that could not run is retryable and changes nothing', async () => {
+  globalThis.fetch = reply(403, { success: false, error: { code: 'AGENCY_CREDIT_LIMIT_EXCEEDED', message: 'server text', details: { currency: 'AED', availableMinor: '40000' } } })
+  const over = await service().hold('o1', 's1', 'AED', 50000, 'k1', 't')
+  assert.equal(over.ok, false); assert.equal(over.kind, 'denied')
+  assert.match(over.message, /over its credit limit/); assert.match(over.message, /Contact your account manager/)
+  globalThis.fetch = reply(403, { success: false, error: { code: 'AGENCY_CREDIT_CURRENCY_MISMATCH', message: 'x' } })
+  assert.match((await service().hold('o1', 's1', 'USD', 5, 'k2', 't')).message, /different currency/)
+  globalThis.fetch = reply(503, { success: false, error: { code: 'AGENCY_CREDIT_UNAVAILABLE', message: 'x' } })
+  const down = await service().hold('o1', 's1', 'AED', 5, 'k3', 't')
+  assert.equal(down.ok, false); assert.equal(down.kind, 'error'); assert.match(down.message, /could not be checked/); assert.match(down.message, /Nothing was changed/)
+})
