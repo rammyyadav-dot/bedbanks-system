@@ -1,5 +1,5 @@
-import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import type { PrismaService } from '../database/prisma.service'
+import { CommercialControlUnavailableError, controlReadFailure } from './commercial-controls'
 
 /** Hotels and suppliers hidden from one user because of the agency they belong to (ADR 0019). */
 export interface DistributionRestrictions {
@@ -13,24 +13,28 @@ export function isRestricted(restrictions: DistributionRestrictions, target: { h
 }
 
 /**
- * The ACTIVE restrictions of the agency the user belongs to (a user is in at most one agency per tenant). A user with no
- * agency has none. If the API database role cannot read the table (ADR 0013), the result is no restrictions and `onUnavailable`
- * lets the caller log it: explicit policy, because blocking every search until a grant is reviewed would be an outage. The
- * Admin Distribution page reports the same denial, so the gap is visible.
+ * The ACTIVE restrictions of the agency the user belongs to (a user is in at most one agency per tenant).
+ * Valid absence: a user with no agency, or an agency with no ACTIVE restriction, has none.
+ * Failure (ADR 0031, superseding ADR 0019 item 9): if the table cannot be read, or a row names no target, this throws
+ * `CommercialControlUnavailableError`. A restriction only ever narrows what an agency sees, so "could not read" must never mean "show everything".
  */
-export async function loadDistributionRestrictions(prisma: PrismaService, tenantId: string, userId: string | undefined, onUnavailable?: () => void): Promise<DistributionRestrictions> {
+export async function loadDistributionRestrictions(prisma: PrismaService, tenantId: string, userId: string | undefined): Promise<DistributionRestrictions> {
   if (!userId) return NO_RESTRICTIONS
+  let rows: Array<{ scope: string; hotelId: string | null; supplierId: string | null }>
   try {
-    const rows = await prisma.withTenant(tenantId, (tx) => tx.distributionRestriction.findMany({
+    rows = await prisma.withTenant(tenantId, (tx) => tx.distributionRestriction.findMany({
       where: { tenantId, status: 'ACTIVE', agency: { members: { some: { tenantId, userId } } } },
       select: { scope: true, hotelId: true, supplierId: true },
     }))
-    return {
-      hotelIds: new Set(rows.flatMap((r) => (r.scope === 'HOTEL' && r.hotelId ? [r.hotelId] : []))),
-      supplierIds: new Set(rows.flatMap((r) => (r.scope === 'SUPPLIER' && r.supplierId ? [r.supplierId] : []))),
-    }
   } catch (error) {
-    if (isBookingReadDenied(error)) { onUnavailable?.(); return NO_RESTRICTIONS }
-    throw error
+    throw controlReadFailure('distribution_restrictions', error)
   }
+  const hotelIds = new Set<string>()
+  const supplierIds = new Set<string>()
+  for (const row of rows) {
+    if (row.scope === 'HOTEL' && row.hotelId) hotelIds.add(row.hotelId)
+    else if (row.scope === 'SUPPLIER' && row.supplierId) supplierIds.add(row.supplierId)
+    else throw new CommercialControlUnavailableError('distribution_restrictions', 'malformed')
+  }
+  return { hotelIds, supplierIds }
 }

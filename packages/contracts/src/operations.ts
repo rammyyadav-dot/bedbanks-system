@@ -18,6 +18,10 @@ export interface OperationsCapabilities { permissions: Array<OperationsPermissio
 
 /** Machine-readable error codes the Admin branches on (in addition to the generic HTTP-status codes). */
 export const OPERATIONS_READ_DENIED = 'OPERATIONS_READ_DENIED'
+/** HTTP 503: a mandatory commercial control (agency suspension, distribution restriction, markup rule) could not be read, so the request was refused rather than served unrestricted (ADR 0031). */
+export const COMMERCIAL_CONTROL_UNAVAILABLE = 'COMMERCIAL_CONTROL_UNAVAILABLE'
+/** HTTP 503: an authorized operation needs a database privilege the API runtime role does not hold. Infrastructure configuration, never a caller authorization decision (ADR 0031). */
+export const DATABASE_ROLE_NOT_PERMITTED = 'DATABASE_ROLE_NOT_PERMITTED'
 
 export interface Paged<T> { items: T[]; page: number; pageSize: number; total: number }
 export type MinorString = string
