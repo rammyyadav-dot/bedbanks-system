@@ -1,6 +1,6 @@
 // Inventory & Allotment scale acceptance (ADR 0030): seeds N hotels (each with three plans over one shared pool of 5, plus deliberate
 // exhausted / on-request / closed-to-departure cases), then checks Agent search against the expected result for every plan, the Admin
-// inventory summary, and exactly-once pool allocation under concurrency. Prints observed numbers only. DISPOSABLE local database only.
+// inventory summary (on the restricted runtime role when RUNTIME_DATABASE_URL is set), and exactly-once pool allocation under concurrency (owner connection: the runtime role has no hold-write grants by design). Prints observed numbers only. DISPOSABLE local database only.
 //   N=100 node --no-experimental-strip-types -r @swc-node/register tools/admin-ops-verify/inventory-scale.ts   (run from apps/api)
 import { PrismaService } from '../../apps/api/src/database/prisma.service'
 import { ContractedInventoryAdapter } from '../../apps/api/src/agent/contracted-inventory.adapter'
@@ -8,7 +8,7 @@ import { InventoryAdminService } from '../../apps/api/src/inventory/inventory-ad
 import { InventoryHoldService } from '../../apps/api/src/agent/inventory-hold.service'
 
 const url = process.env.DATABASE_URL ?? ''
-if (!/localhost:5432\/fbeds_ci(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be the disposable local fbeds_ci database')
+if (!/@localhost:\d+\/(fbeds_ci|p04_[a-z0-9_]+)(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be a disposable local database (fbeds_ci or p04_*)')
 const N = Number(process.env.N ?? '10')
 if (![1, 10, 100].includes(N)) throw new Error('N must be 1, 10 or 100')
 
@@ -18,9 +18,14 @@ const utc = (o: number) => new Date(midnight + o * 86_400_000)
 const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil((p / 100) * s.length) - 1)] }
 
 async function main() {
-  const prisma = new PrismaService()
-  const adapter = new ContractedInventoryAdapter(prisma)
-  const admin = new InventoryAdminService(prisma)
+  const prisma = new PrismaService() // owner connection: seeding and the write-path concurrency check only
+  // Search, recheck and the Admin summary are measured on the restricted runtime login role when RUNTIME_DATABASE_URL is set.
+  const runtime = process.env.RUNTIME_DATABASE_URL ? new PrismaService({ datasourceUrl: process.env.RUNTIME_DATABASE_URL } as never) : prisma
+  if (runtime !== prisma) await runtime.$connect()
+  const [roleInfo] = await runtime.$queryRawUnsafe<Array<{ current_user: string; rolsuper: boolean; rolbypassrls: boolean }>>('SELECT current_user, r.rolsuper, r.rolbypassrls FROM pg_roles r WHERE r.rolname = current_user')
+  if (runtime !== prisma && (roleInfo.rolsuper || roleInfo.rolbypassrls)) throw new Error('refusing: the runtime connection must not be a superuser or BYPASSRLS role')
+  const adapter = new ContractedInventoryAdapter(runtime)
+  const admin = new InventoryAdminService(runtime)
   const holds = new InventoryHoldService(prisma)
   const tag = `sc${N}-${Date.now()}`
   const tenantId = (await prisma.tenant.create({ data: { name: tag, slug: tag } })).id
@@ -61,12 +66,13 @@ async function main() {
 
   // ---- Agent search vs expectation, repeated for latency -----------------------------------------------------------------------
   const criteria = { destination: 'Dubai', checkIn: day(10), checkOut: day(12), rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED' }
-  const timings: number[] = []; let found: Map<string, { availability: string; available: boolean }> = new Map()
+  const timings: number[] = []; let found: Map<string, { availability: string; available: boolean }> = new Map(); let lastRates: Array<{ offerId: string; availability: string; available: boolean }> = []
   for (let run = 0; run < 7; run++) {
     const t0 = process.hrtime.bigint()
     const result = await adapter.search(criteria, { tenantId, requestId: `scale-${run}` })
     timings.push(Number(process.hrtime.bigint() - t0) / 1e6)
-    found = new Map(result.offers.flatMap((h) => h.rooms.flatMap((r) => r.rates)).map((r) => [r.ratePlanId, { availability: r.availability, available: r.available }]))
+    const flat = result.offers.flatMap((h) => h.rooms.flatMap((r) => r.rates)); lastRates = flat
+    found = new Map(flat.map((r) => [r.ratePlanId, { availability: r.availability, available: r.available }]))
   }
   const mismatchDetail: Array<{ hotel: number; plan: number; want: string; actual: string }> = []
   let mismatches = 0; const counts = { available: 0, on_request: 0, absent: 0 }
@@ -77,6 +83,16 @@ async function main() {
     if (actual !== want) { mismatches += 1; const idx = poolOf.findIndex((p) => p.planIds.includes(planId)); mismatchDetail.push({ hotel: idx + 1, plan: poolOf[idx].planIds.indexOf(planId) + 1, want, actual }) }
   }
   const overstated = [...found.values()].filter((r) => r.available && r.availability === 'on_request').length
+
+  // ---- recheck of the offers just returned (restricted role): available stays available, on-request is never upgraded ---------------------
+  const recheckTimings: number[] = []; let recheckWrong = 0
+  for (const rate of lastRates.slice(0, 60)) {
+    const t0 = process.hrtime.bigint()
+    const r = await adapter.recheck({ offerId: rate.offerId, searchId: 'scale' }, { tenantId, userId, requestId: 'scale-recheck' })
+    recheckTimings.push(Number(process.hrtime.bigint() - t0) / 1e6)
+    const want = rate.available ? 'available' : 'unavailable'
+    if (r.status !== want) recheckWrong += 1
+  }
 
   // ---- Admin summary latency for the first hotel and the pool arithmetic -----------------------------------------------------------
   const summaryTimings: number[] = []; let poolShown = 0
@@ -104,14 +120,17 @@ async function main() {
   const concurrencyMs = Date.now() - t1
 
   const out = {
+    measuredAs: { role: roleInfo.current_user, superuser: roleInfo.rolsuper, bypassRls: roleInfo.rolbypassrls, restrictedRuntime: runtime !== prisma },
     hotels: N, ratePlans: N * 3, poolNightsSeeded: N * 30, seedMs,
     search: { runs: timings.length, p50Ms: +pct(timings, 50).toFixed(1), p95Ms: +pct(timings, 95).toFixed(1), maxMs: +Math.max(...timings).toFixed(1), plansExpected: counts, mismatches, mismatchDetail, overstatedAvailability: overstated, offersReturned: found.size },
+    recheck: { samples: recheckTimings.length, p50Ms: +pct(recheckTimings, 50).toFixed(1), p95Ms: +pct(recheckTimings, 95).toFixed(1), wrongOutcomes: recheckWrong },
     adminSummary: { runs: summaryTimings.length, p50Ms: +pct(summaryTimings, 50).toFixed(1), p95Ms: +pct(summaryTimings, 95).toFixed(1), firstPoolNightRemaining: poolShown },
     concurrency: { poolsTested: sample.length, attemptsPerPool: 12, totalAttempts: totalTried, totalHeld: totalWon, poolsWithWrongCount: wrong, ms: concurrencyMs },
   }
   console.log(JSON.stringify(out, null, 2))
   require('fs').writeFileSync(process.env.SCALE_OUT ?? `${__dirname}/.scale-${N}.json`, JSON.stringify(out, null, 2))
+  if (runtime !== prisma) await runtime.$disconnect()
   await prisma.$disconnect()
-  if (mismatches > 0 || overstated > 0 || wrong > 0) process.exit(2)
+  if (mismatches > 0 || overstated > 0 || wrong > 0 || recheckWrong > 0) process.exit(2)
 }
 main().catch((e) => { console.error(e); process.exit(1) })

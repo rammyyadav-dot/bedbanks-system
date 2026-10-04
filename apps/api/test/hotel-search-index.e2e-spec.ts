@@ -15,6 +15,8 @@ describe('disposable hotel search index', () => {
     if (!databaseUrl) throw new Error('MAPPING_DATABASE_URL is required for the disposable vector test')
     await prisma.$connect()
     await prisma.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fbeds_map_reader') THEN CREATE ROLE fbeds_map_reader NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END $$`)
+    // PostgreSQL 16: a non-superuser (CREATEROLE) owner needs an explicit membership to SET ROLE to a role it created.
+    await prisma.$executeRawUnsafe(`GRANT fbeds_map_reader TO CURRENT_USER`)
     await prisma.$executeRawUnsafe(`GRANT SELECT ON "HotelSearchIndex" TO fbeds_map_reader`)
     const a = await prisma.tenant.create({ data: { name: `${suffix} A`, slug: `${suffix}-a` } })
     const b = await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })

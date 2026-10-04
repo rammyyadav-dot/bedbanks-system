@@ -80,9 +80,14 @@ export async function provisionHoldExpiryRole(db: Executor, input: { loginRole: 
 /** Removes the login role and, optionally, the group role. Used for rotation, rollback and tests. */
 export async function deprovisionHoldExpiryRole(db: Executor, loginRole: string, options: { dropGroup?: boolean } = {}): Promise<void> {
   if (!IDENTIFIER.test(loginRole) || loginRole === HOLD_EXPIRY_GROUP_ROLE || loginRole === 'postgres') throw new Error('Invalid login role')
-  await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${loginRole}') THEN DROP OWNED BY "${loginRole}"; DROP ROLE "${loginRole}"; END IF; END $$`)
+  // PostgreSQL 16: a CREATEROLE (non-superuser) owner has ADMIN on roles it created but must also hold their privileges to DROP OWNED.
+  await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${loginRole}') THEN
+    IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN EXECUTE 'GRANT "${loginRole}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE'; END IF;
+    DROP OWNED BY "${loginRole}"; DROP ROLE "${loginRole}"; END IF; END $$`)
   if (options.dropGroup) {
-    await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${HOLD_EXPIRY_GROUP_ROLE}') THEN DROP OWNED BY "${HOLD_EXPIRY_GROUP_ROLE}"; DROP ROLE "${HOLD_EXPIRY_GROUP_ROLE}"; END IF; END $$`)
+    await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${HOLD_EXPIRY_GROUP_ROLE}') THEN
+      IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN EXECUTE 'GRANT "${HOLD_EXPIRY_GROUP_ROLE}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE'; END IF;
+      DROP OWNED BY "${HOLD_EXPIRY_GROUP_ROLE}"; DROP ROLE "${HOLD_EXPIRY_GROUP_ROLE}"; END IF; END $$`)
   }
 }
 

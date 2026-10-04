@@ -13,32 +13,11 @@ const SELECT_TABLES = [
   'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
   'supplier_memberships',
   'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
+  // Agent search and recheck include each contract's cancellation terms; the table is row-level-secured through its contract's tenant.
+  'CancellationPolicy',
+  // Inventory pools (ADR 0030): Agent search, recheck and the Admin summary read them. The runtime role does not write them; see verifyApiRuntimeRole.
+  'InventoryPool', 'InventoryPoolDay',
 ] as const
-
-/**
- * Write privileges the migrations grant to the group role when it exists (ADR 0013). Provisioning re-applies exactly these so that
- * running it again, in any order relative to migrations, leaves the same grants instead of silently revoking what the Admin features
- * (hotel profile, images, amenities, pools, credit, approvals, service cases) need. `api-runtime-role.spec.ts` parses the committed
- * migrations and fails if a migration grants something this list does not.
- */
-export const MIGRATION_DECLARED_GRANTS: ReadonlyArray<readonly [table: string, privileges: string]> = [
-  ['ServiceCaseNote', 'SELECT, INSERT'],
-  ['AgencyMember', 'SELECT, INSERT, DELETE'],
-  ['Agency', 'SELECT, INSERT, UPDATE'],
-  ['ApprovalRequest', 'SELECT, INSERT, UPDATE'],
-  ['CommercialMarkupRule', 'SELECT, INSERT, UPDATE'],
-  ['DistributionRestriction', 'SELECT, INSERT, UPDATE'],
-  ['HotelProfile', 'SELECT, INSERT, UPDATE'],
-  ['InventoryPool', 'SELECT, INSERT, UPDATE'],
-  ['InventoryPoolDay', 'SELECT, INSERT, UPDATE'],
-  ['ServiceCase', 'SELECT, INSERT, UPDATE'],
-  ['SupplierMutation', 'SELECT, INSERT, UPDATE'],
-  ['AgencyCreditLimit', 'SELECT, INSERT, UPDATE, DELETE'],
-  ['HotelAmenity', 'SELECT, INSERT, UPDATE, DELETE'],
-  ['HotelExternalIdentifier', 'SELECT, INSERT, UPDATE, DELETE'],
-  ['HotelImage', 'SELECT, INSERT, UPDATE, DELETE'],
-  ['RoomAmenity', 'SELECT, INSERT, UPDATE, DELETE'],
-]
 
 /**
  * Statements the owner runs to grant the API group role. Search and recheck are
@@ -57,7 +36,6 @@ export function apiRuntimeGrantStatements(groupRole = API_RUNTIME_GROUP_ROLE): s
     `GRANT SELECT, INSERT ON "AuditEvent" TO ${group}`,
     `GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts" TO ${group}`,
     ...SELECT_TABLES.map((table) => `GRANT SELECT ON "${table}" TO ${group}`),
-    ...MIGRATION_DECLARED_GRANTS.map(([table, privileges]) => `GRANT ${privileges} ON "${table}" TO ${group}`),
   ]
 }
 
@@ -111,5 +89,11 @@ export async function verifyApiRuntimeRole(db: Pick<Executor, '$queryRawUnsafe'>
   const [hotelUpdate] = await db.$queryRawUnsafe<Array<{ allowed: boolean }>>(
     `SELECT has_table_privilege(current_user, '"Hotel"', 'UPDATE') AS allowed`)
   if (hotelUpdate?.allowed) failures.push('role can update Hotel')
+  // Pool stock is changed only by the owner-side services and the hold-expiry role; a migration that granted writes to this role
+  // before it was (re)provisioned would otherwise remain in force silently.
+  const [poolWrite] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
+    `SELECT count(*) AS n FROM unnest(ARRAY['InventoryPool','InventoryPoolDay']) t, unnest(ARRAY['INSERT','UPDATE','DELETE']) p
+      WHERE has_table_privilege(current_user, format('%I', t), p)`)
+  if (Number(poolWrite?.n ?? 0) > 0) failures.push('role can write inventory pool tables; re-run provisioning (REVOKE) or have the owner revoke the migration grant')
   return { ok: failures.length === 0, failures }
 }

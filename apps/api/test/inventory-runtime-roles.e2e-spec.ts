@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto'
+import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../src/database/prisma.service'
 import { API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole, verifyApiRuntimeRole } from '../src/database/api-runtime-role'
 import { HOLD_EXPIRY_GROUP_ROLE, provisionHoldExpiryRole, verifyHoldExpiryRole } from '../src/database/hold-expiry-role'
@@ -84,6 +85,14 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
       expect(memberships.map((m) => m.role)).toEqual(['fbeds_api'])
     })
 
+    it('RR-01b a migration-style over-grant of pool writes (role existed before the migration) is detected by the verifier and removed by re-provisioning', async () => {
+      await owner.$executeRawUnsafe('GRANT INSERT, UPDATE ON "InventoryPool" TO fbeds_api')
+      const dirty = await verifyApiRuntimeRole(api)
+      expect(dirty.ok).toBe(false); expect(dirty.failures.join(' ')).toMatch(/inventory pool tables/)
+      await provisionApiRuntimeRole(owner, { password: apiPassword })
+      expect(await verifyApiRuntimeRole(api)).toEqual({ ok: true, failures: [] })
+    })
+
     it('RR-02 cannot run DDL, create roles, grant itself anything, or become another role', async () => {
       for (const sql of ['CREATE TABLE rr_probe (id int)', 'ALTER TABLE "InventoryPool" DISABLE ROW LEVEL SECURITY', 'ALTER TABLE "InventoryPoolDay" NO FORCE ROW LEVEL SECURITY', 'DROP POLICY "InventoryPool_tenant_isolation" ON "InventoryPool"',
         'DROP TABLE "InventoryPoolDay"', 'CREATE ROLE rr_escalate LOGIN', 'SET ROLE p04_owner', 'CREATE TRIGGER rr_t BEFORE INSERT ON "InventoryPool" FOR EACH ROW EXECUTE FUNCTION fbeds_inventory_pool_tenant_guard()']) {
@@ -105,17 +114,42 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
       expect(await api.inventoryPoolDay.count()).toBe(0)
     })
 
-    it('RR-04 cross-tenant writes and references are refused: foreign tenant id, foreign pool, foreign update', async () => {
+    it('RR-04 every pool write by the API role is refused by privilege, and the other tenant is untouched', async () => {
       const mk = (tenantId: string, poolId: string, stayDate: string) => ({ data: { tenantId, poolId, stayDate: new Date(stayDate), capacity: 3 } })
-      expect(await code(() => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.B.tenant, T.B.pool, day(60)))))).not.toBe('OK')
-      expect(await code(() => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.A.tenant, T.B.pool, day(61)))))).not.toBe('OK')
-      expect(await code(() => api.withTenant(T.A.tenant, (tx) => tx.inventoryPool.create({ data: { tenantId: T.B.tenant, hotelId: T.B.hotel, supplierId: T.B.supplier, name: 'x', createdById: T.B.user } })))).not.toBe('OK')
-      expect(await code(() => api.withTenant(T.A.tenant, (tx) => tx.inventoryPool.create({ data: { tenantId: T.A.tenant, hotelId: T.B.hotel, supplierId: T.B.supplier, name: 'x2', createdById: T.A.user } })))).not.toBe('OK') // other tenant's hotel
-      const moved = await api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.B.poolDays[0] }, data: { capacity: 99 } }))
-      expect(moved.count).toBe(0)
-      expect(await code(() => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.A.poolDays[0] }, data: { tenantId: T.B.tenant } })))).not.toBe('OK') // cannot re-home its own row
-      const bDays = await owner.inventoryPoolDay.findMany({ where: { poolId: T.B.pool }, select: { capacity: true, tenantId: true } })
-      expect(bDays.every((d) => d.capacity === 5 && d.tenantId === T.B.tenant)).toBe(true)
+      for (const attempt of [
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.B.tenant, T.B.pool, day(60)))),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.A.tenant, T.B.pool, day(61)))),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPool.create({ data: { tenantId: T.A.tenant, hotelId: T.B.hotel, supplierId: T.B.supplier, name: 'x2', createdById: T.A.user } })),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.B.poolDays[0] }, data: { capacity: 99 } })),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.A.poolDays[0] }, data: { tenantId: T.B.tenant } })),
+      ]) expect(await code(attempt)).toBe('42501')
+      expect((await owner.inventoryPoolDay.findMany({ where: { poolId: T.B.pool } })).every((d) => d.capacity === 5 && d.tenantId === T.B.tenant)).toBe(true)
+      expect(await owner.inventoryPoolDay.count({ where: { stayDate: { in: [new Date(day(60)), new Date(day(61))] } } })).toBe(0)
+    })
+
+    it('RR-04b row-level security and the composite keys refuse cross-tenant pool writes even for a NOBYPASSRLS role that DOES hold write grants (defence in depth)', async () => {
+      await owner.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fbeds_rls_test') THEN CREATE ROLE fbeds_rls_test NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`)
+      await owner.$executeRawUnsafe('GRANT fbeds_rls_test TO CURRENT_USER')
+      await owner.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO fbeds_rls_test')
+      await owner.$executeRawUnsafe('GRANT SELECT, INSERT, UPDATE ON "InventoryPool", "InventoryPoolDay" TO fbeds_rls_test')
+      await owner.$executeRawUnsafe('GRANT SELECT ON "Hotel", "Supplier", "tenants" TO fbeds_rls_test')
+      const asRole = <R>(tenantId: string | null, work: (tx: Prisma.TransactionClient) => Promise<R>) => owner.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_rls_test')
+        if (tenantId) await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`
+        const [who] = await tx.$queryRawUnsafe<Array<{ current_user: string; rolbypassrls: boolean }>>('SELECT current_user, (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS rolbypassrls')
+        expect(who).toEqual({ current_user: 'fbeds_rls_test', rolbypassrls: false })
+        return work(tx)
+      })
+      const mk = (tenantId: string, poolId: string, stayDate: string) => ({ data: { tenantId, poolId, stayDate: new Date(stayDate), capacity: 3 } })
+      expect(await code(() => asRole(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.B.tenant, T.B.pool, day(60)))))).toBe('42501') // WITH CHECK
+      expect(await code(() => asRole(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.A.tenant, T.B.pool, day(61)))))).not.toBe('OK') // composite (tenant, pool) key
+      expect(await code(() => asRole(T.A.tenant, (tx) => tx.inventoryPool.create({ data: { tenantId: T.A.tenant, hotelId: T.B.hotel, supplierId: T.B.supplier, name: 'x', createdById: T.A.user } })))).not.toBe('OK') // tenant guard trigger
+      expect((await asRole(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.B.poolDays[0] }, data: { capacity: 99 } }))).count).toBe(0)
+      expect(await code(() => asRole(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.A.poolDays[0] }, data: { tenantId: T.B.tenant } })))).toBe('42501')
+      expect(await asRole(null, (tx) => tx.inventoryPoolDay.count())).toBe(0)
+      const own = await asRole(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.A.tenant, T.A.pool, day(62)))) // the policy admits the owning tenant
+      expect(own.tenantId).toBe(T.A.tenant)
+      await owner.inventoryPoolDay.delete({ where: { id: own.id } })
       expect(await owner.inventoryPoolDay.count({ where: { stayDate: { in: [new Date(day(60)), new Date(day(61))] } } })).toBe(0)
     })
 
@@ -132,10 +166,9 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
     it('RR-06 a pooled-inventory Admin mutation through the service fails closed under this role and writes nothing', async () => {
       const service = new InventoryAdminService(api)
       const before = await owner.inventoryPool.count({ where: { tenantId: T.A.tenant } })
-      const outcome = await service.createPool(T.A.tenant, T.A.user, T.A.hotel, { name: 'Runtime attempt', supplierId: T.A.supplier, ratePlanIds: [T.A.plan], idempotencyKey: `${suffix}-rt-create` }, null).then(() => 'created', () => 'refused')
-      expect(await owner.inventoryPool.count({ where: { tenantId: T.A.tenant } })).toBe(before + (outcome === 'created' ? 1 : 0))
-      // the plan is already pooled, so a create with it must be refused either way; and the read side works:
-      expect(outcome).toBe('refused')
+      const outcome = await service.createPool(T.A.tenant, T.A.user, T.A.hotel, { name: 'Runtime attempt', supplierId: T.A.supplier, ratePlanIds: [], idempotencyKey: `${suffix}-rt-create` }, null).then(() => 'created', (e: Error) => (/42501|permission denied/i.test(e.message) ? 'refused-by-privilege' : `refused:${e.message.slice(0, 60)}`))
+      expect(await owner.inventoryPool.count({ where: { tenantId: T.A.tenant } })).toBe(before)
+      expect(outcome).toBe('refused-by-privilege') // nothing but the missing grant can refuse this request; the read side still works:
       const summary = await service.summary(T.A.tenant, T.A.hotel, { from: D1, days: 2 })
       expect(summary.pools[0].nights.map((n) => n.capacity)).toEqual([5, 5])
       await expect(service.summary(T.B.tenant, T.A.hotel, {})).rejects.toThrow(/not found/i)
