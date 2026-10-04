@@ -62,7 +62,7 @@ export const routes = {
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
     reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
     cancellations: '/admin/operations/cancellations',
-    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
+    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
     commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
     financeSummary: '/admin/operations/finance/summary', auditSummary: '/admin/operations/audit/summary',

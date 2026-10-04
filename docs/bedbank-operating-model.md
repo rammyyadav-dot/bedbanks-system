@@ -159,7 +159,7 @@ Look-to-book ratio and conversion by agency; search latency and supplier error r
 
 | # | Capability | Why it matters | Depends on |
 |---|---|---|---|
-| 1 | Wallet funding and payments (top-up, payment links, receipts) | Without money in, booking cannot launch | Payment provider and policy decisions |
+| 1 | Wallet funding and payments (top-up, payment links, receipts). ADR 0028 accepted in part; slice 1 (agency accounts, read-only) built; manual bank-transfer funding is next | Without money in, booking cannot launch | Owner decisions 4 to 8 of ADR 0028 (credit terms, thresholds, fees, refunds, compliance) |
 | 2 | Supplier payables, settlement and invoice matching | Paying hotels is the other half of finance | Contract payment terms, accounting model |
 | 3 | Tax and fees as separate lines; VAT invoices | Legal invoices and correct totals | Tax rules per jurisdiction |
 | 4 | Markets, nationalities and channel rates | Closed-to-departure, market and nationality rules recorded but unenforced | Business rules, evaluator change |

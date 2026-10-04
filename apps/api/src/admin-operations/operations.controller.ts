@@ -136,6 +136,10 @@ export class OperationsController {
   @Get('ledger') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
 
+  /** One agency's account position (ADR 0028 slice 1). Read-only; the statement is `ledger?walletId=`. */
+  @Get('agencies/:agencyId/account') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  agencyAccount(@ActiveTenant() tenantId: string, @Param('agencyId') agencyId: string) { return this.tx.agencyAccount(tenantId, agencyId) }
+
   @Get('commercial/impact') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
   markupImpact(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.markupImpact(tenantId, query) }
 

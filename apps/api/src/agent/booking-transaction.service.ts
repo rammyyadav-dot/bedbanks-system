@@ -32,7 +32,8 @@ export class BookingTransactionService {
     const { hold, wallet, plan } = await this.prisma.withTenant(input.tenantId, async tx => {
       const hold = await tx.inventoryHold.findFirst({ where: { id: input.inventoryHoldId, tenantId: input.tenantId, createdByUserId: input.userId } })
       if (!hold) throw new ConflictException('Inventory hold is unavailable')
-      const wallet = await tx.wallet.findFirst({ where: { tenantId: input.tenantId, currency: hold.currency } })
+      // ADR 0028 slice 1: holds and bookings still post to the tenant HOUSE account (agencyId null), never an agency account.
+      const wallet = await tx.wallet.findFirst({ where: { tenantId: input.tenantId, agencyId: null, currency: hold.currency } })
       if (!wallet) throw new ConflictException('Wallet is unavailable')
       const plan = await tx.ratePlan.findFirst({ where: { id: hold.ratePlanId, tenantId: input.tenantId }, include: { roomType: true } })
       if (!plan) throw new ConflictException('Rate plan is unavailable')

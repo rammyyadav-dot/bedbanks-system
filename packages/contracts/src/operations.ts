@@ -155,12 +155,35 @@ export interface CancellationRow {
 }
 
 // ---- Finance ---------------------------------------------------------------------------------------------------------
+/** Who an account belongs to (ADR 0028): the tenant's HOUSE account (the one holds and bookings post to today) or one AGENCY. */
+export type AccountOwner = 'HOUSE' | 'AGENCY'
+export const ACCOUNT_OWNERS: readonly AccountOwner[] = ['HOUSE', 'AGENCY']
+export interface AccountAgencyRef { id: string; code: string; name: string }
 export interface WalletRow {
-  id: string; tenantId: string; currency: string; creditLimit: MinorString; balanceMinor: MinorString; availableCreditMinor: MinorString
+  id: string; tenantId: string; owner: AccountOwner; agency: AccountAgencyRef | null
+  currency: string; creditLimit: MinorString; balanceMinor: MinorString; availableCreditMinor: MinorString
   /** The ledger is the only authority. `Wallet.cached_balance` is not maintained by any code path and is deliberately not shown. */
   entryCount: number; updatedAt: string
 }
 export interface LedgerQuery { walletId?: string; type?: string; bookingId?: string; from?: string; to?: string; page?: number; pageSize?: number }
+export interface WalletQuery { owner?: AccountOwner; agencyId?: string; page?: number; pageSize?: number }
+
+/**
+ * One agency's account position (ADR 0028 slice 1, read-only). An account is NOT_OPENED until its first funding is posted (slice 2);
+ * a not-opened account holds no money, so its balance is exactly zero. `bookingsPostTo` stays HOUSE until slice 3 moves holds here.
+ */
+export interface AgencyAccountPosition {
+  currency: string; status: 'OPEN' | 'NOT_OPENED'; accountId: string | null
+  balanceMinor: MinorString; entryCount: number; lastEntryAt: string | null
+  /** Latest entries, newest first (at most 25). The full statement is `ledger?walletId=accountId`. */
+  recent: LedgerEntryView[]
+}
+export interface AgencyAccountView {
+  agency: AccountAgencyRef & { status: string }
+  accounts: AgencyAccountPosition[]
+  fundingEnabled: false
+  bookingsPostTo: 'HOUSE'
+}
 
 // ---- Audit -----------------------------------------------------------------------------------------------------------
 export interface AuditQuery { requestId?: string; correlationId?: string; action?: string; entityType?: string; entityId?: string; userId?: string; from?: string; to?: string; page?: number; pageSize?: number }

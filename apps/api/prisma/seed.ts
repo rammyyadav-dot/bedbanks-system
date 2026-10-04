@@ -77,7 +77,9 @@ async function main(): Promise<void> {
     const ownerRole = await tx.role.upsert({ where: { tenantId_name: { tenantId: tenant.id, name: 'owner' } }, update: {}, create: { tenantId: tenant.id, name: 'owner' } });
     await Promise.all(permissions.map((permission) => tx.rolePermission.upsert({ where: { roleId_permissionId: { roleId: ownerRole.id, permissionId: permission.id } }, update: {}, create: { roleId: ownerRole.id, permissionId: permission.id } })));
     await tx.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: ownerRole.id } }, update: { tenantId: tenant.id }, create: { userId: user.id, roleId: ownerRole.id, tenantId: tenant.id } });
-    await tx.wallet.upsert({ where: { tenantId_currency: { tenantId: tenant.id, currency: 'USD' } }, update: {}, create: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, cachedBalance: 0 } });
+    // House account (ADR 0028: agencyId null). Its uniqueness is a partial index Prisma cannot address, so find-then-create.
+    const house = await tx.wallet.findFirst({ where: { tenantId: tenant.id, agencyId: null, currency: 'USD' } });
+    if (!house) await tx.wallet.create({ data: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, cachedBalance: 0 } });
   });
 
   console.log('Seed complete:');
