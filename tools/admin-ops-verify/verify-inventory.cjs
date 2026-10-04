@@ -71,7 +71,14 @@ async function agentSearch(browser) {
   const cells = (await firstRow.locator('td').allInnerTexts()).map((t) => t.trim())
   check('pool night shows capacity 5, sold 0, held 0, remaining 5 (one stock, not 15)', cells[1] === '5' && cells[2] === '0' && cells[3] === '0' && cells[4] === '5', cells.join('|'))
   check('plan table shows hotel-local release rule and mode counts', /0 days before check-in at 00:00/.test(await page.getByRole('table', { name: 'Rate plan inventory' }).innerText()))
+  const calendarText = (await page.getByTestId('calendar').innerText()).replace(/\s+/g, ' ')
+  check('the calendar marks pool numbers as authoritative: "Shared pool: Palm shared" and "(pool)" capacity', /Shared pool: Palm shared/.test(calendarText) && /5 \(pool\)/.test(calendarText), calendarText.slice(0, 160))
+  check('the calendar says the plan\'s own allotment is not used for a pooled plan', (await page.locator('[data-testid=calendar] td[title*="not used for a pooled plan"]').count()) > 0)
   await page.screenshot({ path: `${SHOTS}/inventory-workspace.png`, fullPage: true })
+
+  // the legacy per-plan workbench must not imply that a pooled plan's own allotment controls stock
+  await page.goto(`${ADMIN}/rates?ratePlanId=${seed.planIds[0]}`); await page.waitForSelector('[data-testid=pooled-plan-note]', { timeout: 20000 })
+  check('the Rates & Inventory workbench warns that a pooled plan\'s allotment is not used', /does not control its stock/.test(await page.getByTestId('pooled-plan-note').innerText()))
 
   // ---- edit: Quick Update the shared capacity (preview -> apply) ------------------------------------------------------------------
   const first = await quickUpdate(page, { allotment: 1, reason: 'browser acceptance: shared capacity 1' })

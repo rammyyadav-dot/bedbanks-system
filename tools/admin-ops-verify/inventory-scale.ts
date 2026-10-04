@@ -9,6 +9,7 @@ import { InventoryHoldService } from '../../apps/api/src/agent/inventory-hold.se
 
 const url = process.env.DATABASE_URL ?? ''
 if (!/@localhost:\d+\/(fbeds_ci|p04_[a-z0-9_]+)(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be a disposable local database (fbeds_ci or p04_*)')
+const SAMPLES = Number(process.env.SAMPLES ?? '15')
 const N = Number(process.env.N ?? '10')
 if (![1, 10, 100].includes(N)) throw new Error('N must be 1, 10 or 100')
 
@@ -67,7 +68,7 @@ async function main() {
   // ---- Agent search vs expectation, repeated for latency -----------------------------------------------------------------------
   const criteria = { destination: 'Dubai', checkIn: day(10), checkOut: day(12), rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED' }
   const timings: number[] = []; let found: Map<string, { availability: string; available: boolean }> = new Map(); let lastRates: Array<{ offerId: string; availability: string; available: boolean }> = []
-  for (let run = 0; run < 7; run++) {
+  for (let run = 0; run < SAMPLES; run++) {
     const t0 = process.hrtime.bigint()
     const result = await adapter.search(criteria, { tenantId, requestId: `scale-${run}` })
     timings.push(Number(process.hrtime.bigint() - t0) / 1e6)
@@ -96,7 +97,7 @@ async function main() {
 
   // ---- Admin summary latency for the first hotel and the pool arithmetic -----------------------------------------------------------
   const summaryTimings: number[] = []; let poolShown = 0
-  for (let run = 0; run < 7; run++) {
+  for (let run = 0; run < SAMPLES; run++) {
     const t0 = process.hrtime.bigint()
     const s = await admin.summary(tenantId, poolOf[0].hotelId, { days: 30 })
     summaryTimings.push(Number(process.hrtime.bigint() - t0) / 1e6)

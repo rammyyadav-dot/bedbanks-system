@@ -1,0 +1,23 @@
+{
+  "password": "Verify-Passw0rd!",
+  "ownerEmail": "owner-iv-1791079747903@verify.test",
+  "viewerEmail": "viewer-iv-1791079747903@verify.test",
+  "bownerEmail": "bowner-iv-1791079747903@verify.test",
+  "agentEmail": "agent-iv-1791079747903@verify.test",
+  "hotels": {
+    "palm": "cmut6myq0001n7d1hiqmg8flx",
+    "solo": "cmut6mys500dt7d1hfvmktspf"
+  },
+  "planIds": [
+    "cmut6myqq003n7d1hnninctrb",
+    "cmut6myr900717d1hme00jcdw",
+    "cmut6myro00af7d1hdj2qwgv4"
+  ],
+  "names": {
+    "palm": "Palm Pool Resort",
+    "solo": "Solo Plan Hotel"
+  },
+  "tenantA": "cmut6myme00007d1hng04mlja",
+  "tenantB": "cmut6mymi00017d1h0aiuzypm",
+  "tag": "iv-1791079747903"
+}
