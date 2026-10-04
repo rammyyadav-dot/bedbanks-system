@@ -21,3 +21,8 @@ Define approved retention periods for audit and booking/finance records; preserv
 ## CI evidence and release decision
 
 CI proves disposable PostgreSQL migration replay, drift, RLS controls and API E2E tests. Only the database owner can prove production history, backup restoration, role grants, pool configuration, secret storage and monitoring. fBeds remains blocked from production booking until every owner-controlled checklist item is signed off.
+
+## PostgreSQL 16 owner roles (P0.4 certification)
+
+A managed-service owner is usually `CREATEROLE` but not a superuser. On PostgreSQL 16 such an owner cannot name `SUPERUSER`, `REPLICATION` or `BYPASSRLS` in `ALTER ROLE`, and needs an explicit membership (`GRANT role TO CURRENT_USER`) to `SET ROLE` to, or `DROP OWNED` for, a role it created. The provisioning code handles both (it fails closed if an existing login role is already elevated). Migrations that grant to `fbeds_api` run only when that role already exists, so the grants an environment ends up with depend on order; provisioning is authoritative and `verifyApiRuntimeRole` reports pool-table writes. See `docs/p04-postmerge-inventory-certification.md`.
+
