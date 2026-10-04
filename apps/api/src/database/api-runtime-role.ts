@@ -12,7 +12,7 @@ const SELECT_TABLES = [
   'tenants', 'memberships', 'Permission', 'Role', 'UserRole', 'RolePermission',
   'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
   'supplier_memberships',
-  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
+  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability', 'InventoryPool', 'InventoryPoolDay',
 ] as const
 
 /**

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { moveNight } from '../inventory/inventory-counters'
 import { AgentAuditService } from './audit.service'
 import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
 import { LedgerService } from './ledger.service'
@@ -57,12 +58,7 @@ export class BookingCancellationService {
 
         const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId } })
         if (nights.length === 0) throw new ConflictException('Booking has no inventory record')
-        for (const night of nights) {
-          const returned = await tx.$executeRaw(Prisma.sql`
-            UPDATE "DailyAvailability" SET "sold" = "sold" - ${night.quantity}, "updated_at" = CURRENT_TIMESTAMP
-             WHERE "id" = ${night.availabilityId} AND "tenant_id" = ${tenantId} AND "sold" >= ${night.quantity}`)
-          if (returned !== 1) throw new ConflictException('Inventory state is inconsistent')
-        }
+        for (const night of nights) await moveNight(tx, tenantId, night, 'cancel')
         await tx.inventoryHold.update({ where: { id: holdId }, data: { status: 'RELEASED', releasedAt: new Date() } })
         if (refund > 0n) {
           await tx.ledgerEntry.create({ data: { tenantId, walletId: debit.walletId, type: 'REFUND', amountMinor: refund, currency: booking.currency, reference: `booking:${bookingId}`, idempotencyKey: `booking:${bookingId}:cancel-refund` } })
