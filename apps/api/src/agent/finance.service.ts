@@ -11,11 +11,12 @@ export class AgentFinanceService {
   /**
    * Wallet summary for the agent portal. Settlement is AED for the Dubai MVP, so the AED wallet is preferred; a tenant
    * with only another currency sees that wallet, never a made-up zero. The balance is the sum of EVERY ledger entry
-   * (a database aggregate); the ledger list is only the latest 25 for display.
+   * (a database aggregate); the ledger list is only the latest 25 for display. Until ADR 0028 slice 3 moves holds to agency
+   * accounts, the agent portal reads the tenant HOUSE account (agencyId null) that the booking path posts to.
    */
   async summary(tenantId: string) {
     return this.prisma.withTenant(tenantId, async (tx) => {
-      const wallets = await tx.wallet.findMany({ where: { tenantId }, orderBy: { currency: 'asc' } })
+      const wallets = await tx.wallet.findMany({ where: { tenantId, agencyId: null }, orderBy: { currency: 'asc' } })
       const wallet = wallets.find((candidate) => candidate.currency === PREFERRED_CURRENCY) ?? wallets[0]
       if (!wallet) return { status: 'not_configured' as const, currency: PREFERRED_CURRENCY, availableCredit: null, ledger: [] }
       const [aggregate, entries] = await Promise.all([
@@ -38,7 +39,7 @@ export class AgentFinanceService {
     assertSupportedSettlementCurrency(currency)
     const required = BigInt(totalMinor)
     const wallet = await this.prisma.withTenant(tenantId, async (tx) => {
-      const candidate = await tx.wallet.findFirst({ where: { tenantId, currency }, include: { entries: { where: { tenantId } } } })
+      const candidate = await tx.wallet.findFirst({ where: { tenantId, agencyId: null, currency }, include: { entries: { where: { tenantId } } } })
       if (!candidate) return null
       const balance = candidate.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n)
       return { ...candidate, availableCredit: candidate.creditLimit + balance }

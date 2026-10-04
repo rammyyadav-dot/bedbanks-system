@@ -3,9 +3,10 @@ import type { Prisma } from '@prisma/client'
 import type {
   AuditEventView, BookingAttention, BookingOperations, BookingRow, CancellationRow, ConnectorExecutionView, ConnectorRow,
   HoldDetail, HoldNightView, HoldRow, InventoryHoldStatus, LedgerEntryView, Paged, ReconciliationCase, ReconciliationQueue,
-  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow,
+  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { enabledSettlementCurrencies } from '../agent/currency'
 import { BookingReconciliationService } from '../agent/booking-reconciliation.service'
 import { documentKindFromRoute } from '../agent/booking-document.service'
 import { renderBookingDocument } from '../agent/booking-document.render'
@@ -17,6 +18,8 @@ import { boolParam, dayParam, endOfDay, enumParam, idParam, intParam, likeLitera
 const HOLD_STATUSES = ['PENDING_RECHECK', 'RECHECKED', 'HOLD_PENDING', 'HELD', 'PROCESSING', 'CONFIRMED', 'RELEASED', 'EXPIRED', 'FAILED'] as const
 const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const
 const LEDGER_TYPES = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND'] as const
+const ACCOUNT_OWNER_PARAMS = ['HOUSE', 'AGENCY'] as const
+const RECENT_ENTRIES = 25
 const SCAN_LIMIT = 500
 
 type Snapshot = { checkIn?: string; checkOut?: string; rooms?: number; adults?: number; children?: number; inventoryHoldId?: string; ratePlanId?: string; offerId?: string; searchId?: string; roomTypeId?: string; canonicalRoomTypeId?: string; boardBasisId?: string; snapshotVersion?: number; canonicalHotelId?: string }
@@ -313,18 +316,65 @@ export class OperationsTransactionsService {
   // ---- finance -----------------------------------------------------------------------------------------------------
   async wallets(tenantId: string, query: Record<string, unknown>): Promise<Paged<WalletRow>> {
     const page = pageParams(query)
+    const owner = enumParam('owner', query.owner, ACCOUNT_OWNER_PARAMS)
+    const agencyId = idParam('agencyId', query.agencyId)
+    if (agencyId && owner === 'HOUSE') throw new BadRequestException('agencyId cannot be combined with owner=HOUSE')
+    const where: Prisma.WalletWhereInput = {
+      tenantId,
+      ...(owner === 'HOUSE' && { agencyId: null }),
+      ...(owner === 'AGENCY' && !agencyId && { agencyId: { not: null } }),
+      ...(agencyId && { agencyId }),
+    }
     return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
       const [wallets, total] = await Promise.all([
-        tx.wallet.findMany({ where: { tenantId }, orderBy: [{ currency: 'asc' }, { id: 'asc' }], skip: page.skip, take: page.take }),
-        tx.wallet.count({ where: { tenantId } }),
+        // House accounts first (agencyId null sorts first ascending), then agency accounts; stable by currency and id.
+        tx.wallet.findMany({ where, include: { agency: { select: { id: true, code: true, name: true } } }, orderBy: [{ agencyId: { sort: 'asc', nulls: 'first' } }, { currency: 'asc' }, { id: 'asc' }], skip: page.skip, take: page.take }),
+        tx.wallet.count({ where }),
       ])
       const sums = wallets.length ? await tx.ledgerEntry.groupBy({ by: ['walletId'], where: { tenantId, walletId: { in: wallets.map(w => w.id) } }, _sum: { amountMinor: true }, _count: { _all: true } }) : []
       const sm = new Map(sums.map(s => [s.walletId, s]))
       return paged(wallets.map(w => {
         const sum = sm.get(w.id)?._sum.amountMinor ?? 0n
         // Same formula as the finance service: available credit = credit limit + SUM(all ledger entries).
-        return { id: w.id, tenantId: w.tenantId, currency: w.currency, creditLimit: w.creditLimit.toString(), balanceMinor: sum.toString(), availableCreditMinor: (w.creditLimit + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString() }
+        return {
+          id: w.id, tenantId: w.tenantId, owner: w.agencyId ? 'AGENCY' as const : 'HOUSE' as const, agency: w.agency ? { id: w.agency.id, code: w.agency.code, name: w.agency.name } : null,
+          currency: w.currency, creditLimit: w.creditLimit.toString(), balanceMinor: sum.toString(), availableCreditMinor: (w.creditLimit + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString(),
+        }
       }), page, total)
+    }))
+  }
+
+  /**
+   * One agency's account position (ADR 0028 slice 1, read-only). Every existing account of the agency is listed, and each enabled
+   * settlement currency without an account is listed as NOT_OPENED with a zero balance (no account means no money held).
+   * The balance is the ledger sum, never `cached_balance`. Nothing here posts, opens an account or changes the booking path.
+   */
+  async agencyAccount(tenantId: string, agencyId: string): Promise<AgencyAccountView> {
+    const id = idParam('agencyId', agencyId)
+    if (!id) throw new BadRequestException('agencyId is required')
+    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
+      const agency = await tx.agency.findFirst({ where: { id, tenantId }, select: { id: true, code: true, name: true, status: true } })
+      if (!agency) throw new NotFoundException('Agency not found')
+      const accounts = await tx.wallet.findMany({ where: { tenantId, agencyId: agency.id }, orderBy: [{ currency: 'asc' }, { id: 'asc' }] })
+      const ids = accounts.map(a => a.id)
+      const [sums, latest] = ids.length ? await Promise.all([
+        tx.ledgerEntry.groupBy({ by: ['walletId'], where: { tenantId, walletId: { in: ids } }, _sum: { amountMinor: true }, _count: { _all: true }, _max: { immutableAt: true } }),
+        Promise.all(ids.map(walletId => tx.ledgerEntry.findMany({ where: { tenantId, walletId }, orderBy: [{ immutableAt: 'desc' }, { id: 'desc' }], take: RECENT_ENTRIES }))),
+      ]) : [[], []]
+      const sm = new Map(sums.map(s => [s.walletId, s]))
+      const positions: AgencyAccountPosition[] = accounts.map((account, index) => {
+        const s = sm.get(account.id)
+        return {
+          currency: account.currency, status: 'OPEN', accountId: account.id,
+          balanceMinor: (s?._sum.amountMinor ?? 0n).toString(), entryCount: s?._count._all ?? 0, lastEntryAt: s?._max.immutableAt?.toISOString() ?? null,
+          recent: latest[index].map(e => this.ledgerView(e, e.reference?.startsWith('booking:') ? e.reference.slice('booking:'.length) : null)),
+        }
+      })
+      for (const currency of enabledSettlementCurrencies()) {
+        if (!accounts.some(a => a.currency === currency)) positions.push({ currency, status: 'NOT_OPENED', accountId: null, balanceMinor: '0', entryCount: 0, lastEntryAt: null, recent: [] })
+      }
+      positions.sort((x, y) => x.currency.localeCompare(y.currency))
+      return { agency: { id: agency.id, code: agency.code, name: agency.name, status: agency.status }, accounts: positions, fundingEnabled: false, bookingsPostTo: 'HOUSE' }
     }))
   }
 

@@ -119,6 +119,7 @@ model Agency {
   cases        ServiceCase[]
   restrictions DistributionRestriction[]
   creditLimit  AgencyCreditLimit?
+  accounts     Wallet[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -780,10 +781,15 @@ model Cancellation {
   @@unique([bookingId])
 }
 
+/// An account (ADR 0028). `agencyId` null is the tenant HOUSE account (one per tenant and currency, enforced by the partial unique index
+/// "Wallet_house_tenant_id_currency_key" in migration 202610210001, which Prisma cannot declare). A set `agencyId` is that agency's account.
+/// Slice 1 is read-only: no code path creates agency accounts or posts to them yet; holds and bookings use the house account.
 model Wallet {
   id          String        @id @default(cuid())
   tenantId    String        @map("tenant_id")
   tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agencyId    String?       @map("agency_id")
+  agency      Agency?       @relation(fields: [agencyId], references: [id], onDelete: Restrict)
   currency    String        @default("USD") @db.Char(3)
   creditLimit BigInt        @default(0) @map("credit_limit")
   cachedBalance BigInt      @default(0) @map("cached_balance")
@@ -791,7 +797,7 @@ model Wallet {
   updatedAt   DateTime      @updatedAt @map("updated_at")
   entries     LedgerEntry[]
 
-  @@unique([tenantId, currency])
+  @@unique([tenantId, agencyId, currency])
   @@index([tenantId])
 }
 

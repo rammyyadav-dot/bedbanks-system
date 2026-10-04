@@ -1,7 +1,18 @@
-# ADR 0028: Wallet funding and credit model (PROPOSED, not accepted, nothing built)
+# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slice 1 built)
 
 ## Status
-**Proposed.** A design for the owner to accept, change or reject. It changes how money is modelled, so it needs finance and legal review before any code. No migration, code or payment-provider integration exists for it, and booking stays disabled (`BOOKING_ENABLED`) until the go-live gates in `docs/bedbank-operating-model.md` are met.
+**Accepted in part (owner, 2026-10-04).** Decisions 1 to 3 in section 9 are taken: one account per agency, one credit concept (the ADR 0024
+limit merges into the account's credit line in slice 3), and bank transfer only as the launch funding method. Decisions 4 to 8 remain
+open and are needed before slice 2 (manual funding) can post money. Finance and legal review of slices 2 onward still applies.
+
+**Slice 1 built (read-only):** migration `202610210001_agency_accounts` adds `Wallet.agency_id` (null = the tenant HOUSE account; every
+existing row became the house account with no data change), one house account per tenant and currency (partial unique index), one
+account per agency and currency, a same-tenant guard on the agency reference and a RESTRICT foreign key. The booking path, agent
+finance summary and funds check are pinned to the house account. Admin reads `GET /admin/operations/agencies/:agencyId/account`
+(`finance.read`) and the accounts list labels HOUSE and AGENCY. Nothing creates agency accounts or posts to them yet; `Wallet` and
+`LedgerEntry` stay finance-gated for the runtime role (ADR 0032).
+
+Original proposal status, kept for history: **Proposed.** A design for the owner to accept, change or reject. It changes how money is modelled, so it needs finance and legal review before any code. No migration, code or payment-provider integration exists for it, and booking stays disabled (`BOOKING_ENABLED`) until the go-live gates in `docs/bedbank-operating-model.md` are met.
 
 ## 1. What exists today (facts from the code)
 - **`Wallet`** is one row per **tenant and currency** (`@@unique([tenantId, currency])`), with a `creditLimit` and a `cachedBalance`. It is not per agency.
@@ -107,9 +118,9 @@ Default: **back to the agency account** as a REFUND (instant, no payment-provide
 Each slice ships with tests for concurrency (one winner on the last funds), idempotency, tenant isolation, permissions and audit, and a browser check.
 
 ## 9. Decisions needed from the owner
-1. **Account model:** one account per agency (recommended) or keep a tenant-wide wallet?
-2. **Credit concept:** merge ADR 0024's limit into the account's credit line (recommended) or keep two numbers?
-3. **Funding methods for launch:** bank transfer only (recommended), or also card or payment link, and which provider?
+1. **Account model: decided (2026-10-04), one account per agency.**
+2. **Credit concept: decided (2026-10-04), merge ADR 0024's limit into the account's credit line** (built in slice 3).
+3. **Funding methods for launch: decided (2026-10-04), bank transfer only.** Card or payment link and its provider are deferred to slice 5.
 4. **Credit terms:** payment terms offered, overdue day thresholds (7 and 30 proposed), who approves a credit line.
 5. **Approval threshold** for large receipts and adjustments (amount per currency).
 6. **Provider fees:** absorb or surcharge.

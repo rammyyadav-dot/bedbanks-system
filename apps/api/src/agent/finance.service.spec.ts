@@ -16,6 +16,8 @@ describe('AgentFinanceService.summary', () => {
     expect(result).toMatchObject({ status: 'active', currency: 'AED', balance: '-125099', creditLimit: '5000000', availableCredit: '4874901' })
     expect(tx.ledgerEntry.aggregate).toHaveBeenCalledWith({ where: { tenantId: 'tenant-a', walletId: 'w-aed' }, _sum: { amountMinor: true } })
     expect(tx.ledgerEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 25 }))
+    // ADR 0028 slice 1: the portal reads the house account the booking path posts to, never an agency account.
+    expect(tx.wallet.findMany).toHaveBeenCalledWith({ where: { tenantId: 'tenant-a', agencyId: null }, orderBy: { currency: 'asc' } })
   })
   it('shows the only wallet when it is not AED, a zero balance for an empty ledger, and not_configured with none', async () => {
     expect(await setup([{ id: 'w', currency: 'USD', creditLimit: 100n }], null).service.summary('t')).toMatchObject({ status: 'active', currency: 'USD', balance: '0', availableCredit: '100' })
