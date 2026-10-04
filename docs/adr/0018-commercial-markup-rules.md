@@ -1,7 +1,7 @@
 # ADR 0018: Commercial markup rules for NET rates
 
 ## Status
-Accepted. Adds the reviewed migration `202610090001_commercial_markup_rules`, applied only to disposable local databases. Like the approval migration it carries a conditional `GRANT` for the API runtime role, which in effect is a production privilege change: it needs the ADR 0013 human decision before any persistent environment. Without a grant, the API runtime role cannot read rules, so NET rates stay unsellable (fail closed) and the Agent search logs that.
+Accepted. Adds the reviewed migration `202610090001_commercial_markup_rules`, applied only to disposable local databases. Like the approval migration it carries a conditional `GRANT` for the API runtime role, which in effect is a production privilege change: it needs the ADR 0013 human decision before any persistent environment. Without a grant, the API runtime role cannot read rules. ADR 0031 refines this: a legitimately empty rule set still leaves NET rates unsellable, but an unreadable or malformed rule set now makes search and recheck refuse (provider_unavailable) instead of continuing, and the strict role is granted the read.
 
 ## Context
 The canonical evaluator sells only SELL-basis daily rates. A NET rate returned `NET_RATE_MARKUP_UNAVAILABLE` and markup was hard-coded to zero, so contracts priced at net could not be sold at all. `@bedbanks/pricing` held a markup helper that used floating-point rounding, which breaks the integer-money invariant.

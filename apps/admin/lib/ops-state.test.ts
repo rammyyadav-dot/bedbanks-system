@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
+import { COMMERCIAL_CONTROL_UNAVAILABLE, DATABASE_ROLE_NOT_PERMITTED, OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { ApiResponseError } from './api/errors'
 import { classifyOpsFailure, failureReference, opsQuery, OPS_FAILURE_COPY } from './ops-state'
 
@@ -9,6 +9,8 @@ test('each failure class is distinct and none is "empty"', () => {
   assert.equal(classifyOpsFailure(new ApiResponseError('FORBIDDEN', 'x', 403)), 'forbidden')
   assert.equal(classifyOpsFailure(new ApiResponseError(OPERATIONS_READ_DENIED, 'x', 503)), 'denied')
   assert.equal(classifyOpsFailure(new ApiResponseError('NOT_FOUND', 'x', 404)), 'not-found')
+  assert.equal(classifyOpsFailure(new ApiResponseError(DATABASE_ROLE_NOT_PERMITTED, 'x', 503)), 'not-configured')
+  assert.equal(classifyOpsFailure(new ApiResponseError(COMMERCIAL_CONTROL_UNAVAILABLE, 'x', 503)), 'not-configured')
   assert.equal(classifyOpsFailure(new ApiResponseError('NETWORK_ERROR', 'x', 0)), 'unreachable')
   assert.equal(classifyOpsFailure(new ApiResponseError('API_TIMEOUT', 'x', 504)), 'unreachable')
   assert.equal(classifyOpsFailure(new ApiResponseError('INTERNAL_SERVER_ERROR', 'x', 500)), 'error')
