@@ -10,6 +10,7 @@ import { BookingReconciliationService } from '../src/agent/booking-reconciliatio
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import { BookingTransactionService } from '../src/agent/booking-transaction.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
+import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
 
 describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
   const prisma = new PrismaService()
@@ -50,7 +51,7 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 5 })) })
-    walletId = (await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 1_000_000n, cachedBalance: 0n } })).id
+    walletId = (await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)).walletId // ADR 0028 slice 3: the booker's agency account
   })
 
   afterAll(async () => {
@@ -61,6 +62,7 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
     await prisma.wallet.deleteMany({ where: { tenantId } })
+    await removeAgencyBookers(prisma, tenantId)
     await prisma.dailyAvailability.deleteMany({ where: { ratePlanId } })
     await prisma.ratePlan.delete({ where: { id: ratePlanId } })
     await prisma.contract.delete({ where: { id: contractId } })
@@ -138,9 +140,9 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     await prisma.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 9 } })
     const hold = await newHold(`${suffix}-credit`)
     const net = await walletNet()
-    await prisma.wallet.update({ where: { id: walletId }, data: { creditLimit: 0n } })
+    await prisma.agencyCreditLimit.updateMany({ where: { tenantId }, data: { limitMinor: 0n } }) // the credit line is the agency limit
     await expect(prebook(`${suffix}-credit`, hold.holdId)).rejects.toThrow('Insufficient wallet credit')
-    await prisma.wallet.update({ where: { id: walletId }, data: { creditLimit: 1_000_000n } })
+    await prisma.agencyCreditLimit.updateMany({ where: { tenantId }, data: { limitMinor: 100_000_000n } })
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: hold.holdId } })).toMatchObject({ status: 'RELEASED' }) // claimed inventory returned
     expect(await walletNet()).toBe(net)
 
@@ -148,6 +150,17 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     await expect(prebook(`${suffix}-occ`, second.holdId, { adults: 3 })).rejects.toThrow('occupancy')
     await expect(tx.prebook({ tenantId, userId: 'someone-else', requestId: 'x', inventoryHoldId: second.holdId, idempotencyKey: `${suffix}-other`, adults: 2, children: 0, childAges: [], leadGuest: guest })).rejects.toThrow('unavailable')
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: second.holdId } })).toMatchObject({ status: 'HELD' })
+
+    // ADR 0028 slice 3: a user who belongs to no agency cannot book, and the house account is never charged instead
+    const member = await prisma.agencyMember.findFirstOrThrow({ where: { tenantId, userId } })
+    await prisma.agencyMember.deleteMany({ where: { tenantId, userId } })
+    const houseBefore = await prisma.wallet.count({ where: { tenantId, agencyId: null } })
+    try {
+      await expect(prebook(`${suffix}-noagency`, second.holdId)).rejects.toThrow('not linked to an agency')
+      expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: second.holdId } })).toMatchObject({ status: 'HELD' })
+      expect(await prisma.wallet.count({ where: { tenantId, agencyId: null } })).toBe(houseBefore)
+      expect(await walletNet()).toBe(net)
+    } finally { await prisma.agencyMember.create({ data: { tenantId, agencyId: member.agencyId, userId } }) }
     await holds.release(tenantId, second.holdId, 'cleanup', { type: 'USER', userId })
   })
 })

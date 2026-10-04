@@ -333,12 +333,21 @@ export class OperationsTransactionsService {
       ])
       const sums = wallets.length ? await tx.ledgerEntry.groupBy({ by: ['walletId'], where: { tenantId, walletId: { in: wallets.map(w => w.id) } }, _sum: { amountMinor: true }, _count: { _all: true } }) : []
       const sm = new Map(sums.map(s => [s.walletId, s]))
+      // ADR 0028 slice 3: an agency account's credit line is its agency's approved limit in the same currency (else zero).
+      const agencyIds = [...new Set(wallets.flatMap(w => (w.agencyId ? [w.agencyId] : [])))]
+      const limits = agencyIds.length ? await tx.agencyCreditLimit.findMany({ where: { tenantId, agencyId: { in: agencyIds } }, select: { agencyId: true, currency: true, limitMinor: true } }) : []
+      const line = (w: { agencyId: string | null; currency: string; creditLimit: bigint }) => {
+        if (!w.agencyId) return w.creditLimit
+        const l = limits.find(x => x.agencyId === w.agencyId)
+        return l && l.currency === w.currency ? l.limitMinor : 0n
+      }
       return paged(wallets.map(w => {
         const sum = sm.get(w.id)?._sum.amountMinor ?? 0n
-        // Same formula as the finance service: available credit = credit limit + SUM(all ledger entries).
+        const creditLine = line(w)
+        // Same formula as the authorization: available credit = credit line + SUM(all ledger entries).
         return {
           id: w.id, tenantId: w.tenantId, owner: w.agencyId ? 'AGENCY' as const : 'HOUSE' as const, agency: w.agency ? { id: w.agency.id, code: w.agency.code, name: w.agency.name } : null,
-          currency: w.currency, creditLimit: w.creditLimit.toString(), balanceMinor: sum.toString(), availableCreditMinor: (w.creditLimit + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString(),
+          currency: w.currency, creditLimit: creditLine.toString(), balanceMinor: sum.toString(), availableCreditMinor: (creditLine + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString(),
         }
       }), page, total)
     }))

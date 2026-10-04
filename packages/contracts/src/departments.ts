@@ -57,6 +57,13 @@ export const AGENCY_CREDIT_LIMIT_EXCEEDED_CODE = 'AGENCY_CREDIT_LIMIT_EXCEEDED'
 export const AGENCY_CREDIT_CURRENCY_MISMATCH_CODE = 'AGENCY_CREDIT_CURRENCY_MISMATCH'
 /** The limit could not be read, so the hold is refused rather than the limit ignored. */
 export const AGENCY_CREDIT_UNAVAILABLE_CODE = 'AGENCY_CREDIT_UNAVAILABLE'
+/** ADR 0028 slice 3 (owner decision 2026-10-04): a user who belongs to no agency cannot book; the house account is never charged. */
+export const AGENCY_REQUIRED_FOR_BOOKING_CODE = 'AGENCY_REQUIRED_FOR_BOOKING'
+/**
+ * Payment terms for credit (owner decision 2026-10-04, ADR 0028 decision 4): an overdue notice after 7 days, new holds refused after 30.
+ * Recorded here for slice 4 (overdue controls), which enforces them; nothing reads them yet.
+ */
+export const AGENCY_CREDIT_TERMS = { overdueNoticeDays: 7, refuseHoldsAfterDays: 30 } as const
 /** Share of the limit, in whole percent, from which Admin flags an agency as near its limit. A fixed default, not configurable. */
 export const AGENCY_CREDIT_NEAR_LIMIT_PERCENT = 80
 /** Integer minor units as a decimal string (BigInt-safe). */
@@ -76,14 +83,24 @@ export interface AgencyCreditApprovalView {
   canCancel: boolean
   canExecute: boolean
 }
+/**
+ * The agency's credit line and spending position (ADR 0028 slice 3: one credit concept). The credit line is the approved limit; with none
+ * the agency is prepaid and spends only its account balance. Amounts are in `currency` (the limit currency, else the launch currency).
+ */
 export interface AgencyCreditView {
-  /** null = no limit configured: nothing is enforced for this agency. */
+  /** The credit line. null = none: the agency is prepaid. */
   limit: { currency: string; limitMinor: MinorUnits } | null
-  /** Held, processing and confirmed holds of the agency's members, in the limit currency. null when there is no limit. */
+  /** Currency of the position below. */
+  currency: string
+  /** The agency account balance (ledger sum; negative when credit is in use). null when unreadable. */
+  balanceMinor: MinorUnits | null
+  /** Holds placed but not yet charged to the account. null when unreadable. */
+  pendingMinor: MinorUnits | null
+  /** Credit in use: pending holds plus any negative balance. null when unreadable. */
   committedMinor: MinorUnits | null
-  /** limit minus committed, never below zero. null when there is no limit. */
+  /** balance + credit line - pending, never below zero: what new holds can use. null when unreadable. */
   availableMinor: MinorUnits | null
-  /** True when the holds the committed amount is summed from are not readable by the API database role (ADR 0032). The amount is then unknown, not zero: both amounts are null, and hold-time enforcement still fails closed (ADR 0024). */
+  /** True when the ledger or holds are not readable by the API database role (ADR 0032). The amounts are then unknown, not zero, and hold-time enforcement still fails closed. */
   committedUnavailable?: true
   /** True when committed is at or above AGENCY_CREDIT_NEAR_LIMIT_PERCENT of the limit. Computed by the API; display only, it blocks nothing. */
   nearLimit: boolean

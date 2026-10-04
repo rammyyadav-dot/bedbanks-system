@@ -319,7 +319,7 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.viewFinance)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  finance(@ActiveTenant() tenantId: string) { return this.financeService.summary(tenantId) }
+  finance(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) { return this.financeService.summary(tenantId, identity.user.id) }
 
   @Get('audit')
   @RequirePermission(PERMISSIONS.auditRead)
