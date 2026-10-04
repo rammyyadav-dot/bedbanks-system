@@ -182,7 +182,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               !id(rate.boardBasisName) || !id(rate.supplierRateId) ||
               (rate.offerToken !== undefined && !id(rate.offerToken)) ||
               !instant(rate.expiresAt) || Date.parse(rate.expiresAt) <= now ||
-              !['available', 'limited', 'sold_out'].includes(rate.availability) ||
+              !['available', 'limited', 'sold_out', 'on_request'].includes(rate.availability) ||
               !record(rate.occupancy) || rate.occupancy.rooms !== criteria.rooms ||
               rate.occupancy.adults !== criteria.adults || rate.occupancy.children !== criteria.children ||
               !Array.isArray(rate.occupancy.childAges) ||
@@ -191,7 +191,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               !record(rate.cancellation) || typeof rate.cancellation.refundable !== 'boolean' ||
               !id(rate.cancellation.summary) ||
               (rate.cancellation.deadline !== undefined && !instant(rate.cancellation.deadline)) ||
-              typeof rate.available !== 'boolean' || rate.available !== (rate.availability !== 'sold_out') ||
+              typeof rate.available !== 'boolean' || rate.available !== (rate.availability === 'available' || rate.availability === 'limited') ||
               !record(rate.total) || rate.total.currency !== criteria.currency || !natural(rate.total.amountMinor, 0) ||
               !natural(rate.netAmountMinor, 0) || !natural(rate.taxAmountMinor, 0) || !natural(rate.feeAmountMinor, 0) ||
               !natural(rate.totalAmountMinor, 0) || !natural(rate.markupAmountMinor, 0) || !natural(rate.sellAmountMinor, 0) ||
@@ -245,7 +245,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
       if (criteria.filters?.starRatings !== undefined && !criteria.filters.starRatings.includes(hotel.starRating)) return []
       if (criteria.filters?.propertyTypes !== undefined && (!hotel.propertyType || !criteria.filters.propertyTypes.includes(hotel.propertyType))) return []
       const rooms = hotel.rooms.flatMap((room) => {
-        const rates = room.rates.filter((rate) => rate.available &&
+        const rates = room.rates.filter((rate) => (rate.available || rate.availability === 'on_request') &&
           (criteria.filters?.boardBasisIds === undefined || criteria.filters.boardBasisIds.includes(rate.boardBasisId)) &&
           (!criteria.filters?.refundableOnly || rate.cancellation.refundable) &&
           (criteria.filters?.minPriceMinor === undefined || rate.sellAmountMinor >= criteria.filters.minPriceMinor) &&

@@ -1,6 +1,6 @@
 import { evaluateContractedStay, evaluateNightSellability, type ContractedStaySnapshot, type NightSellabilityPlan } from './contracted-sellability'
 
-const request = { checkIn: '2026-10-15', checkOut: '2026-10-18', rooms: 1, adults: 2, children: 0, currency: 'AED', leadDays: 10 }
+const request = { checkIn: '2026-10-15', checkOut: '2026-10-18', rooms: 1, adults: 2, children: 0, currency: 'AED', now: new Date('2026-10-05T00:00:00.000Z') }
 
 function night(date: string, patch: Partial<ContractedStaySnapshot['nights'][number]> = {}): ContractedStaySnapshot['nights'][number] {
   return {
@@ -33,6 +33,8 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     ratePlanMinStay: 1,
     ratePlanMaxStay: 14,
     ratePlanReleaseDays: 0,
+    ratePlanReleaseTimeLocal: '00:00',
+    hotelTimeZone: 'Asia/Dubai',
     maxAdults: 2,
     maxChildren: 0,
     maxOccupancy: 2,
@@ -43,7 +45,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
 
 describe('contracted stay sellability', () => {
   it('prices three AED nights in integer minor units', () => {
-    expect(evaluateContractedStay(snapshot(), request)).toEqual({ eligible: true, reasons: [], totalMinor: 89700n, netMinor: 89700n, markupMinor: 0n })
+    expect(evaluateContractedStay(snapshot(), request)).toEqual({ eligible: true, reasons: [], totalMinor: 89700n, netMinor: 89700n, markupMinor: 0n, availabilityStatus: 'available', minRemaining: 4 })
   })
 
   it.each([
@@ -108,7 +110,7 @@ describe('contracted stay sellability', () => {
 
     it('a NET night with a markup rule sells at net plus markup, and reports both parts', () => {
       const d = stay([net(1_000)])
-      expect(d).toEqual({ eligible: true, reasons: [], totalMinor: 11_000n, netMinor: 10_000n, markupMinor: 1_000n })
+      expect(d).toEqual({ eligible: true, reasons: [], totalMinor: 11_000n, netMinor: 10_000n, markupMinor: 1_000n, availabilityStatus: 'available', minRemaining: 4 })
     })
 
     it('rounds each night half up in integer minor units, then sums', () => {
@@ -137,11 +139,11 @@ describe('contracted stay sellability', () => {
 
     it('SELL rates ignore any markup and are never marked up twice', () => {
       const d = evaluateContractedStay(snapshot({ nights: [night('2026-10-15', { markupBasisPoints: 5_000 }), night('2026-10-16'), night('2026-10-17')] }), request)
-      expect(d).toMatchObject({ eligible: true, totalMinor: 89_700n, netMinor: 89_700n, markupMinor: 0n })
+      expect(d).toMatchObject({ eligible: true, totalMinor: 89_700n, netMinor: 89_700n, markupMinor: 0n, availabilityStatus: 'available', minRemaining: 4 })
     })
 
     it('a zero-percent rule is a valid rule: NET sells at net', () => {
-      expect(stay([net(0)])).toMatchObject({ eligible: true, totalMinor: 10_000n, markupMinor: 0n })
+      expect(stay([net(0)])).toMatchObject({ eligible: true, totalMinor: 10_000n, markupMinor: 0n, availabilityStatus: 'available', minRemaining: 4 })
     })
   })
 })

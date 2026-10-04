@@ -1,4 +1,5 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
+import { releaseAllows } from './zoned-time'
 /**
  * Shared commercial gates for contracted inventory.
  * The single-night helper preserves the existing admin sellability reasons.
@@ -69,8 +70,18 @@ export interface StayNightSnapshot {
     stopSell: boolean
     minStay: number
     closedToArrival: boolean
+    /** Defaults to ALLOTMENT. FREE_SALE needs no stock, ON_REQUEST is never instant, CLOSED never sells. */
+    mode?: InventoryModeName
+    /** Provenance. Defaults to ADMIN (never expires unless freshUntil is set). SUPPLIER_* sources without freshUntil are stale. */
+    source?: string
+    freshUntil?: string | null
+    /** Set when the plan draws stock from a shared pool. `remaining` is capacity-sold-held of the pool day, or null when that pool day does not exist. */
+    pool?: { id: string; remaining: number | null; source?: string; freshUntil?: string | null } | null
   }
 }
+
+export type InventoryModeName = 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED'
+export type AvailabilityStatus = 'available' | 'on_request' | 'unavailable'
 
 export interface ContractedStaySnapshot {
   hotelContentStatus: string
@@ -91,6 +102,12 @@ export interface ContractedStaySnapshot {
   ratePlanMinStay: number
   ratePlanMaxStay: number | null
   ratePlanReleaseDays: number
+  /** Hotel-local HH:mm cut-off on the release day. Defaults to 00:00. */
+  ratePlanReleaseTimeLocal?: string
+  /** IANA zone of the hotel. Required for the release rule; missing or invalid fails closed. */
+  hotelTimeZone?: string
+  /** closedToDeparture of the availability row dated on the DEPARTURE day. A missing row is not closed. */
+  departureClosed?: boolean
   maxAdults: number
   maxChildren: number
   maxOccupancy: number
@@ -104,7 +121,8 @@ export interface StayRequest {
   adults: number
   children: number
   currency: string
-  leadDays: number
+  /** The instant of evaluation. Freshness and the hotel-local release deadline are judged against it. */
+  now: Date
 }
 
 export interface StayDecision {
@@ -116,15 +134,21 @@ export interface StayDecision {
   netMinor: bigint | null
   /** Markup included in the total. Zero for SELL rates. */
   markupMinor: bigint | null
+  /** `on_request` only when ON_REQUEST_ONLY is the sole blocker: the stay is priced but must never be presented or treated as confirmed. */
+  availabilityStatus: AvailabilityStatus
+  /** Smallest remaining unit count across counted nights, or null when no night is counted (free sale / on request). */
+  minRemaining: number | null
+}
+
+/** Fresh iff now < freshUntil. No expiry is allowed only for non-supplier sources; supplier data without an expiry is stale. */
+export function rowIsFresh(source: string, freshUntil: string | null, now: Date): boolean {
+  if (freshUntil === null) return !source.startsWith('SUPPLIER_')
+  const until = Date.parse(freshUntil)
+  return Number.isFinite(until) && now.getTime() < until
 }
 
 export function stayNightCount(checkIn: string, checkOut: string): number {
   return Math.round((Date.parse(`${checkOut}T00:00:00.000Z`) - Date.parse(`${checkIn}T00:00:00.000Z`)) / NIGHT_MS)
-}
-
-export function commercialLeadDays(checkIn: string, now: Date = new Date()): number {
-  const checkInAt = new Date(`${checkIn}T00:00:00.000Z`)
-  return Math.floor((checkInAt.getTime() - now.getTime()) / NIGHT_MS)
 }
 
 export function stayDates(checkIn: string, checkOut: string): string[] {
@@ -153,7 +177,8 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.contractCurrency !== request.currency || snapshot.ratePlanCurrency !== request.currency) reasons.push('RATE_CURRENCY_MISMATCH')
   if (nightCount < snapshot.ratePlanMinStay || snapshot.nights.some((night) => (night.availability?.minStay ?? 1) > nightCount)) reasons.push('MIN_STAY_NOT_MET')
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
-  if (request.leadDays < snapshot.ratePlanReleaseDays) reasons.push('RELEASE_DAYS_NOT_MET')
+  if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
+  if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
 
   let perRoom = 0n
   let perRoomNet = 0n
@@ -166,6 +191,11 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let sawStopSell = false
   let sawClosedArrival = false
   let sawNoInventory = false
+  let sawPoolExhausted = false
+  let sawClosedMode = false
+  let sawOnRequest = false
+  let sawStale = false
+  let minRemaining: number | null = null
   snapshot.nights.forEach((night, index) => {
     if (night.rateAmountMinor === null || night.rateAmountMinor < 0n) sawInvalidRate = true
     else {
@@ -183,8 +213,25 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
     else {
       if (night.availability.stopSell) sawStopSell = true
       if (index === 0 && night.availability.closedToArrival) sawClosedArrival = true
-      const remaining = night.availability.allotment - night.availability.sold - night.availability.held
-      if (remaining < request.rooms) sawNoInventory = true
+      const mode = night.availability.mode ?? 'ALLOTMENT'
+      if (!rowIsFresh(night.availability.source ?? 'ADMIN', night.availability.freshUntil ?? null, request.now)) sawStale = true
+      if (mode === 'CLOSED') sawClosedMode = true
+      else if (mode === 'ON_REQUEST') sawOnRequest = true
+      else if (mode === 'ALLOTMENT') {
+        const pool = night.availability.pool
+        if (pool) {
+          if (pool.remaining !== null && !rowIsFresh(pool.source ?? 'ADMIN', pool.freshUntil ?? null, request.now)) sawStale = true
+          if (pool.remaining === null) sawMissingAvailability = true
+          else {
+            minRemaining = minRemaining === null ? pool.remaining : Math.min(minRemaining, pool.remaining)
+            if (pool.remaining < request.rooms) sawPoolExhausted = true
+          }
+        } else {
+          const remaining = night.availability.allotment - night.availability.sold - night.availability.held
+          minRemaining = minRemaining === null ? remaining : Math.min(minRemaining, remaining)
+          if (remaining < request.rooms) sawNoInventory = true
+        }
+      }
     }
   })
   if (!sawRate || sawInvalidRate || snapshot.nights.length !== nightCount) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
@@ -195,11 +242,17 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (sawStopSell) reasons.push('STOP_SELL')
   if (sawClosedArrival) reasons.push('CLOSED_TO_ARRIVAL')
   if (sawNoInventory) reasons.push('NO_INVENTORY')
+  if (sawPoolExhausted) reasons.push('POOL_EXHAUSTED')
+  if (sawClosedMode) reasons.push('INVENTORY_CLOSED')
+  if (sawStale) reasons.push('INVENTORY_STALE')
+  if (sawOnRequest) reasons.push('ON_REQUEST_ONLY')
 
   const unique = [...new Set(reasons)]
-  if (unique.length > 0 || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null, netMinor: null, markupMinor: null }
+  const onRequestOnly = unique.length === 1 && unique[0] === 'ON_REQUEST_ONLY' && request.rooms >= 1
+  if ((unique.length > 0 && !onRequestOnly) || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null }
   const total = perRoom * BigInt(request.rooms)
   const net = perRoomNet * BigInt(request.rooms)
-  if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null }
-  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net }
+  if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null }
+  if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null }
+  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining }
 }

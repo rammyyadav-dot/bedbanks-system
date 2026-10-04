@@ -10,7 +10,7 @@ import {
 import { PrismaService } from '../database/prisma.service'
 import { bookingEnabled } from '../agent/booking-transaction.service'
 import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
-import { commercialLeadDays, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
+import { evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
 import { markupMinor } from '@bedbanks/pricing'
@@ -77,17 +77,20 @@ export class OperationsHotelsService {
     const ids = hotels.map((h) => h.id)
     const gte = new Date(`${win.from}T00:00:00.000Z`)
     const lte = new Date(`${win.to}T00:00:00.000Z`)
+    const lteDeparture = new Date(lte.getTime() + 86_400_000)
     const [rooms, plans, mappings, roomMappings, mappedContracts] = await Promise.all([
       tx.roomType.findMany({ where: { hotelId: { in: ids }, hotel: { tenantId } }, select: { id: true, hotelId: true, name: true, code: true, maxAdults: true, maxChildren: true, maxOccupancy: true, isActive: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
       tx.ratePlan.findMany({
         where: { tenantId, roomType: { hotelId: { in: ids }, hotel: { tenantId } } },
         select: {
-          id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
+          id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, inventoryPoolId: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
           boardBasis: { select: { code: true, isActive: true } },
-          roomType: { select: { id: true, name: true, code: true, hotelId: true, isActive: true, maxAdults: true, maxChildren: true, maxOccupancy: true, hotel: { select: { contentStatus: true } } } },
+          roomType: { select: { id: true, name: true, code: true, hotelId: true, isActive: true, maxAdults: true, maxChildren: true, maxOccupancy: true, hotel: { select: { contentStatus: true, timeZone: true } } } },
           contract: { select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } } } },
           dailyRates: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, amountMinor: true, currency: true, amountBasis: true, occupancy: true } },
-          availability: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true } },
+          // One day past the window: the departure row of the last night carries closedToDeparture.
+          availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, inventoryMode: true, source: true, freshUntil: true } },
+          inventoryPool: { select: { days: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, capacity: true, sold: true, held: true, source: true, freshUntil: true } } } },
         },
         orderBy: [{ id: 'asc' }],
       }),
@@ -443,7 +446,7 @@ export class OperationsHotelsService {
         const avail = new Map(plan.availability.map((r) => [day(r.stayDate), r]))
         const cells: CalendarCell[] = win.dates.map((date) => {
           const rate = rates.get(date); const row = avail.get(date)
-          const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules)
+          const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules, this.clock())
           return {
             date, rateMinor: rate ? rate.amountMinor.toString() : null, currency: rate ? rate.currency : null, amountBasis: rate?.amountBasis === 'SELL' || rate?.amountBasis === 'NET' ? rate.amountBasis : null,
             allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: row ? row.allotment - row.sold - row.held : null,
@@ -524,18 +527,18 @@ export class OperationsHotelsService {
     return this.prisma.withTenant(tenantId, async (tx) => {
       const hotel = await this.hotelRecord(tx, tenantId, hotelIdRaw)
       const input = (await this.loadInputs(tx, tenantId, [hotel], win)).get(hotel.id)!
-      const leadDays = commercialLeadDays(checkIn, this.clock())
+      const now = this.clock()
       const results: SellabilityPlanResult[] = []
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
         const ownRates = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
-        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: plan.currency, leadDays })
+        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: plan.currency, now })
         const reasons = [...decision.reasons]
         if (!(input.hotel.starRating !== null && input.hotel.starRating >= 1 && input.hotel.starRating <= 5)) reasons.push('HOTEL_STAR_RATING_MISSING')
         const ratesByDate = new Map(ownRates.dailyRates.map((r) => [day(r.stayDate), r]))
         const availByDate = new Map(plan.availability.map((r) => [day(r.stayDate), r]))
         const nightVerdicts: NightVerdict[] = dates.map((date) => {
-          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules)
+          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules, this.clock())
           const rate = ratesByDate.get(date); const row = availByDate.get(date)
           return { date, sellable: nightReasons.length === 0, reasons: nightReasons, rateMinor: rate ? rate.amountMinor.toString() : null, remaining: row ? row.allotment - row.sold - row.held : null }
         })

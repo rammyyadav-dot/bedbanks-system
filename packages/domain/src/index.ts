@@ -75,7 +75,9 @@ export interface SearchRateOffer {
   offerToken?: string
   expiresAt: string
   occupancy: SearchOccupancy
-  availability: 'available' | 'limited' | 'sold_out'
+  /** `on_request` is priced but not confirmed inventory: `available` is false and it can never be held or booked instantly. */
+  availability: 'available' | 'limited' | 'sold_out' | 'on_request'
+  /** True only for instantly sellable inventory (`available` or `limited`). */
   available: boolean
   cancellation: SearchCancellationPolicy
   /** Authoritative total for the complete stay and submitted occupancy. */
