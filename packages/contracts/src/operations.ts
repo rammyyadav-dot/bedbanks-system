@@ -13,7 +13,7 @@ export const operationsPermissions = {
   auditRead: 'audit.read',
 } as const
 export type OperationsPermission = (typeof operationsPermissions)[keyof typeof operationsPermissions]
-import type { DepartmentPermission } from './departments'
+import type { AgencyOverdueView, DepartmentPermission } from './departments'
 export interface OperationsCapabilities { permissions: Array<OperationsPermission | DepartmentPermission> }
 
 /** Machine-readable error codes the Admin branches on (in addition to the generic HTTP-status codes). */
@@ -178,6 +178,12 @@ export interface AgencyAccountPosition {
   /** Latest entries, newest first (at most 25). The full statement is `ledger?walletId=accountId`. */
   recent: LedgerEntryView[]
 }
+/** One agency account with unpaid settled charges (ADR 0028 slice 4), oldest first. */
+export interface ReceivableRow {
+  accountId: string; agency: AccountAgencyRef & { status: string }; currency: string; balanceMinor: MinorString
+  overdue: AgencyOverdueView
+}
+export interface ReceivablesView { items: ReceivableRow[]; counts: { notice: number; holdsRefused: number }; noticeDays: number; refuseHoldsAfterDays: number }
 export interface AgencyAccountView {
   agency: AccountAgencyRef & { status: string }
   accounts: AgencyAccountPosition[]

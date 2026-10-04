@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from './currency'
-import { agencyPosition } from './agency-account'
+import { accountAging, agencyPosition, overdueView } from './agency-account'
 
 const PREFERRED_CURRENCY = 'AED'
 
@@ -23,11 +23,12 @@ export class AgentFinanceService {
       if (member) {
         const limit = await tx.agencyCreditLimit.findFirst({ where: { tenantId, agencyId: member.agencyId }, select: { currency: true } })
         const position = await agencyPosition(tx, tenantId, member.agencyId, limit?.currency ?? defaultSettlementCurrency())
+        const aging = await accountAging(tx, tenantId, position.accountId)
         const entries = position.accountId ? await tx.ledgerEntry.findMany({ where: { tenantId, walletId: position.accountId }, orderBy: { immutableAt: 'desc' }, take: 25 }) : []
         return {
           status: 'active' as const, scope: 'agency' as const, currency: position.currency,
           availableCredit: (position.availableMinor > 0n ? position.availableMinor : 0n).toString(),
-          balance: position.balanceMinor.toString(), creditLimit: position.creditLineMinor.toString(), pendingHolds: position.pendingMinor.toString(),
+          balance: position.balanceMinor.toString(), creditLimit: position.creditLineMinor.toString(), pendingHolds: position.pendingMinor.toString(), overdue: overdueView(aging),
           ledger: entries.map((entry) => ({ ...entry, amountMinor: entry.amountMinor.toString() })),
         }
       }

@@ -130,7 +130,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
   it('CR-01 a limit is set by request, a different approver and a single apply, and the position is read back', async () => {
     const a = await newAgency([])
     // ADR 0028 slice 3: no credit line means prepaid; with no money either, nothing can be spent
-    expect(await credit(a)).toEqual({ limit: null, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '0', nearLimit: false, open: null })
+    expect(await credit(a)).toEqual({ limit: null, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '0', overdue: { state: 'CURRENT', unpaidMinor: '0', oldestUnpaidAt: null, daysOverdue: 0 }, nearLimit: false, open: null })
     const made = (await ask(a, 'admin', { currency: 'AED', limitMinor: '100000' }).expect(200)).body.data.credit.open
     expect(made).toMatchObject({ status: 'PENDING', currency: 'AED', limitMinor: '100000', previousLimitMinor: null, canDecide: false, canCancel: true })
     await api('post', `${base}/credit-approvals/${made.id}/approve`, 'admin', { reason: 'Self' }).expect(403)
@@ -141,7 +141,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
     const done = (await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(200)).body.data
     expect(done.approval.status).toBe('EXECUTED')
-    expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '100000', nearLimit: false, open: null })
+    expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '100000', overdue: { state: 'CURRENT', unpaidMinor: '0', oldestUnpaidAt: null, daysOverdue: 0 }, nearLimit: false, open: null })
     await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(409) // single use
     const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'agency.credit_limit.changed', entityId: a } })
     expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.admin)

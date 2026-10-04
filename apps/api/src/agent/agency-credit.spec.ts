@@ -2,14 +2,14 @@ import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import { assertAgencyCredit } from './agency-credit'
 
-type Fake = { member?: unknown; limit?: unknown; account?: unknown; balance?: bigint | null; pending?: bigint | null; throwOn?: 'member' | 'limit' | 'pending' | 'ledger' }
+type Fake = { entries?: unknown[]; member?: unknown; limit?: unknown; account?: unknown; balance?: bigint | null; pending?: bigint | null; throwOn?: 'member' | 'limit' | 'pending' | 'ledger' }
 function tx(f: Fake): Prisma.TransactionClient {
   const boom = (where: string) => { if (f.throwOn === where) { const e = new Error('permission denied') as Error & { code: string }; e.code = '42501'; throw e } }
   return {
     agencyMember: { findFirst: async () => { boom('member'); return f.member ?? null }, findMany: async () => [{ userId: 'u1' }] },
     $executeRaw: async () => 1,
     wallet: { findFirst: async () => f.account ?? null },
-    ledgerEntry: { aggregate: async () => { boom('ledger'); return { _sum: { amountMinor: f.balance ?? null } } } },
+    ledgerEntry: { aggregate: async () => { boom('ledger'); return { _sum: { amountMinor: f.balance ?? null } } }, findMany: async () => f.entries ?? [] },
     agencyCreditLimit: { findFirst: async () => { boom('limit'); return f.limit ?? null } },
     inventoryHold: { aggregate: async () => { boom('pending'); return { _sum: { sellAmountMinor: f.pending ?? null } } } },
   } as unknown as Prisma.TransactionClient
@@ -36,6 +36,12 @@ describe('assertAgencyCredit (ADR 0028 slice 3: balance + credit line - pending 
   })
   it('a credit line in another currency counts as zero, never converted', async () => {
     expect(await code(run({ member, account, balance: 0n, limit: limit(1_000_000n, 'USD') }))).toBe('AGENCY_CREDIT_LIMIT_EXCEEDED')
+  })
+  it('refuses a new hold when the oldest unpaid charge is 30 days old, even with funds available (ADR 0028 slice 4)', async () => {
+    const day = 86_400_000
+    const debit = (daysAgo: number) => ({ type: 'DEBIT', amountMinor: -500n, reference: 'booking:b1', immutableAt: new Date(Date.now() - daysAgo * day) })
+    expect(await code(run({ member, account, balance: -500n, limit: limit(100_000n), entries: [debit(30)] }))).toBe('AGENCY_CREDIT_OVERDUE')
+    await expect(run({ member, account, balance: -500n, limit: limit(100_000n), entries: [debit(29)] })).resolves.toBeUndefined()
   })
   it('fails closed when any read fails, instead of ignoring the position', async () => {
     for (const throwOn of ['member', 'limit', 'pending', 'ledger'] as const) {

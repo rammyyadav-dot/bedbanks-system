@@ -3,7 +3,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { AGENCY_CREDIT_NEAR_LIMIT_PERCENT, type AgencyCreditApprovalView, AgencyCreditDecision, AgencyCreditLimitRequest, AgencyCreditResult, AgencyCreditView, AgencyPage, AgencyView } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
-import { agencyPosition, type AgencyPosition } from '../agent/agency-account'
+import { accountAging, agencyPosition, overdueView, type AgencyPosition } from '../agent/agency-account'
+import type { Aging } from '../agent/credit-aging'
 import { defaultSettlementCurrency } from '../agent/currency'
 import { ApprovalService, type ApprovalView } from '../approvals/approval.service'
 import { textParam } from '../admin-operations/query-params'
@@ -50,12 +51,16 @@ export class AgencyCreditService {
     const limitView = limit ? { currency: limit.currency, limitMinor: limit.limitMinor.toString() } : null
     const currency = limit?.currency ?? defaultSettlementCurrency()
     let position: AgencyPosition
+    let aging: Aging
     try {
-      position = await this.prisma.withTenant(tenantId, (tx) => agencyPosition(tx, tenantId, agencyId, currency))
+      ;[position, aging] = await this.prisma.withTenant(tenantId, async (tx) => {
+        const p = await agencyPosition(tx, tenantId, agencyId, currency)
+        return [p, await accountAging(tx, tenantId, p.accountId)] as const
+      })
     } catch (error) {
       // The ledger and holds are privileged reads for the API role. Report the amounts as unknown; never as zero.
       if (!isDatabasePermissionDenied(error)) throw error
-      return { limit: limitView, currency, balanceMinor: null, pendingMinor: null, committedMinor: null, availableMinor: null, committedUnavailable: true, nearLimit: false, open: openView }
+      return { limit: limitView, currency, balanceMinor: null, pendingMinor: null, committedMinor: null, availableMinor: null, committedUnavailable: true, overdue: null, nearLimit: false, open: openView }
     }
     const committed = position.pendingMinor + (position.balanceMinor < 0n ? -position.balanceMinor : 0n)
     const available = position.availableMinor > 0n ? position.availableMinor : 0n
@@ -63,7 +68,7 @@ export class AgencyCreditService {
     return {
       limit: limitView, currency, balanceMinor: position.balanceMinor.toString(), pendingMinor: position.pendingMinor.toString(),
       committedMinor: committed.toString(), availableMinor: available.toString(),
-      nearLimit: line > 0n && committed * 100n >= line * BigInt(AGENCY_CREDIT_NEAR_LIMIT_PERCENT), open: openView,
+      overdue: overdueView(aging), nearLimit: line > 0n && committed * 100n >= line * BigInt(AGENCY_CREDIT_NEAR_LIMIT_PERCENT), open: openView,
     }
   }
 

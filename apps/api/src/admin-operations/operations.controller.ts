@@ -136,6 +136,10 @@ export class OperationsController {
   @Get('ledger') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
 
+  /** Agency accounts with unpaid charges and their overdue state (ADR 0028 slice 4). Read-only. */
+  @Get('receivables') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  receivables(@ActiveTenant() tenantId: string) { return this.tx.receivables(tenantId) }
+
   /** One agency's account position (ADR 0028 slice 1). Read-only; the statement is `ledger?walletId=`. */
   @Get('agencies/:agencyId/account') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   agencyAccount(@ActiveTenant() tenantId: string, @Param('agencyId') agencyId: string) { return this.tx.agencyAccount(tenantId, agencyId) }
