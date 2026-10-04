@@ -316,4 +316,11 @@ describe('strict runtime role: commercial read safety and Admin authorization (P
       expect(await count(null, 'Agency')).toBe(0)
     } finally { await probe.$disconnect() }
   })
+
+  it('SC-12 the Agent hotel-image route (owner decision D2, HotelImage not granted) answers the existing sanitized 503 OPERATIONS_READ_DENIED, not a 500 or an empty image', async () => {
+    const res = await call('get', `/agent/hotels/${sellHotelId}/images/${randomBytes(8).toString('hex')}/content`, 'plain')
+    expect(res.status).toBe(503)
+    expect(res.body.error.code).toBe('OPERATIONS_READ_DENIED')
+    expect(JSON.stringify(res.body)).not.toMatch(/HotelImage|permission denied|42501/)
+  })
 })

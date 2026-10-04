@@ -49,7 +49,7 @@ ADR 0008 and 0013 place Admin writes outside the API role's grants but name no w
 - **B.** Keep Admin authoring as an operator action through a privileged owner-side path (maker-checker already exists for the sensitive rows), and keep the Admin UI read-only on strict deployments.
 - **C (rejected).** Grant the writes back to `fbeds_api`. Enlarges the blast radius of the process that serves Agent traffic and contradicts ADR 0008.
 
-Also awaiting the owner: whether the Agent hotel-image route should read `HotelImage` on the strict role (read-only, forced RLS; today it answers 503 `DATABASE_ROLE_NOT_PERMITTED` there), and the agency credit-limit read for holds (holds also need `InventoryHold` writes that `fbeds_api` does not have, so the hold path is not served by this role).
+Also awaiting the owner: whether the Agent hotel-image route should read `HotelImage` on the strict role (read-only, forced RLS; today it answers the existing 503 `OPERATIONS_READ_DENIED` there), and the agency credit-limit read for holds (holds also need `InventoryHold` writes that `fbeds_api` does not have, so the hold path is not served by this role).
 
 ## Consequences
 - A strict deployment now needs `fbeds_api` provisioned **after** this migration, or re-provisioned, so the four control reads exist; without them every Agent route that checks suspension and every search refuses (a deliberate, visible outage rather than a silent unrestricted one). `verifyApiRuntimeRole` reports the missing reads by name.
