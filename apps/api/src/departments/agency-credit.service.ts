@@ -1,3 +1,4 @@
+import { isDatabasePermissionDenied } from '../database/db-errors'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { AGENCY_CREDIT_NEAR_LIMIT_PERCENT, type AgencyCreditApprovalView, AgencyCreditDecision, AgencyCreditLimitRequest, AgencyCreditResult, AgencyCreditView, AgencyPage, AgencyView } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
@@ -46,7 +47,14 @@ export class AgencyCreditService {
     const open = await this.openFor(tenantId, agencyId)
     const openView = open ? this.approvalView(open, me) : null
     if (!limit) return { limit: null, committedMinor: null, availableMinor: null, nearLimit: false, open: openView }
-    const committed = await this.prisma.withTenant(tenantId, (tx) => agencyCommitted(tx, tenantId, agencyId, limit.currency))
+    let committed: bigint
+    try {
+      committed = await this.prisma.withTenant(tenantId, (tx) => agencyCommitted(tx, tenantId, agencyId, limit.currency))
+    } catch (error) {
+      // The holds table is a privileged read for the API role. Report the amount as unknown; never as zero and never as a failed request after a committed change.
+      if (!isDatabasePermissionDenied(error)) throw error
+      return { limit: { currency: limit.currency, limitMinor: limit.limitMinor.toString() }, committedMinor: null, availableMinor: null, committedUnavailable: true, nearLimit: false, open: openView }
+    }
     const available = limit.limitMinor > committed ? limit.limitMinor - committed : 0n
     return { limit: { currency: limit.currency, limitMinor: limit.limitMinor.toString() }, committedMinor: committed.toString(), availableMinor: available.toString(), nearLimit: committed * 100n >= limit.limitMinor * BigInt(AGENCY_CREDIT_NEAR_LIMIT_PERCENT), open: openView }
   }

@@ -1,6 +1,8 @@
 # ADR 0031: Strict runtime-role contract and fail-closed commercial controls
 
 ## Status
+**Update:** the owner decided the open decision below (explicit write set on the runtime role); see [ADR 0032](0032-explicit-runtime-write-set.md), which supersedes the "Open decision" section and the write-allowlist of section 1.
+
 Accepted for the API code, tests and one forward migration, replayed only on disposable local databases. Applying `202610170001_strict_runtime_role_contract` to any persistent database is an owner-controlled step (it revokes privileges). One decision stays with the owner and is **BLOCKED**: which principal writes the Admin authoring tables (see "Open decision"). Supersedes ADR 0019 item 9 and ADR 0020 item 5, and refines ADR 0018 and ADR 0013 item 4.
 
 ## Context

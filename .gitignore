@@ -52,3 +52,4 @@ tools/admin-ops-verify/.seed-agent-images.json
 # Local disposable-database harness outputs (contain generated test identities)
 tools/admin-ops-verify/.seed-*.json
 tools/admin-ops-verify/.scale-*.json
+tools/admin-ops-verify/.seed-hotel-journey.json

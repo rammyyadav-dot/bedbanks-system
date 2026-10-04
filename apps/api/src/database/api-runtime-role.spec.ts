@@ -1,4 +1,4 @@
-import { API_RUNTIME_WRITE_ALLOWLIST, apiRuntimeGrantStatements, assertApiRuntimeInput } from './api-runtime-role'
+import { apiRuntimeGrantStatements, assertApiRuntimeInput } from './api-runtime-role'
 
 describe('api runtime role grants', () => {
   const sql = apiRuntimeGrantStatements().join('\n')
@@ -14,7 +14,7 @@ describe('api runtime role grants', () => {
   })
 
   it('grants search reads and session writes without finance or hotel mutation', () => {
-    expect(sql).toContain('GRANT SELECT ON "Hotel"')
+    expect(sql).toContain('GRANT SELECT, INSERT ON "Hotel"') // draft hotels are created on the runtime role (ADR 0032)
     expect(sql).toContain('GRANT SELECT ON "supplier_memberships"')
     expect(sql).toContain('GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts"')
     expect(sql).not.toMatch(/GRANT UPDATE ON "supplier_memberships"/)
@@ -39,24 +39,17 @@ describe('api runtime role grants', () => {
     expect(sql).toContain('GRANT SELECT ON "CancellationPolicy"') // search and recheck read it
   })
 
-  it('reads the mandatory commercial controls and writes none of the Admin authoring tables (ADR 0031)', () => {
-    for (const table of ['Agency', 'AgencyMember', 'DistributionRestriction', 'CommercialMarkupRule']) expect(sql).toContain(`GRANT SELECT ON "${table}"`)
-    for (const table of ['Agency', 'AgencyMember', 'AgencyCreditLimit', 'ApprovalRequest', 'CommercialMarkupRule', 'DistributionRestriction', 'HotelProfile', 'HotelAmenity', 'HotelImage', 'HotelExternalIdentifier', 'RoomAmenity', 'ServiceCase', 'ServiceCaseNote', 'InventoryPool', 'InventoryPoolDay']) {
-      expect(sql).not.toMatch(new RegExp(`(INSERT|UPDATE|DELETE)[A-Z, ]* ON "${table}"`))
-    }
+  it('reads the mandatory commercial controls (ADR 0031)', () => {
+    for (const table of ['Agency', 'AgencyMember', 'DistributionRestriction', 'CommercialMarkupRule']) expect(sql).toContain(`ON "${table}" TO`)
+    for (const table of ['Agency', 'AgencyMember', 'DistributionRestriction', 'CommercialMarkupRule']) expect(apiRuntimeGrantStatements().some((s) => s.startsWith('GRANT SELECT') && s.includes(`ON "${table}"`))).toBe(true)
   })
 
-  it('every write the grant statements give is on the allowlist the verifier enforces, and the allowlist has nothing the grants do not give', () => {
-    const granted = new Map<string, Set<string>>()
-    for (const statement of apiRuntimeGrantStatements()) {
-      const match = /^GRANT (UPDATE \([^)]*\)|[A-Z, ]+) ON "([^"]+)"/.exec(statement)
-      if (!match) continue
-      for (const privilege of match[1].replace(/\s*\(.*\)/, '').split(',').map((p) => p.trim())) {
-        if (privilege === 'SELECT') continue
-        granted.set(match[2], new Set([...(granted.get(match[2]) ?? []), privilege]))
-      }
+  it('never grants the privileged paths: no supply-authoring, booking, finance or journal write', () => {
+    for (const table of ['SupplierMutation', 'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability', 'Supplier', 'Booking', 'InventoryHold', 'LedgerEntry', 'Wallet', 'Tenant', 'TenantSettings']) {
+      expect(apiRuntimeGrantStatements().filter((s) => new RegExp(`(INSERT|UPDATE|DELETE)[A-Z, ()"_a-z]* ON "${table}"`).test(s))).toEqual([])
     }
-    const allowed = new Map(Object.entries(API_RUNTIME_WRITE_ALLOWLIST).map(([table, privileges]) => [table, new Set(privileges)]))
-    expect(Object.fromEntries([...granted].map(([t, p]) => [t, [...p].sort()]))).toEqual(Object.fromEntries([...allowed].map(([t, p]) => [t, [...p].sort()])))
+    expect(sql).not.toMatch(/GRANT DELETE/)
+    expect(sql).not.toMatch(/GRANT [A-Z, ]*(UPDATE|DELETE)[A-Z, ]* ON "Hotel"/) // Hotel UPDATE is column-level only, and never DELETE
+    expect(sql).not.toMatch(/GRANT [A-Z, ]*DELETE[A-Z, ]* ON "(RoomType|Hotel)"/)
   })
 })

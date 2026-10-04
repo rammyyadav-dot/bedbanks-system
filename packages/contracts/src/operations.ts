@@ -22,6 +22,8 @@ export const OPERATIONS_READ_DENIED = 'OPERATIONS_READ_DENIED'
 export const COMMERCIAL_CONTROL_UNAVAILABLE = 'COMMERCIAL_CONTROL_UNAVAILABLE'
 /** HTTP 503: an authorized operation needs a database privilege the API runtime role does not hold. Infrastructure configuration, never a caller authorization decision (ADR 0031). */
 export const DATABASE_ROLE_NOT_PERMITTED = 'DATABASE_ROLE_NOT_PERMITTED'
+/** HTTP 403: an authorized caller asked for an operation that the API runtime database role is, by contract, never given (a privileged path). Typed, audited, nothing written (ADR 0032). */
+export const RUNTIME_ROLE_OPERATION_PROHIBITED = 'RUNTIME_ROLE_OPERATION_PROHIBITED'
 
 export interface Paged<T> { items: T[]; page: number; pageSize: number; total: number }
 export type MinorString = string

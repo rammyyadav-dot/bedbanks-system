@@ -4,15 +4,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
-import { API_RUNTIME_GROUP_ROLE, API_RUNTIME_LOGIN_ROLE, API_RUNTIME_WRITE_ALLOWLIST, provisionApiRuntimeRole, verifyApiRuntimeRole } from '../src/database/api-runtime-role'
+import { API_RUNTIME_GROUP_ROLE, API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole, verifyApiRuntimeRole } from '../src/database/api-runtime-role'
+import { RUNTIME_ROLE_GRANTS } from '../src/database/runtime-role-contract'
 
 const ownerUrl = process.env.DATABASE_URL
 if (!ownerUrl) throw new Error('DATABASE_URL (the disposable owner connection) is required')
 
 /** Admin authoring tables (plus SupplierMutation) that earlier migrations made writable for the runtime role (ADR 0031). */
-const AUTHORING_TABLES = ['Agency', 'AgencyCreditLimit', 'AgencyMember', 'ApprovalRequest', 'CommercialMarkupRule', 'DistributionRestriction', 'HotelAmenity', 'HotelExternalIdentifier', 'HotelImage', 'HotelProfile', 'InventoryPool', 'InventoryPoolDay', 'RoomAmenity', 'ServiceCase', 'ServiceCaseNote', 'SupplierMutation']
-const READ_ONLY_AFTER_MIGRATION = ['Agency', 'AgencyMember', 'CommercialMarkupRule', 'DistributionRestriction', 'InventoryPool', 'InventoryPoolDay']
-const PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] as const
+const AUTHORING_TABLES = ['Hotel', 'RoomType', 'Agency', 'AgencyCreditLimit', 'AgencyMember', 'ApprovalRequest', 'CommercialMarkupRule', 'DistributionRestriction', 'HotelAmenity', 'HotelExternalIdentifier', 'HotelImage', 'HotelProfile', 'InventoryPool', 'InventoryPoolDay', 'RoomAmenity', 'ServiceCase', 'ServiceCaseNote', 'SupplierMutation']
+/** The contract's privileges for a table, in the shape `snapshot` reports (column-level INSERT/UPDATE show as the privilege). */
+const contractPrivileges = (table: string): string[] => {
+  const grant = RUNTIME_ROLE_GRANTS.find((g) => g.table === table)
+  if (!grant) return []
+  return [...(grant.read ? ['SELECT'] : []), ...new Set(grant.writes.map((w) => w.op as string))].sort()
+}
 
 const urlFor = (database: string) => { const url = new URL(ownerUrl); url.pathname = `/${database}`; return url.toString() }
 const migrationsDir = join(__dirname, '..', 'prisma', 'migrations')
@@ -49,11 +54,11 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
     await admin.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${API_RUNTIME_GROUP_ROLE}') THEN CREATE ROLE "${API_RUNTIME_GROUP_ROLE}" NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END $$`)
     await admin.$executeRawUnsafe(`CREATE DATABASE "${replayDb}"`)
     await admin.$executeRawUnsafe(`CREATE DATABASE "${upgradeDb}"`)
-    // The preceding committed schema: every migration except the newest, applied while the group role already exists (the order that left the over-grants).
+    // The preceding committed schema: every migration before the two P0.5 role migrations, applied while the group role already exists (the order that left the over-grants).
     const all = readdirSync(migrationsDir).filter((d) => d !== 'migration_lock.toml').sort()
     cpSync(join(__dirname, '..', 'prisma', 'schema.prisma'), join(work, 'schema.prisma'))
     cpSync(join(migrationsDir, 'migration_lock.toml'), join(work, 'migrations', 'migration_lock.toml'))
-    for (const dir of all.slice(0, -1)) cpSync(join(migrationsDir, dir), join(work, 'migrations', dir), { recursive: true })
+    for (const dir of all.slice(0, all.indexOf('202610170001_strict_runtime_role_contract'))) cpSync(join(migrationsDir, dir), join(work, 'migrations', dir), { recursive: true })
     deploy(join(work, 'schema.prisma'), urlFor(upgradeDb))
     upgrade = new PrismaClient({ datasourceUrl: urlFor(upgradeDb) }); await upgrade.$connect()
     beforeLatest = await snapshot(upgrade)
@@ -74,10 +79,12 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
     expect(writable.length).toBeGreaterThanOrEqual(10)
   })
 
-  it('SR-02 after the forward migration, with no provisioning, the authoring tables hold SELECT only on exactly the contract reads and nothing else', async () => {
+  let afterMigration: Record<string, string[]>
+  it('SR-02 after the forward migrations, with no provisioning, every affected table holds exactly the contract privileges (and no privileged path holds anything)', async () => {
     for (const [name, db] of [['replay', replay], ['upgrade', upgrade]] as const) {
       const s = await snapshot(db)
-      for (const table of AUTHORING_TABLES) expect({ name, table, privileges: s[table] ?? [] }).toEqual({ name, table, privileges: READ_ONLY_AFTER_MIGRATION.includes(table) ? ['SELECT'] : [] })
+      for (const table of AUTHORING_TABLES) expect({ name, table, privileges: s[table] ?? [] }).toEqual({ name, table, privileges: contractPrivileges(table) })
+      afterMigration = s
     }
   })
 
@@ -92,9 +99,11 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
     await provisionApiRuntimeRole(replay, { password }); await provisionApiRuntimeRole(upgrade, { password })
     expect(await snapshot(replay)).toEqual(first)
     expect(await snapshot(upgrade)).toEqual(first)
-    // Writes are exactly the allowlist (INSERT/UPDATE on listed tables; users column UPDATE shows as UPDATE), no DELETE or TRUNCATE anywhere.
-    const writes = Object.fromEntries(Object.entries(first).map(([t, p]) => [t, p.filter((x) => x !== 'SELECT')]).filter(([, p]) => (p as string[]).length > 0))
-    expect(writes).toEqual(Object.fromEntries(Object.entries(API_RUNTIME_WRITE_ALLOWLIST).map(([t, p]) => [t, [...p].sort((a, b) => PRIVILEGES.indexOf(a as never) - PRIVILEGES.indexOf(b as never))])))
+    // Provisioned state equals the contract for every table, and the migration-time state of the affected tables equals the provisioned state.
+    const contractTables = new Set(RUNTIME_ROLE_GRANTS.map((g) => g.table))
+    expect(Object.keys(first).filter((t) => !contractTables.has(t))).toEqual([])
+    for (const grant of RUNTIME_ROLE_GRANTS) expect({ table: grant.table, privileges: first[grant.table] ?? [] }).toEqual({ table: grant.table, privileges: contractPrivileges(grant.table) })
+    for (const table of AUTHORING_TABLES) expect({ table, privileges: afterMigration[table] ?? [] }).toEqual({ table, privileges: first[table] ?? [] })
   })
 
   it('SR-05 the login role verifies clean, and the verifier names a migration-style over-grant', async () => {
@@ -103,13 +112,13 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
       const runtime = login(database)
       try { expect(await verifyApiRuntimeRole(runtime)).toEqual({ ok: true, failures: [] }) } finally { await runtime.$disconnect() }
     }
-    await replay.$executeRawUnsafe(`GRANT INSERT, UPDATE ON "CommercialMarkupRule" TO ${API_RUNTIME_GROUP_ROLE}`)
+    await replay.$executeRawUnsafe(`GRANT DELETE ON "CommercialMarkupRule" TO ${API_RUNTIME_GROUP_ROLE}`)
     const runtime = login(replayDb)
     try {
       const report = await verifyApiRuntimeRole(runtime)
       expect(report.ok).toBe(false)
-      expect(report.failures.join(' ')).toMatch(/writes outside the contract: .*CommercialMarkupRule:INSERT.*CommercialMarkupRule:UPDATE/)
-    } finally { await runtime.$disconnect(); await replay.$executeRawUnsafe(`REVOKE INSERT, UPDATE ON "CommercialMarkupRule" FROM ${API_RUNTIME_GROUP_ROLE}`) }
+      expect(report.failures.join(' ')).toMatch(/role holds DELETE on CommercialMarkupRule, which the contract does not grant/)
+    } finally { await runtime.$disconnect(); await replay.$executeRawUnsafe(`REVOKE DELETE ON "CommercialMarkupRule" FROM ${API_RUNTIME_GROUP_ROLE}`) }
   })
 
   it('SR-06 the verifier names a missing mandatory read', async () => {
@@ -122,9 +131,9 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
     } finally { await runtime.$disconnect(); await replay.$executeRawUnsafe(`GRANT SELECT ON "DistributionRestriction" TO ${API_RUNTIME_GROUP_ROLE}`) }
   })
 
-  it('SR-07 no committed migration after this contract grants anything to the runtime role (provisioning is the only source of grants)', () => {
+  it('SR-07 no committed migration after the last contract migration grants anything to the runtime role (provisioning is the only source of grants)', () => {
     const all = readdirSync(migrationsDir).filter((d) => d !== 'migration_lock.toml').sort()
-    const contract = all.indexOf('202610170001_strict_runtime_role_contract')
+    const contract = all.indexOf('202610190001_strict_runtime_role_hotel_setup_writes')
     expect(contract).toBeGreaterThan(-1)
     for (const dir of all.slice(contract + 1)) {
       const sql = readFileSync(join(migrationsDir, dir, 'migration.sql'), 'utf8')

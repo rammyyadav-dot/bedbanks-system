@@ -1,4 +1,5 @@
 import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role'
+import { RUNTIME_READ_TABLES, expectedWrites, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
 
 export const API_RUNTIME_GROUP_ROLE = 'fbeds_api'
 export const API_RUNTIME_LOGIN_ROLE = 'fbeds_api_login'
@@ -8,51 +9,12 @@ type Executor = { $executeRawUnsafe(query: string): Promise<number>; $queryRawUn
 const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const RESERVED = new Set(['postgres', API_RUNTIME_GROUP_ROLE, 'fbeds_hold_expiry', 'fbeds_hold_expiry_login', 'fbeds_rls_test'])
 
-const SELECT_TABLES = [
-  'tenants', 'memberships', 'Permission', 'Role', 'UserRole', 'RolePermission',
-  'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
-  'supplier_memberships',
-  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
-  // Agent search and recheck include each contract's cancellation terms; the table is row-level-secured through its contract's tenant.
-  'CancellationPolicy',
-  // Inventory pools (ADR 0030): Agent search, recheck and the Admin summary read them. The runtime role does not write them; see verifyApiRuntimeRole.
-  'InventoryPool', 'InventoryPoolDay',
-  // Mandatory commercial controls (ADR 0031). Agent search, recheck and the agency-suspension guard read them and refuse the request if they cannot.
-  // Read-only: the rules are authored by Admin through a principal that is still an open owner decision.
-  'Agency', 'AgencyMember', 'DistributionRestriction', 'CommercialMarkupRule',
-] as const
-
 /**
- * Every write this role is meant to hold, and nothing else (ADR 0008, 0031). Table-level or column-level: `users` is columns only.
- * `verifyApiRuntimeRole` fails on any other INSERT/UPDATE/DELETE/TRUNCATE privilege, whatever migration granted it.
- */
-export const API_RUNTIME_WRITE_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-  users: ['UPDATE'],
-  sessions: ['INSERT', 'UPDATE'],
-  AuditEvent: ['INSERT'],
-  supplier_room_drafts: ['INSERT', 'UPDATE'],
-}
-
-/**
- * Statements the owner runs to grant the API group role. Search and recheck are
- * SELECT. Sessions, audit events, and supplier room-note drafts are the writes.
- * Wallet, booking, ledger, hotel, and credential tables stay read-only or absent.
- * Admin authoring tables (agencies, restrictions, markup rules, approvals, hotel profile, images, pools) are read-only or absent here:
- * their writer is not decided (ADR 0031), so this role never writes them.
+ * Statements the owner runs to grant the API group role: REVOKE ALL, then exactly the contract in `runtime-role-contract.ts`.
+ * There is no second definition of the grants anywhere (ADR 0032).
  */
 export function apiRuntimeGrantStatements(groupRole = API_RUNTIME_GROUP_ROLE): string[] {
-  const group = `"${groupRole}"`
-  return [
-    `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${group}`,
-    `GRANT USAGE ON SCHEMA public TO ${group}`,
-    `GRANT SELECT ON "users" TO ${group}`,
-    `GRANT UPDATE ("last_login_at", "updated_at") ON "users" TO ${group}`,
-    `GRANT SELECT, INSERT ON "sessions" TO ${group}`,
-    `GRANT UPDATE ("last_seen_at", "revoked_at") ON "sessions" TO ${group}`,
-    `GRANT SELECT, INSERT ON "AuditEvent" TO ${group}`,
-    `GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts" TO ${group}`,
-    ...SELECT_TABLES.map((table) => `GRANT SELECT ON "${table}" TO ${group}`),
-  ]
+  return runtimeGrantStatements(groupRole)
 }
 
 export function assertApiRuntimeInput(loginRole: string, password: string): void {
@@ -102,23 +64,61 @@ export async function verifyApiRuntimeRole(db: Pick<Executor, '$queryRawUnsafe'>
     `SELECT count(*) AS n FROM unnest(ARRAY['Wallet','LedgerEntry','Booking','ConnectorCredentialReference']) t
       WHERE has_table_privilege(current_user, format('%I', t), 'SELECT')`)
   if (Number(forbidden?.n ?? 0) > 0) failures.push('role can read finance or credential tables')
-  const [hotelUpdate] = await db.$queryRawUnsafe<Array<{ allowed: boolean }>>(
-    `SELECT has_table_privilege(current_user, '"Hotel"', 'UPDATE') AS allowed`)
-  if (hotelUpdate?.allowed) failures.push('role can update Hotel')
-  // Exhaustive write check. A migration that granted writes to this role before it was (re)provisioned would otherwise stay in force silently.
-  const writes = await db.$queryRawUnsafe<Array<{ tbl: string; priv: string }>>(
-    `SELECT c.relname AS tbl, p.priv
-       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace,
-            unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) p(priv)
-      WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
-        AND (CASE WHEN p.priv IN ('INSERT','UPDATE') THEN has_any_column_privilege(current_user, c.oid, p.priv)
-                  ELSE has_table_privilege(current_user, c.oid, p.priv) END)`)
-  const unexpected = writes.filter((w) => !(API_RUNTIME_WRITE_ALLOWLIST[w.tbl] ?? []).includes(w.priv))
-  if (unexpected.length > 0) failures.push(`role holds writes outside the contract: ${[...new Set(unexpected.map((w) => `${w.tbl}:${w.priv}`))].sort().join(', ')}; re-run provisioning (REVOKE) or have the owner revoke the migration grant`)
-  // The reads the runtime contract requires (search, recheck, guards). A missing one makes those requests refuse (ADR 0031), so say so here.
-  const [missing] = await db.$queryRawUnsafe<Array<{ tables: string | null }>>(
-    `SELECT string_agg(t, ', ' ORDER BY t) AS tables FROM unnest(ARRAY[${SELECT_TABLES.map((t) => `'${t}'`).join(',')}]) t
-      WHERE NOT has_table_privilege(current_user, format('%I', t), 'SELECT')`)
-  if (missing?.tables) failures.push(`role cannot read required tables: ${missing.tables}`)
+  const privileges = await inspectRuntimePrivileges(db)
+  failures.push(...privileges.problems.map((p) => p.message))
+  if (privileges.missingReads.length) failures.push(`role cannot read required tables: ${privileges.missingReads.join(', ')}`)
   return { ok: failures.length === 0, failures }
+}
+
+export interface PrivilegeProblem { table: string; message: string }
+
+type WriteRow = { tbl: string; priv: string; table_level: boolean; cols: string[] | null }
+
+/**
+ * Compares the live privileges of the CURRENT user against the contract: every write privilege (table or column level) the role holds
+ * must be in the contract, and every contract write and read must be held. Catalog queries only; no secrets. With `onlyTable`, inspects that table
+ * (the 403-versus-503 classification of a database denial uses this).
+ */
+export async function inspectRuntimePrivileges(db: Pick<Executor, '$queryRawUnsafe'>, onlyTable?: string): Promise<{ problems: PrivilegeProblem[]; missingReads: string[] }> {
+  const literal = (value: string) => `'${value.replace(/'/g, "''")}'`
+  const filter = onlyTable ? `AND c.relname = ${literal(onlyTable)}` : ''
+  const rows = await db.$queryRawUnsafe<WriteRow[]>(
+    `SELECT c.relname AS tbl, p.priv,
+            has_table_privilege(current_user, c.oid, p.priv) AS table_level,
+            CASE WHEN p.priv IN ('INSERT','UPDATE') THEN
+              (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+                WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(current_user, c.oid, a.attnum, p.priv))
+            END AS cols
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) p(priv)
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p') ${filter}
+        AND (has_table_privilege(current_user, c.oid, p.priv) OR (p.priv IN ('INSERT','UPDATE') AND has_any_column_privilege(current_user, c.oid, p.priv)))`)
+  const expected = expectedWrites()
+  const problems: PrivilegeProblem[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const priv = row.priv as WritePrivilege | 'TRUNCATE'
+    const want = expected.get(row.tbl)
+    seen.add(`${row.tbl}:${priv}`)
+    if (priv === 'TRUNCATE' || !want) { problems.push({ table: row.tbl, message: `role holds ${priv} on ${row.tbl}, which the contract does not grant` }); continue }
+    if (want.table.has(priv as WritePrivilege)) { if (!row.table_level) problems.push({ table: row.tbl, message: `role lacks table-level ${priv} on ${row.tbl}` }); continue }
+    const columns = want.columns.get(priv as WritePrivilege)
+    if (!columns) { problems.push({ table: row.tbl, message: `role holds ${priv} on ${row.tbl}, which the contract does not grant` }); continue }
+    const held = new Set(row.table_level ? ['*'] : (row.cols ?? []))
+    const same = !row.table_level && held.size === columns.size && [...columns].every((c) => held.has(c))
+    if (!same) problems.push({ table: row.tbl, message: `role's ${priv} columns on ${row.tbl} differ from the contract (${row.table_level ? 'table-level' : [...held].join(', ')})` })
+  }
+  for (const [table, want] of expected) {
+    if (onlyTable && table !== onlyTable) continue
+    const needed: WritePrivilege[] = [...want.table, ...want.columns.keys()]
+    for (const priv of needed) if (!seen.has(`${table}:${priv}`)) problems.push({ table, message: `role lacks contract write ${priv} on ${table}` })
+  }
+  const reads = onlyTable ? RUNTIME_READ_TABLES.filter((t) => t === onlyTable) : RUNTIME_READ_TABLES
+  const missingReads: string[] = []
+  if (reads.length) {
+    const rows2 = await db.$queryRawUnsafe<Array<{ t: string }>>(
+      `SELECT t FROM unnest(ARRAY[${reads.map((t) => literal(t)).join(',')}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'SELECT') ORDER BY 1`)
+    missingReads.push(...rows2.map((r) => r.t))
+    for (const t of missingReads) problems.push({ table: t, message: `role cannot read ${t}` })
+  }
+  return { problems, missingReads }
 }
