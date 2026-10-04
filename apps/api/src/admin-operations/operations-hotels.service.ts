@@ -6,12 +6,13 @@ import {
   type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
+  type InventoryMode,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { bookingEnabled } from '../agent/booking-transaction.service'
 import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
-import { evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
-import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { rowIsFresh, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
+import { buildStaySnapshot, nightStock } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
 import { markupMinor } from '@bedbanks/pricing'
 import { loadActiveMarkupRulesInTx } from '../supply/markup-rules.loader'
@@ -449,9 +450,11 @@ export class OperationsHotelsService {
           const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules, this.clock())
           return {
             date, rateMinor: rate ? rate.amountMinor.toString() : null, currency: rate ? rate.currency : null, amountBasis: rate?.amountBasis === 'SELL' || rate?.amountBasis === 'NET' ? rate.amountBasis : null,
-            allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: row ? row.allotment - row.sold - row.held : null,
+            allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: nightStock(plan, date).remaining,
+            inventoryMode: row ? toInventoryMode(row.inventoryMode) : null, stockSource: row ? (toInventoryMode(row.inventoryMode) !== 'ALLOTMENT' ? 'NONE' : plan.inventoryPoolId ? 'POOL' : 'PLAN_ROW') : null, poolId: plan.inventoryPoolId ?? null,
+            source: row?.source ?? null, freshUntil: iso(row?.freshUntil), stale: row ? !rowIsFresh(row.source ?? 'ADMIN', row.freshUntil ? row.freshUntil.toISOString() : null, this.clock()) : false,
             stopSell: row ? row.stopSell : null, closedToArrival: row ? row.closedToArrival : null, minStay: row ? row.minStay : null, sellable: reasons.length === 0, reasons,
-            closedToDeparture: availExtra.has(`${plan.id}:${date}`) ? availExtra.get(`${plan.id}:${date}`)!.closedToDeparture : null,
+            closedToDeparture: row ? row.closedToDeparture ?? false : null,
             rateSourceUpdatedAt: iso(rateExtra.get(`${plan.id}:${date}:${plan.occupancy}`)?.sourceUpdatedAt), availabilitySourceUpdatedAt: iso(availExtra.get(`${plan.id}:${date}`)?.sourceUpdatedAt),
           }
         })
@@ -610,5 +613,7 @@ export class OperationsHotelsService {
     })
   }
 }
+
+const toInventoryMode = (value: string | undefined): InventoryMode => (value === 'ALLOTMENT' || value === 'FREE_SALE' || value === 'ON_REQUEST' || value === 'CLOSED' ? value : value === undefined ? 'ALLOTMENT' : 'CLOSED')
 
 const HOTEL_SELECT = { id: true, name: true, externalRef: true, city: true, countryCode: true, starRating: true, propertyType: true, contentStatus: true, timeZone: true, address: true, latitude: true, longitude: true, updatedAt: true } as const
