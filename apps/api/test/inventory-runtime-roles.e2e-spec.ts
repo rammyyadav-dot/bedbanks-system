@@ -21,6 +21,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
   const HOLD_LOGIN = 'fbeds_hold_expiry_login'
   const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
   const D1 = day(40), D2 = day(41)
+  let ownerRole = ''
   let api: PrismaService, apiSingle: PrismaService, hold: PrismaService
   const T: Record<'A' | 'B', { tenant: string; user: string; supplier: string; hotel: string; room: string; board: string; plan: string; pool: string; poolDays: string[] }> = { A: {} as never, B: {} as never }
 
@@ -48,6 +49,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
 
   beforeAll(async () => {
     await owner.$connect()
+    ownerRole = (await owner.$queryRawUnsafe<Array<{ current_user: string }>>('SELECT current_user'))[0].current_user // whoever owns the schema in this environment
     await provisionApiRuntimeRole(owner, { password: apiPassword })
     await provisionHoldExpiryRole(owner, { loginRole: HOLD_LOGIN, password: holdPassword })
     api = new PrismaService({ datasourceUrl: urlFor(API_RUNTIME_LOGIN_ROLE, apiPassword) } as never)
@@ -95,7 +97,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
 
     it('RR-02 cannot run DDL, create roles, grant itself anything, or become another role', async () => {
       for (const sql of ['CREATE TABLE rr_probe (id int)', 'ALTER TABLE "InventoryPool" DISABLE ROW LEVEL SECURITY', 'ALTER TABLE "InventoryPoolDay" NO FORCE ROW LEVEL SECURITY', 'DROP POLICY "InventoryPool_tenant_isolation" ON "InventoryPool"',
-        'DROP TABLE "InventoryPoolDay"', 'CREATE ROLE rr_escalate LOGIN', 'SET ROLE p04_owner', 'CREATE TRIGGER rr_t BEFORE INSERT ON "InventoryPool" FOR EACH ROW EXECUTE FUNCTION fbeds_inventory_pool_tenant_guard()']) {
+        'DROP TABLE "InventoryPoolDay"', 'CREATE ROLE rr_escalate LOGIN', `SET ROLE "${ownerRole}"`, 'CREATE TRIGGER rr_t BEFORE INSERT ON "InventoryPool" FOR EACH ROW EXECUTE FUNCTION fbeds_inventory_pool_tenant_guard()']) {
         expect([sql, await code(() => api.$executeRawUnsafe(sql))]).toEqual([sql, expect.stringMatching(/^(42501|ERR:.*(must be owner|permission denied|cannot|no privilege))/i)])
       }
       expect((await api.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM pg_roles WHERE rolname = 'rr_escalate'`))[0].n).toBe(0n)

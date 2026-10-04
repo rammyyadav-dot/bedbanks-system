@@ -41,7 +41,8 @@ PRODUCTION_DB_MIGRATION_EXECUTED=NO, PERSISTENT_ROLE_PROVISIONING_EXECUTED=NO, P
 3. **A migration over-grant on the new pool tables.** Migration `202610160001` grants `INSERT, UPDATE` on `InventoryPool` and `InventoryPoolDay` to `fbeds_api` when the role already exists; the authoritative provisioning gives `SELECT` only. `verifyApiRuntimeRole` now fails if the role can write the pool tables, so the difference cannot persist silently; re-provisioning removes it (test `RR-01b`). The merged migration was not edited.
 4. **Pooled-plan displays implied the plan's own allotment controls stock.** The calendar now shows the shared pool's capacity, sold and held as authoritative (`(pool)`), marks the plan's value as not used, and the legacy Rates & Inventory workbench warns when the plan is pooled.
 5. **Test portability.** Four suites assumed a superuser could `SET ROLE` to roles it creates (PostgreSQL 16 needs an explicit membership for a CREATEROLE owner). `HI-04` read an unordered audit list and failed intermittently; it now orders explicitly. No assertion was weakened.
-6. Tooling: the seed guards accept `p04_*` databases on any local port; the scale harness measures on the restricted role and also rechecks; two Hotel Operations assertions track the new Quick Update wording.
+6. **CI on this PR caught a defect in my own test:** `RR-02` hard-coded my local owner role name in `SET ROLE`; in CI that role does not exist, so the error was not a privilege error. It now uses the connected owner's actual role name. The suite passed locally as `p04_owner` and the same logic holds for any owner.
+7. Tooling: the seed guards accept `p04_*` databases on any local port; the scale harness measures on the restricted role and also rechecks; two Hotel Operations assertions track the new Quick Update wording.
 
 ## Runtime-role and RLS evidence (no secrets)
 
