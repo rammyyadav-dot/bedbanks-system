@@ -90,7 +90,7 @@ describe('Admin dashboard HTTP authorization', () => {
     await request(app.getHttpServer()).get('/api/v1/admin/dashboard').set('Cookie', await login(deniedEmail)).expect(403)
     const denial = await prisma.auditEvent.findFirst({ where: { tenantId, action: 'permission.denied', userId: deniedUserId }, orderBy: { createdAt: 'desc' } })
     expect(denial).toMatchObject({ actorType: 'USER', entityType: 'admin_permission', entityId: 'dashboard.read' })
-    expect(denial?.payload).toEqual({ permission: 'dashboard.read' })
+    expect(denial?.payload).toEqual({ permission: 'dashboard.read', requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) }) // redacted: the permission and the request id only
   })
 
   it('distinguishes empty measured bookings from unavailable financial data', async () => {
