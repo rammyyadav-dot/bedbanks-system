@@ -90,7 +90,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
     it('RR-01b a migration-style over-grant of pool writes (role existed before the migration) is detected by the verifier and removed by re-provisioning', async () => {
       await owner.$executeRawUnsafe('GRANT INSERT, UPDATE ON "InventoryPool" TO fbeds_api')
       const dirty = await verifyApiRuntimeRole(api)
-      expect(dirty.ok).toBe(false); expect(dirty.failures.join(' ')).toMatch(/inventory pool tables/)
+      expect(dirty.ok).toBe(false); expect(dirty.failures.join(' ')).toMatch(/writes outside the contract: InventoryPool:INSERT, InventoryPool:UPDATE/)
       await provisionApiRuntimeRole(owner, { password: apiPassword })
       expect(await verifyApiRuntimeRole(api)).toEqual({ ok: true, failures: [] })
     })

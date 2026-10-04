@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, HttpException, ServiceUnavailableException } from '@nestjs/common'
 import type { ArgumentsHost } from '@nestjs/common'
 import { HttpExceptionFilter } from './http-exception.filter'
+import { CommercialControlUnavailableError } from '../../supply/commercial-controls'
 
 function run(exception: unknown) {
   let status = 0
@@ -35,5 +36,24 @@ describe('HttpExceptionFilter codes', () => {
     expect(result.status).toBe(500)
     expect(result.error).toMatchObject({ code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred' })
     expect(new HttpException('x', 418)).toBeDefined()
+  })
+
+  it('maps a database privilege failure to a sanitized 503, never a 403 or a 500 (ADR 0031)', () => {
+    const denied = Object.assign(new Error('permission denied for table "HotelProfile"'), { meta: { code: '42501' } })
+    const result = run(denied)
+    expect(result.status).toBe(503)
+    expect(result.error.code).toBe('DATABASE_ROLE_NOT_PERMITTED')
+    expect(JSON.stringify(result.error)).not.toMatch(/HotelProfile|42501|permission denied/)
+  })
+
+  it('does not treat an intentional 403 or a row-level-security violation as a grant failure', () => {
+    expect(run(new ForbiddenException('Insufficient permission')).status).toBe(403)
+    expect(run(new Error('new row violates row-level security policy for table "Agency"')).status).toBe(500)
+  })
+
+  it('maps an unreadable mandatory commercial control to 503 COMMERCIAL_CONTROL_UNAVAILABLE', () => {
+    const result = run(new CommercialControlUnavailableError('markup_rules', 'denied', '42501'))
+    expect(result.status).toBe(503)
+    expect(result.error.code).toBe('COMMERCIAL_CONTROL_UNAVAILABLE')
   })
 })

@@ -1,4 +1,4 @@
-import { ForbiddenException, type ExecutionContext } from '@nestjs/common'
+import { ForbiddenException, ServiceUnavailableException, type ExecutionContext } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { ACTIVE_TENANT_REQUEST_KEY } from './tenant-context.guard'
 import { AgencySuspensionGuard, AllowWhenAgencySuspended } from './agency-suspension.guard'
@@ -39,10 +39,14 @@ describe('AgencySuspensionGuard (ADR 0020)', () => {
     await expect(new AgencySuspensionGuard(reflector, prisma(async () => null)).canActivate(ctx(probe.blocked))).resolves.toBe(true)
   })
 
-  it('applies the explicit unreadable-table policy: passes and does not throw', async () => {
-    const guard = new AgencySuspensionGuard(reflector, prisma(async () => { throw Object.assign(new Error('permission denied'), { code: '42501' }) }))
-    await expect(guard.canActivate(ctx(probe.blocked))).resolves.toBe(true)
-  })
+  it.each([['denied', Object.assign(new Error('permission denied for table "Agency"'), { meta: { code: '42501' } })], ['failed', new Error('connection lost')]])(
+    'fails closed with 503 COMMERCIAL_CONTROL_UNAVAILABLE when the agency tables are %s (ADR 0031), exposing nothing from the database', async (_name, failure) => {
+      const guard = new AgencySuspensionGuard(reflector, prisma(async () => { throw failure }))
+      const error = await guard.canActivate(ctx(probe.blocked)).catch((e) => e)
+      expect(error).toBeInstanceOf(ServiceUnavailableException)
+      expect((error as ServiceUnavailableException).getResponse()).toMatchObject({ code: 'COMMERCIAL_CONTROL_UNAVAILABLE' })
+      expect(JSON.stringify((error as ServiceUnavailableException).getResponse())).not.toMatch(/Agency|42501|connection/)
+    })
 
   it('refuses a request with no authenticated user', async () => {
     await expect(new AgencySuspensionGuard(reflector, prisma(async () => null)).canActivate(ctx(probe.blocked, null))).rejects.toBeInstanceOf(ForbiddenException)

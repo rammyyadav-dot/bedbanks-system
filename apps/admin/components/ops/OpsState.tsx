@@ -22,7 +22,7 @@ export function OpsState<T>({ state, isEmpty, empty, onRetry, children }: {
         <strong>{copy.title}</strong>
         <span>{copy.body}</span>
         {state.reference ? <span>Reference: <code>{state.reference}</code></span> : null}
-        {onRetry && state.failure !== 'forbidden' && state.failure !== 'denied' ? <button type="button" className="admin-btn" onClick={onRetry}>Retry</button> : null}
+        {onRetry && state.failure !== 'forbidden' && state.failure !== 'denied' && state.failure !== 'not-configured' ? <button type="button" className="admin-btn" onClick={onRetry}>Retry</button> : null}
       </div>
     )
   }

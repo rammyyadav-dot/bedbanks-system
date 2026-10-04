@@ -1,15 +1,13 @@
 import { ForbiddenException, Injectable } from '@nestjs/common'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
+import { isDatabasePermissionDenied } from '../database/db-errors'
 import { PrismaService } from '../database/prisma.service'
 
 export type DashboardRange = '7d' | '30d' | '90d'
 
 /** The API runtime role is not granted booking tables. That is a privilege boundary, not an outage. */
 export function isBookingReadDenied(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const meta = 'meta' in error ? (error as { meta?: { code?: string } }).meta : undefined
-  if (meta?.code === '42501') return true
-  return error instanceof Error && error.message.includes('permission denied for table')
+  return isDatabasePermissionDenied(error)
 }
 
 type ActivityRow = { day: Date; total: number; confirmed: number }

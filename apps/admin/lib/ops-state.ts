@@ -1,11 +1,11 @@
-import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
+import { COMMERCIAL_CONTROL_UNAVAILABLE, DATABASE_ROLE_NOT_PERMITTED, OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { ApiResponseError } from './api/errors'
 
 /**
  * Every failed operations request maps to exactly one of these. None of them is ever rendered as an empty list:
  * "empty" is reserved for a successful response with zero rows.
  */
-export type OpsFailure = 'unauthenticated' | 'forbidden' | 'denied' | 'not-found' | 'unreachable' | 'error'
+export type OpsFailure = 'unauthenticated' | 'forbidden' | 'denied' | 'not-found' | 'unreachable' | 'not-configured' | 'error'
 
 export function classifyOpsFailure(error: unknown): OpsFailure {
   if (!(error instanceof ApiResponseError)) return 'error'
@@ -13,6 +13,7 @@ export function classifyOpsFailure(error: unknown): OpsFailure {
   if (error.status === 403) return 'forbidden'
   if (error.status === 404) return 'not-found'
   if (error.code === OPERATIONS_READ_DENIED) return 'denied'
+  if (error.code === DATABASE_ROLE_NOT_PERMITTED || error.code === COMMERCIAL_CONTROL_UNAVAILABLE) return 'not-configured'
   if (error.status === 0 || error.status === 504) return 'unreachable'
   return 'error'
 }
@@ -22,6 +23,7 @@ export const OPS_FAILURE_COPY: Record<OpsFailure, { title: string; body: string 
   forbidden: { title: 'Not permitted', body: 'Your role does not include the permission for this view. Ask a tenant owner to grant it.' },
   denied: { title: 'Data source not readable by the API', body: 'The API database role is not granted read access to this data (a deliberate privilege boundary). A human must review the grant before this view can show records. This is not an empty result.' },
   'not-found': { title: 'Record not found', body: 'The record does not exist for this tenant.' },
+  'not-configured': { title: 'Not available in this deployment', body: 'The service is not configured for this operation or could not verify a required control. Nothing was changed. This is a configuration matter for an operator, not a permission on your account.' },
   unreachable: { title: 'Admin API unreachable', body: 'The Admin API did not respond. Nothing is shown and nothing was changed.' },
   error: { title: 'Could not load this view', body: 'The Admin API returned an error. No fallback data is shown.' },
 }

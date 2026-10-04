@@ -39,7 +39,7 @@ export class UnconfiguredSupplierAdapter implements SupplierAdapter {
   async cancel(): Promise<{ refundMinor: number }> { throw new Error('No supplier adapter configured') }
 }
 
-export type SupplierProviderErrorCode = 'unconfigured' | 'timeout' | 'authentication' | 'transport' | 'malformed_response'
+export type SupplierProviderErrorCode = 'unconfigured' | 'timeout' | 'authentication' | 'transport' | 'malformed_response' | 'commercial_control_unavailable'
 export class SupplierProviderError extends Error {
   constructor(readonly code: SupplierProviderErrorCode) { super('Supplier provider unavailable'); this.name = 'SupplierProviderError' }
 }

@@ -17,12 +17,28 @@ const SELECT_TABLES = [
   'CancellationPolicy',
   // Inventory pools (ADR 0030): Agent search, recheck and the Admin summary read them. The runtime role does not write them; see verifyApiRuntimeRole.
   'InventoryPool', 'InventoryPoolDay',
+  // Mandatory commercial controls (ADR 0031). Agent search, recheck and the agency-suspension guard read them and refuse the request if they cannot.
+  // Read-only: the rules are authored by Admin through a principal that is still an open owner decision.
+  'Agency', 'AgencyMember', 'DistributionRestriction', 'CommercialMarkupRule',
 ] as const
+
+/**
+ * Every write this role is meant to hold, and nothing else (ADR 0008, 0031). Table-level or column-level: `users` is columns only.
+ * `verifyApiRuntimeRole` fails on any other INSERT/UPDATE/DELETE/TRUNCATE privilege, whatever migration granted it.
+ */
+export const API_RUNTIME_WRITE_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  users: ['UPDATE'],
+  sessions: ['INSERT', 'UPDATE'],
+  AuditEvent: ['INSERT'],
+  supplier_room_drafts: ['INSERT', 'UPDATE'],
+}
 
 /**
  * Statements the owner runs to grant the API group role. Search and recheck are
  * SELECT. Sessions, audit events, and supplier room-note drafts are the writes.
  * Wallet, booking, ledger, hotel, and credential tables stay read-only or absent.
+ * Admin authoring tables (agencies, restrictions, markup rules, approvals, hotel profile, images, pools) are read-only or absent here:
+ * their writer is not decided (ADR 0031), so this role never writes them.
  */
 export function apiRuntimeGrantStatements(groupRole = API_RUNTIME_GROUP_ROLE): string[] {
   const group = `"${groupRole}"`
@@ -89,11 +105,20 @@ export async function verifyApiRuntimeRole(db: Pick<Executor, '$queryRawUnsafe'>
   const [hotelUpdate] = await db.$queryRawUnsafe<Array<{ allowed: boolean }>>(
     `SELECT has_table_privilege(current_user, '"Hotel"', 'UPDATE') AS allowed`)
   if (hotelUpdate?.allowed) failures.push('role can update Hotel')
-  // Pool stock is changed only by the owner-side services and the hold-expiry role; a migration that granted writes to this role
-  // before it was (re)provisioned would otherwise remain in force silently.
-  const [poolWrite] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
-    `SELECT count(*) AS n FROM unnest(ARRAY['InventoryPool','InventoryPoolDay']) t, unnest(ARRAY['INSERT','UPDATE','DELETE']) p
-      WHERE has_table_privilege(current_user, format('%I', t), p)`)
-  if (Number(poolWrite?.n ?? 0) > 0) failures.push('role can write inventory pool tables; re-run provisioning (REVOKE) or have the owner revoke the migration grant')
+  // Exhaustive write check. A migration that granted writes to this role before it was (re)provisioned would otherwise stay in force silently.
+  const writes = await db.$queryRawUnsafe<Array<{ tbl: string; priv: string }>>(
+    `SELECT c.relname AS tbl, p.priv
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace,
+            unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) p(priv)
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p')
+        AND (CASE WHEN p.priv IN ('INSERT','UPDATE') THEN has_any_column_privilege(current_user, c.oid, p.priv)
+                  ELSE has_table_privilege(current_user, c.oid, p.priv) END)`)
+  const unexpected = writes.filter((w) => !(API_RUNTIME_WRITE_ALLOWLIST[w.tbl] ?? []).includes(w.priv))
+  if (unexpected.length > 0) failures.push(`role holds writes outside the contract: ${[...new Set(unexpected.map((w) => `${w.tbl}:${w.priv}`))].sort().join(', ')}; re-run provisioning (REVOKE) or have the owner revoke the migration grant`)
+  // The reads the runtime contract requires (search, recheck, guards). A missing one makes those requests refuse (ADR 0031), so say so here.
+  const [missing] = await db.$queryRawUnsafe<Array<{ tables: string | null }>>(
+    `SELECT string_agg(t, ', ' ORDER BY t) AS tables FROM unnest(ARRAY[${SELECT_TABLES.map((t) => `'${t}'`).join(',')}]) t
+      WHERE NOT has_table_privilege(current_user, format('%I', t), 'SELECT')`)
+  if (missing?.tables) failures.push(`role cannot read required tables: ${missing.tables}`)
   return { ok: failures.length === 0, failures }
 }

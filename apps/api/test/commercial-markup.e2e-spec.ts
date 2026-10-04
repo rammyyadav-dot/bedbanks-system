@@ -277,7 +277,7 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     await expect(insert({ status: 'ACTIVE', activatedAt: null, scope: 'SUPPLIER', supplierId: supplierA, basisPoints: 1 })).rejects.toThrow(/status_timestamps/)
   })
 
-  it('CM-13 under the non-bypass API runtime role a denied rule read means NO markup (NET unsellable), is reported, and never aborts the surrounding transaction', async () => {
+  it('CM-13 under the non-bypass API runtime role the provisioned read grant returns the tenant\'s own rules, and a denied read throws instead of meaning no markup', async () => {
     await activate(await draft())
     const owner = new PrismaClient()
     const runtimePassword = randomBytes(24).toString('hex')
@@ -288,11 +288,9 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
       const url = new URL(previous as string); url.username = API_RUNTIME_LOGIN_ROLE; url.password = runtimePassword
       runtime = new PrismaService({ datasourceUrl: url.toString() } as never)
       await runtime.$connect()
-      let denied = 0
-      const rules = await loadActiveMarkupRules(runtime, tenantA, () => { denied++ })
-      const readable = rules.length > 0
-      if (!readable) expect(denied).toBe(1) // denied is reported, not silent
-      else expect(rules).toEqual([expect.objectContaining({ scope: 'TENANT_DEFAULT', basisPoints: 1_000 })]) // if a reviewed grant exists, it is tenant-scoped
+      const rules = await loadActiveMarkupRules(runtime, tenantA)
+      expect(rules).toEqual([expect.objectContaining({ scope: 'TENANT_DEFAULT', basisPoints: 1_000 })])
+      expect(await loadActiveMarkupRules(runtime, tenantB)).toEqual([])
       const inTx = await runtime.withTenant(tenantA, async (tx) => {
         const r = await loadActiveMarkupRulesInTx(tx, tenantA)
         const hotels = await tx.hotel.count({ where: { tenantId: tenantA } }) // the transaction is still usable
@@ -300,7 +298,10 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
       })
       expect(inTx.hotels).toBe(2)
       expect(inTx.r.length).toBe(rules.length)
-    } finally { await runtime?.$disconnect(); await owner.$disconnect() }
+      // Failure injection: the owner revokes the read; the loader must refuse rather than return an empty list.
+      await owner.$executeRawUnsafe('REVOKE SELECT ON "CommercialMarkupRule" FROM fbeds_api')
+      await expect(loadActiveMarkupRules(runtime, tenantA)).rejects.toMatchObject({ name: 'CommercialControlUnavailableError', control: 'markup_rules', reason: 'denied' })
+    } finally { await owner.$executeRawUnsafe('GRANT SELECT ON "CommercialMarkupRule" TO fbeds_api').catch(() => undefined); await runtime?.$disconnect(); await owner.$disconnect() }
   })
 
   it('CM-14 impact: counts priced, unpriced and stored-sell plan-nights exactly, per currency, scoped to the tenant', async () => {

@@ -380,7 +380,7 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
     expect((await api('get', `/admin/clients/agencies/${a.id}`, 'admin').expect(200)).body.data.status).toBe('ACTIVE')
   })
 
-  it('DS-04 under the non-bypass API runtime role an unreadable restriction table applies none and says so; nothing aborts', async () => {
+  it('DS-04 under the non-bypass API runtime role the restriction table is readable and tenant-scoped, and a denied read throws rather than applying none', async () => {
     const owner = new PrismaClient()
     const runtimePassword = randomBytes(24).toString('hex')
     const previous = process.env.DATABASE_URL
@@ -390,10 +390,10 @@ describe('clients, service and distribution (PostgreSQL, HTTP, two tenants)', ()
       const url = new URL(previous as string); url.username = API_RUNTIME_LOGIN_ROLE; url.password = runtimePassword
       runtime = new PrismaService({ datasourceUrl: url.toString() } as never)
       await runtime.$connect()
-      let unavailable = 0
-      const r = await loadDistributionRestrictions(runtime, tenantA, ids.agentin, () => { unavailable++ })
-      if (unavailable > 0) { expect(r.hotelIds.size).toBe(0); expect(r.supplierIds.size).toBe(0) }
+      await loadDistributionRestrictions(runtime, tenantA, ids.agentin) // readable: does not throw
       expect((await runtime.withTenant(tenantA, (tx) => tx.hotel.count({ where: { tenantId: tenantA } })))).toBe(3)
-    } finally { await runtime?.$disconnect(); await owner.$disconnect() }
+      await owner.$executeRawUnsafe('REVOKE SELECT ON "DistributionRestriction" FROM fbeds_api')
+      await expect(loadDistributionRestrictions(runtime, tenantA, ids.agentin)).rejects.toMatchObject({ name: 'CommercialControlUnavailableError', control: 'distribution_restrictions' })
+    } finally { await owner.$executeRawUnsafe('GRANT SELECT ON "DistributionRestriction" TO fbeds_api').catch(() => undefined); await runtime?.$disconnect(); await owner.$disconnect() }
   })
 })

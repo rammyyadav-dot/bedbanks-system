@@ -8,6 +8,7 @@ import { evaluateContractedStay, stayDates } from '../supply/contracted-sellabil
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, type MarkupRuleRow } from '../supply/markup-rules'
 import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
+import { CommercialControlUnavailableError, logCommercialControlFailure } from '../supply/commercial-controls'
 import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
 import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
@@ -98,12 +99,16 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       if (!uniformRoomStays(criteria)) return { offers: [], providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
       const nights = stayDates(criteria.checkIn, criteria.checkOut)
       const plans = await this.loadPlans(context.tenantId, criteria, nights)
-      const rules = await this.markupRules(context.tenantId)
       const restrictions = await this.restrictionsFor(context.tenantId, context.userId)
+      const rules = await this.markupRules(context.tenantId, plans)
       const offers = this.toOffers(plans.filter((plan) => !isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })), criteria, context.tenantId, nights, rules)
       return { offers: await this.withPrimaryImages(context.tenantId, offers), providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
     } catch (error) {
       if (error instanceof SupplierProviderError) throw error
+      if (error instanceof CommercialControlUnavailableError) {
+        logCommercialControlFailure(this.logger, error, context.requestId)
+        throw new SupplierProviderError('commercial_control_unavailable')
+      }
       this.logger.warn(`Contracted inventory search failed requestId=${context.requestId}`)
       throw new SupplierProviderError('transport')
     }
@@ -137,7 +142,11 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         expiresAt: stored.expiresAt,
       }
       return { status: 'available', offer }
-    } catch {
+    } catch (error) {
+      if (error instanceof CommercialControlUnavailableError) {
+        logCommercialControlFailure(this.logger, error, context.requestId)
+        throw new SupplierProviderError('commercial_control_unavailable')
+      }
       this.logger.warn(`Contracted inventory recheck failed requestId=${context.requestId}`)
       throw new SupplierProviderError('transport')
     }
@@ -244,14 +253,18 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     })
   }
 
-  /** ACTIVE markup rules for NET rates. If the database role cannot read them, NET rates stay unsellable and that is logged. */
-  private markupRules(tenantId: string): Promise<MarkupRuleRow[]> {
-    return loadActiveMarkupRules(this.prisma, tenantId, () => this.logger.warn('Markup rules are not readable by the API database role; NET rates are not sellable'))
+  /**
+   * ACTIVE markup rules, read only when a NET rate is in play (a SELL rate needs no markup). A tenant with no ACTIVE rule gets an empty list
+   * and its NET rates stay unsellable (ADR 0018). An unreadable or malformed rule set throws CommercialControlUnavailableError (ADR 0031).
+   */
+  private async markupRules(tenantId: string, plans: Array<{ dailyRates: Array<{ amountBasis: string | null }> }>): Promise<MarkupRuleRow[]> {
+    if (!plans.some((plan) => plan.dailyRates.some((rate) => rate.amountBasis === 'NET'))) return []
+    return loadActiveMarkupRules(this.prisma, tenantId)
   }
 
-  /** Distribution restrictions of the searching user's agency. Unreadable means none, and that is logged. */
+  /** Distribution restrictions of the searching user's agency. No agency or no restriction means none; an unreadable table throws (ADR 0031). */
   private restrictionsFor(tenantId: string, userId: string | undefined): Promise<DistributionRestrictions> {
-    return loadDistributionRestrictions(this.prisma, tenantId, userId, () => this.logger.warn('Distribution restrictions are not readable by the API database role; none are applied'))
+    return loadDistributionRestrictions(this.prisma, tenantId, userId)
   }
 
   /**
@@ -464,7 +477,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     }
     const nights = stayDates(stored.checkIn, stored.checkOut)
     const plans = await this.loadPlans(tenantId, criteria, nights)
-    const rules = await this.markupRules(tenantId)
+    const rules = await this.markupRules(tenantId, plans)
     const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
     if (!plan || isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })) return null
     const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, false)

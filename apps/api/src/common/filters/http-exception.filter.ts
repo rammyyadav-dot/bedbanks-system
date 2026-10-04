@@ -7,6 +7,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { COMMERCIAL_CONTROL_UNAVAILABLE, DATABASE_ROLE_NOT_PERMITTED } from '@bedbanks/contracts';
+import { databaseErrorCode, isDatabasePermissionDenied } from '../../database/db-errors';
+import { CommercialControlUnavailableError, logCommercialControlFailure } from '../../supply/commercial-controls';
 
 export interface ApiErrorResponse {
   success: false;
@@ -66,7 +69,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const { status, code, message, details } = this.resolveException(exception);
 
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (exception instanceof CommercialControlUnavailableError) {
+      logCommercialControlFailure(this.logger, exception, request.requestId);
+    } else if (!(exception instanceof HttpException) && isDatabasePermissionDenied(exception)) {
+      // Infrastructure configuration, not a caller decision: structured diagnostic without SQL, table names or values.
+      this.logger.error(JSON.stringify({ event: 'database_role_not_permitted', dbCode: databaseErrorCode(exception), method: request.method, path: request.path, requestId: request.requestId ?? 'unknown' }));
+    } else if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
         `${request.method} ${request.url} -> ${status}`,
         exception instanceof Error ? exception.stack : undefined,
@@ -112,6 +120,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
         status,
         code,
         message: typeof body === 'string' ? body : exception.message,
+        details: [],
+      };
+    }
+
+    // A mandatory commercial control that could not be read (ADR 0031): refuse, never serve unrestricted.
+    if (exception instanceof CommercialControlUnavailableError) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        code: COMMERCIAL_CONTROL_UNAVAILABLE,
+        message: 'A required commercial control could not be verified, so the request was refused.',
+        details: [],
+      };
+    }
+
+    // An authorized operation that the runtime database role has no privilege for is a configuration failure, not a 403 (ADR 0031).
+    if (isDatabasePermissionDenied(exception)) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        code: DATABASE_ROLE_NOT_PERMITTED,
+        message: 'This operation is not available: the service database role is not configured for it.',
         details: [],
       };
     }
