@@ -13,7 +13,7 @@ export interface StayPlanInput {
   releaseTimeLocal?: string
   inventoryPoolId?: string | null
   /** The plan's pool with the stock days of the window. Absent when the plan has no pool. */
-  inventoryPool?: { days: PoolDayInput[] } | null
+  inventoryPool?: { name?: string; days: PoolDayInput[] } | null
   roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; hotel: { contentStatus: string; timeZone?: string } }
   boardBasis: { isActive: boolean }
   contract: { status: string; validFrom: Date; validTo: Date; settlementCurrency: string; supplier: { status: string } }

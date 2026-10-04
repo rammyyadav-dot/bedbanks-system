@@ -109,6 +109,7 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
             <PlanPicker plans={plans} ratePlanId={ratePlanId} onChange={setRatePlanId} />
             <input aria-label="Start date" type="date" className="admin-filter-select" value={start} onChange={(e) => setStart(e.target.value)} />
             <select aria-label="Window" className="admin-filter-select" value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={7}>7 days</option><option value={30}>30 days</option></select>
+            {plan?.inventoryPoolId ? <span role="note" data-testid="pooled-plan-note" className="admin-note" style={{ fontSize: 12, flexBasis: '100%' }}>This plan sells from a shared inventory pool, so the allotment entered here does not control its stock and is not used by search. Set the pool capacity in Inventory &amp; Allotment or Quick Update.</span> : null}
             {plan ? <Link href={`/sellability?ratePlanId=${plan.id}&checkIn=${dates[0] ?? start}&nights=${Math.min(days, 7)}`} className="admin-btn">Check sellability</Link> : null}
           </section>
           {plans.length === 0 ? <div className="admin-empty"><strong>No rate plans yet</strong><span>Create a contract and a rate plan first.</span></div> : null}
