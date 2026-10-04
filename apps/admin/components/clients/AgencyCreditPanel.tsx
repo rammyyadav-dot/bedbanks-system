@@ -37,8 +37,8 @@ export function AgencyCreditPanel({ agencyId, version, busy, act }: { agencyId: 
               {c.limit ? (
                 <dl data-testid="credit-position" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, margin: 0 }}>
                   <div><dt style={note}>Limit</dt><dd style={{ margin: 0 }}><strong data-testid="credit-limit">{formatMinorUnits(c.limit.limitMinor, c.limit.currency)}</strong></dd></div>
-                  <div><dt style={note}>Committed (holds and bookings)</dt><dd style={{ margin: 0 }} data-testid="credit-committed">{formatMinorUnits(c.committedMinor ?? '0', c.limit.currency)}</dd></div>
-                  <div><dt style={note}>Available</dt><dd style={{ margin: 0 }} data-testid="credit-available">{formatMinorUnits(c.availableMinor ?? '0', c.limit.currency)}{c.nearLimit && <> <Tag tone="warn">near limit</Tag></>}</dd></div>
+                  <div><dt style={note}>Committed (holds and bookings)</dt><dd style={{ margin: 0 }} data-testid="credit-committed">{c.committedUnavailable ? <em>Unavailable: holds are not readable by the API role</em> : formatMinorUnits(c.committedMinor ?? '0', c.limit.currency)}</dd></div>
+                  <div><dt style={note}>Available</dt><dd style={{ margin: 0 }} data-testid="credit-available">{c.committedUnavailable ? <em>Unavailable</em> : formatMinorUnits(c.availableMinor ?? '0', c.limit.currency)}{c.nearLimit && <> <Tag tone="warn">near limit</Tag></>}</dd></div>
                 </dl>
               ) : <p style={note} data-testid="credit-none"><strong>No limit configured.</strong> Nothing is enforced for this agency.</p>}
               <p style={note}>A new hold that would take the agency over its limit is refused, with no override. Existing holds and bookings are not touched when a limit is lowered. Setting, changing or removing a limit needs a second person&apos;s approval. This is not a wallet or a payment.</p>

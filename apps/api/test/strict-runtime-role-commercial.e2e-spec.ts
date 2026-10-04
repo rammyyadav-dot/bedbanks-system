@@ -269,34 +269,61 @@ describe('strict runtime role: commercial read safety and Admin authorization (P
     expect(created.filter((a) => !['permission.denied', 'tenant.context.selected'].includes(a))).toEqual([]) // no mutation or success audit; the denial audit is the intended one
   })
 
-  it.each(MUTATIONS.map((m) => [m.name, m] as const))('SC-09 %s: an authorized caller on the strict role gets a sanitized 503 DATABASE_ROLE_NOT_PERMITTED (never 403, never an unclassified 500); nothing written, no audit event', async (_name, m) => {
-    const rowsBefore = await tableCount(m.table); const auditBefore = await owner.auditEvent.count()
+  // Privileged paths: the contract never gives the runtime role these writes, so an authorized caller gets a typed 403, audited, with nothing written.
+  const PRIVILEGED: Array<{ name: string; method: 'post' | 'patch'; path: () => string; body: () => object; table: string }> = [
+    { name: 'supply hotel external_ref (column outside the Hotel write set)', method: 'patch', path: () => `/supply/hotels/${sellHotelId}`, body: () => ({ externalRef: 'probe' }), table: 'hotel' },
+    { name: 'inventory pool create', method: 'post', path: () => `/admin/hotels/${sellHotelId}/inventory/pools`, body: () => ({ name: 'Probe pool', supplierId, ratePlanIds: [], idempotencyKey: `${suffix}-${randomBytes(4).toString('hex')}` }), table: 'inventoryPool' },
+    { name: 'board basis create (supply authoring)', method: 'post', path: () => '/supply/board-bases', body: () => ({ code: 'PRB', name: 'Probe board' }), table: 'boardBasis' },
+  ]
+  it.each(PRIVILEGED.map((m) => [m.name, m] as const))('SC-09 privileged path %s: authorized caller gets a typed 403 RUNTIME_ROLE_OPERATION_PROHIBITED, an audit event, nothing written, no raw database text', async (_name, m) => {
+    const rowsBefore = await tableCount(m.table)
+    const auditBefore = await owner.auditEvent.count()
     const res = await call(m.method, m.path(), 'admin', m.body())
-    expect(res.status).toBe(503)
-    expect(res.body.error).toMatchObject({ code: 'DATABASE_ROLE_NOT_PERMITTED' })
-    expect(JSON.stringify(res.body)).not.toMatch(/permission denied|42501|prisma|"public"|relation|SELECT|INSERT|UPDATE/i)
+    expect(res.status).toBe(403)
+    expect(res.body.error).toMatchObject({ code: 'RUNTIME_ROLE_OPERATION_PROHIBITED' })
+    expect(JSON.stringify(res.body)).not.toMatch(/permission denied|42501|prisma|"public"|relation|SELECT|INSERT|UPDATE|Hotel|BoardBasis|InventoryPool/)
     expect(res.body.meta.requestId).toBeTruthy()
     expect(await tableCount(m.table)).toBe(rowsBefore)
-    const created = (await owner.auditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: (await owner.auditEvent.count()) - auditBefore, select: { action: true } })).map((e) => e.action)
-    expect(created.filter((a) => a !== 'tenant.context.selected')).toEqual([]) // not even a denial audit: the caller was authorized, the operation was refused by configuration
+    const created = (await owner.auditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: (await owner.auditEvent.count()) - auditBefore, select: { action: true } })).map((e) => e.action).sort()
+    expect(created).toEqual(['runtime_role.operation_prohibited', 'tenant.context.selected'])
   })
 
-  it('SC-10 the database refuses the same writes at the grant layer, independent of the API: the runtime role has no write privilege on any authoring table', async () => {
-    const probe = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL })
+  it('SC-09b a hotel external_ref change is refused whole: the name sent with it is not applied either (no partial execution)', async () => {
+    const before = await owner.hotel.findUniqueOrThrow({ where: { id: sellHotelId } })
+    const res = await call('patch', `/supply/hotels/${sellHotelId}`, 'admin', { name: 'Partially applied?', externalRef: 'probe' })
+    expect(res.status).toBe(403)
+    const after = await owner.hotel.findUniqueOrThrow({ where: { id: sellHotelId } })
+    expect({ name: after.name, ref: after.externalRef }).toEqual({ name: before.name, ref: before.externalRef })
+  })
+
+  it('SC-13 grant drift: an authorized workflow whose contract grant was removed answers a sanitized 503 (configuration), never 403, and writes nothing; restoring the grant restores it', async () => {
+    await owner.$executeRawUnsafe(`REVOKE INSERT ON "Agency" FROM ${API_RUNTIME_GROUP_ROLE}`)
+    const rowsBefore = await owner.agency.count()
     try {
-      const attempts: Array<[string, string]> = [
-        ['CommercialMarkupRule', `UPDATE "CommercialMarkupRule" SET basis_points = 0`],
-        ['Agency', `UPDATE "Agency" SET name = 'x'`],
-        ['AgencyMember', `DELETE FROM "AgencyMember"`],
-        ['DistributionRestriction', `UPDATE "DistributionRestriction" SET status = 'RETIRED'`],
-        ['InventoryPoolDay', `UPDATE "InventoryPoolDay" SET capacity = 0`],
-        ['HotelProfile', `UPDATE "HotelProfile" SET area = 'x'`],
-        ['SupplierMutation', `DELETE FROM "SupplierMutation"`],
-        ['Hotel', `UPDATE "Hotel" SET name = 'x'`],
+      const res = await call('post', '/admin/clients/agencies', 'admin', { code: `DR-${randomBytes(3).toString('hex')}`.toUpperCase(), name: 'Drift probe', countryCode: 'AE' })
+      expect(res.status).toBe(503)
+      expect(res.body.error).toMatchObject({ code: 'DATABASE_ROLE_NOT_PERMITTED' })
+      expect(JSON.stringify(res.body)).not.toMatch(/permission denied|42501|prisma|Agency/)
+      expect(await owner.agency.count()).toBe(rowsBefore)
+      const probe = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL })
+      try { expect((await verifyApiRuntimeRole(probe)).failures.join(' ')).toMatch(/role lacks contract write INSERT on Agency/) } finally { await probe.$disconnect() }
+    } finally { await owner.$executeRawUnsafe(`GRANT INSERT ON "Agency" TO ${API_RUNTIME_GROUP_ROLE}`) }
+    const ok = await call('post', '/admin/clients/agencies', 'admin', { code: `DR-${randomBytes(3).toString('hex')}`.toUpperCase(), name: 'Drift probe restored', countryCode: 'AE' })
+    expect(ok.status).toBe(201)
+  })
+
+  it('SC-10 the database refuses privileged-path writes at the grant layer, independent of the API (and accepts the granted columns)', async () => {
+    const probe = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL })
+    const inTenant = (statement: string) => probe.$transaction(async (tx) => { await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant_id', '${tenantA}', true)`); return tx.$executeRawUnsafe(statement) })
+    try {
+      const refused: string[] = [
+        `UPDATE "InventoryPoolDay" SET capacity = 0`, `UPDATE "InventoryPool" SET name = name`, `DELETE FROM "SupplierMutation"`, `UPDATE "RoomAmenity" SET fee_type = fee_type`,
+        `UPDATE "Hotel" SET external_ref = 'x'`, `UPDATE "Hotel" SET tenant_id = tenant_id`, `DELETE FROM "Hotel"`, `UPDATE "DailyRate" SET amount_minor = 0`, `UPDATE "RatePlan" SET code = code`,
+        `UPDATE "AuditEvent" SET action = 'x'`, `DELETE FROM "AuditEvent"`, `DELETE FROM "CommercialMarkupRule"`, `DELETE FROM "Agency"`, `UPDATE "AgencyMember" SET user_id = user_id`,
+        `UPDATE "HotelExternalIdentifier" SET value = value`, `TRUNCATE "HotelImage"`,
       ]
-      for (const [, statement] of attempts) {
-        await expect(probe.$transaction(async (tx) => { await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant_id', '${tenantA}', true)`); return tx.$executeRawUnsafe(statement) })).rejects.toThrow(/permission denied/)
-      }
+      for (const statement of refused) await expect(inTenant(statement)).rejects.toThrow(/permission denied/)
+      for (const statement of [`UPDATE "Hotel" SET name = name WHERE false`, `UPDATE "Hotel" SET content_status = content_status, updated_at = updated_at WHERE false`, `UPDATE "CommercialMarkupRule" SET status = status WHERE false`, `UPDATE "Agency" SET status = status WHERE false`]) await inTenant(statement)
     } finally { await probe.$disconnect() }
     expect(await owner.commercialMarkupRule.count({ where: { basisPoints: 0 } })).toBe(0)
   })
@@ -317,10 +344,8 @@ describe('strict runtime role: commercial read safety and Admin authorization (P
     } finally { await probe.$disconnect() }
   })
 
-  it('SC-12 the Agent hotel-image route (owner decision D2, HotelImage not granted) answers the existing sanitized 503 OPERATIONS_READ_DENIED, not a 500 or an empty image', async () => {
+  it('SC-12 the Agent hotel-image route reads HotelImage on the strict role (granted for the images workflow): an unknown image is a clean 404, not a 503 or 500', async () => {
     const res = await call('get', `/agent/hotels/${sellHotelId}/images/${randomBytes(8).toString('hex')}/content`, 'plain')
-    expect(res.status).toBe(503)
-    expect(res.body.error.code).toBe('OPERATIONS_READ_DENIED')
-    expect(JSON.stringify(res.body)).not.toMatch(/HotelImage|permission denied|42501/)
+    expect(res.status).toBe(404)
   })
 })

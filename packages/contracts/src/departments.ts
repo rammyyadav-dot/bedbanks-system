@@ -81,6 +81,8 @@ export interface AgencyCreditView {
   committedMinor: MinorUnits | null
   /** limit minus committed, never below zero. null when there is no limit. */
   availableMinor: MinorUnits | null
+  /** True when the holds the committed amount is summed from are not readable by the API database role (ADR 0032). The amount is then unknown, not zero: both amounts are null, and hold-time enforcement still fails closed (ADR 0024). */
+  committedUnavailable?: true
   /** True when committed is at or above AGENCY_CREDIT_NEAR_LIMIT_PERCENT of the limit. Computed by the API; display only, it blocks nothing. */
   nearLimit: boolean
   open: AgencyCreditApprovalView | null
