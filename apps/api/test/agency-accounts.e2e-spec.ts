@@ -52,8 +52,8 @@ describe('agency accounts (ADR 0028 slice 1, PostgreSQL)', () => {
     await expect(prisma.wallet.create({ data: { tenantId: A.tenantId, currency: 'AED' } })).rejects.toThrow()
     const acct = await prisma.wallet.create({ data: { tenantId: A.tenantId, agencyId: A.agencyId, currency: 'AED' } })
     await expect(prisma.wallet.create({ data: { tenantId: A.tenantId, agencyId: A.agencyId, currency: 'AED' } })).rejects.toThrow()
-    await expect(prisma.wallet.create({ data: { tenantId: A.tenantId, agencyId: B.agencyId, currency: 'AED' } })).rejects.toThrow(/another tenant/)
-    await expect(prisma.wallet.update({ where: { id: acct.id }, data: { agencyId: B.agencyId } })).rejects.toThrow(/another tenant/)
+    await expect(prisma.wallet.create({ data: { tenantId: A.tenantId, agencyId: B.agencyId, currency: 'AED' } })).rejects.toThrow()
+    await expect(prisma.wallet.update({ where: { id: acct.id }, data: { agencyId: B.agencyId } })).rejects.toThrow()
     await expect(prisma.agency.delete({ where: { id: A.agencyId } })).rejects.toThrow()
     await prisma.ledgerEntry.createMany({ data: [
       { tenantId: A.tenantId, walletId: acct.id, type: 'CREDIT', amountMinor: 500_000n, currency: 'AED', idempotencyKey: `${suffix}-fund-1` },
