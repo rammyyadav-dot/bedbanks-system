@@ -16,7 +16,7 @@ import { LedgerService } from '../../apps/api/src/agent/ledger.service'
 import { hashPassword } from '../../apps/api/src/auth/utils/password'
 
 const url = process.env.DATABASE_URL ?? ''
-if (!/@localhost:\d+\/(fbeds_ci|p04_[a-z0-9_]+)(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be a disposable local database (fbeds_ci or p04_*)')
+if (!/@localhost:\d+\/(fbeds_ci|p0\d_[a-z0-9_]+)(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be a disposable local database (fbeds_ci or p0N_*)')
 
 async function main() {
   const prisma = new PrismaService(); await prisma.$connect()
