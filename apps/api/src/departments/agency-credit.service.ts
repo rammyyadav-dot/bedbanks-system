@@ -3,7 +3,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { AGENCY_CREDIT_NEAR_LIMIT_PERCENT, type AgencyCreditApprovalView, AgencyCreditDecision, AgencyCreditLimitRequest, AgencyCreditResult, AgencyCreditView, AgencyPage, AgencyView } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
-import { agencyCommitted } from '../agent/agency-credit'
+import { agencyPosition, type AgencyPosition } from '../agent/agency-account'
+import { defaultSettlementCurrency } from '../agent/currency'
 import { ApprovalService, type ApprovalView } from '../approvals/approval.service'
 import { textParam } from '../admin-operations/query-params'
 import { AgencySuspensionService } from './agency-suspension.service'
@@ -16,8 +17,8 @@ const MINOR = /^(0|[1-9][0-9]{0,17})$/
 type Stored = { currency: string | null; limitMinor: string | null }
 
 /**
- * Setting, changing or removing an agency credit limit (ADR 0024). Goes through one single-use maker-checker approval; the limit
- * is enforced by assertAgencyCredit when a hold is placed. Lowering a limit below current commitments does not touch existing holds.
+ * Setting, changing or removing an agency credit limit (ADR 0024), which is the agency account's CREDIT LINE (ADR 0028 slice 3). Goes
+ * through one single-use maker-checker approval; it is spent against at hold time (assertAgencyCredit) and at prebook (authorization). Lowering a limit below current commitments does not touch existing holds.
  */
 @Injectable()
 export class AgencyCreditService {
@@ -41,22 +42,29 @@ export class AgencyCreditService {
     return (await this.approvals.listForEntities(tenantId, CREDIT_ENTITY_TYPE, [agencyId])).find((a) => a.action === CREDIT_LIMIT_APPROVAL_ACTION && OPEN.has(a.status))
   }
 
-  /** The agency's credit position and its open change request. */
+  /** The agency's credit line, its spending position (ADR 0028 slice 3) and its open change request. */
   async credit(tenantId: string, me: string, agencyId: string): Promise<AgencyCreditView> {
     const limit = await this.prisma.withTenant(tenantId, (tx) => tx.agencyCreditLimit.findFirst({ where: { tenantId, agencyId } }))
     const open = await this.openFor(tenantId, agencyId)
     const openView = open ? this.approvalView(open, me) : null
-    if (!limit) return { limit: null, committedMinor: null, availableMinor: null, nearLimit: false, open: openView }
-    let committed: bigint
+    const limitView = limit ? { currency: limit.currency, limitMinor: limit.limitMinor.toString() } : null
+    const currency = limit?.currency ?? defaultSettlementCurrency()
+    let position: AgencyPosition
     try {
-      committed = await this.prisma.withTenant(tenantId, (tx) => agencyCommitted(tx, tenantId, agencyId, limit.currency))
+      position = await this.prisma.withTenant(tenantId, (tx) => agencyPosition(tx, tenantId, agencyId, currency))
     } catch (error) {
-      // The holds table is a privileged read for the API role. Report the amount as unknown; never as zero and never as a failed request after a committed change.
+      // The ledger and holds are privileged reads for the API role. Report the amounts as unknown; never as zero.
       if (!isDatabasePermissionDenied(error)) throw error
-      return { limit: { currency: limit.currency, limitMinor: limit.limitMinor.toString() }, committedMinor: null, availableMinor: null, committedUnavailable: true, nearLimit: false, open: openView }
+      return { limit: limitView, currency, balanceMinor: null, pendingMinor: null, committedMinor: null, availableMinor: null, committedUnavailable: true, nearLimit: false, open: openView }
     }
-    const available = limit.limitMinor > committed ? limit.limitMinor - committed : 0n
-    return { limit: { currency: limit.currency, limitMinor: limit.limitMinor.toString() }, committedMinor: committed.toString(), availableMinor: available.toString(), nearLimit: committed * 100n >= limit.limitMinor * BigInt(AGENCY_CREDIT_NEAR_LIMIT_PERCENT), open: openView }
+    const committed = position.pendingMinor + (position.balanceMinor < 0n ? -position.balanceMinor : 0n)
+    const available = position.availableMinor > 0n ? position.availableMinor : 0n
+    const line = position.creditLineMinor
+    return {
+      limit: limitView, currency, balanceMinor: position.balanceMinor.toString(), pendingMinor: position.pendingMinor.toString(),
+      committedMinor: committed.toString(), availableMinor: available.toString(),
+      nearLimit: line > 0n && committed * 100n >= line * BigInt(AGENCY_CREDIT_NEAR_LIMIT_PERCENT), open: openView,
+    }
   }
 
   async detail(tenantId: string, me: string, agencyId: string): Promise<AgencyView> {

@@ -22,6 +22,7 @@ import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database
 import { OperationsSupplyService } from '../src/admin-operations/operations-supply.service'
 import { OperationsHotelsService } from '../src/admin-operations/operations-hotels.service'
 import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
+import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
 
 const ownerUrl = process.env.DATABASE_URL
 if (!ownerUrl) throw new Error('DATABASE_URL is required')
@@ -66,7 +67,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     const ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, allotment: 20 })) })
     await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, occupancy: 2, amountMinor: 62_550n, currency: 'AED', amountBasis: 'SELL' })) })
-    await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 1_000_000n, cachedBalance: 0n } })
+    await makeAgencyBooker(prisma, tenantId, userId, 1_000_000n) // ADR 0028 slice 3: bookings charge the booker's agency account
     return { tenantId, userId, supplierId, hotelId, roomId, boardId, contractId, ratePlanId }
   }
 
@@ -84,6 +85,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
     await prisma.wallet.deleteMany({ where: { tenantId } })
+    await removeAgencyBookers(prisma, tenantId)
     await prisma.dailyRate.deleteMany({ where: { tenantId } })
     await prisma.dailyAvailability.deleteMany({ where: { tenantId } })
     await prisma.cancellationPolicy.deleteMany({ where: { contract: { tenantId } } })

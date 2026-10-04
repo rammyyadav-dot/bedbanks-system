@@ -1,9 +1,9 @@
-# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slices 1 and 2 built)
+# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slices 1 to 3 built)
 
 ## Status
 **Accepted in part (owner, 2026-10-04).** Decisions 1 to 3 in section 9 are taken: one account per agency, one credit concept (the ADR 0024
 limit merges into the account's credit line in slice 3), and bank transfer only as the launch funding method. Decision 5 (approval threshold) and the slice-2 part of decision 8
-(cash and third-party payers) were taken for slice 2; decisions 4, 6, 7 and the rest of 8 remain open. Finance and legal review of slices 2 onward still applies.
+(cash and third-party payers) were taken for slice 2; decision 4's payment terms were taken for slice 3 (who approves a credit line stays the ADR 0024 maker-checker); decisions 6, 7 and the rest of 8 remain open. Finance and legal review of slices 2 onward still applies.
 
 **Slice 1 built (read-only):** migration `202610210001_agency_accounts` adds `Wallet.agency_id` (null = the tenant HOUSE account; every
 existing row became the house account with no data change), one house account per tenant and currency (partial unique index), one
@@ -22,6 +22,15 @@ one CREDIT keyed `funding:<receipt id>` in one transaction under the receipt row
 `funding.manage` (S3, formal roles only, granted to nobody by the migration) gates every Admin step; agency users declare for their own
 agency only (`booking.prebook`). `Wallet` and `FundingReceipt` writes are privileged paths (ADR 0032). Holds and bookings still post to
 the house account until slice 3.
+
+**Slice 3 built (one credit concept):** owner decisions 2026-10-04: an agency with money and no credit line books up to its balance
+(prepaid); a user who belongs to no agency cannot book (`AGENCY_REQUIRED_FOR_BOOKING`; the house account is never charged for a booking);
+payment terms are an overdue notice at 7 days and refusal of new holds at 30 (`AGENCY_CREDIT_TERMS`, enforced in slice 4). Prebook charges
+the booker's agency account (opened if needed). An agency account's credit line is the agency's approved credit limit in the same currency
+(ADR 0024 maker-checker unchanged; another currency counts as zero); migration `202610230001_agency_account_credit_line` keeps
+`Wallet.credit_limit` at 0 on agency accounts. Hold time refuses when the amount exceeds balance + credit line - pending holds (an early
+check); the prebook financial authorization (balance + credit line, under the account row lock) stays the binding one. The agent finance
+summary and the Admin credit panel show that position.
 
 Original proposal status, kept for history: **Proposed.** A design for the owner to accept, change or reject. It changes how money is modelled, so it needs finance and legal review before any code. No migration, code or payment-provider integration exists for it, and booking stays disabled (`BOOKING_ENABLED`) until the go-live gates in `docs/bedbank-operating-model.md` are met.
 

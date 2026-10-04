@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { accountCreditLineMinor } from './agency-account'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 
@@ -48,7 +49,8 @@ export class BookingFinancialAuthorizationService {
           _sum: { amountMinor: true },
         })
         const durableBalance = aggregate._sum.amountMinor ?? 0n
-        const availableCredit = durableBalance + wallet.creditLimit
+        // ADR 0028 slice 3: an agency account spends its balance plus the agency's credit line (none = prepaid).
+        const availableCredit = durableBalance + await accountCreditLineMinor(tx, wallet)
         if (availableCredit < command.amountMinor) throw new ConflictException('Insufficient wallet credit')
 
         const entry = await tx.ledgerEntry.create({

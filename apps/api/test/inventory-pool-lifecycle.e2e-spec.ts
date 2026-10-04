@@ -16,6 +16,7 @@ import { InventoryAdminService } from '../src/inventory/inventory-admin.service'
 import { HotelQuickUpdateService } from '../src/hotel-setup/hotel-quick-update.service'
 import { moveNight } from '../src/inventory/inventory-counters'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
+import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
 
 /**
  * Whole shared-pool lifecycle on PostgreSQL through the real services (no HTTP, no supplier, no payment provider):
@@ -82,13 +83,13 @@ describe('shared pool counter lifecycle (PostgreSQL)', () => {
       plans.push(id)
       await prisma.dailyAvailability.createMany({ data: [N1, N2].map((stayDate) => ({ tenantId, ratePlanId: id, stayDate, allotment: 5 })) })
     }
-    walletId = (await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 10_000_000n, cachedBalance: 0n } })).id
+    walletId = (await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)).walletId // ADR 0028 slice 3: the booker's agency account
   })
 
   afterAll(async () => {
     for (const f of [() => prisma.auditEvent.deleteMany({ where: { tenantId } }), () => prisma.ledgerEntry.deleteMany({ where: { tenantId } }), () => prisma.supplierMutation.deleteMany({ where: { tenantId } }),
       () => prisma.cancellation.deleteMany({ where: { booking: { tenantId } } }), () => prisma.booking.deleteMany({ where: { tenantId } }), () => prisma.inventoryHoldNight.deleteMany({ where: { tenantId } }), () => prisma.inventoryHold.deleteMany({ where: { tenantId } }),
-      () => prisma.wallet.deleteMany({ where: { tenantId } }), () => prisma.dailyAvailability.deleteMany({ where: { tenantId } }), () => prisma.dailyRate.deleteMany({ where: { tenantId } }), () => prisma.ratePlan.deleteMany({ where: { tenantId } }),
+      () => prisma.wallet.deleteMany({ where: { tenantId } }), () => removeAgencyBookers(prisma, tenantId), () => prisma.dailyAvailability.deleteMany({ where: { tenantId } }), () => prisma.dailyRate.deleteMany({ where: { tenantId } }), () => prisma.ratePlan.deleteMany({ where: { tenantId } }),
       () => prisma.inventoryPoolDay.deleteMany({ where: { tenantId } }), () => prisma.inventoryPool.deleteMany({ where: { tenantId } }), () => prisma.cancellationPolicy.deleteMany({ where: { contractId } }), () => prisma.contract.deleteMany({ where: { tenantId } }),
       () => prisma.supplierRoomMapping.deleteMany({ where: { tenantId } }), () => prisma.supplierHotelMapping.deleteMany({ where: { tenantId } }), () => prisma.boardBasis.deleteMany({ where: { tenantId } }), () => prisma.roomType.deleteMany({ where: { hotelId } }),
       () => prisma.hotel.deleteMany({ where: { tenantId } }), () => prisma.supplier.deleteMany({ where: { tenantId } }), () => prisma.membership.deleteMany({ where: { tenantId } }), () => prisma.user.deleteMany({ where: { id: userId } }), () => prisma.tenant.deleteMany({ where: { id: tenantId } })]) await f()

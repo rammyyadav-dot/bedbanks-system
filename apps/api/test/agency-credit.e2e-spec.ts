@@ -129,7 +129,8 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
 
   it('CR-01 a limit is set by request, a different approver and a single apply, and the position is read back', async () => {
     const a = await newAgency([])
-    expect(await credit(a)).toEqual({ limit: null, committedMinor: null, availableMinor: null, nearLimit: false, open: null }) // nothing configured, nothing enforced
+    // ADR 0028 slice 3: no credit line means prepaid; with no money either, nothing can be spent
+    expect(await credit(a)).toEqual({ limit: null, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '0', nearLimit: false, open: null })
     const made = (await ask(a, 'admin', { currency: 'AED', limitMinor: '100000' }).expect(200)).body.data.credit.open
     expect(made).toMatchObject({ status: 'PENDING', currency: 'AED', limitMinor: '100000', previousLimitMinor: null, canDecide: false, canCancel: true })
     await api('post', `${base}/credit-approvals/${made.id}/approve`, 'admin', { reason: 'Self' }).expect(403)
@@ -140,7 +141,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
     const done = (await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(200)).body.data
     expect(done.approval.status).toBe('EXECUTED')
-    expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, committedMinor: '0', availableMinor: '100000', nearLimit: false, open: null })
+    expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '100000', nearLimit: false, open: null })
     await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(409) // single use
     const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'agency.credit_limit.changed', entityId: a } })
     expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.admin)
@@ -189,9 +190,9 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     // an idempotent replay returns the stored hold even when the agency is now at its limit
     const replay = await holds.create({ tenantId: tenantA, userId: ids.agentin2, requestId: 'x-req', idempotencyKey: (await prisma.inventoryHold.findFirstOrThrow({ where: { id: exact.holdId } })).idempotencyKey, offerId: 'offer', searchId: 'search', ratePlanId, canonicalHotelId: hotelId, canonicalRoomTypeId: roomId, boardBasisId: boardId, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 20000, offerExpiresAt: '2099-03-01T12:00:00.000Z' })
     expect(replay.status).toBe('already_held')
-    // another currency is refused, not converted
-    expect(await refusal(hold('agentin', 1, 'USD'))).toMatchObject({ code: 'AGENCY_CREDIT_CURRENCY_MISMATCH' })
-    // a user in no agency, and an agency with no limit, are not limited
+    // another currency is refused, not converted: an AED credit line is worth nothing in USD (ADR 0028 slice 3)
+    expect(await refusal(hold('agentin', 1, 'USD'))).toMatchObject({ code: 'AGENCY_CREDIT_LIMIT_EXCEEDED', details: { currency: 'USD', availableMinor: '0' } })
+    // a user in no agency is not checked at hold time (prebook refuses them, ADR 0028 slice 3)
     await hold('agentout', 9_000_000)
     const free = await newAgency([]); expect((await credit(free)).limit).toBeNull()
     // releasing a hold frees its credit; an expired HELD hold stops counting
@@ -205,9 +206,10 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     await setLimit(a, { currency: 'AED', limitMinor: '50000' })
     expect(await credit(a)).toMatchObject({ committedMinor: '80000', availableMinor: '0' })
     await expect(hold('agentin', 1)).rejects.toMatchObject({ status: 403 })
-    // removing the limit lifts the ceiling
+    // removing the credit line makes the agency prepaid: with no money in its account it cannot hold (ADR 0028 slice 3)
     await setLimit(a, { limitMinor: null })
-    expect((await credit(a)).limit).toBeNull(); await hold('agentin', 5_000_000)
+    expect((await credit(a)).limit).toBeNull()
+    expect(await refusal(hold('agentin', 1))).toMatchObject({ code: 'AGENCY_CREDIT_LIMIT_EXCEEDED' })
   })
 
   it('CR-04 concurrent holds cannot both pass the limit', async () => {

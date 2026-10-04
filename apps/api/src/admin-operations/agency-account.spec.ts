@@ -7,6 +7,7 @@ function setup(opts: { agency?: { id: string; code: string; name: string; status
   const tx = {
     agency: { findFirst: jest.fn().mockResolvedValue(opts.agency === undefined ? { id: 'ag1', code: 'GULF', name: 'Gulf Travel', status: 'ACTIVE' } : opts.agency) },
     wallet: { findMany: jest.fn().mockResolvedValue(opts.accounts ?? []), count: jest.fn().mockResolvedValue((opts.accounts ?? []).length) },
+    agencyCreditLimit: { findMany: jest.fn().mockResolvedValue([{ agencyId: 'ag1', currency: 'AED', limitMinor: 700n }]) },
     ledgerEntry: {
       groupBy: jest.fn().mockResolvedValue(opts.sums ?? []),
       findMany: jest.fn(({ where }: { where: { walletId: string } }) => Promise.resolve(opts.entries?.[where.walletId] ?? [])),
@@ -72,6 +73,8 @@ describe('OperationsTransactionsService.wallets owner filter', () => {
     const { service } = setup({ accounts: [house, agencyAcct], sums: [] })
     const rows = (await service.wallets('t1', {})).items
     expect(rows.map(r => [r.id, r.owner, r.agency?.code ?? null])).toEqual([['w-h', 'HOUSE', null], ['w-a', 'AGENCY', 'GULF']])
+    // ADR 0028 slice 3: the house account keeps its stored limit; an agency account's credit line is its agency's approved limit.
+    expect(rows.map(r => r.creditLimit)).toEqual(['5', '700'])
   })
 
   it('translates owner and agencyId filters and rejects contradictions', async () => {

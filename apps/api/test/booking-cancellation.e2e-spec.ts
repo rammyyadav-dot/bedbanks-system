@@ -12,6 +12,7 @@ import { BookingCancellationService } from '../src/agent/booking-cancellation.se
 import { CancellationPolicyService } from '../src/agent/cancellation-policy.service'
 import { LedgerService } from '../src/agent/ledger.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
+import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
 
 describe('booking cancellation and refunds (PostgreSQL)', () => {
   const prisma = new PrismaService()
@@ -45,7 +46,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 5 })) })
-    walletId = (await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 1_000_000n, cachedBalance: 0n } })).id
+    walletId = (await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)).walletId // ADR 0028 slice 3: the booker's agency account
   })
 
   afterAll(async () => {
@@ -56,6 +57,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
     await prisma.inventoryHold.deleteMany({ where: { tenantId } })
     await prisma.wallet.deleteMany({ where: { tenantId } })
+    await removeAgencyBookers(prisma, tenantId)
     await prisma.dailyAvailability.deleteMany({ where: { ratePlanId } })
     await prisma.ratePlan.delete({ where: { id: ratePlanId } })
     await prisma.contract.delete({ where: { id: contractId } })
