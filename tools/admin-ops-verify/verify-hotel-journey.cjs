@@ -74,7 +74,8 @@ async function login(browser, email) {
   await page.goto(`${BASE}/hotels/${hotelId}?tab=images`); await page.waitForSelector('[data-testid=hotel-images]')
   await page.getByTestId('image-file').setInputFiles({ name: 'lobby.png', mimeType: 'image/png', buffer: png(800, 600, [200, 30, 30]) }); await page.getByLabel('Alt text (required)').fill('Lobby')
   await page.getByTestId('image-upload-submit').click(); await page.waitForSelector('[data-testid=image-card]', { timeout: 15000 })
-  check('an image uploads and the browser decodes the bytes served back on the strict role', await page.locator('[data-testid=image-card] img').first().evaluate((el) => el.complete && el.naturalWidth === 800))
+  const decoded = await page.waitForFunction(() => { const el = document.querySelector('[data-testid=image-card] img'); return !!el && el.complete && el.naturalWidth === 800 }, null, { timeout: 15000 }).then(() => true, () => false)
+  check('an image uploads and the browser decodes the bytes served back on the strict role', decoded)
 
   // ---- 5. Completeness, then maker-checker publication ----
   await page.goto(`${BASE}/hotels/${hotelId}`); await page.waitForSelector('[data-testid=profile-completeness]', { timeout: 20000 })
