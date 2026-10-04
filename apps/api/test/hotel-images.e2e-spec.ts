@@ -151,7 +151,7 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
     await call('patch', path(c.id), 'manager').send({ isPrimary: false }).expect(400) // a primary is replaced, not removed
     for (const bad of [{}, { name: 'x' }, { sortOrder: -1 }, { sortOrder: 1.5 }, { sortOrder: 5000 }, { altText: '' }, { altText: 'y'.repeat(201) }]) await call('patch', path(a.id), 'manager').send(bad).expect(400)
     await call('patch', `${base('main')}/${a.id}`, 'manager').send({ altText: 'Wrong hotel' }).expect(404) // an image is addressed through its own hotel
-    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: hotels.edit, action: 'hotel.image.updated' } })
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: hotels.edit, action: 'hotel.image.updated' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }) // an explicit order: the unordered read made events[0] arbitrary
     expect(events.length).toBe(3); expect(JSON.stringify(events.map((e) => e.payload))).not.toMatch(/Rooftop/); expect(events[0].payload).toMatchObject({ fields: ['altText'] })
   })
 

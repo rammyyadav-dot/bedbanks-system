@@ -1,4 +1,4 @@
-import { describePasswordProblems } from './hold-expiry-role'
+import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role'
 
 export const API_RUNTIME_GROUP_ROLE = 'fbeds_api'
 export const API_RUNTIME_LOGIN_ROLE = 'fbeds_api_login'
@@ -12,7 +12,11 @@ const SELECT_TABLES = [
   'tenants', 'memberships', 'Permission', 'Role', 'UserRole', 'RolePermission',
   'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
   'supplier_memberships',
-  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability', 'InventoryPool', 'InventoryPoolDay',
+  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
+  // Agent search and recheck include each contract's cancellation terms; the table is row-level-secured through its contract's tenant.
+  'CancellationPolicy',
+  // Inventory pools (ADR 0030): Agent search, recheck and the Admin summary read them. The runtime role does not write them; see verifyApiRuntimeRole.
+  'InventoryPool', 'InventoryPoolDay',
 ] as const
 
 /**
@@ -53,7 +57,7 @@ export async function provisionApiRuntimeRole(db: Executor, input: { loginRole?:
   const group = `"${API_RUNTIME_GROUP_ROLE}"`
   const attributes = 'NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
   await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${API_RUNTIME_GROUP_ROLE}') THEN CREATE ROLE ${group} NOLOGIN ${attributes}; END IF; END $$`)
-  await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${loginRole}') THEN CREATE ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} INHERIT CONNECTION LIMIT 20; ELSE ALTER ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} INHERIT CONNECTION LIMIT 20; END IF; END $$`)
+  await db.$executeRawUnsafe(upsertLoginRoleSql(loginRole, input.password, attributes, 20))
   await db.$executeRawUnsafe(`GRANT ${group} TO ${login}`)
   for (const statement of apiRuntimeGrantStatements()) await db.$executeRawUnsafe(statement)
 }
@@ -85,5 +89,11 @@ export async function verifyApiRuntimeRole(db: Pick<Executor, '$queryRawUnsafe'>
   const [hotelUpdate] = await db.$queryRawUnsafe<Array<{ allowed: boolean }>>(
     `SELECT has_table_privilege(current_user, '"Hotel"', 'UPDATE') AS allowed`)
   if (hotelUpdate?.allowed) failures.push('role can update Hotel')
+  // Pool stock is changed only by the owner-side services and the hold-expiry role; a migration that granted writes to this role
+  // before it was (re)provisioned would otherwise remain in force silently.
+  const [poolWrite] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
+    `SELECT count(*) AS n FROM unnest(ARRAY['InventoryPool','InventoryPoolDay']) t, unnest(ARRAY['INSERT','UPDATE','DELETE']) p
+      WHERE has_table_privilege(current_user, format('%I', t), p)`)
+  if (Number(poolWrite?.n ?? 0) > 0) failures.push('role can write inventory pool tables; re-run provisioning (REVOKE) or have the owner revoke the migration grant')
   return { ok: failures.length === 0, failures }
 }

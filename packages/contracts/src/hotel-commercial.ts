@@ -214,6 +214,9 @@ export interface CalendarCell {
   /** Which counter `remaining` comes from. */
   stockSource: 'PLAN_ROW' | 'POOL' | 'NONE' | null
   poolId: string | null
+  /** For a pooled plan: the pool's name and its authoritative stock for this night (null when the pool day does not exist). The plan's own allotment, sold and held do not control a pooled plan's stock. */
+  poolName: string | null
+  poolCapacity: number | null; poolSold: number | null; poolHeld: number | null
   source: string | null
   freshUntil: string | null
   /** True when the night's data is past its freshness window (or supplier-sourced with no window). A stale night is not sellable. */

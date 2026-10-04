@@ -315,6 +315,7 @@ describe('durable supplier mutation journal (PostgreSQL)', () => {
         CREATE ROLE fbeds_mutation_rls_probe NOLOGIN NOSUPERUSER NOBYPASSRLS;
       END IF;
     END $$`)
+    await prisma.$executeRawUnsafe(`GRANT fbeds_mutation_rls_probe TO CURRENT_USER`) // PostgreSQL 16: needed by a non-superuser owner to SET ROLE
     await prisma.$executeRawUnsafe(`GRANT SELECT, INSERT ON "SupplierMutation" TO fbeds_mutation_rls_probe`)
     const visible = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${otherTenantId}, true)`

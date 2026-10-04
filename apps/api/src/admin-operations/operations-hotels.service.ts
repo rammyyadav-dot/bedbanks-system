@@ -91,7 +91,7 @@ export class OperationsHotelsService {
           dailyRates: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, amountMinor: true, currency: true, amountBasis: true, occupancy: true } },
           // One day past the window: the departure row of the last night carries closedToDeparture.
           availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, inventoryMode: true, source: true, freshUntil: true } },
-          inventoryPool: { select: { days: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, capacity: true, sold: true, held: true, source: true, freshUntil: true } } } },
+          inventoryPool: { select: { name: true, days: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, capacity: true, sold: true, held: true, source: true, freshUntil: true } } } },
         },
         orderBy: [{ id: 'asc' }],
       }),
@@ -452,6 +452,7 @@ export class OperationsHotelsService {
             date, rateMinor: rate ? rate.amountMinor.toString() : null, currency: rate ? rate.currency : null, amountBasis: rate?.amountBasis === 'SELL' || rate?.amountBasis === 'NET' ? rate.amountBasis : null,
             allotment: row?.allotment ?? null, sold: row?.sold ?? null, held: row?.held ?? null, remaining: nightStock(plan, date).remaining,
             inventoryMode: row ? toInventoryMode(row.inventoryMode) : null, stockSource: row ? (toInventoryMode(row.inventoryMode) !== 'ALLOTMENT' ? 'NONE' : plan.inventoryPoolId ? 'POOL' : 'PLAN_ROW') : null, poolId: plan.inventoryPoolId ?? null,
+            ...poolCells(plan, date),
             source: row?.source ?? null, freshUntil: iso(row?.freshUntil), stale: row ? !rowIsFresh(row.source ?? 'ADMIN', row.freshUntil ? row.freshUntil.toISOString() : null, this.clock()) : false,
             stopSell: row ? row.stopSell : null, closedToArrival: row ? row.closedToArrival : null, minStay: row ? row.minStay : null, sellable: reasons.length === 0, reasons,
             closedToDeparture: row ? row.closedToDeparture ?? false : null,
@@ -615,5 +616,11 @@ export class OperationsHotelsService {
 }
 
 const toInventoryMode = (value: string | undefined): InventoryMode => (value === 'ALLOTMENT' || value === 'FREE_SALE' || value === 'ON_REQUEST' || value === 'CLOSED' ? value : value === undefined ? 'ALLOTMENT' : 'CLOSED')
+
+/** The pool's name and this night's authoritative stock for a pooled plan; nulls for a plan with its own stock. */
+function poolCells(plan: { inventoryPoolId?: string | null; inventoryPool?: { name?: string; days: Array<{ stayDate: Date; capacity: number; sold: number; held: number }> } | null }, date: string) {
+  const d = plan.inventoryPoolId ? plan.inventoryPool?.days.find((x) => day(x.stayDate) === date) : undefined
+  return { poolName: plan.inventoryPoolId ? plan.inventoryPool?.name ?? null : null, poolCapacity: d?.capacity ?? null, poolSold: d?.sold ?? null, poolHeld: d?.held ?? null }
+}
 
 const HOTEL_SELECT = { id: true, name: true, externalRef: true, city: true, countryCode: true, starRating: true, propertyType: true, contentStatus: true, timeZone: true, address: true, latitude: true, longitude: true, updatedAt: true } as const

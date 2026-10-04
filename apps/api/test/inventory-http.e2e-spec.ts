@@ -141,6 +141,11 @@ describe('inventory & allotment over HTTP (PostgreSQL, two tenants)', () => {
     expect(applied.changed.poolDays).toBe(2)
     const summary = (await api('get', inv(`/summary?from=${day(10)}&days=2`), 'readonly').expect(200)).body.data
     expect(summary.pools[0].nights.map((n: { capacity: number; remaining: number }) => [n.capacity, n.remaining])).toEqual([[2, 2], [2, 2]])
+    const cal = (await api('get', `/admin/operations/hotels/${hotelId}/calendar?from=${day(10)}&days=2`, 'manager').expect(200)).body.data
+    const cells = (cal.rows as Array<{ cells: Array<{ stockSource: string; poolName: string; poolCapacity: number; poolSold: number; poolHeld: number; remaining: number; inventoryMode: string; allotment: number }> }>).flatMap((r) => r.cells)
+    expect(cells).toHaveLength(6)
+    expect(cells.every((c) => c.stockSource === 'POOL' && c.poolName === 'Palm shared' && c.poolCapacity === 2 && c.poolSold === 0 && c.poolHeld === 0 && c.remaining === 2 && c.inventoryMode === 'ALLOTMENT')).toBe(true)
+    expect(cells.every((c) => c.allotment === 9)).toBe(true) // the plan's own value is still reported, but the UI marks the pool as authoritative
     const found = rates((await search('agent').expect(201)).body)
     expect(found.filter((r) => planIds.includes(r.ratePlanId))).toHaveLength(3)
     expect(found.every((r) => r.availability === 'available' && r.available)).toBe(true) // 2 shared units left for a 1-room search

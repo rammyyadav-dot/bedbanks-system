@@ -20,7 +20,7 @@ Admin Hotel Operations, the Admin calendar, Agent Search, offer presentation, au
 
 ## Consequences
 - Migrations `202610160001_inventory_allotment_foundation` and `202610160002_inventory_pool_tenant_guard` are forward-only. Existing rows default to ALLOTMENT / ADMIN / no expiry, so existing behaviour is unchanged. Rollback notes are in the migration headers.
-- The restricted hold-expiry and API runtime roles gain access to the pool tables only as needed.
+- Runtime roles (certified in `docs/p04-postmerge-inventory-certification.md`): the API runtime role reads `InventoryPool`, `InventoryPoolDay`, `RatePlan`, `DailyAvailability` and `CancellationPolicy` and **writes none of the pool tables**; `verifyApiRuntimeRole` fails if it can. The hold-expiry role reads `InventoryPoolDay` and updates only its `held` and `updated_at` columns, inside one tenant context at a time. Both rely on forced row-level security; no tenant context means no rows.
 - Domain contract: `SearchRateOffer.availability` gains `on_request`.
 
 ## Not decided here

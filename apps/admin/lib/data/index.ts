@@ -76,6 +76,8 @@ export async function bulkUpdateAvailability(rows: Array<{ ratePlanId: string; s
 export interface AdminRatePlan {
   id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string;
   refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number;
+  /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
+  inventoryPoolId?: string | null;
   contract: { id: string; code: string; supplier: { id: string; displayName: string } };
   roomType: { id: string; name: string; hotel: { id: string; name: string } };
   boardBasis: { id: string; code: string; name: string };

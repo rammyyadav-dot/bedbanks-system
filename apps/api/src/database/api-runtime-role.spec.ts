@@ -29,4 +29,13 @@ describe('api runtime role grants', () => {
     expect(sql).not.toMatch(/GRANT UPDATE ON "Hotel"/)
     expect(sql).not.toMatch(/GRANT DELETE/)
   })
+
+  it('gives the pool tables read access only: no INSERT, UPDATE or DELETE, and never the supply rate tables', () => {
+    expect(sql).toContain('GRANT SELECT ON "InventoryPool"')
+    expect(sql).toContain('GRANT SELECT ON "InventoryPoolDay"')
+    expect(sql).not.toMatch(/(INSERT|UPDATE|DELETE)[A-Z, ]* ON "InventoryPool/)
+    expect(sql).not.toMatch(/(INSERT|UPDATE)[A-Z, ]* ON "(DailyRate|DailyAvailability|RatePlan|Contract)"/)
+    expect(sql).not.toContain('SupplierMutation')
+    expect(sql).toContain('GRANT SELECT ON "CancellationPolicy"') // search and recheck read it
+  })
 })
