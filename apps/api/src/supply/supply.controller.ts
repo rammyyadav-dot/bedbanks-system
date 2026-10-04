@@ -9,7 +9,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class SupplyController {
   constructor(private readonly supply: SupplyService) {}
-  private context(req: Request) { const user = (req as unknown as { user: AuthenticatedUser }).user; const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]; return { tenantId, userId: user.user.id, requestId: req.header('x-request-id') ?? undefined } }
+  private context(req: Request) { const user = (req as unknown as { user: AuthenticatedUser }).user; const tenantId = (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY]; return { tenantId, userId: user.user.id, requestId: (req as unknown as { requestId?: string }).requestId ?? req.header('x-request-id') ?? undefined } }
   @Get('capabilities') capabilities(@Req() req: Request) { const c = this.context(req); return this.supply.capabilities(c.tenantId, c.userId) }
   @Get('suppliers') suppliers(@Req() req: Request, @Query('search') search?: string, @Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { const c = this.context(req); return this.supply.suppliers(c.tenantId, c.userId, { search, status, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined }) }
   @Get('suppliers/:supplierId') supplier(@Req() req: Request, @Param('supplierId') supplierId: string) { const c = this.context(req); return this.supply.supplier(c.tenantId, c.userId, supplierId) }

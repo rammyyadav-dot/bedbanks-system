@@ -44,7 +44,7 @@ export class AdminRbacGuard implements CanActivate {
     const allowed = membership.role === 'owner' || permissions.has(required)
     if (!allowed) {
       await this.prisma.withTenant(membership.tenantId, (tx) => tx.auditEvent.create({
-        data: { tenantId: membership.tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'admin_permission', entityId: required, payload: { permission: required }, userId: identity.user.id },
+        data: { tenantId: membership.tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'admin_permission', entityId: required, payload: { permission: required, requestId: request.requestId ?? null }, userId: identity.user.id },
       })).catch(() => undefined)
       throw new ForbiddenException('Insufficient permission')
     }

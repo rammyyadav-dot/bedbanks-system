@@ -34,7 +34,7 @@ export class SupplyPermissionGuard implements CanActivate {
     }))
     const keys = roles.flatMap((assignment) => assignment.role.permissions.map((item) => item.permission.key))
     if (!keys.includes(required)) {
-      await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: required, payload: { tenantId }, userId: identity.user.id } })).catch(() => undefined)
+      await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: required, payload: { tenantId, requestId: request.requestId ?? null }, userId: identity.user.id } })).catch(() => undefined)
       throw new ForbiddenException('Access denied')
     }
     return true
