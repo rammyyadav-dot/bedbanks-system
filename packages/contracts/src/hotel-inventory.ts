@@ -34,7 +34,7 @@ export interface InventoryPool {
 }
 
 export interface InventoryPlanSummary {
-  ratePlanId: string; ratePlanCode: string; roomName: string; boardCode: string; contractCode: string; supplierName: string; planStatus: string
+  ratePlanId: string; ratePlanCode: string; roomName: string; boardCode: string; contractCode: string; supplierId: string; supplierName: string; planStatus: string
   poolId: string | null; poolName: string | null
   releaseDays: number
   /** Hotel-local HH:mm cut-off on the release day. */

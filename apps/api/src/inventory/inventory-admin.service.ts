@@ -91,7 +91,7 @@ export class InventoryAdminService {
         select: {
           id: true, code: true, status: true, releaseDays: true, releaseTimeLocal: true, inventoryPoolId: true, updatedAt: true,
           roomType: { select: { name: true } }, boardBasis: { select: { code: true } },
-          contract: { select: { code: true, supplier: { select: { displayName: true } } } },
+          contract: { select: { code: true, supplierId: true, supplier: { select: { displayName: true } } } },
           availability: { where: { tenantId, stayDate: { gte, lte } }, select: { inventoryMode: true, source: true, freshUntil: true } },
         },
         orderBy: [{ roomType: { name: 'asc' } }, { code: 'asc' }, { id: 'asc' }],
@@ -110,7 +110,7 @@ export class InventoryAdminService {
           if (!rowIsFresh(row.source, row.freshUntil ? row.freshUntil.toISOString() : null, now)) stale += 1
         }
         return {
-          ratePlanId: plan.id, ratePlanCode: plan.code, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName, planStatus: plan.status,
+          ratePlanId: plan.id, ratePlanCode: plan.code, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), contractCode: plan.contract.code, supplierId: plan.contract.supplierId, supplierName: plan.contract.supplier.displayName, planStatus: plan.status,
           poolId: plan.inventoryPoolId, poolName: plan.inventoryPoolId ? poolName.get(plan.inventoryPoolId) ?? null : null,
           releaseDays: plan.releaseDays, releaseTimeLocal: plan.releaseTimeLocal, updatedAt: plan.updatedAt.toISOString(), modeCounts,
           nightsWithRow: plan.availability.length, nightsMissing: days - plan.availability.length, nightsStale: stale,

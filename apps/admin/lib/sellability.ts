@@ -20,7 +20,7 @@ export const SELLABILITY_CHECKS: ReadonlyArray<{ label: string; codes: readonly 
   { label: 'Contract', codes: ['CONTRACT_INACTIVE', 'OUTSIDE_CONTRACT_VALIDITY'] },
   { label: 'Rate Plan', codes: ['RATE_PLAN_MISSING', 'RATE_PLAN_INACTIVE'] },
   { label: 'Daily Rates', codes: ['DAILY_RATE_MISSING_OR_INVALID', 'RATE_CURRENCY_MISMATCH', 'RATE_AMOUNT_BASIS_UNVERIFIED', 'NET_RATE_MARKUP_UNAVAILABLE'] },
-  { label: 'Availability', codes: ['AVAILABILITY_MISSING', 'NO_INVENTORY', 'CLOSED_TO_ARRIVAL'] },
+  { label: 'Availability', codes: ['AVAILABILITY_MISSING', 'NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'ON_REQUEST_ONLY', 'INVENTORY_STALE', 'CLOSED_TO_ARRIVAL', 'CLOSED_TO_DEPARTURE'] },
   { label: 'Stop Sell', codes: ['STOP_SELL'] },
   { label: 'Occupancy', codes: ['OCCUPANCY_UNSUPPORTED'] },
   { label: 'Minimum / Maximum Stay', codes: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED'] },

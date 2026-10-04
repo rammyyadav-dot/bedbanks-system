@@ -197,12 +197,14 @@ export function categoryOfReason(reason: string, context: ReasonContext): Commer
     case 'AVAILABILITY_MISSING': return 'AVAILABILITY_MISSING'
     case 'STOP_SELL': return 'STOP_SELL'
     case 'NO_INVENTORY': case 'POOL_EXHAUSTED': return 'INVENTORY_EXHAUSTED'
+    case 'INVENTORY_CLOSED': case 'ON_REQUEST_ONLY': return 'INVENTORY_CLOSED'
+    case 'INVENTORY_STALE': return 'INVENTORY_STALE'
     default: return 'ENTITY_INACTIVE'
   }
 }
 const SECTION_OF_CATEGORY: Record<CommercialIssueCategory, HotelSection> = {
   UNMAPPED_HOTEL: 'mappings', UNMAPPED_ROOM: 'mappings', CONTRACT_EXPIRED: 'contracts', CONTRACT_EXPIRING: 'contracts', RATE_MISSING: 'rates', RATE_INVALID: 'rates',
-  AVAILABILITY_MISSING: 'rates', STOP_SELL: 'rates', INVENTORY_EXHAUSTED: 'rates', OCCUPANCY_UNSUPPORTED: 'rooms', CURRENCY_OR_BASIS: 'rates', ENTITY_INACTIVE: 'overview', HOTEL_CONTENT: 'overview',
+  AVAILABILITY_MISSING: 'rates', STOP_SELL: 'rates', INVENTORY_EXHAUSTED: 'rates', INVENTORY_CLOSED: 'inventory', INVENTORY_STALE: 'inventory', OCCUPANCY_UNSUPPORTED: 'rooms', CURRENCY_OR_BASIS: 'rates', ENTITY_INACTIVE: 'overview', HOTEL_CONTENT: 'overview',
 }
 export const REASON_TEXT = COMMERCIAL_REASON_TEXT
 
@@ -220,7 +222,7 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
   { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },
   { key: 'occupancy', label: 'Occupancy', reasons: ['OCCUPANCY_UNSUPPORTED'] },
-  { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET'] },
+  { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE'] },
 ]
 export function gateResults(reasons: string[]): Array<{ key: string; label: string; state: 'PASS' | 'FAIL' }> {
   return SELLABILITY_GATES.map((gate) => ({ key: gate.key, label: gate.label, state: gate.reasons.some((reason) => reasons.includes(reason)) ? 'FAIL' as const : 'PASS' as const }))

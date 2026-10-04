@@ -12,7 +12,7 @@ test('readiness, mapping, contract and inventory states map to tones without inv
 })
 
 test('every canonical reason code the Admin can receive has plain wording, and unknown codes are shown verbatim, never hidden', () => {
-  for (const code of ['SUPPLIER_MAPPING_INVALID', 'OUTSIDE_CONTRACT_VALIDITY', 'DAILY_RATE_MISSING_OR_INVALID', 'AVAILABILITY_MISSING', 'STOP_SELL', 'NO_INVENTORY', 'OCCUPANCY_UNSUPPORTED', 'RATE_CURRENCY_MISMATCH', HOTEL_STAR_RATING_MISSING, 'MIN_STAY_NOT_MET']) {
+  for (const code of ['SUPPLIER_MAPPING_INVALID', 'OUTSIDE_CONTRACT_VALIDITY', 'DAILY_RATE_MISSING_OR_INVALID', 'AVAILABILITY_MISSING', 'STOP_SELL', 'NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'ON_REQUEST_ONLY', 'INVENTORY_STALE', 'CLOSED_TO_DEPARTURE', 'RELEASE_DAYS_NOT_MET', 'OCCUPANCY_UNSUPPORTED', 'RATE_CURRENCY_MISMATCH', HOTEL_STAR_RATING_MISSING, 'MIN_STAY_NOT_MET']) {
     assert.ok(COMMERCIAL_REASON_TEXT[code], code)
     assert.equal(reasonText(code), COMMERCIAL_REASON_TEXT[code])
   }
@@ -21,13 +21,13 @@ test('every canonical reason code the Admin can receive has plain wording, and u
 
 test('tabs: every issue section is a real tab, unknown tab values fall back to overview, and links are stable', () => {
   const ids = HOTEL_TABS.map((t) => t.id) as string[]
-  for (const section of ['overview', 'rooms', 'mappings', 'contracts', 'rates', 'sellability'] as const) assert.ok(ids.includes(sectionTab(section)), section)
+  for (const section of ['overview', 'rooms', 'mappings', 'contracts', 'rates', 'inventory', 'sellability'] as const) assert.ok(ids.includes(sectionTab(section)), section)
   assert.equal(parseTab('rates'), 'rates'); assert.equal(parseTab('nonsense'), 'overview'); assert.equal(parseTab(null), 'overview'); assert.equal(parseTab('__proto__'), 'overview')
   assert.equal(hotelHref('h1'), '/hotels/h1'); assert.equal(hotelHref('h1', 'rates'), '/hotels/h1?tab=rates'); assert.equal(hotelHref('a b/c', 'rooms'), '/hotels/a b/c?tab=rooms')
   assert.equal(hotelHref('h1', 'rates', { from: '2030-06-15', roomTypeId: 'room-9' }), '/hotels/h1?tab=rates&from=2030-06-15&roomTypeId=room-9')
   assert.equal(hotelHref('h1', 'rates', { from: 'not-a-date' }), '/hotels/h1?tab=rates') // only a real calendar day is carried
   assert.equal(hotelHref('h1', 'overview', { from: null, roomTypeId: null }), '/hotels/h1')
-  assert.equal(COMMERCIAL_ISSUE_CATEGORIES.length, 13)
+  assert.equal(COMMERCIAL_ISSUE_CATEGORIES.length, 15)
 })
 
 test('list filters round-trip through the URL and unknown parameters are dropped', () => {
