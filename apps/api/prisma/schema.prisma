@@ -350,6 +350,36 @@ enum SupplierMutationStatus {
   RESOLVED
 }
 
+/// How a night's stock is sold (ADR 0030). One explicit semantic per plan-night, never a magic quantity.
+enum InventoryMode {
+  ALLOTMENT
+  FREE_SALE
+  ON_REQUEST
+  CLOSED
+}
+
+/// Where inventory data came from. Supplier sources must carry `freshUntil` or they are treated as stale.
+enum InventorySource {
+  CONTRACT
+  ADMIN
+  SUPPLIER_API
+  SUPPLIER_FEED
+  SYSTEM
+}
+
+enum InventoryPoolStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// Which counter a held or sold night was taken from, recorded at reservation time so later release, confirmation and cancellation
+/// always return to the same counter even if pool membership changes.
+enum InventoryCounterKind {
+  PLAN_ROW
+  POOL_DAY
+  NONE
+}
+
 enum InventoryHoldStatus {
   PENDING_RECHECK
   RECHECKED
@@ -458,6 +488,7 @@ enum ConnectorExecutionStatus {
 
 model Tenant {
   agencies Agency[]
+  inventoryPools InventoryPool[]
   hotelImages HotelImage[]
   agencyCreditLimits AgencyCreditLimit[]
   hotelProfiles HotelProfile[]
@@ -800,6 +831,7 @@ model AuditEvent {
 
 /// Tenant-owned commercial source. Credential material is never persisted here.
 model Supplier {
+  inventoryPools InventoryPool[]
   serviceCases ServiceCase[]
   distributionRestrictions DistributionRestriction[]
   markupRules CommercialMarkupRule[]
@@ -831,6 +863,7 @@ model Supplier {
 
 /// Canonical fBeds property identity, deliberately separate from supplier IDs.
 model Hotel {
+  inventoryPools InventoryPool[]
   serviceCases ServiceCase[]
   distributionRestrictions DistributionRestriction[]
   markupRules CommercialMarkupRule[]
@@ -1168,6 +1201,11 @@ model RatePlan {
   minStay           Int            @default(1) @map("min_stay")
   maxStay           Int?           @map("max_stay")
   releaseDays       Int            @default(0) @map("release_days")
+  /// Hotel-local time of day (HH:MM) at which the release deadline falls, `releaseDays` before the check-in date (ADR 0030).
+  releaseTimeLocal  String         @default("00:00") @map("release_time_local") @db.Char(5)
+  /// The shared physical stock this plan draws from, if any. Pools never mix tenants, hotels or suppliers (database trigger).
+  inventoryPoolId   String?        @map("inventory_pool_id")
+  inventoryPool     InventoryPool? @relation(fields: [tenantId, inventoryPoolId], references: [tenantId, id], onDelete: Restrict)
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
@@ -1177,6 +1215,7 @@ model RatePlan {
   @@unique([contractId, code])
   @@index([tenantId, status])
   @@index([roomTypeId])
+  @@index([tenantId, inventoryPoolId])
 }
 
 model CancellationPolicy {
@@ -1217,6 +1256,55 @@ model BookingLeadTimeRule {
   @@unique([contractId])
 }
 
+/// A shared physical stock of rooms for one hotel and one supplier (ADR 0030). Rate plans that belong to the pool draw from the same
+/// daily counters, so three plans over five rooms are five rooms, not fifteen.
+model InventoryPool {
+  id          String              @id @default(cuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String              @map("hotel_id")
+  hotel       Hotel               @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  supplierId  String              @map("supplier_id")
+  supplier    Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  name        String
+  status      InventoryPoolStatus @default(ACTIVE)
+  createdById String              @map("created_by_id")
+  archivedAt  DateTime?           @map("archived_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  days  InventoryPoolDay[]
+  plans RatePlan[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, hotelId, supplierId, name])
+  @@index([tenantId, hotelId])
+}
+
+/// One night of a pool's physical stock. `sold + held <= capacity` is a database constraint.
+model InventoryPoolDay {
+  id              String          @id @default(cuid())
+  tenantId        String          @map("tenant_id")
+  poolId          String          @map("pool_id")
+  pool            InventoryPool   @relation(fields: [tenantId, poolId], references: [tenantId, id], onDelete: Restrict)
+  stayDate        DateTime        @map("stay_date") @db.Date
+  capacity        Int
+  sold            Int             @default(0)
+  held            Int             @default(0)
+  source          InventorySource @default(ADMIN)
+  sourceUpdatedAt DateTime?       @map("source_updated_at")
+  receivedAt      DateTime        @default(now()) @map("received_at")
+  freshUntil      DateTime?       @map("fresh_until")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  holdNights InventoryHoldNight[]
+
+  @@unique([poolId, stayDate])
+  @@unique([tenantId, id])
+  @@index([tenantId, stayDate])
+}
+
 model DailyAvailability {
   id                 String   @id @default(cuid())
   tenantId           String   @map("tenant_id")
@@ -1230,7 +1318,13 @@ model DailyAvailability {
   minStay            Int      @default(1) @map("min_stay")
   closedToArrival    Boolean  @default(false) @map("closed_to_arrival")
   closedToDeparture  Boolean  @default(false) @map("closed_to_departure")
+  /// ALLOTMENT uses the plan row's counters, or the pool day when the plan belongs to a pool. FREE_SALE needs no stock. ON_REQUEST is never instant. CLOSED is never sold.
+  inventoryMode      InventoryMode @default(ALLOTMENT) @map("inventory_mode")
+  source             InventorySource @default(ADMIN)
   sourceUpdatedAt    DateTime? @map("source_updated_at")
+  receivedAt         DateTime  @default(now()) @map("received_at")
+  /// After this instant the row is stale and fails closed. Null means it does not expire, except for supplier sources, which then count as stale.
+  freshUntil         DateTime? @map("fresh_until")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
   holdNights         InventoryHoldNight[]
@@ -1283,6 +1377,9 @@ model InventoryHoldNight {
   availability   DailyAvailability @relation(fields: [tenantId, availabilityId], references: [tenantId, id], onDelete: Restrict)
   stayDate       DateTime          @map("stay_date") @db.Date
   quantity       Int
+  counterKind    InventoryCounterKind @default(PLAN_ROW) @map("counter_kind")
+  poolDayId      String?           @map("pool_day_id")
+  poolDay        InventoryPoolDay? @relation(fields: [tenantId, poolDayId], references: [tenantId, id], onDelete: Restrict)
   createdAt      DateTime          @default(now()) @map("created_at")
 
   @@unique([holdId, availabilityId])
