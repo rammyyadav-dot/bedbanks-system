@@ -74,7 +74,10 @@ describe('API runtime login role', () => {
     const visible = await asRuntime(tenantA.id, (tx) => tx.hotel.findMany({ where: { name: { startsWith: suffix } } }))
     expect(visible.map((hotel) => hotel.id)).toEqual([hotelA.id])
     expect(await asRuntime(null, (tx) => tx.hotel.findMany({ where: { name: { startsWith: suffix } } }))).toEqual([])
-    await expect(asRuntime(tenantA.id, (tx) => tx.hotel.updateMany({ where: { id: hotelB.id }, data: { name: `${suffix} stolen` } }))).rejects.toThrow()
+    // `name` is in the Hotel column write set (ADR 0032), so the privilege layer allows the statement and row-level security makes it match nothing.
+    expect(await asRuntime(tenantA.id, (tx) => tx.hotel.updateMany({ where: { id: hotelB.id }, data: { name: `${suffix} stolen` } }))).toEqual({ count: 0 })
+    // A column outside the write set is refused by privilege, whatever the tenant.
+    await expect(asRuntime(tenantA.id, (tx) => tx.hotel.updateMany({ where: { id: hotelA.id }, data: { externalRef: `${suffix}-x` } }))).rejects.toThrow()
     expect(await owner.hotel.findUnique({ where: { id: hotelB.id } })).toMatchObject({ name: `${suffix} B` })
 
     const [attrs] = await runtime.$queryRawUnsafe<Array<{ rolsuper: boolean; rolbypassrls: boolean; rolcanlogin: boolean; owned: number }>>(
