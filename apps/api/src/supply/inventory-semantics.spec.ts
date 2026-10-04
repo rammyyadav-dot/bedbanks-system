@@ -165,3 +165,37 @@ describe('occupancy and rooms', () => {
     expect(decide(plan({ rows: rowsWith(() => ({ allotment: 2 })) }), { rooms: 2 })).toMatchObject({ eligible: true, totalMinor: 180_000n })
   })
 })
+
+describe('boundary and coverage rules', () => {
+  it('an unknown or invalid hotel time zone fails closed at the evaluator, even with generous release settings', () => {
+    for (const zone of ['Not/AZone', '', 'UTC+4', 'Asia/Dubay']) {
+      const snap: ContractedStaySnapshot = { ...buildStaySnapshot(plan(), { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES), hotelTimeZone: zone }
+      expect([zone, evaluateContractedStay(snap, base).reasons.includes('RELEASE_DAYS_NOT_MET')]).toEqual([zone, true])
+    }
+  })
+  it('an invalid release time fails closed', () => {
+    const snap: ContractedStaySnapshot = { ...buildStaySnapshot(plan(), { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES), ratePlanReleaseTimeLocal: '25:61' }
+    expect(evaluateContractedStay(snap, base).reasons).toContain('RELEASE_DAYS_NOT_MET')
+  })
+  it('every stay night needs both a rate and an inventory row: a hole in the middle blocks, and so does a snapshot shorter than the stay', () => {
+    const noRateMiddle = plan(); noRateMiddle.dailyRates = noRateMiddle.dailyRates.filter((r) => r.stayDate.toISOString().slice(0, 10) !== '2026-10-16')
+    expect(decide(noRateMiddle).reasons).toContain('DAILY_RATE_MISSING_OR_INVALID')
+    const noRowMiddle = plan({ rows: [row('2026-10-15'), row('2026-10-17'), row('2026-10-18')] })
+    expect(decide(noRowMiddle).reasons).toContain('AVAILABILITY_MISSING')
+    // a snapshot that covers fewer nights than the requested stay can never be sold
+    const short = evaluateContractedStay(buildStaySnapshot(plan(), { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES), { ...base, checkOut: '2026-10-19' })
+    expect(short.eligible).toBe(false); expect(short.reasons).toContain('DAILY_RATE_MISSING_OR_INVALID')
+  })
+  it('free-sale and on-request nights still need a rate; stop sell and stale still win over free sale', () => {
+    const noRate = plan({ rows: rowsWith(() => ({ inventoryMode: 'FREE_SALE' })) }); noRate.dailyRates = []
+    expect(decide(noRate).reasons).toContain('DAILY_RATE_MISSING_OR_INVALID')
+    expect(decide(plan({ rows: rowsWith(() => ({ inventoryMode: 'FREE_SALE', freshUntil: new Date(NOW.getTime() - 1) })) })).reasons).toContain('INVENTORY_STALE')
+  })
+  it('freshness boundary: one millisecond before freshUntil sells, exactly at freshUntil does not', () => {
+    const until = new Date('2026-10-05T09:00:00.000Z')
+    const p = plan({ rows: rowsWith(() => ({ source: 'SUPPLIER_FEED', freshUntil: until })) })
+    expect(decide(p, { now: new Date(until.getTime() - 1) }).eligible).toBe(true)
+    expect(decide(p, { now: until }).reasons).toContain('INVENTORY_STALE')
+  })
+})
+

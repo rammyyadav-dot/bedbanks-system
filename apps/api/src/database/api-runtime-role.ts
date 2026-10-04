@@ -1,4 +1,4 @@
-import { describePasswordProblems } from './hold-expiry-role'
+import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role'
 
 export const API_RUNTIME_GROUP_ROLE = 'fbeds_api'
 export const API_RUNTIME_LOGIN_ROLE = 'fbeds_api_login'
@@ -12,8 +12,33 @@ const SELECT_TABLES = [
   'tenants', 'memberships', 'Permission', 'Role', 'UserRole', 'RolePermission',
   'Hotel', 'HotelSearchIndex', 'RoomType', 'BoardBasis', 'Supplier', 'SupplierHotelMapping', 'SupplierRoomMapping',
   'supplier_memberships',
-  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability', 'InventoryPool', 'InventoryPoolDay',
+  'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability',
 ] as const
+
+/**
+ * Write privileges the migrations grant to the group role when it exists (ADR 0013). Provisioning re-applies exactly these so that
+ * running it again, in any order relative to migrations, leaves the same grants instead of silently revoking what the Admin features
+ * (hotel profile, images, amenities, pools, credit, approvals, service cases) need. `api-runtime-role.spec.ts` parses the committed
+ * migrations and fails if a migration grants something this list does not.
+ */
+export const MIGRATION_DECLARED_GRANTS: ReadonlyArray<readonly [table: string, privileges: string]> = [
+  ['ServiceCaseNote', 'SELECT, INSERT'],
+  ['AgencyMember', 'SELECT, INSERT, DELETE'],
+  ['Agency', 'SELECT, INSERT, UPDATE'],
+  ['ApprovalRequest', 'SELECT, INSERT, UPDATE'],
+  ['CommercialMarkupRule', 'SELECT, INSERT, UPDATE'],
+  ['DistributionRestriction', 'SELECT, INSERT, UPDATE'],
+  ['HotelProfile', 'SELECT, INSERT, UPDATE'],
+  ['InventoryPool', 'SELECT, INSERT, UPDATE'],
+  ['InventoryPoolDay', 'SELECT, INSERT, UPDATE'],
+  ['ServiceCase', 'SELECT, INSERT, UPDATE'],
+  ['SupplierMutation', 'SELECT, INSERT, UPDATE'],
+  ['AgencyCreditLimit', 'SELECT, INSERT, UPDATE, DELETE'],
+  ['HotelAmenity', 'SELECT, INSERT, UPDATE, DELETE'],
+  ['HotelExternalIdentifier', 'SELECT, INSERT, UPDATE, DELETE'],
+  ['HotelImage', 'SELECT, INSERT, UPDATE, DELETE'],
+  ['RoomAmenity', 'SELECT, INSERT, UPDATE, DELETE'],
+]
 
 /**
  * Statements the owner runs to grant the API group role. Search and recheck are
@@ -32,6 +57,7 @@ export function apiRuntimeGrantStatements(groupRole = API_RUNTIME_GROUP_ROLE): s
     `GRANT SELECT, INSERT ON "AuditEvent" TO ${group}`,
     `GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts" TO ${group}`,
     ...SELECT_TABLES.map((table) => `GRANT SELECT ON "${table}" TO ${group}`),
+    ...MIGRATION_DECLARED_GRANTS.map(([table, privileges]) => `GRANT ${privileges} ON "${table}" TO ${group}`),
   ]
 }
 
@@ -53,7 +79,7 @@ export async function provisionApiRuntimeRole(db: Executor, input: { loginRole?:
   const group = `"${API_RUNTIME_GROUP_ROLE}"`
   const attributes = 'NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
   await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${API_RUNTIME_GROUP_ROLE}') THEN CREATE ROLE ${group} NOLOGIN ${attributes}; END IF; END $$`)
-  await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${loginRole}') THEN CREATE ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} INHERIT CONNECTION LIMIT 20; ELSE ALTER ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} INHERIT CONNECTION LIMIT 20; END IF; END $$`)
+  await db.$executeRawUnsafe(upsertLoginRoleSql(loginRole, input.password, attributes, 20))
   await db.$executeRawUnsafe(`GRANT ${group} TO ${login}`)
   for (const statement of apiRuntimeGrantStatements()) await db.$executeRawUnsafe(statement)
 }

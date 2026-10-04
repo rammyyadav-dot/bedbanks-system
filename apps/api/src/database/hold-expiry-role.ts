@@ -26,6 +26,28 @@ export function assertProvisioningInput(loginRole: string, password: string): vo
 }
 
 /**
+ * SQL that creates a restricted login role, or updates an existing one. A superuser owner re-asserts every restricting attribute.
+ * A non-superuser owner (PostgreSQL 16 CREATEROLE, as on managed services) is not allowed to name SUPERUSER, REPLICATION or
+ * BYPASSRLS in ALTER ROLE, so it only changes login, password, inheritance and the connection limit, and fails closed if the
+ * existing role already carries an elevated attribute that a superuser must reset.
+ */
+export function upsertLoginRoleSql(loginRole: string, password: string, attributes: string, connectionLimit: number): string {
+  const who = `'${loginRole}'`
+  return `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${who}) THEN
+      CREATE ROLE "${loginRole}" LOGIN PASSWORD '${password}' ${attributes} INHERIT CONNECTION LIMIT ${connectionLimit};
+    ELSIF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+      ALTER ROLE "${loginRole}" LOGIN PASSWORD '${password}' ${attributes} INHERIT CONNECTION LIMIT ${connectionLimit};
+    ELSE
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${who} AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication)) THEN
+        RAISE EXCEPTION 'existing login role has an elevated attribute; a superuser must reset it before it can be provisioned';
+      END IF;
+      ALTER ROLE "${loginRole}" LOGIN PASSWORD '${password}' INHERIT CONNECTION LIMIT ${connectionLimit};
+    END IF;
+  END $$`
+}
+
+/**
  * Idempotently creates the least-privilege group role and one LOGIN member.
  * Must run as the database owner (or another role allowed to CREATE ROLE and
  * GRANT). It never creates SUPERUSER, BYPASSRLS, CREATEROLE, CREATEDB or
@@ -37,7 +59,7 @@ export async function provisionHoldExpiryRole(db: Executor, input: { loginRole: 
   const group = `"${HOLD_EXPIRY_GROUP_ROLE}"`
   const attributes = 'NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
   await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${HOLD_EXPIRY_GROUP_ROLE}') THEN CREATE ROLE ${group} NOLOGIN ${attributes}; END IF; END $$`)
-  await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${input.loginRole}') THEN CREATE ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} INHERIT CONNECTION LIMIT 5; ELSE ALTER ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} CONNECTION LIMIT 5; END IF; END $$`)
+  await db.$executeRawUnsafe(upsertLoginRoleSql(input.loginRole, input.password, attributes, 5))
   await db.$executeRawUnsafe(`GRANT ${group} TO ${login}`)
   await db.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${group}`)
   const grants = [

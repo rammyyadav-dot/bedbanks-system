@@ -154,4 +154,18 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     await newPlan('t')
     expect(await rates(criteria(), otherTenantId).catch(() => [])).toEqual([])
   })
+
+  it('SR-11 recheck never substitutes a sibling: when the offered plan stops selling, an available sibling of the same room and board is not returned in its place', async () => {
+    const offered = await newPlan('offered'); const sibling = await newPlan('sibling')
+    const list = await rates(); const offer = forPlan(list, offered)!
+    expect(forPlan(list, sibling)).toBeDefined()
+    await prisma.ratePlan.update({ where: { id: offered }, data: { status: 'SUSPENDED' } })
+    expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toEqual({ status: 'unavailable' })
+    await prisma.ratePlan.update({ where: { id: offered }, data: { status: 'ACTIVE' } })
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: offered }, data: { inventoryMode: 'CLOSED' } })
+    expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toEqual({ status: 'unavailable' })
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: offered }, data: { inventoryMode: 'ALLOTMENT' } })
+    const ok = await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })
+    expect(ok).toMatchObject({ status: 'available', offer: { ratePlanId: offered, supplierId, canonicalRoomTypeId: roomId, boardBasisId: boardId } })
+  })
 })
