@@ -11,7 +11,7 @@ const clean = (value: unknown): string => typeof value === 'string' ? value.trim
 
 @Injectable()
 export class SupplyService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService) { void this.audit }
+  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService) {}
   private async permitted(tenantId: string, userId: string, permission: string) {
     const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
     const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
@@ -25,7 +25,13 @@ export class SupplyService {
   }
   private async check(tenantId: string, userId: string, permission: string) { await this.permitted(tenantId, userId, permission) }
   private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>) {
-    await this.check(tenantId, userId, permission)
+    try {
+      await this.check(tenantId, userId, permission)
+    } catch (error) {
+      // A refused mutation leaves a denial audit event carrying this request's id, like the guard-based Admin routes (ADR 0032 evidence review).
+      if (error instanceof ForbiddenException) await this.audit.record({ tenantId, userId, action: 'permission.denied', entityType: 'permission', entityId: permission, payload: { tenantId, requestId: requestId ?? null } }).catch(() => undefined)
+      throw error
+    }
     return this.prisma.withTenant(tenantId, async tx => {
       const result = await work(tx)
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action, entityType, entityId: result.id, payload: { outcome: 'allowed', requestId: requestId ?? null } } })

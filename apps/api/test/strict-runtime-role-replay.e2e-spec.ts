@@ -131,9 +131,22 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
     } finally { await runtime.$disconnect(); await replay.$executeRawUnsafe(`GRANT SELECT ON "DistributionRestriction" TO ${API_RUNTIME_GROUP_ROLE}`) }
   })
 
+  it('SR-08 on replay and upgrade: forced row-level security on every writable tenant table, the same-tenant guard triggers installed, and the login role has no elevated attribute', async () => {
+    const guarded = ['HotelProfile', 'HotelExternalIdentifier', 'HotelAmenity', 'RoomAmenity', 'HotelImage', 'CommercialMarkupRule', 'DistributionRestriction', 'AgencyMember', 'AgencyCreditLimit', 'ServiceCase', 'ServiceCaseNote']
+    const writableTenantTables = RUNTIME_ROLE_GRANTS.filter((g) => g.writes.length && g.rls === 'forced-tenant').map((g) => g.table)
+    for (const [name, db] of [['replay', replay], ['upgrade', upgrade]] as const) {
+      const rls = await db.$queryRawUnsafe<Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>>(`SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN (${writableTenantTables.map((t) => `'${t}'`).join(',')}) AND relkind = 'r'`)
+      expect({ name, tables: rls.map((r) => r.relname).sort(), notForced: rls.filter((r) => !r.relrowsecurity || !r.relforcerowsecurity).map((r) => r.relname) }).toEqual({ name, tables: [...writableTenantTables].sort(), notForced: [] })
+      const triggers = await db.$queryRawUnsafe<Array<{ tgrelid: string }>>(`SELECT tgrelid::regclass::text AS tgrelid FROM pg_trigger WHERE tgname LIKE '%\\_tenant\\_references' AND NOT tgisinternal`)
+      expect({ name, tables: triggers.map((t) => t.tgrelid.replace(/"/g, '')).sort() }).toEqual({ name, tables: [...guarded].sort() })
+      const [attrs] = await db.$queryRawUnsafe<Array<{ rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean }>>(`SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = '${API_RUNTIME_LOGIN_ROLE}'`)
+      expect({ name, attrs }).toEqual({ name, attrs: { rolsuper: false, rolbypassrls: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false } })
+    }
+  })
+
   it('SR-07 no committed migration after the last contract migration grants anything to the runtime role (provisioning is the only source of grants)', () => {
     const all = readdirSync(migrationsDir).filter((d) => d !== 'migration_lock.toml').sort()
-    const contract = all.indexOf('202610190001_strict_runtime_role_hotel_setup_writes')
+    const contract = all.indexOf('202610200001_strict_runtime_role_tenant_integrity')
     expect(contract).toBeGreaterThan(-1)
     for (const dir of all.slice(contract + 1)) {
       const sql = readFileSync(join(migrationsDir, dir, 'migration.sql'), 'utf8')

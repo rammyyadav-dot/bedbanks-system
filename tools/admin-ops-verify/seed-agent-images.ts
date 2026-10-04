@@ -6,7 +6,7 @@ import { PrismaService } from '../../apps/api/src/database/prisma.service'
 import { hashPassword } from '../../apps/api/src/auth/utils/password'
 
 const url = process.env.DATABASE_URL ?? ''
-if (!/@localhost:\d+\/(fbeds_ci|p04_[a-z0-9_]+)(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be a disposable local database (fbeds_ci or p04_*)')
+if (!/@localhost:\d+\/(fbeds_ci|p0\d_[a-z0-9_]+)(\?schema=public)?$/.test(url)) throw new Error('refusing: DATABASE_URL must be a disposable local database (fbeds_ci or p0N_*)')
 
 /** A real, decodable solid-colour PNG. */
 function makePng(w: number, h: number, rgb: number[]): Buffer {

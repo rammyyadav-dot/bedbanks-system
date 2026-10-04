@@ -37,7 +37,7 @@ export class AgentRbacGuard implements CanActivate {
     })) as FormalRoleAssignment[]
     const formalPermissions = roles.flatMap((item) => item.role.permissions.map((permission) => permission.permission.key))
     if (!membershipGrantsPermission(membership.role, formalPermissions, required)) {
-      await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: required, payload: { tenantId }, userId: identity.user.id } })).catch(() => undefined)
+      await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: required, payload: { tenantId, requestId: request.requestId ?? null }, userId: identity.user.id } })).catch(() => undefined)
       throw new ForbiddenException('Access denied')
     }
     return true

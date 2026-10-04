@@ -42,6 +42,9 @@ export const HOTEL_WRITE_COLUMNS = ['name', 'property_type', 'country_code', 'ci
 /** RoomType columns the Admin rooms workflow updates. Nothing else on RoomType (id, hotel_id, created_at) is writable. */
 export const ROOM_WRITE_COLUMNS = ['name', 'code', 'max_adults', 'max_children', 'max_occupancy', 'bedding_metadata', 'is_active', 'updated_at'] as const
 
+/** Amenity columns the runtime may update (a fee type change). The hotel, room and tenant a row belongs to are immutable for the role (ADR 0032 amendment). */
+export const AMENITY_UPDATE_COLUMNS = ['fee_type', 'updated_by_id', 'updated_at'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -129,7 +132,7 @@ const READ_WRITE: readonly RuntimeGrant[] = [
   ] },
   { table: 'HotelAmenity', model: 'HotelAmenity', read: true, rls: 'forced-tenant', writes: [
     { op: 'INSERT', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'add an amenity' },
-    { op: 'UPDATE', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'change an amenity (upsert)' },
+    { op: 'UPDATE', columns: AMENITY_UPDATE_COLUMNS, service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'change an amenity fee type (upsert); the hotel it belongs to cannot be reassigned' },
     { op: 'DELETE', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'remove an amenity' },
   ] },
   { table: 'RoomType', model: 'RoomType', read: true, rls: 'forced-tenant', note: 'row-level security through the room\'s hotel', writes: [
@@ -138,7 +141,7 @@ const READ_WRITE: readonly RuntimeGrant[] = [
   ] },
   { table: 'RoomAmenity', model: 'RoomAmenity', read: true, rls: 'forced-tenant', writes: [
     { op: 'INSERT', service: 'HotelRoomsService.replaceAmenities', endpoints: [`POST ${HOTEL}/rooms`, `PATCH ${HOTEL}/rooms/:roomId`], reason: 'record a room amenity' },
-    { op: 'UPDATE', service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'change an amenity fee type (upsert)' },
+    { op: 'UPDATE', columns: AMENITY_UPDATE_COLUMNS, service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'change an amenity fee type (upsert); the room it belongs to cannot be reassigned' },
     { op: 'DELETE', service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'remove an amenity from a room' },
   ] },
   { table: 'HotelImage', model: 'HotelImage', read: true, rls: 'forced-tenant', note: 'also read by Agent search (primary image) and the Agent image route', writes: [
