@@ -39,6 +39,9 @@ const HOTEL = '/admin/hotels/:hotelId'
 /** Hotel columns the named Admin workflows write (setup, status, amenities touch, publication). Nothing else on Hotel is writable. */
 export const HOTEL_WRITE_COLUMNS = ['name', 'property_type', 'country_code', 'city', 'address', 'latitude', 'longitude', 'time_zone', 'star_rating', 'content_status', 'updated_at'] as const
 
+/** RoomType columns the Admin rooms workflow updates. Nothing else on RoomType (id, hotel_id, created_at) is writable. */
+export const ROOM_WRITE_COLUMNS = ['name', 'code', 'max_adults', 'max_children', 'max_occupancy', 'bedding_metadata', 'is_active', 'updated_at'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -48,7 +51,6 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'UserRole', model: 'UserRole', rls: 'forced-tenant' },
   { table: 'RolePermission', model: 'RolePermission', rls: 'forced-tenant' },
   { table: 'HotelSearchIndex', model: 'HotelSearchIndex', rls: 'forced-tenant' },
-  { table: 'RoomType', model: 'RoomType', rls: 'forced-tenant' },
   { table: 'BoardBasis', model: 'BoardBasis', rls: 'forced-tenant' },
   { table: 'Supplier', model: 'Supplier', rls: 'forced-tenant' },
   { table: 'SupplierHotelMapping', model: 'SupplierHotelMapping', rls: 'forced-tenant' },
@@ -113,7 +115,8 @@ const READ_WRITE: readonly RuntimeGrant[] = [
     { op: 'INSERT', service: 'ServiceCasesService.addNote/transition/assign', endpoints: ['POST /admin/service/cases/:caseId/notes'], reason: 'append a note (notes are immutable)' },
   ] },
 
-  { table: 'Hotel', model: 'Hotel', read: true, rls: 'forced-tenant', note: 'column-level UPDATE only; INSERT and DELETE and every other column stay with the privileged supply-authoring path', writes: [
+  { table: 'Hotel', model: 'Hotel', read: true, rls: 'forced-tenant', note: 'INSERT, plus column-level UPDATE only; DELETE and every other column stay with the privileged supply-authoring path', writes: [
+    { op: 'INSERT', service: 'SupplyService.createHotel', endpoints: ['POST /supply/hotels (Admin "Add hotel")'], reason: 'create a draft hotel, the first step of the setup journey (publication stays a separate maker-checker step)' },
     { op: 'UPDATE', columns: HOTEL_WRITE_COLUMNS, service: 'HotelSetupService.save/changeStatus; touchSetup (amenities); HotelPublicationService.execute', endpoints: [`PATCH ${HOTEL}/setup`, `POST ${HOTEL}/setup/status`, `PUT ${HOTEL}/amenities`, `POST ${HOTEL}/setup/publication/:approvalId/execute`], reason: 'the profile workflows also stamp or change the hotel row (details, status, updated_at stale-token)' },
   ] },
   { table: 'HotelProfile', model: 'HotelProfile', read: true, rls: 'forced-tenant', writes: [
@@ -128,6 +131,15 @@ const READ_WRITE: readonly RuntimeGrant[] = [
     { op: 'INSERT', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'add an amenity' },
     { op: 'UPDATE', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'change an amenity (upsert)' },
     { op: 'DELETE', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'remove an amenity' },
+  ] },
+  { table: 'RoomType', model: 'RoomType', read: true, rls: 'forced-tenant', note: 'row-level security through the room\'s hotel', writes: [
+    { op: 'INSERT', service: 'HotelRoomsService.create', endpoints: [`POST ${HOTEL}/rooms`], reason: 'add a canonical room to a hotel (publication needs one active room)' },
+    { op: 'UPDATE', columns: ROOM_WRITE_COLUMNS, service: 'HotelRoomsService.update/archive/restore', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`, `POST ${HOTEL}/rooms/:roomId/archive`, `POST ${HOTEL}/rooms/:roomId/restore`], reason: 'edit, archive or restore a room (rooms are never deleted)' },
+  ] },
+  { table: 'RoomAmenity', model: 'RoomAmenity', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'HotelRoomsService.replaceAmenities', endpoints: [`POST ${HOTEL}/rooms`, `PATCH ${HOTEL}/rooms/:roomId`], reason: 'record a room amenity' },
+    { op: 'UPDATE', service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'change an amenity fee type (upsert)' },
+    { op: 'DELETE', service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'remove an amenity from a room' },
   ] },
   { table: 'HotelImage', model: 'HotelImage', read: true, rls: 'forced-tenant', note: 'also read by Agent search (primary image) and the Agent image route', writes: [
     { op: 'INSERT', service: 'HotelImagesService.upload', endpoints: [`POST ${HOTEL}/images`], reason: 'upload an image' },
@@ -148,8 +160,8 @@ export const RUNTIME_ROLE_GRANTS: readonly RuntimeGrant[] = [
  * holds only their listed columns, the rest of their writes (hotel insert, other columns; user creation) are privileged.
  */
 export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
-  Hotel: 'supply authoring beyond the profile columns (create a hotel, external_ref)',
-  RoomType: 'supply authoring (rooms)', RoomAmenity: 'rooms workflow, which also writes RoomType', BoardBasis: 'supply authoring',
+  Hotel: 'DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted',
+  BoardBasis: 'supply authoring',
   Supplier: 'supply authoring', Contract: 'supply authoring', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update',
   DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring',
   SupplierHotelMapping: 'mapping governance', SupplierRoomMapping: 'mapping governance',

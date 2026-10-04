@@ -77,3 +77,20 @@ node tools/admin-ops-verify/verify-agent-images.cjs
 `seed-inventory.ts` creates a Dubai hotel whose three plans share a pool of 5, a hotel with no pool, an Admin owner, a read-only viewer, an Agent and a second tenant. `verify-inventory.cjs` drives the production **Admin** (:3000) and **Agent** (:3003) builds: Hotels → hotel → Inventory & Allotment → pool → Quick Update → preview → apply → reload → Agent search → offer → Admin changes the pool → recheck is unavailable; on-request is not selectable; loading / empty / unavailable states; a read-only account; overflow at 1280/768/390; axe. Start the API with `TRUSTED_ORIGINS=http://localhost:3000,http://localhost:3003`.
 
 `inventory-scale.ts` (run from `apps/api` with `N=1|10|100`) seeds N hotels with pooled plans plus exhausted, on-request and closed-to-departure cases, compares Agent search with the expected result for every plan, times search and the Admin summary, and checks exactly-once pool allocation under concurrency. It prints observed numbers only.
+
+## Hotel setup journey on the strict API role (ADR 0032)
+
+`seed-hotel-journey.ts` creates one empty tenant with two Admin users (maker and checker); `verify-hotel-journey.cjs` drives the whole journey in Chromium against an API
+process connected as the **provisioned, non-superuser, non-BYPASSRLS runtime login role** (never the owner): Add hotel hands off into Hotel Setup, the profile saves, a room is created
+with bedding and an amenity then archived and restored, hotel amenities save, an image uploads and decodes, completeness reaches 12 of 12, a second person approves publication,
+the hotel is COMPLETE, and a privileged column answers the typed 403. Disposable local database only (`fbeds_ci` or `p0N_*`).
+
+```bash
+# owner connection: migrate, then provision the runtime role (generated password, kept out of the shell history) and seed
+pnpm --filter @bedbanks/api prisma:migrate:deploy
+PROVISION_DATABASE_URL=<owner url> API_RUNTIME_LOGIN_PASSWORD=<generated 32+ char URL-safe secret> pnpm --filter @bedbanks/api ops:provision-api-runtime-role
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-hotel-journey.ts)
+# start the API with DATABASE_URL = the runtime login URL and the Admin build as above, then:
+node tools/admin-ops-verify/verify-hotel-journey.cjs
+```
+

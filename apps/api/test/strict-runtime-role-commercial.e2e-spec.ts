@@ -317,7 +317,7 @@ describe('strict runtime role: commercial read safety and Admin authorization (P
     const inTenant = (statement: string) => probe.$transaction(async (tx) => { await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant_id', '${tenantA}', true)`); return tx.$executeRawUnsafe(statement) })
     try {
       const refused: string[] = [
-        `UPDATE "InventoryPoolDay" SET capacity = 0`, `UPDATE "InventoryPool" SET name = name`, `DELETE FROM "SupplierMutation"`, `UPDATE "RoomAmenity" SET fee_type = fee_type`,
+        `UPDATE "InventoryPoolDay" SET capacity = 0`, `UPDATE "InventoryPool" SET name = name`, `DELETE FROM "SupplierMutation"`, `UPDATE "RoomType" SET hotel_id = hotel_id`,
         `UPDATE "Hotel" SET external_ref = 'x'`, `UPDATE "Hotel" SET tenant_id = tenant_id`, `DELETE FROM "Hotel"`, `UPDATE "DailyRate" SET amount_minor = 0`, `UPDATE "RatePlan" SET code = code`,
         `UPDATE "AuditEvent" SET action = 'x'`, `DELETE FROM "AuditEvent"`, `DELETE FROM "CommercialMarkupRule"`, `DELETE FROM "Agency"`, `UPDATE "AgencyMember" SET user_id = user_id`,
         `UPDATE "HotelExternalIdentifier" SET value = value`, `TRUNCATE "HotelImage"`,

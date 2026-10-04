@@ -41,7 +41,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `DailyAvailability` | yes | - | - | - | forced tenant | read only |
 | `DailyRate` | yes | - | - | - | forced tenant | read only |
 | `DistributionRestriction` | yes | yes | yes | - | forced tenant | INSERT: DistributionService.create; POST /admin/distribution/restrictions; restrict a hotel or supplier for an agency / UPDATE: DistributionService.retire; POST /admin/distribution/restrictions/:restrictionId/retire; retire a restriction |
-| `Hotel` | yes | - | cols (11) | - | forced tenant | UPDATE (name, property_type, country_code, city, address, latitude, longitude, time_zone, star_rating, content_status, updated_at): HotelSetupService.save/changeStatus; touchSetup (amenities); HotelPublicationService.execute; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; the profile workflows also stamp or change the hotel row (details, status, updated_at stale-token) |
+| `Hotel` | yes | yes | cols (11) | - | forced tenant | INSERT: SupplyService.createHotel; POST /supply/hotels (Admin "Add hotel"); create a draft hotel, the first step of the setup journey (publication stays a separate maker-checker step) / UPDATE (name, property_type, country_code, city, address, latitude, longitude, time_zone, star_rating, content_status, updated_at): HotelSetupService.save/changeStatus; touchSetup (amenities); HotelPublicationService.execute; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; the profile workflows also stamp or change the hotel row (details, status, updated_at stale-token) |
 | `HotelAmenity` | yes | yes | yes | yes | forced tenant | INSERT: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; add an amenity / UPDATE: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; change an amenity (upsert) / DELETE: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; remove an amenity |
 | `HotelExternalIdentifier` | yes | yes | - | yes | forced tenant | INSERT: HotelSetupService.save; PATCH /admin/hotels/:hotelId/setup; add an external identifier / DELETE: HotelSetupService.save; PATCH /admin/hotels/:hotelId/setup; remove or replace an identifier (a changed value is delete plus insert, so no UPDATE) |
 | `HotelImage` | yes | yes | yes | yes | forced tenant | INSERT: HotelImagesService.upload; POST /admin/hotels/:hotelId/images; upload an image / UPDATE: HotelImagesService.update/reorder; PATCH /admin/hotels/:hotelId/images/:imageId, PUT /admin/hotels/:hotelId/images/order; edit, reorder, choose the primary image / DELETE: HotelImagesService.remove; DELETE /admin/hotels/:hotelId/images/:imageId; delete an image |
@@ -54,7 +54,8 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
 | `Role` | yes | - | - | - | forced tenant | read only |
 | `RolePermission` | yes | - | - | - | forced tenant | read only |
-| `RoomType` | yes | - | - | - | forced tenant | read only |
+| `RoomAmenity` | yes | yes | yes | yes | forced tenant | INSERT: HotelRoomsService.replaceAmenities; POST /admin/hotels/:hotelId/rooms, PATCH /admin/hotels/:hotelId/rooms/:roomId; record a room amenity / UPDATE: HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; change an amenity fee type (upsert) / DELETE: HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; remove an amenity from a room |
+| `RoomType` | yes | yes | cols (8) | - | forced tenant | INSERT: HotelRoomsService.create; POST /admin/hotels/:hotelId/rooms; add a canonical room to a hotel (publication needs one active room) / UPDATE (name, code, max_adults, max_children, max_occupancy, bedding_metadata, is_active, updated_at): HotelRoomsService.update/archive/restore; PATCH /admin/hotels/:hotelId/rooms/:roomId, POST /admin/hotels/:hotelId/rooms/:roomId/archive, POST /admin/hotels/:hotelId/rooms/:roomId/restore; edit, archive or restore a room (rooms are never deleted) |
 | `ServiceCase` | yes | yes | yes | - | forced tenant | INSERT: ServiceCasesService.create; POST /admin/service/cases; open a case / UPDATE: ServiceCasesService.transition/assign; POST /admin/service/cases/:caseId/transition, POST /admin/service/cases/:caseId/assign; move or assign a case |
 | `ServiceCaseNote` | yes | yes | - | - | forced tenant | INSERT: ServiceCasesService.addNote/transition/assign; POST /admin/service/cases/:caseId/notes; append a note (notes are immutable) |
 | `sessions` | yes | yes | cols (2) | - | none (auth) | INSERT: AuthService.login; POST /auth/login; create the opaque session (ADR 0001) / UPDATE (last_seen_at, revoked_at): AuthService (session guard, logout); every authenticated route, POST /auth/logout; slide and revoke the session |
@@ -79,7 +80,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Contract`: supply authoring
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update
-- `Hotel`: supply authoring beyond the profile columns (create a hotel, external_ref)
+- `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
 - `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index
 - `InventoryHold`: holds are gated; written by the booking path
 - `InventoryHoldNight`: holds are gated
@@ -90,8 +91,6 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `PlatformRoleAssignment`: platform administration
 - `PlatformRolePermission`: platform administration
 - `RatePlan`: supply authoring and pool membership/release
-- `RoomAmenity`: rooms workflow, which also writes RoomType
-- `RoomType`: supply authoring (rooms)
 - `Supplier`: supply authoring
 - `SupplierHotelMapping`: mapping governance
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
@@ -113,12 +112,13 @@ Earlier migrations granted `fbeds_api` writes whenever the role already existed.
 | `CommercialMarkupRule`, `DistributionRestriction` | **REQUIRED**: INSERT, UPDATE (plus SELECT, mandatory commercial reads) | Admin authoring of the controls that Agent search and recheck read |
 | `ServiceCase`, `ServiceCaseNote` | **REQUIRED**: INSERT, UPDATE / INSERT | Admin Service department |
 | `HotelProfile`, `HotelExternalIdentifier`, `HotelAmenity` | **REQUIRED** (exact operations in the matrix) | Hotel Setup and amenities. External identifiers need no UPDATE: a changed value is delete plus insert |
-| `Hotel` | **REQUIRED, column level only**: UPDATE of 11 columns | The profile, status, amenities and publication workflows also write the hotel row (details, `content_status`, the `updated_at` stale-token). INSERT, DELETE and every other column stay privileged |
+| `Hotel` | **REQUIRED**: INSERT, and UPDATE on 11 columns only | Add hotel creates the draft; the profile, status, amenities and publication workflows also write the hotel row (details, `content_status`, the `updated_at` stale-token). DELETE and every other column (including `external_ref` updates) stay privileged |
+| `RoomType` | **REQUIRED**: INSERT, UPDATE on 8 columns | The Rooms workflow (create, edit, archive, restore). Rooms are never deleted; publication needs one active room |
+| `RoomAmenity` | **REQUIRED**: INSERT, UPDATE, DELETE | Room amenities are replaced together with the room edit |
 | `HotelImage` | **REQUIRED**: INSERT, UPDATE, DELETE (plus SELECT: Agent search primary image and the Agent image route) | Admin Images workflow |
 | `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by prebook, confirmation and reconciliation: booking is gated off and those paths need booking tables the role never holds |
-| `RoomAmenity` | **PRIVILEGED PATH** | Only written inside the rooms workflow, which also writes `RoomType` (supply authoring) |
 | `InventoryPool`, `InventoryPoolDay` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes; stock moves belong to the hold path and the hold-expiry role |
-| Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `RoomType`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
+| Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
 
 Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the API process. There is no second API role today; adding one is an architecture decision (ADR). Until then the API answers a caller who reaches a privileged path with the typed 403 below.
 

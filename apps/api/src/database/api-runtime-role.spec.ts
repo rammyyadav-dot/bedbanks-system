@@ -14,7 +14,7 @@ describe('api runtime role grants', () => {
   })
 
   it('grants search reads and session writes without finance or hotel mutation', () => {
-    expect(sql).toContain('GRANT SELECT ON "Hotel"')
+    expect(sql).toContain('GRANT SELECT, INSERT ON "Hotel"') // draft hotels are created on the runtime role (ADR 0032)
     expect(sql).toContain('GRANT SELECT ON "supplier_memberships"')
     expect(sql).toContain('GRANT SELECT, INSERT, UPDATE ON "supplier_room_drafts"')
     expect(sql).not.toMatch(/GRANT UPDATE ON "supplier_memberships"/)
@@ -45,10 +45,11 @@ describe('api runtime role grants', () => {
   })
 
   it('never grants the privileged paths: no supply-authoring, booking, finance or journal write', () => {
-    for (const table of ['SupplierMutation', 'RoomAmenity', 'RoomType', 'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability', 'Supplier', 'Booking', 'InventoryHold', 'LedgerEntry', 'Wallet', 'Tenant', 'TenantSettings']) {
+    for (const table of ['SupplierMutation', 'Contract', 'RatePlan', 'DailyRate', 'DailyAvailability', 'Supplier', 'Booking', 'InventoryHold', 'LedgerEntry', 'Wallet', 'Tenant', 'TenantSettings']) {
       expect(apiRuntimeGrantStatements().filter((s) => new RegExp(`(INSERT|UPDATE|DELETE)[A-Z, ()"_a-z]* ON "${table}"`).test(s))).toEqual([])
     }
     expect(sql).not.toMatch(/GRANT DELETE/)
-    expect(sql).not.toMatch(/GRANT [A-Z, ]*(INSERT|UPDATE|DELETE)[A-Z, ]* ON "Hotel"/) // Hotel is column-level UPDATE only
+    expect(sql).not.toMatch(/GRANT [A-Z, ]*(UPDATE|DELETE)[A-Z, ]* ON "Hotel"/) // Hotel UPDATE is column-level only, and never DELETE
+    expect(sql).not.toMatch(/GRANT [A-Z, ]*DELETE[A-Z, ]* ON "(RoomType|Hotel)"/)
   })
 })

@@ -32,7 +32,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   let seq = 0
   const key = () => `${suffix}-${++seq}-${randomBytes(4).toString('hex')}`
 
-  const KEYS = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage', 'case.read', 'case.manage']
+  const KEYS = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage', 'case.read', 'case.manage']
   async function user(label: string, tenantId: string, keys: string[]) {
     const email = `${suffix}-${label}@example.test`
     const u = await owner.user.create({ data: { email, name: label, passwordHash: await hashPassword(password), status: 'ACTIVE' } }); userIds.push(u.id); ids[label] = u.id
@@ -101,7 +101,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     for (const t of [tenantA, tenantB].filter(Boolean)) {
       for (const q of [
         `DELETE FROM "AuditEvent" WHERE tenant_id = '${t}'`, `DELETE FROM "ApprovalRequest" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelImage" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelAmenity" WHERE tenant_id = '${t}'`,
-        `DELETE FROM "HotelExternalIdentifier" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelProfile" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCaseNote" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCase" WHERE tenant_id = '${t}'`,
+        `DELETE FROM "RoomAmenity" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelExternalIdentifier" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelProfile" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCaseNote" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCase" WHERE tenant_id = '${t}'`,
         `DELETE FROM "DistributionRestriction" WHERE tenant_id = '${t}'`, `DELETE FROM "AgencyCreditLimit" WHERE tenant_id = '${t}'`, `DELETE FROM "AgencyMember" WHERE tenant_id = '${t}'`, `DELETE FROM "Agency" WHERE tenant_id = '${t}'`,
         `DELETE FROM "CommercialMarkupRule" WHERE tenant_id = '${t}'`, `DELETE FROM "RoomType" WHERE hotel_id IN (SELECT id FROM "Hotel" WHERE tenant_id = '${t}')`, `DELETE FROM "Hotel" WHERE tenant_id = '${t}'`, `DELETE FROM "Supplier" WHERE tenant_id = '${t}'`,
         `DELETE FROM "UserRole" WHERE tenant_id = '${t}'`, `DELETE FROM "RolePermission" WHERE role_id IN (SELECT id FROM "Role" WHERE tenant_id = '${t}')`, `DELETE FROM "Role" WHERE tenant_id = '${t}'`, `DELETE FROM memberships WHERE tenant_id = '${t}'`,
@@ -226,6 +226,39 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     await call('post', `${setup}/publication/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
     await call('post', `${setup}/publication/${made.id}/execute`, 'maker', {}).expect(200)
     expect((await owner.hotel.findUniqueOrThrow({ where: { id } })).contentStatus).toBe('COMPLETE')
+  })
+
+  it('W-09b the whole hotel setup journey runs on the strict role: create, profile, rooms with amenities (edit, archive, restore), hotel amenities, image, publication', async () => {
+    const created = (await call('post', '/supply/hotels', 'maker', { name: `${suffix} Journey`, propertyType: 'HOTEL', address: null, city: 'Dubai', countryCode: 'AE', timeZone: 'Asia/Dubai', starRating: 4, contentStatus: 'DRAFT', externalRef: null }).expect(201)).body.data
+    const id = created.id as string
+    expect(created.contentStatus).toBe('DRAFT')
+    const setup = `/admin/hotels/${id}/setup`; const rooms = `/admin/hotels/${id}/rooms`
+    const load = async () => (await call('get', setup, 'maker').expect(200)).body.data
+    const before = await load()
+    expect(before.completeness.publishable).toBe(false)
+    await call('patch', setup, 'maker', { idempotencyKey: key(), expectedToken: before.concurrencyToken, address: '1 Palm Road', latitude: '25.1234', longitude: '55.1234', starRating: 4, starVerified: true, starSource: 'Tourism authority register', shortDescription: 'A quiet hotel on the Palm.', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'private-res@hotel.test' } } }).expect(200)
+    // Rooms: create with amenities, edit, archive (with a second active room so the hotel stays publishable), restore.
+    const room = async (code: string, extra: object = {}) => (await call('post', rooms, 'maker', { idempotencyKey: key(), name: `Room ${code}`, code, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, bedding: { description: 'One king bed', beds: [{ type: 'KING', count: 1 }], extraBed: 'SUPPORTED' }, amenities: [{ code: 'BALCONY', feeType: 'FREE' }, { code: 'WIFI', feeType: 'PAID' }], ...extra }).expect(201)).body.data.room
+    const r1 = await room('DK1'); const r2 = await room('DK2')
+    const edited = (await call('patch', `${rooms}/${r1.id}`, 'maker', { idempotencyKey: key(), expectedToken: r1.concurrencyToken, name: 'Deluxe King Renamed', amenities: [{ code: 'WIFI', feeType: 'FREE' }] }).expect(200)).body.data.room
+    expect(edited.name).toBe('Deluxe King Renamed'); expect(edited.amenities).toEqual([{ code: 'WIFI', feeType: 'FREE' }])
+    const archived = (await call('post', `${rooms}/${r2.id}/archive`, 'maker', { idempotencyKey: key(), expectedToken: r2.concurrencyToken, reason: 'Closed for renovation' }).expect(200)).body.data.room
+    expect(archived.isActive).toBe(false)
+    const restored = (await call('post', `${rooms}/${r2.id}/restore`, 'maker', { idempotencyKey: key(), expectedToken: archived.concurrencyToken, reason: 'Reopened after renovation' }).expect(200)).body.data.room
+    expect(restored.isActive).toBe(true)
+    expect(await owner.roomType.count({ where: { hotelId: id } })).toBe(2) // archive never deletes
+    // Hotel amenities and an image.
+    const amenities = `/admin/hotels/${id}/amenities`
+    await call('put', amenities, 'maker', { idempotencyKey: key(), expectedToken: (await call('get', amenities, 'maker').expect(200)).body.data.concurrencyToken, amenities: [{ code: 'POOL', feeType: 'FREE' }] }).expect(200)
+    await call('post', `/admin/hotels/${id}/images?altText=Lobby`, 'maker').set('Content-Type', 'image/png').send(png(1600, 1200)).expect(201)
+    // Publication needs a second person.
+    const ready = await load()
+    expect(ready.completeness).toMatchObject({ publishable: true })
+    const made = (await call('post', `${setup}/publication/request`, 'maker', { requestId: key(), expectedToken: ready.concurrencyToken, reason: 'Reviewed against the register' }).expect(200)).body.data.approval
+    await call('post', `${setup}/publication/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
+    await call('post', `${setup}/publication/${made.id}/execute`, 'maker', {}).expect(200)
+    expect((await owner.hotel.findUniqueOrThrow({ where: { id } })).contentStatus).toBe('COMPLETE')
+    expect(await owner.roomAmenity.count({ where: { hotelId: id } })).toBeGreaterThan(0)
   })
 
   it('W-10 tenant isolation of writes: another tenant cannot reach these rows, and the database itself refuses a cross-tenant write on the runtime role', async () => {

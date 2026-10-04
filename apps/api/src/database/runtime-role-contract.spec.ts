@@ -49,13 +49,20 @@ describe('API runtime role contract (the single definition)', () => {
 
   it('never grants a privileged path at table level, never DELETE on audit, never any write to the finance, booking or journal tables', () => {
     const tableLevel = (grant: { writes: readonly { columns?: readonly string[] }[] }) => grant.writes.some((w) => !w.columns)
+    // Hotel and User are partly granted (INSERT / named columns) and partly privileged (DELETE, other columns): the grant must not include DELETE, and UPDATE stays column-level.
+    const PARTIAL = new Set(['Hotel', 'User'])
     for (const [model] of Object.entries(PRIVILEGED_WRITE_MODELS)) {
+      if (PARTIAL.has(model)) continue
       const table = models.get(model)!
       const grant = byTable.get(table)
       if (grant && tableLevel(grant)) expect({ model, tableLevel: true }).toEqual({ model, tableLevel: false })
     }
     expect(byTable.get('AuditEvent')!.writes.map((w) => w.op)).toEqual(['INSERT'])
-    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'InventoryHold', 'InventoryHoldNight', 'SupplierMutation', 'RoomAmenity', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
+    for (const table of ['Hotel', 'users']) {
+      const writes = byTable.get(table)!.writes
+      expect({ table, delete: writes.some((w) => w.op === 'DELETE'), tableLevelUpdate: writes.some((w) => w.op === 'UPDATE' && !w.columns) }).toEqual({ table, delete: false, tableLevelUpdate: false })
+    }
+    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'InventoryHold', 'InventoryHoldNight', 'SupplierMutation', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
   })
 
   it('every runtime write in the source tree is either in the contract or a listed privileged path, and every granted write has a call site (necessity)', () => {
@@ -89,23 +96,32 @@ describe('API runtime role contract (the single definition)', () => {
     expect(block).toBe(renderRuntimeRoleMatrix())
   })
 
-  it('the forward migration that sets the write set equals what this module generates', () => {
-    const sql = read(root, 'prisma', 'migrations', '202610180001_strict_runtime_role_write_set', 'migration.sql')
-    const actual = [...sql.matchAll(/EXECUTE '([^']+)';/g)].map((m) => m[1])
-    const tables = [...new Set(actual.map((s) => /ON "([^"]+)"/.exec(s)![1]))]
-    const grants = runtimeGrantStatements('fbeds_api').filter((s) => s.startsWith('GRANT') && !s.startsWith('GRANT USAGE')).map((s) => s.replace(/"fbeds_api"/g, 'fbeds_api'))
-    const expected = tables.flatMap((t) => [`REVOKE ALL ON "${t}" FROM fbeds_api`, ...grants.filter((s) => s.includes(` ON "${t}" TO `))])
-    expect(actual).toEqual(expected)
-    // The migration covers every table an earlier migration ever granted the runtime role.
-    const granted = new Set<string>()
+  it('the forward migrations that set the write set, applied in order, equal what this module generates', () => {
     const dir = join(root, 'prisma', 'migrations')
-    for (const name of readdirSync(dir).filter((n) => n < '202610180001')) {
-      const file = join(dir, name, 'migration.sql'); if (!statSync(join(dir, name)).isDirectory()) continue
-      for (const m of read(file).replace(/--[^\n]*/g, '').matchAll(/GRANT [^;]*? ON "([^"]+)" TO fbeds_api/g)) granted.add(m[1])
+    const contractMigrations = readdirSync(dir).filter((n) => n >= '202610180001' && statSync(join(dir, n)).isDirectory() && /strict_runtime_role/.test(n)).sort()
+    expect(contractMigrations.length).toBeGreaterThan(0)
+    // For each table, the statements of the LAST migration that mentions it are what the table ends up with.
+    const finalStatements = new Map<string, string[]>()
+    for (const name of contractMigrations) {
+      const mine = new Map<string, string[]>()
+      for (const m of read(dir, name, 'migration.sql').matchAll(/EXECUTE '([^']+)';/g)) {
+        const table = /ON "([^"]+)"/.exec(m[1])![1]
+        mine.set(table, [...(mine.get(table) ?? []), m[1]])
+      }
+      for (const [table, statements] of mine) finalStatements.set(table, statements)
+    }
+    const grants = runtimeGrantStatements('fbeds_api').filter((s) => s.startsWith('GRANT') && !s.startsWith('GRANT USAGE')).map((s) => s.replace(/"fbeds_api"/g, 'fbeds_api'))
+    for (const [table, actual] of finalStatements) {
+      expect({ table, statements: actual }).toEqual({ table, statements: [`REVOKE ALL ON "${table}" FROM fbeds_api`, ...grants.filter((s) => s.includes(` ON "${table}" TO `))] })
+    }
+    // Every table an earlier migration ever granted the runtime role is covered by a contract migration.
+    const granted = new Set<string>()
+    for (const name of readdirSync(dir).filter((n) => n < '202610180001' && statSync(join(dir, n)).isDirectory())) {
+      for (const m of read(dir, name, 'migration.sql').replace(/--[^\n]*/g, '').matchAll(/GRANT [^;]*? ON "([^"]+)" TO fbeds_api/g)) granted.add(m[1])
     }
     for (const table of granted) {
-      if (['HotelSearchIndex', 'supplier_memberships', 'supplier_room_drafts'].includes(table)) continue // untouched: identical to the contract already
-      expect({ table, covered: tables.includes(table) }).toEqual({ table, covered: true })
+      if (['HotelSearchIndex', 'supplier_memberships', 'supplier_room_drafts'].includes(table)) continue // identical to the contract already
+      expect({ table, covered: finalStatements.has(table) }).toEqual({ table, covered: true })
     }
   })
 

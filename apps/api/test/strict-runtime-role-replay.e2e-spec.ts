@@ -11,7 +11,7 @@ const ownerUrl = process.env.DATABASE_URL
 if (!ownerUrl) throw new Error('DATABASE_URL (the disposable owner connection) is required')
 
 /** Admin authoring tables (plus SupplierMutation) that earlier migrations made writable for the runtime role (ADR 0031). */
-const AUTHORING_TABLES = ['Hotel', 'Agency', 'AgencyCreditLimit', 'AgencyMember', 'ApprovalRequest', 'CommercialMarkupRule', 'DistributionRestriction', 'HotelAmenity', 'HotelExternalIdentifier', 'HotelImage', 'HotelProfile', 'InventoryPool', 'InventoryPoolDay', 'RoomAmenity', 'ServiceCase', 'ServiceCaseNote', 'SupplierMutation']
+const AUTHORING_TABLES = ['Hotel', 'RoomType', 'Agency', 'AgencyCreditLimit', 'AgencyMember', 'ApprovalRequest', 'CommercialMarkupRule', 'DistributionRestriction', 'HotelAmenity', 'HotelExternalIdentifier', 'HotelImage', 'HotelProfile', 'InventoryPool', 'InventoryPoolDay', 'RoomAmenity', 'ServiceCase', 'ServiceCaseNote', 'SupplierMutation']
 /** The contract's privileges for a table, in the shape `snapshot` reports (column-level INSERT/UPDATE show as the privilege). */
 const contractPrivileges = (table: string): string[] => {
   const grant = RUNTIME_ROLE_GRANTS.find((g) => g.table === table)
@@ -131,9 +131,9 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
     } finally { await runtime.$disconnect(); await replay.$executeRawUnsafe(`GRANT SELECT ON "DistributionRestriction" TO ${API_RUNTIME_GROUP_ROLE}`) }
   })
 
-  it('SR-07 no committed migration after the write-set migration grants anything to the runtime role (provisioning is the only source of grants)', () => {
+  it('SR-07 no committed migration after the last contract migration grants anything to the runtime role (provisioning is the only source of grants)', () => {
     const all = readdirSync(migrationsDir).filter((d) => d !== 'migration_lock.toml').sort()
-    const contract = all.indexOf('202610180001_strict_runtime_role_write_set')
+    const contract = all.indexOf('202610190001_strict_runtime_role_hotel_setup_writes')
     expect(contract).toBeGreaterThan(-1)
     for (const dir of all.slice(contract + 1)) {
       const sql = readFileSync(join(migrationsDir, dir, 'migration.sql'), 'utf8')
