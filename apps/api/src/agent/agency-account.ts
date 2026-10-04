@@ -1,6 +1,7 @@
 import { ForbiddenException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { AGENCY_REQUIRED_FOR_BOOKING_CODE } from '@bedbanks/contracts'
+import { AGENCY_CREDIT_OVERDUE_CODE, AGENCY_CREDIT_TERMS, AGENCY_REQUIRED_FOR_BOOKING_CODE, type AgencyOverdueView } from '@bedbanks/contracts'
+import { ageAccount, type Aging } from './credit-aging'
 
 /**
  * One credit concept (ADR 0028 slice 3, owner decision 2026-10-04): an agency's CREDIT LINE is its approved credit limit (ADR 0024
@@ -57,5 +58,27 @@ export async function bookingAccountFor(tx: Prisma.TransactionClient, tenantId: 
   await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${accountLockKey(member.agencyId, currency)}, 0))`)
   const account = await tx.wallet.findFirst({ where: { tenantId, agencyId: member.agencyId, currency }, select: { id: true } })
     ?? await tx.wallet.create({ data: { tenantId, agencyId: member.agencyId, currency }, select: { id: true } })
+  assertNotOverdue(await accountAging(tx, tenantId, account.id))
   return { id: account.id, agencyId: member.agencyId }
+}
+
+/** FIFO aging of an account's settled charges (ADR 0028 slice 4). An account with no entries is CURRENT. */
+export async function accountAging(tx: Prisma.TransactionClient, tenantId: string, accountId: string | null, now = new Date()): Promise<Aging> {
+  if (!accountId) return ageAccount([], now)
+  const entries = await tx.ledgerEntry.findMany({
+    where: { tenantId, walletId: accountId, type: { in: ['DEBIT', 'CREDIT', 'REFUND'] } },
+    orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }], select: { type: true, amountMinor: true, reference: true, immutableAt: true },
+  })
+  return ageAccount(entries.map(e => ({ type: e.type, amountMinor: e.amountMinor, reference: e.reference, at: e.immutableAt })), now)
+}
+
+export const overdueView = (a: Aging): AgencyOverdueView => ({ state: a.state, unpaidMinor: a.unpaidMinor.toString(), oldestUnpaidAt: a.oldestUnpaidAt?.toISOString() ?? null, daysOverdue: a.daysOverdue })
+
+/** Payment terms (owner decision 2026-10-04): from 30 days unpaid, new holds and bookings are refused until the agency pays. */
+export function assertNotOverdue(aging: Aging): void {
+  if (aging.state !== 'HOLDS_REFUSED') return
+  throw new ForbiddenException({
+    message: `Your agency has charges unpaid for ${aging.daysOverdue} days. New holds are refused after ${AGENCY_CREDIT_TERMS.refuseHoldsAfterDays} days until a payment is received.`,
+    code: AGENCY_CREDIT_OVERDUE_CODE, details: { daysOverdue: aging.daysOverdue, unpaidMinor: aging.unpaidMinor.toString() },
+  })
 }

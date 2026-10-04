@@ -1,4 +1,4 @@
-# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slices 1 to 3 built)
+# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slices 1 to 4 built)
 
 ## Status
 **Accepted in part (owner, 2026-10-04).** Decisions 1 to 3 in section 9 are taken: one account per agency, one credit concept (the ADR 0024
@@ -31,6 +31,13 @@ the booker's agency account (opened if needed). An agency account's credit line 
 `Wallet.credit_limit` at 0 on agency accounts. Hold time refuses when the amount exceeds balance + credit line - pending holds (an early
 check); the prebook financial authorization (balance + credit line, under the account row lock) stays the binding one. The agent finance
 summary and the Admin credit panel show that position.
+
+**Slice 4 built (overdue controls):** an agency account is aged FIFO over settled money only: DEBIT is a charge dated when posted;
+CREDIT (a posted payment) pays the oldest charges, leftover is prepaid; REFUND first pays its own booking's charge (same reference), then
+the oldest; HOLD and RELEASE are pending, not aged. From 7 whole days unpaid the agency is on NOTICE (Admin credit panel, Receivables,
+agent portal banner); from 30 days new holds and bookings are refused (`AGENCY_CREDIT_OVERDUE`, at hold time and at prebook) until a
+payment settles the oldest charges. No schema change. Admin Finance > Receivables lists every agency account with unpaid charges.
+Suspension stays the manual ADR 0024 maker-checker action; a 30-day refusal already stops new spending without suspending the agency.
 
 Original proposal status, kept for history: **Proposed.** A design for the owner to accept, change or reject. It changes how money is modelled, so it needs finance and legal review before any code. No migration, code or payment-provider integration exists for it, and booking stays disabled (`BOOKING_ENABLED`) until the go-live gates in `docs/bedbank-operating-model.md` are met.
 

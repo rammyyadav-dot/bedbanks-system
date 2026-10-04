@@ -61,9 +61,26 @@ export const AGENCY_CREDIT_UNAVAILABLE_CODE = 'AGENCY_CREDIT_UNAVAILABLE'
 export const AGENCY_REQUIRED_FOR_BOOKING_CODE = 'AGENCY_REQUIRED_FOR_BOOKING'
 /**
  * Payment terms for credit (owner decision 2026-10-04, ADR 0028 decision 4): an overdue notice after 7 days, new holds refused after 30.
- * Recorded here for slice 4 (overdue controls), which enforces them; nothing reads them yet.
+ * Enforced by slice 4 (overdue controls): a notice from 7 days, new holds refused from 30.
  */
 export const AGENCY_CREDIT_TERMS = { overdueNoticeDays: 7, refuseHoldsAfterDays: 30 } as const
+/** New holds are refused because the agency's oldest unpaid charge is AGENCY_CREDIT_TERMS.refuseHoldsAfterDays old or more (slice 4). */
+export const AGENCY_CREDIT_OVERDUE_CODE = 'AGENCY_CREDIT_OVERDUE'
+/** CURRENT: nothing unpaid, or the oldest unpaid charge is younger than the notice threshold. */
+export type AgencyOverdueState = 'CURRENT' | 'NOTICE' | 'HOLDS_REFUSED'
+/**
+ * Aging of an agency account (ADR 0028 slice 4). Settled charges (DEBIT) are paid oldest first by payments (CREDIT) and refunds (REFUND;
+ * a refund first pays the charge of its own booking). Holds not yet settled are pending, not aged. Integer minor units.
+ */
+export interface AgencyOverdueView {
+  state: AgencyOverdueState
+  /** Total of unpaid settled charges. */
+  unpaidMinor: MinorUnits
+  /** When the oldest unpaid charge was posted; null when nothing is unpaid. */
+  oldestUnpaidAt: string | null
+  /** Whole days since then (0 when nothing is unpaid). */
+  daysOverdue: number
+}
 /** Share of the limit, in whole percent, from which Admin flags an agency as near its limit. A fixed default, not configurable. */
 export const AGENCY_CREDIT_NEAR_LIMIT_PERCENT = 80
 /** Integer minor units as a decimal string (BigInt-safe). */
@@ -102,6 +119,8 @@ export interface AgencyCreditView {
   availableMinor: MinorUnits | null
   /** True when the ledger or holds are not readable by the API database role (ADR 0032). The amounts are then unknown, not zero, and hold-time enforcement still fails closed. */
   committedUnavailable?: true
+  /** Aging of unpaid charges (slice 4). null when unreadable. */
+  overdue?: AgencyOverdueView | null
   /** True when committed is at or above AGENCY_CREDIT_NEAR_LIMIT_PERCENT of the limit. Computed by the API; display only, it blocks nothing. */
   nearLimit: boolean
   open: AgencyCreditApprovalView | null

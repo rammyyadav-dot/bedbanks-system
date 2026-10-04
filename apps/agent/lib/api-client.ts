@@ -28,7 +28,7 @@ export function agentSession(identity: { user: AgentIdentity['user']; membership
 const apiBase = agentApiBase
 
 /** availableCredit is an integer minor-unit amount serialised as a string, in `currency`. */
-export type FinanceSummary = { status: string; currency: string; availableCredit: string | null; creditLimit?: string | null }
+export type FinanceSummary = { status: string; currency: string; availableCredit: string | null; creditLimit?: string | null; overdue?: { state: 'CURRENT' | 'NOTICE' | 'HOLDS_REFUSED'; unpaidMinor: string; daysOverdue: number } | null }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } })

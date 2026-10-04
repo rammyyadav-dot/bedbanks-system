@@ -3,10 +3,12 @@ import type { Prisma } from '@prisma/client'
 import type {
   AuditEventView, BookingAttention, BookingOperations, BookingRow, CancellationRow, ConnectorExecutionView, ConnectorRow,
   HoldDetail, HoldNightView, HoldRow, InventoryHoldStatus, LedgerEntryView, Paged, ReconciliationCase, ReconciliationQueue,
-  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition,
+  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
 import { enabledSettlementCurrencies } from '../agent/currency'
+import { accountAging, overdueView } from '../agent/agency-account'
 import { BookingReconciliationService } from '../agent/booking-reconciliation.service'
 import { documentKindFromRoute } from '../agent/booking-document.service'
 import { renderBookingDocument } from '../agent/booking-document.render'
@@ -350,6 +352,28 @@ export class OperationsTransactionsService {
           currency: w.currency, creditLimit: creditLine.toString(), balanceMinor: sum.toString(), availableCreditMinor: (creditLine + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString(),
         }
       }), page, total)
+    }))
+  }
+
+  /**
+   * Receivables (ADR 0028 slice 4): every agency account with unpaid settled charges, oldest first, with its overdue state under the
+   * owner's payment terms (notice from 7 days, new holds refused from 30). Read-only. At most 500 agency accounts are aged per call.
+   */
+  async receivables(tenantId: string): Promise<ReceivablesView> {
+    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
+      const accounts = await tx.wallet.findMany({ where: { tenantId, agencyId: { not: null } }, include: { agency: { select: { id: true, code: true, name: true, status: true } } }, orderBy: [{ id: 'asc' }], take: 500 })
+      const rows: ReceivableRow[] = []
+      for (const a of accounts) {
+        const aging = await accountAging(tx, tenantId, a.id)
+        if (aging.unpaidMinor === 0n || !a.agency) continue
+        const sum = (await tx.ledgerEntry.aggregate({ where: { tenantId, walletId: a.id }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+        rows.push({ accountId: a.id, agency: { id: a.agency.id, code: a.agency.code, name: a.agency.name, status: a.agency.status }, currency: a.currency, balanceMinor: sum.toString(), overdue: overdueView(aging) })
+      }
+      rows.sort((x, y) => y.overdue.daysOverdue - x.overdue.daysOverdue || x.agency.code.localeCompare(y.agency.code))
+      return {
+        items: rows, counts: { notice: rows.filter(r => r.overdue.state === 'NOTICE').length, holdsRefused: rows.filter(r => r.overdue.state === 'HOLDS_REFUSED').length },
+        noticeDays: AGENCY_CREDIT_TERMS.overdueNoticeDays, refuseHoldsAfterDays: AGENCY_CREDIT_TERMS.refuseHoldsAfterDays,
+      }
     }))
   }
 

@@ -1,5 +1,5 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, type AgencyAccountView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { routes, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -24,6 +24,7 @@ export const runOpsReconciliation = (body: { staleMinutes?: number; prebookMaxMi
 export const getOpsCancellations = (p: Params) => apiRequest<Paged<CancellationRow>>(`${ops.cancellations}${opsQuery(p)}`)
 export const getOpsWallets = (p: Params) => apiRequest<Paged<WalletRow>>(`${ops.wallets}${opsQuery(p)}`)
 /** One agency's account position (ADR 0028 slice 1, read-only). */
+export const getOpsReceivables = () => apiRequest<ReceivablesView>(ops.receivables)
 export const getOpsAgencyAccount = (agencyId: string) => apiRequest<AgencyAccountView>(fill(ops.agencyAccount, { agencyId }))
 export const getOpsLedger = (p: Params) => apiRequest<Paged<LedgerEntryView>>(`${ops.ledger}${opsQuery(p)}`)
 export const getOpsAudit = (p: Params) => apiRequest<Paged<AuditEventView>>(`${ops.audit}${opsQuery(p)}`)
