@@ -1,9 +1,9 @@
-# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slice 1 built)
+# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slices 1 and 2 built)
 
 ## Status
 **Accepted in part (owner, 2026-10-04).** Decisions 1 to 3 in section 9 are taken: one account per agency, one credit concept (the ADR 0024
-limit merges into the account's credit line in slice 3), and bank transfer only as the launch funding method. Decisions 4 to 8 remain
-open and are needed before slice 2 (manual funding) can post money. Finance and legal review of slices 2 onward still applies.
+limit merges into the account's credit line in slice 3), and bank transfer only as the launch funding method. Decision 5 (approval threshold) and the slice-2 part of decision 8
+(cash and third-party payers) were taken for slice 2; decisions 4, 6, 7 and the rest of 8 remain open. Finance and legal review of slices 2 onward still applies.
 
 **Slice 1 built (read-only):** migration `202610210001_agency_accounts` adds `Wallet.agency_id` (null = the tenant HOUSE account; every
 existing row became the house account with no data change), one house account per tenant and currency (partial unique index), one
@@ -11,6 +11,17 @@ account per agency and currency, a same-tenant guard on the agency reference and
 finance summary and funds check are pinned to the house account. Admin reads `GET /admin/operations/agencies/:agencyId/account`
 (`finance.read`) and the accounts list labels HOUSE and AGENCY. Nothing creates agency accounts or posts to them yet; `Wallet` and
 `LedgerEntry` stay finance-gated for the runtime role (ADR 0032).
+
+**Slice 2 built (manual funding, behind `FUNDING_ENABLED`):** owner decisions 2026-10-04: finance staff and agencies (agent portal) may
+declare; posting more than AED 10,000 needs a second approver (the poster differs from the verifier; currencies without a configured
+threshold always need one); cash deposits and third-party payers are allowed but need a compliance clearance, by someone other than the
+declarer, before posting. Migration `202610220001_agency_funding_receipts` adds `FundingReceipt` (DECLARED -> VERIFIED -> POSTED, or
+REJECTED), with the separation of duties, the compliance rule and per-status facts as CHECK constraints, one live receipt per bank
+reference + amount + currency (partial unique), forced RLS and same-tenant guards. Posting opens the agency account if needed and appends
+one CREDIT keyed `funding:<receipt id>` in one transaction under the receipt row lock and a per-account advisory lock. Permission
+`funding.manage` (S3, formal roles only, granted to nobody by the migration) gates every Admin step; agency users declare for their own
+agency only (`booking.prebook`). `Wallet` and `FundingReceipt` writes are privileged paths (ADR 0032). Holds and bookings still post to
+the house account until slice 3.
 
 Original proposal status, kept for history: **Proposed.** A design for the owner to accept, change or reject. It changes how money is modelled, so it needs finance and legal review before any code. No migration, code or payment-provider integration exists for it, and booking stays disabled (`BOOKING_ENABLED`) until the go-live gates in `docs/bedbank-operating-model.md` are met.
 

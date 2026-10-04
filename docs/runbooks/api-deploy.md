@@ -24,6 +24,8 @@ The Admin and Agent apps cannot build or run on Vercel until the API has a publi
 
 Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
 
+`FUNDING_ENABLED` (ADR 0028 slice 2) stays unset until finance is ready to record agency bank transfers. Before setting it to `true`: apply migration `202610220001_agency_funding_receipts` and grant `funding.manage` to at least two finance users (the declarer can never verify, clear or post the same receipt). Funding writes go to `Wallet` and `LedgerEntry`, which the strict runtime role does not write (ADR 0032), so they need the privileged database connection.
+
 ## Order of operations
 
 1. **Back up** the database (provider snapshot).

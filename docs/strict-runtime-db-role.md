@@ -80,6 +80,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Contract`: supply authoring
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update
+- `FundingReceipt`: finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)
 - `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
 - `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index
 - `InventoryHold`: holds are gated; written by the booking path
@@ -98,6 +99,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Tenant`: tenant settings authoring
 - `TenantSettings`: tenant settings authoring
 - `User`: identity provisioning (create user) is an operator action; the runtime only records the last sign-in
+- `Wallet`: finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)
 <!-- END GENERATED: runtime-role-matrix -->
 
 ## 4. Historical grant decisions

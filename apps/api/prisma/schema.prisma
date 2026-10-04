@@ -120,6 +120,7 @@ model Agency {
   restrictions DistributionRestriction[]
   creditLimit  AgencyCreditLimit?
   accounts     Wallet[]
+  fundingReceipts FundingReceipt[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -492,6 +493,7 @@ model Tenant {
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
   agencyCreditLimits AgencyCreditLimit[]
+  fundingReceipts FundingReceipt[]
   hotelProfiles HotelProfile[]
   hotelExternalIdentifiers HotelExternalIdentifier[]
   hotelAmenities HotelAmenity[]
@@ -784,6 +786,78 @@ model Cancellation {
 /// An account (ADR 0028). `agencyId` null is the tenant HOUSE account (one per tenant and currency, enforced by the partial unique index
 /// "Wallet_house_tenant_id_currency_key" in migration 202610210001, which Prisma cannot declare). A set `agencyId` is that agency's account.
 /// Slice 1 is read-only: no code path creates agency accounts or posts to them yet; holds and bookings use the house account.
+/// Funding receipts (ADR 0028 slice 2): DECLARED -> VERIFIED -> POSTED, or REJECTED. Only POSTED moves money.
+enum FundingReceiptStatus {
+  DECLARED
+  VERIFIED
+  POSTED
+  REJECTED
+}
+
+enum FundingMethod {
+  BANK_TRANSFER
+  CASH_DEPOSIT
+}
+
+enum FundingPayerType {
+  AGENCY
+  THIRD_PARTY
+}
+
+enum FundingChannel {
+  ADMIN
+  AGENT
+}
+
+/// A declared incoming payment for one agency. A declared or verified receipt adds nothing to any balance; posting credits the agency's
+/// account (opening it if needed) with one append-only CREDIT. Separation of duties is enforced by the service AND by CHECK constraints in
+/// migration 202610220001: the verifier, the compliance reviewer and the poster each differ from the declarer, and above the second-approval
+/// threshold the poster also differs from the verifier. One live receipt per (tenant, bank reference, amount, currency) is a partial unique
+/// index there (REJECTED receipts do not block a corrected declaration). User ids are plain text so history survives user removal.
+model FundingReceipt {
+  id                       String               @id @default(cuid())
+  tenantId                 String               @map("tenant_id")
+  tenant                   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId                 String               @map("agency_id")
+  agency                   Agency               @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  currency                 String               @db.Char(3)
+  amountMinor              BigInt               @map("amount_minor")
+  method                   FundingMethod
+  bankReference            String               @map("bank_reference")
+  valueDate                DateTime             @map("value_date") @db.Date
+  payerName                String               @map("payer_name")
+  payerType                FundingPayerType     @map("payer_type")
+  notes                    String?
+  complianceReviewRequired Boolean              @map("compliance_review_required")
+  secondApprovalRequired   Boolean              @map("second_approval_required")
+  status                   FundingReceiptStatus @default(DECLARED)
+  channel                  FundingChannel
+  requestId                String               @map("request_id")
+  declaredById             String               @map("declared_by_id")
+  verifiedById             String?              @map("verified_by_id")
+  verifiedAt               DateTime?            @map("verified_at")
+  verificationNote         String?              @map("verification_note")
+  complianceClearedById    String?              @map("compliance_cleared_by_id")
+  complianceClearedAt      DateTime?            @map("compliance_cleared_at")
+  complianceNote           String?              @map("compliance_note")
+  postedById               String?              @map("posted_by_id")
+  postedAt                 DateTime?            @map("posted_at")
+  rejectedById             String?              @map("rejected_by_id")
+  rejectedAt               DateTime?            @map("rejected_at")
+  rejectionReason          String?              @map("rejection_reason")
+  walletId                 String?              @map("wallet_id")
+  wallet                   Wallet?              @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  ledgerEntryId            String?              @unique @map("ledger_entry_id")
+  ledgerEntry              LedgerEntry?         @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt                DateTime             @default(now()) @map("created_at")
+  updatedAt                DateTime             @updatedAt @map("updated_at")
+
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agencyId, createdAt])
+  @@index([tenantId, bankReference])
+}
+
 model Wallet {
   id          String        @id @default(cuid())
   tenantId    String        @map("tenant_id")
@@ -796,6 +870,7 @@ model Wallet {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   entries     LedgerEntry[]
+  fundingReceipts FundingReceipt[]
 
   @@unique([tenantId, agencyId, currency])
   @@index([tenantId])
@@ -813,6 +888,7 @@ model LedgerEntry {
   reference   String?
   idempotencyKey String       @map("idempotency_key")
   immutableAt DateTime        @default(now()) @map("immutable_at")
+  fundingReceipt FundingReceipt?
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])

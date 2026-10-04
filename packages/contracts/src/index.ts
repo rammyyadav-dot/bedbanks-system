@@ -7,6 +7,7 @@ export * from './hotel-commercial';
 export * from './admin-departments';
 export * from './commercial';
 export * from './departments';
+export * from './funding';
 export * from './hotel-setup';
 export * from './hotel-rooms';
 export * from './hotel-quick-update';

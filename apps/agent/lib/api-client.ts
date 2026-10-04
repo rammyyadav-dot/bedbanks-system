@@ -1,3 +1,4 @@
+import type { AgentFundingReceiptView, AgentFundingView, FundingDeclareRequest } from '@bedbanks/contracts'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
 
@@ -70,4 +71,13 @@ export function getSearchStatus(tenantId: string) {
     headers: { 'x-fbeds-tenant-id': tenantId },
     body: JSON.stringify({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 1,
       children: 0, childAges: [], nationality: 'IN', currency: 'AED' }) })
+}
+
+/** The agency's own funding receipts (ADR 0028 slice 2). Declaring moves no money: finance verifies against the bank statement first. */
+export function getFundingReceipts(tenantId: string) {
+  return request<AgentFundingView>('/agent/funding/receipts', { headers: { 'x-fbeds-tenant-id': tenantId } })
+}
+
+export function declareFundingReceipt(tenantId: string, body: FundingDeclareRequest) {
+  return request<AgentFundingReceiptView>('/agent/funding/receipts', { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify(body) })
 }

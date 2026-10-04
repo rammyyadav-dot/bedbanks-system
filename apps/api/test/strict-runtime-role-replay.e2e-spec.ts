@@ -132,8 +132,8 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
   })
 
   it('SR-08 on replay and upgrade: forced row-level security on every writable tenant table, the same-tenant guard triggers installed, and the login role has no elevated attribute', async () => {
-    // Wallet (ADR 0028, migration 202610210001) is guarded for its agency reference although the runtime role does not write it (finance-gated).
-    const guarded = ['HotelProfile', 'HotelExternalIdentifier', 'HotelAmenity', 'RoomAmenity', 'HotelImage', 'CommercialMarkupRule', 'DistributionRestriction', 'AgencyMember', 'AgencyCreditLimit', 'ServiceCase', 'ServiceCaseNote', 'Wallet']
+    // Wallet and FundingReceipt (ADR 0028, migrations 202610210001 and 202610220001) are guarded although the runtime role does not write them (finance-gated).
+    const guarded = ['HotelProfile', 'HotelExternalIdentifier', 'HotelAmenity', 'RoomAmenity', 'HotelImage', 'CommercialMarkupRule', 'DistributionRestriction', 'AgencyMember', 'AgencyCreditLimit', 'ServiceCase', 'ServiceCaseNote', 'Wallet', 'FundingReceipt']
     const writableTenantTables = RUNTIME_ROLE_GRANTS.filter((g) => g.writes.length && g.rls === 'forced-tenant').map((g) => g.table)
     for (const [name, db] of [['replay', replay], ['upgrade', upgrade]] as const) {
       const rls = await db.$queryRawUnsafe<Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>>(`SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN (${writableTenantTables.map((t) => `'${t}'`).join(',')}) AND relkind = 'r'`)

@@ -1,12 +1,14 @@
 /**
  * Contracts for Clients, Service and Distribution (ADR 0019).
  * Record-keeping and exposure control only: nothing here moves money or changes a booking. The credit limit (ADR 0024) is an exposure ceiling, not a wallet or ledger.
+ * Exception: `funding.manage` (Finance, ADR 0028 slice 2) gates the funding receipt workflow, whose posting step credits an agency account.
  */
 
 export const departmentPermissions = {
   agencyRead: 'agency.read', agencyManage: 'agency.manage',
   caseRead: 'case.read', caseManage: 'case.manage',
   distributionRead: 'distribution.read', distributionManage: 'distribution.manage',
+  fundingManage: 'funding.manage',
 } as const
 export type DepartmentPermission = (typeof departmentPermissions)[keyof typeof departmentPermissions]
 

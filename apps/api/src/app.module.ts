@@ -15,6 +15,7 @@ import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
 import { AdminOperationsModule } from './admin-operations/admin-operations.module';
 import { CommercialModule } from './commercial/commercial.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { FundingModule } from './funding/funding.module';
 import { HotelSetupModule } from './hotel-setup/hotel-setup.module';
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
@@ -37,6 +38,7 @@ import { SupplierExtranetModule } from './supplier-extranet/supplier-extranet.mo
     AdminOperationsModule,
     CommercialModule,
     DepartmentsModule,
+    FundingModule,
     HotelSetupModule,
     AdminSettingsModule,
     PlatformAdminModule,
