@@ -1,5 +1,7 @@
 # P0.5 strict runtime-role contract and commercial read safety
 
+> **Superseded in part.** The Admin write decision (D1) and the HotelImage read (D2) were resolved by [ADR 0032](adr/0032-explicit-runtime-write-set.md). The authoritative matrix is now generated in [strict-runtime-db-role.md](strict-runtime-db-role.md). This page is kept as the record of the first P0.5 pass.
+
 Decision record: [ADR 0031](adr/0031-strict-runtime-role-and-commercial-control-failure.md). This page is the privilege matrix, the evidence, and what is still open. Everything here was run on disposable local PostgreSQL 16 clusters with generated credentials; no persistent database, role, deployment, DNS or alias was touched.
 
 ## 1. Principals

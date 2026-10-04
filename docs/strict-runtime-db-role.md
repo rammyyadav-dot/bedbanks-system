@@ -1,5 +1,31 @@
 # Strict Runtime DB Role
 
+Decision record: [ADR 0032](adr/0032-explicit-runtime-write-set.md) (builds on [ADR 0008](adr/0008-api-runtime-role.md), [ADR 0013](adr/0013-admin-operations-api.md) and [ADR 0031](adr/0031-strict-runtime-role-and-commercial-control-failure.md)). Everything here was run on disposable local PostgreSQL 16 clusters with generated credentials. No persistent database, role, deployment, DNS or alias was touched.
+
+## 1. The role
+
+| | |
+| --- | --- |
+| Group role | `fbeds_api` (NOLOGIN) |
+| Login role | `fbeds_api_login` (member of the group; password only in the deployment's secret store, 32 to 128 URL-safe characters) |
+| Attributes | NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION; owns nothing; member of no other role |
+| Config source | `DATABASE_URL` of the API process. Migrations and provisioning use a separate owner connection that the API process never receives |
+| Used by | Every HTTP request of the API process (Agent, Admin, Supplier): `PrismaService`, one principal. The hold-expiry sweeper uses the separate `fbeds_hold_expiry_login` (ADR 0005) |
+| Provisioned by | `pnpm --filter @bedbanks/api ops:provision-api-runtime-role` (owner only; `REVOKE ALL` then exactly the contract) |
+| Verified by | `verifyApiRuntimeRole` while connected as the login role: attributes, ownership, forbidden tables, and a catalog comparison of every read and every write (table and column level) with the contract |
+
+## 2. Three enforcement layers
+
+> Application RBAC, PostgreSQL privileges, and row-level security are three separate enforcement layers. Passing one does not imply passing the others.
+
+1. **Application RBAC.** Guards and per-service permission checks decide whether this user may ask for the operation at all (401, 403 `FORBIDDEN`, 404 for another tenant's resource). They run before any statement reaches the database. They know nothing about grants.
+2. **PostgreSQL privileges.** `fbeds_api` may run only the statements in the matrix below. A privilege is a ceiling for the whole API process, not a permission for a user: holding `INSERT` on `Agency` does not let an unauthorized user create an agency, and an authorized user still cannot make the role do what it was never granted.
+3. **Row-level security.** Every table in the matrix except `users` and `sessions` (authentication) has forced RLS on `tenant_id` through `fbeds_current_tenant_id()`, read from the transaction-local `app.current_tenant_id` set by `withTenant`. A SQL grant never widens it: a runtime-role write for another tenant fails the RLS check, an update of another tenant's row matches zero rows, and with no tenant context nothing is readable or writable. Tested on the real role (W-10, SC-11).
+
+## 3. Privilege matrix (generated)
+
+Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place a grant is defined. Regenerate with `pnpm --filter @bedbanks/api ops:render-runtime-role-doc`; a spec fails if this block drifts.
+
 <!-- BEGIN GENERATED: runtime-role-matrix -->
 | Table | SELECT | INSERT | UPDATE | DELETE | RLS | Writer (service, endpoints) and reason |
 | --- | :-: | :-: | :-: | :-: | --- | --- |
@@ -74,3 +100,65 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `TenantSettings`: tenant settings authoring
 - `User`: identity provisioning (create user) is an operator action; the runtime only records the last sign-in
 <!-- END GENERATED: runtime-role-matrix -->
+
+## 4. Historical grant decisions
+
+Earlier migrations granted `fbeds_api` writes whenever the role already existed. Each disputed resource is now classified, and the classification is enforced by the contract, the verifier, the forward migrations and the specs.
+
+| Resource | Decision | Why |
+| --- | --- | --- |
+| `Agency`, `AgencyMember` | **REQUIRED**: INSERT, UPDATE / INSERT, DELETE (plus SELECT, also read by the suspension guard) | Admin Clients workflows (create, edit, members, approved suspension) are reachable and self-contained |
+| `AgencyCreditLimit` | **REQUIRED**: INSERT, UPDATE, DELETE | The approved credit-limit change is applied by `AgencyCreditService.execute`. The committed-holds figure in the view needs `InventoryHold`, a privileged read, so the view reports it as unavailable, never zero |
+| `ApprovalRequest` | **REQUIRED**: INSERT, UPDATE | Every maker-checker flow (markup activation, suspension, credit limit, hotel publication) |
+| `CommercialMarkupRule`, `DistributionRestriction` | **REQUIRED**: INSERT, UPDATE (plus SELECT, mandatory commercial reads) | Admin authoring of the controls that Agent search and recheck read |
+| `ServiceCase`, `ServiceCaseNote` | **REQUIRED**: INSERT, UPDATE / INSERT | Admin Service department |
+| `HotelProfile`, `HotelExternalIdentifier`, `HotelAmenity` | **REQUIRED** (exact operations in the matrix) | Hotel Setup and amenities. External identifiers need no UPDATE: a changed value is delete plus insert |
+| `Hotel` | **REQUIRED, column level only**: UPDATE of 11 columns | The profile, status, amenities and publication workflows also write the hotel row (details, `content_status`, the `updated_at` stale-token). INSERT, DELETE and every other column stay privileged |
+| `HotelImage` | **REQUIRED**: INSERT, UPDATE, DELETE (plus SELECT: Agent search primary image and the Agent image route) | Admin Images workflow |
+| `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by prebook, confirmation and reconciliation: booking is gated off and those paths need booking tables the role never holds |
+| `RoomAmenity` | **PRIVILEGED PATH** | Only written inside the rooms workflow, which also writes `RoomType` (supply authoring) |
+| `InventoryPool`, `InventoryPoolDay` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes; stock moves belong to the hold path and the hold-expiry role |
+| Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `RoomType`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
+
+Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the API process. There is no second API role today; adding one is an architecture decision (ADR). Until then the API answers a caller who reaches a privileged path with the typed 403 below.
+
+## 5. Prohibited operations
+
+Anything not in the matrix, in particular: any write by the runtime role to a privileged-path table; `DELETE` or `UPDATE` on `AuditEvent`; any `TRUNCATE`; any DDL; any read of wallets, ledger, bookings, holds or connector credentials; creating, altering or granting roles; bypassing RLS. The verifier fails on any of them.
+
+## 6. What a caller sees
+
+| Situation | Response |
+| --- | --- |
+| No session | 401 |
+| Authenticated, permission missing | 403 `FORBIDDEN`, `permission.denied` audit event |
+| Another tenant's resource | 404 (existing non-disclosure) |
+| Authorized, but the operation is a privileged path (the live grants equal the contract and still do not allow it) | 403 `RUNTIME_ROLE_OPERATION_PROHIBITED`, audit event `runtime_role.operation_prohibited`, nothing written (the transaction rolled back), no SQL, table or column in the body |
+| Authorized, but the live grants differ from the contract (drift) | 503 `DATABASE_ROLE_NOT_PERMITTED`, sanitized, structured diagnostic naming the table and the difference (log only) |
+| A mandatory commercial control cannot be read | Search `provider_unavailable`, recheck 503, suspension guard 503 `COMMERCIAL_CONTROL_UNAVAILABLE` (ADR 0031) |
+| Any other database error | 500 `INTERNAL_SERVER_ERROR`, unchanged |
+
+The classification is made by `DatabaseDenialInterceptor` comparing the live catalog for the denied table with the contract, never by guessing from the error text.
+
+## 7. How to reproduce the certification
+
+On a disposable local PostgreSQL 16 (owner connection in `DATABASE_URL`, never a persistent or production database; Redis for the API):
+
+```bash
+cd apps/api
+pnpm exec prisma migrate deploy                       # disposable database only
+pnpm exec jest --runInBand src/database               # contract, drift guards, generated-doc check (no database)
+pnpm exec jest --config ./test/jest-e2e.json --runInBand \
+  strict-runtime-role-replay strict-runtime-role-commercial strict-runtime-role-workflows
+OWNER_DATABASE_URL=postgresql://...@localhost:PORT/p05_main REDIS_URL=redis://127.0.0.1:6379 \
+  pnpm run ops:strict-role-boot-smoke                 # boots the real API on the strict role and drives it over HTTP
+```
+
+- `strict-runtime-role-replay`: migration replay, upgrade from the preceding schema and provisioning converge on the same grants; re-running provisioning changes nothing; the verifier names an over-grant and a missing read.
+- `strict-runtime-role-commercial`: failure injection per mandatory control, empty-configuration defaults, the 401/403/404/403-prohibited/503-drift matrix, grant-layer refusal, tenant isolation.
+- `strict-runtime-role-workflows`: every granted Admin write through the real endpoints, and coverage proven from the database statistics.
+- `strict-role-boot-smoke`: normal boot path, tenant context, agency state, restrictions, markup, a permitted and a prohibited Admin mutation, isolation.
+
+## 8. Not covered here
+
+Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is not part of this work.
