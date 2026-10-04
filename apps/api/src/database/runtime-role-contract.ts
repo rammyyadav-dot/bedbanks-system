@@ -172,6 +172,8 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   SupplierMutation: 'booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds',
   Booking: 'booking is disabled; finance-gated', BookingDocument: 'booking is disabled', InventoryHold: 'holds are gated; written by the booking path',
   InventoryHoldNight: 'holds are gated', LedgerEntry: 'finance-gated', Cancellation: 'booking is disabled',
+  Wallet: 'finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)',
+  FundingReceipt: 'finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)',
   HotelSearchIndex: 'search-index maintenance (reindex) is an operator job; the runtime only reads the index',
   Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',
   User: 'identity provisioning (create user) is an operator action; the runtime only records the last sign-in',

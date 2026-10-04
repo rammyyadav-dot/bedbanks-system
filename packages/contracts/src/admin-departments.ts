@@ -66,6 +66,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('booking.reconcile', 'reconciliation', 'S3', 'Run reconciliation of interrupted booking attempts'),
   enforced('booking.cancel', 'reservations', 'S3', 'Cancel a booking'),
   enforced('finance.read', 'finance', 'S0', 'View wallets and ledger'),
+  enforced('funding.manage', 'finance', 'S3', 'Declare, verify, clear and post agency funding receipts (different people at each step; a second approver above the threshold)'),
   enforced('audit.read', 'audit', 'S0', 'View tenant audit events'),
 
   enforced('agency.read', 'clients', 'S0', 'View agencies and their members'),
@@ -146,7 +147,7 @@ export const departments: readonly DepartmentDef[] = [
   { id: 'reservations', label: 'Reservations', summary: 'Booking operations', modules: [live('/operations', 'Readiness', 'booking.read'), live('/bookings', 'Bookings', 'booking.read'), live('/holds', 'Inventory holds', 'booking.read'), live('/cancellations', 'Cancellations', 'booking.cancel')] },
   { id: 'reconciliation', label: 'Reconciliation', summary: 'Unknown and pending supplier outcomes', modules: [live('/reconciliation', 'Reconciliation', 'booking.reconcile')] },
   { id: 'clients', label: 'Agents & Clients', summary: 'B2B buyer management', modules: [live('/clients/agencies', 'Agencies', 'agency.read'), todo('Commercial profiles'), todo('Credit and wallet limits')] },
-  { id: 'finance', label: 'Finance', summary: 'Money and settlement', modules: [live('/finance/wallets', 'Wallets', 'finance.read'), live('/finance/ledger', 'Ledger', 'finance.read'), todo('Receivables and payables'), todo('Refunds')] },
+  { id: 'finance', label: 'Finance', summary: 'Money and settlement', modules: [live('/finance/wallets', 'Wallets', 'finance.read'), live('/finance/ledger', 'Ledger', 'finance.read'), live('/finance/funding', 'Funding receipts', 'finance.read'), todo('Receivables and payables'), todo('Refunds')] },
   { id: 'service', label: 'Service Operations', summary: 'Cases and escalations', modules: [live('/service/cases', 'Cases', 'case.read'), todo('Escalation policies')] },
   { id: 'risk', label: 'Risk & Compliance', summary: 'Verification and governance', modules: [live('/access-review', 'Access reviews', 'audit.read'), todo('Verification'), todo('Risk flags')] },
   { id: 'markets', label: 'Market Operations', summary: 'Regions, countries and destinations', modules: [live('/markets', 'Destinations', 'supply.hotels.read'), todo('Market bookings and revenue')] },
