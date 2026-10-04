@@ -71,3 +71,9 @@ node tools/admin-ops-verify/verify-images.cjs
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-agent-images.ts)
 node tools/admin-ops-verify/verify-agent-images.cjs
 ```
+
+## Inventory & Allotment (ADR 0030)
+
+`seed-inventory.ts` creates a Dubai hotel whose three plans share a pool of 5, a hotel with no pool, an Admin owner, a read-only viewer, an Agent and a second tenant. `verify-inventory.cjs` drives the production **Admin** (:3000) and **Agent** (:3003) builds: Hotels → hotel → Inventory & Allotment → pool → Quick Update → preview → apply → reload → Agent search → offer → Admin changes the pool → recheck is unavailable; on-request is not selectable; loading / empty / unavailable states; a read-only account; overflow at 1280/768/390; axe. Start the API with `TRUSTED_ORIGINS=http://localhost:3000,http://localhost:3003`.
+
+`inventory-scale.ts` (run from `apps/api` with `N=1|10|100`) seeds N hotels with pooled plans plus exhausted, on-request and closed-to-departure cases, compares Agent search with the expected result for every plan, times search and the Admin summary, and checks exactly-once pool allocation under concurrency. It prints observed numbers only.
