@@ -4,7 +4,7 @@ import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbank
 import type { SupplierType } from '@prisma/client'
 import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
 import { PrismaService } from '../database/prisma.service'
-import { commercialLeadDays, evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
+import { evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, type MarkupRuleRow } from '../supply/markup-rules'
 import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
@@ -236,7 +236,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           },
         },
         dailyRates: { where: { tenantId, occupancy, stayDate: { in: nightDates } } },
-        availability: { where: { tenantId, stayDate: { in: nightDates } } },
+        // The departure date row is read only for closedToDeparture; its stock is never counted.
+        availability: { where: { tenantId, stayDate: { in: [...nightDates, checkOut] } } },
+        inventoryPool: { include: { days: { where: { tenantId, stayDate: { in: nightDates } } } } },
       },
       orderBy: { id: 'asc' },
     })
@@ -274,10 +276,10 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
 
   private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[]): SearchHotelOffer[] {
     const expiresAt = new Date(Date.now() + offerTtlMs()).toISOString()
-    const leadDays = commercialLeadDays(criteria.checkIn)
+    const now = new Date()
     const seen = new Set<string>()
     const priced = plans.flatMap((plan) => {
-      const built = this.pricePlan(plan, criteria, tenantId, nights, leadDays, expiresAt, rules)
+      const built = this.pricePlan(plan, criteria, tenantId, nights, now, expiresAt, rules)
       if (!built || seen.has(commercialKey(built.rate))) return []
       seen.add(commercialKey(built.rate))
       return [built]
@@ -350,7 +352,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     return { refundable: plan.refundable, summary, ...(deadline ? { deadline } : {}) }
   }
 
-  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], leadDays: number, expiresAt: string, rules: readonly MarkupRuleRow[], persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
+  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], now: Date, expiresAt: string, rules: readonly MarkupRuleRow[], persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
     const mapping = plan.contract.supplierHotelMapping
     const roomMapping = mapping?.roomMappings.find((row) => row.tenantId === tenantId && row.roomTypeId === plan.roomTypeId && row.status === 'MAPPED')
     if (!mapping || !roomMapping || mapping.hotelId !== plan.roomType.hotelId) return null
@@ -366,9 +368,10 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       adults: criteria.adults,
       children: criteria.children,
       currency: criteria.currency,
-      leadDays,
+      now,
     })
-    if (!decision.eligible || decision.totalMinor === null) return null
+    const onRequest = decision.availabilityStatus === 'on_request'
+    if ((!decision.eligible && !onRequest) || decision.totalMinor === null) return null
     const sellAmountMinor = Number(decision.totalMinor)
     if (criteria.filters?.minPriceMinor !== undefined && sellAmountMinor < criteria.filters.minPriceMinor) return null
     if (criteria.filters?.maxPriceMinor !== undefined && sellAmountMinor > criteria.filters.maxPriceMinor) return null
@@ -394,10 +397,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       expiresAt,
     }
     if (persist) this.remember(stored)
-    const remaining = Math.min(...snapshot.nights.map((night) => {
-      const row = night.availability
-      return row ? row.allotment - row.sold - row.held : 0
-    }))
+    // Free-sale stays have no counted stock: they are plainly available, never "limited".
+    const remaining = decision.minRemaining
     const rate: SearchRateOffer = {
       offerId,
       tenantId,
@@ -416,8 +417,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       supplierRateId: plan.id,
       expiresAt,
       occupancy: { rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: [...criteria.childAges] },
-      availability: remaining <= criteria.rooms ? 'limited' : 'available',
-      available: true,
+      availability: onRequest ? 'on_request' : remaining !== null && remaining <= criteria.rooms ? 'limited' : 'available',
+      available: !onRequest,
       cancellation: this.cancellationSummary(plan, criteria.checkIn),
       total: { amountMinor: sellAmountMinor, currency: criteria.currency },
       netAmountMinor: Number(decision.netMinor ?? decision.totalMinor),
@@ -466,8 +467,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const rules = await this.markupRules(tenantId)
     const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
     if (!plan || isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })) return null
-    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, commercialLeadDays(stored.checkIn), stored.expiresAt, rules, false)
-    if (!priced || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
+    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, false)
+    // An on-request night is never confirmed inventory: a recheck of it is unavailable, never an upgrade to held.
+    if (!priced || !priced.rate.available || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
     return priced.rate.sellAmountMinor
   }
 

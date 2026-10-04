@@ -37,8 +37,8 @@ Immutable canonical id, no auto-merge, per-room occupancy with mandatory child a
 ## 6. Commercial and pricing
 One canonical engine (ADR 0014, 0018): every occupied night, check-out exclusive, integer minor units, round half up per night, missing rate fails sellability, NET needs an active markup rule, calculation in the API only: **Built**. **Not built** (no policy or schema): blackout applicability model, nationality or market eligibility, promotions and stacking, per-person and per-room charge basis, currency conversion (AED only by ADR 0029), tax lines (net rates are all-inclusive, ADR 0029), commercial source and calculation version on a price.
 
-## 7. Inventory and restrictions
-Zero is unavailable, missing is unknown, requested units must exist every night, stop-sell overrides, minimum and maximum stay, closed to arrival, release days, hotel-local deadlines, search and recheck never allocate: **Built**. **Not built:** closed to departure enforcement (needs the date convention), shared pools, explicit freshness policy, free-sale and on-request semantics.
+## 7. Inventory and restrictions (ADR 0030)
+Zero is unavailable, missing is unknown, requested units must exist every night, stop-sell overrides, minimum and maximum stay, closed to arrival, search and recheck never allocate: **Built**. Added by P0.4: explicit inventory modes (ALLOTMENT, FREE_SALE, ON_REQUEST, CLOSED), shared allotment pools (one counter for many plans, counter fidelity on release/confirm/cancel), hotel-local release deadline with DST rules, closed to departure on the departure date, fail-closed freshness, ON_REQUEST visible but never instant: **Built** (`inventory-semantics.spec`, `zoned-time.spec`, `inventory-pool`, `inventory-search-recheck`, `inventory-admin`, `inventory-http` e2e; Admin "Inventory & Allotment" tab). **Not built:** supplier-pushed freshness feeds (no live supplier), per-plan consumption inside a pool.
 
 ## 8. Quick Update
 Scope, dates and weekdays, enabled fields, preview of exact rows and old and new values, atomic apply, stale-preview refusal, server-side revalidation, idempotency, bounded batches (5 plans, 500 plan-nights), audit with actor and request id: **Built** (`QU-01..09`). Lock Dates: deliberately **Not built** (ADR 0026, meaning undefined).
@@ -58,8 +58,7 @@ Authentication, RBAC, tenant scope, request ids, audit, idempotency, success onl
 ## Remaining blockers and the decision each needs
 | Item | Needs |
 |---|---|
-| Shared allotment pools, release rules, free-sale | Business rules and a schema design |
-| Closed to departure, markets, nationalities enforcement | Date convention and market policy |
+| Markets, nationalities enforcement | Market policy |
 | Extra-bed and child charges, supplements | Charge model and schema |
 | Promotions, stacking | Pricing policy |
 | Tax-inclusive declaration on contracts | Migration; classification of existing rows (ADR 0029) |

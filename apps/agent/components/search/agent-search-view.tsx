@@ -190,14 +190,20 @@ function moneyLine(label: string, amountMinor: number, currency: string) {
   return formatted ? `${label} ${formatted}` : null
 }
 function leadStay(hotel: SearchHotelOffer) {
+  // Instantly bookable rates lead; an on-request rate is never the headline price while a confirmed one exists.
   let lead: { room: SearchRoomOffer; rate: SearchRateOffer } | null = null
+  let onRequest: { room: SearchRoomOffer; rate: SearchRateOffer } | null = null
   for (const room of hotel.rooms) {
     for (const rate of room.rates) {
       if (rate.availability === 'sold_out') continue
+      if (rate.availability === 'on_request') {
+        if (!onRequest || (rate.total.currency === onRequest.rate.total.currency && rate.sellAmountMinor < onRequest.rate.sellAmountMinor)) onRequest = { room, rate }
+        continue
+      }
       if (!lead || (rate.total.currency === lead.rate.total.currency && rate.sellAmountMinor < lead.rate.sellAmountMinor)) lead = { room, rate }
     }
   }
-  return lead
+  return lead ?? onRequest
 }
 function LiveHotelCard({ hotel, tenantId, active, onSelect }: { hotel: SearchHotelOffer; tenantId: string; active: boolean; onSelect: () => void }) {
   const lead = leadStay(hotel)
@@ -213,7 +219,7 @@ function LiveHotelCard({ hotel, tenantId, active, onSelect }: { hotel: SearchHot
         {hotel.address && <p className="market-stay-address">{hotel.address}</p>}
         {lead && <p className="market-stay-room">{lead.room.name}</p>}
         {rate && <p className="market-stay-facts">{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {cancellationLine(rate, hotel.timeZone)} · {rate.boardBasisName}</p>}
-        {rate && <div className="market-badges">{deadline && <span className="is-cancel">Free cancellation until {deadline}</span>}{includesBreakfast(rate.boardBasisName) && <span className="is-meal">Breakfast included</span>}{rate.availability === 'limited' && <span>Limited availability</span>}</div>}
+        {rate && <div className="market-badges">{deadline && <span className="is-cancel">Free cancellation until {deadline}</span>}{includesBreakfast(rate.boardBasisName) && <span className="is-meal">Breakfast included</span>}{rate.availability === 'limited' && <span>Limited availability</span>}{rate.availability === 'on_request' && <span>On request · not confirmed</span>}</div>}
       </div>
       <div className="market-stay-price">
         <small>{rate ? 'Total stay' : 'Rate'}</small>
@@ -251,7 +257,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     }
   }
   const choose = (room: SearchRoomOffer, rate: SearchRateOffer) => {
-    if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out') return
+    if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out' || rate.availability === 'on_request') return
     const generation = recheckGeneration.current + 1
     recheckGeneration.current = generation
     setAcceptedMinor(null)
@@ -279,10 +285,10 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     <div className="market-detail-head"><HotelThumbnail hotel={hotel} tenantId={tenantId} initial={hotelInitial(hotel.name)} /><div><div className="market-stay-name"><h2>{hotel.name}</h2><StarMark rating={hotel.starRating} /></div><p>{hotel.destination}{hotel.propertyType ? ` · ${hotel.propertyType}` : ''}{hotel.address ? ` · ${hotel.address}` : ''} · {formatStay(request.checkIn, request.checkOut)} · {stayOccupancyLabel(request.rooms, request.adults, request.children, request.childAges)} · {guestMarketName(request.nationality)} · {request.currency}</p></div></div>
     {hotel.rooms.map((room) => <div className="market-room-group" key={room.roomTypeId}><header><h3>{room.name}</h3><span>{room.rates.length} {room.rates.length === 1 ? 'rate' : 'rates'}</span></header><div>{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
-      const selectable = !expired && rate.availability !== 'sold_out'
+      const selectable = !expired && rate.availability !== 'sold_out' && rate.availability !== 'on_request'
       const selected = selection?.rate.offerId === rate.offerId
       const components = [moneyLine('taxes', rate.taxAmountMinor, rate.total.currency), moneyLine('fees', rate.feeAmountMinor, rate.total.currency)].filter(Boolean).join(' · ')
-      return <div key={rate.offerId} className={`market-rate-row${selected ? ' is-selected' : ''}`}><div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}</div><div className="market-rate-policy"><span>{cancellationLine(rate, hotel.timeZone)}</span><span>{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {rate.availability === 'limited' ? 'Limited availability' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span></div><div className="market-rate-price"><b>{formatTotal(rate.total)}</b><small>Total stay{components ? ` · ${components}` : ''}</small></div><button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : 'Select Offer'}</button></div>
+      return <div key={rate.offerId} className={`market-rate-row${selected ? ' is-selected' : ''}`}><div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}</div><div className="market-rate-policy"><span>{cancellationLine(rate, hotel.timeZone)}</span><span>{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {rate.availability === 'limited' ? 'Limited availability' : rate.availability === 'on_request' ? 'On request · not confirmed' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span></div><div className="market-rate-price"><b>{formatTotal(rate.total)}</b><small>Total stay{components ? ` · ${components}` : ''}</small></div><button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : rate.availability === 'on_request' ? 'On request' : 'Select Offer'}</button></div>
     })}</div></div>)}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} /> This rate has expired. Refresh the latest rates to continue.</div>}
     {selection && !searchId && <p className="portal-field-error" role="alert">This result has no search identifier, so the offer cannot be rechecked.</p>}

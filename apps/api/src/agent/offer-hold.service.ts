@@ -6,7 +6,8 @@ import { AgentAuditService } from './audit.service'
 import { InventoryHoldService } from './inventory-hold.service'
 import { SUPPLIER_ADAPTER, SupplierAdapter, SupplierProviderError, type RecheckedOfferAuthority, type SupplierRecheckResult } from './supplier.port'
 import { assertSupportedSettlementCurrency } from './currency'
-import { commercialLeadDays, stayNightCount } from '../supply/contracted-sellability'
+import { stayNightCount } from '../supply/contracted-sellability'
+import { releaseAllows } from '../supply/zoned-time'
 
 const RECHECK_TIMEOUT_MS = 5_000
 const safeInteger = (value: number) => Number.isSafeInteger(value) && value >= 0
@@ -108,11 +109,11 @@ export class OfferHoldService {
         contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: checkOut }, settlementCurrency: offer.currency,
           supplier: { tenantId, status: 'ACTIVE' }, supplierHotelMapping: { tenantId, hotelId: offer.canonicalHotelId, supplierHotelId: offer.supplierHotelId, status: 'MAPPED',
             roomMappings: { some: { tenantId, supplierRoomId: offer.supplierRoomId, roomTypeId: offer.canonicalRoomTypeId, status: 'MAPPED' } } } },
-      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true } })
+      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, roomType: { select: { hotel: { select: { timeZone: true } } } } } })
       if (!plan) return false
       const nights = stayNightCount(offer.checkIn, offer.checkOut)
-      const leadDays = commercialLeadDays(offer.checkIn, today)
-      return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && leadDays >= plan.releaseDays
+      // Hotel-local release deadline, the same rule the canonical evaluator applies.
+      return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && releaseAllows(today, offer.checkIn, plan.releaseDays, plan.releaseTimeLocal, plan.roomType.hotel.timeZone)
     })
   }
 

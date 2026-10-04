@@ -19,6 +19,12 @@ export const routes = {
     amenities: '/admin/hotels/:hotelId/amenities',
     quickUpdatePreview: '/admin/hotels/:hotelId/quick-update/preview', quickUpdateApply: '/admin/hotels/:hotelId/quick-update/apply',
   },
+  // Inventory & Allotment (ADR 0030): shared pools, release rule and the inventory summary. Calendar and stock edits reuse the commercial calendar and Quick Update.
+  adminHotelInventory: {
+    summary: '/admin/hotels/:hotelId/inventory/summary', pools: '/admin/hotels/:hotelId/inventory/pools', pool: '/admin/hotels/:hotelId/inventory/pools/:poolId',
+    poolMembersAdd: '/admin/hotels/:hotelId/inventory/pools/:poolId/members/add', poolMembersRemove: '/admin/hotels/:hotelId/inventory/pools/:poolId/members/remove',
+    planRelease: '/admin/hotels/:hotelId/inventory/rate-plans/:ratePlanId/release',
+  },
   // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
   adminClients: {
     summary: '/admin/clients/summary', agencies: '/admin/clients/agencies', agency: '/admin/clients/agencies/:agencyId',

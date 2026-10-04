@@ -20,7 +20,7 @@ export type ContractState = 'ACTIVE' | 'EXPIRING' | 'EXPIRED' | 'INACTIVE' | 'NO
 export type SupplyDataState = 'OK' | 'GAPS' | 'NONE'
 export type InventoryState = 'OK' | 'GAPS' | 'STOP_SELL' | 'EXHAUSTED' | 'NONE'
 export type IssueSeverity = 'CRITICAL' | 'HIGH' | 'WARNING'
-export type HotelSection = 'overview' | 'rooms' | 'mappings' | 'contracts' | 'rates' | 'sellability'
+export type HotelSection = 'overview' | 'rooms' | 'mappings' | 'contracts' | 'rates' | 'inventory' | 'sellability'
 
 /**
  * Categories are a closed set derived from canonical reason codes. `UNMAPPED_HOTEL` and `UNMAPPED_ROOM` both carry the canonical
@@ -28,7 +28,7 @@ export type HotelSection = 'overview' | 'rooms' | 'mappings' | 'contracts' | 'ra
  */
 export const COMMERCIAL_ISSUE_CATEGORIES = [
   'UNMAPPED_HOTEL', 'UNMAPPED_ROOM', 'CONTRACT_EXPIRED', 'CONTRACT_EXPIRING', 'RATE_MISSING', 'RATE_INVALID', 'AVAILABILITY_MISSING',
-  'STOP_SELL', 'INVENTORY_EXHAUSTED', 'OCCUPANCY_UNSUPPORTED', 'CURRENCY_OR_BASIS', 'ENTITY_INACTIVE', 'HOTEL_CONTENT',
+  'STOP_SELL', 'INVENTORY_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'OCCUPANCY_UNSUPPORTED', 'CURRENCY_OR_BASIS', 'ENTITY_INACTIVE', 'HOTEL_CONTENT',
 ] as const
 export type CommercialIssueCategory = (typeof COMMERCIAL_ISSUE_CATEGORIES)[number]
 
@@ -47,7 +47,10 @@ export const COMMERCIAL_REASON_TEXT: Record<string, string> = {
   DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency',
   RATE_AMOUNT_BASIS_UNVERIFIED: 'Rate amount basis is not verified', NET_RATE_MARKUP_UNAVAILABLE: 'Net rate has no markup rule, so no sell price exists',
   AVAILABILITY_MISSING: 'No availability row is loaded', STOP_SELL: 'Stop-sell is active', NO_INVENTORY: 'No inventory remains (allotment - sold - held = 0)',
-  MIN_STAY_NOT_MET: 'Minimum stay is not met', MAX_STAY_EXCEEDED: 'Maximum stay is exceeded', RELEASE_DAYS_NOT_MET: 'Inside the release period', CLOSED_TO_ARRIVAL: 'Closed to arrival on the check-in date',
+  MIN_STAY_NOT_MET: 'Minimum stay is not met', MAX_STAY_EXCEEDED: 'Maximum stay is exceeded', RELEASE_DAYS_NOT_MET: 'Past the release deadline (hotel local time)', CLOSED_TO_ARRIVAL: 'Closed to arrival on the check-in date',
+  CLOSED_TO_DEPARTURE: 'Closed to departure on the check-out date', POOL_EXHAUSTED: 'The shared allotment pool has no units left (capacity - sold - held = 0)',
+  INVENTORY_CLOSED: 'Inventory mode is CLOSED for at least one night', ON_REQUEST_ONLY: 'On request only: not confirmed inventory, so it cannot be held or booked instantly',
+  INVENTORY_STALE: 'Inventory data is past its freshness window, so it is treated as unavailable',
 }
 
 export interface CommercialIssue {
@@ -204,10 +207,19 @@ export interface CalendarCell {
   date: string
   rateMinor: string | null; currency: string | null; amountBasis: 'SELL' | 'NET' | null
   allotment: number | null; sold: number | null; held: number | null
-  /** allotment - sold - held, computed with the canonical formula; null when no availability row exists. */
+  /** Remaining units from the counter the night sells from: the pool day for a pooled plan, the plan row otherwise. Null when no row exists, the pool day is missing, or the mode does not count stock (free sale, on request, closed). */
   remaining: number | null
+  /** How the night sells (ADR 0030). Null when no availability row exists: unknown, not closed. */
+  inventoryMode: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' | null
+  /** Which counter `remaining` comes from. */
+  stockSource: 'PLAN_ROW' | 'POOL' | 'NONE' | null
+  poolId: string | null
+  source: string | null
+  freshUntil: string | null
+  /** True when the night's data is past its freshness window (or supplier-sourced with no window). A stale night is not sellable. */
+  stale: boolean
   stopSell: boolean | null; closedToArrival: boolean | null; minStay: number | null
-  /** Stored, but not applied by the evaluator or Agent search, so it blocks nothing today. */
+  /** Applied to the DEPARTURE date: a stay may not end on a night where this is set. A missing row is not closed. */
   closedToDeparture: boolean | null
   /** When the supplier last updated this night's rate and availability, if the source recorded it. A missing value means unknown, not fresh. */
   rateSourceUpdatedAt: string | null; availabilitySourceUpdatedAt: string | null

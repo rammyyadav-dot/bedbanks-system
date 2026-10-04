@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { QUICK_UPDATE_LIMITS, QUICK_UPDATE_WEEKDAYS, type HotelCommercial360, type HotelContractsView, type QuickUpdateChanges, type QuickUpdateFlag, type QuickUpdatePreview, type QuickUpdateRequest, type QuickUpdateWeekday } from '@bedbanks/contracts'
+import { INVENTORY_MODES, QUICK_UPDATE_LIMITS, QUICK_UPDATE_WEEKDAYS, type InventoryMode, type HotelCommercial360, type HotelContractsView, type QuickUpdateChanges, type QuickUpdateFlag, type QuickUpdatePreview, type QuickUpdateRequest, type QuickUpdateWeekday } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { useCan } from '@/lib/auth/capabilities'
@@ -36,8 +36,8 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
   const [weekdays, setWeekdays] = useState<QuickUpdateWeekday[]>([])
   const [panels, setPanels] = useState<Panels>({ price: false, availability: false, restrictions: false })
   const [amount, setAmount] = useState(''); const [basis, setBasis] = useState<'NET' | 'SELL'>('SELL')
-  const [allotment, setAllotment] = useState(''); const [stopSell, setStopSell] = useState<Flag>('')
-  const [minStay, setMinStay] = useState(''); const [cta, setCta] = useState<Flag>('')
+  const [allotment, setAllotment] = useState(''); const [stopSell, setStopSell] = useState<Flag>(''); const [mode, setMode] = useState<'' | InventoryMode>('')
+  const [minStay, setMinStay] = useState(''); const [cta, setCta] = useState<Flag>(''); const [ctd, setCtd] = useState<Flag>('')
   const [reason, setReason] = useState('')
   const [preview, setPreview] = useState<{ data: QuickUpdatePreview; key: string } | null>(null)
   const [busy, setBusy] = useState<'preview' | 'apply' | null>(null); const inFlight = useRef(false); const applyKey = useRef<string | null>(null)
@@ -50,8 +50,8 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
   function build(): QuickUpdateRequest {
     const changes: QuickUpdateChanges = {}
     if (panels.price && amount.trim() !== '') changes.price = { amount: amount.trim(), basis }
-    if (panels.availability) { const a: NonNullable<QuickUpdateChanges['availability']> = {}; if (allotment.trim() !== '') a.allotment = Number(allotment); if (stopSell) a.stopSell = stopSell; if (Object.keys(a).length) changes.availability = a }
-    if (panels.restrictions) { const r: NonNullable<QuickUpdateChanges['restrictions']> = {}; if (minStay.trim() !== '') r.minStay = Number(minStay); if (cta) r.closedToArrival = cta; if (Object.keys(r).length) changes.restrictions = r }
+    if (panels.availability) { const a: NonNullable<QuickUpdateChanges['availability']> = {}; if (allotment.trim() !== '') a.allotment = Number(allotment); if (stopSell) a.stopSell = stopSell; if (mode) a.mode = mode; if (Object.keys(a).length) changes.availability = a }
+    if (panels.restrictions) { const r: NonNullable<QuickUpdateChanges['restrictions']> = {}; if (minStay.trim() !== '') r.minStay = Number(minStay); if (cta) r.closedToArrival = cta; if (ctd) r.closedToDeparture = ctd; if (Object.keys(r).length) changes.restrictions = r }
     return { scope: { ratePlanIds: selected, ranges: ranges.filter((r) => r.from || r.to).map((r) => ({ from: r.from, to: r.to || r.from })), ...(weekdays.length ? { weekdays } : {}) }, changes }
   }
   const request = build(); const requestKey = JSON.stringify(request)
@@ -71,7 +71,7 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
     try {
       const { data: r, requestId } = await applyQuickUpdate(hotelId, { ...request, idempotencyKey: applyKey.current, expectedFingerprint: preview.data.fingerprint, reason: reason.trim() })
       applyKey.current = null; setPreview(null); setReason('')
-      setResult({ text: `${r.replayed ? 'Already applied. ' : ''}Applied ${r.records} record${r.records === 1 ? '' : 's'}: ${r.changed.rates} rate${r.changed.rates === 1 ? '' : 's'} and ${r.changed.availabilityRows} inventory row${r.changed.availabilityRows === 1 ? '' : 's'} written.`, requestId: r.auditRequestId || requestId })
+      setResult({ text: `${r.replayed ? 'Already applied. ' : ''}Applied ${r.records} record${r.records === 1 ? '' : 's'}: ${r.changed.rates} rate${r.changed.rates === 1 ? '' : 's'} and ${r.changed.availabilityRows} inventory row${r.changed.availabilityRows === 1 ? '' : 's'} and ${r.changed.poolDays} pool night${r.changed.poolDays === 1 ? '' : 's'} written.`, requestId: r.auditRequestId || requestId })
     } catch (e) { const p = apiErrorParts(e, 'apply the update'); setError({ message: p.message, details: p.details, requestId: p.requestId }) }
     finally { inFlight.current = false; setBusy(null) }
   }
@@ -93,7 +93,7 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <label style={field}>Supplier / contract<select className="input-wrap" value={contractId} onChange={(e) => edited(() => setContractId(e.target.value))}><option value="">All contracts</option>{contracts.contracts.map((c) => <option key={c.id} value={c.id}>{c.supplierName} · {c.code}</option>)}</select></label>
           <label style={field}>Canonical room<select className="input-wrap" value={roomId} onChange={(e) => edited(() => setRoomId(e.target.value))}><option value="">All rooms</option>{data.rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-          <div style={field}><span>Allotment pool</span><span style={note}>Not supported: inventory is edited per rate plan.</span></div>
+          <div style={field}><span>Shared pools</span><span style={note}>A pooled plan&apos;s allotment is the pool&apos;s capacity, written once per night. Manage pools in Inventory &amp; Allotment.</span></div>
         </div>
         {plans.length === 0 ? <p data-testid="qu-no-plans" style={{ fontSize: 12 }}>No rate plan matches. Create a rate plan first; Quick Update changes existing plans.</p> : (
           <ScrollRegion label="Rate plans"><table style={tableStyle} aria-label="Rate plans to update">
@@ -132,14 +132,16 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
             <p style={note}>Entered in the plan&apos;s own currency and stored as integer minor units. Applies to each plan&apos;s occupancy.</p>
           </>, 'You need the rates permission to change prices.')}
           {panelBox('availability', 'Availability', canAvail, <>
-            <label style={field}>Allotment (units)<input className="input-wrap" inputMode="numeric" value={allotment} onChange={(e) => edited(() => setAllotment(e.target.value))} placeholder="leave blank for no change" /></label>
+            <label style={field}>Allotment (units; the pool&apos;s capacity for a pooled plan)<input className="input-wrap" inputMode="numeric" value={allotment} onChange={(e) => edited(() => setAllotment(e.target.value))} placeholder="leave blank for no change" /></label>
             <label style={field}>Stop-sell<select className="input-wrap" value={stopSell} onChange={(e) => edited(() => setStopSell(e.target.value as Flag))}><option value="">No change</option><option value="SET">Set stop-sell</option><option value="CLEAR">Clear stop-sell</option></select></label>
-            <p style={note}>Stop-sell takes precedence over allotment. Allotment cannot go below units already sold or held.</p>
+            <label style={field}>Inventory mode<select className="input-wrap" value={mode} onChange={(e) => edited(() => setMode(e.target.value as '' | InventoryMode))}><option value="">No change</option>{INVENTORY_MODES.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}</select></label>
+            <p style={note}>Stop-sell takes precedence over allotment. Allotment cannot go below units already sold or held. FREE SALE sells without counting stock; ON REQUEST is shown to Agents but never sold instantly; CLOSED never sells.</p>
           </>, 'You need the availability permission to change inventory.')}
           {panelBox('restrictions', 'Restrictions', canAvail, <>
             <label style={field}>Minimum stay (nights)<input className="input-wrap" inputMode="numeric" value={minStay} onChange={(e) => edited(() => setMinStay(e.target.value))} placeholder="leave blank for no change" /></label>
             <label style={field}>Closed to arrival<select className="input-wrap" value={cta} onChange={(e) => edited(() => setCta(e.target.value as Flag))}><option value="">No change</option><option value="SET">Close to arrival</option><option value="CLEAR">Open to arrival</option></select></label>
-            <p style={note}>Maximum stay, release days, lead time and cancellation terms belong to the rate plan or contract.</p>
+            <label style={field}>Closed to departure (applies to the check-out date)<select className="input-wrap" value={ctd} onChange={(e) => edited(() => setCtd(e.target.value as Flag))}><option value="">No change</option><option value="SET">Close to departure</option><option value="CLEAR">Open to departure</option></select></label>
+            <p style={note}>Maximum stay and cancellation terms belong to the rate plan or contract. The release deadline is edited in Inventory &amp; Allotment.</p>
           </>, 'You need the availability permission to change restrictions.')}
         </div>
         <div><button type="button" className="button primary" data-testid="qu-preview" disabled={busy !== null || selected.length === 0 || Object.keys(request.changes).length === 0 || request.scope.ranges.length === 0} onClick={() => void runPreview()}>{busy === 'preview' ? 'Previewing…' : 'Preview changes'}</button></div>

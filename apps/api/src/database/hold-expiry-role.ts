@@ -48,6 +48,8 @@ export async function provisionHoldExpiryRole(db: Executor, input: { loginRole: 
     `GRANT SELECT ON "InventoryHoldNight" TO ${group}`,
     `GRANT SELECT ON "DailyAvailability" TO ${group}`,
     `GRANT UPDATE ("held", "updated_at") ON "DailyAvailability" TO ${group}`,
+    `GRANT SELECT ON "InventoryPoolDay" TO ${group}`,
+    `GRANT UPDATE ("held", "updated_at") ON "InventoryPoolDay" TO ${group}`,
     `GRANT SELECT, INSERT ON "AuditEvent" TO ${group}`,
   ]
   for (const statement of grants) await db.$executeRawUnsafe(statement)

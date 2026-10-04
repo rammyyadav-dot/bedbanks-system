@@ -33,7 +33,7 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.rows.length === 0} empty={{ title: 'No rate plans', description: 'This hotel has no rate plan, so there is no rate or inventory to show.' }}>
         {(data) => (
           <div data-testid="calendar">
-            <p style={{ color: '#3f565c', fontSize: 11, marginTop: 0 }}>{data.window.from} → {data.window.to} · remaining = allotment − sold − held · missing inventory means unknown, zero means unavailable · amounts are integer minor units shown as currency{data.truncated ? ' · first plans only (limit reached)' : ''}</p>
+            <p style={{ color: '#3f565c', fontSize: 11, marginTop: 0 }}>{data.window.from} → {data.window.to} · remaining = stock − sold − held, from the shared pool for pooled plans · missing inventory means unknown, zero means unavailable · amounts are integer minor units shown as currency{data.truncated ? ' · first plans only (limit reached)' : ''}</p>
             {data.rows.map((row, index) => {
               const sellable = row.cells.filter((c) => c.sellable).length
               return (
@@ -44,20 +44,23 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
                   <p style={{ margin: '4px 0 8px', fontSize: 11 }}>This view is read-only. <Link href={`/rates?ratePlanId=${encodeURIComponent(row.ratePlanId)}`}>Edit rates, allotment and stop-sell in the Rates &amp; Inventory workbench</Link>, which applies the existing validation and audit.</p>
                   <ScrollRegion label={`Calendar for ${row.ratePlanCode}`} maxHeight={420}>
                     <table style={tableStyle} aria-label={`Rates and inventory for ${row.ratePlanCode}`}>
-                      <thead><tr>{['Date', 'Rate', 'Basis', 'Allotment', 'Sold', 'Held', 'Remaining', 'Stop sell', 'Min stay', 'Closed to arrival', 'Closed to departure', 'Source updated', 'Sellability'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                      <thead><tr>{['Date', 'Rate', 'Basis', 'Mode', 'Stock from', 'Allotment', 'Sold', 'Held', 'Remaining', 'Fresh', 'Stop sell', 'Min stay', 'Closed to arrival', 'Closed to departure', 'Source updated', 'Sellability'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                       <tbody>
                         {row.cells.map((cell) => (
                           <tr key={cell.date} data-date={cell.date} data-sellable={cell.sellable}>
                             <td style={td}>{cell.date}</td>
                             <td style={td}>{cell.rateMinor !== null && cell.currency ? <Money minor={cell.rateMinor} currency={cell.currency} /> : <Chip tone="bad">MISSING</Chip>}</td>
                             <td style={td}>{cell.amountBasis ?? '—'}</td>
+                            <td style={td}>{cell.inventoryMode === null ? <Chip tone="warn">NO ROW (unknown)</Chip> : <Chip tone={cell.inventoryMode === 'ALLOTMENT' || cell.inventoryMode === 'FREE_SALE' ? 'ok' : 'warn'}>{cell.inventoryMode.replace('_', ' ')}</Chip>}</td>
+                            <td style={td}>{cell.stockSource === 'POOL' ? 'Shared pool' : cell.stockSource === 'PLAN_ROW' ? 'Plan' : cell.stockSource === 'NONE' ? 'Not counted' : '—'}</td>
                             <td style={td}>{cell.allotment ?? <Chip tone="bad">NO ROW</Chip>}</td>
                             <td style={td}>{cell.sold ?? '—'}</td><td style={td}>{cell.held ?? '—'}</td>
                             <td style={td}>{cell.remaining ?? '—'}</td>
+                            <td style={td}>{cell.inventoryMode === null ? '—' : cell.stale ? <Chip tone="bad">STALE</Chip> : <span title={cell.freshUntil ? `Fresh until ${cell.freshUntil}` : 'No expiry (admin or contract data)'}>Fresh</span>}</td>
                             <td style={td}>{cell.stopSell === null ? '—' : cell.stopSell ? <Chip tone="warn">STOP SELL</Chip> : 'No'}</td>
                             <td style={td}>{cell.minStay ?? '—'}</td>
                             <td style={td}>{cell.closedToArrival === null ? '—' : cell.closedToArrival ? <Chip tone="warn">CLOSED</Chip> : 'No'}</td>
-                            <td style={td} title="Stored, but Agent search does not apply closed-to-departure yet.">{cell.closedToDeparture === null ? '—' : cell.closedToDeparture ? <Chip tone="neutral">RECORDED, NOT APPLIED</Chip> : 'No'}</td>
+                            <td style={td} title="Applied to the check-out date: a stay may not end on this night.">{cell.closedToDeparture === null ? '—' : cell.closedToDeparture ? <Chip tone="warn">CLOSED</Chip> : 'No'}</td>
                             <td style={td}>{cell.rateSourceUpdatedAt || cell.availabilitySourceUpdatedAt ? <span title="Rate / availability source stamps">{cell.rateSourceUpdatedAt ? new Date(cell.rateSourceUpdatedAt).toLocaleDateString() : 'rate unknown'} / {cell.availabilitySourceUpdatedAt ? new Date(cell.availabilitySourceUpdatedAt).toLocaleDateString() : 'avail. unknown'}</span> : 'unknown'}</td>
                             <td style={td}>{cell.sellable ? <Tag tone="ok">SELLABLE</Tag> : <span><Tag tone="bad">NOT SELLABLE</Tag>{cell.reasons.map((r) => <div key={r} title={reasonText(r)}><code>{r}</code></div>)}</span>}</td>
                           </tr>

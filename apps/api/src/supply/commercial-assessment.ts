@@ -4,7 +4,7 @@ import {
   type InventoryState, type IssueSeverity, type MappingState, type ReadinessGate, type SupplyDataState,
 } from '@bedbanks/contracts'
 import { evaluateContractedStay } from './contracted-sellability'
-import { buildStaySnapshot, type StayPlanInput } from './stay-snapshot'
+import { buildStaySnapshot, nightStock, type StayPlanInput } from './stay-snapshot'
 import { markupResolverFor, type MarkupRuleRow } from './markup-rules'
 
 /**
@@ -16,7 +16,7 @@ import { markupResolverFor, type MarkupRuleRow } from './markup-rules'
  * Sellability Inspector instead.
  */
 const NIGHT_MS = 86_400_000
-const STAY_CONTEXT_REASONS = new Set(['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_ARRIVAL'])
+const STAY_CONTEXT_REASONS = new Set(['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_ARRIVAL', 'CLOSED_TO_DEPARTURE'])
 const HOTEL_LEVEL_REASONS = new Set(['HOTEL_INACTIVE', HOTEL_STAR_RATING_MISSING])
 
 export const addDays = (day: string, count: number): string => new Date(Date.parse(`${day}T00:00:00.000Z`) + count * NIGHT_MS).toISOString().slice(0, 10)
@@ -117,10 +117,10 @@ export function occupancySplit(plan: { occupancy: number; roomType: { maxAdults:
   return { adults, children: plan.occupancy - adults }
 }
 
-export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number }, markupRules: readonly MarkupRuleRow[] = []): string[] {
+export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number }, markupRules: readonly MarkupRuleRow[] = [], now: Date = new Date()): string[] {
   const snapshot = buildStaySnapshot(plan, mapping, roomMapping, [date], markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId))
   const { adults, children } = guests ?? occupancySplit(plan)
-  const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, currency: plan.currency, leadDays: Number.MAX_SAFE_INTEGER })
+  const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, currency: plan.currency, now })
   const reasons = decision.reasons.filter((reason) => !STAY_CONTEXT_REASONS.has(reason))
   if (!starRatingValid(hotelStarRating)) reasons.push(HOTEL_STAR_RATING_MISSING)
   return reasons
@@ -139,9 +139,9 @@ function assessPlan(loaded: AssessPlan, input: AssessHotelInput): PlanAssessment
   const rates = new Map(plan.dailyRates.map((rate) => [dayOf(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayOf(row.stayDate), row]))
   const nights: NightAssessment[] = input.dates.map((date) => {
-    const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules)
+    const reasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, undefined, input.markupRules, new Date(input.observedAt))
     const row = availability.get(date)
-    return { date, reasons, sellable: reasons.length === 0, hasRate: rates.has(date), hasAvailability: Boolean(row), remaining: row ? row.allotment - row.sold - row.held : null, stopSell: row?.stopSell === true }
+    return { date, reasons, sellable: reasons.length === 0, hasRate: rates.has(date), hasAvailability: Boolean(row), remaining: nightStock(plan, date).remaining, stopSell: row?.stopSell === true }
   })
   const counts = { nights: nights.length, sellable: 0, rateMissing: 0, availabilityMissing: 0, stopSell: 0, exhausted: 0, blockedOther: 0 }
   for (const night of nights) {
@@ -149,8 +149,8 @@ function assessPlan(loaded: AssessPlan, input: AssessHotelInput): PlanAssessment
     if (night.reasons.includes('DAILY_RATE_MISSING_OR_INVALID')) counts.rateMissing += 1
     if (night.reasons.includes('AVAILABILITY_MISSING')) counts.availabilityMissing += 1
     if (night.reasons.includes('STOP_SELL')) counts.stopSell += 1
-    if (night.reasons.includes('NO_INVENTORY')) counts.exhausted += 1
-    if (!night.sellable && !night.reasons.some((r) => ['DAILY_RATE_MISSING_OR_INVALID', 'AVAILABILITY_MISSING', 'STOP_SELL', 'NO_INVENTORY'].includes(r))) counts.blockedOther += 1
+    if (night.reasons.includes('NO_INVENTORY') || night.reasons.includes('POOL_EXHAUSTED')) counts.exhausted += 1
+    if (!night.sellable && !night.reasons.some((r) => ['DAILY_RATE_MISSING_OR_INVALID', 'AVAILABILITY_MISSING', 'STOP_SELL', 'NO_INVENTORY', 'POOL_EXHAUSTED'].includes(r))) counts.blockedOther += 1
   }
   const bases = new Set([...rates.values()].map((rate) => rate.amountBasis ?? 'UNVERIFIED'))
   const amountBasis = bases.size === 0 ? 'NONE' : bases.size > 1 ? 'MIXED' : ([...bases][0] as 'SELL' | 'NET' | 'UNVERIFIED')
@@ -196,13 +196,15 @@ export function categoryOfReason(reason: string, context: ReasonContext): Commer
     case 'RATE_CURRENCY_MISMATCH': case 'RATE_AMOUNT_BASIS_UNVERIFIED': case 'NET_RATE_MARKUP_UNAVAILABLE': return 'CURRENCY_OR_BASIS'
     case 'AVAILABILITY_MISSING': return 'AVAILABILITY_MISSING'
     case 'STOP_SELL': return 'STOP_SELL'
-    case 'NO_INVENTORY': return 'INVENTORY_EXHAUSTED'
+    case 'NO_INVENTORY': case 'POOL_EXHAUSTED': return 'INVENTORY_EXHAUSTED'
+    case 'INVENTORY_CLOSED': case 'ON_REQUEST_ONLY': return 'INVENTORY_CLOSED'
+    case 'INVENTORY_STALE': return 'INVENTORY_STALE'
     default: return 'ENTITY_INACTIVE'
   }
 }
 const SECTION_OF_CATEGORY: Record<CommercialIssueCategory, HotelSection> = {
   UNMAPPED_HOTEL: 'mappings', UNMAPPED_ROOM: 'mappings', CONTRACT_EXPIRED: 'contracts', CONTRACT_EXPIRING: 'contracts', RATE_MISSING: 'rates', RATE_INVALID: 'rates',
-  AVAILABILITY_MISSING: 'rates', STOP_SELL: 'rates', INVENTORY_EXHAUSTED: 'rates', OCCUPANCY_UNSUPPORTED: 'rooms', CURRENCY_OR_BASIS: 'rates', ENTITY_INACTIVE: 'overview', HOTEL_CONTENT: 'overview',
+  AVAILABILITY_MISSING: 'rates', STOP_SELL: 'rates', INVENTORY_EXHAUSTED: 'rates', INVENTORY_CLOSED: 'inventory', INVENTORY_STALE: 'inventory', OCCUPANCY_UNSUPPORTED: 'rooms', CURRENCY_OR_BASIS: 'rates', ENTITY_INACTIVE: 'overview', HOTEL_CONTENT: 'overview',
 }
 export const REASON_TEXT = COMMERCIAL_REASON_TEXT
 
@@ -218,9 +220,9 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'rate', label: 'Daily rate', reasons: ['DAILY_RATE_MISSING_OR_INVALID', 'RATE_CURRENCY_MISMATCH', 'RATE_AMOUNT_BASIS_UNVERIFIED', 'NET_RATE_MARKUP_UNAVAILABLE'] },
   { key: 'availability', label: 'Availability', reasons: ['AVAILABILITY_MISSING'] },
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
-  { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY'] },
+  { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },
   { key: 'occupancy', label: 'Occupancy', reasons: ['OCCUPANCY_UNSUPPORTED'] },
-  { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET'] },
+  { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE'] },
 ]
 export function gateResults(reasons: string[]): Array<{ key: string; label: string; state: 'PASS' | 'FAIL' }> {
   return SELLABILITY_GATES.map((gate) => ({ key: gate.key, label: gate.label, state: gate.reasons.some((reason) => reasons.includes(reason)) ? 'FAIL' as const : 'PASS' as const }))

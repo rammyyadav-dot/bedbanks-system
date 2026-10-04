@@ -630,7 +630,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(preview.counts).toEqual({ records: 7, willChange: 7, unchanged: 0, invalid: 0 }); expect(preview.canApply).toBe(true)
     expect(preview.dates).toEqual([12, 13, 14, 15, 16, 17, 18].map(day)); expect(preview.plans[0]).toMatchObject({ id: planId, currency: 'AED', occupancy: 2 })
     expect(preview.rows[0]).toMatchObject({ date: day(12), outcome: 'CHANGE', changes: [{ field: 'price', from: '10000', to: '45050', currency: 'AED' }] })
-    expect(preview.unsupported.join(' ')).toMatch(/Lock dates/); expect(preview.unsupported.join(' ')).toMatch(/Allotment pools/); expect(preview.timeZone).toBe('Asia/Dubai')
+    expect(preview.unsupported.join(' ')).toMatch(/Lock dates/); expect(preview.unsupported.join(' ')).not.toMatch(/Allotment pools/); expect(preview.unsupported.join(' ')).toMatch(/release deadline/); expect(preview.timeZone).toBe('Asia/Dubai')
     expect((await rateAt(planId, 12)).amountMinor).toBe(before.amountMinor) // preview wrote nothing
     expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(0)
     await qu(hotels.sold, 'preview', 'manager', { scope: scope(planId, 12, 14), changes: {} }).expect(400) // nothing opted in

@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { moveNight } from '../inventory/inventory-counters'
 import { readSupplierPrebook } from './supplier-prebook-record'
 import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
 
@@ -55,12 +56,7 @@ export class BookingConfirmationService {
 
       const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId } })
       if (nights.length === 0) throw new ConflictException('Inventory hold has no nights')
-      for (const night of nights) {
-        const converted = await tx.$executeRaw(Prisma.sql`
-          UPDATE "DailyAvailability" SET "held" = "held" - ${night.quantity}, "sold" = "sold" + ${night.quantity}, "updated_at" = CURRENT_TIMESTAMP
-           WHERE "id" = ${night.availabilityId} AND "tenant_id" = ${tenantId} AND "held" >= ${night.quantity}`)
-        if (converted !== 1) throw new ConflictException('Inventory hold state is inconsistent')
-      }
+      for (const night of nights) await moveNight(tx, tenantId, night, 'confirm')
       await tx.inventoryHold.update({ where: { id: holdId }, data: { status: 'CONFIRMED' } })
 
       // The reservation becomes a final charge: reverse the HOLD, then DEBIT the same amount (net balance unchanged).

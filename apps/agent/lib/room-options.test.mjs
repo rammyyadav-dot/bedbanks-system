@@ -27,3 +27,8 @@ test('reports zero selectable room groups', () => {
   assert.equal(selectableRoomCount([]), 0)
   assert.equal(selectableRoomLabel(0), '0 room options')
 })
+
+test('an on-request rate is visible elsewhere but is not a selectable room option', () => {
+  assert.equal(selectableRoomCount([room(['on_request'])]), 0)
+  assert.equal(selectableRoomCount([room(['on_request', 'available'])]), 1)
+})

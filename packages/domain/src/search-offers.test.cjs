@@ -312,3 +312,15 @@ test('keeps a well-formed primary image reference and rejects a malformed one (A
     assert.equal(validateSearchHotels([{ ...hotel(), primaryImage: bad }], criteria).ok, false, JSON.stringify(bad))
   }
 })
+
+test('an on-request rate stays in results as not available, and a contradictory flag is rejected', () => {
+  const onRequest = hotel()
+  onRequest.rooms[0].rates[0] = { ...onRequest.rooms[0].rates[0], availability: 'on_request', available: false }
+  const kept = validateSearchHotels([onRequest], criteria)
+  assert.equal(kept.ok, true)
+  assert.equal(kept.hotels[0].rooms[0].rates[0].availability, 'on_request')
+  assert.equal(kept.hotels[0].rooms[0].rates[0].available, false)
+  const lying = hotel()
+  lying.rooms[0].rates[0] = { ...lying.rooms[0].rates[0], availability: 'on_request', available: true }
+  assert.equal(validateSearchHotels([lying], criteria).ok, false)
+})

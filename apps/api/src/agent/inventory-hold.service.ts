@@ -5,6 +5,7 @@ import type { InventoryHoldRequest, InventoryHoldResponse } from '@bedbanks/doma
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 import { assertAgencyCredit } from './agency-credit'
+import { moveNight, reserveNight } from '../inventory/inventory-counters'
 
 export interface AuthoritativeHoldCommand extends InventoryHoldRequest {
   tenantId: string
@@ -59,20 +60,10 @@ export class InventoryHoldService {
         } })
 
         for (const stayDate of stayDates(command.checkIn, command.checkOut)) {
-          const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-            UPDATE "DailyAvailability"
-               SET "held" = "held" + ${command.rooms}, "updated_at" = CURRENT_TIMESTAMP
-             WHERE "tenant_id" = ${command.tenantId}
-               AND "rate_plan_id" = ${command.ratePlanId}
-               AND "stay_date" = ${stayDate}
-               AND "stop_sell" = false
-               AND "sold" + "held" + ${command.rooms} <= "allotment"
-            RETURNING "id"
-          `)
-          if (rows.length !== 1) throw new ConflictException('Inventory unavailable')
+          const reserved = await reserveNight(tx, { tenantId: command.tenantId, ratePlanId: command.ratePlanId, stayDate, rooms: command.rooms })
           await tx.inventoryHoldNight.create({ data: {
-            tenantId: command.tenantId, holdId: hold.id, availabilityId: rows[0].id,
-            stayDate, quantity: command.rooms,
+            tenantId: command.tenantId, holdId: hold.id, availabilityId: reserved.availabilityId,
+            stayDate, quantity: command.rooms, counterKind: reserved.counterKind, poolDayId: reserved.poolDayId,
           } })
         }
 
@@ -130,14 +121,7 @@ export class InventoryHoldService {
       })
       if (changed.count === 0) return
       const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId }, orderBy: { stayDate: 'asc' } })
-      for (const night of nights) {
-        const restored = await tx.$executeRaw(Prisma.sql`
-          UPDATE "DailyAvailability"
-             SET "held" = "held" - ${night.quantity}, "updated_at" = CURRENT_TIMESTAMP
-           WHERE "id" = ${night.availabilityId} AND "tenant_id" = ${tenantId} AND "held" >= ${night.quantity}
-        `)
-        if (restored !== 1) throw new ConflictException('Inventory hold state is inconsistent')
-      }
+      for (const night of nights) await moveNight(tx, tenantId, night, 'release')
       await tx.auditEvent.create({ data: { tenantId, actorType: actor.type, userId: actor.type === 'USER' ? actor.userId : undefined,
         action: expired ? 'inventory.hold.expired' : 'inventory.hold.released',
         entityType: 'inventory_hold', entityId: holdId, payload: { requestId },

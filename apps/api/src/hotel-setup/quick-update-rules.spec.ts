@@ -18,7 +18,7 @@ describe('normaliseQuickUpdate', () => {
   })
   it.each([
     [{ price: { amount: '', basis: 'SELL' } }, /amount/], [{ price: { amount: '10' } }, /basis/], [{ availability: { allotment: -1 } }, /allotment/], [{ availability: { allotment: 1.5 } }, /allotment/],
-    [{ availability: { stopSell: 'YES' } }, /stopSell/], [{ restrictions: { minStay: 0 } }, /minStay/], [{ restrictions: { closedToDeparture: 'SET' } }, /closedToDeparture: is not a supported field/],
+    [{ availability: { stopSell: 'YES' } }, /stopSell/], [{ restrictions: { minStay: 0 } }, /minStay/], [{ restrictions: { closedToDeparture: 'MAYBE' } }, /closedToDeparture: SET or CLEAR/], [{ availability: { mode: 'SOMETIMES' } }, /mode: one of/],
   ])('rejects %j', (changes, re) => { expect(normaliseQuickUpdate(req(changes) as never).errors.join(' ')).toMatch(re) })
   it('bounds plans, ranges and range length and requires real dates', () => {
     const base = req({ availability: { stopSell: 'SET' } })
@@ -72,12 +72,12 @@ describe('planQuickUpdate', () => {
     const noRow = run({ availability: { stopSell: 'SET' } })
     expect(noRow.rows.every((x) => x.outcome === 'INVALID' && /missing inventory means unknown, not zero/.test(x.problems.join(' ')))).toBe(true)
     const created = run({ availability: { allotment: 4, stopSell: 'SET' }, restrictions: { minStay: 2 } })
-    expect(created.rows[0].nextAvail).toEqual({ create: true, allotment: 4, stopSell: true, minStay: 2, closedToArrival: false })
+    expect(created.rows[0].nextAvail).toEqual({ create: true, allotment: 4, stopSell: true, minStay: 2, closedToArrival: false, closedToDeparture: false, mode: 'ALLOTMENT' })
     expect(created.rows[0].changes.map((c) => c.field).sort()).toEqual(['allotment', 'minStay', 'stopSell'])
   })
   it('keeps stored values when only one restriction is changed', () => {
     const r = run({ restrictions: { closedToArrival: 'SET' } }, { avail: { 'p1:2026-11-02': A({ stopSell: true, minStay: 3, allotment: 9 }) }, scope: { weekdays: ['MON'] } })
-    expect(r.rows).toHaveLength(1); expect(r.rows[0].nextAvail).toEqual({ create: false, allotment: 9, stopSell: true, minStay: 3, closedToArrival: true })
+    expect(r.rows).toHaveLength(1); expect(r.rows[0].nextAvail).toEqual({ create: false, allotment: 9, stopSell: true, minStay: 3, closedToArrival: true, closedToDeparture: false, mode: 'ALLOTMENT' })
   })
   it("rejects dates before today in the hotel's time zone and dates outside the contract", () => {
     const past = run({ availability: { allotment: 1 } }, { today: '2026-11-04', avail: {} })
@@ -102,3 +102,43 @@ describe('planQuickUpdate', () => {
     expect(planQuickUpdate({ value: big, plans: new Map(['p1', 'p2', 'p3', 'p4'].map((id) => [id, plan({ id })])), rates: new Map(), avail: new Map(), today: '2026-10-01' }).errors.join(' ')).toMatch(/exceed the limit of 500/)
   })
 })
+
+describe('inventory modes, closed to departure and shared pools', () => {
+  const pooled = plan({ poolId: 'pool-1' })
+  const pools = (cap: number, sold = 0, held = 0, dates = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08']) =>
+    new Map(dates.map((d) => [`pool-1:${d}`, { capacity: cap, sold, held }]))
+  const runPooled = (changes: object, o: { avail?: Record<string, AvailState>; pools?: ReturnType<typeof pools>; scope?: object } = {}) => {
+    const n = normaliseQuickUpdate(req(changes, o.scope) as never)
+    if (!n.value) throw new Error(n.errors.join('; '))
+    return planQuickUpdate({ value: n.value, plans: new Map([['p1', pooled]]), rates: new Map(), avail: new Map(Object.entries(o.avail ?? {})), pools: o.pools ?? new Map(), today: '2026-10-01' })
+  }
+  it('changes the mode and closed-to-departure on existing rows, reporting from and to', () => {
+    const r = run({ availability: { mode: 'ON_REQUEST' }, restrictions: { closedToDeparture: 'SET' } }, { avail: { 'p1:2026-11-02': A() }, scope: { weekdays: ['MON'] } })
+    expect(r.rows[0].changes).toEqual([{ field: 'inventoryMode', from: 'ALLOTMENT', to: 'ON_REQUEST' }, { field: 'closedToDeparture', from: false, to: true }])
+    expect(r.rows[0].nextAvail).toMatchObject({ mode: 'ON_REQUEST', closedToDeparture: true, allotment: 5 })
+  })
+  it('a mode or CTD change on a night with no row is refused: unknown is not zero', () => {
+    expect(run({ availability: { mode: 'CLOSED' } }).rows.every((x) => x.outcome === 'INVALID')).toBe(true)
+  })
+  it('an identical mode is NO_CHANGE', () => {
+    expect(run({ availability: { mode: 'ALLOTMENT' } }, { avail: Object.fromEntries(['02', '03', '04', '05', '06', '07', '08'].map((d) => [`p1:2026-11-${d}`, A()])) }).counts).toMatchObject({ willChange: 0, unchanged: 7 })
+  })
+  it('allotment on a pooled plan is the pool capacity: planned per night, and the plan row stays untouched when it exists', () => {
+    const rows = Object.fromEntries(['02', '03'].map((d) => [`p1:2026-11-${d}`, A()]))
+    const r = runPooled({ availability: { allotment: 8 } }, { avail: rows, pools: pools(5), scope: { ranges: [{ from: '2026-11-02', to: '2026-11-03' }] } })
+    expect(r.rows.map((x) => x.changes)).toEqual([[{ field: 'poolCapacity', from: 5, to: 8 }], [{ field: 'poolCapacity', from: 5, to: 8 }]])
+    expect(r.rows.every((x) => x.nextAvail === null && x.nextPool?.capacity === 8 && !x.nextPool.create)).toBe(true)
+  })
+  it('refuses a pool capacity below what the pool has sold or held, and creates a missing pool day', () => {
+    const rows = { 'p1:2026-11-02': A() }
+    const bad = runPooled({ availability: { allotment: 2 } }, { avail: rows, pools: pools(5, 2, 1), scope: { ranges: [{ from: '2026-11-02', to: '2026-11-02' }] } })
+    expect(bad.rows[0]).toMatchObject({ outcome: 'INVALID' }); expect(bad.rows[0].problems.join(' ')).toMatch(/below the 3 already sold or held on the pool/)
+    const made = runPooled({ availability: { allotment: 4 } }, { avail: rows, pools: new Map(), scope: { ranges: [{ from: '2026-11-02', to: '2026-11-02' }] } })
+    expect(made.rows[0].nextPool).toEqual({ poolId: 'pool-1', create: true, capacity: 4 }); expect(made.rows[0].changes).toEqual([{ field: 'poolCapacity', from: null, to: 4 }])
+  })
+  it('a pooled plan with no row of its own still gets one when capacity is set, so restrictions have a row to live on', () => {
+    const r = runPooled({ availability: { allotment: 4 } }, { pools: new Map(), scope: { ranges: [{ from: '2026-11-02', to: '2026-11-02' }] } })
+    expect(r.rows[0].nextAvail).toMatchObject({ create: true, mode: 'ALLOTMENT' })
+  })
+})
+

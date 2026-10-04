@@ -20,7 +20,7 @@ function plan(o: PlanOpts = {}): AssessPlan {
     id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, releaseDays: 0, refundable: true,
     contractId: 'c1', roomTypeId: 'room-1', boardBasisId: 'b1',
     boardBasis: { code: 'BB', isActive: o.boardActive ?? true },
-    roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: o.roomActive ?? true, maxAdults: o.maxAdults ?? 2, maxChildren: o.maxChildren ?? 0, maxOccupancy: 2, hotel: { contentStatus: o.hotelContent ?? 'COMPLETE' } },
+    roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: o.roomActive ?? true, maxAdults: o.maxAdults ?? 2, maxChildren: o.maxChildren ?? 0, maxOccupancy: 2, hotel: { contentStatus: o.hotelContent ?? 'COMPLETE', timeZone: 'Asia/Dubai' } },
     contract: { id: 'c1', code: 'C-1', status: o.contractStatus ?? 'ACTIVE', validFrom: at(o.validFrom ?? '2030-01-01'), validTo: at(o.validTo ?? '2031-01-01'), settlementCurrency: o.contractCurrency ?? 'AED', supplierId: 's1', supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: o.supplierStatus ?? 'ACTIVE', displayName: 'Supplier One' } },
     dailyRates: o.rate === false ? [] : dates.map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: o.rateCurrency ?? 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis, occupancy: o.occupancy ?? 2 })),
     availability: o.availability === false ? [] : dates.map((d) => ({ stayDate: at(d), allotment: o.allotment ?? 5, sold: o.sold ?? 0, held: o.held ?? 0, stopSell: o.stopSell ?? false, minStay: 1, closedToArrival: false })),
@@ -174,10 +174,10 @@ describe('commercial assessment', () => {
   it('AGENT CONSISTENCY: for a stay the assessor calls fully sellable, evaluateContractedStay is eligible with the same total; for a blocked night it is not', () => {
     const p = plan(); p.availability[3].stopSell = true
     const a = assessHotel(input({ plans: [p] }))
-    const stayOk = evaluateContractedStay(buildStaySnapshot(p, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, dates.slice(0, 3)), { checkIn: dates[0], checkOut: dates[3], rooms: 1, adults: 2, children: 0, currency: 'AED', leadDays: 100 })
+    const stayOk = evaluateContractedStay(buildStaySnapshot(p, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, dates.slice(0, 3)), { checkIn: dates[0], checkOut: dates[3], rooms: 1, adults: 2, children: 0, currency: 'AED', now: new Date('2030-05-01T00:00:00.000Z') })
     expect(a.plans[0].nights.slice(0, 3).every((n) => n.sellable)).toBe(true)
     expect(stayOk).toMatchObject({ eligible: true, totalMinor: 90_000n })
-    const stayBad = evaluateContractedStay(buildStaySnapshot(p, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, dates.slice(2, 5)), { checkIn: dates[2], checkOut: dates[5], rooms: 1, adults: 2, children: 0, currency: 'AED', leadDays: 100 })
+    const stayBad = evaluateContractedStay(buildStaySnapshot(p, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, dates.slice(2, 5)), { checkIn: dates[2], checkOut: dates[5], rooms: 1, adults: 2, children: 0, currency: 'AED', now: new Date('2030-05-01T00:00:00.000Z') })
     expect(a.plans[0].nights[3].sellable).toBe(false)
     expect(stayBad.eligible).toBe(false); expect(stayBad.reasons).toContain('STOP_SELL')
   })

@@ -20,7 +20,7 @@ function setup(result: SupplierRecheckResult | Error, mapped = true) {
   const supplier = { name: 'test-supplier', recheck: jest.fn() } as unknown as SupplierAdapter
   if (result instanceof Error) (supplier.recheck as jest.Mock).mockRejectedValue(result)
   else (supplier.recheck as jest.Mock).mockResolvedValue(result)
-  const plan = mapped ? { id: 'plan-a', minStay: 1, maxStay: 30, releaseDays: 0 } : null
+  const plan = mapped ? { id: 'plan-a', minStay: 1, maxStay: 30, releaseDays: 0, releaseTimeLocal: '00:00', roomType: { hotel: { timeZone: 'Asia/Dubai' } } } : null
   const prisma = { withTenant: jest.fn(async (_tenant: string, work: (tx: unknown) => Promise<unknown>) =>
     work({ ratePlan: { findFirst: jest.fn().mockResolvedValue(plan) } })) } as unknown as PrismaService
   const holds = { create: jest.fn().mockResolvedValue({ holdId: 'hold-a', requestId: 'request-a', status: 'held',

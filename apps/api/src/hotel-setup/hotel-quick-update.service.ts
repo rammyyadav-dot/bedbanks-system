@@ -7,7 +7,7 @@ import {
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { idParam } from '../admin-operations/query-params'
-import { dayInZone, normaliseQuickUpdate, planQuickUpdate, type AvailState, type NormalisedQuickUpdate, type PlanInfo, type PlannedRow, type RateState } from './quick-update-rules'
+import { dayInZone, normaliseQuickUpdate, planQuickUpdate, type AvailState, type NormalisedQuickUpdate, type PlanInfo, type PlannedRow, type PoolDayState, type RateState } from './quick-update-rules'
 
 type Tx = Prisma.TransactionClient
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/
@@ -21,6 +21,9 @@ interface Loaded {
   refs: Map<string, QuickUpdatePlanRef>
   rates: Map<string, RateState>
   avail: Map<string, AvailState>
+  pools: Map<string, PoolDayState>
+  /** Existing pool days keyed like `pools`, with their ids, for the write step. */
+  poolDayIds: Map<string, string>
   fingerprint: string
 }
 
@@ -63,7 +66,7 @@ export class HotelQuickUpdateService {
     })
     const plans = new Map<string, PlanInfo>(); const refs = new Map<string, QuickUpdatePlanRef>()
     for (const p of found) {
-      plans.set(p.id, { id: p.id, status: p.status, currency: p.currency, occupancy: p.occupancy, contractFrom: day(p.contract.validFrom), contractTo: day(p.contract.validTo) })
+      plans.set(p.id, { id: p.id, status: p.status, currency: p.currency, occupancy: p.occupancy, contractFrom: day(p.contract.validFrom), contractTo: day(p.contract.validTo), poolId: p.inventoryPoolId })
       refs.set(p.id, { id: p.id, code: p.code, roomName: p.roomType.name, boardCode: p.boardBasis.code.trim(), contractCode: p.contract.code, supplierName: p.contract.supplier.displayName, currency: p.currency, occupancy: p.occupancy, status: p.status })
     }
     const dates = [...new Set(value.ranges.flatMap((r) => [r.from, r.to]))].sort()
@@ -73,23 +76,30 @@ export class HotelQuickUpdateService {
       tx.dailyRate.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { gte, lte } } }),
       tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { gte, lte } } }),
     ])
+    const poolIds = [...new Set([...plans.values()].map((p) => p.poolId).filter((id): id is string => !!id))]
+    const poolRows = poolIds.length === 0 ? [] : await tx.inventoryPoolDay.findMany({ where: { tenantId, poolId: { in: poolIds }, stayDate: { gte, lte } } })
     const rates = new Map<string, RateState>(); const avail = new Map<string, AvailState>(); const lines: string[] = []
-    for (const p of found) lines.push(`P|${p.id}|${p.status}|${p.currency}|${p.occupancy}|${day(p.contract.validFrom)}|${day(p.contract.validTo)}`)
+    const pools = new Map<string, PoolDayState>(); const poolDayIds = new Map<string, string>()
+    for (const p of found) lines.push(`P|${p.id}|${p.status}|${p.currency}|${p.occupancy}|${day(p.contract.validFrom)}|${day(p.contract.validTo)}|${p.inventoryPoolId ?? ''}`)
+    for (const d of poolRows) {
+      pools.set(`${d.poolId}:${day(d.stayDate)}`, { capacity: d.capacity, sold: d.sold, held: d.held }); poolDayIds.set(`${d.poolId}:${day(d.stayDate)}`, d.id)
+      lines.push(`D|${d.poolId}|${day(d.stayDate)}|${d.capacity}|${d.sold}|${d.held}|${d.updatedAt.getTime()}`)
+    }
     for (const r of rateRows) {
       if (r.occupancy !== plans.get(r.ratePlanId)!.occupancy) continue
       rates.set(`${r.ratePlanId}:${day(r.stayDate)}`, { amountMinor: r.amountMinor, basis: r.amountBasis === 'NET' || r.amountBasis === 'SELL' ? r.amountBasis : null })
       lines.push(`R|${r.ratePlanId}|${day(r.stayDate)}|${r.amountMinor}|${r.amountBasis ?? ''}|${r.updatedAt.getTime()}`)
     }
     for (const a of availRows) {
-      avail.set(`${a.ratePlanId}:${day(a.stayDate)}`, { allotment: a.allotment, sold: a.sold, held: a.held, stopSell: a.stopSell, minStay: a.minStay, closedToArrival: a.closedToArrival })
-      lines.push(`A|${a.ratePlanId}|${day(a.stayDate)}|${a.allotment}|${a.sold}|${a.held}|${a.stopSell}|${a.minStay}|${a.closedToArrival}|${a.updatedAt.getTime()}`)
+      avail.set(`${a.ratePlanId}:${day(a.stayDate)}`, { allotment: a.allotment, sold: a.sold, held: a.held, stopSell: a.stopSell, minStay: a.minStay, closedToArrival: a.closedToArrival, closedToDeparture: a.closedToDeparture, mode: a.inventoryMode })
+      lines.push(`A|${a.ratePlanId}|${day(a.stayDate)}|${a.allotment}|${a.sold}|${a.held}|${a.stopSell}|${a.minStay}|${a.closedToArrival}|${a.closedToDeparture}|${a.inventoryMode}|${a.updatedAt.getTime()}`)
     }
     const fingerprint = createHash('sha256').update(lines.sort().join('\n')).digest('hex')
-    return { hotel, plans, refs, rates, avail, fingerprint, dates: [] }
+    return { hotel, plans, refs, rates, avail, pools, poolDayIds, fingerprint, dates: [] }
   }
 
   private plan(loaded: Loaded, value: NormalisedQuickUpdate) {
-    return planQuickUpdate({ value, plans: loaded.plans, rates: loaded.rates, avail: loaded.avail, today: dayInZone(this.clock(), loaded.hotel.timeZone) })
+    return planQuickUpdate({ value, plans: loaded.plans, rates: loaded.rates, avail: loaded.avail, pools: loaded.pools, today: dayInZone(this.clock(), loaded.hotel.timeZone) })
   }
 
   async preview(tenantId: string, userId: string, hotelId: string, body: QuickUpdateRequest): Promise<QuickUpdatePreview> {
@@ -127,7 +137,7 @@ export class HotelQuickUpdateService {
       const prior = await tx.auditEvent.findFirst({ where: { tenantId, entityType: 'hotel', entityId: hotelId, action: APPLIED, payload: { path: ['idempotencyKey'], equals: body.idempotencyKey } }, select: { payload: true } })
       if (prior) {
         const p = prior.payload as { requestId?: string; records?: number; changed?: QuickUpdateApplied['changed']; fingerprintAfter?: string }
-        return { replayed: true, auditRequestId: p.requestId ?? '', records: p.records ?? 0, changed: p.changed ?? { rates: 0, availabilityRows: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
+        return { replayed: true, auditRequestId: p.requestId ?? '', records: p.records ?? 0, changed: p.changed ?? { rates: 0, availabilityRows: 0, poolDays: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
       }
       const loaded = await this.load(tx, tenantId, hotelId, value)
       const planned = this.plan(loaded, value)
@@ -147,13 +157,24 @@ export class HotelQuickUpdateService {
         outcome: 'allowed', requestId, idempotencyKey: body.idempotencyKey, reason, ratePlanIds: value.ratePlanIds, ranges: value.ranges, weekdays: value.weekdays, fields,
         records: planned.counts.records, changedRecords: planned.counts.willChange, changed: writes, fingerprintBefore: loaded.fingerprint, fingerprintAfter: after.fingerprint, sample,
       } as unknown as Prisma.InputJsonValue } })
+      // Inventory-specific audit actions (ADR 0030), in the same transaction as the write.
+      const inventoryFields = new Set(fields.filter((f) => f !== 'price'))
+      if (inventoryFields.size > 0) {
+        const detail = { requestId, idempotencyKey: body.idempotencyKey, reason, ratePlanIds: value.ratePlanIds, ranges: value.ranges, fields: [...inventoryFields], changedRecords: planned.counts.willChange, poolDays: writes.poolDays }
+        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: planned.counts.willChange > 1 ? 'inventory.bulk.updated' : 'inventory.daily.updated', entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', ...detail } as unknown as Prisma.InputJsonValue } })
+        if (inventoryFields.has('inventoryMode')) await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'inventory.mode.changed', entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, ratePlanIds: value.ratePlanIds, to: value.changes.availability?.mode, changedRecords: planned.rows.filter((r) => r.changes.some((c) => c.field === 'inventoryMode')).length } as unknown as Prisma.InputJsonValue } })
+      }
       return { replayed: false, auditRequestId: requestId ?? '', records: planned.counts.records, changed: writes, fingerprintAfter: after.fingerprint }
     })
   }
 
-  private async write(tx: Tx, tenantId: string, loaded: Loaded, rows: PlannedRow[]): Promise<{ rates: number; availabilityRows: number }> {
+  private async write(tx: Tx, tenantId: string, loaded: Loaded, rows: PlannedRow[]): Promise<{ rates: number; availabilityRows: number; poolDays: number }> {
     let rates = 0; let availabilityRows = 0
+    const now = this.clock()
+    // Admin edits are fresh, first-hand data: provenance is stamped on every row this update writes.
+    const provenance = { source: 'ADMIN' as const, sourceUpdatedAt: now, receivedAt: now, freshUntil: null }
     const newRates: Prisma.DailyRateCreateManyInput[] = []; const newAvail: Prisma.DailyAvailabilityCreateManyInput[] = []
+    const poolWrites = new Map<string, NonNullable<PlannedRow['nextPool']> & { date: string }>()
     for (const row of rows) {
       const plan = loaded.plans.get(row.ratePlanId)!
       const stayDate = toDate(row.date)
@@ -164,13 +185,35 @@ export class HotelQuickUpdateService {
       }
       if (row.nextAvail) {
         const n = row.nextAvail
-        if (n.create) newAvail.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, allotment: n.allotment, sold: 0, held: 0, stopSell: n.stopSell, minStay: n.minStay, closedToArrival: n.closedToArrival })
-        else await tx.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate } }, data: { allotment: n.allotment, stopSell: n.stopSell, minStay: n.minStay, closedToArrival: n.closedToArrival } })
+        const fields = { allotment: n.allotment, stopSell: n.stopSell, minStay: n.minStay, closedToArrival: n.closedToArrival, closedToDeparture: n.closedToDeparture, inventoryMode: n.mode as Prisma.DailyAvailabilityCreateManyInput['inventoryMode'], ...provenance }
+        if (n.create) newAvail.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, sold: 0, held: 0, ...fields })
+        else await this.guarded(() => tx.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate } }, data: fields }))
         availabilityRows++
       }
+      if (row.nextPool) poolWrites.set(`${row.nextPool.poolId}:${row.date}`, { ...row.nextPool, date: row.date })
     }
     if (newRates.length) await tx.dailyRate.createMany({ data: newRates })
     if (newAvail.length) await tx.dailyAvailability.createMany({ data: newAvail })
-    return { rates, availabilityRows }
+    // A pool night is written once however many pooled plans selected it. The guard keeps capacity at or above sold + held even
+    // if a hold landed after the rows were read; if it did, nothing is written.
+    for (const [key, w] of [...poolWrites.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (w.create) {
+        await tx.inventoryPoolDay.create({ data: { tenantId, poolId: w.poolId, stayDate: toDate(w.date), capacity: w.capacity, ...provenance } })
+      } else {
+        const updated = await tx.$executeRaw`
+          UPDATE "InventoryPoolDay" SET "capacity" = ${w.capacity}, "source" = 'ADMIN'::"InventorySource", "source_updated_at" = ${now}, "received_at" = ${now}, "fresh_until" = NULL, "updated_at" = CURRENT_TIMESTAMP
+           WHERE "id" = ${loaded.poolDayIds.get(key)} AND "tenant_id" = ${tenantId} AND "sold" + "held" <= ${w.capacity}`
+        if (updated !== 1) throw new ConflictException({ message: 'Pool stock changed while saving. Nothing was written. Preview again to see the current values.', code: 'QUICK_UPDATE_STALE' })
+      }
+    }
+    return { rates, availabilityRows, poolDays: poolWrites.size }
+  }
+
+  /** A database CHECK that fires here means inventory moved between the read and the write: report it as stale, not as a server error. */
+  private async guarded<T>(work: () => Promise<T>): Promise<T> {
+    try { return await work() } catch (error) {
+      if (/check constraint/i.test(error instanceof Error ? error.message : '')) throw new ConflictException({ message: 'Inventory changed while saving. Nothing was written. Preview again to see the current values.', code: 'QUICK_UPDATE_STALE' })
+      throw error
+    }
   }
 }
