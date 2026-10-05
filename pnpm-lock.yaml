@@ -362,6 +362,9 @@ importers:
 
   packages/connectors/core:
     devDependencies:
+      '@types/node':
+        specifier: ^24
+        version: 24.13.3
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
