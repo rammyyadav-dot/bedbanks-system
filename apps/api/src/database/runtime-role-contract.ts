@@ -126,8 +126,8 @@ const READ_WRITE: readonly RuntimeGrant[] = [
     { op: 'DELETE', service: 'AgencyCreditService.execute', endpoints: [`POST ${ADMIN_CLIENTS}/agencies/credit-approvals/:approvalId/execute`], reason: 'remove the limit after approval' },
   ] },
   { table: 'ApprovalRequest', model: 'ApprovalRequest', read: true, rls: 'forced-tenant', writes: [
-    { op: 'INSERT', service: 'ApprovalService.request', endpoints: ['POST /admin/commercial/markups/:ruleId/request-activation', `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-suspension-change`, `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-credit-limit`, `POST ${HOTEL}/setup/publication/request`], reason: 'maker-checker request (ADR 0016)' },
-    { op: 'UPDATE', service: 'ApprovalService.decide/cancel/execute', endpoints: ['POST .../approvals/:approvalId/{approve,reject,cancel,execute}'], reason: 'record the decision and the execution' },
+    { op: 'INSERT', service: 'ApprovalService.request', endpoints: ['POST /admin/commercial/markups/:ruleId/request-activation', `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-suspension-change`, `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-credit-limit`, `POST ${HOTEL}/setup/publication/request`, `POST ${HOTEL}/inventory/pools/:poolId/night-requests`], reason: 'maker-checker request (ADR 0016); a pool night request is applied by the owner tool, never by the API (ADR 0036 Amendment 3)' },
+    { op: 'UPDATE', service: 'ApprovalService.decide/cancel/execute', endpoints: ['POST .../approvals/:approvalId/{approve,reject,cancel,execute}', `POST ${HOTEL}/inventory/pools/:poolId/night-requests/:approvalId/{approve,reject,cancel}`], reason: 'record the decision and the execution' },
   ] },
   { table: 'CommercialMarkupRule', model: 'CommercialMarkupRule', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck when a NET rate is priced (mandatory commercial control)', writes: [
     { op: 'INSERT', service: 'CommercialMarkupService.create', endpoints: ['POST /admin/commercial/markups'], reason: 'draft a markup rule' },

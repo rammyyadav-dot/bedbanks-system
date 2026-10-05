@@ -53,7 +53,41 @@ export interface NightResult { plan: NightPlan; created: number; applied: boolea
 export async function authorPoolNights(db: Client, req: PoolNightRequest, opts: { apply: boolean; expectedFingerprint?: string; now?: Date }): Promise<NightResult> {
   const errors = validateNightRequest(req)
   if (errors.length) throw new Error(errors.join('; '))
+  return db.$transaction((tx) => runInTx(tx, req, opts), { timeout: 30_000 })
+}
+
+export const POOL_NIGHT_APPROVAL_ACTION = 'supply.pool_nights.request'
+
+/**
+ * Previews, or with `apply` applies, an APPROVED Admin request (ADR 0036 Amendment 3). The request's approved parameters are used exactly; the
+ * live pool is re-validated; the approval is claimed (APPROVED to EXECUTED) in the same transaction as the INSERT, so it is single-use and a
+ * failure leaves it APPROVED. A request that is pending, rejected, cancelled or already executed is refused.
+ */
+export async function authorApprovedNightRequest(db: Client, input: { tenantId: string; approvalId: string; actor: string; /** The tenant user accountable for running it: a recorded approval needs a named executing user. */ executorUserId: string }, opts: { apply: boolean; expectedFingerprint?: string; now?: Date }): Promise<NightResult & { approvalId: string }> {
   return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${input.tenantId}, true)`
+    const rows = await tx.$queryRaw<Array<{ id: string; action: string; entity_type: string; entity_id: string; status: string; reason: string; proposed_state: { startDate?: string; endDate?: string; capacity?: number } | null }>>`
+      SELECT "id", "action", "entity_type", "entity_id", "status"::text AS "status", "reason", "proposed_state" FROM "ApprovalRequest" WHERE "id" = ${input.approvalId} AND "tenant_id" = ${input.tenantId} FOR UPDATE`
+    const a = rows[0]
+    if (!a || a.action !== POOL_NIGHT_APPROVAL_ACTION || a.entity_type !== 'inventory_pool') throw new Error('approval request not found in that tenant')
+    if (a.status === 'EXECUTED') throw new Error('this request was already applied')
+    if (a.status !== 'APPROVED') throw new Error(`this request is ${a.status.toLowerCase()}, not approved`)
+    const member = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM "memberships" WHERE "tenant_id" = ${input.tenantId} AND "user_id" = ${input.executorUserId}`
+    if (Number(member[0]?.n ?? 0) < 1) throw new Error('--executor must be the id of a user with a membership in that tenant')
+    const p = a.proposed_state ?? {}
+    const req: PoolNightRequest = { tenantId: input.tenantId, poolId: a.entity_id, from: p.startDate ?? '', to: p.endDate ?? '', capacity: p.capacity as number, reason: a.reason, actor: input.actor }
+    const errors = validateNightRequest(req)
+    if (errors.length) throw new Error(`the approved request is not valid: ${errors.join('; ')}`)
+    const result = await runInTx(tx, req, opts, a.id)
+    if (opts.apply) {
+      const claimed = await tx.$executeRaw`UPDATE "ApprovalRequest" SET "status" = 'EXECUTED'::"ApprovalRequestStatus", "executed_by_id" = ${input.executorUserId}, "executed_at" = now(), "updated_at" = now() WHERE "id" = ${a.id} AND "tenant_id" = ${input.tenantId} AND "status" = 'APPROVED'::"ApprovalRequestStatus"`
+      if (Number(claimed) !== 1) throw new Error('this request was already applied')
+    }
+    return { ...result, approvalId: a.id }
+  }, { timeout: 30_000 })
+}
+
+async function runInTx(tx: Tx, req: PoolNightRequest, opts: { apply: boolean; expectedFingerprint?: string; now?: Date }, approvalId?: string): Promise<NightResult> {
     // The operator names the tenant; it is set as the transaction's tenant context so forced RLS applies to this owner session too.
     await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${req.tenantId}, true)`
     const found = await tx.$queryRaw<Array<{ id: string; tenant_id: string; hotel_id: string; name: string; status: string; time_zone: string }>>`
@@ -81,7 +115,6 @@ export async function authorPoolNights(db: Client, req: PoolNightRequest, opts: 
     await tx.$executeRaw`
       INSERT INTO "AuditEvent" ("id", "tenant_id", "user_id", "actor_type", "action", "entity_type", "entity_id", "payload", "created_at")
       VALUES ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24), ${tenantId}, NULL, 'SYSTEM'::"AuditActorType", ${POOL_NIGHT_ACTION}, 'hotel', ${pool.hotel_id},
-              ${JSON.stringify({ poolId: req.poolId, poolName: pool.name, startDate: req.from, endDate: req.to, capacity: req.capacity, reason: req.reason.trim(), operator: req.actor.trim(), created, skippedExisting: plan.existing.length, skippedPast: plan.past.length, fingerprint: plan.fingerprint, sample: plan.create.slice(0, 20), via: 'ops:pool-nights' })}::jsonb, ${now})`
+              ${JSON.stringify({ poolId: req.poolId, poolName: pool.name, startDate: req.from, endDate: req.to, capacity: req.capacity, reason: req.reason.trim(), operator: req.actor.trim(), created, skippedExisting: plan.existing.length, skippedPast: plan.past.length, fingerprint: plan.fingerprint, ...(approvalId ? { approvalId } : {}), sample: plan.create.slice(0, 20), via: approvalId ? 'ops:pool-nights --approval' : 'ops:pool-nights' })}::jsonb, ${now})`
     return { plan, created: Number(created), applied: true, hotelId: pool.hotel_id, poolName: pool.name }
-  }, { timeout: 30_000 })
 }

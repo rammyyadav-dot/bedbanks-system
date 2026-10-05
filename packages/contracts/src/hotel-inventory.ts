@@ -158,3 +158,22 @@ export interface PoolCapacityPreview {
 
 export interface PoolCapacityApply extends PoolCapacityEditRequest { expectedFingerprint: string; reason: string; idempotencyKey: string }
 export interface PoolCapacityApplied { replayed: boolean; auditRequestId: string; changed: { updated: number }; fingerprintAfter: string }
+
+/**
+ * Requests to open new nights on a pool (ADR 0036 Amendment 3). Creating a pool stock row is a privileged path the API role cannot perform, so Admin
+ * records a maker-checker request; after a second person approves it, the database owner applies it with `ops:pool-nights --approval`. Nothing here
+ * writes a night: `EXECUTED` is set only by that owner tool.
+ */
+export type PoolNightRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED';
+export interface PoolNightRequestBody { requestId: string; startDate: string; endDate: string; capacity: number; reason: string }
+export interface PoolNightDecision { reason: string }
+export interface PoolNightRequestView {
+  id: string; status: PoolNightRequestStatus
+  startDate: string; endDate: string; capacity: number
+  /** Nights without a stock row in the range when the request was made (informational; the owner tool recomputes at apply). */
+  missingNights: number
+  reason: string; requestedById: string; decidedById: string | null; decisionReason: string | null
+  executedAt: string | null; createdAt: string
+  canDecide: boolean; canCancel: boolean
+}
+export interface PoolNightRequestList { poolId: string; items: PoolNightRequestView[] }
