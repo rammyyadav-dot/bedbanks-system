@@ -1,5 +1,5 @@
 /**
- * Owner-run creation of missing pool stock rows (ADR 0036 Amendment 2).
+ * Owner-run creation of missing pool stock rows (ADR 0036 Amendment 3).
  *
  * The strict API role holds no INSERT on `InventoryPoolDay`, so the Admin editor and Quick Update refuse a night that has no stock row. Creating
  * those rows is pool authoring, a privileged path (ADR 0032). This tool is the controlled way: it runs with the owner credential, never from the
@@ -59,7 +59,7 @@ export async function authorPoolNights(db: Client, req: PoolNightRequest, opts: 
 export const POOL_NIGHT_APPROVAL_ACTION = 'supply.pool_nights.request'
 
 /**
- * Previews, or with `apply` applies, an APPROVED Admin request (ADR 0036 Amendment 3). The request's approved parameters are used exactly; the
+ * Previews, or with `apply` applies, an APPROVED Admin request (ADR 0036 Amendment 4). The request's approved parameters are used exactly; the
  * live pool is re-validated; the approval is claimed (APPROVED to EXECUTED) in the same transaction as the INSERT, so it is single-use and a
  * failure leaves it APPROVED. A request that is pending, rejected, cancelled or already executed is refused.
  */

@@ -123,7 +123,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   const a0 = applies()
   await page.locator('[data-testid=apply-button]').dblclick(); await page.waitForSelector('[data-testid=editor-done]', { timeout: 20000 })
   check('a double click sends exactly one apply request', applies() - a0 === 1, String(applies() - a0))
-  await page.waitForTimeout(800)
+  await page.waitForFunction((date) => document.querySelector(`[data-testid=pool-days] tr[data-date="${date}"]`)?.children[1]?.textContent?.trim() === '12', range.start, { timeout: 20000 })
   check('success is stated and the pool table now shows the new capacity', /2 night\(s\) changed/.test(await page.locator('[data-testid=editor-done]').innerText()) && (await cells(range.start))[1] === '12' && (await capacitiesOf(op.ctx, seed.dates.from)).includes(`${range.start}:12`))
   check('the apply cleared the preview and the reason', (await page.locator('[data-testid=preview]').count()) === 0)
   await page.waitForTimeout(500)

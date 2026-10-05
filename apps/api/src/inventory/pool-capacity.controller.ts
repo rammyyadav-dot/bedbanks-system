@@ -35,7 +35,7 @@ export class PoolCapacityController {
   @Post('pools/:poolId/capacity/apply') @HttpCode(200) @RequireSupplyPermission('supply.pool_capacity.apply') @UseGuards(SupplyPermissionGuard)
   apply(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string, @Param('poolId') poolId: string, @Body() body: PoolCapacityApply, @Req() req: Request) { return this.pools.apply(tenantId, identity.user.id, hotelId, poolId, body, requestIdOf(req)) }
 
-  // Requests to open new nights (ADR 0036 Amendment 3): maker-checker only; the database owner applies an approved request.
+  // Requests to open new nights (ADR 0036 Amendment 4): maker-checker only; the database owner applies an approved request.
   @Get('pools/:poolId/night-requests') @RequireSupplyPermission('supply.availability.read') @UseGuards(SupplyPermissionGuard)
   nightRequests(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string, @Param('poolId') poolId: string) { return this.nights.list(tenantId, identity.user.id, hotelId, poolId) }
 

@@ -13,7 +13,7 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 interface Proposed { hotelId?: string; startDate?: string; endDate?: string; capacity?: number; missingNights?: number }
 
 /**
- * Maker-checker requests to open new pool nights (ADR 0036 Amendment 3). Creating a pool stock row needs INSERT, which the strict API role never holds,
+ * Maker-checker requests to open new pool nights (ADR 0036 Amendment 4). Creating a pool stock row needs INSERT, which the strict API role never holds,
  * so this service only records, lists, decides and cancels requests (ApprovalRequest writes the role already has). It never writes a night: the database
  * owner applies an APPROVED request with `ops:pool-nights --approval`, which re-validates everything against the live pool.
  */

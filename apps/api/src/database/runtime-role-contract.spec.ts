@@ -72,7 +72,7 @@ describe('API runtime role contract (the single definition)', () => {
     // InventoryPoolDay: one capacity-only column UPDATE; sold, held, tenant, pool and date are never writable; no INSERT or DELETE.
     const poolDay = byTable.get('InventoryPoolDay')!
     expect(poolDay.writes.map((w) => w.op)).toEqual(['UPDATE'])
-    expect(poolDay.writes[0].columns).toEqual(['capacity', 'source', 'source_updated_at', 'received_at', 'fresh_until', 'updated_at'])
+    expect(poolDay.writes[0].columns).toEqual(['capacity', 'updated_at'])
   })
 
   it('every runtime write in the source tree is either in the contract or a listed privileged path, and every granted write has a call site (necessity)', () => {

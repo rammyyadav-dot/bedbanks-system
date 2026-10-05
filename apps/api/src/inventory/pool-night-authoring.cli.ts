@@ -1,5 +1,5 @@
 /**
- * Owner-run: create missing pool stock rows (ADR 0036 Amendment 2). Preview by default; --apply writes.
+ * Owner-run: create missing pool stock rows (ADR 0036 Amendment 3). Preview by default; --apply writes.
  *
  *   PROVISION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api ops:pool-nights \
  *     --tenant=<id> --pool=<id> --from=YYYY-MM-DD --to=YYYY-MM-DD --capacity=<n> --reason="..." --actor="<who runs this>" \

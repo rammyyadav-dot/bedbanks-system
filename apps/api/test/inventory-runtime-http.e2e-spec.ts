@@ -118,17 +118,18 @@ describe('inventory over HTTP on the restricted API runtime role (PostgreSQL)', 
     expect(cal.rows.flatMap((r: { cells: unknown[] }) => r.cells)).toHaveLength(9)
   })
 
-  it('RH-04 pool creation and release-rule edits fail closed and write nothing; a Quick Update of existing pool capacity is the one granted pool write; another tenant sees nothing', async () => {
+  it('RH-04 pool creation and release-rule edits fail closed and write nothing; Quick Update provenance writes remain privileged; another tenant sees nothing', async () => {
     const created = await call('post', `/admin/hotels/${hotelId}/inventory/pools`, 'admin', { name: 'Nope', supplierId: (await owner.inventoryPool.findUniqueOrThrow({ where: { id: poolId } })).supplierId, ratePlanIds: [], idempotencyKey: `${suffix}-create-key` })
     expect(created.status).toBeGreaterThanOrEqual(400)
     const scope = { ratePlanIds: [planIds[0]], ranges: [{ from: day(20), to: day(20) }] }
     const changes = { availability: { allotment: 3 } }
     const preview = await call('post', `/admin/hotels/${hotelId}/quick-update/preview`, 'admin', { scope, changes })
     const fingerprint = preview.status === 200 ? preview.body.data.fingerprint : 'a'.repeat(64)
+    const beforeQuickUpdate = await owner.inventoryPoolDay.findMany({ where: { poolId }, orderBy: { stayDate: 'asc' } })
     const applied = await call('post', `/admin/hotels/${hotelId}/quick-update/apply`, 'admin', { scope, changes, idempotencyKey: `${suffix}-apply-key`, expectedFingerprint: fingerprint, reason: 'runtime role attempt' })
-    expect(applied.status).toBe(200)                                                                     // ADR 0036: capacity of an existing night is the one pool write the role holds (column-level UPDATE, guarded)
-    expect(await owner.inventoryPoolDay.findMany({ where: { poolId }, orderBy: { stayDate: 'asc' }, select: { capacity: true, sold: true, held: true } })).toEqual([{ capacity: 3, sold: 0, held: 0 }, { capacity: 5, sold: 0, held: 0 }, { capacity: 5, sold: 0, held: 0 }])
-    await owner.inventoryPoolDay.updateMany({ where: { poolId }, data: { capacity: 5 } })
+    expect(applied.status).toBe(403) // ADR 0037: Quick Update stamps provenance; only the capacity editor has the two-column write path.
+    expect(applied.body.error.code).toBe('RUNTIME_ROLE_OPERATION_PROHIBITED')
+    expect(await owner.inventoryPoolDay.findMany({ where: { poolId }, orderBy: { stayDate: 'asc' } })).toEqual(beforeQuickUpdate)
     const release = await call('patch', `/admin/hotels/${hotelId}/inventory/rate-plans/${planIds[0]}/release`, 'admin', { releaseDays: 3, releaseTimeLocal: '10:00', expectedUpdatedAt: new Date().toISOString(), reason: 'runtime role attempt', idempotencyKey: `${suffix}-rel-key` })
     expect(release.status).toBeGreaterThanOrEqual(400)
     expect(await owner.inventoryPool.count({ where: { tenantId: tenantA } })).toBe(1)

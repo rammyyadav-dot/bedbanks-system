@@ -147,7 +147,7 @@ describe('migration replay, upgrade and provisioning converge on the strict runt
 
   it('SR-07 no committed migration after the last contract migration grants anything to the runtime role (provisioning is the only source of grants)', () => {
     const all = readdirSync(migrationsDir).filter((d) => d !== 'migration_lock.toml').sort()
-    const contract = all.indexOf('202610260001_strict_runtime_role_pool_capacity')
+    const contract = all.indexOf('202610270001_strict_runtime_role_pool_freshness')
     expect(contract).toBeGreaterThan(-1)
     for (const dir of all.slice(contract + 1)) {
       const sql = readFileSync(join(migrationsDir, dir, 'migration.sql'), 'utf8')

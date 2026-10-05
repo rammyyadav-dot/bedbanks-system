@@ -96,7 +96,12 @@ The verifier (run as the login role) now reports: any SELECT outside the contrac
 ### Migration and rollback
 `202610260001_strict_runtime_role_pool_capacity` is forward-only and a no-op when the group role does not exist. It revokes everything on the three tables from the group role and re-grants exactly the rows above, which equals the contract output (a unit test replays the migrations in order and compares). It must not be applied to a persistent database without an owner decision. Rollback (documented in the migration header): `REVOKE UPDATE (...) ON "InventoryPoolDay"`, `REVOKE SELECT (...) ON "InventoryHold", "InventoryHoldNight"` and revert the code; no data change.
 
-## Amendment 2: creating missing pool nights is an owner-run tool, not an API capability
+
+## Amendment 2: freshness-preserving capacity edits
+
+ADR 0037 supersedes Amendment 1's provenance grant. Capacity editing no longer stamps source ADMIN or refreshes supplier nights. The API role updates capacity and updated_at only; Quick Update provenance writes remain privileged. Migration 202610270001_strict_runtime_role_pool_freshness converges prior column ACLs without changing the already merged migration.
+
+## Amendment 3: creating missing pool nights is an owner-run tool, not an API capability
 Amendment 1 made the editor refuse a night with no stock row, because creating one needs INSERT and pool authoring is a privileged path (ADR 0032). Operators still need a way to open new nights. Decision: **no runtime grant**. `pnpm --filter @bedbanks/api ops:pool-nights` (`apps/api/src/inventory/pool-night-authoring.ts`) runs with the database owner credential, never inside the API process:
 
 - Preview by default (writes nothing, prints the nights it would create, the existing nights it leaves alone, nights before the hotel-local today it skips, and a fingerprint). `--apply` writes; `--expect=<fingerprint>` makes apply refuse if the set of missing nights changed since the preview.
@@ -106,8 +111,8 @@ Amendment 1 made the editor refuse a night with no stock row, because creating o
 - Remote targets need `--allow-remote --confirm-database=<name>`, like the other owner commands. Nothing was run against a persistent database.
 A night created this way becomes bookable only where the plans also have availability rows and are otherwise sellable (ADR 0030, decision 4).
 
-## Amendment 3: Admin request flow for opening pool nights
-Amendment 2 left opening new nights to an owner-run tool with parameters typed on a command line. Operators who are not the database owner can now ask for nights in Admin, and a second person approves, before the owner applies it. **No runtime grant and no schema change**; one data-only migration, `202610270001_pool_night_request_permissions`, adds two `Permission` rows and grants them to no role.
+## Amendment 4: Admin request flow for opening pool nights
+Amendment 3 left opening new nights to an owner-run tool with parameters typed on a command line. Operators who are not the database owner can now ask for nights in Admin, and a second person approves, before the owner applies it. **No runtime grant and no schema change**; one data-only migration, `202610280001_pool_night_request_permissions`, adds two `Permission` rows and grants them to no role.
 
 - **Permissions.** `supply.pool_nights.request` (make or withdraw a request; S2, also the approval action) and `supply.pool_nights.decide` (approve or reject; S2). Viewing requests needs `supply.availability.read`. The API enforces them; the Admin UI only hides what a caller cannot use.
 - **Maker-checker on the existing `ApprovalService` (ADR 0016).** Routes under `.../inventory/pools/:poolId/night-requests` (list, request, approve, reject, cancel). A request holds the range (at most 366 nights), a capacity (0 to 9999), a reason and an idempotency key (the approval `requestId`). It is refused when the pool is archived or when no night in the range is both missing and not in the past (`409 POOL_NIGHTS_NOTHING_TO_OPEN`). The maker cannot decide their own request; only the maker can withdraw; a decision is final. On the strict role this uses only `ApprovalRequest` and `AuditEvent` writes the role already holds and reads `InventoryPoolDay` (a table-level read it already has); it never writes a night.

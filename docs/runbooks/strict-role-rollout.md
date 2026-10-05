@@ -1,9 +1,9 @@
 # Runbook: roll out the strict API role grants for the pool capacity editor
 
-Applies ADR 0036 Amendment 1 (migration `202610260001_strict_runtime_role_pool_capacity`) to an environment. Executed by the **database owner**, not by CI or an AI session; nothing here touches a persistent database until a person runs it. The two helper commands below are read-only.
+Applies ADR 0036 Amendments 1 and 2 (migrations `202610260001_strict_runtime_role_pool_capacity` and `202610270001_strict_runtime_role_pool_freshness`) to an environment. Executed by the **database owner**, not by CI or an AI session; nothing here touches a persistent database until a person runs it. The two helper commands below are read-only.
 
 ## What changes in the database
-Exactly the contract rows in [strict-runtime-db-role.md](../strict-runtime-db-role.md): column-level `UPDATE (capacity, source, source_updated_at, received_at, fresh_until, updated_at)` on `InventoryPoolDay`, and column-level `SELECT` on `InventoryHold (id, tenant_id, rate_plan_id, status)` and `InventoryHoldNight (tenant_id, hold_id, pool_day_id, counter_kind, quantity)`. No table, column, index, policy or data change. No grant to any other role.
+Exactly the contract rows in [strict-runtime-db-role.md](../strict-runtime-db-role.md): column-level `UPDATE (capacity, updated_at)` on `InventoryPoolDay`, and column-level `SELECT` on `InventoryHold (id, tenant_id, rate_plan_id, status)` and `InventoryHoldNight (tenant_id, hold_id, pool_day_id, counter_kind, quantity)`. No table, column, index, policy or data change. No grant to any other role.
 
 ## Order matters
 1. Database first (steps 2 to 5), then the API deploy (step 6). The new API reads the hold columns and writes pool capacity; deployed before the grants it answers a sanitized `503 DATABASE_ROLE_NOT_PERMITTED` for those requests (nothing is written). The previous API keeps working with the new grants, which only add privileges it never uses.
@@ -21,7 +21,7 @@ pnpm --filter @bedbanks/api ops:strict-role-rollout status \
   [--allow-remote --confirm-database=<exact database name>]
 ```
 It reads `_prisma_migrations`, the role catalog and the live grants; it writes nothing and prints no URL or password. Read it as:
-- **Migrations**: applied, pending (expect `202610260001_strict_runtime_role_pool_capacity` on a not-yet-rolled-out database), unfinished and unknown. Unfinished or unknown migrations are a BLOCKER: stop and follow `docs/production-migration-repair-runbook-2026-09-27.md`.
+- **Migrations**: applied, pending (expect `202610260001_strict_runtime_role_pool_capacity` and `202610270001_strict_runtime_role_pool_freshness` on a not-yet-rolled-out database), unfinished and unknown. Unfinished or unknown migrations are a BLOCKER: stop and follow `docs/production-migration-repair-runbook-2026-09-27.md`.
 - **Group role / login members**: the owner usually appears as a member of `fbeds_api` (administrative membership from creating it); that is expected. The API login must not be SUPERUSER or BYPASSRLS (BLOCKER).
 - **Grant drift**: every difference between the live grants of `fbeds_api` and the contract. On a database before this rollout expect the pool-day UPDATE and the two hold-table reads to be listed. After the rollout it must be `none`.
 - **Pooled endpoint**: a BLOCKER. Use the direct connection.
@@ -62,7 +62,7 @@ Open a pool in Admin: the per-plan consumption must show attribution (not an err
 1. Deploy the previous API release.
 2. As the owner:
 ```
-REVOKE UPDATE ("capacity","source","source_updated_at","received_at","fresh_until","updated_at") ON "InventoryPoolDay" FROM fbeds_api;
+REVOKE UPDATE ("capacity","updated_at") ON "InventoryPoolDay" FROM fbeds_api;
 REVOKE SELECT ("id","tenant_id","rate_plan_id","status") ON "InventoryHold" FROM fbeds_api;
 REVOKE SELECT ("tenant_id","hold_id","pool_day_id","counter_kind","quantity") ON "InventoryHoldNight" FROM fbeds_api;
 ```

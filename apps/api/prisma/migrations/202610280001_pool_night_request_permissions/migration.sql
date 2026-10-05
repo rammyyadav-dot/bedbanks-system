@@ -1,4 +1,4 @@
--- ADR 0036 Amendment 3: two permissions for the Admin "request new pool nights" maker-checker flow. DATA ONLY: no table, column, index, constraint,
+-- ADR 0036 Amendment 4: two permissions for the Admin "request new pool nights" maker-checker flow. DATA ONLY: no table, column, index, constraint,
 -- policy or grant changes. Nothing is granted to any role by this migration; an administrator assigns the permissions.
 --
 -- Idempotent (ON CONFLICT updates only the description). Same pattern as 202610250001_pool_capacity_permissions.
