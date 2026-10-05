@@ -64,6 +64,8 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('supply.availability.manage', 'rates', 'S2', 'Edit availability and stop-sell'),
   enforced('supply.pool_capacity.preview', 'rates', 'S1', 'Preview a shared pool capacity change (no write)'),
   enforced('supply.pool_capacity.apply', 'rates', 'S2', 'Apply a shared pool capacity change'),
+  enforced('supply.pool_nights.request', 'rates', 'S2', 'Request opening new nights on a shared pool (applied by the database owner after approval)'),
+  enforced('supply.pool_nights.decide', 'rates', 'S2', 'Approve or reject a request to open new pool nights'),
   enforced('booking.read', 'reservations', 'S0', 'View bookings, holds and connector status'),
   enforced('booking.reconcile', 'reconciliation', 'S3', 'Run reconciliation of interrupted booking attempts'),
   enforced('booking.cancel', 'reservations', 'S3', 'Cancel a booking'),
