@@ -255,3 +255,20 @@ test('clients, service and distribution pages use their own APIs and take no mon
   for (const fn of ['getClientsSummary', 'getServiceSummary', 'getDistributionSummary']) assert.match(slices, new RegExp(fn))
   assert.doesNotMatch(slices, /Math\.|toFixed|\.reduce\(/)
 })
+
+test('rate certification UI holds no pricing or certification authority and shows only API answers', () => {
+  const files = production.filter((f) => /components[\\/]rate-certification[\\/]|\(dashboard\)[\\/]rate-certification[\\/]|lib[\\/]data[\\/]rate-certification|lib[\\/]rate-certification-ui/.test(f))
+  assert.ok(files.length >= 8, `expected the rate certification files, found ${files.length}`)
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    assert.doesNotMatch(text, /evaluateContractedStay|buildStaySnapshot|markupMinor\(|applyPercentMarkup|resolveMarkupBasisPoints/, `${file}: pricing lives in the API`)
+    assert.doesNotMatch(text, /BigInt\(|parseFloat|\.toFixed\(|Number\([^)]*[Mm]inor/, `${file}: money is never computed in the browser`)
+    assert.doesNotMatch(text, /status\s*=\s*['"](PASS|WARN|FAIL|CERTIFIED|NOT_READY)['"]/, `${file}: a certification is never assigned in the browser`)
+    assert.doesNotMatch(text, /Math\.random|setTimeout|DEMO_MODE|mockData|fallbackData/, `${file}: no simulated data`)
+    assert.doesNotMatch(text, /\.catch\(\s*\(\)\s*=>\s*(\[\]|\{\}|null|undefined)/, `${file}: a failure is never turned into empty data`)
+    assert.doesNotMatch(text, /method:\s*['"](PUT|PATCH|DELETE)['"]/, `${file}: the audit is read-only`)
+  }
+  const data = readFileSync(join(root, 'lib', 'data', 'rate-certification.ts'), 'utf8')
+  assert.equal([...data.matchAll(/method: '(\w+)'/g)].map((m) => m[1]).join(','), 'POST', 'the only non-GET call is the read-only simulator')
+  assert.ok(flatNav.some((n) => n.href === '/rate-certification' && n.requires === 'supply.rates.read'))
+})
