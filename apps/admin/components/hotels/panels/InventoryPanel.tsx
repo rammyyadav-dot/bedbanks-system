@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { INVENTORY_LIMITS, INVENTORY_MODES, type HotelCommercial360, type HotelInventorySummary, type InventoryPlanSummary, type InventoryPool } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
@@ -10,6 +11,7 @@ import { apiErrorParts } from '@/lib/hotel-setup-ui'
 import { addInventoryPoolMembers, createInventoryPool, getInventorySummary, removeInventoryPoolMembers, setPlanRelease, updateInventoryPool } from '@/lib/data/hotel-inventory'
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
+import { PoolWorkspace } from './PoolWorkspace'
 import { RatesInventoryPanel } from './RatesInventoryPanel'
 
 const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as const
@@ -28,6 +30,12 @@ type Failure = { message: string; details: string[]; requestId: string | null }
  * Every change sends the token of what is on screen, so a stale form is refused by the server instead of overwriting.
  */
 export function InventoryPanel({ hotelId, rooms }: { hotelId: string; rooms: HotelCommercial360['rooms'] }) {
+  const poolId = useSearchParams().get('pool')
+  if (poolId) return <PoolWorkspace hotelId={hotelId} poolId={poolId} />
+  return <InventoryOverview hotelId={hotelId} rooms={rooms} />
+}
+
+function InventoryOverview({ hotelId, rooms }: { hotelId: string; rooms: HotelCommercial360['rooms'] }) {
   const [days, setDays] = useState(14)
   const { state, reload, refresh } = useOpsQuery(() => getInventorySummary(hotelId, { days }), [hotelId, days])
   return (
@@ -127,7 +135,7 @@ function PoolCard({ hotelId, pool, data, canManage, onChanged }: { hotelId: stri
             <td style={td}>{n.date}</td><td style={td}>{n.capacity ?? '—'}</td><td style={td}>{n.sold ?? '—'}</td><td style={td}>{n.held ?? '—'}</td><td style={td}><strong>{n.remaining ?? '—'}</strong></td>
             <td style={td}>{n.capacity === null ? <Chip tone="warn">NO STOCK ROW (unknown)</Chip> : n.stale ? <Chip tone="bad">STALE</Chip> : n.remaining === 0 ? <Chip tone="bad">SOLD OUT</Chip> : <Chip tone="ok">OK</Chip>}</td>
           </tr>))}</tbody></table></ScrollRegion>
-      <p style={note}>Capacity is shared: it is one count for every plan listed above, not one per plan. Change it in <Link href={hotelHref(hotelId, 'quick')}>Quick Update</Link> (Availability → Allotment, selecting any plan of this pool).</p>
+      <p style={note}>Capacity is shared: it is one count for every plan listed above, not one per plan. <Link href={`/hotels/${hotelId}?tab=inventory&pool=${pool.id}`} data-testid="open-pool">Open this pool</Link> for the date-range capacity editor and the per-plan consumption report. Bulk edits across plans remain in <Link href={hotelHref(hotelId, 'quick')}>Quick Update</Link>.</p>
       {canManage && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
           <label style={field}>Add a rate plan<select className="input-wrap" value={add} onChange={(e) => setAdd(e.target.value)}><option value="">Choose…</option>{candidates.map((c) => <option key={c.ratePlanId} value={c.ratePlanId}>{c.ratePlanCode} · {c.roomName} · {c.boardCode}</option>)}</select></label>

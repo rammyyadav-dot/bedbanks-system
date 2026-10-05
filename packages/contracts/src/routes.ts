@@ -24,6 +24,8 @@ export const routes = {
     summary: '/admin/hotels/:hotelId/inventory/summary', pools: '/admin/hotels/:hotelId/inventory/pools', pool: '/admin/hotels/:hotelId/inventory/pools/:poolId',
     poolMembersAdd: '/admin/hotels/:hotelId/inventory/pools/:poolId/members/add', poolMembersRemove: '/admin/hotels/:hotelId/inventory/pools/:poolId/members/remove',
     planRelease: '/admin/hotels/:hotelId/inventory/rate-plans/:ratePlanId/release',
+    poolConsumption: '/admin/hotels/:hotelId/inventory/pools/:poolId/consumption',
+    poolCapacityPreview: '/admin/hotels/:hotelId/inventory/pools/:poolId/capacity/preview', poolCapacityApply: '/admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply',
   },
   // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
   adminClients: {
