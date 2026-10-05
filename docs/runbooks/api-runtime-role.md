@@ -16,6 +16,10 @@ A remote target also requires `--allow-remote --confirm-database=<exact database
 
 Build `DATABASE_URL` with user `fbeds_api_login` and that password. Store it in the secret manager. Do not commit it.
 
+## Rolling out grant changes
+
+For an environment that already has the role, use [strict-role-rollout.md](strict-role-rollout.md): a read-only `status` dry run, the migration, idempotent provisioning and a read-only `verify` as the login role.
+
 ## Rollback
 
 ```
