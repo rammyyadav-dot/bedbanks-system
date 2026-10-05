@@ -6,6 +6,7 @@ import { AgentWorkspace } from './agent-workspace'
 import { agentSession, getAgentContext, logout, type AgentIdentity } from '@/lib/api-client'
 import { clearGuestNationality } from '@/lib/guest-market'
 import { clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
+import { SESSION_EXPIRED_EVENT } from '@/lib/session-events.mjs'
 
 export function AgentAuthGate() {
   const [identity, setIdentity] = useState<AgentIdentity | null>(null)
@@ -13,6 +14,8 @@ export function AgentAuthGate() {
   const [sessionExpired, setSessionExpired] = useState(false)
   const [restoreError, setRestoreError] = useState(false)
   const sessionEpoch = useRef(0)
+  const identityRef = useRef<AgentIdentity | null>(null)
+  identityRef.current = identity
 
   const restoreSession = useCallback(async () => {
     const generation = ++sessionEpoch.current
@@ -50,6 +53,23 @@ export function AgentAuthGate() {
   }, [])
 
   useEffect(() => { void restoreSession() }, [restoreSession])
+
+  // A signed-in agent whose session disappears mid-journey (an API call answered 401) goes back to sign-in with a clear notice. Account-specific
+  // browser state is cleared, and the in-flight epoch is invalidated so a late context response cannot revive the old identity.
+  useEffect(() => {
+    const onExpired = () => {
+      const current = identityRef.current
+      if (!current) return
+      sessionEpoch.current += 1
+      clearRecentSearches(window.sessionStorage, current.user.id)
+      clearGuestNationality(window.sessionStorage, current.user.id)
+      setIdentity(null)
+      setRestoreError(false)
+      setSessionExpired(true)
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [])
 
   if (loading) return <main className="trade-state" aria-live="polite"><p>Checking your secure session…</p></main>
   if (identity) return <AgentWorkspace identity={identity} />

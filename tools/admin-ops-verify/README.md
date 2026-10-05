@@ -112,3 +112,7 @@ node tools/admin-ops-verify/verify-rate-certification.cjs
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-pool-capacity.ts)
 node tools/admin-ops-verify/verify-pool-capacity.cjs
 ```
+
+## Agent Dubai MVP completion (docs/agent-dubai-mvp-completion.md)
+
+`seed-agent-mvp.ts` creates 30 filler Dubai hotels plus one hotel per scenario (image, long names, shared pool of 1 over three plans, stale supplier, ON_REQUEST, CLOSED, price change, sold-out), Agent users and a second tenant. `verify-agent-mvp.cjs` drives the production Agent build (:3003) against the real API on the strict runtime login (:3002; a second API with `AGENT_OFFER_TTL_MS=1500` on :3004 for the real server-side expiry check): login and session, search and pagination, details, recheck outcomes, shared pool, cross-tenant, failure and retry, responsive, keyboard and axe, and no-allocation counters. It needs `OWNER_DATABASE_URL` for fixtures and read-only evidence. Same disposable-database guard as above; re-seed before every run.

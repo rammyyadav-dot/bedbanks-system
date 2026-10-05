@@ -1,6 +1,7 @@
 import type { AgentFundingReceiptView, AgentFundingView, FundingDeclareRequest } from '@bedbanks/contracts'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
+import { NON_EXPIRING_PATHS, announceSessionExpired } from './session-events.mjs'
 
 export type AgentIdentity = {
   user: { id: string; email: string; name: string | null; status: 'ACTIVE' | 'SUSPENDED' }
@@ -34,7 +35,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } })
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    if (response.status === 401) throw new Error('Session expired')
+    if (response.status === 401) { if (!NON_EXPIRING_PATHS.includes(path)) announceSessionExpired(); throw new Error('Session expired') }
     if (response.status === 403) throw new Error('Access denied')
     throw new Error('Request failed')
   }

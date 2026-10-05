@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { bookingReviewStay, creditBreakdown, formatCancellationDeadline, formatCompactStay, formatMinorAmount, formatMinorDelta, formatStay, recheckedTotalText, weekdayShort } from './format.ts'
+import { bookingReviewStay, creditBreakdown, formatCancellationDeadline, formatCompactStay, formatMinorAmount, formatMinorDelta, formatOfferExpiry, formatStay, recheckedTotalText, weekdayShort } from './format.ts'
 
 test('formats integer minor units in the stated currency without floating point', () => {
   assert.equal(formatMinorAmount('125000000', 'USD'), 'USD 1,250,000.00')
@@ -70,4 +70,12 @@ test('never invents a figure that the API did not send', () => {
   assert.deepEqual(creditBreakdown({ availableCredit: '100', creditLimit: '200' }), { available: null, limit: null, used: null })
   assert.deepEqual(creditBreakdown(null), { available: null, limit: null, used: null })
   assert.deepEqual(creditBreakdown({ currency: 'USD', availableCredit: '1.5', creditLimit: 'x' }), { available: null, limit: null, used: null })
+})
+
+test('formats a server expiry in the hotel time zone and refuses anything that is not an instant', () => {
+  assert.equal(formatOfferExpiry('2026-10-05T14:30:00.000Z', 'Asia/Dubai'), '5 Oct 2026, 18:30 (Asia/Dubai)')
+  assert.equal(formatOfferExpiry('2026-10-05T14:30:00.000Z', 'Not/AZone'), '5 Oct 2026, 14:30 (UTC)')
+  assert.equal(formatOfferExpiry('2026-10-05T14:30:00.000Z', undefined), '5 Oct 2026, 14:30 (UTC)')
+  assert.equal(formatOfferExpiry('soon', 'Asia/Dubai'), null)
+  assert.equal(formatOfferExpiry(undefined, 'Asia/Dubai'), null)
 })
