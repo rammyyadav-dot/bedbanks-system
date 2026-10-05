@@ -13,3 +13,4 @@ export * from './hotel-rooms';
 export * from './hotel-quick-update';
 export * from './hotel-images';
 export * from './hotel-inventory';
+export * from './rate-certification';

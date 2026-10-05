@@ -55,6 +55,12 @@ export const routes = {
     verify: '/admin/funding/receipts/:receiptId/verify', clearCompliance: '/admin/funding/receipts/:receiptId/clear-compliance',
     post: '/admin/funding/receipts/:receiptId/post', reject: '/admin/funding/receipts/:receiptId/reject',
   },
+  // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
+  adminRateCertification: {
+    summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',
+    hotels: '/admin/rate-certification/hotels', markupRules: '/admin/rate-certification/markup-rules', remediation: '/admin/rate-certification/remediation',
+    simulate: '/admin/rate-certification/simulate', report: '/admin/rate-certification/report',
+  },
   adminOperations: {
     capabilities: '/admin/operations/capabilities', readiness: '/admin/operations/readiness',
     hotels: '/admin/operations/hotels', suppliers: '/admin/operations/suppliers',
