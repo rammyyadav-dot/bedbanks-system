@@ -56,3 +56,8 @@ Attribution reads each hold's recorded pool night and plan, so history survives 
 - `pool-capacity-rules.spec.ts`: 16 unit tests (validation, planning, fingerprint, attribution).
 - `pool-capacity-editor.e2e-spec.ts`: 27 PostgreSQL/HTTP tests with two tenants, the real hold lifecycle and the Agent adapter. PCE-22 to PCE-27 boot the real API on the provisioned non-superuser, non-BYPASSRLS, non-owner login and prove Apply, reconciling attribution, 403/409/422/503 semantics, direct-SQL denials of protected and ungranted columns, tenant isolation, verifier drift detection and concurrent integrity.
 - `tools/admin-ops-verify/verify-pool-capacity.cjs`: 59 Chromium checks on the production Admin build, run against an API connected as the strict login (provision the role with `ops:provision-api-runtime-role`, start the API with that login URL, as in the Hotel setup journey section of `tools/admin-ops-verify/README.md`). Run `seed-pool-capacity.ts` first with the owner URL (re-seed before each run: the run edits capacity).
+
+
+### Freshness safety (ADR 0037)
+
+Capacity changes preserve source, source_updated_at, received_at and fresh_until. Expired supplier nights stay expired; missing nights stay unknown. The API role updates only capacity and updated_at, never provenance. Quick Update statements that stamp provenance remain privileged. The forward migration 202610270001_strict_runtime_role_pool_freshness clears prior column grants before applying the narrower contract.

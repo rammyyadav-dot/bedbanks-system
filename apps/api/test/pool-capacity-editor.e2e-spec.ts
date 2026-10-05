@@ -240,7 +240,7 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
   })
 
   // ---- apply --------------------------------------------------------------------------------------------------------------------------
-  it('PCE-07 apply changes only capacity, atomically, stamps ADMIN provenance, and records an audit event with the reason and attribution', async () => {
+  it('PCE-07 apply changes only capacity, atomically, preserves provenance, and records an audit event with the reason and attribution', async () => {
     const rowsBefore = await owner.dailyAvailability.findMany({ where: { tenantId: tenantA }, orderBy: [{ ratePlanId: 'asc' }, { stayDate: 'asc' }] })
     const ratesBefore = await owner.dailyRate.findMany({ where: { tenantId: tenantA }, orderBy: [{ ratePlanId: 'asc' }, { stayDate: 'asc' }] })
     const p = (await preview(edit({ capacity: 7 })).expect(200)).body.data
@@ -509,6 +509,24 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
   }
   const sqlState = async (fn: () => Promise<unknown>) => { try { await fn(); return 'ok' } catch (e) { return /permission denied/i.test(String((e as Error).message)) ? 'denied' : `other: ${(e as Error).message.slice(0, 120)}` } }
 
+  it('capacity editing preserves expired supplier provenance and cannot revive Agent inventory', async () => {
+    await reset()
+    const receivedAt = new Date(Date.now() - 120_000), freshUntil = new Date(Date.now() - 60_000)
+    await owner.inventoryPoolDay.update({ where: { id: poolDays[D[0]] }, data: { source: 'SUPPLIER_FEED', receivedAt, freshUntil, sourceUpdatedAt: receivedAt } })
+    const body = edit({ startDate: D[0], endDate: D[0], capacity: 8 })
+    const p = (await preview(body).expect(200)).body.data
+    await apply({ ...body, expectedFingerprint: p.fingerprint, reason: 'Capacity adjustment only', idempotencyKey: key() }).expect(200)
+    const row = await dayRow(D[0])
+    expect(row).toMatchObject({ capacity: 8, source: 'SUPPLIER_FEED', receivedAt, freshUntil, sourceUpdatedAt: receivedAt })
+    const detail = (await http().get(`${path(hotelA, poolA)}?from=${D[0]}&days=1`, 'viewer').expect(200)).body.data
+    expect(detail.days[0].stale).toBe(true)
+    const criteria = { destination: 'Dubai', checkIn: D[0], checkOut: D[1], rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED', canonicalHotelIds: [hotelA] } as SearchCriteria
+    expect((await adapter.search(criteria, { tenantId: tenantA, requestId: 'stale-capacity', userId: ownerUserId })).offers).toHaveLength(0)
+    await owner.inventoryPoolDay.update({ where: { id: row.id }, data: { source: 'ADMIN', freshUntil: null } })
+    await reset()
+  })
+
+  // ---- strict runtime role --------------------------------------------------------------------------------------------------------------
   it('PCE-22 strict role: the role is non-super, non-BYPASSRLS, non-owner; viewing, previewing and Apply all work; attribution is available and reconciles', async () => {
     runtimePassword = randomBytes(24).toString('hex')
     await provisionApiRuntimeRole(owner, { password: runtimePassword })
@@ -595,7 +613,7 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     const day0 = await dayRow(D[0])                                                                   // after any fixture hold, so sold/held are the baseline
     // writable: only the capacity set
     expect(await sqlState(() => asRuntime(tenantA, (t) => t.$executeRaw`UPDATE "InventoryPoolDay" SET "capacity" = 5, "updated_at" = now() WHERE "id" = ${day0.id}`))).toBe('ok')
-    for (const col of ['sold', 'held', 'tenant_id', 'pool_id', 'stay_date', 'id', 'created_at']) {
+    for (const col of ['sold', 'held', 'tenant_id', 'pool_id', 'stay_date', 'id', 'created_at', 'source', 'source_updated_at', 'received_at', 'fresh_until']) {
       const stmt = `UPDATE "InventoryPoolDay" SET "${col}" = "${col}" WHERE "id" = '${day0.id}'`
       const state = await sqlState(() => asRuntime(tenantA, (t) => t.$executeRawUnsafe(stmt)))
       expect({ col, state }).toEqual({ col, state: 'denied' })
@@ -655,8 +673,14 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     // elevated attributes and extra memberships
     await owner.$executeRawUnsafe('ALTER ROLE fbeds_api_login BYPASSRLS')
     try { expect((await verify()).failures.join(' ')).toMatch(/BYPASSRLS/) } finally { await owner.$executeRawUnsafe('ALTER ROLE fbeds_api_login NOBYPASSRLS') }
-    await owner.$executeRawUnsafe('GRANT fbeds_map_reader TO fbeds_api_login')
-    try { expect((await verify()).ok).toBe(false) } finally { await owner.$executeRawUnsafe('REVOKE fbeds_map_reader FROM fbeds_api_login') }
+    await owner.$executeRawUnsafe('CREATE ROLE fbeds_pool_test_extra NOLOGIN')
+    try {
+      await owner.$executeRawUnsafe('GRANT fbeds_pool_test_extra TO fbeds_api_login')
+      expect((await verify()).ok).toBe(false)
+    } finally {
+      await owner.$executeRawUnsafe('REVOKE fbeds_pool_test_extra FROM fbeds_api_login')
+      await owner.$executeRawUnsafe('DROP ROLE fbeds_pool_test_extra')
+    }
     expect((await verify()).ok).toBe(true)
   })
 

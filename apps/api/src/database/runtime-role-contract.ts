@@ -51,12 +51,8 @@ export const ROOM_WRITE_COLUMNS = ['name', 'code', 'max_adults', 'max_children',
 /** Amenity columns the runtime may update (a fee type change). The hotel, room and tenant a row belongs to are immutable for the role (ADR 0032 amendment). */
 export const AMENITY_UPDATE_COLUMNS = ['fee_type', 'updated_by_id', 'updated_at'] as const
 
-/**
- * InventoryPoolDay columns the capacity editor may update (ADR 0036, amendment). `capacity` is the edit; the next four are the ADMIN provenance
- * stamp every Admin edit writes (ADR 0030, decision 7: source ADMIN, fresh, no expiry), so an edit also revives a night a supplier feed had let go stale.
- * `sold`, `held`, `tenant_id`, `pool_id`, `stay_date`, `id` and `created_at` are NOT writable: the counters move only through the hold path.
- */
-export const POOL_DAY_CAPACITY_COLUMNS = ['capacity', 'source', 'source_updated_at', 'received_at', 'fresh_until', 'updated_at'] as const
+/** Existing-night capacity only: identity, stock and provenance/freshness stay protected (ADR 0037). */
+export const POOL_DAY_CAPACITY_COLUMNS = ['capacity', 'updated_at'] as const
 
 /** InventoryHold columns the per-plan consumption report reads: tenant-scoped identity, the plan the hold was made for, and its lifecycle status. No guest, money, offer, search, idempotency or user fields. */
 export const HOLD_ATTRIBUTION_COLUMNS = ['id', 'tenant_id', 'rate_plan_id', 'status'] as const
@@ -95,7 +91,7 @@ const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
 /** Tables the runtime also writes, each with the exact operation, service, endpoints and reason. */
 const READ_WRITE: readonly RuntimeGrant[] = [
   { table: 'InventoryPoolDay', model: 'InventoryPoolDay', read: true, rls: 'forced-tenant', note: 'capacity-only column UPDATE; INSERT, DELETE, sold and held stay with the hold path and the hold-expiry role', writes: [
-    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply; HotelQuickUpdateService.apply (pooled plans)', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`, `POST ${HOTEL}/quick-update/apply`], reason: 'set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night. A Quick Update that would create a pool night is outside the contract and refused' },
+    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`], reason: 'set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged' },
   ] },
   { table: 'users', model: 'User', read: true, rls: 'none', writes: [
     { op: 'UPDATE', columns: ['last_login_at', 'updated_at'], service: 'AuthService.login', endpoints: ['POST /auth/login'], reason: 'record the last successful sign-in' },
@@ -215,7 +211,7 @@ const quote = (name: string) => `"${name}"`
 /** Statements the owner runs. REVOKE ALL first, then exactly the contract. */
 export function runtimeGrantStatements(group: string): string[] {
   const role = quote(group)
-  const statements = [`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${role}`, `GRANT USAGE ON SCHEMA public TO ${role}`]
+  const statements = [`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${role}`, `DO $$ DECLARE r record; BEGIN FOR r IN SELECT c.relname, a.attname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped LOOP EXECUTE format('REVOKE ALL (%I) ON %I FROM %I', r.attname, r.relname, '${group}'); END LOOP; END $$`, `GRANT USAGE ON SCHEMA public TO ${role}`]
   for (const grant of RUNTIME_ROLE_GRANTS) {
     const table = quote(grant.table)
     const privileges: string[] = [...(grant.read ? ['SELECT'] : []), ...grant.writes.filter((w) => !w.columns).map((w) => w.op)]
