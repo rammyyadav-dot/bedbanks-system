@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
-import { SandboxContentStore, sandboxStagingGrantSql, verifySandboxStagingPrincipal } from '../src/sandbox/sandbox-content-store'
+import { SandboxContentStore, sandboxStagingGrantSql, verifySandboxStagingPrincipal, SANDBOX_STAGING_GROUP } from '../src/sandbox/sandbox-content-store'
 
 const url = process.env.DATABASE_URL
 if (!url) throw new Error('Disposable PostgreSQL DATABASE_URL is required')
@@ -27,6 +27,8 @@ describe('sandbox staging on a non-owner, non-BYPASSRLS PostgreSQL principal', (
     connectorId = connector.id
     const password = randomBytes(24).toString('hex')
     await owner.$executeRawUnsafe(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT`)
+    await owner.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${SANDBOX_STAGING_GROUP}') THEN CREATE ROLE "${SANDBOX_STAGING_GROUP}" NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END $$`)
+    await owner.$executeRawUnsafe(`GRANT "${SANDBOX_STAGING_GROUP}" TO "${role}"`)
     for (const sql of sandboxStagingGrantSql(role)) await owner.$executeRawUnsafe(sql)
     const loginUrl = new URL(url!)
     loginUrl.username = role; loginUrl.password = password
