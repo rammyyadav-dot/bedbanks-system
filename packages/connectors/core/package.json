@@ -10,5 +10,5 @@
     "test": "node --test",
     "build": "tsc"
   },
-  "devDependencies": { "typescript": "^5.7.3" }
+  "devDependencies": { "typescript": "^5.7.3", "@types/node": "^24" }
 }
