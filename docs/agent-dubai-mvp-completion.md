@@ -79,6 +79,8 @@ Browser journey: search 271–389 ms, recheck 131–253 ms. `inventory-scale.ts`
 
 Search time grew about 13x for 10x the hotels in one unpaginated call; the Agent pages results by 25. Not treated as a defect here.
 
+Follow-up (perf/agent-search-100-hotels): reading rate plans 100 hotels per batch instead of 25 cut the 100-hotel search from 50 to 17 queries. Same harness, strict role: 100 hotels search p50 / p95 239.9 / 280.5 ms, 261 offers, 0 mismatches, 0 wrong rechecks, 0 wrong pool counts (1 hotel 24 / 68.6 ms; 10 hotels 34.8 / 81.2 ms). The table above is the pre-change measurement.
+
 ## Files changed
 Agent: `app/globals.css`, `components/agent-auth-gate.tsx`, `agent-portal.tsx`, `agent-workspace.tsx`, `booking/booking-review.tsx`, `search/agent-search-view.tsx`, `lib/api-client.ts`, `lib/format.ts` (+test), `lib/search-page.ts` (+test), `lib/session-events.mjs`/`.d.mts` (+test), `services/hotel-service.ts`. Harness: `tools/admin-ops-verify/seed-agent-mvp.ts`, `verify-agent-mvp.cjs`. Evidence: `docs/evidence/agent-dubai-mvp/`. This record.
 
