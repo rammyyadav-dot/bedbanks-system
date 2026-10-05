@@ -19,8 +19,14 @@ const OFFER_PREFIX = 'ci_'
 const DEFAULT_OFFER_TTL_MS = 900_000
 const MIN_OFFER_TTL_MS = 1_000
 const MAX_OFFER_TTL_MS = 3_600_000
-/** Candidate hotels per rate-plan read. Small enough to keep each query bounded, with no global plan ceiling. */
-const HOTEL_CANDIDATE_BATCH = 25
+/**
+ * Candidate hotels per rate-plan read: bounded, with no global plan ceiling. Each read costs about a dozen relation queries, so the batch size sets
+ * the round trips for a search. Measured on 100 hotels (strict runtime role): 25 gave 50 queries and about 215 ms, 100 gave 17 queries and about 80 ms.
+ */
+const HOTEL_CANDIDATE_BATCH = (() => {
+  const parsed = Number(process.env.AGENT_SEARCH_HOTEL_BATCH ?? 100) // tests lower it to exercise the multi-batch path with few hotels
+  return Number.isSafeInteger(parsed) ? Math.min(200, Math.max(5, parsed)) : 100
+})()
 
 interface StoredOffer {
   offerId: string
