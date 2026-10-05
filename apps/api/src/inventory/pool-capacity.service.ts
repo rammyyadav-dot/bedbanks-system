@@ -101,76 +101,74 @@ export class PoolCapacityService {
 
   // ---- per-plan consumption ----------------------------------------------------------------------------------------------------
   async consumption(tenantId: string, hotelIdRaw: string, poolIdRaw: string, query: { from?: unknown; days?: unknown }): Promise<PoolConsumptionReport> {
-    const base = await this.prisma.withTenant(tenantId, async (tx) => {
+    return this.prisma.withTenant(tenantId, async (tx) => {
       const hotel = await this.hotel(tx, tenantId, hotelIdRaw)
       const pool = await this.pool(tx, tenantId, hotel.id, poolIdRaw)
       const now = this.clock()
       const w = this.window(query, dayInZone(now, hotel.timeZone), DEFAULT_DAYS, POOL_CAPACITY_LIMITS.reportMaxDays)
       const members = await this.members(tx, tenantId, pool.id)
       const rows = await tx.inventoryPoolDay.findMany({ where: { tenantId, poolId: pool.id, stayDate: { gte: toDate(w.from), lte: toDate(w.to) } }, select: { id: true, stayDate: true, capacity: true, sold: true, held: true } })
-      return { hotel, pool, now, w, members, rows }
-    })
-    const { hotel, pool, now, w, members, rows } = base
-    const byDate = new Map(rows.map((r) => [day(r.stayDate), r]))
-    const dayIds = rows.map((r) => r.id)
+      const byDate = new Map(rows.map((r) => [day(r.stayDate), r]))
+      const dayIds = rows.map((r) => r.id)
 
-    // Attribution reads the hold tables through the columns the runtime-role contract grants (ADR 0036). A missing privilege is drift, not a caller denial: it surfaces as the sanitized 503, never as zero or a silent "unavailable".
-    const attribution: PoolAttribution = { state: 'available' }
-    let evidence: AttributedNight[] = []
-    let formerPlans: Array<{ id: string; code: string; roomName: string; boardCode: string; contractCode: string }> = []
-    if (dayIds.length > 0) {
-      const read = await this.prisma.withTenant(tenantId, async (tx) => {
-        const grouped = await tx.$queryRaw<Array<{ pool_day_id: string; rate_plan_id: string; status: string; qty: number }>>(Prisma.sql`
-          SELECT hn."pool_day_id", h."rate_plan_id", h."status"::text AS "status", SUM(hn."quantity")::int AS "qty"
-            FROM "InventoryHoldNight" hn
-            JOIN "InventoryHold" h ON h."id" = hn."hold_id" AND h."tenant_id" = hn."tenant_id"
-           WHERE hn."tenant_id" = ${tenantId} AND hn."counter_kind" = 'POOL_DAY'::"InventoryCounterKind" AND hn."pool_day_id" IN (${Prisma.join(dayIds)})
-           GROUP BY hn."pool_day_id", h."rate_plan_id", h."status"
-        `)
-        const memberIds = new Set(members.map((m) => m.id))
-        const other = [...new Set(grouped.map((g) => g.rate_plan_id))].filter((id) => !memberIds.has(id))
-        const former = other.length === 0 ? [] : await tx.ratePlan.findMany({ where: { tenantId, id: { in: other } }, select: { id: true, code: true, roomType: { select: { name: true } }, boardBasis: { select: { code: true } }, contract: { select: { code: true } } } })
-        return { grouped, former }
+      // Counters, lifecycle attribution and membership share one repeatable-read snapshot. Required read failures propagate as operational errors.
+      const attribution: PoolAttribution = { state: 'available' }
+      let evidence: AttributedNight[] = []
+      let formerPlans: Array<{ id: string; code: string; roomName: string; boardCode: string; contractCode: string }> = []
+      if (dayIds.length > 0) {
+        const read = await (async () => {
+          const grouped = await tx.$queryRaw<Array<{ pool_day_id: string; rate_plan_id: string; status: string; qty: number }>>(Prisma.sql`
+            SELECT hn."pool_day_id", h."rate_plan_id", h."status"::text AS "status", SUM(hn."quantity")::int AS "qty"
+              FROM "InventoryHoldNight" hn
+              JOIN "InventoryHold" h ON h."id" = hn."hold_id" AND h."tenant_id" = hn."tenant_id"
+             WHERE hn."tenant_id" = ${tenantId} AND hn."counter_kind" = 'POOL_DAY'::"InventoryCounterKind" AND hn."pool_day_id" IN (${Prisma.join(dayIds)})
+             GROUP BY hn."pool_day_id", h."rate_plan_id", h."status"
+          `)
+          const memberIds = new Set(members.map((m) => m.id))
+          const other = [...new Set(grouped.map((g) => g.rate_plan_id))].filter((id) => !memberIds.has(id))
+          const former = other.length === 0 ? [] : await tx.ratePlan.findMany({ where: { tenantId, id: { in: other } }, select: { id: true, code: true, roomType: { select: { name: true } }, boardBasis: { select: { code: true } }, contract: { select: { code: true } } } })
+          return { grouped, former }
+        })()
+        evidence = read.grouped.map((g) => ({ poolDayId: g.pool_day_id, ratePlanId: g.rate_plan_id, holdStatus: g.status, quantity: Number(g.qty) }))
+        formerPlans = read.former.map((f) => ({ id: f.id, code: f.code, roomName: f.roomType.name, boardCode: f.boardBasis.code.trim(), contractCode: f.contract.code }))
+      }
+
+      const nights = w.dates.map((date) => {
+        const d = byDate.get(date)
+        const n = attributeNight(date, d ? { id: d.id, capacity: d.capacity, sold: d.sold, held: d.held } : null, attribution.state === 'available' ? evidence : [])
+        return attribution.state === 'available' ? n : { ...n, plans: [], unattributedHeld: null, unattributedSold: null, consistent: null }
       })
-      evidence = read.grouped.map((g) => ({ poolDayId: g.pool_day_id, ratePlanId: g.rate_plan_id, holdStatus: g.status, quantity: Number(g.qty) }))
-      formerPlans = read.former.map((f) => ({ id: f.id, code: f.code, roomName: f.roomType.name, boardCode: f.boardBasis.code.trim(), contractCode: f.contract.code }))
-    }
-
-    const nights = w.dates.map((date) => {
-      const d = byDate.get(date)
-      const n = attributeNight(date, d ? { id: d.id, capacity: d.capacity, sold: d.sold, held: d.held } : null, attribution.state === 'available' ? evidence : [])
-      return attribution.state === 'available' ? n : { ...n, plans: [], unattributedHeld: null, unattributedSold: null, consistent: null }
-    })
-    const planRows: PoolConsumptionPlan[] = [
-      ...members.map((m) => ({ ratePlanId: m.id, ratePlanCode: m.code, roomName: m.roomType.name, boardCode: m.boardBasis.code.trim(), contractCode: m.contract.code, member: true })),
-      ...formerPlans.map((f) => ({ ratePlanId: f.id, ratePlanCode: f.code, roomName: f.roomName, boardCode: f.boardCode, contractCode: f.contractCode, member: false })),
-    ].map((p) => attribution.state === 'available'
-      ? { ...p, held: nights.reduce((a, n) => a + (n.plans.find((x) => x.ratePlanId === p.ratePlanId)?.held ?? 0), 0), sold: nights.reduce((a, n) => a + (n.plans.find((x) => x.ratePlanId === p.ratePlanId)?.sold ?? 0), 0) }
-      : { ...p, held: null, sold: null })
-    const withDay = nights.filter((n) => n.exists)
-    const known = attribution.state === 'available'
-    const sum = (f: (n: (typeof nights)[number]) => number | null) => (known ? withDay.reduce((a, n) => a + (f(n) ?? 0), 0) : null)
-    return {
-      hotelId: hotel.id, poolId: pool.id, poolName: pool.name, timeZone: hotel.timeZone, generatedAt: now.toISOString(), window: { from: w.from, to: w.to, days: w.days },
-      plans: planRows, nights, attribution,
-      totals: {
-        nightsWithPoolDay: withDay.length, inconsistentNights: known ? withDay.filter((n) => n.consistent === false).length : 0,
-        attributedHeld: sum((n) => n.plans.reduce((a, p) => a + p.held, 0)), attributedSold: sum((n) => n.plans.reduce((a, p) => a + p.sold, 0)),
-        unattributedHeld: sum((n) => n.unattributedHeld), unattributedSold: sum((n) => n.unattributedSold),
-      },
-      definitions: {
-        counters: 'A pool night has one counter set: capacity, sold and held. available = capacity - sold - held, the expression Agent search and recheck use. Nothing else is subtracted.',
-        held: 'Units on holds in status HELD, PROCESSING or HOLD_PENDING (a booking attempt keeps the hold until it confirms or releases).',
-        sold: 'Units on holds in status CONFIRMED. A cancelled booking returns its units and its hold becomes RELEASED.',
-        excluded: 'RELEASED, EXPIRED, FAILED, PENDING_RECHECK and RECHECKED holds occupy nothing now and are not counted. Cumulative lifecycle events are never shown as current occupancy.',
-        attribution: 'Each hold recorded the pool night it drew from and the rate plan that holds it when it was created. Attribution uses those records, not current pool membership, so a plan that later left the pool keeps its history. Unattributed = counter - attributed; it is derived, and a negative value is reported as inconsistent rather than hidden.',
-        limitations: [
-          'Consumption recorded before holds noted their counter (before ADR 0030) or written to the counter outside the hold path appears only as unattributed.',
-          'Nights a plan sold on its own row before it joined a pool are not pool consumption and are not shown here.',
-          'Attribution needs read access to the hold tables. Where the API database role lacks it, the report says unavailable instead of showing zero.',
-        ],
-      },
-    }
+      const planRows: PoolConsumptionPlan[] = [
+        ...members.map((m) => ({ ratePlanId: m.id, ratePlanCode: m.code, roomName: m.roomType.name, boardCode: m.boardBasis.code.trim(), contractCode: m.contract.code, member: true })),
+        ...formerPlans.map((f) => ({ ratePlanId: f.id, ratePlanCode: f.code, roomName: f.roomName, boardCode: f.boardCode, contractCode: f.contractCode, member: false })),
+      ].map((p) => attribution.state === 'available'
+        ? { ...p, held: nights.reduce((a, n) => a + (n.plans.find((x) => x.ratePlanId === p.ratePlanId)?.held ?? 0), 0), sold: nights.reduce((a, n) => a + (n.plans.find((x) => x.ratePlanId === p.ratePlanId)?.sold ?? 0), 0) }
+        : { ...p, held: null, sold: null })
+      const withDay = nights.filter((n) => n.exists)
+      const known = attribution.state === 'available'
+      const sum = (f: (n: (typeof nights)[number]) => number | null) => (known ? withDay.reduce((a, n) => a + (f(n) ?? 0), 0) : null)
+      return {
+        hotelId: hotel.id, poolId: pool.id, poolName: pool.name, timeZone: hotel.timeZone, generatedAt: now.toISOString(), window: { from: w.from, to: w.to, days: w.days },
+        plans: planRows, nights, attribution,
+        totals: {
+          nightsWithPoolDay: withDay.length, inconsistentNights: known ? withDay.filter((n) => n.consistent === false).length : 0,
+          attributedHeld: sum((n) => n.plans.reduce((a, p) => a + p.held, 0)), attributedSold: sum((n) => n.plans.reduce((a, p) => a + p.sold, 0)),
+          unattributedHeld: sum((n) => n.unattributedHeld), unattributedSold: sum((n) => n.unattributedSold),
+        },
+        definitions: {
+          counters: 'A pool night has one counter set: capacity, sold and held. available = capacity - sold - held, the expression Agent search and recheck use. Nothing else is subtracted.',
+          held: 'Units on holds in status HELD, PROCESSING or HOLD_PENDING (a booking attempt keeps the hold until it confirms or releases).',
+          sold: 'Units on holds in status CONFIRMED. A cancelled booking returns its units and its hold becomes RELEASED.',
+          excluded: 'RELEASED, EXPIRED, FAILED, PENDING_RECHECK and RECHECKED holds occupy nothing now and are not counted. Cumulative lifecycle events are never shown as current occupancy.',
+          attribution: 'Each hold recorded the pool night it drew from and the rate plan that holds it when it was created. Attribution uses those records, not current pool membership, so a plan that later left the pool keeps its history. Unattributed = counter - attributed; it is derived, and a negative value is reported as inconsistent rather than hidden.',
+          limitations: [
+            'Consumption recorded before holds noted their counter (before ADR 0030) or written to the counter outside the hold path appears only as unattributed.',
+            'Nights a plan sold on its own row before it joined a pool are not pool consumption and are not shown here.',
+            'Attribution uses required column-only hold reads. Missing grants are operational errors, never zero consumption.',
+          ],
+        },
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   }
 
   // ---- capacity editor ---------------------------------------------------------------------------------------------------------
@@ -229,7 +227,7 @@ export class PoolCapacityService {
         if (p.requestHash !== requestHash) throw new ConflictException({ message: 'This idempotency key was already used for a different request.', code: 'IDEMPOTENCY_KEY_REUSED' })
         return { replayed: true, auditRequestId: p.requestId ?? '', changed: p.changed ?? { updated: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
       }
-      const { pool, planned, fingerprint } = await this.plan(tx, tenantId, hotel, poolIdRaw, value)
+      const { pool, days, planned, fingerprint } = await this.plan(tx, tenantId, hotel, poolIdRaw, value)
       if (pool.status !== 'ACTIVE') throw new ConflictException({ message: 'The pool is archived and cannot be edited.', code: 'POOL_ARCHIVED' })
       if (planned.errors.length) throw new UnprocessableEntityException({ message: planned.errors, code: 'POOL_CAPACITY_INVALID' })
       if (planned.counts.invalid > 0) {
@@ -239,16 +237,17 @@ export class PoolCapacityService {
       if (fingerprint !== body.expectedFingerprint) throw new ConflictException({ message: 'The pool nights, their consumption or this request changed after you previewed it. Nothing was written. Preview again to see the current values.', code: 'POOL_CAPACITY_STALE' })
       if (planned.counts.willChange === 0) throw new ConflictException({ message: 'Nothing would change: every selected night already has this capacity.', code: 'POOL_CAPACITY_NO_CHANGE' })
 
-      const now = this.clock()
       let updated = 0
       for (const row of planned.rows) {
         if (row.outcome !== 'CHANGE') continue
-        // The only write this service makes to InventoryPoolDay: capacity and the ADMIN provenance stamp, by explicit column list (the runtime role holds UPDATE on exactly these
-        // columns, ADR 0036 amendment). The guard keeps capacity at or above sold + held at the instant of the write, whatever a concurrent hold did since the preview.
+        // Capacity and timestamp only; supplier provenance and freshness remain unchanged (ADR 0037).
+        // The guard keeps capacity at or above sold + held at the instant of the write, whatever a concurrent hold did since the preview.
         const changed = await tx.$executeRaw(Prisma.sql`
           UPDATE "InventoryPoolDay"
-             SET "capacity" = ${value.capacity}, "source" = 'ADMIN'::"InventorySource", "source_updated_at" = ${now}, "received_at" = ${now}, "fresh_until" = NULL, "updated_at" = CURRENT_TIMESTAMP
+             SET "capacity" = ${value.capacity}, "updated_at" = CURRENT_TIMESTAMP
            WHERE "id" = ${row.id} AND "tenant_id" = ${tenantId} AND "pool_id" = ${pool.id} AND "sold" + "held" <= ${value.capacity}
+             AND "capacity" = ${row.before!.capacity} AND "sold" = ${row.before!.sold} AND "held" = ${row.before!.held}
+             AND "updated_at" = ${days.get(row.date)!.updatedAt}
         `)
         if (changed !== 1) throw new ConflictException({ message: 'Pool stock changed while saving. Nothing was written. Preview again to see the current values.', code: 'POOL_CAPACITY_STALE' })
         updated += 1

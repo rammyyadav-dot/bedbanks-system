@@ -50,7 +50,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `InventoryHold` | cols (4) | - | - | - | forced tenant | SELECT (id, tenant_id, rate_plan_id, status): per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column |
 | `InventoryHoldNight` | cols (5) | - | - | - | forced tenant | SELECT (tenant_id, hold_id, pool_day_id, counter_kind, quantity): per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference |
 | `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
-| `InventoryPoolDay` | yes | - | cols (6) | - | forced tenant | UPDATE (capacity, source, source_updated_at, received_at, fresh_until, updated_at): PoolCapacityService.apply; HotelQuickUpdateService.apply (pooled plans); POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply, POST /admin/hotels/:hotelId/quick-update/apply; set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night. A Quick Update that would create a pool night is outside the contract and refused |
+| `InventoryPoolDay` | yes | - | cols (2) | - | forced tenant | UPDATE (capacity, updated_at): PoolCapacityService.apply; POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply; set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged |
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
@@ -174,3 +174,8 @@ Production-clone compatibility, persistent role provisioning, hosted backups and
 ## 9. Column-level reads
 
 A contract row may declare `readColumns` instead of `read: true`. Provisioning emits `GRANT SELECT (cols) ON table`; the verifier compares the actual column privileges and flags an extra readable column, a missing one, and a table-level SELECT that overrides the restriction. Code must name its columns (no `SELECT *`, no ORM default column list) on such a table: PostgreSQL refuses the statement otherwise. A policy expression is evaluated with the caller's privileges, so `tenant_id` must be one of the readable columns. The matrix above shows `cols (n)` for these tables.
+
+
+## Freshness-preserving capacity grant (ADR 0037)
+
+The newer contract and migration 202610270001_strict_runtime_role_pool_freshness supersede the six-column capacity/provenance grant from PR #262. Only capacity and updated_at are writable. Quick Update statements that stamp provenance remain privileged; missing nights remain invalid. Column ACLs are explicitly revoked during convergence because table-level REVOKE does not remove them. The earlier migration is preserved unchanged.

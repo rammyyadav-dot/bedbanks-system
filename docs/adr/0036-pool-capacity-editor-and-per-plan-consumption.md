@@ -95,3 +95,8 @@ The verifier (run as the login role) now reports: any SELECT outside the contrac
 
 ### Migration and rollback
 `202610260001_strict_runtime_role_pool_capacity` is forward-only and a no-op when the group role does not exist. It revokes everything on the three tables from the group role and re-grants exactly the rows above, which equals the contract output (a unit test replays the migrations in order and compares). It must not be applied to a persistent database without an owner decision. Rollback (documented in the migration header): `REVOKE UPDATE (...) ON "InventoryPoolDay"`, `REVOKE SELECT (...) ON "InventoryHold", "InventoryHoldNight"` and revert the code; no data change.
+
+
+## Amendment 2: freshness-preserving capacity edits
+
+ADR 0037 supersedes Amendment 1's provenance grant. Capacity editing no longer stamps source ADMIN or refreshes supplier nights. The API role updates capacity and updated_at only; Quick Update provenance writes remain privileged. Migration 202610270001_strict_runtime_role_pool_freshness converges prior column ACLs without changing the already merged migration.
