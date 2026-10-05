@@ -13,7 +13,7 @@ import { PrismaService } from '../src/database/prisma.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
 import { ContractedInventoryAdapter } from '../src/agent/contracted-inventory.adapter'
 import { moveNight } from '../src/inventory/inventory-counters'
-import { API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole } from '../src/database/api-runtime-role'
+import { API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole, verifyApiRuntimeRole } from '../src/database/api-runtime-role'
 
 const ownerUrl = process.env.DATABASE_URL
 if (!ownerUrl) throw new Error('DATABASE_URL (the disposable owner connection) is required')
@@ -494,53 +494,219 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
   })
 
   // ---- strict runtime role --------------------------------------------------------------------------------------------------------------
-  it('PCE-22 strict non-bypass role: viewing and previewing work, attribution is reported unavailable (not zero), and applying is the typed 403 with nothing written and no mislabelled error', async () => {
-    const runtimePassword = randomBytes(24).toString('hex')
+  // The API runs as the provisioned non-superuser, non-BYPASSRLS, non-owner login; the owner connection is used for fixtures and for reading the truth only.
+  let runtimePassword = ''
+  const runtimeUrl = () => { const x = new URL(ownerUrl!); x.username = API_RUNTIME_LOGIN_ROLE; x.password = runtimePassword; return x.toString() }
+  const runtimeClient = () => new PrismaClient({ datasourceUrl: runtimeUrl() })
+  const asRuntime = async <T>(tenantId: string | null, fn: (tx: PrismaClient) => Promise<T>): Promise<T> => {
+    const c = runtimeClient()
+    try {
+      return await c.$transaction(async (tx) => {
+        if (tenantId) await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`
+        return fn(tx as unknown as PrismaClient)
+      })
+    } finally { await c.$disconnect() }
+  }
+  const sqlState = async (fn: () => Promise<unknown>) => { try { await fn(); return 'ok' } catch (e) { return /permission denied/i.test(String((e as Error).message)) ? 'denied' : `other: ${(e as Error).message.slice(0, 120)}` } }
+
+  it('PCE-22 strict role: the role is non-super, non-BYPASSRLS, non-owner; viewing, previewing and Apply all work; attribution is available and reconciles', async () => {
+    runtimePassword = randomBytes(24).toString('hex')
     await provisionApiRuntimeRole(owner, { password: runtimePassword })
     const previous = process.env.DATABASE_URL
-    try {
-      const u = new URL(ownerUrl!); u.username = API_RUNTIME_LOGIN_ROLE; u.password = runtimePassword
-      process.env.DATABASE_URL = u.toString()
-      strictApp = await boot()
-    } finally { process.env.DATABASE_URL = previous }
-    for (const label of ['full', 'viewer']) strictCookies[label] = await login(strictApp, `${suffix}-${label}@example.test`)
+    try { process.env.DATABASE_URL = runtimeUrl(); strictApp = await boot() } finally { process.env.DATABASE_URL = previous }
+    for (const label of ['full', 'viewer', 'previewer', 'applier']) strictCookies[label] = await login(strictApp, `${suffix}-${label}@example.test`)
     const strict = as(strictApp, strictCookies)
-    const probe = new PrismaClient({ datasourceUrl: (() => { const x = new URL(ownerUrl!); x.username = API_RUNTIME_LOGIN_ROLE; x.password = runtimePassword; return x.toString() })() })
-    const [who] = await probe.$queryRawUnsafe<Array<{ current_user: string; rolbypassrls: boolean; rolsuper: boolean }>>('SELECT current_user, (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS rolbypassrls, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS rolsuper')
+    const probe = runtimeClient()
+    const [who] = await probe.$queryRawUnsafe<Array<{ current_user: string; rolbypassrls: boolean; rolsuper: boolean; owned: number }>>(`SELECT current_user, r.rolbypassrls, r.rolsuper, (SELECT count(*)::int FROM pg_class c WHERE c.relowner = r.oid) AS owned FROM pg_roles r WHERE r.rolname = current_user`)
+    const verified = await verifyApiRuntimeRole(probe as never)
     await probe.$disconnect()
-    expect(who).toEqual({ current_user: API_RUNTIME_LOGIN_ROLE, rolbypassrls: false, rolsuper: false })
+    expect(who).toEqual({ current_user: API_RUNTIME_LOGIN_ROLE, rolbypassrls: false, rolsuper: false, owned: 0 })
+    expect(verified).toEqual({ ok: true, failures: [] })
 
+    await reset(); await owner.inventoryHoldNight.deleteMany({ where: { tenantId: tenantA } }); await owner.inventoryHold.deleteMany({ where: { tenantId: tenantA } })
+    const a1 = await holds.create(cmd(key(), plans[0], D[0], D[1])); const a2 = await holds.create(cmd(key(), plans[0], D[0], D[1])); await confirmHold(a2.holdId)
+    const b1 = await holds.create(cmd(key(), plans[1], D[0], D[1])); void a1; void b1
     const detail = (await strict.get(`${path(hotelA, poolA)}?from=${D[0]}&days=2`, 'viewer').expect(200)).body.data
-    expect(detail.days[0]).toMatchObject({ capacity: 5 })
-    const consumption = (await strict.get(`${path(hotelA, poolA, '/consumption')}?from=${D[0]}&days=2`, 'viewer').expect(200)).body.data
-    expect(consumption.attribution).toMatchObject({ state: 'unavailable' })                          // hold tables are not readable by this role: unknown, never zero
-    expect(consumption.nights[0]).toMatchObject({ capacity: 5, plans: [], unattributedHeld: null, consistent: null })
-    expect(consumption.plans.every((p: { held: unknown }) => p.held === null)).toBe(true)
-    expect(consumption.totals).toMatchObject({ attributedHeld: null, unattributedHeld: null })
-    const p = (await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 8 })).expect(200)).body.data
-    expect(p.canApply).toBe(true)
+    expect(detail.days[0]).toMatchObject({ capacity: 5, sold: 1, held: 2 })
+    const r = (await strict.get(`${path(hotelA, poolA, '/consumption')}?from=${D[0]}&days=2`, 'viewer').expect(200)).body.data
+    expect(r.attribution).toEqual({ state: 'available' })                                              // never "unavailable" on a properly provisioned role
+    expect(r.nights[0]).toMatchObject({ capacity: 5, held: 2, sold: 1, available: 2, unattributedHeld: 0, unattributedSold: 0, consistent: true })
+    expect(r.totals).toMatchObject({ attributedHeld: 2, attributedSold: 1, unattributedHeld: 0, unattributedSold: 0, inconsistentNights: 0 })
+    const truth = await owner.inventoryPoolDay.findFirstOrThrow({ where: { poolId: poolA, stayDate: new Date(D[0]) } })
+    expect({ held: truth.held, sold: truth.sold }).toEqual({ held: 2, sold: 1 })                       // the report reconciles with the authoritative counters
 
-    await strict.get(path(hotelA, poolA), 'anon').expect(401)
-    await strict.post(path(hotelA, poolA, '/capacity/apply'), 'viewer', applyBody(p, { capacity: 8 })).expect(403) // caller authorization denial first
-    const before = await capacities()
-    const denied = await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', applyBody(p, { capacity: 8 }))
-    expect(denied.status).toBe(403)
-    expect(denied.body.error.code).toBe('RUNTIME_ROLE_OPERATION_PROHIBITED')                           // the role's contract forbids pool writes: privileged path, typed and sanitized
-    expect(JSON.stringify(denied.body)).not.toMatch(/InventoryPoolDay|permission denied|SQLSTATE|42501/i)
-    expect(await capacities()).toEqual(before)
+    // preview, then Apply under the strict role
+    const p = (await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 8 })).expect(200)).body.data
+    expect(p).toMatchObject({ canApply: true, counts: { willChange: 5 } })
+    const audits = () => owner.auditEvent.count({ where: { tenantId: tenantA, action: 'inventory.pool.capacity_changed' } })
+    const auditsBefore = await audits()
+    const body = applyBody(p, { capacity: 8 })
+    const done = (await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', body).expect(200)).body.data
+    expect(done).toMatchObject({ replayed: false, changed: { updated: 5 } })
+    expect(await capacities()).toEqual([[8, 1, 2], [8, 0, 0], [8, 0, 0], [8, 0, 0], [8, 0, 0]])       // capacity changed; sold and held untouched
+    expect(await audits()).toBe(auditsBefore + 1)
+    expect((await dayRow(D[0]))).toMatchObject({ source: 'ADMIN', freshUntil: null })
+    const replay = (await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', body).expect(200)).body.data
+    expect(replay.replayed).toBe(true); expect(await audits()).toBe(auditsBefore + 1)                  // idempotent: no second write, no second audit
+    await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', { ...body, capacity: 9 }).expect(409) // key reuse with a different request
+    const after = (await strict.get(`${path(hotelA, poolA, '/consumption')}?from=${D[0]}&days=2`, 'viewer').expect(200)).body.data
+    expect(after.attribution).toEqual({ state: 'available' }); expect(after.nights[0]).toMatchObject({ capacity: 8, available: 5, consistent: true })
   })
 
-  it('PCE-23 a missing infrastructure privilege for an authorized caller is a sanitized operational 503, never a caller denial', async () => {
+  it('PCE-23 strict role: application permissions still decide (403), stale and unsafe edits keep their semantics, and a failed edit leaves counters, idempotency and audit unchanged', async () => {
     const strict = as(strictApp!, strictCookies)
-    const runtimePassword = randomBytes(24).toString('hex')
-    await owner.$executeRawUnsafe('REVOKE SELECT ON "InventoryPoolDay" FROM fbeds_api') // drift: the contract says the role reads this table
-    try {
-      for (const res of [await strict.get(`${path(hotelA, poolA)}?from=${D[0]}&days=2`, 'viewer'), await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 8 }))]) {
-        expect(res.status).toBe(503)
-        expect(res.body.error.code).toBe('DATABASE_ROLE_NOT_PERMITTED')
-        expect(JSON.stringify(res.body)).not.toMatch(/InventoryPoolDay|permission denied|SQLSTATE|42501/i)
+    await reset(); await owner.inventoryHoldNight.deleteMany({ where: { tenantId: tenantA } }); await owner.inventoryHold.deleteMany({ where: { tenantId: tenantA } })
+    const audits = () => owner.auditEvent.count({ where: { tenantId: tenantA, action: 'inventory.pool.capacity_changed' } })
+    const p = (await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 7 })).expect(200)).body.data
+    const before = await capacities(); const a0 = await audits()
+    for (const who of ['viewer', 'previewer']) { // read-only and preview-only are denied by the application, not the database
+      const denied = await strict.post(path(hotelA, poolA, '/capacity/apply'), who, applyBody(p, { capacity: 7 }))
+      expect(denied.status).toBe(403)
+      expect(JSON.stringify(denied.body)).not.toMatch(/InventoryPoolDay|permission denied|SQLSTATE|42501|RUNTIME_ROLE/i)
+    }
+    await strict.post(path(hotelA, poolA, '/capacity/preview'), 'viewer', edit({ capacity: 7 })).expect(403)
+    await strict.get(path(hotelA, poolA), 'anon').expect(401)
+    await strict.post(path(hotelA, poolA, '/capacity/apply'), 'anon', applyBody(p, { capacity: 7 })).expect(401)
+    // stale: stock moved between preview and apply
+    await owner.inventoryPoolDay.updateMany({ where: { poolId: poolA, stayDate: new Date(D[0]) }, data: { held: 1 } })
+    const stale = await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', applyBody(p, { capacity: 7 }))
+    expect(stale.status).toBe(409); expect(stale.body.error.code).toBe('POOL_CAPACITY_STALE')
+    await owner.inventoryPoolDay.updateMany({ where: { poolId: poolA, stayDate: new Date(D[0]) }, data: { held: 0 } })
+    // unsafe: capacity below sold + held is refused and never written
+    await owner.inventoryPoolDay.updateMany({ where: { poolId: poolA, stayDate: new Date(D[1]) }, data: { sold: 3, held: 1 } })
+    const unsafe = await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 3 })).expect(200)
+    expect(unsafe.body.data.canApply).toBe(false)
+    const refused = await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', applyBody(unsafe.body.data, { capacity: 3 }))
+    expect(refused.status).toBe(422); expect(refused.body.error.code).toBe('POOL_CAPACITY_INVALID')
+    // a night with no stock row is refused, never created
+    const miss = (await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', { startDate: day(25), endDate: day(26), capacity: 4 }).expect(200)).body.data
+    expect(miss.canApply).toBe(false)
+    await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', { startDate: day(25), endDate: day(26), capacity: 4, expectedFingerprint: miss.fingerprint, reason: 'Open more nights', idempotencyKey: key() }).expect(422)
+    expect(await owner.inventoryPoolDay.count({ where: { poolId: poolA, stayDate: { in: [new Date(day(25)), new Date(day(26))] } } })).toBe(0)
+    expect(await capacities()).toEqual(before.map((b, i) => (i === 1 ? [b[0], 3, 1] : b)))              // only the fixture edits above; nothing the failed requests wrote
+    expect(await audits()).toBe(a0)
+    await reset()
+  })
+
+  it('PCE-24 strict role, direct SQL: sold, held and identity columns cannot be changed, no INSERT or DELETE, ungranted hold columns are unreadable, tenant isolation and fail-closed context hold', async () => {
+    const other = await owner.inventoryPoolDay.findFirstOrThrow({ where: { poolId: poolB } })
+    const existing = await owner.inventoryHold.findFirst({ where: { tenantId: tenantA } })
+    const hold = existing ?? (await owner.inventoryHold.findUniqueOrThrow({ where: { id: (await holds.create(cmd(key(), plans[0], D[0], D[1]))).holdId } }))
+    const day0 = await dayRow(D[0])                                                                   // after any fixture hold, so sold/held are the baseline
+    // writable: only the capacity set
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$executeRaw`UPDATE "InventoryPoolDay" SET "capacity" = 5, "updated_at" = now() WHERE "id" = ${day0.id}`))).toBe('ok')
+    for (const col of ['sold', 'held', 'tenant_id', 'pool_id', 'stay_date', 'id', 'created_at']) {
+      const stmt = `UPDATE "InventoryPoolDay" SET "${col}" = "${col}" WHERE "id" = '${day0.id}'`
+      const state = await sqlState(() => asRuntime(tenantA, (t) => t.$executeRawUnsafe(stmt)))
+      expect({ col, state }).toEqual({ col, state: 'denied' })
+    }
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$executeRaw`INSERT INTO "InventoryPoolDay" ("id","tenant_id","pool_id","stay_date","capacity") VALUES (gen_random_uuid(), ${tenantA}, ${poolA}, ${day(40)}::date, 1)`))).toBe('denied')
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$executeRaw`DELETE FROM "InventoryPoolDay" WHERE "id" = ${day0.id}`))).toBe('denied')
+    for (const sql of ['UPDATE "InventoryHold" SET "status" = \'RELEASED\'', 'DELETE FROM "InventoryHoldNight"', 'UPDATE "InventoryPool" SET "name" = \'x\'', 'UPDATE "RatePlan" SET "status" = \'DRAFT\'', 'UPDATE "DailyAvailability" SET "allotment" = 0', 'INSERT INTO "InventoryPool" ("id") VALUES (gen_random_uuid())'])
+      expect({ sql, state: await sqlState(() => asRuntime(tenantA, (t) => t.$executeRawUnsafe(sql))) }).toEqual({ sql, state: 'denied' })
+    // readable: exactly the attribution columns; everything else on the hold tables is denied, including SELECT *
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$queryRaw`SELECT "id","tenant_id","rate_plan_id","status" FROM "InventoryHold" LIMIT 1`))).toBe('ok')
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$queryRaw`SELECT "tenant_id","hold_id","pool_day_id","counter_kind","quantity" FROM "InventoryHoldNight" LIMIT 1`))).toBe('ok')
+    const granted: Record<string, string[]> = { InventoryHold: ['id', 'tenant_id', 'rate_plan_id', 'status'], InventoryHoldNight: ['tenant_id', 'hold_id', 'pool_day_id', 'counter_kind', 'quantity'] }
+    for (const table of Object.keys(granted)) {
+      const cols = (await owner.$queryRawUnsafe<Array<{ column_name: string }>>(`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}'`)).map((c) => c.column_name)
+      expect(cols.length).toBeGreaterThan(granted[table].length)
+      for (const col of cols) {
+        const state = await sqlState(() => asRuntime(tenantA, (t) => t.$queryRawUnsafe(`SELECT "${col}" FROM "${table}" LIMIT 1`)))
+        expect({ table, col, state }).toEqual({ table, col, state: granted[table].includes(col) ? 'ok' : 'denied' }) // guest, money, offer, idempotency and request columns are all unreadable
       }
+    }
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$queryRawUnsafe('SELECT * FROM "InventoryHold" LIMIT 1')))).toBe('denied')
+    expect(await sqlState(() => asRuntime(tenantA, (t) => t.$queryRawUnsafe('SELECT "availability_id","stay_date" FROM "InventoryHoldNight" LIMIT 1')))).toBe('denied')
+    // tenant isolation: another tenant's rows are invisible and unwritable; a missing tenant context fails closed
+    expect(await asRuntime(tenantA, (t) => t.$queryRaw`SELECT "id" FROM "InventoryPoolDay" WHERE "id" = ${other.id}`)).toEqual([])
+    expect(await asRuntime(tenantA, (t) => t.$executeRaw`UPDATE "InventoryPoolDay" SET "capacity" = 99 WHERE "id" = ${other.id}`)).toBe(0)
+    expect((await owner.inventoryPoolDay.findUniqueOrThrow({ where: { id: other.id } })).capacity).toBe(5)
+    expect(await asRuntime(null, (t) => t.$queryRaw`SELECT "id" FROM "InventoryPoolDay"`)).toEqual([])
+    expect(await asRuntime(null, (t) => t.$executeRaw`UPDATE "InventoryPoolDay" SET "capacity" = 99`)).toBe(0)
+    expect(await asRuntime(null, (t) => t.$queryRaw`SELECT "id" FROM "InventoryHold"`)).toEqual([])
+    expect(await asRuntime(tenantB, (t) => t.$queryRaw`SELECT "id" FROM "InventoryHold" WHERE "id" = ${hold.id}`)).toEqual([])
+    // no tenant leak over a reused connection: the context is transaction-local
+    const c = runtimeClient()
+    try {
+      await c.$transaction(async (tx) => { await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`; expect((await tx.$queryRaw<unknown[]>`SELECT "id" FROM "InventoryPoolDay" WHERE "pool_id" = ${poolA}`).length).toBe(5) })
+      expect(await c.$queryRaw`SELECT "id" FROM "InventoryPoolDay"`).toEqual([])
+    } finally { await c.$disconnect() }
+    expect(await owner.inventoryPoolDay.findUniqueOrThrow({ where: { id: day0.id } })).toMatchObject({ sold: day0.sold, held: day0.held, tenantId: tenantA, poolId: poolA })
+  })
+
+  it('PCE-25 the verifier flags a broad table SELECT, an extra column read, a missing column read, a broad UPDATE and an extra membership; reprovisioning repairs all of it', async () => {
+    const verify = async () => { const c = runtimeClient(); try { return await verifyApiRuntimeRole(c as never) } finally { await c.$disconnect() } }
+    const repair = () => provisionApiRuntimeRole(owner, { password: runtimePassword })
+    expect(await verify()).toEqual({ ok: true, failures: [] })
+    const cases: Array<[string, string, RegExp]> = [
+      ['broad SELECT overriding the column restriction', 'GRANT SELECT ON "InventoryHold" TO fbeds_api', /InventoryHold/],
+      ['an extra column read', 'GRANT SELECT ("sell_amount_minor") ON "InventoryHold" TO fbeds_api', /sell_amount_minor|InventoryHold/],
+      ['a missing required column read', 'REVOKE SELECT ("rate_plan_id") ON "InventoryHold" FROM fbeds_api', /rate_plan_id|InventoryHold/],
+      ['a broad UPDATE on the pool-day table', 'GRANT UPDATE ON "InventoryPoolDay" TO fbeds_api', /InventoryPoolDay/],
+      ['an extra written column (sold)', 'GRANT UPDATE ("sold") ON "InventoryPoolDay" TO fbeds_api', /sold|InventoryPoolDay/],
+      ['INSERT on the pool-day table', 'GRANT INSERT ON "InventoryPoolDay" TO fbeds_api', /InventoryPoolDay/],
+    ]
+    for (const [name, ddl, re] of cases) {
+      await owner.$executeRawUnsafe(ddl)
+      try { const r = await verify(); expect({ name, ok: r.ok }).toEqual({ name, ok: false }); expect(r.failures.join(' | ')).toMatch(re) } finally { await repair() }
+      expect({ name, repaired: (await verify()).ok }).toEqual({ name, repaired: true })
+    }
+    // elevated attributes and extra memberships
+    await owner.$executeRawUnsafe('ALTER ROLE fbeds_api_login BYPASSRLS')
+    try { expect((await verify()).failures.join(' ')).toMatch(/BYPASSRLS/) } finally { await owner.$executeRawUnsafe('ALTER ROLE fbeds_api_login NOBYPASSRLS') }
+    await owner.$executeRawUnsafe('GRANT fbeds_map_reader TO fbeds_api_login')
+    try { expect((await verify()).ok).toBe(false) } finally { await owner.$executeRawUnsafe('REVOKE fbeds_map_reader FROM fbeds_api_login') }
+    expect((await verify()).ok).toBe(true)
+  })
+
+  it('PCE-26 a missing contract privilege for an authorized caller is a sanitized operational 503, never a caller denial and never a zero', async () => {
+    const strict = as(strictApp!, strictCookies)
+    for (const ddl of ['REVOKE SELECT ON "InventoryPoolDay" FROM fbeds_api', 'REVOKE SELECT ("rate_plan_id") ON "InventoryHold" FROM fbeds_api']) {
+      await owner.$executeRawUnsafe(ddl)
+      try {
+        const reads = [await strict.get(`${path(hotelA, poolA, '/consumption')}?from=${D[0]}&days=2`, 'viewer'), await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 8 }))]
+        for (const res of ddl.includes('InventoryPoolDay') ? reads : [reads[0]]) {
+          expect({ ddl, status: res.status, code: res.body.error?.code }).toEqual({ ddl, status: 503, code: 'DATABASE_ROLE_NOT_PERMITTED' })
+          expect(JSON.stringify(res.body)).not.toMatch(/InventoryPoolDay|InventoryHold|rate_plan_id|permission denied|SQLSTATE|42501/i)
+        }
+      } finally { await provisionApiRuntimeRole(owner, { password: runtimePassword }) }
+    }
+    // a withdrawn UPDATE privilege on apply: 503, with nothing written, no idempotency record and no audit event
+    const p = (await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 8 })).expect(200)).body.data
+    const before = await capacities(); const audits = () => owner.auditEvent.count({ where: { tenantId: tenantA, action: 'inventory.pool.capacity_changed' } }); const a0 = await audits()
+    await owner.$executeRawUnsafe('REVOKE UPDATE ("capacity") ON "InventoryPoolDay" FROM fbeds_api')
+    try {
+      const body = applyBody(p, { capacity: 8 })
+      const res = await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', body)
+      expect({ status: res.status, code: res.body.error?.code }).toEqual({ status: 503, code: 'DATABASE_ROLE_NOT_PERMITTED' })
+      expect(JSON.stringify(res.body)).not.toMatch(/InventoryPoolDay|permission denied|SQLSTATE|42501/i)
+      expect(await capacities()).toEqual(before); expect(await audits()).toBe(a0)
+      await provisionApiRuntimeRole(owner, { password: runtimePassword })
+      expect((await strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', body).expect(200)).body.data.replayed).toBe(false) // the same key is still unused: the failure recorded nothing
     } finally { await provisionApiRuntimeRole(owner, { password: runtimePassword }) }
     expect((await strict.get(`${path(hotelA, poolA)}?from=${D[0]}&days=2`, 'viewer')).status).toBe(200) // restored
+    await reset()
+  })
+
+  it('PCE-27 strict role: concurrent holds and capacity edits never breach sold + held <= capacity, and Agent recheck sees zero capacity without allocating', async () => {
+    await reset(); await owner.inventoryHoldNight.deleteMany({ where: { tenantId: tenantA } }); await owner.inventoryHold.deleteMany({ where: { tenantId: tenantA } })
+    const strict = as(strictApp!, strictCookies)
+    const p = (await strict.post(path(hotelA, poolA, '/capacity/preview'), 'full', edit({ capacity: 2, startDate: D[0], endDate: D[0] })).expect(200)).body.data
+    const [edited, h1, h2, h3] = await Promise.all([
+      strict.post(path(hotelA, poolA, '/capacity/apply'), 'full', applyBody(p, { capacity: 2, startDate: D[0], endDate: D[0] })),
+      holds.create(cmd(key(), plans[0], D[0], D[1])).catch((e) => e), holds.create(cmd(key(), plans[1], D[0], D[1])).catch((e) => e), holds.create(cmd(key(), plans[2], D[0], D[1])).catch((e) => e),
+    ])
+    expect([200, 409, 422]).toContain(edited.status) // applied, stale (stock moved) or refused (would drop below committed units)
+    void h1; void h2; void h3
+    const row = await dayRow(D[0])
+    expect(row.sold + row.held).toBeLessThanOrEqual(row.capacity)
+    const r = (await strict.get(`${path(hotelA, poolA, '/consumption')}?from=${D[0]}&days=1`, 'viewer').expect(200)).body.data
+    expect(r.attribution).toEqual({ state: 'available' }); expect(r.nights[0].consistent).toBe(true)
+    expect(r.nights[0].held + r.nights[0].sold).toBe(row.held + row.sold)
+    const reached = await capacities()
+    await strict.get(`${path(hotelA, poolA, '/consumption')}?from=${D[0]}&days=5`, 'viewer').expect(200)
+    expect(await capacities()).toEqual(reached)                                                         // reading and previewing never allocate or release
+    await reset()
   })
 })

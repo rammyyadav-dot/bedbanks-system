@@ -7,7 +7,6 @@ import {
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { idParam } from '../admin-operations/query-params'
-import { sectionRead } from '../admin-operations/operations-read'
 import { dayInZone, expandDates } from '../hotel-setup/quick-update-rules'
 import { rowIsFresh } from '../supply/contracted-sellability'
 import { capacityFingerprint, normaliseCapacityEdit, planCapacityEdit, type NormalisedCapacityEdit, type PoolDayState } from './pool-capacity-rules'
@@ -115,12 +114,12 @@ export class PoolCapacityService {
     const byDate = new Map(rows.map((r) => [day(r.stayDate), r]))
     const dayIds = rows.map((r) => r.id)
 
-    // Attribution reads the hold tables in its own transaction: on a runtime role without that privilege it is reported unavailable, never as zero.
-    let attribution: PoolAttribution = { state: 'available' }
+    // Attribution reads the hold tables through the columns the runtime-role contract grants (ADR 0036). A missing privilege is drift, not a caller denial: it surfaces as the sanitized 503, never as zero or a silent "unavailable".
+    const attribution: PoolAttribution = { state: 'available' }
     let evidence: AttributedNight[] = []
     let formerPlans: Array<{ id: string; code: string; roomName: string; boardCode: string; contractCode: string }> = []
     if (dayIds.length > 0) {
-      const read = await sectionRead(() => this.prisma.withTenant(tenantId, async (tx) => {
+      const read = await this.prisma.withTenant(tenantId, async (tx) => {
         const grouped = await tx.$queryRaw<Array<{ pool_day_id: string; rate_plan_id: string; status: string; qty: number }>>(Prisma.sql`
           SELECT hn."pool_day_id", h."rate_plan_id", h."status"::text AS "status", SUM(hn."quantity")::int AS "qty"
             FROM "InventoryHoldNight" hn
@@ -132,11 +131,9 @@ export class PoolCapacityService {
         const other = [...new Set(grouped.map((g) => g.rate_plan_id))].filter((id) => !memberIds.has(id))
         const former = other.length === 0 ? [] : await tx.ratePlan.findMany({ where: { tenantId, id: { in: other } }, select: { id: true, code: true, roomType: { select: { name: true } }, boardBasis: { select: { code: true } }, contract: { select: { code: true } } } })
         return { grouped, former }
-      }))
-      if (read.state === 'available') {
-        evidence = read.data.grouped.map((g) => ({ poolDayId: g.pool_day_id, ratePlanId: g.rate_plan_id, holdStatus: g.status, quantity: Number(g.qty) }))
-        formerPlans = read.data.former.map((f) => ({ id: f.id, code: f.code, roomName: f.roomType.name, boardCode: f.boardBasis.code.trim(), contractCode: f.contract.code }))
-      } else attribution = { state: 'unavailable', reason: read.reason }
+      })
+      evidence = read.grouped.map((g) => ({ poolDayId: g.pool_day_id, ratePlanId: g.rate_plan_id, holdStatus: g.status, quantity: Number(g.qty) }))
+      formerPlans = read.former.map((f) => ({ id: f.id, code: f.code, roomName: f.roomType.name, boardCode: f.boardBasis.code.trim(), contractCode: f.contract.code }))
     }
 
     const nights = w.dates.map((date) => {
