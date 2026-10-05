@@ -317,13 +317,13 @@ describe('strict runtime role: commercial read safety and Admin authorization (P
     const inTenant = (statement: string) => probe.$transaction(async (tx) => { await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant_id', '${tenantA}', true)`); return tx.$executeRawUnsafe(statement) })
     try {
       const refused: string[] = [
-        `UPDATE "InventoryPoolDay" SET capacity = 0`, `UPDATE "InventoryPool" SET name = name`, `DELETE FROM "SupplierMutation"`, `UPDATE "RoomType" SET hotel_id = hotel_id`,
+        `UPDATE "InventoryPoolDay" SET sold = 0`, `UPDATE "InventoryPoolDay" SET held = 0`, `UPDATE "InventoryPoolDay" SET tenant_id = tenant_id`, `INSERT INTO "InventoryPoolDay" (id) VALUES ('x')`, `DELETE FROM "InventoryPoolDay"`, `UPDATE "InventoryPool" SET name = name`, `DELETE FROM "SupplierMutation"`, `UPDATE "RoomType" SET hotel_id = hotel_id`,
         `UPDATE "Hotel" SET external_ref = 'x'`, `UPDATE "Hotel" SET tenant_id = tenant_id`, `DELETE FROM "Hotel"`, `UPDATE "DailyRate" SET amount_minor = 0`, `UPDATE "RatePlan" SET code = code`,
         `UPDATE "AuditEvent" SET action = 'x'`, `DELETE FROM "AuditEvent"`, `DELETE FROM "CommercialMarkupRule"`, `DELETE FROM "Agency"`, `UPDATE "AgencyMember" SET user_id = user_id`,
         `UPDATE "HotelExternalIdentifier" SET value = value`, `TRUNCATE "HotelImage"`,
       ]
       for (const statement of refused) await expect(inTenant(statement)).rejects.toThrow(/permission denied/)
-      for (const statement of [`UPDATE "Hotel" SET name = name WHERE false`, `UPDATE "Hotel" SET content_status = content_status, updated_at = updated_at WHERE false`, `UPDATE "CommercialMarkupRule" SET status = status WHERE false`, `UPDATE "Agency" SET status = status WHERE false`]) await inTenant(statement)
+      for (const statement of [`UPDATE "Hotel" SET name = name WHERE false`, `UPDATE "InventoryPoolDay" SET capacity = capacity, updated_at = updated_at WHERE false`, `UPDATE "Hotel" SET content_status = content_status, updated_at = updated_at WHERE false`, `UPDATE "CommercialMarkupRule" SET status = status WHERE false`, `UPDATE "Agency" SET status = status WHERE false`]) await inTenant(statement)
     } finally { await probe.$disconnect() }
     expect(await owner.commercialMarkupRule.count({ where: { basisPoints: 0 } })).toBe(0)
   })

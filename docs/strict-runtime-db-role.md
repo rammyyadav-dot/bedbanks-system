@@ -47,8 +47,10 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `HotelImage` | yes | yes | yes | yes | forced tenant | INSERT: HotelImagesService.upload; POST /admin/hotels/:hotelId/images; upload an image / UPDATE: HotelImagesService.update/reorder; PATCH /admin/hotels/:hotelId/images/:imageId, PUT /admin/hotels/:hotelId/images/order; edit, reorder, choose the primary image / DELETE: HotelImagesService.remove; DELETE /admin/hotels/:hotelId/images/:imageId; delete an image |
 | `HotelProfile` | yes | yes | yes | - | forced tenant | INSERT: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities; first save of a hotel profile / UPDATE: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; save the profile, bump its version, stamp the approver |
 | `HotelSearchIndex` | yes | - | - | - | forced tenant | read only |
+| `InventoryHold` | cols (4) | - | - | - | forced tenant | SELECT (id, tenant_id, rate_plan_id, status): per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column |
+| `InventoryHoldNight` | cols (5) | - | - | - | forced tenant | SELECT (tenant_id, hold_id, pool_day_id, counter_kind, quantity): per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference |
 | `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
-| `InventoryPoolDay` | yes | - | - | - | forced tenant | stock moves belong to the hold path and the hold-expiry role |
+| `InventoryPoolDay` | yes | - | cols (6) | - | forced tenant | UPDATE (capacity, source, source_updated_at, received_at, fresh_until, updated_at): PoolCapacityService.apply; HotelQuickUpdateService.apply (pooled plans); POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply, POST /admin/hotels/:hotelId/quick-update/apply; set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night. A Quick Update that would create a pool night is outside the contract and refused |
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
@@ -86,7 +88,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryHold`: holds are gated; written by the booking path
 - `InventoryHoldNight`: holds are gated
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
-- `InventoryPoolDay`: pool authoring and stock moves (hold path, hold-expiry role)
+- `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
 - `LedgerEntry`: finance-gated
 - `PlatformRole`: platform administration
 - `PlatformRoleAssignment`: platform administration
@@ -119,7 +121,9 @@ Earlier migrations granted `fbeds_api` writes whenever the role already existed.
 | `RoomAmenity` | **REQUIRED**: INSERT, UPDATE, DELETE | Room amenities are replaced together with the room edit |
 | `HotelImage` | **REQUIRED**: INSERT, UPDATE, DELETE (plus SELECT: Agent search primary image and the Agent image route) | Admin Images workflow |
 | `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by prebook, confirmation and reconciliation: booking is gated off and those paths need booking tables the role never holds |
-| `InventoryPool`, `InventoryPoolDay` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes; stock moves belong to the hold path and the hold-expiry role |
+| `InventoryPool` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes |
+| `InventoryPoolDay` | **REQUIRED**: column-level UPDATE of capacity and provenance only (plus SELECT) | Pool capacity editor and Quick Update on pooled plans (ADR 0036, Amendment 1). INSERT, DELETE, `sold`, `held` and identity columns stay with the hold path and the hold-expiry role |
+| `InventoryHold`, `InventoryHoldNight` | **REQUIRED**: column-level SELECT only (5 and 4 columns) | Per-plan consumption report. No guest, money, offer, idempotency, request or user column; no write |
 | Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
 
 Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the API process. There is no second API role today; adding one is an architecture decision (ADR). Until then the API answers a caller who reaches a privileged path with the typed 403 below.
@@ -159,8 +163,14 @@ OWNER_DATABASE_URL=postgresql://...@localhost:PORT/p05_main REDIS_URL=redis://12
 - `strict-runtime-role-replay`: migration replay, upgrade from the preceding schema and provisioning converge on the same grants; re-running provisioning changes nothing; the verifier names an over-grant and a missing read.
 - `strict-runtime-role-commercial`: failure injection per mandatory control, empty-configuration defaults, the 401/403/404/403-prohibited/503-drift matrix, grant-layer refusal, tenant isolation.
 - `strict-runtime-role-workflows`: every granted Admin write through the real endpoints, and coverage proven from the database statistics.
+- `pool-capacity-editor` (PCE-22 to PCE-27): the real API on the provisioned login: Apply and attribution work and reconcile; application permissions decide 403; protected columns, INSERT/DELETE and every ungranted hold column are refused by the database (including `SELECT *`); cross-tenant and missing tenant context fail closed; no tenant leak on a reused connection; the verifier names a broad SELECT, an extra or missing column read, a broad UPDATE, INSERT, BYPASSRLS and an extra membership; a missing privilege is a sanitized 503 with nothing written; concurrent holds and edits never breach `sold + held <= capacity`.
 - `strict-role-boot-smoke`: normal boot path, tenant context, agency state, restrictions, markup, a permitted and a prohibited Admin mutation, isolation.
 
 ## 8. Not covered here
 
-Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is not part of this work.
+Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is covered by ADR 0036, Amendment 1 (`pool-capacity-editor` PCE-22 to PCE-27 run the real API on the strict login). Applying migration `202610260001_strict_runtime_role_pool_capacity` to a persistent database and re-provisioning the persistent role remain owner-controlled steps.
+
+
+## 9. Column-level reads
+
+A contract row may declare `readColumns` instead of `read: true`. Provisioning emits `GRANT SELECT (cols) ON table`; the verifier compares the actual column privileges and flags an extra readable column, a missing one, and a table-level SELECT that overrides the restriction. Code must name its columns (no `SELECT *`, no ORM default column list) on such a table: PostgreSQL refuses the statement otherwise. A policy expression is evaluated with the caller's privileges, so `tenant_id` must be one of the readable columns. The matrix above shows `cols (n)` for these tables.

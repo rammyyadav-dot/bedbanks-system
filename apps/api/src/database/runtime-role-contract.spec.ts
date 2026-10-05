@@ -62,7 +62,17 @@ describe('API runtime role contract (the single definition)', () => {
       const writes = byTable.get(table)!.writes
       expect({ table, delete: writes.some((w) => w.op === 'DELETE'), tableLevelUpdate: writes.some((w) => w.op === 'UPDATE' && !w.columns) }).toEqual({ table, delete: false, tableLevelUpdate: false })
     }
-    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'InventoryHold', 'InventoryHoldNight', 'SupplierMutation', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
+    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'SupplierMutation', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
+    // The hold tables are readable only through named columns (no guest, contact, financial or raw payload column) and are never written by the API role.
+    for (const table of ['InventoryHold', 'InventoryHoldNight']) {
+      const g = byTable.get(table)!
+      expect({ table, writes: g.writes.length, tableLevelRead: g.readColumns === undefined, columns: (g.readColumns ?? []).length > 0 }).toEqual({ table, writes: 0, tableLevelRead: false, columns: true })
+      expect(g.readColumns).not.toEqual(expect.arrayContaining(['sell_amount_minor']))
+    }
+    // InventoryPoolDay: one capacity-only column UPDATE; sold, held, tenant, pool and date are never writable; no INSERT or DELETE.
+    const poolDay = byTable.get('InventoryPoolDay')!
+    expect(poolDay.writes.map((w) => w.op)).toEqual(['UPDATE'])
+    expect(poolDay.writes[0].columns).toEqual(['capacity', 'source', 'source_updated_at', 'received_at', 'fresh_until', 'updated_at'])
   })
 
   it('every runtime write in the source tree is either in the contract or a listed privileged path, and every granted write has a call site (necessity)', () => {

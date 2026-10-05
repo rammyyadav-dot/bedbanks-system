@@ -123,6 +123,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   const a0 = applies()
   await page.locator('[data-testid=apply-button]').dblclick(); await page.waitForSelector('[data-testid=editor-done]', { timeout: 20000 })
   check('a double click sends exactly one apply request', applies() - a0 === 1, String(applies() - a0))
+  await page.waitForTimeout(800)
   check('success is stated and the pool table now shows the new capacity', /2 night\(s\) changed/.test(await page.locator('[data-testid=editor-done]').innerText()) && (await cells(range.start))[1] === '12' && (await capacitiesOf(op.ctx, seed.dates.from)).includes(`${range.start}:12`))
   check('the apply cleared the preview and the reason', (await page.locator('[data-testid=preview]').count()) === 0)
   await page.waitForTimeout(500)
@@ -130,7 +131,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
 
   // ---- failure states ---------------------------------------------------------------------------------------------------------------------
   await page.route('**/inventory/pools/*/consumption*', (r) => r.fulfill({ status: 503, contentType: 'application/json', headers: { 'x-request-id': 'req-cons-1' }, body: JSON.stringify({ success: false, error: { code: 'OPERATIONS_READ_DENIED', message: 'x', details: [] }, meta: {} }) }))
-  await open(page, P.hotelId, P.poolId)
+  await open(page, P.hotelId, P.poolId); await page.waitForSelector('[data-testid=pool-days]', { timeout: 20000 }); await page.waitForTimeout(600)
   check('a failed consumption read shows an explicit denied state while the daily counters still render', (await page.locator('[data-testid=pool-days]').count()) === 1 && (await stateOf(page, '')) !== null && !/Attributed held 0/.test(await text(page)))
   await page.unroute('**/inventory/pools/*/consumption*')
   for (const [status, code, expect] of [[403, 'FORBIDDEN', 'forbidden'], [500, 'INTERNAL_SERVER_ERROR', 'error']]) {
