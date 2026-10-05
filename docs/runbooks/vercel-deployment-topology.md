@@ -31,6 +31,7 @@ Use host-only Secure cookies and same-origin requests. Do not copy production da
 Turbo hashes the public website settings, Supplier origin and API settings; app environment files and shared deployment helpers are build inputs. Lead secrets are runtime-only and should not be bundled.
 
 ## Preview verification
+For the Agent, follow [hosted-agent-acceptance.md](hosted-agent-acceptance.md) (settings checklist, read-only smoke script, manual browser pass).
 Use an approved isolated API and authorized test account; no real bookings or supplier transactions.
 Check API /api/v1/health/ready read-only before configuring it. Readiness is not commercial certification.
 Run pnpm install --frozen-lockfile, affected type-check/lint/tests/build, node --test tools/deployment/config.test.mjs, and existing Website production checks.
