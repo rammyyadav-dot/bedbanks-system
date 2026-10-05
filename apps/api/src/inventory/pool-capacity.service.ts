@@ -217,7 +217,6 @@ export class PoolCapacityService {
     if (typeof body?.idempotencyKey !== 'string' || !KEY.test(body.idempotencyKey)) throw new BadRequestException('idempotencyKey is required (8-80 letters, digits or . _ : -)')
     if (typeof body.expectedFingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(body.expectedFingerprint)) throw new BadRequestException('expectedFingerprint is required: preview the change first')
     const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
-    // eslint-disable-next-line no-control-regex
     if (reason.length < POOL_CAPACITY_LIMITS.reasonMin || reason.length > POOL_CAPACITY_LIMITS.reasonMax || /[\u0000-\u001f\u007f]/.test(reason)) throw new BadRequestException(`A reason of ${POOL_CAPACITY_LIMITS.reasonMin} to ${POOL_CAPACITY_LIMITS.reasonMax} printable characters is required`)
     const { value, errors } = normaliseCapacityEdit(body)
     if (!value) throw new BadRequestException({ message: errors, error: 'Bad Request' })

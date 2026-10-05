@@ -24,4 +24,4 @@ Admin Hotel Operations, the Admin calendar, Agent Search, offer presentation, au
 - Domain contract: `SearchRateOffer.availability` gains `on_request`.
 
 ## Not decided here
-Per-plan consumption reporting inside a pool; supplier-pushed inventory feeds (live suppliers are out of scope); moving a plan between pools with sold units; nationality, market, promotion, extra-bed, child, tax and currency rules.
+Per-plan consumption reporting inside a pool (now ADR 0036); supplier-pushed inventory feeds (live suppliers are out of scope); moving a plan between pools with sold units; nationality, market, promotion, extra-bed, child, tax and currency rules.
