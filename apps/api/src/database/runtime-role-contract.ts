@@ -95,7 +95,7 @@ const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
 /** Tables the runtime also writes, each with the exact operation, service, endpoints and reason. */
 const READ_WRITE: readonly RuntimeGrant[] = [
   { table: 'InventoryPoolDay', model: 'InventoryPoolDay', read: true, rls: 'forced-tenant', note: 'capacity-only column UPDATE; INSERT, DELETE, sold and held stay with the hold path and the hold-expiry role', writes: [
-    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`], reason: 'set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night' },
+    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply; HotelQuickUpdateService.apply (pooled plans)', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`, `POST ${HOTEL}/quick-update/apply`], reason: 'set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night. A Quick Update that would create a pool night is outside the contract and refused' },
   ] },
   { table: 'users', model: 'User', read: true, rls: 'none', writes: [
     { op: 'UPDATE', columns: ['last_login_at', 'updated_at'], service: 'AuthService.login', endpoints: ['POST /auth/login'], reason: 'record the last successful sign-in' },

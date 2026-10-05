@@ -116,15 +116,19 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
       expect(await api.inventoryPoolDay.count()).toBe(0)
     })
 
-    it('RR-04 every pool write by the API role is refused by privilege, and the other tenant is untouched', async () => {
+    it('RR-04 every pool write by the API role except the capacity column is refused by privilege, and the other tenant is untouched', async () => {
       const mk = (tenantId: string, poolId: string, stayDate: string) => ({ data: { tenantId, poolId, stayDate: new Date(stayDate), capacity: 3 } })
       for (const attempt of [
         () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.B.tenant, T.B.pool, day(60)))),
         () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.create(mk(T.A.tenant, T.B.pool, day(61)))),
         () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPool.create({ data: { tenantId: T.A.tenant, hotelId: T.B.hotel, supplierId: T.B.supplier, name: 'x2', createdById: T.A.user } })),
-        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.B.poolDays[0] }, data: { capacity: 99 } })),
         () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.A.poolDays[0] }, data: { tenantId: T.B.tenant } })),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.A.poolDays[0] }, data: { sold: 1 } })),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.A.poolDays[0] }, data: { held: 1 } })),
+        () => api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.deleteMany({ where: { id: T.A.poolDays[0] } })),
       ]) expect(await code(attempt)).toBe('42501')
+      // capacity is the one granted column: another tenant's night is invisible to the policy, so the statement is allowed but matches no row
+      expect(await api.withTenant(T.A.tenant, (tx) => tx.inventoryPoolDay.updateMany({ where: { id: T.B.poolDays[0] }, data: { capacity: 99 } }))).toEqual({ count: 0 })
       expect((await owner.inventoryPoolDay.findMany({ where: { poolId: T.B.pool } })).every((d) => d.capacity === 5 && d.tenantId === T.B.tenant)).toBe(true)
       expect(await owner.inventoryPoolDay.count({ where: { stayDate: { in: [new Date(day(60)), new Date(day(61))] } } })).toBe(0)
     })
