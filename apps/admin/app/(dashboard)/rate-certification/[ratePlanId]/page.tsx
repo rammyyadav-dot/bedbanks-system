@@ -36,7 +36,7 @@ export default function RatePlanAuditPage() {
             <section className="workspace-panel" style={{ padding: 14 }} aria-label="Row classes" data-testid="row-classes">
               <h2 style={{ margin: '0 0 8px', fontSize: 13 }}>Daily rate rows in the window</h2>
               <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 4, fontSize: 12 }}>{(Object.entries(d.rowClasses) as Array<[keyof typeof ROW_CLASS_HELP, number]>).map(([name, count]) => <li key={name}><Chip tone={rowClassTone(name)}>{name.split('_').join(' ')}</Chip> <strong>{count}</strong> · {ROW_CLASS_HELP[name]}</li>)}</ul>
-              {(d.contract.salesMarkets.length > 0 || d.contract.nationalities.length > 0) && <p style={{ fontSize: 12, margin: '8px 0 0' }}>Recorded on the contract but not applied by search: markets {d.contract.salesMarkets.join(', ') || '—'} · nationalities {d.contract.nationalities.join(', ') || '—'}.</p>}
+              {(d.contract.salesMarkets.length > 0 || d.contract.nationalities.length > 0) && <p style={{ fontSize: 12, margin: '8px 0 0' }}>Sold only to these buyer markets and guest nationalities (enforced by Agent search): markets {d.contract.salesMarkets.join(', ') || '—'} · nationalities {d.contract.nationalities.join(', ') || '—'}.</p>}
             </section>
             <section className="workspace-panel" aria-label="Night by night">
               <ScrollRegion label="Night by night">

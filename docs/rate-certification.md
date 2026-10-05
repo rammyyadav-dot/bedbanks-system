@@ -34,7 +34,9 @@ All take `days` (1-365, default 90) and `from`. Invalid input is a 400, another 
 | `DUPLICATE_PLAN_CODE`, `DUPLICATE_LOGICAL_PLAN` | FAIL | Same code across contracts of a hotel; same room, board, contract, occupancy, currency and refundability under another code |
 | `RATE_GAPS`, `AVAILABILITY_GAPS`, `NO_SELLABLE_NIGHTS` | WARN | Coverage |
 | `RATE_MIXED_BASIS`, `RATE_OUTSIDE_CONTRACT`, `RATE_OTHER_OCCUPANCY` | WARN | Row hygiene |
-| `PLAN_CODE_FORMAT`, `CONTRACT_EXPIRING`, `SALES_MARKETS_NOT_ENFORCED` | WARN | Governance and risk |
+| `PLAN_CODE_FORMAT`, `CONTRACT_EXPIRING` | WARN | Governance and risk |
+| `CONTRACT_MARKET_RULE_INVALID` | FAIL | A sales-market or nationality list is malformed, so Agent search sells the contract to nobody |
+| `CONTRACT_MARKET_RESTRICTED` | INFO | The contract is restricted to listed markets or nationalities (enforced by Agent search; the audit is buyer-independent) |
 | `MARKUP_ZERO_PERCENT`, `MARKUP_VERY_HIGH` | WARN | ACTIVE markup rules (0% or above 50%) |
 | `PLAN_NOT_LIVE` | INFO | Plan is not ACTIVE: reported, not certified |
 
@@ -52,14 +54,14 @@ These are not audited and never reported as passed.
 | Meal Plan Master | `BoardBasis` reference table, already checked by the evaluator |
 | Bulk Rate Loader | None; rates are authored by Quick Update and supply routes |
 | Whole-AED rounding | Exact minor units; half-up markup in `@bedbanks/pricing` |
-| Source-market pricing | Recorded on contracts, not applied by search (WARN) |
+| Source-market pricing | Markets and nationalities restrict who may buy a contract ([ADR 0035](adr/0035-contract-sales-markets-and-nationalities.md)); they never change a price |
 
 Impossible by constraint (no check, by design): duplicate (plan, date, occupancy) rows, overlapping ACTIVE markup rules for one target, malformed active rules (`loadActiveMarkupRules` fails closed).
 
 ## Runtime counts
 **E2E fixture** (`rate-certification.e2e-spec.ts`, window d+10 for 5 nights): 8 hotels, 9 plans (8 live): 1 PASS, 1 WARN, 6 FAIL; hotels 1 CERTIFIED, 1 READY_WITH_WARNINGS, 6 NOT_READY; rows VALID 26, QUARANTINED 12, BLOCKED_NO_MARKUP 5. After an ACTIVE markup rule: hotels 2 CERTIFIED, 1 READY_WITH_WARNINGS, 5 NOT_READY; VALID 31.
 
-**Browser seed** (`seed-rate-certification.ts`, 90 nights): 12 hotels, 13 plans (12 live): 2 PASS, 4 WARN, 6 FAIL; hotels 2 CERTIFIED, 4 READY_WITH_WARNINGS, 6 NOT_READY; rows VALID 848, QUARANTINED 183, DEAD 7, OUTSIDE_CONTRACT 0, BLOCKED_NO_MARKUP 90; remediation 4 P0, 7 P1, 2 P2.
+**Browser seed** (`seed-rate-certification.ts`, 90 nights): 12 hotels, 13 plans (12 live): 3 PASS, 3 WARN, 6 FAIL; hotels 3 CERTIFIED, 3 READY_WITH_WARNINGS, 6 NOT_READY; rows VALID 848, QUARANTINED 183, DEAD 7, OUTSIDE_CONTRACT 0, BLOCKED_NO_MARKUP 90; remediation 4 P0, 6 P1, 2 P2.
 
 **Hotel Operations seed** (`seed-hotels.ts`, 34 hotels of tenant A, 66 plans, all SELL at AED 499/799):
 

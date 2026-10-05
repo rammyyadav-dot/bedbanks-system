@@ -162,7 +162,7 @@ Look-to-book ratio and conversion by agency; search latency and supplier error r
 | 1 | Wallet funding and payments (top-up, payment links, receipts). ADR 0028 accepted in part; slices 1 (agency accounts), 2 (manual bank-transfer funding, behind FUNDING_ENABLED) 3 (bookings charge agency accounts, one credit line) and 4 (overdue controls: 7-day notice, 30-day hold refusal) built; slice 5 (card or payment-link funding) awaits a provider decision | Without money in, booking cannot launch | Owner decisions 6, 7 and the rest of 8 of ADR 0028 (fees, refunds, AML policy) |
 | 2 | Supplier payables, settlement and invoice matching | Paying hotels is the other half of finance | Contract payment terms, accounting model |
 | 3 | Tax and fees as separate lines; VAT invoices | Legal invoices and correct totals | Tax rules per jurisdiction |
-| 4 | Markets, nationalities and channel rates | Closed-to-departure, market and nationality rules recorded but unenforced | Business rules, evaluator change |
+| 4 | Markets, nationalities and channel rates | Closed-to-departure is enforced; market and nationality rules are enforced for Agent search, recheck and hold (ADR 0035). Channel rates remain out of scope | Business rules |
 | 5 | Per-agency commercial profiles and price lists | Different agents get different margins | Commercial policy |
 | 6 | Amendments, no-show and partial cancellation | Everyday booking operations | Supplier and policy rules |
 | 7 | Live supplier connectors (first one) | Breadth beyond direct contracts | Connector contract, credentials, certification |

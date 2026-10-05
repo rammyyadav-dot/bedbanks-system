@@ -1,3 +1,4 @@
+import { parseMarketRules } from './market-rules'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
@@ -16,7 +17,7 @@ export interface StayPlanInput {
   inventoryPool?: { name?: string; days: PoolDayInput[] } | null
   roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; hotel: { contentStatus: string; timeZone?: string } }
   boardBasis: { isActive: boolean }
-  contract: { status: string; validFrom: Date; validTo: Date; settlementCurrency: string; supplier: { status: string } }
+  contract: { status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
   dailyRates: Array<{ stayDate: Date; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
@@ -76,6 +77,7 @@ export function buildStaySnapshot(
     contractValidFrom: dayKey(plan.contract.validFrom),
     contractValidTo: dayKey(plan.contract.validTo),
     contractCurrency: plan.contract.settlementCurrency,
+    marketRules: parseMarketRules(plan.contract),
     ratePlanStatus: plan.status,
     ratePlanOccupancy: plan.occupancy,
     ratePlanCurrency: plan.currency,

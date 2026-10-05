@@ -1,5 +1,6 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 import { releaseAllows } from './zoned-time'
+import { marketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
  * Shared commercial gates for contracted inventory.
  * The single-night helper preserves the existing admin sellability reasons.
@@ -84,6 +85,8 @@ export type InventoryModeName = 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOS
 export type AvailabilityStatus = 'available' | 'on_request' | 'unavailable'
 
 export interface ContractedStaySnapshot {
+  /** Parsed contract sales markets and nationalities (ADR 0035). Absent means the caller does not model them; they are only enforced when the request names a buyer. */
+  marketRules?: ContractMarketRules
   hotelContentStatus: string
   roomActive: boolean
   boardActive: boolean
@@ -123,6 +126,11 @@ export interface StayRequest {
   currency: string
   /** The instant of evaluation. Freshness and the hotel-local release deadline are judged against it. */
   now: Date
+  /**
+   * Who is buying. Agent search, recheck and hold pass it, and the contract's sales markets and nationalities are then enforced (ADR 0035).
+   * Admin diagnostics are buyer-independent and omit it, so they never report a plan unsellable because of a market.
+   */
+  buyer?: BuyerContext
 }
 
 export interface StayDecision {
@@ -179,6 +187,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
   if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
+  if (request.buyer) reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
 
   let perRoom = 0n
   let perRoomNet = 0n
