@@ -13,7 +13,9 @@ import { HotelQuickUpdateController } from './hotel-quick-update.controller'
 import { HotelQuickUpdateService } from './hotel-quick-update.service'
 import { InventoryAdminController } from '../inventory/inventory-admin.controller'
 import { InventoryAdminService } from '../inventory/inventory-admin.service'
+import { PoolCapacityController } from '../inventory/pool-capacity.controller'
+import { PoolCapacityService } from '../inventory/pool-capacity.service'
 
 /** Hotel Setup (ADR 0021) and Inventory & Allotment administration (ADR 0030). */
-@Module({ imports: [AuthModule, ApprovalsModule], controllers: [HotelSetupController, HotelRoomsController, HotelQuickUpdateController, HotelImagesController, InventoryAdminController], providers: [InventoryAdminService, HotelSetupService, HotelPublicationService, HotelRoomsService, HotelAmenitiesService, HotelQuickUpdateService, HotelImagesService] })
+@Module({ imports: [AuthModule, ApprovalsModule], controllers: [HotelSetupController, HotelRoomsController, HotelQuickUpdateController, HotelImagesController, InventoryAdminController, PoolCapacityController], providers: [InventoryAdminService, PoolCapacityService, HotelSetupService, HotelPublicationService, HotelRoomsService, HotelAmenitiesService, HotelQuickUpdateService, HotelImagesService] })
 export class HotelSetupModule {}
