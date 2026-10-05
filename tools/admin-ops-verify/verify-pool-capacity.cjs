@@ -107,7 +107,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   const range = { start: seed.dates.free, end: day(seed.dates.free, 1), capacity: 12 }
   await fillEdit(page, range); await page.locator('[data-testid=preview-button]').click(); await page.waitForSelector('[data-testid=preview-table]')
   check('Apply needs a reason: disabled while the reason is blank', await page.locator('[data-testid=apply-button]').isDisabled())
-  await page.getByLabel(/^Reason/).fill('Hotel confirmed 12 rooms for these nights')
+  await page.locator('[data-testid=capacity-editor]').getByLabel(/^Reason/).fill('Hotel confirmed 12 rooms for these nights')
   // a concurrent change after the preview: another operator edits the same nights through the API
   const other = (await (await op.ctx.request.post(poolApi(P.hotelId, P.poolId, '/capacity/preview'), { headers: { origin: BASE }, data: { startDate: range.start, endDate: range.end, capacity: 11 } })).json()).data
   const raced = await op.ctx.request.post(poolApi(P.hotelId, P.poolId, '/capacity/apply'), { headers: { origin: BASE }, data: { startDate: range.start, endDate: range.end, capacity: 11, expectedFingerprint: other.fingerprint, reason: 'A colleague edited first', idempotencyKey: `${seed.tag}-race-1` } })
@@ -118,7 +118,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   await page.locator('[data-testid=stale-help] button').click(); await page.waitForSelector('[data-testid=preview-table]'); await page.waitForTimeout(400)
   const refreshed = await page.locator(`[data-testid=preview-table] tr[data-date="${range.start}"]`).innerText()
   check('Preview again shows the current values (before: 11) and clears the error', /11 · 0 · 0 · 11/.test(refreshed) && (await page.locator('[data-testid=editor-error]').count()) === 0, refreshed.replace(/\s+/g, ' '))
-  await page.getByLabel(/^Reason/).fill('Hotel confirmed 12 rooms for these nights')
+  await page.locator('[data-testid=capacity-editor]').getByLabel(/^Reason/).fill('Hotel confirmed 12 rooms for these nights')
   const applies = () => writes.filter((w) => /capacity\/apply$/.test(w)).length
   const a0 = applies()
   await page.locator('[data-testid=apply-button]').dblclick(); await page.waitForSelector('[data-testid=editor-done]', { timeout: 20000 })
@@ -163,7 +163,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   await form(page).locator('input[aria-describedby="capacity-help"]').focus(); await page.keyboard.press('Enter'); await page.waitForSelector('[data-testid=preview-table]', { timeout: 20000 })
   check('the editor works from the keyboard: Enter submits the preview', (await page.locator('[data-testid=preview-table] tbody tr').count()) >= 1)
   check('weekday selection narrows the preview to those weekdays only', await page.locator('[data-testid=preview-table] tbody tr').evaluateAll((els) => els.every((e) => /MON|WED/.test(e.innerText))))
-  await page.getByLabel(/^Reason/).fill('Keyboard only check'); await page.getByLabel(/^Reason/).focus(); await page.keyboard.press('Tab')
+  await page.locator('[data-testid=capacity-editor]').getByLabel(/^Reason/).fill('Keyboard only check'); await page.locator('[data-testid=capacity-editor]').getByLabel(/^Reason/).focus(); await page.keyboard.press('Tab')
   check('Tab from the reason reaches the Apply button', (await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))) === 'apply-button')
   await page.screenshot({ path: `${SHOTS}/pool-preview.png`, fullPage: true })
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
@@ -192,6 +192,41 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   check('nothing was written by the denied calls', (await capacitiesOf(op.ctx, seed.dates.from)) === before)
   await ro.ctx.close()
 
+  // ---- requests to open new nights (ADR 0036 Amendment 3) ---------------------------------------------------------------------------------
+  await open(page, P.hotelId, P.poolId)
+  check('the night request section explains that nothing is created from the page', (await page.locator('[data-testid=night-requests]').count()) === 1 && /database owner/.test(await page.locator('[data-testid=night-requests]').innerText()))
+  const rform = page.locator('form[aria-label="Request new nights"]')
+  await rform.locator('input[type=date]').nth(0).fill(day(seed.dates.from, 70)); await rform.locator('input[type=date]').nth(1).fill(day(seed.dates.from, 72))
+  await rform.locator('input[inputmode=numeric]').fill('abc')
+  check('an invalid request is explained and cannot be sent', (await page.locator('[data-testid=request-problems]').count()) === 1 && await page.locator('[data-testid=request-button]').isDisabled())
+  await rform.locator('input[inputmode=numeric]').fill('8'); await rform.getByLabel(/^Reason/).fill('Hotel opened the next block')
+  const beforeNights = await capacitiesOf(op.ctx, seed.dates.from)
+  const reqPosts = []; page.on('request', (r) => { if (r.method() === 'POST' && /night-requests/.test(r.url())) reqPosts.push(r.url()) })
+  await page.locator('[data-testid=request-button]').click(); await page.waitForSelector('[data-testid=request-done]', { timeout: 20000 })
+  await page.waitForSelector('[data-testid=requests-table] tr[data-status=PENDING] [data-testid^=cancel-]', { timeout: 20000 })
+  const row1 = page.locator('[data-testid=requests-table] tr[data-status=PENDING]').first()
+  check('the request is recorded as PENDING, with a Withdraw action and no approve controls for its maker', (await row1.count()) === 1 && (await row1.locator('[data-testid^=cancel-]').count()) === 1 && (await row1.locator('[data-testid^=approve-]').count()) === 0, await row1.innerText().catch(() => ''))
+  check('one request POST was sent and no pool night was created (capacities unchanged)', reqPosts.length === 1 && (await capacitiesOf(op.ctx, seed.dates.from)) === beforeNights, String(reqPosts.length))
+  const reqId = await row1.getAttribute('data-request')
+  await page.screenshot({ path: `${SHOTS}/pool-night-request.png`, fullPage: true })
+  const ck = await login(browser, seed.checkerEmail)
+  await open(ck.page, P.hotelId, P.poolId)
+  check('the checker sees the request with approve and reject, and no request form', (await ck.page.locator(`[data-testid=approve-${reqId}]`).count()) === 1 && (await ck.page.locator('form[aria-label="Request new nights"]').count()) === 0)
+  check('approve needs a reason', await ck.page.locator(`[data-testid=approve-${reqId}]`).isDisabled())
+  await ck.page.locator(`tr[data-request="${reqId}"] input[aria-label="Decision reason"]`).fill('Confirmed with the hotel')
+  await ck.page.locator(`[data-testid=approve-${reqId}]`).click(); await ck.page.waitForSelector(`tr[data-request="${reqId}"][data-status=APPROVED]`, { timeout: 20000 })
+  await open(page, P.hotelId, P.poolId)
+  check('the maker sees it APPROVED, and it is not shown as executed (only the database owner applies it)', (await page.locator(`tr[data-request="${reqId}"][data-status=APPROVED]`).count()) === 1 && (await page.locator('[data-status=EXECUTED]').count()) === 0)
+  await rform.locator('input[type=date]').nth(0).fill(day(seed.dates.from, 80)); await rform.locator('input[type=date]').nth(1).fill(day(seed.dates.from, 80))
+  await rform.locator('input[inputmode=numeric]').fill('3'); await rform.getByLabel(/^Reason/).fill('A second block to withdraw')
+  await page.locator('[data-testid=request-button]').click(); await page.waitForSelector('tr[data-status=PENDING]', { timeout: 20000 })
+  await page.locator('tr[data-status=PENDING] [data-testid^=cancel-]').first().click(); await page.waitForSelector('tr[data-status=CANCELLED]', { timeout: 20000 })
+  check('a pending request can be withdrawn by its maker', (await page.locator('tr[data-status=CANCELLED]').count()) === 1)
+  const selfDecide = await op.ctx.request.post(poolApi(P.hotelId, P.poolId, `/night-requests/${reqId}/reject`), { headers: { origin: BASE }, data: { reason: 'self' } })
+  check('the maker cannot decide through the API either (403)', selfDecide.status() === 403, String(selfDecide.status()))
+  check('still no pool night was created by any of it', (await capacitiesOf(op.ctx, seed.dates.from)) === beforeNights)
+  await ck.ctx.close()
+
   // ---- previewer: preview yes, apply no -----------------------------------------------------------------------------------------------------
   const pv = await login(browser, seed.previewerEmail)
   await open(pv.page, P.hotelId, P.poolId)
@@ -199,6 +234,9 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   check('a user with only the preview permission can preview but sees no Apply control', (await pv.page.locator('[data-testid=apply-button]').count()) === 0 && (await pv.page.locator('[data-testid=no-apply-note]').count()) === 1)
   const pvApply = await pv.ctx.request.post(poolApi(P.hotelId, P.poolId, '/capacity/apply'), { headers: { origin: BASE }, data: { startDate: seed.dates.free, endDate: seed.dates.free, capacity: 6, expectedFingerprint: 'b'.repeat(64), reason: 'direct call', idempotencyKey: `${seed.tag}-pv-1` } })
   check('direct API apply by the preview-only user is denied with 403', pvApply.status() === 403)
+  check('a user without the request permission sees requests but no request form', (await pv.page.locator('[data-testid=request-readonly]').count()) === 1 && (await pv.page.locator('form[aria-label="Request new nights"]').count()) === 0)
+  const pvReq = await pv.ctx.request.post(poolApi(P.hotelId, P.poolId, '/night-requests'), { headers: { origin: BASE }, data: { requestId: 'direct-denied-1', startDate: day(seed.dates.from, 90), endDate: day(seed.dates.from, 90), capacity: 1, reason: 'direct' } })
+  check('a direct request by that user is denied with 403', pvReq.status() === 403)
   await pv.ctx.close()
 
   // ---- other tenant -------------------------------------------------------------------------------------------------------------------------

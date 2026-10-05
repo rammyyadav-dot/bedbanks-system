@@ -34,7 +34,8 @@ async function main() {
     return { email, id: u.id }
   }
   const view = ['supply.hotels.read', 'supply.contracts.read', 'supply.mappings.read', 'supply.rooms.read', 'supply.rates.read', 'supply.availability.read']
-  const operator = await user('operator', A, [...view, 'supply.availability.manage', 'supply.pool_capacity.preview', 'supply.pool_capacity.apply', 'audit.read'], 'owner')
+  const operator = await user('operator', A, [...view, 'supply.availability.manage', 'supply.pool_capacity.preview', 'supply.pool_capacity.apply', 'supply.pool_nights.request', 'audit.read'], 'owner')
+  const checker = await user('checker', A, [...view, 'supply.pool_nights.decide'])
   const previewer = await user('previewer', A, [...view, 'supply.pool_capacity.preview'])
   const viewer = await user('viewer', A, view)
   const bowner = await user('bowner', B, [...view, 'supply.pool_capacity.preview', 'supply.pool_capacity.apply'], 'owner')
@@ -80,7 +81,7 @@ async function main() {
   await hold('floor-held', p1, 5, 2); await confirm((await hold('floor-sold', p2, 5)).holdId)
   await prisma.inventoryPoolDay.updateMany({ where: { poolId: palm.poolId, stayDate: utc(5) }, data: { capacity: 3 } })
 
-  const out = { password, operatorEmail: operator.email, previewerEmail: previewer.email, viewerEmail: viewer.email, bownerEmail: bowner.email, palm, empty, other, dates: { consumption: day(3), floor: day(5), free: day(8), from: day(0) }, tenantA: A, tenantB: B, tag, names: { palm: 'Palm Pool Resort', empty: 'Dune Empty Pool Hotel' } }
+  const out = { password, operatorEmail: operator.email, checkerEmail: checker.email, previewerEmail: previewer.email, viewerEmail: viewer.email, bownerEmail: bowner.email, palm, empty, other, dates: { consumption: day(3), floor: day(5), free: day(8), from: day(0) }, tenantA: A, tenantB: B, tag, names: { palm: 'Palm Pool Resort', empty: 'Dune Empty Pool Hotel' } }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-pool-capacity.json', JSON.stringify(out, null, 2))
   console.log('seeded pool of 10 over 3 plans with holds in five lifecycle states')
   await prisma.$disconnect()
