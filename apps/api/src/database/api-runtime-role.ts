@@ -1,5 +1,5 @@
 import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role'
-import { RUNTIME_READ_TABLES, expectedWrites, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
+import { RUNTIME_READ_TABLES, expectedColumnReads, expectedWrites, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
 
 export const API_RUNTIME_GROUP_ROLE = 'fbeds_api'
 export const API_RUNTIME_LOGIN_ROLE = 'fbeds_api_login'
@@ -60,6 +60,14 @@ export async function verifyApiRuntimeRole(db: Pick<Executor, '$queryRawUnsafe'>
   if (!attrs.rolcanlogin) failures.push('role cannot login')
   if (!attrs.member) failures.push(`role is not a member of ${API_RUNTIME_GROUP_ROLE}`)
   if (Number(attrs.owned) > 0) failures.push('role owns tables')
+  const [owns] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
+    `SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND pg_get_userbyid(c.relowner) = current_user)
+          + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND pg_get_userbyid(p.proowner) = current_user)
+          + (SELECT count(*) FROM pg_namespace WHERE pg_get_userbyid(nspowner) = current_user) AS n`)
+  if (Number(owns?.n ?? 0) > 0) failures.push('role owns database objects (relations, functions or schemas)')
+  const memberships = await db.$queryRawUnsafe<Array<{ rolname: string }>>(
+    `SELECT r.rolname FROM pg_roles r WHERE pg_has_role(current_user, r.oid, 'MEMBER') AND r.rolname NOT IN (current_user, '${API_RUNTIME_GROUP_ROLE}') ORDER BY 1`)
+  if (memberships.length) failures.push(`role is a member of unexpected roles: ${memberships.map((m) => m.rolname).join(', ')}`)
   const [forbidden] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
     `SELECT count(*) AS n FROM unnest(ARRAY['Wallet','LedgerEntry','Booking','ConnectorCredentialReference']) t
       WHERE has_table_privilege(current_user, format('%I', t), 'SELECT')`)
@@ -112,13 +120,37 @@ export async function inspectRuntimePrivileges(db: Pick<Executor, '$queryRawUnsa
     const needed: WritePrivilege[] = [...want.table, ...want.columns.keys()]
     for (const priv of needed) if (!seen.has(`${table}:${priv}`)) problems.push({ table, message: `role lacks contract write ${priv} on ${table}` })
   }
-  const reads = onlyTable ? RUNTIME_READ_TABLES.filter((t) => t === onlyTable) : RUNTIME_READ_TABLES
   const missingReads: string[] = []
-  if (reads.length) {
-    const rows2 = await db.$queryRawUnsafe<Array<{ t: string }>>(
-      `SELECT t FROM unnest(ARRAY[${reads.map((t) => literal(t)).join(',')}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'SELECT') ORDER BY 1`)
-    missingReads.push(...rows2.map((r) => r.t))
-    for (const t of missingReads) problems.push({ table: t, message: `role cannot read ${t}` })
+  // Reads: every SELECT the role holds, table-level or column-level, must be in the contract, and the contract's reads must all be held.
+  const readRows = await db.$queryRawUnsafe<Array<{ tbl: string; table_level: boolean; cols: string[] | null }>>(
+    `SELECT c.relname AS tbl, has_table_privilege(current_user, c.oid, 'SELECT') AS table_level,
+            (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+              WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(current_user, c.oid, a.attnum, 'SELECT')) AS cols
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind IN ('r','p') ${filter}
+        AND (has_table_privilege(current_user, c.oid, 'SELECT') OR has_any_column_privilege(current_user, c.oid, 'SELECT'))`)
+  const tableReads = new Set(RUNTIME_READ_TABLES)
+  const columnReads = expectedColumnReads()
+  const readSeen = new Set<string>()
+  for (const row of readRows) {
+    readSeen.add(row.tbl)
+    const wanted = columnReads.get(row.tbl)
+    if (wanted) {
+      if (row.table_level) { problems.push({ table: row.tbl, message: `role holds table-level SELECT on ${row.tbl}, which overrides the contract's column-level read` }); continue }
+      const held = new Set(row.cols ?? [])
+      const extra = [...held].filter((c) => !wanted.has(c)); const missing = [...wanted].filter((c) => !held.has(c))
+      if (extra.length) problems.push({ table: row.tbl, message: `role reads columns of ${row.tbl} outside the contract: ${extra.join(', ')}` })
+      if (missing.length) { problems.push({ table: row.tbl, message: `role cannot read required columns of ${row.tbl}: ${missing.join(', ')}` }); if (!missingReads.includes(row.tbl)) missingReads.push(row.tbl) }
+    } else if (tableReads.has(row.tbl)) {
+      if (!row.table_level) problems.push({ table: row.tbl, message: `role lacks table-level SELECT on ${row.tbl} (it holds only some columns)` })
+    } else {
+      problems.push({ table: row.tbl, message: `role can read ${row.tbl}, which the contract does not grant` })
+    }
   }
+  for (const table of [...tableReads, ...columnReads.keys()]) {
+    if (onlyTable && table !== onlyTable) continue
+    if (!readSeen.has(table)) { problems.push({ table, message: `role cannot read ${table}` }); missingReads.push(table) }
+  }
+  missingReads.sort()
   return { problems, missingReads }
 }

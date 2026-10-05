@@ -156,7 +156,7 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
     inFlight.current = true; setBusy('apply'); setError(null)
     try {
       const { data } = await applyPoolCapacity(hotelId, poolId, { ...preview.request, expectedFingerprint: preview.result.fingerprint, reason: reason.trim(), idempotencyKey: key.current ?? crypto.randomUUID() })
-      setDone(`${data.replayed ? 'Already applied (retry recognised). ' : ''}Capacity applied: ${data.changed.updated} night(s) changed, ${data.changed.created} created.`)
+      setDone(`${data.replayed ? 'Already applied (retry recognised). ' : ''}Capacity applied: ${data.changed.updated} night(s) changed.`)
       setPreview(null); key.current = null; setReason(''); onApplied()
     } catch (e) {
       fail(e, 'apply the capacity change')
@@ -171,7 +171,7 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
   return (
     <section className="workspace-panel" style={{ padding: 14, display: 'grid', gap: 10 }} aria-label="Capacity editor" data-testid="capacity-editor">
       <h2 style={{ fontSize: 14, margin: 0 }}>Edit capacity</h2>
-      <p style={note}>Sets the shared capacity of this pool for a range of nights (up to {POOL_CAPACITY_LIMITS.maxRangeDays}). It never allocates stock, removes holds or sold units, changes prices or restrictions, or enables booking. A capacity below the units already sold or held is refused.</p>
+      <p style={note}>Sets the shared capacity of this pool for a range of nights that already have a stock row (up to {POOL_CAPACITY_LIMITS.maxRangeDays}). It never creates nights, allocates stock, removes holds or sold units, changes prices or restrictions, or enables booking. A capacity below the units already sold or held is refused.</p>
       {archived && <p role="status" className="admin-error" style={{ padding: 8, fontSize: 12, margin: 0 }}>This pool is archived and cannot be edited.</p>}
       <form style={{ display: 'grid', gap: 10 }} aria-label="Capacity change" onSubmit={(e) => { e.preventDefault(); void runPreview() }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
@@ -197,7 +197,7 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
 
       {preview && (
         <div style={{ display: 'grid', gap: 8 }} data-testid="preview" aria-label="Preview of the capacity change">
-          <p style={{ margin: 0, fontSize: 12 }} data-testid="preview-counts"><strong>{preview.result.counts.willChange}</strong> to change · <strong>{preview.result.counts.willCreate}</strong> to create · <strong>{preview.result.counts.unchanged}</strong> unchanged · <strong>{preview.result.counts.invalid}</strong> invalid (of {preview.result.counts.dates} nights, hotel time {preview.result.timeZone}).{preview.result.truncated ? ` Showing the first ${preview.result.rows.length}.` : ''}</p>
+          <p style={{ margin: 0, fontSize: 12 }} data-testid="preview-counts"><strong>{preview.result.counts.willChange}</strong> to change · <strong>{preview.result.counts.unchanged}</strong> unchanged · <strong>{preview.result.counts.invalid}</strong> invalid (of {preview.result.counts.dates} nights, hotel time {preview.result.timeZone}).{preview.result.truncated ? ` Showing the first ${preview.result.rows.length}.` : ''}</p>
           {preview.result.errors.length > 0 && <ul role="alert" style={{ margin: 0, fontSize: 12, color: '#a11d1d' }}>{preview.result.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
           <ScrollRegion label="Capacity preview" maxHeight={320}><table style={tableStyle} aria-label="Capacity preview by night" data-testid="preview-table">
             <thead><tr>{['Date', 'Day', 'Before: capacity · sold · held · available', 'After: capacity · available', 'Result'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>

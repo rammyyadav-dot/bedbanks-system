@@ -45,33 +45,34 @@ export interface CapacityPlan {
   dates: string[]
   rows: Array<PoolCapacityPreviewRow & { id: string | null }>
   errors: string[]
-  counts: { dates: number; willChange: number; willCreate: number; unchanged: number; invalid: number }
+  counts: { dates: number; willChange: number; unchanged: number; invalid: number }
 }
 
 /**
  * Plans the edit against the loaded pool days. Rules:
  *  - a night before the hotel's local today is invalid (past nights are not editable);
  *  - a capacity below sold + held is invalid (units already committed are never removed or ignored);
- *  - a missing pool night is created only because the operator set an explicit capacity (unknown becomes a stated number, never an implied zero);
+ *  - a night with no pool row is INVALID: the editor changes the capacity of stock that exists and never creates it, so unknown stays unknown
+ *    (adding nights is supply authoring, which the strict runtime role does not hold: ADR 0036 amendment);
  *  - an equal capacity is unchanged.
  */
 export function planCapacityEdit(value: NormalisedCapacityEdit, days: Map<string, PoolDayState>, today: string): CapacityPlan {
   const dates = expandDates([{ from: value.startDate, to: value.endDate }], value.weekdays)
   const errors: string[] = []
   if (dates.length === 0) errors.push('The selected range and weekdays contain no dates')
-  const counts = { dates: dates.length, willChange: 0, willCreate: 0, unchanged: 0, invalid: 0 }
+  const counts = { dates: dates.length, willChange: 0, unchanged: 0, invalid: 0 }
   const rows: CapacityPlan['rows'] = dates.map((date) => {
     const weekday = QUICK_UPDATE_WEEKDAYS[(new Date(`${date}T00:00:00.000Z`).getUTCDay() + 6) % 7]
     const current = days.get(date)
     const before = current ? { capacity: current.capacity, sold: current.sold, held: current.held, available: current.capacity - current.sold - current.held } : null
     const problems: string[] = []
     if (date < today) problems.push(`${date} is before the hotel's local today (${today}), so it cannot be edited`)
+    if (!current) problems.push(`${date} has no pool stock row (unknown, not zero); capacity can only be edited where the pool already has stock for the night, and adding nights is supply authoring (the privileged operator path)`)
     if (current && value.capacity < current.sold + current.held) problems.push(`capacity ${value.capacity} is below the ${current.sold + current.held} unit(s) already sold or held (sold ${current.sold}, held ${current.held})`)
     if (problems.length) { counts.invalid += 1; return { id: current?.id ?? null, date, weekday, before, after: null, outcome: 'INVALID' as const, problems } }
-    if (!current) { counts.willCreate += 1; return { id: null, date, weekday, before: null, after: { capacity: value.capacity, available: value.capacity }, outcome: 'CREATE' as const, problems: [] } }
-    if (current.capacity === value.capacity) { counts.unchanged += 1; return { id: current.id, date, weekday, before, after: { capacity: value.capacity, available: before!.available }, outcome: 'UNCHANGED' as const, problems: [] } }
+    if (current!.capacity === value.capacity) { counts.unchanged += 1; return { id: current!.id, date, weekday, before, after: { capacity: value.capacity, available: before!.available }, outcome: 'UNCHANGED' as const, problems: [] } }
     counts.willChange += 1
-    return { id: current.id, date, weekday, before, after: { capacity: value.capacity, available: value.capacity - current.sold - current.held }, outcome: 'CHANGE' as const, problems: [] }
+    return { id: current!.id, date, weekday, before, after: { capacity: value.capacity, available: value.capacity - current!.sold - current!.held }, outcome: 'CHANGE' as const, problems: [] }
   })
   return { dates, rows, errors, counts }
 }

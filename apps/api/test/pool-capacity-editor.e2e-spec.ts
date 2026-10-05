@@ -194,7 +194,7 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
   it('PCE-03 preview shows before and after for every affected night and writes nothing', async () => {
     const before = await capacities()
     const p = (await preview(edit({ capacity: 8 })).expect(200)).body.data
-    expect(p).toMatchObject({ poolId: poolA, counts: { dates: 5, willChange: 5, willCreate: 0, unchanged: 0, invalid: 0 }, canApply: true, errors: [] })
+    expect(p).toMatchObject({ poolId: poolA, counts: { dates: 5, willChange: 5, unchanged: 0, invalid: 0 }, canApply: true, errors: [] })
     expect(p.fingerprint).toMatch(/^[0-9a-f]{64}$/)
     expect(p.rows[0]).toMatchObject({ date: D[0], outcome: 'CHANGE', before: { capacity: 5, sold: 0, held: 0, available: 5 }, after: { capacity: 8, available: 8 } })
     expect(p.notes.join(' ')).toMatch(/does not allocate stock/)
@@ -228,15 +228,15 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     } finally { await reset() }
   })
 
-  it('PCE-06 past nights, weekday selection, no-op and creation of a missing night are classified exactly', async () => {
+  it('PCE-06 past nights, weekday selection, no-op and a missing night (never created) are classified exactly', async () => {
     const past = (await preview({ startDate: day(-3), endDate: day(-1), capacity: 4 }).expect(200)).body.data
     expect(past).toMatchObject({ counts: { invalid: 3 }, canApply: false }); expect(past.rows[0].problems[0]).toMatch(/before the hotel's local today/)
     const wd = (await preview(edit({ startDate: D[0], endDate: D[4], weekdays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].filter((w) => w === 'MON') })).expect(200)).body.data
     expect(wd.rows.every((r: { weekday: string }) => r.weekday === 'MON')).toBe(true)
     const same = (await preview(edit({ capacity: 5 })).expect(200)).body.data
     expect(same).toMatchObject({ counts: { unchanged: 5, willChange: 0 }, canApply: false })
-    const created = (await preview({ startDate: day(25), endDate: day(26), capacity: 4 }).expect(200)).body.data
-    expect(created).toMatchObject({ counts: { willCreate: 2, willChange: 0 }, canApply: true }); expect(created.rows[0]).toMatchObject({ outcome: 'CREATE', before: null, after: { capacity: 4, available: 4 } })
+    const missing = (await preview({ startDate: day(25), endDate: day(26), capacity: 4 }).expect(200)).body.data
+    expect(missing).toMatchObject({ counts: { invalid: 2, willChange: 0 }, canApply: false }); expect(missing.rows[0]).toMatchObject({ outcome: 'INVALID', before: null, after: null })
   })
 
   // ---- apply --------------------------------------------------------------------------------------------------------------------------
@@ -246,7 +246,7 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     const p = (await preview(edit({ capacity: 7 })).expect(200)).body.data
     const body = applyBody(p, { capacity: 7 })
     const r = (await apply(body).expect(200)).body.data
-    expect(r).toMatchObject({ replayed: false, changed: { updated: 5, created: 0 } })
+    expect(r).toMatchObject({ replayed: false, changed: { updated: 5 } })
     expect(await capacities()).toEqual(D.map(() => [7, 0, 0]))
     expect((await dayRow(D[0]))).toMatchObject({ source: 'ADMIN', freshUntil: null })
     expect(await owner.dailyAvailability.findMany({ where: { tenantId: tenantA }, orderBy: [{ ratePlanId: 'asc' }, { stayDate: 'asc' }] })).toEqual(rowsBefore) // plan rows, restrictions, modes: untouched
@@ -254,7 +254,7 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     expect(await owner.inventoryHold.count({ where: { tenantId: tenantA } })).toBe(0)
     const events = await owner.auditEvent.findMany({ where: { tenantId: tenantA, action: 'inventory.pool.capacity_changed' } })
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ userId: ownerUserId, entityType: 'hotel', entityId: hotelA, payload: expect.objectContaining({ outcome: 'allowed', reason: 'Hotel confirmed a larger allotment', poolId: poolA, capacity: 7, changed: { updated: 5, created: 0 }, idempotencyKey: body.idempotencyKey, fingerprintBefore: p.fingerprint }) })
+    expect(events[0]).toMatchObject({ userId: ownerUserId, entityType: 'hotel', entityId: hotelA, payload: expect.objectContaining({ outcome: 'allowed', reason: 'Hotel confirmed a larger allotment', poolId: poolA, capacity: 7, changed: { updated: 5 }, idempotencyKey: body.idempotencyKey, fingerprintBefore: p.fingerprint }) })
     expect(JSON.stringify(events[0].payload)).not.toMatch(/password|token|secret/i)
   })
 
@@ -311,12 +311,13 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     }
   })
 
-  it('PCE-11 creating a missing night is explicit, atomic and audited as a creation', async () => {
+  it('PCE-11 a night with no pool stock row is refused, never created, and nothing is written or audited', async () => {
+    const auditBefore = await owner.auditEvent.count({ where: { tenantId: tenantA, action: 'inventory.pool.capacity_changed' } })
     const p = (await preview({ startDate: day(25), endDate: day(26), capacity: 4 }).expect(200)).body.data
-    const r = (await apply({ startDate: day(25), endDate: day(26), capacity: 4, expectedFingerprint: p.fingerprint, reason: 'Open two more nights', idempotencyKey: key() }).expect(200)).body.data
-    expect(r.changed).toEqual({ updated: 0, created: 2 })
-    expect(await owner.inventoryPoolDay.count({ where: { poolId: poolA, stayDate: { in: [new Date(day(25)), new Date(day(26))] } } })).toBe(2)
-    await owner.inventoryPoolDay.deleteMany({ where: { poolId: poolA, stayDate: { in: [new Date(day(25)), new Date(day(26))] } } })
+    expect(p.canApply).toBe(false)
+    await apply({ startDate: day(25), endDate: day(26), capacity: 4, expectedFingerprint: p.fingerprint, reason: 'Open two more nights', idempotencyKey: key() }).expect(422)
+    expect(await owner.inventoryPoolDay.count({ where: { poolId: poolA, stayDate: { in: [new Date(day(25)), new Date(day(26))] } } })).toBe(0)
+    expect(await owner.auditEvent.count({ where: { tenantId: tenantA, action: 'inventory.pool.capacity_changed' } })).toBe(auditBefore)
   })
 
   // ---- concurrency --------------------------------------------------------------------------------------------------------------------

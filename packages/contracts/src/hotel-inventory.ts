@@ -77,7 +77,7 @@ export const POOL_HOLD_STATUS_COUNTER: Readonly<Record<string, 'held' | 'sold' |
 
 export interface PoolDayDetail {
   date: string
-  /** False when the pool has no row for the night: unknown, never zero. */
+  /** False when the pool has no row for the night: unknown, never zero. The editor never creates one (adding nights is supply authoring). */
   exists: boolean
   capacity: number | null; sold: number | null; held: number | null; available: number | null
   stale: boolean; source: string | null; freshUntil: string | null; updatedAt: string | null
@@ -135,7 +135,7 @@ export interface PoolCapacityEditRequest {
   capacity: number | null
 }
 
-export type PoolCapacityOutcome = 'CHANGE' | 'CREATE' | 'UNCHANGED' | 'INVALID';
+export type PoolCapacityOutcome = 'CHANGE' | 'UNCHANGED' | 'INVALID';
 
 export interface PoolCapacityPreviewRow {
   date: string; weekday: QuickUpdateWeekday
@@ -149,7 +149,7 @@ export interface PoolCapacityPreview {
   generatedAt: string; poolId: string; poolName: string; timeZone: string; hotelToday: string
   /** Send back with the apply. Any change to the affected nights, to their consumption, or to the request makes it stale. */
   fingerprint: string
-  counts: { dates: number; willChange: number; willCreate: number; unchanged: number; invalid: number }
+  counts: { dates: number; willChange: number; unchanged: number; invalid: number }
   rows: PoolCapacityPreviewRow[]; truncated: boolean
   errors: string[]
   canApply: boolean
@@ -157,4 +157,4 @@ export interface PoolCapacityPreview {
 }
 
 export interface PoolCapacityApply extends PoolCapacityEditRequest { expectedFingerprint: string; reason: string; idempotencyKey: string }
-export interface PoolCapacityApplied { replayed: boolean; auditRequestId: string; changed: { updated: number; created: number }; fingerprintAfter: string }
+export interface PoolCapacityApplied { replayed: boolean; auditRequestId: string; changed: { updated: number }; fingerprintAfter: string }

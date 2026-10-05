@@ -26,7 +26,13 @@ export interface RuntimeGrant {
   table: string
   /** The Prisma model that maps to the table (for the drift scan). */
   model: string
+  /** Table-level SELECT. Mutually exclusive with `readColumns`. */
   read: boolean
+  /**
+   * Column-level SELECT: only these columns are readable and no table-level SELECT may exist. Used where a table holds fields the runtime must not see
+   * (ADR 0036 amendment). Every query on such a table must name its columns; `SELECT *` and implicit ORM column lists are denied by PostgreSQL.
+   */
+  readColumns?: readonly string[]
   writes: readonly RuntimeWrite[]
   /** `forced-tenant`: forced RLS on tenant_id through fbeds_current_tenant_id(). `none`: authentication tables outside RLS. */
   rls: 'forced-tenant' | 'none'
@@ -44,6 +50,19 @@ export const ROOM_WRITE_COLUMNS = ['name', 'code', 'max_adults', 'max_children',
 
 /** Amenity columns the runtime may update (a fee type change). The hotel, room and tenant a row belongs to are immutable for the role (ADR 0032 amendment). */
 export const AMENITY_UPDATE_COLUMNS = ['fee_type', 'updated_by_id', 'updated_at'] as const
+
+/**
+ * InventoryPoolDay columns the capacity editor may update (ADR 0036, amendment). `capacity` is the edit; the next four are the ADMIN provenance
+ * stamp every Admin edit writes (ADR 0030, decision 7: source ADMIN, fresh, no expiry), so an edit also revives a night a supplier feed had let go stale.
+ * `sold`, `held`, `tenant_id`, `pool_id`, `stay_date`, `id` and `created_at` are NOT writable: the counters move only through the hold path.
+ */
+export const POOL_DAY_CAPACITY_COLUMNS = ['capacity', 'source', 'source_updated_at', 'received_at', 'fresh_until', 'updated_at'] as const
+
+/** InventoryHold columns the per-plan consumption report reads: tenant-scoped identity, the plan the hold was made for, and its lifecycle status. No guest, money, offer, search, idempotency or user fields. */
+export const HOLD_ATTRIBUTION_COLUMNS = ['id', 'tenant_id', 'rate_plan_id', 'status'] as const
+
+/** InventoryHoldNight columns the report reads: the hold, the recorded counter reference (kind and pool night) and the quantity. Nothing else. */
+export const HOLD_NIGHT_ATTRIBUTION_COLUMNS = ['tenant_id', 'hold_id', 'pool_day_id', 'counter_kind', 'quantity'] as const
 
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
@@ -65,11 +84,19 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'DailyAvailability', model: 'DailyAvailability', rls: 'forced-tenant' },
   { table: 'CancellationPolicy', model: 'CancellationPolicy', rls: 'forced-tenant', note: 'search and recheck include each contract\'s cancellation terms' },
   { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
-  { table: 'InventoryPoolDay', model: 'InventoryPoolDay', rls: 'forced-tenant', note: 'stock moves belong to the hold path and the hold-expiry role' },
+]
+
+/** Tables the runtime reads through named columns only, and never writes. */
+const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
+  { table: 'InventoryHold', model: 'InventoryHold', read: false, readColumns: HOLD_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column' },
+  { table: 'InventoryHoldNight', model: 'InventoryHoldNight', read: false, readColumns: HOLD_NIGHT_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference' },
 ]
 
 /** Tables the runtime also writes, each with the exact operation, service, endpoints and reason. */
 const READ_WRITE: readonly RuntimeGrant[] = [
+  { table: 'InventoryPoolDay', model: 'InventoryPoolDay', read: true, rls: 'forced-tenant', note: 'capacity-only column UPDATE; INSERT, DELETE, sold and held stay with the hold path and the hold-expiry role', writes: [
+    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`], reason: 'set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night' },
+  ] },
   { table: 'users', model: 'User', read: true, rls: 'none', writes: [
     { op: 'UPDATE', columns: ['last_login_at', 'updated_at'], service: 'AuthService.login', endpoints: ['POST /auth/login'], reason: 'record the last successful sign-in' },
   ] },
@@ -153,6 +180,7 @@ const READ_WRITE: readonly RuntimeGrant[] = [
 
 export const RUNTIME_ROLE_GRANTS: readonly RuntimeGrant[] = [
   ...READ_ONLY.map((r): RuntimeGrant => ({ ...r, read: true, writes: [] })),
+  ...READ_COLUMNS_ONLY,
   ...READ_WRITE,
 ]
 
@@ -168,7 +196,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   Supplier: 'supply authoring', Contract: 'supply authoring', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update',
   DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring',
   SupplierHotelMapping: 'mapping governance', SupplierRoomMapping: 'mapping governance',
-  InventoryPool: 'pool authoring needs RatePlan and DailyAvailability writes', InventoryPoolDay: 'pool authoring and stock moves (hold path, hold-expiry role)',
+  InventoryPool: 'pool authoring needs RatePlan and DailyAvailability writes', InventoryPoolDay: 'INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted',
   SupplierMutation: 'booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds',
   Booking: 'booking is disabled; finance-gated', BookingDocument: 'booking is disabled', InventoryHold: 'holds are gated; written by the booking path',
   InventoryHoldNight: 'holds are gated', LedgerEntry: 'finance-gated', Cancellation: 'booking is disabled',
@@ -193,6 +221,7 @@ export function runtimeGrantStatements(group: string): string[] {
     const privileges: string[] = [...(grant.read ? ['SELECT'] : []), ...grant.writes.filter((w) => !w.columns).map((w) => w.op)]
     const ordered = (['SELECT', 'INSERT', 'UPDATE', 'DELETE'] as const).filter((p) => privileges.includes(p))
     if (ordered.length) statements.push(`GRANT ${ordered.join(', ')} ON ${table} TO ${role}`)
+    if (grant.readColumns) statements.push(`GRANT SELECT (${grant.readColumns.map(quote).join(', ')}) ON ${table} TO ${role}`)
     for (const write of grant.writes.filter((w) => w.columns)) statements.push(`GRANT ${write.op} (${write.columns!.map(quote).join(', ')}) ON ${table} TO ${role}`)
   }
   return statements
@@ -215,7 +244,13 @@ export function expectedWrites(): Map<string, { table: Set<WritePrivilege>; colu
 
 export const RUNTIME_READ_TABLES = RUNTIME_ROLE_GRANTS.filter((g) => g.read).map((g) => g.table)
 
+/** Tables read through named columns only, with the exact column set. The verifier compares both directions. */
+export function expectedColumnReads(): Map<string, Set<string>> {
+  return new Map(RUNTIME_ROLE_GRANTS.filter((g) => g.readColumns).map((g) => [g.table, new Set(g.readColumns!)]))
+}
+
 const cell = (value: boolean) => (value ? 'yes' : '-')
+const readCell = (grant: RuntimeGrant): string => (grant.readColumns ? `cols (${grant.readColumns.length})` : cell(grant.read))
 const opCell = (grant: RuntimeGrant, op: WritePrivilege): string => {
   const write = grant.writes.find((w) => w.op === op)
   return write ? (write.columns ? `cols (${write.columns.length})` : 'yes') : '-'
@@ -230,8 +265,8 @@ export function renderRuntimeRoleMatrix(): string {
   for (const grant of [...RUNTIME_ROLE_GRANTS].sort((a, b) => a.table.localeCompare(b.table))) {
     const who = grant.writes.length
       ? [...new Map(grant.writes.map((w) => [`${w.service}|${w.reason}`, w])).values()].map((w) => `${w.op}${w.columns ? ` (${w.columns.join(', ')})` : ''}: ${w.service}; ${w.endpoints.join(', ')}; ${w.reason}`).join(' / ')
-      : (grant.note ?? 'read only')
-    lines.push(`| \`${grant.table}\` | ${cell(grant.read)} | ${opCell(grant, 'INSERT')} | ${opCell(grant, 'UPDATE')} | ${opCell(grant, 'DELETE')} | ${grant.rls === 'forced-tenant' ? 'forced tenant' : 'none (auth)'} | ${who} |`)
+      : grant.readColumns ? `SELECT (${grant.readColumns.join(', ')}): ${grant.note ?? 'column-level read'}` : (grant.note ?? 'read only')
+    lines.push(`| \`${grant.table}\` | ${readCell(grant)} | ${opCell(grant, 'INSERT')} | ${opCell(grant, 'UPDATE')} | ${opCell(grant, 'DELETE')} | ${grant.rls === 'forced-tenant' ? 'forced tenant' : 'none (auth)'} | ${who} |`)
   }
   lines.push('', 'Privileged paths (written by the API process somewhere, never by the runtime role):', '')
   for (const [model, reason] of Object.entries(PRIVILEGED_WRITE_MODELS).sort(([a], [b]) => a.localeCompare(b))) lines.push(`- \`${model}\`: ${reason}`)

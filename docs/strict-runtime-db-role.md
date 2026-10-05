@@ -47,8 +47,10 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `HotelImage` | yes | yes | yes | yes | forced tenant | INSERT: HotelImagesService.upload; POST /admin/hotels/:hotelId/images; upload an image / UPDATE: HotelImagesService.update/reorder; PATCH /admin/hotels/:hotelId/images/:imageId, PUT /admin/hotels/:hotelId/images/order; edit, reorder, choose the primary image / DELETE: HotelImagesService.remove; DELETE /admin/hotels/:hotelId/images/:imageId; delete an image |
 | `HotelProfile` | yes | yes | yes | - | forced tenant | INSERT: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities; first save of a hotel profile / UPDATE: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; save the profile, bump its version, stamp the approver |
 | `HotelSearchIndex` | yes | - | - | - | forced tenant | read only |
+| `InventoryHold` | cols (4) | - | - | - | forced tenant | SELECT (id, tenant_id, rate_plan_id, status): per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column |
+| `InventoryHoldNight` | cols (5) | - | - | - | forced tenant | SELECT (tenant_id, hold_id, pool_day_id, counter_kind, quantity): per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference |
 | `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
-| `InventoryPoolDay` | yes | - | - | - | forced tenant | stock moves belong to the hold path and the hold-expiry role |
+| `InventoryPoolDay` | yes | - | cols (6) | - | forced tenant | UPDATE (capacity, source, source_updated_at, received_at, fresh_until, updated_at): PoolCapacityService.apply; POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply; set the shared capacity of existing pool nights (guarded: sold + held <= capacity) and stamp ADMIN provenance; never sold, held or the tenant, pool and date of a night |
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
@@ -86,7 +88,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryHold`: holds are gated; written by the booking path
 - `InventoryHoldNight`: holds are gated
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
-- `InventoryPoolDay`: pool authoring and stock moves (hold path, hold-expiry role)
+- `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
 - `LedgerEntry`: finance-gated
 - `PlatformRole`: platform administration
 - `PlatformRoleAssignment`: platform administration

@@ -31,13 +31,14 @@ describe('pool capacity editor rules (PC)', () => {
 
   describe('planCapacityEdit', () => {
     const v = value({ endDate: '2030-06-05' }).value!
-    it('PC-05 classifies create, change, unchanged and computes before/after available from the one formula', () => {
+    it('PC-05 classifies change and unchanged and computes before/after available from the one formula; a night with no pool row is INVALID, never created', () => {
       const days = new Map([['2030-06-03', day(8, 2, 1, 'a')], ['2030-06-04', day(5, 1, 1, 'b')]])
       const p = planCapacityEdit(v, days, '2030-06-01')
-      expect(p.counts).toEqual({ dates: 3, willChange: 1, willCreate: 1, unchanged: 1, invalid: 0 })
+      expect(p.counts).toEqual({ dates: 3, willChange: 1, unchanged: 1, invalid: 1 })
       expect(p.rows[0]).toMatchObject({ outcome: 'CHANGE', before: { capacity: 8, sold: 2, held: 1, available: 5 }, after: { capacity: 5, available: 2 } })
       expect(p.rows[1]).toMatchObject({ outcome: 'UNCHANGED', after: { capacity: 5, available: 3 } })
-      expect(p.rows[2]).toMatchObject({ outcome: 'CREATE', before: null, after: { capacity: 5, available: 5 } })
+      expect(p.rows[2]).toMatchObject({ outcome: 'INVALID', before: null, after: null })
+      expect(p.rows[2].problems[0]).toMatch(/no pool stock row \(unknown, not zero\)/)
     })
     it('PC-06 refuses a decrease below sold + held and names the numbers; equal to the floor is allowed; zero is allowed only on an empty night', () => {
       const days = new Map([['2030-06-03', day(8, 2, 1)], ['2030-06-04', day(8, 3, 2)], ['2030-06-05', day(8, 0, 0)]])
@@ -52,7 +53,9 @@ describe('pool capacity editor rules (PC)', () => {
     })
     it('PC-07 a night before the hotel-local today is invalid, today is editable', () => {
       const p = planCapacityEdit(v, new Map(), '2030-06-04')
-      expect(p.rows.map((r) => r.outcome)).toEqual(['INVALID', 'CREATE', 'CREATE'])
+      expect(p.rows.map((r) => r.outcome)).toEqual(['INVALID', 'INVALID', 'INVALID'])
+      const stocked = planCapacityEdit(v, new Map([['2030-06-04', day(8)], ['2030-06-05', day(8)]]), '2030-06-04')
+      expect(stocked.rows.map((r) => r.outcome)).toEqual(['INVALID', 'CHANGE', 'CHANGE'])
       expect(p.rows[0].problems[0]).toMatch(/before the hotel's local today \(2030-06-04\)/)
     })
     it('PC-08 weekday filtering selects only those nights', () => {

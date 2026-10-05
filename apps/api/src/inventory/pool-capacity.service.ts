@@ -204,10 +204,10 @@ export class PoolCapacityService {
       return {
         generatedAt: this.clock().toISOString(), poolId: pool.id, poolName: pool.name, timeZone: hotel.timeZone, hotelToday: today, fingerprint,
         counts: planned.counts, rows: shown.map(({ id: _id, ...row }) => row), truncated: planned.rows.length > shown.length, errors: errorsOut,
-        canApply: errorsOut.length === 0 && planned.counts.invalid === 0 && planned.counts.willChange + planned.counts.willCreate > 0,
+        canApply: errorsOut.length === 0 && planned.counts.invalid === 0 && planned.counts.willChange > 0,
         notes: [
           'Editing capacity changes the number of rooms the pool offers on these nights. It does not allocate stock, create or release holds, change prices or restrictions, or enable booking.',
-          'A new pool night becomes bookable only where the plans also have an availability row and are otherwise sellable.',
+          'Only nights that already have a pool stock row can be edited. A night with no row is unknown, not zero, and adding one is supply authoring.',
         ],
       }
     })
@@ -230,7 +230,7 @@ export class PoolCapacityService {
       if (prior) {
         const p = prior.payload as { requestHash?: string; requestId?: string; changed?: PoolCapacityApplied['changed']; fingerprintAfter?: string }
         if (p.requestHash !== requestHash) throw new ConflictException({ message: 'This idempotency key was already used for a different request.', code: 'IDEMPOTENCY_KEY_REUSED' })
-        return { replayed: true, auditRequestId: p.requestId ?? '', changed: p.changed ?? { updated: 0, created: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
+        return { replayed: true, auditRequestId: p.requestId ?? '', changed: p.changed ?? { updated: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
       }
       const { pool, planned, fingerprint } = await this.plan(tx, tenantId, hotel, poolIdRaw, value)
       if (pool.status !== 'ACTIVE') throw new ConflictException({ message: 'The pool is archived and cannot be edited.', code: 'POOL_ARCHIVED' })
@@ -240,39 +240,31 @@ export class PoolCapacityService {
         throw new UnprocessableEntityException({ message: [`${planned.counts.invalid} night(s) are invalid, so nothing was written.`, ...first], code: 'POOL_CAPACITY_INVALID' })
       }
       if (fingerprint !== body.expectedFingerprint) throw new ConflictException({ message: 'The pool nights, their consumption or this request changed after you previewed it. Nothing was written. Preview again to see the current values.', code: 'POOL_CAPACITY_STALE' })
-      if (planned.counts.willChange + planned.counts.willCreate === 0) throw new ConflictException({ message: 'Nothing would change: every selected night already has this capacity.', code: 'POOL_CAPACITY_NO_CHANGE' })
+      if (planned.counts.willChange === 0) throw new ConflictException({ message: 'Nothing would change: every selected night already has this capacity.', code: 'POOL_CAPACITY_NO_CHANGE' })
 
       const now = this.clock()
-      let updated = 0; let created = 0
+      let updated = 0
       for (const row of planned.rows) {
-        if (row.outcome === 'CREATE') {
-          try {
-            await tx.inventoryPoolDay.create({ data: { tenantId, poolId: pool.id, stayDate: toDate(row.date), capacity: value.capacity, source: 'ADMIN', sourceUpdatedAt: now, receivedAt: now, freshUntil: null } })
-          } catch (error) {
-            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException({ message: 'A pool night was created while you were saving. Nothing was written. Preview again.', code: 'POOL_CAPACITY_STALE' })
-            throw error
-          }
-          created += 1
-        } else if (row.outcome === 'CHANGE') {
-          // The guard keeps capacity at or above sold + held at the instant of the write, whatever a concurrent hold did since the preview.
-          const changed = await tx.$executeRaw(Prisma.sql`
-            UPDATE "InventoryPoolDay"
-               SET "capacity" = ${value.capacity}, "source" = 'ADMIN'::"InventorySource", "source_updated_at" = ${now}, "received_at" = ${now}, "fresh_until" = NULL, "updated_at" = CURRENT_TIMESTAMP
-             WHERE "id" = ${row.id} AND "tenant_id" = ${tenantId} AND "pool_id" = ${pool.id} AND "sold" + "held" <= ${value.capacity}
-          `)
-          if (changed !== 1) throw new ConflictException({ message: 'Pool stock changed while saving. Nothing was written. Preview again to see the current values.', code: 'POOL_CAPACITY_STALE' })
-          updated += 1
-        }
+        if (row.outcome !== 'CHANGE') continue
+        // The only write this service makes to InventoryPoolDay: capacity and the ADMIN provenance stamp, by explicit column list (the runtime role holds UPDATE on exactly these
+        // columns, ADR 0036 amendment). The guard keeps capacity at or above sold + held at the instant of the write, whatever a concurrent hold did since the preview.
+        const changed = await tx.$executeRaw(Prisma.sql`
+          UPDATE "InventoryPoolDay"
+             SET "capacity" = ${value.capacity}, "source" = 'ADMIN'::"InventorySource", "source_updated_at" = ${now}, "received_at" = ${now}, "fresh_until" = NULL, "updated_at" = CURRENT_TIMESTAMP
+           WHERE "id" = ${row.id} AND "tenant_id" = ${tenantId} AND "pool_id" = ${pool.id} AND "sold" + "held" <= ${value.capacity}
+        `)
+        if (changed !== 1) throw new ConflictException({ message: 'Pool stock changed while saving. Nothing was written. Preview again to see the current values.', code: 'POOL_CAPACITY_STALE' })
+        updated += 1
       }
       const after = await this.loadDays(tx, tenantId, pool.id, planned.dates)
       const fingerprintAfter = capacityFingerprint({ poolId: pool.id, status: pool.status, value, dates: planned.dates, days: after })
-      const sample = planned.rows.filter((r) => r.outcome === 'CHANGE' || r.outcome === 'CREATE').slice(0, 20).map((r) => ({ date: r.date, from: r.before ? r.before.capacity : null, to: value.capacity }))
+      const sample = planned.rows.filter((r) => r.outcome === 'CHANGE').slice(0, 20).map((r) => ({ date: r.date, from: r.before ? r.before.capacity : null, to: value.capacity }))
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: POOL_CAPACITY_ACTION, entityType: 'hotel', entityId: hotel.id, payload: {
         outcome: 'allowed', requestId, idempotencyKey: body.idempotencyKey, requestHash, reason, poolId: pool.id, poolName: pool.name,
         startDate: value.startDate, endDate: value.endDate, weekdays: value.weekdays, capacity: value.capacity,
-        changed: { updated, created }, fingerprintBefore: fingerprint, fingerprintAfter, sample,
+        changed: { updated }, fingerprintBefore: fingerprint, fingerprintAfter, sample,
       } as unknown as Prisma.InputJsonValue } })
-      return { replayed: false, auditRequestId: requestId ?? '', changed: { updated, created }, fingerprintAfter }
+      return { replayed: false, auditRequestId: requestId ?? '', changed: { updated }, fingerprintAfter }
     })
   }
 }
