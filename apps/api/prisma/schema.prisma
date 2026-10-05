@@ -913,6 +913,8 @@ model AuditEvent {
 
 /// Tenant-owned commercial source. Credential material is never persisted here.
 model Supplier {
+  sandboxRuns SandboxContentRun[]
+  sandboxLeases SandboxContentLease[]
   inventoryPools InventoryPool[]
   serviceCases ServiceCase[]
   distributionRestrictions DistributionRestriction[]
@@ -1491,6 +1493,8 @@ model DailyRate {
 }
 
 model ConnectorDefinition {
+  sandboxRuns SandboxContentRun[]
+  sandboxLeases SandboxContentLease[]
   id                  String          @id @default(cuid())
   tenantId            String          @map("tenant_id")
   tenant              Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1511,6 +1515,7 @@ model ConnectorDefinition {
   inventoryEvents      InventoryUpdateEvent[]
 
   @@unique([supplierId, name])
+  @@unique([tenantId, id, supplierId])
   @@index([tenantId, status])
 }
 
@@ -1561,4 +1566,55 @@ model InventoryUpdateEvent {
 
   @@unique([supplierId, idempotencyKey])
   @@index([tenantId, receivedAt])
+}
+
+/// Quarantined supplier SANDBOX content only; never canonical mapping or inventory.
+model SandboxContentRun {
+  id String @id
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  connectorId String @map("connector_id")
+  parameterHash String @map("parameter_hash") @db.Char(64)
+  lastUpdateTime String? @map("last_update_time") @db.Char(10)
+  nextFrom Int @default(1) @map("next_from")
+  status String @default("PENDING")
+  attemptCount Int @default(0) @map("attempt_count")
+  pageCount Int @default(0) @map("page_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  errorClassification String? @map("error_classification")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  connector ConnectorDefinition @relation(fields: [tenantId, connectorId, supplierId], references: [tenantId, id, supplierId], onDelete: Restrict)
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  pages SandboxContentPage[]
+  @@unique([tenantId, id])
+  @@index([tenantId, connectorId, createdAt])
+}
+
+model SandboxContentPage {
+  id String @id
+  tenantId String @map("tenant_id")
+  runId String @map("run_id")
+  from Int
+  nextFrom Int @map("next_from")
+  payloadHash String @map("payload_hash") @db.Char(64)
+  hotels Json
+  receivedAt DateTime @map("received_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  run SandboxContentRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+  @@unique([runId, from])
+  @@index([tenantId, runId])
+}
+
+model SandboxContentLease {
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  connectorId String @map("connector_id")
+  token String?
+  expiresAt DateTime? @map("expires_at")
+  generation Int @default(0)
+  connector ConnectorDefinition @relation(fields: [tenantId, connectorId, supplierId], references: [tenantId, id, supplierId], onDelete: Restrict)
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  @@id([tenantId, connectorId])
 }

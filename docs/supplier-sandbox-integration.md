@@ -283,3 +283,17 @@ LIVE_BOOKING_AUTHORIZED=NO
 PAYMENT_ENABLED_BY_THIS_WORK=NO
 LIVE_PAYMENT_AUTHORIZED=NO
 ```
+
+## Durable staging continuation (draft, not certified)
+
+Base: `4039dc03751455d4fc83088c414dbbcbc86703f5`, after PR #274 was merged externally. This continuation adds tenant-scoped run checkpoints, immutable content-page snapshots, and database-clock leases with fencing. It does not publish mappings or alter inventory, provenance, freshness, prices or Agent offers.
+
+A narrow API-role grant and a separate operator principal were compared. The API has no public content-sync endpoint and needs none of these writes. Keeping the existing API grant contract unchanged is the smaller exposure for this stage. The operator grant generator permits sandbox table reads/inserts, selected run/lease updates, connector metadata column reads and audit inserts. It grants no canonical content, mappings, stock, hold or booking access. This is a proposed contract, not authorization to provision a persistent role. The preliminary principal check rejects superuser, BYPASSRLS and public-object ownership; it is not a complete privilege-drift verifier.
+
+The forward migration creates three staging tables with composite tenant/supplier/connector foreign keys, bounds and forced tenant RLS. It contains no role creation or grant changes. Checkpoint, page and completion mutations require a live fencing token. A committed page replays only when its hash and next position match. Failed transport leaves the committed checkpoint intact. Failure recording is fenced and uses bounded sanitized classifications. An operator command and full principal privilege-drift verification remain follow-up work. Five attempts per run are enforced; long-running catalogue pagination needs an explicit continuation budget design before unrestricted use.
+
+Missing content is unknown. An absent supplier hotel is never inferred deleted, unavailable or zero stock. Pages remain sandbox quarantine; official Hotelbeds guidance prohibits using evaluation content as production hotel mappings. No mapping approval UI or authoritative search/recheck wiring is added here.
+
+Validation environment: Node v24.19.0 / pnpm 10.4.1. Local PostgreSQL certification could not run: this workspace cannot switch OS users, and the cached PostgreSQL package is incomplete. The new PostgreSQL e2e suite must run in the existing disposable `fbeds_ci` CI track, with a generated non-superuser/non-BYPASSRLS/non-owner login. Until that succeeds, migration replay, RLS, concurrency and real database acceptance remain UNVERIFIED. Hotelbeds sandbox credentials are unavailable; real transport certification remains BLOCKED.
+
+F01 remains OPEN. Its candidate stays `aea042299bdc2b7fbc33945b0cb89ba0a7a04238`; this branch is not that release candidate. No production migration, persistent provisioning, deployment, DNS/alias change, live supplier, booking or payment enablement was performed.

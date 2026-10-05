@@ -94,6 +94,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `PlatformRoleAssignment`: platform administration
 - `PlatformRolePermission`: platform administration
 - `RatePlan`: supply authoring and pool membership/release
+- `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
+- `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
+- `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant
 - `Supplier`: supply authoring
 - `SupplierHotelMapping`: mapping governance
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds

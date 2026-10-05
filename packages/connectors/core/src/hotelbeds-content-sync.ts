@@ -4,7 +4,9 @@ import type { HotelbedsSandboxTransport, SandboxContext } from './hotelbeds-sand
  * No implementation in this slice writes canonical content, mappings or inventory.
  */
 export interface ContentStagingStore {
-  checkpoint(context: SandboxContext, runId: string, lastUpdateTime: string | null): Promise<number>
+  checkpoint(context: SandboxContext, runId: string, lastUpdateTime: string | null, leaseToken: string): Promise<number>
+  recordFailure?(context: SandboxContext, runId: string, classification: string, leaseToken: string): Promise<void>
+  finish?(context: SandboxContext, input: { runId: string; complete: boolean; leaseToken: string }): Promise<void>
   /** The implementation must check the lease/fencing token, CAS the checkpoint and
    * bind the run to lastUpdateTime in the SAME atomic commit as page staging. */
   commitPage(context: SandboxContext, input: { runId: string; lastUpdateTime: string | null; leaseToken: string; expectedFrom: number; nextFrom: number; hotels: unknown[]; receivedAt: string }): Promise<void>
@@ -28,8 +30,11 @@ export async function syncHotelbedsContent(
   if (!lease) throw new Error('Sandbox synchronization lease unavailable')
   const started = Date.now()
   let pages = 0, staged = 0
+  let checkpointStarted = false
+  let failed = false
   try {
-    let from = await store.checkpoint(context, options.runId, options.lastUpdateTime ?? null)
+    let from = await store.checkpoint(context, options.runId, options.lastUpdateTime ?? null, lease.token)
+    checkpointStarted = true
     if (!Number.isSafeInteger(from) || from < 1) throw new Error('Invalid synchronization checkpoint')
     while (pages < options.maxPages) {
       if (context.signal?.aborted || Date.now() - started >= 45_000) throw new Error('Sandbox synchronization interrupted')
@@ -52,8 +57,22 @@ export async function syncHotelbedsContent(
       staged += page.hotels.length
       pages++
       from = nextFrom
-      if ((page.to as number) >= (page.total as number)) return { nextFrom: from, pages, staged, complete: true }
+      if ((page.to as number) >= (page.total as number)) {
+        await store.finish?.(context, { runId: options.runId, complete: true, leaseToken: lease.token })
+        return { nextFrom: from, pages, staged, complete: true }
+      }
     }
+    await store.finish?.(context, { runId: options.runId, complete: false, leaseToken: lease.token })
     return { nextFrom: from, pages, staged, complete: false }
-  } finally { await coordination.release(lease) }
+  } catch (error) {
+    failed = true
+    if (checkpointStarted && store.recordFailure) {
+      const candidate = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'malformed_response'
+      const safe = ['authentication_or_quota', 'rate_limited', 'timeout', 'cancelled', 'transport', 'provider_unavailable', 'malformed_response', 'unsupported', 'circuit_open', 'DATABASE_UNAVAILABLE'].includes(candidate) ? candidate : 'malformed_response'
+      try { await store.recordFailure(context, options.runId, safe, lease.token) } catch { /* Never overwrite the original failure; the checkpoint remains durable. */ }
+    }
+    throw error
+  } finally {
+    try { await coordination.release(lease) } catch (error) { if (!failed) throw error }
+  }
 }
