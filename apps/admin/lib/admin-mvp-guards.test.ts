@@ -272,3 +272,11 @@ test('rate certification UI holds no pricing or certification authority and show
   assert.equal([...data.matchAll(/method: '(\w+)'/g)].map((m) => m[1]).join(','), 'POST', 'the only non-GET call is the read-only simulator')
   assert.ok(flatNav.some((n) => n.href === '/rate-certification' && n.requires === 'supply.rates.read'))
 })
+
+test('the pool workspace holds no stock or reconciliation arithmetic: counters, availability and attribution come from the API', () => {
+  const text = readFileSync(join(root, 'components', 'hotels', 'panels', 'PoolWorkspace.tsx'), 'utf8')
+  assert.doesNotMatch(text, /capacity\s*-\s*\w+\.(sold|held)|\.sold\s*\+|\.held\s*\+|-\s*\w+\.sold|evaluateContractedStay|BigInt\(|parseFloat|\.toFixed\(/, 'no stock arithmetic in React')
+  assert.doesNotMatch(text, /method:\s*['"](PUT|PATCH|DELETE)['"]/)
+  const data = readFileSync(join(root, 'lib', 'data', 'hotel-inventory.ts'), 'utf8')
+  assert.match(data, /poolCapacityPreview/); assert.match(data, /poolCapacityApply/)
+})

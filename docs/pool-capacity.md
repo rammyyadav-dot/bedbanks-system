@@ -1,0 +1,57 @@
+# Pool capacity editor and per-plan consumption
+
+Decision record: [ADR 0036](adr/0036-pool-capacity-editor-and-per-plan-consumption.md). Where: **Hotels > a hotel > Inventory & Allotment > Open this pool**.
+
+## Counter definitions
+| Term | Meaning |
+| --- | --- |
+| capacity | Rooms the pool offers on a night (`InventoryPoolDay.capacity`) |
+| held | Units on holds in HELD, PROCESSING or HOLD_PENDING |
+| sold | Units on holds in CONFIRMED |
+| available | `capacity - sold - held`, subtracted once (what search and recheck use) |
+| unattributed | `counter - sum(attributed to plans)`; negative = inconsistent, shown as is |
+
+Not counted: RELEASED, EXPIRED, FAILED, PENDING_RECHECK, RECHECKED holds. Missing pool nights are unknown, not zero.
+
+## Reconciliation formula
+For each night with a pool row: `held = sum(plan.held) + unattributedHeld` and `sold = sum(plan.sold) + unattributedSold`. The report's totals are the sums of the nights shown; `inconsistentNights` counts nights where either unattributed figure is negative.
+
+## Capacity edit invariants
+1. Blank capacity is refused (unchanged); zero is a value; negative, fractional, > 9999 or non-numeric is rejected, never clamped.
+2. `capacity >= sold + held` on every edited night, checked at preview, again at apply, and by the guarded `UPDATE` at write time.
+3. Nights before the hotel-local today cannot be edited; at most 366 nights per edit.
+4. Holds, sold units and consumption are never removed or altered. Prices, modes, restrictions, plan rows and booking state are untouched.
+5. The tenant, hotel and pool are verified server-side; the tenant comes only from the session.
+6. All nights change in one transaction or none do.
+
+## Concurrency and stale previews
+The preview returns a fingerprint of the request, the pool status and each selected night (capacity, sold, held, version, or absence). Apply recomputes it under the per-hotel advisory locks and refuses with `409 POOL_CAPACITY_STALE` if anything differs, including consumption that arrived after the preview. Two applies from one preview: exactly one wins. A decrease racing with new holds can never breach `sold + held <= capacity`; one side always yields. An idempotency key makes a retry safe: the same key and request replays the first result; the same key with another request is `409 IDEMPOTENCY_KEY_REUSED`.
+
+## Permission matrix
+| Capability | Permission | Without it |
+| --- | --- | --- |
+| View pool and consumption | `supply.availability.read` | 403 |
+| Preview an edit (no write) | `supply.pool_capacity.preview` | 403 |
+| Apply an edit | `supply.pool_capacity.apply` | 403 |
+| Hotel audit trail | `audit.read` | link not shown |
+
+The migration grants these to no role; assign them to roles explicitly. On the strict API database role, apply answers `403 RUNTIME_ROLE_OPERATION_PROHIBITED` and attribution is `unavailable` (see ADR 0036, section 6).
+
+## Audit events
+`inventory.pool.capacity_changed` on the hotel (entity type `hotel`), payload: `poolId`, `poolName`, `startDate`, `endDate`, `weekdays`, `capacity`, `reason`, `changed {updated, created}`, `idempotencyKey`, `requestHash`, `requestId`, `fingerprintBefore`, `fingerprintAfter`, `sample` (up to 20 nights, from and to). Permission denials are the existing `permission.denied`.
+
+## Historical attribution limitations
+Attribution reads each hold's recorded pool night and plan, so history survives membership changes. Consumption written before holds recorded a counter, or written to the counter outside the hold path, can only be shown as unattributed. Nights a plan sold on its own row before pooling are not part of the pool. The report is bounded to 62 nights.
+
+## Operator workflow
+1. Open the pool; check the window, the daily counters and who holds what.
+2. Enter start and end dates, optional weekdays and the new capacity; **Preview**. Read the before/after table and any INVALID nights (units already sold or held).
+3. Enter a reason and **Apply exactly this change**.
+4. **If you see "changed after you previewed it"**, nothing was written: another edit or new bookings touched those nights. Press **Preview again**, check the new before values and apply again.
+5. **If the apply says it could not reach the server**, press Apply again without changing anything: the same idempotency key is reused, so it is applied once.
+6. To undo a change, preview and apply the previous capacity; the audit trail keeps both events.
+
+## Verification
+- `pool-capacity-rules.spec.ts`: 16 unit tests (validation, planning, fingerprint, attribution).
+- `pool-capacity-editor.e2e-spec.ts`: 23 PostgreSQL/HTTP tests with two tenants, the real hold lifecycle, the Agent adapter, and the provisioned non-bypass runtime role.
+- `tools/admin-ops-verify/verify-pool-capacity.cjs`: 59 Chromium checks on the production Admin build. Run `seed-pool-capacity.ts` first (re-seed before each run: the run edits capacity).

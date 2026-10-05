@@ -103,3 +103,12 @@ node tools/admin-ops-verify/verify-hotel-journey.cjs
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-rate-certification.ts)
 node tools/admin-ops-verify/verify-rate-certification.cjs
 ```
+
+## Pool capacity editor and per-plan consumption (ADR 0036)
+
+`seed-pool-capacity.ts` creates one hotel whose three plans share a pool of 10 with holds in five lifecycle states made through the production hold services (held, confirmed, released, confirmed-then-cancelled), a night at its committed floor, a second hotel whose pool has no stock rows, and four users (operator with preview and apply, preview-only, read-only, other tenant). `verify-pool-capacity.cjs` drives the workspace, the editor, the stale-preview conflict, the failure states, keyboard use, overflow and axe in Chromium. Re-seed before every run. Same disposable-database guard as above.
+
+```bash
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-pool-capacity.ts)
+node tools/admin-ops-verify/verify-pool-capacity.cjs
+```
