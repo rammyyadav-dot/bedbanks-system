@@ -7,7 +7,7 @@ import { databaseErrorCode, isDatabasePermissionDenied } from '../database/db-er
  * sellable offer. A valid absence of configuration (no agency, no restriction, no markup rule) is a documented default;
  * a control that cannot be read, or reads back malformed, is a failure and never an unrestricted or zero-markup answer.
  */
-export type CommercialControl = 'agency_suspension' | 'distribution_restrictions' | 'markup_rules'
+export type CommercialControl = 'agency_suspension' | 'distribution_restrictions' | 'markup_rules' | 'buyer_market'
 export type CommercialControlFailure = 'denied' | 'failed' | 'malformed'
 
 export class CommercialControlUnavailableError extends Error {

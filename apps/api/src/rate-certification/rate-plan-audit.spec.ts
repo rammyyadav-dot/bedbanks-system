@@ -133,11 +133,18 @@ describe('rate plan audit (RC)', () => {
     expect(codes(auditHotel(input([plan({ validTo: '2030-06-20' })])).plans)).toContain('CONTRACT_EXPIRING')
   })
 
-  it('RC-12: recorded sales markets or nationalities warn that search does not apply them; blank records say nothing', () => {
-    expect(codes(auditHotel(input([plan()])).plans)).not.toContain('SALES_MARKETS_NOT_ENFORCED')
-    const recorded = auditHotel(input([plan({ salesMarkets: ['GB', 'DE'], nationalities: ['FR'] })]))
-    expect(recorded.plans[0].findings.find((f) => f.code === 'SALES_MARKETS_NOT_ENFORCED')).toMatchObject({ severity: 'WARN', count: 3, sample: ['GB', 'DE', 'FR'] })
-    expect(codes(auditHotel(input([plan({ salesMarkets: 'not-a-list' })])).plans)).not.toContain('SALES_MARKETS_NOT_ENFORCED')
+  it('RC-12: market and nationality lists are informational when valid, a failure when malformed, and silent when blank', () => {
+    expect(codes(auditHotel(input([plan()])).plans)).not.toContain('CONTRACT_MARKET_RESTRICTED')
+    const recorded = auditHotel(input([plan({ salesMarkets: ['gb', 'DE'], nationalities: ['FR'] })]))
+    expect(recorded.plans[0].findings.find((f) => f.code === 'CONTRACT_MARKET_RESTRICTED')).toMatchObject({ severity: 'INFO', count: 3, sample: ['DE', 'GB', 'FR'] })
+    expect(recorded.plans[0].status).toBe('PASS')
+    for (const bad of ['not-a-list', ['GBR'], [1]]) {
+      const a = auditHotel(input([plan({ salesMarkets: bad })]))
+      expect(a.plans[0].findings.find((f) => f.code === 'CONTRACT_MARKET_RULE_INVALID')).toMatchObject({ severity: 'FAIL' })
+      expect(a.plans[0].status).toBe('FAIL')
+    }
+    expect(remediationItems(auditHotel(input([plan({ nationalities: 'x' })])).plans)[0]).toMatchObject({ priority: 'P1', code: 'CONTRACT_MARKET_RULE_INVALID' })
+    expect(remediationItems(recorded.plans)).toEqual([])
   })
 
   it('RC-13: a hotel with no live plan, or one that is not sellable at all, is NOT_READY', () => {

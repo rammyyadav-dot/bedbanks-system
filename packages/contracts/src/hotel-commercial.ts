@@ -42,6 +42,7 @@ export const HOTEL_STAR_RATING_MISSING = 'HOTEL_STAR_RATING_MISSING'
 export const COMMERCIAL_REASON_TEXT: Record<string, string> = {
   HOTEL_INACTIVE: 'Hotel content is not COMPLETE', HOTEL_STAR_RATING_MISSING: 'Hotel has no 1-5 star rating, so Agents cannot list it',
   ROOM_TYPE_INACTIVE: 'Room type is inactive', BOARD_BASIS_INACTIVE: 'Board basis is inactive', SUPPLIER_INACTIVE: 'Supplier is not ACTIVE', RATE_PLAN_INACTIVE: 'Rate plan is not ACTIVE',
+  NATIONALITY_NOT_ALLOWED: 'The contract does not accept this guest nationality', SOURCE_MARKET_NOT_ALLOWED: 'The contract is not sold to this buyer market', CONTRACT_MARKET_RULE_INVALID: 'The contract sales-market or nationality list is malformed, so it is not sold',
   RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity',
   SUPPLIER_MAPPING_INVALID: 'Supplier mapping is missing or not approved', OCCUPANCY_UNSUPPORTED: 'Rate plan occupancy exceeds what the room supports',
   DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency',
@@ -187,7 +188,7 @@ export interface HotelContractRow {
   /** Contract linked to this hotel through a mapping, or reached only through its rate plans. */
   link: 'MAPPING' | 'RATE_PLAN'
   mappingId: string | null
-  /** Recorded sales markets and nationalities. They are stored on the contract but Agent search does not apply them yet, so they restrict nothing today. */
+  /** Sales markets (buyer agency country) and guest nationalities the contract is sold to. Empty means unrestricted. Agent search, recheck and hold enforce them (ADR 0035); Admin readiness is buyer-independent and does not. */
   salesMarkets: string[]
   nationalities: string[]
 }

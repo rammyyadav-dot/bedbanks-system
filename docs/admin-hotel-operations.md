@@ -38,7 +38,7 @@ Every figure, state and verdict comes from the API; the browser renders and subm
 | Lock Dates and Apply & Lock | Lock scope, permissions, expiry and override behaviour are undefined |
 | Allotment pools | The schema has no shared pool; inventory is per rate plan |
 | Board basis mapping | The schema has no supplier board code mapping |
-| Closed to departure, sales markets, nationalities as restrictions | Stored, but Agent search does not apply them, so they are shown as recorded and not editable in Quick Update |
+| Closed to departure, sales markets, nationalities as restrictions | Sales markets and nationalities are enforced by Agent search, recheck and hold ([ADR 0035](adr/0035-contract-sales-markets-and-nationalities.md)); shown on the contract and not editable in Quick Update. Closed to departure was already enforced |
 
 ## Migrations (forward-only, unapplied to any persistent database)
 

@@ -22,12 +22,12 @@ export const RATE_FINDING_CODES = [
   // FAIL: a priced night would be wrong, refused, or ambiguous
   'RATE_AMOUNT_ZERO', 'RATE_CURRENCY_MISMATCH', 'RATE_BASIS_UNVERIFIED', 'NET_MARKUP_MISSING',
   'PLAN_CURRENCY_NOT_ENABLED', 'PLAN_CONTRACT_CURRENCY_MISMATCH', 'OCCUPANCY_EXCEEDS_ROOM', 'PLAN_CONTRACT_NOT_ACTIVE',
-  'NO_PRICED_NIGHTS', 'DUPLICATE_PLAN_CODE', 'DUPLICATE_LOGICAL_PLAN',
+  'NO_PRICED_NIGHTS', 'CONTRACT_MARKET_RULE_INVALID', 'DUPLICATE_PLAN_CODE', 'DUPLICATE_LOGICAL_PLAN',
   // WARN: sells today, but hygiene or coverage needs a person
   'RATE_GAPS', 'RATE_MIXED_BASIS', 'RATE_OUTSIDE_CONTRACT', 'RATE_OTHER_OCCUPANCY', 'AVAILABILITY_GAPS', 'NO_SELLABLE_NIGHTS',
-  'PLAN_CODE_FORMAT', 'CONTRACT_EXPIRING', 'SALES_MARKETS_NOT_ENFORCED', 'MARKUP_ZERO_PERCENT', 'MARKUP_VERY_HIGH',
+  'PLAN_CODE_FORMAT', 'CONTRACT_EXPIRING', 'MARKUP_ZERO_PERCENT', 'MARKUP_VERY_HIGH',
   // INFO
-  'PLAN_NOT_LIVE',
+  'PLAN_NOT_LIVE', 'CONTRACT_MARKET_RESTRICTED',
 ] as const;
 export type RateFindingCode = (typeof RATE_FINDING_CODES)[number];
 
@@ -229,7 +229,7 @@ export const RATE_CERTIFICATION_NOT_APPLICABLE: ReadonlyArray<{ concept: string;
   { concept: 'Meal Plan Master', reason: 'Board basis is a small reference table already checked by the evaluator.' },
   { concept: 'Bulk Rate Loader', reason: 'Rates are authored through Quick Update and supply routes; there is no bulk loader to audit.' },
   { concept: 'Whole-AED rounding', reason: 'Prices stay in exact minor units; the half-up markup rounding is in @bedbanks/pricing.' },
-  { concept: 'Source-market pricing', reason: 'Contract sales markets and nationalities are recorded but not applied by search (reported as a warning).' },
+  { concept: 'Source-market pricing', reason: 'Markets and nationalities restrict who may buy a contract (ADR 0035); they never change a price.' },
 ];
 
 /**
