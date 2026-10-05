@@ -26,6 +26,7 @@
     "ops:strict-role-boot-smoke": "node scripts/strict-role-boot-smoke.cjs",
     "ops:render-runtime-role-doc": "tsx src/database/render-runtime-role-doc.cli.ts",
     "ops:provision-api-runtime-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-api-runtime-role.cli.ts",
+    "ops:pool-nights": "node --no-experimental-strip-types -r @swc-node/register src/inventory/pool-night-authoring.cli.ts",
     "ops:strict-role-rollout": "node --no-experimental-strip-types -r @swc-node/register src/database/strict-role-rollout.cli.ts",
     "ops:provision-preview-fixtures": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-preview-fixtures.cli.ts",
     "ops:bootstrap-first-admin": "node --no-experimental-strip-types -r @swc-node/register src/database/bootstrap-first-admin.cli.ts",

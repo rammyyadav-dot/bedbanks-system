@@ -20,7 +20,7 @@ For each night with a pool row: `held = sum(plan.held) + unattributedHeld` and `
 1. Blank capacity is refused (unchanged); zero is a value; negative, fractional, > 9999 or non-numeric is rejected, never clamped.
 2. `capacity >= sold + held` on every edited night, checked at preview, again at apply, and by the guarded `UPDATE` at write time.
 3. Nights before the hotel-local today cannot be edited; at most 366 nights per edit.
-3a. Only nights that already have a pool stock row can be edited. A night without one is `INVALID` and is never created by this editor (the strict runtime role holds no INSERT; pool authoring stays a privileged path).
+3a. Only nights that already have a pool stock row can be edited. A night without one is `INVALID` and is never created by this editor (the strict runtime role holds no INSERT; pool authoring stays a privileged path). To open new nights, the database owner runs `ops:pool-nights` (preview, then apply; ADR 0036 Amendment 2).
 4. Holds, sold units and consumption are never removed or altered. Prices, modes, restrictions, plan rows and booking state are untouched.
 5. The tenant, hotel and pool are verified server-side; the tenant comes only from the session.
 6. All nights change in one transaction or none do.

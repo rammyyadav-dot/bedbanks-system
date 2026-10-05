@@ -95,3 +95,13 @@ The verifier (run as the login role) now reports: any SELECT outside the contrac
 
 ### Migration and rollback
 `202610260001_strict_runtime_role_pool_capacity` is forward-only and a no-op when the group role does not exist. It revokes everything on the three tables from the group role and re-grants exactly the rows above, which equals the contract output (a unit test replays the migrations in order and compares). It must not be applied to a persistent database without an owner decision. Rollback (documented in the migration header): `REVOKE UPDATE (...) ON "InventoryPoolDay"`, `REVOKE SELECT (...) ON "InventoryHold", "InventoryHoldNight"` and revert the code; no data change.
+
+## Amendment 2: creating missing pool nights is an owner-run tool, not an API capability
+Amendment 1 made the editor refuse a night with no stock row, because creating one needs INSERT and pool authoring is a privileged path (ADR 0032). Operators still need a way to open new nights. Decision: **no runtime grant**. `pnpm --filter @bedbanks/api ops:pool-nights` (`apps/api/src/inventory/pool-night-authoring.ts`) runs with the database owner credential, never inside the API process:
+
+- Preview by default (writes nothing, prints the nights it would create, the existing nights it leaves alone, nights before the hotel-local today it skips, and a fingerprint). `--apply` writes; `--expect=<fingerprint>` makes apply refuse if the set of missing nights changed since the preview.
+- It only INSERTs missing rows (`ON CONFLICT DO NOTHING`); an existing night, `sold` and `held` are never updated. Capacity 0 to 9999, at most 366 nights, a reason and the operator's name are required. The tenant is named explicitly and set as the transaction's tenant context, so forced RLS applies to the owner session as well. The pool must be ACTIVE.
+- It takes the same per-hotel advisory locks as the editor and Quick Update, in the same order.
+- One immutable `inventory.pool.nights_created` audit event (actor type SYSTEM, the operator named in the payload) per applied run that created something; a re-run creates nothing and records nothing.
+- Remote targets need `--allow-remote --confirm-database=<name>`, like the other owner commands. Nothing was run against a persistent database.
+A night created this way becomes bookable only where the plans also have availability rows and are otherwise sellable (ADR 0030, decision 4).
