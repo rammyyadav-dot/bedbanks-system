@@ -168,7 +168,7 @@ OWNER_DATABASE_URL=postgresql://...@localhost:PORT/p05_main REDIS_URL=redis://12
 
 ## 8. Not covered here
 
-Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is covered by ADR 0036, Amendment 1 (`pool-capacity-editor` PCE-22 to PCE-27 run the real API on the strict login). Applying migration `202610260001_strict_runtime_role_pool_capacity` to a persistent database and re-provisioning the persistent role remain owner-controlled steps.
+Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is covered by ADR 0036, Amendment 1 (`pool-capacity-editor` PCE-22 to PCE-27 run the real API on the strict login). Applying migration `202610260001_strict_runtime_role_pool_capacity` to a persistent database (follow [runbooks/strict-role-rollout.md](runbooks/strict-role-rollout.md)) and re-provisioning the persistent role remain owner-controlled steps.
 
 
 ## 9. Column-level reads

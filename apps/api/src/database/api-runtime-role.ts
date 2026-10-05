@@ -85,21 +85,22 @@ type WriteRow = { tbl: string; priv: string; table_level: boolean; cols: string[
 /**
  * Compares the live privileges of the CURRENT user against the contract: every write privilege (table or column level) the role holds
  * must be in the contract, and every contract write and read must be held. Catalog queries only; no secrets. With `onlyTable`, inspects that table
- * (the 403-versus-503 classification of a database denial uses this).
+ * (the 403-versus-503 classification of a database denial uses this). With `subject`, inspects that role by name instead of the connected user (owner-side rollout check).
  */
-export async function inspectRuntimePrivileges(db: Pick<Executor, '$queryRawUnsafe'>, onlyTable?: string): Promise<{ problems: PrivilegeProblem[]; missingReads: string[] }> {
+export async function inspectRuntimePrivileges(db: Pick<Executor, '$queryRawUnsafe'>, onlyTable?: string, subject?: string): Promise<{ problems: PrivilegeProblem[]; missingReads: string[] }> {
   const literal = (value: string) => `'${value.replace(/'/g, "''")}'`
+  const who = subject ? literal(subject) : 'current_user' // a role name (owner-side rollout check of the group role) or the connected user
   const filter = onlyTable ? `AND c.relname = ${literal(onlyTable)}` : ''
   const rows = await db.$queryRawUnsafe<WriteRow[]>(
     `SELECT c.relname AS tbl, p.priv,
-            has_table_privilege(current_user, c.oid, p.priv) AS table_level,
+            has_table_privilege(${who}, c.oid, p.priv) AS table_level,
             CASE WHEN p.priv IN ('INSERT','UPDATE') THEN
               (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
-                WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(current_user, c.oid, a.attnum, p.priv))
+                WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(${who}, c.oid, a.attnum, p.priv))
             END AS cols
        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) p(priv)
       WHERE n.nspname = 'public' AND c.relkind IN ('r','p') ${filter}
-        AND (has_table_privilege(current_user, c.oid, p.priv) OR (p.priv IN ('INSERT','UPDATE') AND has_any_column_privilege(current_user, c.oid, p.priv)))`)
+        AND (has_table_privilege(${who}, c.oid, p.priv) OR (p.priv IN ('INSERT','UPDATE') AND has_any_column_privilege(${who}, c.oid, p.priv)))`)
   const expected = expectedWrites()
   const problems: PrivilegeProblem[] = []
   const seen = new Set<string>()
@@ -123,12 +124,12 @@ export async function inspectRuntimePrivileges(db: Pick<Executor, '$queryRawUnsa
   const missingReads: string[] = []
   // Reads: every SELECT the role holds, table-level or column-level, must be in the contract, and the contract's reads must all be held.
   const readRows = await db.$queryRawUnsafe<Array<{ tbl: string; table_level: boolean; cols: string[] | null }>>(
-    `SELECT c.relname AS tbl, has_table_privilege(current_user, c.oid, 'SELECT') AS table_level,
+    `SELECT c.relname AS tbl, has_table_privilege(${who}, c.oid, 'SELECT') AS table_level,
             (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
-              WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(current_user, c.oid, a.attnum, 'SELECT')) AS cols
+              WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(${who}, c.oid, a.attnum, 'SELECT')) AS cols
        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind IN ('r','p') ${filter}
-        AND (has_table_privilege(current_user, c.oid, 'SELECT') OR has_any_column_privilege(current_user, c.oid, 'SELECT'))`)
+        AND (has_table_privilege(${who}, c.oid, 'SELECT') OR has_any_column_privilege(${who}, c.oid, 'SELECT'))`)
   const tableReads = new Set(RUNTIME_READ_TABLES)
   const columnReads = expectedColumnReads()
   const readSeen = new Set<string>()
