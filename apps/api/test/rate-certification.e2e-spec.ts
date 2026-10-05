@@ -93,6 +93,9 @@ describe('rate plan audit and certification (PostgreSQL, HTTP, two tenants)', ()
 
   beforeAll(async () => {
     await prisma.$connect()
+    // Zero-amount rows now cannot be written (DailyRate_amount_positive, ADR 0034). The audit exists for legacy rows written before that, so the fixture
+    // lifts the constraint for the duration of this suite and restores it, NOT VALID exactly as the migration leaves it, in afterAll.
+    await prisma.$executeRawUnsafe('ALTER TABLE "DailyRate" DROP CONSTRAINT IF EXISTS "DailyRate_amount_positive"')
     tenantA = (await prisma.tenant.create({ data: { name: `${suffix} A`, slug: `${suffix}-a` } })).id
     tenantB = (await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })).id
     supplierA = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} sA`, displayName: 'Supplier Alpha', countryCode: 'AE', defaultCurrency: 'AED' } })).id
@@ -147,6 +150,8 @@ describe('rate plan audit and certification (PostgreSQL, HTTP, two tenants)', ()
     await prisma.session.deleteMany({ where: { userId: { in: userIds } } })
     await prisma.user.deleteMany({ where: { id: { in: userIds } } })
     await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB].filter(Boolean) } } })
+    await prisma.$executeRawUnsafe('ALTER TABLE "DailyRate" DROP CONSTRAINT IF EXISTS "DailyRate_amount_positive"')
+    await prisma.$executeRawUnsafe('ALTER TABLE "DailyRate" ADD CONSTRAINT "DailyRate_amount_positive" CHECK (amount_minor > 0) NOT VALID')
     await prisma.$disconnect()
   })
 

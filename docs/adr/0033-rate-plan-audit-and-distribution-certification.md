@@ -8,7 +8,7 @@ fBeds prices a night from one chain: Hotel, RoomType, RatePlan, Contract, DailyR
 
 Two gaps remained.
 
-1. **The evaluator refuses or prices, it does not audit.** It cannot say *why a plan is a risk before anyone searches*. One case is concrete and was confirmed against the schema: `DailyRate_values_check` allows `amount_minor >= 0`, and the evaluator rejects only a negative amount, so a zero-amount SELL rate is a priced night that sells for nothing. Wrong-currency rows, rows with no verified basis, dead rows for another occupancy and duplicate plans were also only visible one night at a time.
+1. **The evaluator refuses or prices, it does not audit.** It cannot say *why a plan is a risk before anyone searches*. One case is concrete and was confirmed against the schema: `DailyRate_values_check` allows `amount_minor >= 0`, and the evaluator rejected only a negative amount, so a zero-amount SELL rate was a priced night that sold for nothing (closed by ADR 0034). Wrong-currency rows, rows with no verified basis, dead rows for another occupancy and duplicate plans were also only visible one night at a time.
 2. **No hotel-level answer to "is this safe to distribute?"**
 
 A pricing-audit specification written for another bedbank described layers, promotions, an agent extra markup, event supplements, SGL/DBL/TPL columns, a Meal Plan Master, a Bulk Rate Loader and whole-AED rounding. None of those exist in fBeds ([docs/rate-certification.md](../rate-certification.md) lists them). This ADR reshapes that request onto the model fBeds really has.
@@ -48,6 +48,6 @@ A request loads at most 200 hotels and audits live plans in name order until a b
 Findings map to P0 (price integrity), P1 (coverage, duplicates, expiry, unenforced markets) and P2 (hygiene), each with a plain-language next step. There is no bulk action, no auto-repair and no "fix everything" control, and the UI has no write control other than the simulator.
 
 ## Consequences
-- Operators can see zero-amount and wrong-currency rows before an Agent does. The evaluator is deliberately unchanged: rejecting a zero amount there is a pricing-behaviour change that needs an owner decision (it could also be done by a CHECK `amount_minor > 0` after the existing data is reviewed). Until then, the audit is the control that reports it.
+- Operators can see zero-amount and wrong-currency rows before an Agent does. Zero amounts are additionally refused by the evaluator and the database for new writes by [ADR 0034](0034-daily-rate-amount-must-be-positive.md); the audit remains the control that reports legacy zero rows.
 - Not certified here: a plan with live availability the audit cannot see (supplier connectors), booking-time pricing (booking is disabled) and production data (no approved clone).
 - Revisit if a distribution-ready flag is ever added: it must be written by an approved, audited action and read by the evaluator, not by this module.

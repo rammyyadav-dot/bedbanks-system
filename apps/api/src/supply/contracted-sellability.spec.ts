@@ -72,6 +72,24 @@ describe('contracted stay sellability', () => {
     expect(decision.reasons).toContain('DAILY_RATE_MISSING_OR_INVALID')
   })
 
+  it('refuses a zero or negative stored rate instead of selling the night for nothing (ADR 0034)', () => {
+    for (const bad of [0n, -1n]) {
+      const decision = evaluateContractedStay(snapshot({ nights: [night('2026-10-15'), night('2026-10-16', { rateAmountMinor: bad }), night('2026-10-17')] }), request)
+      expect(decision).toMatchObject({ eligible: false, totalMinor: null, netMinor: null })
+      expect(decision.reasons).toEqual(['DAILY_RATE_MISSING_OR_INVALID'])
+    }
+    const plan: NightSellabilityPlan = {
+      status: 'ACTIVE', occupancy: 2, currency: 'AED',
+      roomType: { isActive: true, maxOccupancy: 2, hotelId: 'hotel-a', hotel: { contentStatus: 'COMPLETE' } },
+      boardBasis: { isActive: true },
+      contract: { status: 'ACTIVE', validFrom: new Date('2026-01-01T00:00:00.000Z'), validTo: new Date('2026-12-31T00:00:00.000Z'), supplier: { status: 'ACTIVE' }, supplierHotelMapping: null },
+      dailyRates: [{ amountMinor: 0n, currency: 'AED', amountBasis: 'SELL' }],
+      availability: [{ stopSell: false, allotment: 4, sold: 0, held: 0 }],
+    }
+    expect(evaluateNightSellability(plan, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toContain('DAILY_RATE_MISSING_OR_INVALID')
+    expect(evaluateNightSellability({ ...plan, dailyRates: [{ amountMinor: 1n, currency: 'AED', amountBasis: 'SELL' }] }, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toEqual([])
+  })
+
   it('fails when one night has no availability', () => {
     const decision = evaluateContractedStay(snapshot({ nights: [night('2026-10-15'), night('2026-10-16', { availability: null }), night('2026-10-17')] }), request)
     expect(decision.reasons).toContain('AVAILABILITY_MISSING')

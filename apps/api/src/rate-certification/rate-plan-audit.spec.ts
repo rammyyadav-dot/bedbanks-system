@@ -44,7 +44,7 @@ describe('rate plan audit (RC)', () => {
     expect(a.certification).toMatchObject({ status: 'CERTIFIED', blockers: [], warnings: [], plans: { total: 1, live: 1, pass: 1, warn: 0, fail: 0 } })
   })
 
-  it('RC-02: a zero amount is quarantined and fails the plan, even though the evaluator would still price it', () => {
+  it('RC-02: a legacy zero amount is quarantined and fails the plan, and the evaluator refuses it too', () => {
     const a = auditHotel(input([plan({ amount: 0n })]))
     expect(a.plans[0].rowClasses.QUARANTINED).toBe(5)
     expect(a.plans[0].status).toBe('FAIL')

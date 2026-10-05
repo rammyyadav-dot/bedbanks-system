@@ -23,7 +23,7 @@ All take `days` (1-365, default 90) and `from`. Invalid input is a 400, another 
 ## Findings
 | Code | Severity | Meaning |
 | --- | --- | --- |
-| `RATE_AMOUNT_ZERO` | FAIL | Zero amount (the database allows it) |
+| `RATE_AMOUNT_ZERO` | FAIL | Zero amount: legacy rows only, new writes are refused ([ADR 0034](adr/0034-daily-rate-amount-must-be-positive.md)); the evaluator refuses the night |
 | `RATE_CURRENCY_MISMATCH` | FAIL | Row currency differs from the plan's |
 | `RATE_BASIS_UNVERIFIED` | FAIL | Basis is neither NET nor SELL |
 | `NET_MARKUP_MISSING` | FAIL | NET night with no ACTIVE markup rule |
@@ -77,4 +77,4 @@ No plan passes on that seed because every code is lower-case (`PLAN_CODE_FORMAT`
 - `tools/admin-ops-verify/verify-rate-certification.cjs`: 69 checks in Chromium on the production Admin build (counts, filters, detail, simulator, report downloads, failure states, read-only requests, overflow at 1280/768/390 px, axe, viewer and tenant isolation). Run `seed-rate-certification.ts` first.
 
 ## Not covered
-Production data (no approved clone), supplier connector inventory, booking-time pricing (booking is disabled), and any change to the evaluator.
+Production data (no approved clone), supplier connector inventory, booking-time pricing (booking is disabled), and validation of `DailyRate_amount_positive` on a persistent database (an owner step in ADR 0034).
