@@ -18,7 +18,7 @@ test('load more after a page jump keeps the first visible offset', () => {
 })
 
 test('a missing next page closes pagination without inventing a total', () => {
-  assert.deepEqual(paginationAfterLoadMore({ offset: 0 }, undefined, 30), { offset: 0, total: 30, hasMore: false })
+  assert.deepEqual(paginationAfterLoadMore({ offset: 0 }, undefined, 30), { limit: 30, offset: 0, total: 30, hasMore: false })
 })
 
 test('appending a page never duplicates a hotel', () => {
