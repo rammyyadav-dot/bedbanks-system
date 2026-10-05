@@ -1,6 +1,7 @@
 import type { HotelSearchCriteria, HotelSearchResult, OfferRecheckResult } from '../types/hotel.ts'
 import type { SearchRateOffer } from '@bedbanks/domain'
 import { agentApiBase } from '../lib/api-config.mjs'
+import { announceSessionExpired } from '../lib/session-events.mjs'
 import { isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { validSearchCriteria, validateAgentSearchResponse } from '@bedbanks/domain/search-offers'
 
@@ -33,7 +34,7 @@ export class ApiHotelService implements HotelService {
       } finally {
         clearTimeout(timeout)
       }
-      if (response.status === 401) return empty('auth_required')
+      if (response.status === 401) { announceSessionExpired(); return empty('auth_required') }
       if (response.status === 403) return empty(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
       if (response.status === 400) {
         const body: unknown = await response.json().catch(() => null)
@@ -73,7 +74,7 @@ export class ApiHotelService implements HotelService {
             expectedSellAmountMinor: rate.sellAmountMinor }),
         })
       } finally { clearTimeout(timeout) }
-      if (response.status === 401) return fallback('auth_required')
+      if (response.status === 401) { announceSessionExpired(); return fallback('auth_required') }
       if (response.status === 403) return fallback(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
       const envelope: unknown = await response.json().catch(() => null)
       const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope

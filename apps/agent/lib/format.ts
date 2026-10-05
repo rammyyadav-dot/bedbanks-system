@@ -124,3 +124,17 @@ export function creditBreakdown(summary: CreditSummary | null | undefined): { av
     used: available === null || limit === null ? null : formatMinorAmount(limit - available, currency),
   }
 }
+
+/**
+ * A server timestamp as a readable date and time in the hotel's time zone, e.g. "5 Oct 2026, 18:30 (Asia/Dubai)".
+ * Returns null for anything that is not a real instant, so the UI never shows a raw or invented expiry.
+ */
+export function formatOfferExpiry(iso: string | null | undefined, timeZone: string | null | undefined): string | null {
+  if (!iso) return null
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time)) return null
+  let zone = 'UTC'
+  try { new Intl.DateTimeFormat('en-GB', { timeZone: timeZone || 'UTC' }); zone = timeZone || 'UTC' } catch { zone = 'UTC' }
+  const text = new Intl.DateTimeFormat('en-GB', { timeZone: zone, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(time))
+  return `${text} (${zone})`
+}

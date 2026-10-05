@@ -520,3 +520,14 @@ body, .auth-page, .workspace-page, .portal-shell { letter-spacing: 0; }
   .market-split .portal-hotel-list { display: grid; }
   .market-split .market-hotel-detail { position: sticky; top: 12px; }
 }
+
+/* Agent Dubai MVP completion: layout and contrast fixes found by the real-stack acceptance run (docs/agent-dubai-mvp-completion.md). */
+.workspace-page.is-active .portal-shell { margin-left: -16px; margin-right: -16px; } /* matches the 16px padding of .workspace-page.is-active: no 8px horizontal overflow at tablet widths */
+.auth-kicker { color: #4a646c; }                                                    /* 3.7:1 -> above 4.5:1 on white */
+.market-search-tools > .portal-link { color: #17656f; }
+.market-search-tools > label > span, .market-search-tools select { color: #55554f; }
+label, .field span { color: #5a5a55; }
+.market-expiry { margin: 4px 0 0; font-size: 12px; color: #374151; }
+.portal-link, .back-link { color: #17656f; }
+.market-nav-item.is-muted small, .is-muted > small { color: #6b7280; }
+.booking-note { color: #44606a; }

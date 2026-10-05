@@ -20,7 +20,7 @@ import { buildRoomStays, defaultRoomStay, type RoomStayDraft } from '@/lib/occup
 import { canSubmitDestination } from '@/lib/destination-suggestions'
 import { fetchDestinations, fetchFacets, type SearchFacets } from '@/lib/destination-client'
 import { defaultSearchStay } from '@/lib/stay-calendar'
-import { appendHotelPage } from '@/lib/search-page'
+import { appendHotelPage, paginationAfterLoadMore } from '@/lib/search-page'
 import { beginSearchRun, invalidateSearchRun, settleSearchRun } from '@/lib/search-attempt'
 import { replaceSearchResult } from '@/lib/search-refresh'
 import { canReplayRecentSearch, rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
@@ -47,7 +47,7 @@ type SearchOverride = {
 
 const SEARCH_PAGE_SIZE = 25
 
-export function AgentPortal({ identity, tenantId, providerStatus, finance, bookingEnabled = false, onFinanceChanged = () => {} }: { identity: AgentIdentity; tenantId: string; providerStatus: 'idle' | 'checking' | 'available' | 'unavailable'; finance: FinanceSummary | null; bookingEnabled?: boolean; onFinanceChanged?: () => void }) {
+export function AgentPortal({ financeDenied = false, identity, tenantId, providerStatus, finance, bookingEnabled = false, onFinanceChanged = () => {} }: { financeDenied?: boolean; identity: AgentIdentity; tenantId: string; providerStatus: 'idle' | 'checking' | 'available' | 'unavailable'; finance: FinanceSummary | null; bookingEnabled?: boolean; onFinanceChanged?: () => void }) {
   const [view, setView] = useState<View>('home')
   const [openBookingId, setOpenBookingId] = useState<string | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
@@ -81,7 +81,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
   const agency = identity.memberships.find((membership) => membership.tenantId === tenantId)?.tenantName ?? 'Verified agency workspace'
   const agentName = identity.user.name ?? identity.user.email
   const formattedCredit = formatMinorAmount(finance?.availableCredit, finance?.currency)
-  const creditLabel = formattedCredit ?? 'Not configured'
+  const creditLabel = formattedCredit ?? (financeDenied ? 'Not available to your role' : 'Not configured')
   useEffect(() => {
     const saved = readGuestNationality(window.sessionStorage, identity.user.id)
     if (saved) setNationality(saved)
@@ -349,8 +349,9 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, booki
       setSearchResult({
         ...current,
         liveHotels: mergedHotels,
-        total: mergedHotels.length,
-        pagination: next.pagination ?? { ...current.pagination, hasMore: false, nextOffset: undefined },
+        total: next.pagination?.total ?? mergedHotels.length,
+        // The window still starts where the first page started: the list now holds every page loaded so far.
+        pagination: next.pagination ? paginationAfterLoadMore(current.pagination, next.pagination, mergedHotels.length) : { ...current.pagination, hasMore: false, nextOffset: undefined },
         hotelSearchIds,
       })
     } catch {

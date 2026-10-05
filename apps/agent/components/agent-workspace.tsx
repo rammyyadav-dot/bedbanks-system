@@ -11,6 +11,7 @@ import { CurrencyOptionsContext } from '@/components/search/currency-options'
 export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
   const [tenantId, setTenantId] = useState(identity.memberships.length === 1 ? identity.memberships[0].tenantId : '')
   const [finance, setFinance] = useState<FinanceSummary | null>(null)
+  const [financeDenied, setFinanceDenied] = useState(false)
   const [providerStatus, setProviderStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle')
   const [error, setError] = useState('')
   // UI hint from server context. Booking endpoints still require BOOKING_ENABLED on the API.
@@ -26,6 +27,7 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       .then(([financeResult, statusResult]) => {
         if (!active) return
         setFinance(financeResult.status === 'fulfilled' ? financeResult.value : null)
+        setFinanceDenied(financeResult.status === 'rejected' && financeResult.reason instanceof Error && financeResult.reason.message === 'Access denied') // a role without finance access is not "not configured"
         if (statusResult.status === 'fulfilled') {
           setProviderStatus(statusResult.value.status === 'not_checked' ? 'idle' : 'unavailable')
         } else {
@@ -41,7 +43,9 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
   }, [tenantId])
 
   const active = Boolean(tenantId) && !error
-  return <main className={`workspace-page ${active ? 'is-active' : ''}`}>
+  // The marketplace renders its own <main>; the workspace picker is the main landmark only while it is the whole page.
+  const Shell = active ? 'div' : 'main'
+  return <Shell className={`workspace-page ${active ? 'is-active' : ''}`}>
     <header className="workspace-header"><div><p className="auth-kicker">FBEDS / AGENT PORTAL</p><h1>Workspace access</h1><p>Choose a verified workspace to continue.</p></div><AgentSignOut userId={identity.user.id} onComplete={() => window.location.reload()} /></header>
     <section className="workspace-card" aria-labelledby="workspace-title">
       <div className="workspace-card-heading"><div><span className="workspace-eyebrow">ACTIVE TENANT CONTEXT</span><h2 id="workspace-title">Select your workspace</h2></div><ShieldAlert aria-hidden="true" /></div>
@@ -51,6 +55,6 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
       {error && <div className="workspace-message warning" role="alert"><AlertTriangle size={18} /><p>{error}</p></div>}
       {tenantId && !error && <div className="workspace-status-grid"><div><span>Supplier status</span><strong className={`status-${providerStatus}`}>{providerStatus === 'checking' ? 'Checking access…' : providerStatus === 'idle' ? 'Not yet checked' : 'Unavailable'}</strong></div><div><span>Finance status</span><strong>{formatMinorAmount(finance?.availableCredit, finance?.currency) ? `Available credit ${formatMinorAmount(finance?.availableCredit, finance?.currency)}` : 'Not configured'}</strong></div></div>}
     </section>
-    {tenantId && !error && <CurrencyOptionsContext.Provider value={identity.settlementCurrencies}><AgentPortal key={tenantId} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} bookingEnabled={bookingEnabled} onFinanceChanged={refreshFinance} /></CurrencyOptionsContext.Provider>}
-  </main>
+    {tenantId && !error && <CurrencyOptionsContext.Provider value={identity.settlementCurrencies}><AgentPortal key={tenantId} financeDenied={financeDenied} identity={identity} tenantId={tenantId} providerStatus={providerStatus} finance={finance} bookingEnabled={bookingEnabled} onFinanceChanged={refreshFinance} /></CurrencyOptionsContext.Provider>}
+  </Shell>
 }
