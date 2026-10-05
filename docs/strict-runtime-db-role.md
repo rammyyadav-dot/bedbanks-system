@@ -111,7 +111,7 @@ Earlier migrations granted `fbeds_api` writes whenever the role already existed.
 | Resource | Decision | Why |
 | --- | --- | --- |
 | `Agency`, `AgencyMember` | **REQUIRED**: INSERT, UPDATE / INSERT, DELETE (plus SELECT, also read by the suspension guard) | Admin Clients workflows (create, edit, members, approved suspension) are reachable and self-contained |
-| `AgencyCreditLimit` | **REQUIRED**: INSERT, UPDATE, DELETE | The approved credit-limit change is applied by `AgencyCreditService.execute`. The committed-holds figure in the view needs `InventoryHold`, a privileged read, so the view reports it as unavailable, never zero |
+| `AgencyCreditLimit` | **REQUIRED**: INSERT, UPDATE, DELETE | The approved credit-limit change is applied by `AgencyCreditService.execute`. The spending position in the view (balance, pending holds, overdue) needs `Wallet`, `LedgerEntry` and the hold amounts, all privileged reads (owner decision: keep them so), so the view reports the position as unavailable on the strict role, never zero. Making it available needs a separate owner decision (an aggregate view or a finance principal) |
 | `ApprovalRequest` | **REQUIRED**: INSERT, UPDATE | Every maker-checker flow (markup activation, suspension, credit limit, hotel publication) |
 | `CommercialMarkupRule`, `DistributionRestriction` | **REQUIRED**: INSERT, UPDATE (plus SELECT, mandatory commercial reads) | Admin authoring of the controls that Agent search and recheck read |
 | `ServiceCase`, `ServiceCaseNote` | **REQUIRED**: INSERT, UPDATE / INSERT | Admin Service department |

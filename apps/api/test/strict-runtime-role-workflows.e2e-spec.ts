@@ -154,7 +154,10 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
       await call('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
       return (await call('post', `${base}/credit-approvals/${made.id}/execute`, 'maker', {}).expect(200)).body.data
     }
-    expect((await step({ currency: 'AED', limitMinor: '100000' })).agency.credit.limit).toEqual({ currency: 'AED', limitMinor: '100000' })
+    const first = (await step({ currency: 'AED', limitMinor: '100000' })).agency.credit
+    expect(first.limit).toEqual({ currency: 'AED', limitMinor: '100000' })
+    // The position needs finance reads (wallet, ledger) and hold amounts that the strict role never holds: unknown, never zero (ADR 0028, ADR 0032).
+    expect(first).toMatchObject({ committedUnavailable: true, balanceMinor: null, pendingMinor: null, committedMinor: null, availableMinor: null, overdue: null, nearLimit: false })
     expect((await step({ currency: 'AED', limitMinor: '200000' })).agency.credit.limit).toEqual({ currency: 'AED', limitMinor: '200000' })
     expect((await step({ limitMinor: null })).agency.credit.limit).toBeNull()
     expect(await owner.agencyCreditLimit.count({ where: { agencyId: ids.agency } })).toBe(0)
