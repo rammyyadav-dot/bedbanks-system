@@ -11,7 +11,8 @@ import { API_RUNTIME_GROUP_ROLE, API_RUNTIME_LOGIN_ROLE, inspectRuntimePrivilege
 type Reader = { $queryRawUnsafe<T = unknown>(query: string): Promise<T> }
 type Transactional = Reader & { $transaction<T>(fn: (tx: Reader & { $executeRawUnsafe(q: string): Promise<number> }) => Promise<T>): Promise<T> }
 
-export const ROLLOUT_MIGRATION = '202610260001_strict_runtime_role_pool_capacity'
+/** The migration that leaves the pool capacity grants in their final form (it follows 202610260001_strict_runtime_role_pool_capacity). */
+export const ROLLOUT_MIGRATION = '202610270001_strict_runtime_role_pool_freshness'
 
 export interface MigrationRow { migration_name: string; finished_at: Date | string | null; rolled_back_at: Date | string | null }
 export interface MigrationState {

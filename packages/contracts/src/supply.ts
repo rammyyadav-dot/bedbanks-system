@@ -55,6 +55,8 @@ export const supplyPermissions = {
   hotelsRead: 'supply.hotels.read', hotelsManage: 'supply.hotels.manage', roomsRead: 'supply.rooms.read', roomsManage: 'supply.rooms.manage', contractsRead: 'supply.contracts.read', contractsManage: 'supply.contracts.manage', ratesRead: 'supply.rates.read', ratesManage: 'supply.rates.manage', availabilityRead: 'supply.availability.read', availabilityManage: 'supply.availability.manage',
   /** Pool capacity editor (ADR 0036): previewing an edit and applying it are separate grants. Viewing pools and consumption stays supply.availability.read. */
   poolCapacityPreview: 'supply.pool_capacity.preview', poolCapacityApply: 'supply.pool_capacity.apply',
+  /** Request (maker) and decide (checker) opening new pool nights (ADR 0036 Amendment 3). A request cannot be decided by its maker. */
+  poolNightsRequest: 'supply.pool_nights.request', poolNightsDecide: 'supply.pool_nights.decide',
 } as const
 export type SupplyPermission = (typeof supplyPermissions)[keyof typeof supplyPermissions]
 

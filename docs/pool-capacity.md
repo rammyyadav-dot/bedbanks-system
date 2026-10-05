@@ -20,7 +20,7 @@ For each night with a pool row: `held = sum(plan.held) + unattributedHeld` and `
 1. Blank capacity is refused (unchanged); zero is a value; negative, fractional, > 9999 or non-numeric is rejected, never clamped.
 2. `capacity >= sold + held` on every edited night, checked at preview, again at apply, and by the guarded `UPDATE` at write time.
 3. Nights before the hotel-local today cannot be edited; at most 366 nights per edit.
-3a. Only nights that already have a pool stock row can be edited. A night without one is `INVALID` and is never created by this editor (the strict runtime role holds no INSERT; pool authoring stays a privileged path).
+3a. Only nights that already have a pool stock row can be edited. A night without one is `INVALID` and is never created by this editor (the strict runtime role holds no INSERT; pool authoring stays a privileged path). To open new nights, request them in Admin (Open new nights, on the pool page); a second person approves, and the database owner applies the approved request with `ops:pool-nights --approval` (preview, then apply; ADR 0036 Amendments 3 and 4).
 4. Holds, sold units and consumption are never removed or altered. Prices, modes, restrictions, plan rows and booking state are untouched.
 5. The tenant, hotel and pool are verified server-side; the tenant comes only from the session.
 6. All nights change in one transaction or none do.
@@ -34,6 +34,8 @@ The preview returns a fingerprint of the request, the pool status and each selec
 | View pool and consumption | `supply.availability.read` | 403 |
 | Preview an edit (no write) | `supply.pool_capacity.preview` | 403 |
 | Apply an edit | `supply.pool_capacity.apply` | 403 |
+| Request opening new nights | `supply.pool_nights.request` | form not shown, 403 |
+| Approve or reject such a request (not your own) | `supply.pool_nights.decide` | controls not shown, 403 |
 | Hotel audit trail | `audit.read` | link not shown |
 
 The migration grants these to no role; assign them to roles explicitly. The editor works on the strict API database role (ADR 0036, Amendment 1; contract in [strict-runtime-db-role.md](strict-runtime-db-role.md)): a capacity-only column `UPDATE` on `InventoryPoolDay` and column-level reads of the hold tables. Application permissions still decide who may apply; a statement outside the role's contract is `403 RUNTIME_ROLE_OPERATION_PROHIBITED`; a missing contract privilege (drift) is a sanitized `503 DATABASE_ROLE_NOT_PERMITTED`, never an `unavailable` attribution or a zero. Those migrations and persistent provisioning are owner-controlled steps.
@@ -61,3 +63,13 @@ Attribution reads each hold's recorded pool night and plan, so history survives 
 ### Freshness safety (ADR 0037)
 
 Capacity changes preserve source, source_updated_at, received_at and fresh_until. Expired supplier nights stay expired; missing nights stay unknown. The API role updates only capacity and updated_at, never provenance. Quick Update statements that stamp provenance remain privileged. The forward migration 202610270001_strict_runtime_role_pool_freshness clears prior column grants before applying the narrower contract.
+
+## Opening new nights
+1. **Request** (Admin, pool page, Open new nights): range, capacity for each new night, reason. A request needs `supply.pool_nights.request`.
+2. **Approve or reject** by someone else with `supply.pool_nights.decide`. Your own request shows Withdraw instead.
+3. **Apply** by the database owner (never the API): preview first, then apply with the fingerprint.
+```
+PROVISION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api ops:pool-nights --tenant=<tenant id> --approval=<approval id> --executor=<tenant user id> --actor="<your name>"
+PROVISION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api ops:pool-nights --tenant=<tenant id> --approval=<approval id> --executor=<tenant user id> --actor="<your name>" --apply --expect=<fingerprint>
+```
+The request then shows Executed. Only missing, non-past nights are created; existing nights, sold and held are never touched.

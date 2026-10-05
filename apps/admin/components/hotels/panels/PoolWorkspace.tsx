@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { useRef, useState } from 'react'
-import { POOL_CAPACITY_LIMITS, QUICK_UPDATE_WEEKDAYS, type InventoryPoolDetail, type PoolCapacityPreview, type PoolConsumptionReport, type QuickUpdateWeekday } from '@bedbanks/contracts'
+import { POOL_CAPACITY_LIMITS, QUICK_UPDATE_WEEKDAYS, type InventoryPoolDetail, type PoolCapacityPreview, type PoolNightRequestView, type PoolConsumptionReport, type QuickUpdateWeekday } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { useCan } from '@/lib/auth/capabilities'
 import { ApiResponseError } from '@/lib/api/errors'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
-import { applyPoolCapacity, getPoolConsumption, getPoolDetail, previewPoolCapacity } from '@/lib/data/hotel-inventory'
+import { applyPoolCapacity, cancelPoolNightRequest, decidePoolNightRequest, getPoolConsumption, getPoolDetail, listPoolNightRequests, previewPoolCapacity, requestPoolNights } from '@/lib/data/hotel-inventory'
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
@@ -48,6 +48,7 @@ export function PoolWorkspace({ hotelId, poolId }: { hotelId: string; poolId: st
       </OpsState>
       <OpsState state={consumption.state} onRetry={consumption.reload}>{(c) => <ConsumptionReport c={c} />}</OpsState>
       <CapacityEditor hotelId={hotelId} poolId={poolId} hotelToday={detail.state.status === 'ready' ? detail.state.data.hotelToday : ''} archived={detail.state.status === 'ready' && detail.state.data.pool.status !== 'ACTIVE'} onApplied={refreshAll} />
+      <NightRequests hotelId={hotelId} poolId={poolId} hotelToday={detail.state.status === 'ready' ? detail.state.data.hotelToday : ''} archived={detail.state.status === 'ready' && detail.state.data.pool.status !== 'ACTIVE'} onChanged={refreshAll} />
     </div>
   )
 }
@@ -217,6 +218,86 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
             </form>
           ) : <p style={note} data-testid="no-apply-note">You can preview but not apply. Applying needs the pool capacity apply permission.</p>}
         </div>)}
+    </section>
+  )
+}
+
+const chipTone = (status: PoolNightRequestView['status']) => (status === 'EXECUTED' || status === 'APPROVED' ? 'ok' : status === 'PENDING' ? 'warn' : 'neutral') as 'ok' | 'warn' | 'neutral'
+
+/**
+ * Requests to open new nights (ADR 0036 Amendment 3). The API role cannot create pool nights, so this only records a request, lets a second person
+ * approve or reject it, and shows its state. An approved request becomes EXECUTED only when the database owner applies it.
+ */
+function NightRequests({ hotelId, poolId, hotelToday, archived, onChanged }: { hotelId: string; poolId: string; hotelToday: string; archived: boolean; onChanged: () => void }) {
+  const can = useCan()
+  const canRequest = can('supply.pool_nights.request'); const canDecide = can('supply.pool_nights.decide')
+  const list = useOpsQuery(() => listPoolNightRequests(hotelId, poolId), [hotelId, poolId])
+  const [start, setStart] = useState(''); const [end, setEnd] = useState(''); const [capacity, setCapacity] = useState(''); const [reason, setReason] = useState('')
+  const [decisionReason, setDecisionReason] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<Failure | null>(null); const [done, setDone] = useState<string | null>(null)
+  const inFlight = useRef(false); const key = useRef<string | null>(null)
+  const trimmed = capacity.trim(); const cap = /^\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN
+  const problems: string[] = []
+  if (!iso.test(start) || !iso.test(end)) problems.push('Choose a start and an end date.')
+  else if (end < start) problems.push('The end date is before the start date.')
+  else if (hotelToday && end < hotelToday) problems.push(`The range is before ${hotelToday} (hotel date).`)
+  if (!Number.isInteger(cap) || cap < 0 || cap > POOL_CAPACITY_LIMITS.maxCapacity) problems.push(`Capacity must be a whole number from 0 to ${POOL_CAPACITY_LIMITS.maxCapacity}.`)
+  if (reason.trim().length < POOL_CAPACITY_LIMITS.reasonMin) problems.push(`Give a reason (at least ${POOL_CAPACITY_LIMITS.reasonMin} characters).`)
+  const valid = problems.length === 0
+  const fail = (e: unknown, action: string) => { const p = apiErrorParts(e, action); setError({ message: p.message, details: p.details, requestId: p.requestId, code: p.code }) }
+
+  async function run(label: string, work: () => Promise<unknown>, success: string, clear = false) {
+    if (inFlight.current) return
+    inFlight.current = true; setBusy(label); setError(null); setDone(null)
+    try { await work(); setDone(success); if (clear) { setStart(''); setEnd(''); setCapacity(''); setReason(''); key.current = null } list.refresh(); onChanged() }
+    catch (e) { fail(e, label); if (!(e instanceof ApiResponseError && (e.status === 0 || e.status >= 500))) key.current = null }
+    finally { inFlight.current = false; setBusy(null) }
+  }
+  const submit = () => { if (!valid || archived) return; key.current ??= crypto.randomUUID(); const requestId = key.current; void run('request the nights', () => requestPoolNights(hotelId, poolId, { requestId, startDate: start, endDate: end, capacity: cap, reason: reason.trim() }), 'Request recorded. A second person must approve it, then the database owner applies it.', true) }
+
+  return (
+    <section className="workspace-panel" style={{ padding: 14, display: 'grid', gap: 10 }} aria-label="Requests to open new nights" data-testid="night-requests">
+      <h2 style={{ fontSize: 14, margin: 0 }}>Open new nights</h2>
+      <p style={note}>This pool only has stock for nights that already have a row, and the capacity editor never creates one. To open more nights, request them here. A second person approves the request, and the database owner then creates the nights. Nothing is created from this page, and an approved request shows as Executed only after the owner has applied it.</p>
+      {canRequest && !archived && (
+        <form style={{ display: 'grid', gap: 10 }} aria-label="Request new nights" onSubmit={(e) => { e.preventDefault(); submit() }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
+            <label style={field}>Start date<input type="date" className="input-wrap" value={start} min={hotelToday || undefined} onChange={(e) => { setStart(e.target.value); key.current = null }} /></label>
+            <label style={field}>End date<input type="date" className="input-wrap" value={end} min={start || hotelToday || undefined} onChange={(e) => { setEnd(e.target.value); key.current = null }} /></label>
+            <label style={field}>Capacity for each new night<input className="input-wrap" inputMode="numeric" value={capacity} onChange={(e) => { setCapacity(e.target.value); key.current = null }} /></label>
+          </div>
+          <label style={field}>Reason (kept with the request)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { setReason(e.target.value); key.current = null }} /></label>
+          {problems.length > 0 && (start !== '' || end !== '' || capacity !== '' || reason !== '') && <ul role="status" data-testid="request-problems" style={{ margin: 0, fontSize: 12, color: '#a11d1d' }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
+          <div><button type="submit" className="button primary" data-testid="request-button" disabled={busy !== null || !valid}>{busy === 'request the nights' ? 'Sending…' : 'Request these nights'}</button></div>
+        </form>
+      )}
+      {!canRequest && <p style={note} data-testid="request-readonly">You can see requests but not make them. Requesting needs the pool nights request permission.</p>}
+      {error && <div role="alert" className="admin-error" data-testid="request-error" style={{ padding: 8, fontSize: 12 }}><strong>{error.message}</strong>{error.details.length > 0 && <ul>{error.details.map((d) => <li key={d}>{d}</li>)}</ul>}{error.requestId && <div>Reference: <code>{error.requestId}</code></div>}</div>}
+      {done && <p role="status" data-testid="request-done" style={{ margin: 0, fontSize: 12 }}>{done}</p>}
+      <OpsState state={list.state} onRetry={list.reload}>{(l) => l.items.length === 0 ? <p style={note} data-testid="requests-empty">No requests for this pool yet.</p> : (
+        <ScrollRegion label="Night requests"><table style={tableStyle} aria-label="Night requests" data-testid="requests-table">
+          <thead><tr>{['Nights', 'Capacity', 'To open', 'Status', 'Reason', 'Action'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+          <tbody>{l.items.map((q) => (
+            <tr key={q.id} data-request={q.id} data-status={q.status}>
+              <td style={td}>{q.startDate} → {q.endDate}</td><td style={td}>{q.capacity}</td><td style={td}>{q.missingNights} at request</td>
+              <td style={td}><Chip tone={chipTone(q.status)}>{q.status}</Chip>{q.status === 'EXECUTED' && q.executedAt ? <span style={note}> applied {q.executedAt.slice(0, 10)}</span> : null}{q.decisionReason ? <div style={note}>{q.decisionReason}</div> : null}</td>
+              <td style={td}>{q.reason}</td>
+              <td style={td}>
+                {q.canDecide && canDecide && (
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <input className="input-wrap" aria-label="Decision reason" placeholder="Reason" value={decisionReason[q.id] ?? ''} onChange={(e) => setDecisionReason((s) => ({ ...s, [q.id]: e.target.value }))} />
+                    <span style={{ display: 'flex', gap: 6 }}>
+                      <button type="button" className="admin-btn" data-testid={`approve-${q.id}`} disabled={busy !== null || (decisionReason[q.id] ?? '').trim().length < 3} onClick={() => void run('approve the request', () => decidePoolNightRequest(hotelId, poolId, q.id, 'approve', { reason: (decisionReason[q.id] ?? '').trim() }), 'Approved. The database owner can now apply it.')}>Approve</button>
+                      <button type="button" className="admin-btn" data-testid={`reject-${q.id}`} disabled={busy !== null || (decisionReason[q.id] ?? '').trim().length < 3} onClick={() => void run('reject the request', () => decidePoolNightRequest(hotelId, poolId, q.id, 'reject', { reason: (decisionReason[q.id] ?? '').trim() }), 'Rejected.')}>Reject</button>
+                    </span>
+                  </div>)}
+                {q.canDecide && !canDecide && <span style={note}>Waiting for a second person with approval rights.</span>}
+                {q.canCancel && canRequest && <button type="button" className="admin-btn" data-testid={`cancel-${q.id}`} disabled={busy !== null} onClick={() => void run('cancel the request', () => cancelPoolNightRequest(hotelId, poolId, q.id), 'Request withdrawn.')}>Withdraw</button>}
+                {!q.canDecide && !q.canCancel && q.status === 'PENDING' && <span style={note}>Waiting for a second person.</span>}
+              </td>
+            </tr>))}</tbody>
+        </table></ScrollRegion>)}
+      </OpsState>
     </section>
   )
 }
