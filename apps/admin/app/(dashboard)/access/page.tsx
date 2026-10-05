@@ -7,6 +7,7 @@ const accessSections = [
   ['Roles', 'Manage platform roles and their permission bundles.', '/access/roles'],
   ['Permissions', 'Review the canonical permission catalogue and scopes.', '/access/permissions'],
   ['Assignments', 'Grant and revoke platform roles with auditability.', '/access/assignments'],
+  ['Tenants', 'Read-only tenant directory and summary. Opening a tenant is audited.', '/tenants'],
 ] as const
 
 export default function AccessPage() {

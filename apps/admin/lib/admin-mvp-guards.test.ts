@@ -51,8 +51,18 @@ test('operations modules are in the sidebar only with a declared permission, and
 })
 
 test('placeholder routes that remain say so and render no records', () => {
-  for (const rel of ['finance/page.tsx', 'finance/payments/page.tsx', 'reports/page.tsx', 'notifications/page.tsx', 'pricing/page.tsx', 'distribution/page.tsx', 'tenants/page.tsx', 'users/page.tsx']) {
+  for (const rel of ['finance/page.tsx', 'finance/payments/page.tsx', 'reports/page.tsx', 'notifications/page.tsx', 'pricing/page.tsx', 'distribution/page.tsx', 'users/page.tsx']) {
     assert.match(readFileSync(join(root, 'app', '(dashboard)', rel), 'utf8'), /FeatureUnavailable/, rel)
+  }
+})
+
+test('tenant directory is a read-only page over the audited platform API', () => {
+  for (const rel of ['tenants/page.tsx', 'tenants/[id]/page.tsx']) {
+    const page = readFileSync(join(root, 'app', '(dashboard)', rel), 'utf8')
+    assert.doesNotMatch(page, /FeatureUnavailable/, rel)
+    assert.match(page, /lib\/data\/server/, rel)
+    assert.match(page, /ServerLoadFailure/, `${rel} must show 401/403/failure states, never an empty list`)
+    assert.doesNotMatch(page, /method:\s*'(POST|PUT|PATCH|DELETE)'|<form/, `${rel} must stay read-only`)
   }
 })
 
