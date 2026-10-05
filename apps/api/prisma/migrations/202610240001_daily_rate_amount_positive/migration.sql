@@ -1,0 +1,19 @@
+-- ADR 0034: a daily rate must be greater than zero.
+--
+-- DailyRate_values_check allows amount_minor >= 0, so a zero-amount night could be stored and (before this change) priced by the
+-- evaluator for nothing. The rate certification audit (ADR 0033) reports such rows as RATE_AMOUNT_ZERO. This adds a second CHECK:
+--   amount_minor > 0
+-- as NOT VALID, so PostgreSQL enforces it for every new row and every UPDATE of a row from now on, WITHOUT scanning or rewriting the
+-- existing rows. Legacy zero-amount rows therefore stay exactly as they are (no repair, no deletion) and remain visible in the audit; the
+-- evaluator refuses them (DAILY_RATE_MISSING_OR_INVALID) whether or not they are ever corrected.
+--
+-- Owner follow-up, after the audit shows no RATE_AMOUNT_ZERO row on the target database (and only then):
+--   ALTER TABLE "DailyRate" VALIDATE CONSTRAINT "DailyRate_amount_positive";
+-- VALIDATE takes SHARE UPDATE EXCLUSIVE, does not block reads or writes, and fails (changing nothing) while a zero row remains.
+--
+-- Operational note: on a database that holds a zero row, an UPDATE that touches that row without fixing the amount is now refused
+-- (the rate must be corrected or the night closed). Quick Update and the supply route already reject a zero price.
+-- Tenant isolation, RLS, indexes and grants are not touched; there is no data change.
+--
+-- Rollback: ALTER TABLE "DailyRate" DROP CONSTRAINT "DailyRate_amount_positive";
+ALTER TABLE "DailyRate" ADD CONSTRAINT "DailyRate_amount_positive" CHECK (amount_minor > 0) NOT VALID;

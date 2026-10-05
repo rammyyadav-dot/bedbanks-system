@@ -43,7 +43,7 @@ export function evaluateNightSellability(plan: NightSellabilityPlan | null, inpu
   }
   if (plan.status !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE')
   const dailyRate = plan.dailyRates[0]
-  if (!dailyRate || dailyRate.amountMinor < 0n) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
+  if (!dailyRate || dailyRate.amountMinor <= 0n) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
   else if (dailyRate.currency !== plan.currency) reasons.push('RATE_CURRENCY_MISMATCH')
   else if (dailyRate.amountBasis === null) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
   else if (dailyRate.amountBasis === 'NET') reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
@@ -197,7 +197,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let sawStale = false
   let minRemaining: number | null = null
   snapshot.nights.forEach((night, index) => {
-    if (night.rateAmountMinor === null || night.rateAmountMinor < 0n) sawInvalidRate = true
+    if (night.rateAmountMinor === null || night.rateAmountMinor <= 0n) sawInvalidRate = true
     else {
       sawRate = true
       if (night.rateCurrency !== snapshot.ratePlanCurrency || night.rateCurrency !== request.currency) sawCurrencyMismatch = true

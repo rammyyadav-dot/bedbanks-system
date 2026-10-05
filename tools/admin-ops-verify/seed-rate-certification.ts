@@ -10,6 +10,8 @@ if (!/@localhost:\d+\/(fbeds_ci|p0\d_[a-z0-9_]+)(\?schema=public)?$/.test(url)) 
 
 async function main() {
   const prisma = new PrismaService()
+  // Zero-amount rows are legacy data (DailyRate_amount_positive, ADR 0034): lift the constraint while seeding them, then restore it NOT VALID as the migration leaves it.
+  await prisma.$executeRawUnsafe('ALTER TABLE "DailyRate" DROP CONSTRAINT IF EXISTS "DailyRate_amount_positive"')
   const tag = `rc-${Date.now()}`
   const password = 'Verify-Passw0rd!'
   const hash = await hashPassword(password)
@@ -68,6 +70,7 @@ async function main() {
   const owner = await user('owner', A, perms, 'owner'); const viewer = await user('viewer', A, ['supply.hotels.read']); const bowner = await user('bowner', B, perms, 'owner')
   // a HOTEL-scope rule only for lima: charlie's NET rates stay unpriced
   await prisma.commercialMarkupRule.create({ data: { tenantId: A, scope: 'HOTEL', hotelId: hotels.lima.id, basisPoints: 1000, validFrom: utc(-30), status: 'ACTIVE', reason: 'verification fixture', createdById: owner.id, activatedAt: new Date() } })
+  await prisma.$executeRawUnsafe('ALTER TABLE "DailyRate" ADD CONSTRAINT "DailyRate_amount_positive" CHECK (amount_minor > 0) NOT VALID')
   const out = { password, ownerEmail: owner.email, viewerEmail: viewer.email, bownerEmail: bowner.email, hotels, tenantA: A, tenantB: B, tag }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-rate-certification.json', JSON.stringify(out, null, 2))
   console.log('seeded', Object.keys(hotels).length, 'hotels')
