@@ -121,7 +121,9 @@ Earlier migrations granted `fbeds_api` writes whenever the role already existed.
 | `RoomAmenity` | **REQUIRED**: INSERT, UPDATE, DELETE | Room amenities are replaced together with the room edit |
 | `HotelImage` | **REQUIRED**: INSERT, UPDATE, DELETE (plus SELECT: Agent search primary image and the Agent image route) | Admin Images workflow |
 | `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by prebook, confirmation and reconciliation: booking is gated off and those paths need booking tables the role never holds |
-| `InventoryPool`, `InventoryPoolDay` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes; stock moves belong to the hold path and the hold-expiry role |
+| `InventoryPool` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes |
+| `InventoryPoolDay` | **REQUIRED**: column-level UPDATE of capacity and provenance only (plus SELECT) | Pool capacity editor and Quick Update on pooled plans (ADR 0036, Amendment 1). INSERT, DELETE, `sold`, `held` and identity columns stay with the hold path and the hold-expiry role |
+| `InventoryHold`, `InventoryHoldNight` | **REQUIRED**: column-level SELECT only (5 and 4 columns) | Per-plan consumption report. No guest, money, offer, idempotency, request or user column; no write |
 | Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
 
 Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the API process. There is no second API role today; adding one is an architecture decision (ADR). Until then the API answers a caller who reaches a privileged path with the typed 403 below.
@@ -161,8 +163,14 @@ OWNER_DATABASE_URL=postgresql://...@localhost:PORT/p05_main REDIS_URL=redis://12
 - `strict-runtime-role-replay`: migration replay, upgrade from the preceding schema and provisioning converge on the same grants; re-running provisioning changes nothing; the verifier names an over-grant and a missing read.
 - `strict-runtime-role-commercial`: failure injection per mandatory control, empty-configuration defaults, the 401/403/404/403-prohibited/503-drift matrix, grant-layer refusal, tenant isolation.
 - `strict-runtime-role-workflows`: every granted Admin write through the real endpoints, and coverage proven from the database statistics.
+- `pool-capacity-editor` (PCE-22 to PCE-27): the real API on the provisioned login: Apply and attribution work and reconcile; application permissions decide 403; protected columns, INSERT/DELETE and every ungranted hold column are refused by the database (including `SELECT *`); cross-tenant and missing tenant context fail closed; no tenant leak on a reused connection; the verifier names a broad SELECT, an extra or missing column read, a broad UPDATE, INSERT, BYPASSRLS and an extra membership; a missing privilege is a sanitized 503 with nothing written; concurrent holds and edits never breach `sold + held <= capacity`.
 - `strict-role-boot-smoke`: normal boot path, tenant context, agency state, restrictions, markup, a permitted and a prohibited Admin mutation, isolation.
 
 ## 8. Not covered here
 
-Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is not part of this work.
+Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is covered by ADR 0036, Amendment 1 (`pool-capacity-editor` PCE-22 to PCE-27 run the real API on the strict login). Applying migration `202610260001_strict_runtime_role_pool_capacity` to a persistent database and re-provisioning the persistent role remain owner-controlled steps.
+
+
+## 9. Column-level reads
+
+A contract row may declare `readColumns` instead of `read: true`. Provisioning emits `GRANT SELECT (cols) ON table`; the verifier compares the actual column privileges and flags an extra readable column, a missing one, and a table-level SELECT that overrides the restriction. Code must name its columns (no `SELECT *`, no ORM default column list) on such a table: PostgreSQL refuses the statement otherwise. A policy expression is evaluated with the caller's privileges, so `tenant_id` must be one of the readable columns. The matrix above shows `cols (n)` for these tables.

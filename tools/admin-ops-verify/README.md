@@ -97,7 +97,7 @@ node tools/admin-ops-verify/verify-hotel-journey.cjs
 
 ## Rate certification (ADR 0033)
 
-`seed-rate-certification.ts` creates a tenant with one hotel per rate-audit scenario (clean, zero amount, NET with and without a markup rule, rate gap, inactive plan, logical duplicate, unverified basis, wrong currency, recorded markets, bad code format, other-occupancy rows), a viewer holding only `supply.hotels.read` and a second tenant. `verify-rate-certification.cjs` drives the page, the plan detail, the simulator and the report downloads in Chromium and checks that the only non-GET request is the simulator. Re-seed before every run. Same disposable-database guard as above.
+`seed-rate-certification.ts` creates a tenant with one hotel per rate-audit scenario (clean, zero amount, NET with and without a markup rule, rate gap, inactive plan, logical duplicate, unverified basis, wrong currency, recorded markets, bad code format, other-occupancy rows), a viewer holding only `supply.hotels.read` and a second tenant. `verify-rate-certification.cjs` drives the page, the plan detail, the simulator and the report downloads in Chromium and checks that the only non-GET request is the simulator. Re-seed before every run. Same disposable-database guard as above. Run the API as the provisioned strict runtime login (see the Hotel setup journey section): Apply and attribution both work there.
 
 ```bash
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-rate-certification.ts)

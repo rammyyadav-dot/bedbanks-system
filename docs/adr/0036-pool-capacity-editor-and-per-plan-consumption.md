@@ -1,7 +1,7 @@
 # ADR 0036: Pool capacity editor and per-plan consumption report
 
 ## Status
-Accepted for the API code, Admin UI and tests in this change. No schema change. One data-only forward migration, `202610250001_pool_capacity_permissions`, adds two rows to the global `Permission` catalogue (replayed only on disposable local databases; applying it to a persistent database is an owner-controlled step). **No runtime-role grant changes** (see section 6).
+Accepted for the API code, Admin UI and tests in this change. No schema change. One data-only forward migration, `202610250001_pool_capacity_permissions`, adds two rows to the global `Permission` catalogue (replayed only on disposable local databases; applying it to a persistent database is an owner-controlled step). Sections 3 and 6 are **amended** by the strict-runtime-role follow-up (see "Amendment 1" at the end): capacity edits only touch existing nights, and the strict API role gets a capacity-only column UPDATE and a column-level attribution read through forward migration `202610260001_strict_runtime_role_pool_capacity`.
 
 ## Context
 ADR 0030 gave shared pools one authoritative counter set (`InventoryPoolDay`: capacity, sold, held) and left two things open: a dedicated way to edit pool capacity, and "per-plan consumption reporting inside a pool". Capacity could only be changed through Quick Update, which edits plans and weekdays together and has no view of who consumed the pool.
@@ -31,7 +31,7 @@ A cancelled booking returns its units and its hold becomes `RELEASED`, so it cou
 
 - **Blank is unchanged, zero is a value.** A missing, null or empty capacity is refused ("nothing to apply"); `0` is an intentional capacity of zero. Negative, fractional, out-of-range or non-numeric values are rejected, never clamped.
 - **Floor.** A night whose `sold + held` exceeds the new capacity is `INVALID`, with the numbers. Holds, sold units and consumption are never deleted or ignored to make an edit succeed. Nights before the hotel-local today are invalid.
-- **Creating a night.** A missing pool night is created only because the operator stated a capacity (ADR 0030, decision 4). It becomes bookable only where the plans also have an availability row and are otherwise sellable.
+- **Existing nights only (amended).** A night with no pool stock row is `INVALID` ("no pool stock row (unknown, not zero)"); the editor never creates one. See Amendment 1.
 - **Preview fingerprint.** A SHA-256 over the request, the pool status, and for every selected night its absence or its capacity, sold, held and version. Apply recomputes it inside the transaction and refuses (`409 POOL_CAPACITY_STALE`) if anything changed: another capacity edit, consumption, a created or deleted night, or a different request.
 - **Atomic and race-safe.** One transaction under the same per-hotel advisory locks Quick Update and pool administration use (taken in a fixed order). Each changed night is written with a guarded `UPDATE ... WHERE sold + held <= capacity`, so a hold that lands between the check and the write makes the apply fail (`POOL_CAPACITY_STALE`, nothing written) rather than breach the invariant. The hold path's own guarded `UPDATE` protects the other direction.
 - **Idempotent.** An `idempotencyKey` (8-80 characters) is recorded on the audit event with a request hash. A replay returns the original result without writing; the same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`.
@@ -51,7 +51,7 @@ The new keys are inserted into the `Permission` catalogue by the data-only migra
 ### 5. Routes
 `GET .../pools/:poolId` (detail, window up to 90 nights), `GET .../pools/:poolId/consumption` (up to 62 nights; one aggregate query bounded by nights x plans x statuses), and the two POSTs above. The Admin UI extends the existing Inventory & Allotment tab: the pool card links to a pool workspace (`?tab=inventory&pool=<id>`).
 
-### 6. Strict runtime role: no grant change, honest behaviour
+### 6. Strict runtime role: no grant change, honest behaviour (superseded by Amendment 1)
 Under ADR 0032 the API role has **no write privilege on `InventoryPool` or `InventoryPoolDay`** (privileged path) and **no read on the hold tables**. Widening either would give every ordinary Admin session privileged pool authoring and hold visibility, which this change does not do. On a deployment running the strict role:
 
 - Viewing the pool and previewing work (both read tables the role already reads).
@@ -68,3 +68,30 @@ Editing capacity across several pools in one request; scheduled or recurring cap
 - Operators get a bounded, previewed, audited way to set pool capacity and to see who is using it, using the one counter set Agent search already reads.
 - Quick Update is unchanged and can still write pool capacity; both paths use the same guarded write and the same locks, so they cannot interleave unsafely.
 - Rollback: delete the two `Permission` rows (see the migration header) and revert the code. No data, schema, index, RLS or grant change to undo.
+
+
+## Amendment 1: functional under the strict API database role
+Status: accepted for the repository implementation and disposable local certification. It does not authorize a persistent grant change, a migration against a persistent database, deployment or any live transaction.
+
+### Decision
+Section 6 left Apply refused and attribution `unavailable` on the strict role (ADR 0032). That is replaced by a least-privilege grant, expressed in the single runtime-role contract (`apps/api/src/database/runtime-role-contract.ts`) and therefore in provisioning, the verifier, the generated matrix and the 403-versus-503 classification:
+
+| Table | Privilege | Columns | Why |
+| --- | --- | --- | --- |
+| `InventoryPoolDay` | UPDATE (column level) | `capacity`, `source`, `source_updated_at`, `received_at`, `fresh_until`, `updated_at` | `PoolCapacityService.apply` (and the same guarded statement from Quick Update on pooled plans) sets capacity and stamps ADMIN provenance |
+| `InventoryHold` | SELECT (column level) | `id`, `tenant_id`, `rate_plan_id`, `status` | per-plan consumption: which plan holds a unit, in which lifecycle state |
+| `InventoryHoldNight` | SELECT (column level) | `tenant_id`, `hold_id`, `pool_day_id`, `counter_kind`, `quantity` | the recorded pool night and quantity |
+
+Not granted: INSERT or DELETE on `InventoryPoolDay`; UPDATE of `sold`, `held`, `tenant_id`, `pool_id`, `stay_date`, `id`, `created_at`; any write on `InventoryHold`, `InventoryHoldNight`, `InventoryPool`, `RatePlan`, `DailyAvailability`, bookings or `SupplierMutation`; any hold column holding guest, contact, offer, search, idempotency, request, money or user data, and `SELECT *` on the hold tables. `tenant_id` is readable because row-level security policies are evaluated with the caller's privileges. RLS stays forced and is not weakened; no `SECURITY DEFINER` function is used.
+
+### Consequences for the editor
+- **No creation.** Creating a pool night needs INSERT, which the role never holds. A night without a stock row is refused at preview (`INVALID`) and at apply (`422 POOL_CAPACITY_INVALID`), nothing written. Pool authoring and stock rows remain a privileged path.
+- **Attribution is `available` on a correctly provisioned role** and reconciles with the authoritative counters (unattributed = counter - attributed; negative means inconsistent). The attribution query names exactly the granted columns; no implicit ORM column list reads the hold tables.
+- **Error semantics are unchanged.** Not authorized by the application: the existing typed 403 (permissions `supply.availability.read`, `supply.pool_capacity.preview`, `supply.pool_capacity.apply` are unchanged and granted to no role). A statement outside the contract (for example a Quick Update that would create a pool night): `403 RUNTIME_ROLE_OPERATION_PROHIBITED`. A privilege the contract grants but the database lacks (drift, including a missing column read): sanitized `503 DATABASE_ROLE_NOT_PERMITTED`, never an `unavailable` attribution and never a zero. Stale preview: `409 POOL_CAPACITY_STALE`; unsafe capacity: `422 POOL_CAPACITY_INVALID`.
+- **Quick Update** gains nothing it could not already do: its guarded pooled-plan capacity statement uses the same column set; a Quick Update touching other tables (rates, availability rows) is still outside the contract.
+
+### Verifier
+The verifier (run as the login role) now reports: any SELECT outside the contract (table-level or an extra column), a table-level SELECT that would override a column restriction, a missing required column read, extra or missing write columns, owned objects, elevated attributes and any membership other than the group role.
+
+### Migration and rollback
+`202610260001_strict_runtime_role_pool_capacity` is forward-only and a no-op when the group role does not exist. It revokes everything on the three tables from the group role and re-grants exactly the rows above, which equals the contract output (a unit test replays the migrations in order and compares). It must not be applied to a persistent database without an owner decision. Rollback (documented in the migration header): `REVOKE UPDATE (...) ON "InventoryPoolDay"`, `REVOKE SELECT (...) ON "InventoryHold", "InventoryHoldNight"` and revert the code; no data change.
