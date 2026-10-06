@@ -59,4 +59,9 @@ async function main() {
     await owner.$disconnect()
   }
 }
-main().catch(() => { console.error('Disposable strict-role certification failed; inspect the preceding test evidence. No credentials are printed.'); process.exitCode = 1 })
+main().catch((error) => {
+  // Assertion diagnostics contain only the explicit safe checks above.
+  // Never print a Prisma error: a provisioning query could contain a secret.
+  console.error(error instanceof assert.AssertionError ? error.message : 'Disposable strict-role certification failed (database operation); no credentials are printed.')
+  process.exitCode = 1
+})

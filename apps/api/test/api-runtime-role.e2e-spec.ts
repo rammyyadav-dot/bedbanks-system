@@ -7,6 +7,7 @@ import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
 import { AppModule } from '../src/app.module'
 import { provisionApiRuntimeRole, verifyApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
+import { RUNTIME_ROLE_GRANTS } from '../src/database/runtime-role-contract'
 import { hashPassword } from '../src/auth/utils/password'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 
@@ -67,6 +68,44 @@ describe('API runtime login role', () => {
       return work(tx)
     })
   }
+
+  it('every tenant table in the runtime contract has enabled and forced RLS', async () => {
+    const rows = await runtime.$queryRawUnsafe<Array<{ name: string; enabled: boolean; forced: boolean }>>(
+      `SELECT c.relname AS name, c.relrowsecurity AS enabled, c.relforcerowsecurity AS forced
+       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+       WHERE n.nspname='public' AND c.relkind IN ('r','p')`,
+    )
+    for (const grant of RUNTIME_ROLE_GRANTS.filter((g) => g.rls === 'forced-tenant')) {
+      expect({ table: grant.table, security: rows.find((r) => r.name === grant.table) }).toEqual({ table: grant.table, security: { name: grant.table, enabled: true, forced: true } })
+    }
+  })
+
+  it('RolePermission is tenant-scoped on a reused strict-login connection, including absent context', async () => {
+    const permission = await owner.permission.create({ data: { key: `${suffix}.rls`, description: 'Synthetic RLS probe' } })
+    const roles: string[] = []
+    const url = new URL(runtimeDatabaseUrl(password)); url.searchParams.set('connection_limit', '1')
+    const single = new PrismaClient({ datasourceUrl: url.toString() })
+    try {
+      for (const tenantId of [tenantA.id, tenantB.id]) {
+        const role = await owner.role.create({ data: { tenantId, name: `${suffix}-rls` } }); roles.push(role.id)
+        await owner.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })
+      }
+      const read = (tenantId: string | null) => single.$transaction(async (tx) => {
+        if (tenantId) await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`
+        const [identity] = await tx.$queryRawUnsafe<Array<{ principal: string; pid: number }>>('SELECT current_user AS principal, pg_backend_pid() AS pid')
+        expect(identity.principal).toBe(API_RUNTIME_LOGIN_ROLE)
+        return { pid: identity.pid, rows: await tx.rolePermission.findMany({ where: { roleId: { in: roles } }, select: { roleId: true } }) }
+      })
+      const a = await read(tenantA.id), none = await read(null), b = await read(tenantB.id), noneAgain = await read(null)
+      expect(a.rows).toEqual([{ roleId: roles[0] }]); expect(b.rows).toEqual([{ roleId: roles[1] }])
+      expect(none.rows).toEqual([]); expect(noneAgain.rows).toEqual([])
+      expect(new Set([a.pid, none.pid, b.pid, noneAgain.pid]).size).toBe(1)
+    } finally {
+      await single.$disconnect()
+      await owner.role.deleteMany({ where: { id: { in: roles } } })
+      await owner.permission.delete({ where: { id: permission.id } })
+    }
+  })
 
   it('connects as the non-bypass login role and isolates hotel rows', async () => {
     const report = await verifyApiRuntimeRole(runtime)

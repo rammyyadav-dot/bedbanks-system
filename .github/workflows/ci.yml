@@ -74,7 +74,7 @@ jobs:
       - name: Hotel database acceptance (sequential, strict-role HTTP plus owner fixture suites)
         run: >-
           pnpm --filter @bedbanks/api test:e2e --
-          hotel-commercial.e2e-spec.ts inventory-runtime-http.e2e-spec.ts
+          api-runtime-role.e2e-spec.ts hotel-commercial.e2e-spec.ts inventory-runtime-http.e2e-spec.ts
           pool-capacity-editor.e2e-spec.ts hotel-setup.e2e-spec.ts
           strict-runtime-role-hotel-setup.e2e-spec.ts strict-runtime-role-commercial.e2e-spec.ts
           strict-runtime-role-workflows.e2e-spec.ts strict-runtime-role-replay.e2e-spec.ts
