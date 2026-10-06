@@ -138,7 +138,7 @@ Cached PostgreSQL binaries were extracted, but `runuser -u nobody` fails with `c
 
 ## Validation of the unified readiness change (this session)
 
-Node v24.21.0, pnpm 10.4.1, PostgreSQL 16 with pgvector, Redis, Chromium 1194 (Playwright 1.56.1). Everything ran against disposable local databases created for this run (`fbeds_hotel_check`, `fbeds_ci`) and torn down with the container. Code head for the runs below: `eb4a1aa478508aa335e06bddccb96df08ceec678`, tree `26804a21aba5bb2f87f32df08f931ea81ecf93e1` (it contains the earlier commits on this branch merged in). Later commits are documentation and harness-assertion only. No CI result for any head after `6c8e507` is recorded in this file; exact-head CI is reported on the draft PR.
+Node v24.21.0, pnpm 10.4.1, PostgreSQL 16 with pgvector, Redis, Chromium 1194 (Playwright 1.56.1). Everything ran against disposable local databases created for this run (`fbeds_hotel_check`, `fbeds_ci`) and torn down with the container. Code head for the runs below: `eb4a1aa478508aa335e06bddccb96df08ceec678`, tree `26804a21aba5bb2f87f32df08f931ea81ecf93e1` (it contained #278's commits merged in). Later commits are documentation and harness-assertion only. After #278 was merged the work was rebased onto `main` `3558c75`; the resulting tree `ee424a2b4f8881ee341fda7e2e909822d1ac4213` is identical to the tree of the last validated state (the browser runs and the harness assertions were executed on it), so no run is attributed to a tree it did not execute against except the database suites, which ran on the code at `eb4a1aa` (documentation and harness changes only since). No CI result for any head after `6c8e507` is recorded in this file; exact-head CI is reported on the draft PR.
 
 | Check | Result |
 |---|---|
@@ -173,7 +173,7 @@ BROWSER_ACCEPTANCE=PASS_LOCAL (166 + 29)
 FINAL_HEAD_CI=SEE_DRAFT_PR
 HOSTED_AGENT_MVP=NOT_VERIFIED
 F01_STATUS=OPEN (candidate aea042299bdc2b7fbc33945b0cb89ba0a7a04238 untouched)
-DRAFT_PR=#278
+DRAFT_PR=#280 (follow-up to the merged #278)
 
 PRODUCTION_DB_MIGRATION_EXECUTED=NO
 PERSISTENT_ROLE_PROVISIONING_EXECUTED=NO
