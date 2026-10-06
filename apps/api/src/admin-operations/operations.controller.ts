@@ -74,6 +74,9 @@ export class OperationsController {
   @Get('hotels/:hotelId/distribution') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
   hotelDistribution(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.distribution(tenantId, hotelId, query) }
 
+  @Get('hotels/:hotelId/readiness') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
+  hotelReadiness(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.readiness(tenantId, hotelId, query) }
+
   @Get('hotels/:hotelId/audit') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   hotelAudit(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.audit(tenantId, hotelId, query) }
 
