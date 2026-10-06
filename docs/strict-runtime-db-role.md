@@ -74,8 +74,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
-- `BookingDocument`: booking is disabled
+- `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
 - `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
+- `BookingFinanceEvent`: booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)
 - `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
 - `BookingOpsState`: booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)
