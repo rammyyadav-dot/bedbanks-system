@@ -67,6 +67,8 @@ jobs:
       - run: pnpm --filter @bedbanks/api prisma:migrate:status
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - run: pnpm --filter @bedbanks/api type-check
+      - name: Sandbox staging strict-role acceptance (disposable PostgreSQL)
+        run: pnpm --filter @bedbanks/api test:e2e -- sandbox-content-staging.e2e-spec.ts
       - run: pnpm --filter @bedbanks/api test:e2e
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
 

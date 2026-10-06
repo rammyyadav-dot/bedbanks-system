@@ -253,3 +253,15 @@ test('duplicate content identities cannot advance checkpoint', async () => {
   await assert.rejects(syncHotelbedsContent({ contentPage: async () => ({ from: 1, to: 100, total: 200, hotels: [{ code: 1 }, { code: 1 }] }) }, f.store, f.coordination, context, { runId: 'run-a', maxPages: 1 }))
   assert.equal(f.commits.length, 0)
 })
+
+test('sync fences checkpoint and records completion before releasing its lease', async () => {
+  const events = []
+  const store = {
+    checkpoint: async (_context, _run, _date, token) => { assert.equal(token, 'fence'); events.push('checkpoint'); return 1 },
+    commitPage: async () => { events.push('page') },
+    finish: async (_context, input) => { assert.equal(input.leaseToken, 'fence'); assert.equal(input.complete, true); events.push('finish') },
+  }
+  const lease = { acquire: async () => ({ key: 'key', token: 'fence' }), release: async () => { events.push('release') } }
+  await syncHotelbedsContent({ contentPage: async () => ({ from: 1, to: 1, total: 1, hotels: [{ code: 1 }] }) }, store, lease, context, { runId: 'run-a', maxPages: 1 })
+  assert.deepEqual(events, ['checkpoint', 'page', 'finish', 'release'])
+})

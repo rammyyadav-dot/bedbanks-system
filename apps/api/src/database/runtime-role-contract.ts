@@ -187,6 +187,9 @@ export const RUNTIME_ROLE_GRANTS: readonly RuntimeGrant[] = [
  * holds only their listed columns, the rest of their writes (hotel insert, other columns; user creation) are privileged.
  */
 export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
+  SandboxContentRun: 'operator-only quarantined sandbox content; no API runtime grant',
+  SandboxContentPage: 'immutable operator-only sandbox content pages; no API runtime grant',
+  SandboxContentLease: 'operator-only sandbox synchronization fencing; no API runtime grant',
   Hotel: 'DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted',
   BoardBasis: 'supply authoring',
   Supplier: 'supply authoring', Contract: 'supply authoring', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update',
