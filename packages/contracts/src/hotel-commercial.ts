@@ -42,6 +42,7 @@ export const HOTEL_STAR_RATING_MISSING = 'HOTEL_STAR_RATING_MISSING'
 export const COMMERCIAL_REASON_TEXT: Record<string, string> = {
   HOTEL_INACTIVE: 'Hotel content is not COMPLETE', HOTEL_STAR_RATING_MISSING: 'Hotel has no 1-5 star rating, so Agents cannot list it',
   ROOM_TYPE_INACTIVE: 'Room type is inactive', BOARD_BASIS_INACTIVE: 'Board basis is inactive', SUPPLIER_INACTIVE: 'Supplier is not ACTIVE', RATE_PLAN_INACTIVE: 'Rate plan is not ACTIVE',
+  AGENCY_SUSPENDED: 'The selected agency is suspended', DISTRIBUTION_RESTRICTED: 'The hotel or supplier is restricted for the selected agency',
   NATIONALITY_NOT_ALLOWED: 'The contract does not accept this guest nationality', SOURCE_MARKET_NOT_ALLOWED: 'The contract is not sold to this buyer market', CONTRACT_MARKET_RULE_INVALID: 'The contract sales-market or nationality list is malformed, so it is not sold',
   RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity',
   SUPPLIER_MAPPING_INVALID: 'Supplier mapping is missing or not approved', OCCUPANCY_UNSUPPORTED: 'Rate plan occupancy exceeds what the room supports',
@@ -238,11 +239,12 @@ export interface CalendarRow {
 }
 export interface HotelCalendar { hotelId: string; window: { from: string; to: string; days: number }; rows: CalendarRow[]; truncated: boolean }
 
-export interface SellabilityInspectRequest { checkIn: string; checkOut: string; adults: number; children: number; rooms?: number; roomTypeId?: string }
+export interface SellabilityInspectRequest { checkIn: string; checkOut: string; adults: number; children: number; rooms?: number; roomTypeId?: string; agencyId?: string; nationality?: string; currency?: 'AED' }
 export type NightVerdict = { date: string; sellable: boolean; reasons: string[]; rateMinor: string | null; remaining: number | null }
 export interface SellabilityGateResult { key: string; label: string; state: 'PASS' | 'FAIL' | 'NA' }
 export interface SellabilityPlanResult {
   ratePlanId: string; ratePlanCode: string; roomTypeId: string; roomName: string; boardCode: string; contractCode: string; supplierName: string
+  contractId?: string; supplierId?: string
   sellable: boolean
   /** Stay-level canonical reasons (includes min/max stay, release days, closed-to-arrival). */
   reasons: string[]
@@ -251,9 +253,28 @@ export interface SellabilityPlanResult {
   /** Only present when the stay is sellable and every night has a SELL-basis rate. */
   totalMinor: string | null; currency: string
 }
+export interface HotelStayReadinessGate {
+  key: 'content' | 'mapping' | 'contract' | 'rate' | 'inventory' | 'distribution' | 'search_recheck'
+  label: string
+  state: 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_APPLICABLE'
+  reasons: string[]
+  entityRefs: { hotelId: string; roomTypeId: string; ratePlanId: string; contractId: string | null; supplierId: string | null }
+  evaluatedAt: string
+  /** Criteria are the response request; no universal hotel readiness is implied. */
+  criteriaRef: 'request'
+  action: { tab: 'setup' | 'mappings' | 'contracts' | 'rates' | 'inventory' | 'sellability'; permission: string } | null
+}
+export interface HotelStayReadiness {
+  scope: 'STAY_DIAGNOSTIC_NOT_CERTIFICATION'
+  buyer: { agencyId: string | null; market: string | null; nationality: string | null; assessed: boolean }
+  requestedCurrency: 'AED' | null
+  occupancy: { uniformRooms: boolean; childPolicyAssessed: false }
+  plans: Array<{ ratePlanId: string; gates: HotelStayReadinessGate[] }>
+  certification: 'NOT_VERIFIED'
+}
 export interface SellabilityInspection {
   hotelId: string; hotelName: string
-  request: { checkIn: string; checkOut: string; adults: number; children: number; rooms: number; nights: number; roomTypeId: string | null }
+  request: { checkIn: string; checkOut: string; adults: number; children: number; rooms: number; nights: number; roomTypeId: string | null; agencyId?: string | null; market?: string | null; nationality?: string | null; currency?: string | null }
   sellable: boolean
   /** Hotel-level reasons that apply before any plan is considered. */
   hotelReasons: string[]
@@ -261,6 +282,7 @@ export interface SellabilityInspection {
   cheapestMinor: string | null; currency: string | null
   plans: SellabilityPlanResult[]
   evaluatedAt: string
+  readiness?: HotelStayReadiness
 }
 
 // ---- Exceptions centre -------------------------------------------------------------------------------------------

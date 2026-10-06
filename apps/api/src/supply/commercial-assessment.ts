@@ -222,6 +222,7 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
   { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },
   { key: 'occupancy', label: 'Occupancy', reasons: ['OCCUPANCY_UNSUPPORTED'] },
+  { key: 'buyer', label: 'Buyer eligibility', reasons: ['AGENCY_SUSPENDED', 'DISTRIBUTION_RESTRICTED', 'CONTRACT_MARKET_RULE_INVALID', 'NATIONALITY_NOT_ALLOWED', 'SOURCE_MARKET_NOT_ALLOWED'] },
   { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE'] },
 ]
 export function gateResults(reasons: string[]): Array<{ key: string; label: string; state: 'PASS' | 'FAIL' }> {

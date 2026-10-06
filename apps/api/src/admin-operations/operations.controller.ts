@@ -69,7 +69,7 @@ export class OperationsController {
   hotelCalendar(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.calendar(tenantId, hotelId, query) }
 
   @Get('hotels/:hotelId/sellability') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
-  hotelSellability(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.sellability(tenantId, hotelId, query) }
+  hotelSellability(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.sellability(tenantId, hotelId, query, identity.user.id) }
 
   @Get('hotels/:hotelId/distribution') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard)
   hotelDistribution(@ActiveTenant() tenantId: string, @Param('hotelId') hotelId: string, @Query() query: Q) { return this.hotelOps.distribution(tenantId, hotelId, query) }

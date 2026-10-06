@@ -48,7 +48,7 @@ function Hotel360() {
             <dl data-testid="hotel-header" className="hotel-facts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px 16px', margin: '0 0 12px' }}>
               <div><dt>Hotel status</dt><dd><StatusBadge status={entityStatus(data.hotel.contentStatus)} /> {data.hotel.contentStatus}</dd></div>
               <div><dt>Commercial readiness</dt><dd><ReadinessChip value={data.readiness} blockers={data.blockers} /></dd></div>
-              <div><dt>Sellable to Agents</dt><dd><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
+              <div><dt>Supply coverage (buyer-independent)</dt><dd><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
               <div><dt>Supplier</dt><dd>{data.suppliers.length ? data.suppliers.map((s) => s.displayName).join(', ') : '—'}</dd></div>
               <div><dt>Hotel mapping</dt><dd><MappingChip value={data.hotelMapping} /></dd></div>
               <div><dt>Contract</dt><dd><ContractChip value={data.contractState} /></dd></div>

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
@@ -12,6 +12,8 @@ import { PrismaService } from '../database/prisma.service'
 import { bookingEnabled } from '../agent/booking-transaction.service'
 import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { rowIsFresh, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
+import { CommercialControlUnavailableError, controlReadFailure } from '../supply/commercial-controls'
+import { buildHotelStayReadiness } from './hotel-stay-readiness'
 import { buildStaySnapshot, nightStock } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
 import { markupMinor } from '@bedbanks/pricing'
@@ -87,7 +89,7 @@ export class OperationsHotelsService {
           id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, inventoryPoolId: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
           boardBasis: { select: { code: true, isActive: true } },
           roomType: { select: { id: true, name: true, code: true, hotelId: true, isActive: true, maxAdults: true, maxChildren: true, maxOccupancy: true, hotel: { select: { contentStatus: true, timeZone: true } } } },
-          contract: { select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } } } },
+          contract: { select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } } } },
           dailyRates: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, amountMinor: true, currency: true, amountBasis: true, occupancy: true } },
           // One day past the window: the departure row of the last night carries closedToDeparture.
           availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, inventoryMode: true, source: true, freshUntil: true } },
@@ -516,7 +518,7 @@ export class OperationsHotelsService {
   }
 
   // ---- sellability inspector (stay level) ----------------------------------------------------------------------------------
-  async sellability(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>): Promise<SellabilityInspection> {
+  async sellability(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>, userId?: string): Promise<SellabilityInspection> {
     const checkInDate = dayParam('checkIn', query.checkIn); const checkOutDate = dayParam('checkOut', query.checkOut)
     if (!checkInDate || !checkOutDate) throw new BadRequestException('checkIn and checkOut are required')
     const checkIn = day(checkInDate); const checkOut = day(checkOutDate)
@@ -526,29 +528,51 @@ export class OperationsHotelsService {
     const adults = intParam('adults', query.adults, 1, 9); const children = intParam('children', query.children, 0, 9) ?? 0; const rooms = intParam('rooms', query.rooms, 1, 9) ?? 1
     if (adults === undefined) throw new BadRequestException('adults is required')
     const roomTypeId = idParam('roomTypeId', query.roomTypeId)
+    const agencyId = idParam('agencyId', query.agencyId)
+    const nationality = textParam('nationality', query.nationality, 2)?.toUpperCase() ?? null
+    if (nationality && !/^[A-Z]{2}$/.test(nationality)) throw new BadRequestException('Invalid nationality')
+    const currency = enumParam('currency', query.currency, ['AED'] as const) ?? null
     const dates = stayDates(checkIn, checkOut)
     const win: Win = { from: checkIn, days: nights, to: dates[dates.length - 1], dates }
     return this.prisma.withTenant(tenantId, async (tx) => {
       const hotel = await this.hotelRecord(tx, tenantId, hotelIdRaw)
       const input = (await this.loadInputs(tx, tenantId, [hotel], win)).get(hotel.id)!
+      let market: string | null = null
+      let agencyStatus: string | null = null
+      let restrictions: Array<{ scope: string; hotelId: string | null; supplierId: string | null }> = []
+      if (agencyId) {
+        if (!userId) throw new ForbiddenException('Access denied')
+        const assignments = await tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } } })
+        if (!assignments.some(a => a.role.permissions.some(p => p.permission.key === 'agency.read'))) throw new ForbiddenException('Access denied')
+        let agency: { status: string; countryCode: string | null } | null
+        try {
+          agency = await tx.agency.findFirst({ where: { id: agencyId, tenantId }, select: { status: true, countryCode: true } })
+          restrictions = await tx.distributionRestriction.findMany({ where: { tenantId, agencyId, status: 'ACTIVE' }, select: { scope: true, hotelId: true, supplierId: true } })
+        } catch (error) { throw controlReadFailure('distribution_restrictions', error) }
+        if (!agency) throw new NotFoundException('Agency not found')
+        if (restrictions.some(r => r.scope === 'HOTEL' ? !r.hotelId : r.scope === 'SUPPLIER' ? !r.supplierId : true)) throw new CommercialControlUnavailableError('distribution_restrictions', 'malformed')
+        market = agency.countryCode?.trim().toUpperCase() ?? null
+        agencyStatus = agency.status
+      }
       const now = this.clock()
       const results: SellabilityPlanResult[] = []
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
         const ownRates = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
-        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: plan.currency, now })
+        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
         const reasons = [...decision.reasons]
+        if (agencyId && agencyStatus === 'SUSPENDED') reasons.push('AGENCY_SUSPENDED')
+        if (agencyId && restrictions.some(r => r.scope === 'HOTEL' ? r.hotelId === hotel.id : r.supplierId === plan.contract.supplierId)) reasons.push('DISTRIBUTION_RESTRICTED')
         if (!(input.hotel.starRating !== null && input.hotel.starRating >= 1 && input.hotel.starRating <= 5)) reasons.push('HOTEL_STAR_RATING_MISSING')
         const ratesByDate = new Map(ownRates.dailyRates.map((r) => [day(r.stayDate), r]))
-        const availByDate = new Map(plan.availability.map((r) => [day(r.stayDate), r]))
         const nightVerdicts: NightVerdict[] = dates.map((date) => {
-          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules, this.clock())
-          const rate = ratesByDate.get(date); const row = availByDate.get(date)
-          return { date, sellable: nightReasons.length === 0, reasons: nightReasons, rateMinor: rate ? rate.amountMinor.toString() : null, remaining: row ? row.allotment - row.sold - row.held : null }
+          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules, now)
+          const rate = ratesByDate.get(date)
+          return { date, sellable: nightReasons.length === 0, reasons: nightReasons, rateMinor: rate ? rate.amountMinor.toString() : null, remaining: nightStock(plan, date).remaining }
         })
         const sellable = reasons.length === 0 && decision.eligible
         results.push({
-          ratePlanId: plan.id, ratePlanCode: plan.code, roomTypeId: plan.roomTypeId, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName,
+          contractId: plan.contract.id, supplierId: plan.contract.supplierId, ratePlanId: plan.id, ratePlanCode: plan.code, roomTypeId: plan.roomTypeId, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName,
           sellable, reasons, gates: gateResults(reasons), nights: nightVerdicts, totalMinor: sellable && decision.totalMinor !== null ? decision.totalMinor.toString() : null, currency: plan.currency,
         })
       }
@@ -557,9 +581,11 @@ export class OperationsHotelsService {
       const currencies = new Set(sellablePlans.map((r) => r.currency))
       const totals = sellablePlans.filter((r) => r.totalMinor !== null).map((r) => BigInt(r.totalMinor as string))
       const cheapest = currencies.size === 1 && totals.length > 0 ? totals.reduce((m, v) => (v < m ? v : m)) : null
+      const readiness = buildHotelStayReadiness(hotel.id, results, now.toISOString(), { agencyId: agencyId ?? null, market, nationality, currency, children })
       return {
-        hotelId: hotel.id, hotelName: hotel.name, request: { checkIn, checkOut, adults, children, rooms, nights, roomTypeId: roomTypeId ?? null },
-        sellable: sellablePlans.length > 0, hotelReasons, offers: sellablePlans.length, cheapestMinor: cheapest === null ? null : cheapest.toString(), currency: cheapest === null ? null : [...currencies][0], plans: results, evaluatedAt: this.clock().toISOString(),
+        readiness,
+        hotelId: hotel.id, hotelName: hotel.name, request: { checkIn, checkOut, adults, children, rooms, nights, roomTypeId: roomTypeId ?? null, agencyId: agencyId ?? null, market, nationality, currency },
+        sellable: sellablePlans.length > 0, hotelReasons, offers: sellablePlans.length, cheapestMinor: cheapest === null ? null : cheapest.toString(), currency: cheapest === null ? null : [...currencies][0], plans: results, evaluatedAt: now.toISOString(),
       }
     })
   }
