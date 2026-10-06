@@ -28,4 +28,4 @@ export function proxy(request: NextRequest) {
 }
 
 // HTML documents only: skip build assets and metadata routes that never carry a nonce.
-export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon|apple-icon|opengraph-image).*)'] }
+export const config = { matcher: ['/((?!api/health|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|icon|apple-icon|opengraph-image).*)'] }
