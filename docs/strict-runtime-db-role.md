@@ -79,6 +79,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
 - `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
+- `BookingSupplierCall`: booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)
+- `BookingSupplierJob`: booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
