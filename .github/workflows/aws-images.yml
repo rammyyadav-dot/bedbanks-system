@@ -1,0 +1,92 @@
+name: AWS images
+
+# Builds one image per app and pushes it to ECR tagged with the commit SHA. It never deploys. Manual only, until the AWS foundation exists
+# (docs/runbooks/aws-ecs-deployment.md). Portal images bake the public, non-secret build settings of ONE environment (the /api/v1 rewrite is
+# generated at build time), so choose the environment and promote that same image only inside it.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment (selects the AWS role and the build settings)
+        required: true
+        type: choice
+        options: [staging, production]
+      apps:
+        description: Space-separated subset of api admin agent supplier website
+        required: true
+        default: "api admin agent supplier website"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        env:
+          APPS: ${{ inputs.apps }}
+        run: |
+          set -euo pipefail
+          json='['
+          for a in $APPS; do
+            case "$a" in
+              api)      pkg='@bedbanks/api' ;;
+              admin)    pkg='@bedbanks/admin-console' ;;
+              agent)    pkg='@bedbanks/agent-portal' ;;
+              supplier) pkg='@bedbanks/supplier-portal' ;;
+              website)  pkg='@bedbanks/website' ;;
+              *) echo "unknown app $a" >&2; exit 1 ;;
+            esac
+            json="$json{\"app\":\"$a\",\"package\":\"$pkg\"},"
+          done
+          echo "matrix={\"include\":${json%,}]}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    # The build role may only be assumed from main (see infra/aws/terraform/iam.tf).
+    if: github.ref == 'refs/heads/main'
+    environment: ${{ inputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          APP: ${{ matrix.app }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          image="$REGISTRY/fbeds/$APP:${GITHUB_SHA}"
+          if aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "$image already exists (tags are immutable); nothing to do"; exit 0
+          fi
+          if [ "$APP" = api ]; then
+            docker buildx build --file Dockerfile.api --tag "$image" --push .
+          else
+            docker buildx build --file Dockerfile.web --tag "$image" --push \
+              --build-arg APP="$APP" --build-arg PACKAGE="$PACKAGE" \
+              --build-arg API_INTERNAL_URL="${{ vars.API_INTERNAL_URL }}" \
+              --build-arg AUTH_API_ORIGIN="${{ vars.AUTH_API_ORIGIN }}" \
+              --build-arg AUTH_COOKIE_NAME="${{ vars.AUTH_COOKIE_NAME }}" \
+              --build-arg SUPPLIER_ORIGIN="${{ vars.SUPPLIER_ORIGIN }}" \
+              --build-arg NEXT_PUBLIC_SITE_URL="${{ vars.NEXT_PUBLIC_SITE_URL }}" \
+              --build-arg NEXT_PUBLIC_AGENT_URL="${{ vars.NEXT_PUBLIC_AGENT_URL }}" \
+              --build-arg NEXT_PUBLIC_ADMIN_URL="${{ vars.NEXT_PUBLIC_ADMIN_URL }}" \
+              --build-arg NEXT_PUBLIC_SUPPLIER_URL="${{ vars.NEXT_PUBLIC_SUPPLIER_URL }}" \
+              --build-arg NEXT_PUBLIC_CONTACT_EMAIL="${{ vars.NEXT_PUBLIC_CONTACT_EMAIL }}" .
+          fi
+          echo "pushed $image" >> "$GITHUB_STEP_SUMMARY"

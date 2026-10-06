@@ -1,6 +1,11 @@
+import path from 'node:path'
 import type { NextConfig } from 'next'
 
+// Container images (Dockerfile.web) build a self-contained server; Vercel and local builds are unchanged.
+const standalone = process.env.NEXT_OUTPUT === 'standalone'
+
 const nextConfig: NextConfig = {
+  ...(standalone ? { output: 'standalone' as const, outputFileTracingRoot: path.join(process.cwd(), '../..') } : {}),
   // The demo form is the only Server Action; its payload is a few KB at most. Next's default is 1 MB.
   experimental: { serverActions: { bodySizeLimit: '32kb' } },
   async headers() {

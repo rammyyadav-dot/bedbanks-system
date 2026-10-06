@@ -1,5 +1,7 @@
 # FBEDS API container. Build context is the repository root:
 #   docker build -f Dockerfile.api -t fbeds-api .
+# Runs as the unprivileged `node` user. The API reads API_PORT (the entrypoint maps PORT to it for hosts that inject one). Migrations and
+# the runtime database roles are owner-run steps and are never run by this image (docs/runbooks/api-deploy.md).
 FROM node:24-slim
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
@@ -7,8 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile \
-  && pnpm --filter @bedbanks/api prisma:generate
+  && pnpm --filter @bedbanks/api prisma:generate \
+  && chown -R node:node /app
 ENV NODE_ENV=production API_HOST=0.0.0.0
+USER node
 EXPOSE 3002
-# Hosts such as Render and Railway inject PORT; the API reads API_PORT.
-CMD ["sh", "-c", "API_PORT=\"${PORT:-3002}\" exec pnpm --filter @bedbanks/api start:prod"]
+CMD ["sh", "-c", "API_PORT=\"${PORT:-${API_PORT:-3002}}\" exec pnpm --filter @bedbanks/api start:prod"]

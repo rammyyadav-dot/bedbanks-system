@@ -12,6 +12,12 @@ test('hosted portals reject missing, insecure, malformed and mis-prefixed API UR
   }
 })
 
+test('container images are hosted too: PORTAL_HOSTED=1 enforces the same rules as VERCEL=1', () => {
+  assert.throws(() => portalApiUrl({ PORTAL_HOSTED: '1' }), /required for hosted portal/)
+  assert.throws(() => portalApiUrl({ PORTAL_HOSTED: '1', API_INTERNAL_URL: 'http://api.internal/api/v1' }))
+  assert.equal(portalApiUrl({ PORTAL_HOSTED: '1', API_INTERNAL_URL: 'https://api.example.com/api/v1' }), 'https://api.example.com/api/v1')
+})
+
 test('each portal uses the validated destination and preserves the API path', async () => {
   const saved = { VERCEL: process.env.VERCEL, API_INTERNAL_URL: process.env.API_INTERNAL_URL }
   process.env.VERCEL = '1'

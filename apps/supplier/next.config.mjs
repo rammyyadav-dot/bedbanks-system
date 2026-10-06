@@ -1,9 +1,15 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { portalApiUrl } from '../../tools/deployment/api-url.mjs'
 
 const apiInternalUrl = portalApiUrl()
 
+// Container images (Dockerfile.web) build a self-contained server; Vercel and local builds are unchanged.
+const standalone = process.env.NEXT_OUTPUT === 'standalone'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(standalone ? { output: 'standalone', outputFileTracingRoot: path.join(path.dirname(fileURLToPath(import.meta.url)), '../..') } : {}),
   async redirects() {
     return [
       ['/properties', '/hotels'],

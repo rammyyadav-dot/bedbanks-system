@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { portalApiUrl } from '../../tools/deployment/api-url.mjs'
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -29,8 +31,12 @@ const securityHeaders = [
   ...(isDev ? [] : [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' }]),
 ]
 
+// Container images (Dockerfile.web) build a self-contained server; Vercel and local builds are unchanged.
+const standalone = process.env.NEXT_OUTPUT === 'standalone'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(standalone ? { output: 'standalone', outputFileTracingRoot: path.join(path.dirname(fileURLToPath(import.meta.url)), '../..') } : {}),
   images: {
     unoptimized: true,
   },

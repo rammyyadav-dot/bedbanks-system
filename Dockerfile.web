@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# One image recipe for the four Next.js apps (ADR 0040). Build context is the repository root:
+#   docker build -f Dockerfile.web --build-arg APP=admin --build-arg PACKAGE=@bedbanks/admin-console \
+#     --build-arg API_INTERNAL_URL=https://api.example.com/api/v1 --build-arg AUTH_API_ORIGIN=https://admin.example.com -t fbeds-admin .
+# Next.js generates the /api/v1 rewrite at BUILD time, so API_INTERNAL_URL is a build argument and one image serves one environment
+# (promote the same image through that environment, never across environments). Nothing secret may be a build argument.
+FROM node:24-slim AS build
+RUN npm install -g pnpm@10.4.1
+WORKDIR /app
+ARG APP
+ARG PACKAGE
+# Public, non-secret build settings (see docs/runbooks/vercel-deployment-topology.md for what each app needs).
+ARG API_INTERNAL_URL
+ARG AUTH_API_ORIGIN
+ARG AUTH_COOKIE_NAME
+ARG SUPPLIER_ORIGIN
+ARG NEXT_PUBLIC_AGENT_API_URL
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_AGENT_URL
+ARG NEXT_PUBLIC_ADMIN_URL
+ARG NEXT_PUBLIC_SUPPLIER_URL
+ARG NEXT_PUBLIC_CONTACT_EMAIL
+ENV PORTAL_HOSTED=1 NEXT_OUTPUT=standalone NEXT_TELEMETRY_DISABLED=1 \
+    API_INTERNAL_URL=$API_INTERNAL_URL AUTH_API_ORIGIN=$AUTH_API_ORIGIN AUTH_COOKIE_NAME=$AUTH_COOKIE_NAME SUPPLIER_ORIGIN=$SUPPLIER_ORIGIN \
+    NEXT_PUBLIC_AGENT_API_URL=$NEXT_PUBLIC_AGENT_API_URL NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL NEXT_PUBLIC_AGENT_URL=$NEXT_PUBLIC_AGENT_URL \
+    NEXT_PUBLIC_ADMIN_URL=$NEXT_PUBLIC_ADMIN_URL NEXT_PUBLIC_SUPPLIER_URL=$NEXT_PUBLIC_SUPPLIER_URL NEXT_PUBLIC_CONTACT_EMAIL=$NEXT_PUBLIC_CONTACT_EMAIL
+COPY . .
+RUN test -n "$APP" && test -n "$PACKAGE" \
+  && pnpm install --frozen-lockfile \
+  && pnpm exec turbo run build --filter="$PACKAGE" \
+  && mkdir -p "apps/$APP/public"
+
+FROM node:24-slim AS run
+ARG APP
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 APP_DIR=$APP PORT=3000 HOSTNAME=0.0.0.0
+WORKDIR /app
+# The standalone tree keeps the monorepo layout: apps/<app>/server.js plus a traced, minimal node_modules.
+COPY --from=build --chown=node:node /app/apps/${APP}/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/${APP}/.next/static ./apps/${APP}/.next/static
+COPY --from=build --chown=node:node /app/apps/${APP}/public ./apps/${APP}/public
+USER node
+EXPOSE 3000
+CMD ["sh", "-c", "exec node apps/${APP_DIR}/server.js"]

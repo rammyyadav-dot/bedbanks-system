@@ -30,7 +30,9 @@
         "NEXT_PUBLIC_SUPPLIER_URL",
         "NEXT_PUBLIC_CONTACT_EMAIL",
         "VERCEL_PROJECT_PRODUCTION_URL",
-        "VERCEL_URL"
+        "VERCEL_URL",
+        "PORTAL_HOSTED",
+        "NEXT_OUTPUT"
       ],
       "outputs": [
         ".next/**",
