@@ -90,7 +90,7 @@ async function openHotel(page, key, tab) {
   // ---- Hotel 360 -------------------------------------------------------------------------------------------------------------
   await openHotel(page, 'alpha')
   let header = (await page.locator('[data-testid=hotel-header]').innerText()).replace(/\s+/g, ' ')
-  check('READY hotel: header shows READY, Sellable to Agents YES, supplier, code and canonical id', /READY/.test(header) && /Sellable to Agents\s*YES/.test(header) && /Gulf Direct/.test(header) && header.includes(H.alpha) && /ALPHA-/.test(header), header.slice(0, 140))
+  check('READY hotel: header shows READY, Supply coverage (buyer-independent) YES, supplier, code and canonical id', /READY/.test(header) && /Supply coverage \(buyer-independent\)\s*YES/.test(header) && /Gulf Direct/.test(header) && header.includes(H.alpha) && /ALPHA-/.test(header), header.slice(0, 140))
   const gates = await page.locator('[data-testid=readiness-gates] li').evaluateAll((els) => els.map((e) => e.getAttribute('data-state')))
   check('READY hotel: all 12 readiness gates PASS', gates.length === 12 && gates.every((g) => g === 'PASS'), gates.join(','))
   check('READY hotel: no commercial issues', (await page.locator('[data-testid=issues-empty]').count()) === 1)
@@ -229,7 +229,7 @@ async function openHotel(page, key, tab) {
   check('Add hotel hands off to the Hotel Setup tab', /tab=setup/.test(page.url()))
   await page.goto(page.url().replace(/\?tab=setup$/, '')); await page.waitForSelector('[data-testid=hotel-header]')
   const created = (await page.locator('[data-testid=hotel-header]').innerText()).replace(/\s+/g, ' ')
-  check('a newly created hotel opens as BLOCKED, "Sellable to Agents NO", status DRAFT', /BLOCKED/.test(created) && /Sellable to Agents\s*NO/.test(created) && /DRAFT/.test(created), created.slice(0, 120))
+  check('a newly created hotel opens as BLOCKED, "Supply coverage NO", status DRAFT', /BLOCKED/.test(created) && /Supply coverage \(buyer-independent\)\s*NO/.test(created) && /DRAFT/.test(created), created.slice(0, 120))
   check('a newly created hotel lists RATE_PLAN_MISSING and an unmapped-hotel issue as critical', (await page.locator('[data-testid=issue-list] [data-severity=CRITICAL]').count()) >= 2 && /No rate plan is configured/.test(await text(page)))
 
   // ---- Rooms, amenities, policies and images (ADR 0021, stage 2) ----

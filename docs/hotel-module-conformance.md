@@ -136,6 +136,56 @@ Initial API unit execution overlapped client generation and failed with missing 
 
 Cached PostgreSQL binaries were extracted, but `runuser -u nobody` fails with `cannot set groups: Operation not permitted`; PostgreSQL cannot initialize as root. Database-dependent tests and real API/browser journeys are BLOCKED locally until a disposable runner executes them. Existing CI provisions PostgreSQL 16 and Node24/pnpm10.4.1; its results must be inspected before claiming database certification. No historical evidence is substituted for those runs.
 
+## Validation of the unified readiness change (this session)
+
+Node v24.21.0, pnpm 10.4.1, PostgreSQL 16 with pgvector, Redis, Chromium 1194 (Playwright 1.56.1). Everything ran against disposable local databases created for this run (`fbeds_hotel_check`, `fbeds_ci`) and torn down with the container. Code head for the runs below: `eb4a1aa478508aa335e06bddccb96df08ceec678`, tree `26804a21aba5bb2f87f32df08f931ea81ecf93e1` (it contains the earlier commits on this branch merged in). Later commits are documentation and harness-assertion only. No CI result for any head after `6c8e507` is recorded in this file; exact-head CI is reported on the draft PR.
+
+| Check | Result |
+|---|---|
+| `pnpm prisma:validate`, `prisma:migrate:deploy` on an empty database, `prisma:migrate:status`, `prisma:migrate:drift` | PASS; all migrations applied; "No schema drift" |
+| `pnpm check:architecture`, `pnpm check:schema` | PASS (24 controllers contract-checked) |
+| `pnpm type-check`, `pnpm lint` | PASS 14/14 each; one existing unused-disable warning |
+| API unit (`jest --runInBand`) | 74 suites, 818 tests PASS |
+| `hotel-readiness.spec.ts` | 16/16 PASS |
+| API database e2e, full run, fresh database, owner connection for fixtures | 64 suites / 566 tests PASS in the full run; two suites (`sandbox-content-staging`, `hotel-search-index`, 7 tests) failed only because my first invocation lacked `MAPPING_DATABASE_URL` and the required `fbeds_ci` database name, and PASSED on rerun with them |
+| `hotel-readiness.e2e-spec.ts` (HR-E01..E09), application as `fbeds_api_login` | 9/9 PASS, including cross-tenant 404, 401/403, `agency.read` gate, criteria validation, connection reuse without leakage, no allocation or business audit, UNKNOWN under revoked grants, and prediction parity with Agent search |
+| Admin tests, API build, Admin production build | 44/44 PASS; both builds PASS |
+| Existing hotel browser harness `verify-hotels.cjs` (production Admin, owner-connected API; includes Add hotel, setup, publication, rooms, mapping, Quick Update, directory, states, keyboard, axe, 1280/768/390) | 166/166 PASS after correcting two assertions that still named the pre-rename header label |
+| New browser harness `verify-hotel-readiness.cjs`, API connected as `fbeds_api_login` (confirmed in `pg_stat_activity`) | 29/29 PASS: gates, blockers, navigation, states, double submit, keyboard, 1280/768/390, axe, forbidden viewer, cross-tenant |
+
+Not run, and not claimed: hosted environment, persistent databases, production-clone, live suppliers, the workspace `pnpm build` (the Agent font fetch is blocked without network), and a browser journey that goes on to a real Agent search and recheck in the browser (the Agent journey is covered by the database suites and by `HR-E07` parity, not by a browser run).
+
+## Final gates
+
+```
+HOTEL_CONTENT_WORKFLOW=IMPLEMENTED_EXISTING (verify-hotels 166/166 owner-connected API)
+HOTEL_READINESS_ASSESSMENT=IMPLEMENTED (unit 16, db 9, browser 29)
+ROOM_OCCUPANCY_VALIDATION=PARTIAL (head-count and per-room limits enforced; child-age pricing, mixed-room parties not modelled)
+MAPPING_GOVERNANCE=IMPLEMENTED_EXISTING (unchanged; surfaced as the MAPPING gate)
+CONTRACT_RATE_VALIDATION=PARTIAL (integer money and NET markup enforced; tax lines, supplements, child charges missing)
+INVENTORY_SEMANTICS_PRESERVED=YES (no inventory code changed; full e2e passed)
+FRESHNESS_PROVENANCE_PRESERVED=YES (no inventory code changed; full e2e passed)
+STRICT_ROLE_VALIDATION=PASS_FOR_THIS_CHANGE (readiness e2e and browser as fbeds_api_login; existing strict-role suites in the full run)
+TENANT_ISOLATION=PASS (e2e HR-E02, HR-E08; browser cross-tenant)
+AUDIT_IDEMPOTENCY=NOT_AFFECTED (no mutation added)
+AGENT_SEARCH_RECHECK=DB_SUITES_PASS_ONLY (HR-E07 parity, inventory-search-recheck e2e); browser and hosted NOT_VERIFIED
+BROWSER_ACCEPTANCE=PASS_LOCAL (166 + 29)
+FINAL_HEAD_CI=SEE_DRAFT_PR
+HOSTED_AGENT_MVP=NOT_VERIFIED
+F01_STATUS=OPEN (candidate aea042299bdc2b7fbc33945b0cb89ba0a7a04238 untouched)
+DRAFT_PR=#278
+
+PRODUCTION_DB_MIGRATION_EXECUTED=NO
+PERSISTENT_ROLE_PROVISIONING_EXECUTED=NO
+PRODUCTION_DEPLOYMENT_EXECUTED=NO
+DNS_OR_ALIAS_CHANGED=NO
+LIVE_SUPPLIER_ENABLED=NO
+BOOKING_ENABLED=NO
+PAYMENT_ENABLED=NO
+```
+
+The runtime role `fbeds_api_login` was provisioned only inside the two disposable local databases. The earlier remark in this file that database suites were BLOCKED locally describes that earlier session; this session had a working PostgreSQL.
+
 ## Next build order
 
 1. Execute the new and existing database suites on disposable PostgreSQL with the strict application login; inspect exact-head CI and fix any failures before release.
