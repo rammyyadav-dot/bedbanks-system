@@ -94,8 +94,8 @@ export class BookingFinanceService {
       const refund = b.totalMinor - requested
       await tx.bookingFinanceEvent.create({ data: { tenantId, bookingId, type, seq, currency: b.currency, sellMinor: b.totalMinor, netMinor: b.netMinor, penaltyMinor: requested, refundMinor: refund, paymentMode: b.paymentMode, actorUserId: userId,
         payload: { idempotencyKey: key, fingerprint, note: reason, previousPenaltyMinor: state.penalty.state === 'NEEDS_DECISION' ? null : (state.penalty as { penaltyMinor: string }).penaltyMinor } } })
-      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: change.kind === 'WAIVE' ? 'booking.penalty.waived' : 'booking.penalty.decided', entityType: 'booking', entityId: b.id,
-        payload: { penaltyMinor: requested.toString(), refundMinor: refund.toString(), currency: b.currency, requestId, reasonGiven: true } } })
+      await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: change.kind === 'WAIVE' ? 'booking.penalty.waived' : 'booking.penalty.decided', entityType: 'booking', entityId: b.id,
+        payload: { penaltyMinor: requested.toString(), refundMinor: refund.toString(), currency: b.currency, requestId, reasonGiven: true } }] })
       return { bookingId, kind: change.kind, penaltyMinor: requested.toString(), refundMinor: refund.toString(), replayed: false } satisfies BookingPenaltyResult
     })
   }
@@ -117,7 +117,7 @@ export class BookingFinanceService {
         const payload = buildDocumentPayload(type, { booking: b, content, penalty: state.penalty, quote: state.quote, cancelledAt: cancelled?.createdAt ?? null })
         const number = `${BOOKING_DOCUMENT_PREFIX[type]}-${b.reference}`
         const created = await tx.bookingDocument.create({ data: { tenantId, bookingId, type, number, payload: payload as Prisma.InputJsonObject }, select: { id: true, issuedAt: true } })
-        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.document.issued', entityType: 'booking', entityId: b.id, payload: { documentId: created.id, type, number, requestId } } })
+        await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'booking.document.issued', entityType: 'booking', entityId: b.id, payload: { documentId: created.id, type, number, requestId } }] })
         return { document: { id: created.id, type, number, issuedAt: created.issuedAt.toISOString(), htmlPath: htmlPathOf(bookingId, type) }, replayed: false }
       })
     } catch (error) {
