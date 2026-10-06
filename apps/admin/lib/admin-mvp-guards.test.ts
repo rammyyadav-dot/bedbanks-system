@@ -66,6 +66,13 @@ test('tenant directory is a read-only page over the audited platform API', () =>
   }
 })
 
+test('users placeholder points to Access review and Roles & Permissions only', () => {
+  const page = readFileSync(join(root, 'app', '(dashboard)', 'users/page.tsx'), 'utf8')
+  assert.match(page, /href="\/access-review"/)
+  assert.match(page, /href="\/access"/)
+  assert.doesNotMatch(page, /lib\/data|fetch\(/, 'the placeholder must not read data')
+})
+
 test('operations pages never hide a failure behind an empty list or a catch fallback', () => {
   const files = production.filter((f) => /components\/ops\/|data\/operations/.test(f) || /\(dashboard\)\/(bookings|holds|reconciliation|cancellations|connectors|operations|audit|finance)\//.test(f))
   assert.ok(files.length >= 10)
