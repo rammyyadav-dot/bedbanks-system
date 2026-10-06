@@ -81,7 +81,8 @@ describe('booking module database role (PostgreSQL)', () => {
     // allowed: the lifecycle columns, an event insert, an audit insert (no read-back)
     await asTenant(tenantA, (tx) => tx.booking.updateMany({ where: { id: first.id }, data: { status: 'CANCELLED', version: 2, supplierRef: 'X-1', hotelConfirmationNo: 'H-1', agentRef: 'A-1', closedAt: new Date() } }))
     await asTenant(tenantA, (tx) => tx.bookingEvent.create({ data: { tenantId: tenantA, bookingId: first.id, fromStatus: 'CONFIRMED', toStatus: 'CANCELLED', actorType: 'SYSTEM', payload: {} } }))
-    await asTenant(tenantA, (tx) => tx.auditEvent.createMany({ data: [{ tenantId: tenantA, actorType: 'SYSTEM', action: 'booking.test', entityType: 'booking', entityId: first.id, payload: {} }] }))
+    const someUser = (await owner.user.create({ data: { email: `bo-e04-${Date.now()}@example.test`, name: 'bo-e04' } })).id
+    await asTenant(tenantA, (tx) => tx.auditEvent.createMany({ data: [{ tenantId: tenantA, userId: someUser, actorType: 'USER', action: 'booking.test', entityType: 'booking', entityId: first.id, payload: {} }] }))
     // denied: any other Booking column, deletes, updating the immutable log, writing supplier journals, reading audit
     expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { totalMinor: 1n } })))).toMatch(PD)
     expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { reference: 'FB-HACK' } })))).toMatch(PD)
@@ -96,6 +97,7 @@ describe('booking module database role (PostgreSQL)', () => {
     expect(await denied(() => asTenant(tenantA, (tx) => tx.auditEvent.deleteMany()))).toMatch(PD)
     // RLS still binds writes: another tenant's id in the row is refused by the policy even though the grant allows the insert
     expect(await denied(() => asTenant(tenantB, (tx) => tx.bookingEvent.create({ data: { tenantId: tenantA, bookingId: first.id, toStatus: 'CONFIRMED', actorType: 'SYSTEM', payload: {} } })))).toMatch(/row-level security|42501/i)
+    await owner.$executeRawUnsafe(`DELETE FROM "AuditEvent" WHERE tenant_id = '${tenantA}' AND action = 'booking.test'`); await owner.user.delete({ where: { id: someUser } })
     await owner.$executeRawUnsafe(`UPDATE "Booking" SET status = 'CONFIRMED', version = 1, closed_at = NULL, supplier_ref = NULL, hotel_confirmation_no = NULL, agent_ref = NULL WHERE id = '${first.id}'`)
   })
 
