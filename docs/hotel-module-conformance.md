@@ -8,6 +8,55 @@ Validated implementation head: `6c8e50755af8d08d7930c9b5799c7bda74ba3799`, tree 
 
 F01 remains OPEN. Its candidate remains `aea042299bdc2b7fbc33945b0cb89ba0a7a04238`; this work does not certify or change it.
 
+## Requirement matrix (inspected on `b6fbf4e`, then extended by this branch)
+
+Legend: IMPLEMENTED (code present, permission-controlled, audited where it mutates, with a named test), PARTIAL (what is missing is stated), MISSING, BLOCKED (dependency stated), OUT_OF_SCOPE. "Evidence" names existing suites; whether they ran is stated in the validation record, not here.
+
+| Requirement | Status | Source | Evidence / gap |
+|---|---|---|---|
+| Hotel directory: server pagination, filters, identity, lifecycle, empty/denied/conflict states, Add hotel | IMPLEMENTED | `apps/admin/app/(dashboard)/hotels/page.tsx`, `operations-hotels.service.ts` (`list`), `hotels/new/page.tsx` | `hotel-commercial.e2e-spec.ts`; `verify-hotels.cjs` |
+| Hotel workspace tabs (overview, setup, rooms, amenities, images, policies, mappings, contracts, rates, inventory, quick update, distribution, bookings, audit) | IMPLEMENTED | `hotels/[id]/page.tsx`, `components/hotels/panels/*` | `verify-hotels.cjs`. Rate Plans and Rates Calendar live in "Contracts & Rate Plans" and "Rates & Inventory"; Quality & Publication is Hotel Setup plus Distribution & Readiness; no second editor was added |
+| Setup, duplicate search, draft, maker-checker publication, stale-version rejection | IMPLEMENTED | `hotel-setup/*`, `hotel-publication.service.ts`, ADR 0021/0022 | `hotel-setup.e2e-spec.ts`, `strict-runtime-role-hotel-setup.e2e-spec.ts` |
+| Rooms, amenities, images, policies; archive not delete; canonical occupancy rule | IMPLEMENTED | `hotel-rooms.service.ts`, `hotel-room-rules.ts`, `hotel-images.service.ts`, ADR 0027 | `hotel-room-rules.spec.ts`, `hotel-images.e2e-spec.ts`. Image rights, malware scan, EXIF stripping: MISSING (policy and a scanning service) |
+| Supplier hotel/room/board mapping governance | IMPLEMENTED | `supply/mapping.service.ts`, ADR 0004/0009 | `supply.e2e-spec.ts`, `hybrid-match.spec.ts` |
+| Contracts, markets, nationalities; sale dates vs stay dates | PARTIAL | `contract-market` rules (`supply/market-rules.ts`), ADR 0035 | `market-rules.spec.ts`, `contract-market-enforcement.e2e-spec.ts`. Booking-window display vs travel window remains PARTIAL |
+| Rate plans, nightly integer-minor rates, NET markup, cancellation | IMPLEMENTED | `rate-certification/*`, `supply/markup-rules.ts`, ADR 0018/0033/0034 | `rate-certification.e2e-spec.ts`, `daily-rate-amount-positive.e2e-spec.ts`. Tax lines, supplements, extra-bed and child charges: MISSING (no charge model) |
+| Inventory modes, shared pools, release deadlines, freshness | IMPLEMENTED | `supply/contracted-sellability.ts`, `stay-snapshot.ts`, `zoned-time.ts`, ADR 0030 | `inventory-semantics.spec.ts`, `zoned-time.spec.ts`, `inventory-pool*.e2e-spec.ts` |
+| Pool capacity editing, per-plan consumption, provenance preserved | IMPLEMENTED | `inventory/pool-capacity.service.ts`, ADR 0036/0037 | `pool-capacity-editor.e2e-spec.ts`, `strict-role-rollout.e2e-spec.ts` |
+| Distribution restrictions, agency suspension, markup controls | IMPLEMENTED | `supply/distribution-restrictions.ts`, `agent/agency-suspension.guard.ts`, ADR 0018/0019/0020 | `distribution-restrictions.spec.ts`, `markup-rules.spec.ts` |
+| Supplier sandbox staging, checkpoints, lease fencing, quarantine | IMPLEMENTED (sandbox only) | `sandbox/sandbox-content-store.ts`, `docs/supplier-sandbox-integration.md` | `sandbox-content-staging.e2e-spec.ts`. No live supplier, by design |
+| Agent search, authoritative recheck, no allocation on recheck | IMPLEMENTED | `agent/agent-search.service.ts`, `contracted-inventory.adapter.ts`, `offer-hold.service.ts` | `inventory-search-recheck.e2e-spec.ts`, `dubai-agent-search.e2e-spec.ts`. Hosted journey NOT_VERIFIED |
+| Per-plan buyer-aware stay diagnostic | IMPLEMENTED | `hotel-stay-readiness.ts`, `operations-hotels.service.ts` (`sellability`) | `hotel-stay-readiness.spec.ts`, `hotel-commercial.e2e-spec.ts` (earlier commits on this branch) |
+| **Unified readiness: seven gates, PASS/FAIL/UNKNOWN/NOT_APPLICABLE, criteria, references, action** | **IMPLEMENTED (this change)** | `packages/contracts/src/hotel-readiness.ts`, `supply/hotel-readiness.ts`, `operations-hotels.service.ts` (`readiness`), `panels/ReadinessPanel.tsx`, ADR 0038 | `hotel-readiness.spec.ts` (16), `hotel-readiness.e2e-spec.ts` (9, runtime role), `verify-hotel-readiness.cjs` (29) |
+| Search/recheck certification evidence per hotel | MISSING (reported UNKNOWN) | `offer.recheck.*` audit rows carry the offer id only | Needs a per-hotel evidence record; see Remaining work |
+| Child-age pricing, extra-bed policy, mixed-room parties, FX | MISSING | no schema, no policy | Child ages are validated and disclosed as not assessed |
+| Production rollout, persistent roles, live suppliers, booking, payment | OUT_OF_SCOPE | n/a | Not performed |
+
+## Unified readiness (this change)
+
+ADR 0038. One read-only endpoint, `GET /admin/operations/hotels/:hotelId/readiness`, route `hotelReadiness` in `@bedbanks/contracts`. It composes `assessCompleteness`, `evaluateContractedStay` (with the stated buyer) and the existing agency controls. It does not replace the Hotel 360 window gates or the per-plan stay diagnostic; both classify reasons from `SELLABILITY_GATES`.
+
+| Gate | Judged from | UNKNOWN when |
+|---|---|---|
+| CONTENT | Twelve publication requirements | Profile unreadable by the runtime role |
+| MAPPING | `SUPPLIER_MAPPING_INVALID` per rate plan; hotel mapping when no plan exists | n/a |
+| CONTRACT | Supplier, contract, plan, room, occupancy, stay rules, market and nationality | n/a |
+| RATE | Every night priced in the stated currency; NET needs a markup rule | n/a |
+| INVENTORY | Availability, stop-sell, closure, freshness, stock (plan or pool), ON_REQUEST | n/a |
+| DISTRIBUTION | Published, rated hotel; agency suspension and restrictions | Agency restrictions unreadable |
+| SEARCH_RECHECK_EVIDENCE | Nothing persisted per hotel | Always (the prediction is shown, labelled as a prediction) |
+
+Rules asserted by tests: UNKNOWN is never FAIL; a missing rate or stock is a named failure, never zero; unknown nationality fails closed against a restricted contract; gates passing on different plans do not make a PASS verdict; unreadable agency controls remove predicted offers; the prediction agrees with Agent search for five nationality/market/restriction cases (`HR-E07`).
+
+## Permission and database-principal matrix (additions)
+
+| Operation | User permission | Database principal |
+|---|---|---|
+| Readiness without an agency | `supply.rates.read` | Existing runtime-role reads; profile read behind a SAVEPOINT |
+| Readiness naming an agency | Above plus existing `agency.read` (shared check with the stay diagnostic) | Agency and DistributionRestriction reads; denial is UNKNOWN |
+
+No grant, permission-catalogue entry, migration or role contract changed. The application under test in `hotel-readiness.e2e-spec.ts` and in the browser harness connects as `fbeds_api_login`: not superuser, not BYPASSRLS, not owner (asserted by `HR-E01`).
+
 ## Authority and workflow map
 
 | Area | Existing authority | Audit finding / scope |
