@@ -150,3 +150,9 @@ It drives manual entry with "send now", the confirmed, ghost (timeout but booked
 ```bash
 OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-supplier.cjs
 ```
+
+`verify-booking-ops.cjs` (Phase 4) drives the operations queue in Chromium: Flow A (unknown supplier answer: marked uncertain, sync offered, send withheld, evidenced "no booking exists", then one safe resend), Flow B (cancellation refused: Urgent, still Cancel requested, timeline), Flow C (claim, My queue, another operator sees the owner, audit), Flow D (deterministic SLA breach and ordering), plus permission views and axe. Seed first (it creates the deterministic fixtures and the `lead`, `worker`, `worker2`, `opsviewer` users), start the API with `ADMIN_BOOKING_OPS_ENABLED=true` in addition to the Phase 3 switches, then:
+
+```bash
+OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-ops.cjs
+```

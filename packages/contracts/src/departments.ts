@@ -15,6 +15,8 @@ export const departmentPermissions = {
   bookingOnRequestResolve: 'booking.on-request.resolve', bookingConfirmManual: 'booking.confirm.manual', bookingSupplierRefEdit: 'booking.supplier-ref.edit',
   bookingAmend: 'booking.amend', bookingAmendRequest: 'booking.amend.request', bookingCancelRequest: 'booking.cancel.request', bookingCancelNonRefundable: 'booking.cancel.nonrefundable',
   bookingRebook: 'booking.rebook', bookingNoShowMark: 'booking.no-show.mark', bookingManualCreate: 'booking.manual.create', bookingSupplierRetry: 'booking.supplier.retry',
+  /** Operations queue (ADR 0039, Phase 4). */
+  bookingOpsView: 'booking.ops.view', bookingOpsAssign: 'booking.ops.assign', bookingOpsEscalate: 'booking.ops.escalate', bookingOpsResolve: 'booking.ops.resolve', bookingOpsNote: 'booking.ops.note',
 } as const
 export type DepartmentPermission = (typeof departmentPermissions)[keyof typeof departmentPermissions]
 

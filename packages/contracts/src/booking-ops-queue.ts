@@ -313,3 +313,111 @@ export const BOOKING_OPS_ANSWER_RULES: Readonly<Record<BookingOpsAnswer, Booking
 export function answersFor(status: BookingStatus, closed: boolean): BookingOpsAnswer[] {
   return closed ? [] : BOOKING_OPS_ANSWERS.filter((a) => BOOKING_OPS_ANSWER_RULES[a].from.includes(status))
 }
+
+// ---- API: queue list, counts, detail panel, mutations ---------------------------------------------------------------------
+export const BOOKING_OPS_PERMISSIONS = { view: 'booking.ops.view', assign: 'booking.ops.assign', escalate: 'booking.ops.escalate', resolve: 'booking.ops.resolve', note: 'booking.ops.note' } as const
+export const BOOKING_OPS_PAGE_SIZES = [25, 50, 100] as const
+/** The queue is derived from at most this many candidate bookings (newest activity first); beyond it the page says so rather than pretending to be complete. */
+export const BOOKING_OPS_SCAN_CAP = 2000
+export const BOOKING_OPS_ERROR_CODES = ['BOOKING_OPS_DISABLED', 'BOOKING_OPS_FORBIDDEN', 'BOOKING_OPS_INVALID_TRANSITION', 'BOOKING_OPS_CONFLICT', 'BOOKING_OPS_CROSS_TENANT_DENIED', 'BOOKING_OPS_INELIGIBLE_ASSIGNEE', 'BOOKING_OPS_SLA_POLICY_INVALID', 'SUPPLIER_STATE_UNKNOWN', 'SUPPLIER_NOT_CONFIGURED'] as const
+
+export interface BookingOpsQueueQuery {
+  tab?: BookingOpsTab
+  reference?: string
+  agencyId?: string
+  supplier?: string
+  status?: BookingStatus[]
+  supplierStatus?: string
+  reason?: BookingOpsReason[]
+  priority?: BookingOpsPriority[]
+  /** `me`, `none`, or a user id. */
+  assignee?: string
+  sla?: BookingOpsSlaState[]
+  checkInFrom?: string
+  checkInTo?: string
+  createdFrom?: string
+  createdTo?: string
+  page?: number
+  pageSize?: (typeof BOOKING_OPS_PAGE_SIZES)[number]
+}
+
+export interface BookingOpsQueueItem {
+  bookingId: string
+  reference: string
+  agency: { id: string; name: string } | null
+  hotel: { name: string | null; city: string | null; timeZone: string | null }
+  checkIn: string | null
+  status: BookingStatus
+  supplierStatus: string | null
+  supplier: { name: string; configured: boolean }
+  inQueue: boolean
+  primaryReason: BookingOpsReason | null
+  reasons: BookingOpsReason[]
+  priority: BookingOpsPriority
+  priorityFactors: string[]
+  slaTargetMinutes: number | null
+  slaDueAt: string | null
+  slaState: BookingOpsSlaState | null
+  /** Seconds to the SLA due time; negative when overdue. Derived when read, never stored. */
+  slaRemainingSeconds: number | null
+  enteredAt: string | null
+  assignee: { id: string; name: string } | null
+  assignedAt: string | null
+  acknowledgedAt: string | null
+  lastSupplierActivityAt: string | null
+  supplierCertainty: BookingSupplierCertainty
+  safeAction: BookingOpsSafeAction | null
+  /** For optimistic concurrency on assign / acknowledge / escalate: 0 when no operational state exists yet. */
+  opsVersion: number
+  /** Only on the Resolved tab: when the case last had operational activity. */
+  lastActivityAt: string | null
+}
+export interface BookingOpsQueuePage {
+  items: BookingOpsQueueItem[]
+  total: number
+  page: number
+  pageSize: number
+  tab: BookingOpsTab
+  counts: BookingOpsCounts
+  /** True when more candidate bookings exist than the scan cap: counts and order cover the newest `BOOKING_OPS_SCAN_CAP`. */
+  scanCapped: boolean
+  /** The SLA targets in force (minutes), so the screen can state them. */
+  slaPolicy: BookingOpsSlaPolicy
+  generatedAt: string
+  /** The caller, so "claim" can assign to themselves without the browser guessing an id. */
+  viewer: { id: string }
+  /** What the caller may do on this page (permission only; the API re-checks every action). */
+  can: { assign: boolean; escalate: boolean; resolve: boolean; note: boolean; supplierRetry: boolean }
+}
+export type BookingOpsCounts = Record<Exclude<BookingOpsTab, 'resolved'>, number> & { resolved: number }
+
+export interface BookingOpsAssignee { id: string; name: string }
+export interface BookingOpsTimelineItem { at: string; kind: 'event' | 'derived'; title: string; actorName: string | null; reason: string | null }
+export interface BookingOperationsPanel {
+  /** The caller, so "claim" assigns to themselves without the browser guessing an id. */
+  viewerId: string
+  item: BookingOpsQueueItem
+  /** What this caller may do now (permission and booking state both considered). */
+  can: { assign: boolean; acknowledge: boolean; escalate: boolean; note: boolean; clearFollowUp: boolean; answers: BookingOpsAnswer[] }
+  /** Recent operational events and derived markers (entered the queue, SLA due, SLA breached), newest last. Derived markers are computed, never stored. */
+  timeline: BookingOpsTimelineItem[]
+}
+
+export interface BookingOpsAssignRequest { assigneeUserId: string | null; expectedVersion: number }
+export interface BookingOpsAcknowledgeRequest { expectedVersion: number }
+export interface BookingOpsEscalateRequest { priority: (typeof BOOKING_OPS_MANUAL_PRIORITIES)[number] | null; followUp?: boolean; reason: string; expectedVersion: number }
+export interface BookingOpsNoteRequest { note: string }
+export interface BookingOpsClearRequest { reason: string; expectedVersion: number }
+export interface BookingOpsAnswerRequest {
+  answer: BookingOpsAnswer
+  /** CAS: the booking must still be in this status. */
+  expectedStatus: BookingStatus
+  reason: string
+  supplierRef?: string
+  hotelConfirmationNo?: string
+  supplierCancellationRef?: string
+  /** Who at the supplier said so, and any reference they gave: mandatory for "no booking exists". */
+  evidenceRef?: string
+}
+export interface BookingOpsWriteResult { bookingId: string; reference: string; status: BookingStatus; opsVersion: number; replayed: boolean }
+export const BOOKING_OPS_REASON_MIN = 10

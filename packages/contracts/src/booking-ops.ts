@@ -7,6 +7,7 @@
  * caller holds `booking.view.net`. Agency-scoped callers only ever receive their own agency's bookings.
  */
 import type { BookingAction, BookingAvailableAction } from './booking-lifecycle'
+import type { BookingOperationsPanel } from './booking-ops-queue'
 import type { BookingAttention, BookingOperations, BookingStatus, MinorString, SectionState } from './operations'
 
 export const BOOKING_QUICK_SEARCHES = ['needsAction', 'latest', 'checkInNext7', 'missingSupplierRef', 'deadline48h', 'failed', 'latestCancelled', 'onRequest', 'unpaid', 'noShowCandidates'] as const
@@ -71,6 +72,8 @@ export interface BookingAccessView {
   manualEntry: boolean
   /** True when this caller may send bookings to a supplier: `booking.supplier.retry` held, operator level, and `ADMIN_SUPPLIER_JOBS_ENABLED` on. Only hides controls; the API checks again. */
   supplierDispatch: boolean
+  /** True when this caller may use the operations queue: `booking.ops.view` held, operator level, and `ADMIN_BOOKING_OPS_ENABLED` on. Only hides navigation; the API checks again. */
+  opsQueue: boolean
 }
 
 export interface BookingListRow {
@@ -144,7 +147,7 @@ export interface BookingTimelineItem {
   actor: string | null
   reason: string | null
   /** The lifecycle action that made this change, when it was made by one. */
-  action: BookingAction | 'createManual' | 'editReferences' | 'supplierQueued' | 'supplierUnknown' | 'supplierNotFound' | 'supplierCancelFailed' | null
+  action: BookingAction | 'createManual' | 'editReferences' | 'supplierQueued' | 'supplierUnknown' | 'supplierNotFound' | 'supplierCancelFailed' | 'opsAssigned' | 'opsUnassigned' | 'opsAcknowledged' | 'opsEscalated' | 'opsDeescalated' | 'opsResolved' | 'opsNote' | 'opsAnswer' | null
   /** True for rows written when the log was introduced: earlier history is in the audit items. */
   backfilled: boolean
   requestId: string | null
@@ -178,6 +181,8 @@ export interface BookingDetailView {
   availableActions: BookingAvailableAction[]
   /** The supplier queue for this booking: jobs, the call log and what may be done now. Operator-level callers only; null for an agency caller. */
   supplier: BookingSupplierView | null
+  /** The operations case (queue reason, SLA, priority, assignee, safe actions). Null when the caller lacks `booking.ops.view`, is agency-scoped, or the queue is switched off. */
+  operations: BookingOperationsPanel | null
 }
 
 // ---- Phase 3: supplier jobs ---------------------------------------------------------------------------------------------

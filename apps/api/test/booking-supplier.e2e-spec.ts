@@ -195,7 +195,7 @@ describe('Admin booking supplier queue (PostgreSQL, HTTP, strict API role + book
     expect(await row(b.bookingId)).toMatchObject({ status: 'PENDING_SUPPLIER', supplierStatus: 'UNKNOWN' }); expect((await jobs(b.bookingId))[0]).toMatchObject({ status: 'UNKNOWN', lastErrorCode: 'SUPPLIER_UNREACHABLE' })
     expect((await events(b.bookingId)).at(-1)).toMatchObject({ action: 'supplierUnknown', fromStatus: 'PENDING_SUPPLIER', toStatus: 'PENDING_SUPPLIER' })
     expect(await run()).toBe(0)
-    expect(code(await supplierOp(b.bookingId, 'lead', 'send', 'PENDING_SUPPLIER'))).toBe('SUPPLIER_OUTCOME_UNKNOWN')
+    expect(code(await supplierOp(b.bookingId, 'lead', 'send', 'PENDING_SUPPLIER'))).toBe('SUPPLIER_STATE_UNKNOWN')
     expect((await detail(b.bookingId)).supplier?.ops).toEqual(['sync'])
     await supplierOp(b.bookingId, 'lead', 'sync', 'PENDING_SUPPLIER').expect(200); await run()
     expect(await row(b.bookingId)).toMatchObject({ status: 'PENDING_SUPPLIER' }) // the supplier is still unreachable: still unknown, still not failed

@@ -46,6 +46,7 @@ export function BookingsWorkspace() {
   return (
     <div className="admin-page">
       <PageHeader eyebrow="BOOKINGS" title="Bookings" description="Every reservation across agencies and suppliers. Find, filter and open any booking; open one to act on it." />
+      {last?.access.opsQueue && <p style={{ margin: '0 0 10px' }}><Link href="/bookings/queue" className="admin-btn" data-testid="open-ops-queue">Operations queue</Link></p>}
       {last?.access.manualEntry && <p style={{ margin: '0 0 10px' }}><Link href="/bookings/new" className="admin-btn" data-testid="new-manual-booking">Enter a booking manually</Link></p>}
       <nav aria-label="Quick searches" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
         {BOOKING_QUICK_SEARCHES.map((c) => (

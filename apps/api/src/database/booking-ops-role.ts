@@ -10,7 +10,7 @@ import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role
  * Phase 1 read what the list and detail screens need; Phase 2 adds narrow writes for the transition function (see the constants below). Row-level security stays forced and this role cannot
  * bypass it: every read still runs inside a transaction that sets the tenant. Write grants are added per phase, as narrow column grants for the
  * transition function only, in their own change to this file.
- * No grant on LedgerEntry, Wallet, BookingDocument or any hotel, agency, user or session table until a later phase needs it.
+ * No grant on LedgerEntry, Wallet or any hotel, agency, user or session table until a later phase needs it.
  */
 export const BOOKING_OPS_GROUP_ROLE = 'fbeds_booking'
 export const BOOKING_OPS_LOGIN_ROLE = 'fbeds_booking_ops'
@@ -20,8 +20,8 @@ type Executor = { $executeRawUnsafe(query: string): Promise<number>; $queryRawUn
 const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
-/** Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
-export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall'] as const
+/** Phase 5 adds BookingDocument (issue-once, immutable by trigger) and BookingFinanceEvent (append-only): SELECT + INSERT, never UPDATE. Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
+export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent'] as const
 /**
  * Phase 2 write grants, as narrow as the transition function needs (ADR 0039). No DELETE and no TRUNCATE anywhere. Status, lock, version and the supplier
  * references can be UPDATEd only as named columns (which is also why the immutable `BookingEvent` gets INSERT only). AuditEvent is INSERT-only and not readable.
@@ -30,12 +30,14 @@ export const BOOKING_OPS_UPDATE_COLUMNS = {
   Booking: ['status', 'supplier_status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at'],
   /** Phase 3: the runner claims, retries and completes its own jobs, and nothing else about them. */
   BookingSupplierJob: ['status', 'attempt', 'run_after', 'locked_until', 'last_error_code', 'completed_at', 'updated_at'],
+  /** Phase 4: the operational state columns, and never the keys (tenant, booking) or the row's creation. */
+  BookingOpsState: ['assignee_user_id', 'assigned_at', 'assigned_by_user_id', 'acknowledged_at', 'acknowledged_by_user_id', 'manual_priority', 'escalated_at', 'escalated_by_user_id', 'escalation_reason', 'follow_up', 'follow_up_at', 'resolved_at', 'resolved_by_user_id', 'version', 'updated_at'],
 } as const
 /** Phase 3: the one function the runner may call, to learn which tenants have due jobs (returns tenant ids only). */
 export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)'] as const
-export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall'] as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent'] as const
 /** Tables the role must never be able to read or write. Checked by the verifier. */
-export const BOOKING_OPS_FORBIDDEN_TABLES = ['LedgerEntry', 'Wallet', 'BookingDocument', 'Cancellation', 'InventoryHold', 'users', 'sessions', 'memberships', 'Agency', 'AgencyMember', 'Hotel', 'Contract', 'DailyRate', 'ConnectorCredentialReference'] as const
+export const BOOKING_OPS_FORBIDDEN_TABLES = ['LedgerEntry', 'Wallet', 'Cancellation', 'InventoryHold', 'users', 'sessions', 'memberships', 'Agency', 'AgencyMember', 'Hotel', 'Contract', 'DailyRate', 'ConnectorCredentialReference'] as const
 
 export function assertBookingOpsInput(loginRole: string, password: string): void {
   if (!IDENTIFIER.test(loginRole)) throw new Error('Login role must match [a-z][a-z0-9_]{2,62}')

@@ -1,5 +1,5 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, BOOKING_IDEMPOTENCY_HEADER, type BookingActionRequest, type BookingReferencesRequest, type BookingSupplierRequest, type BookingSupplierResult, type BookingWriteResult, type ManualBookingRequest, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { routes, type BookingOperationsPanel, type BookingOpsAcknowledgeRequest, type BookingOpsAnswerRequest, type BookingOpsAssignee, type BookingOpsAssignRequest, type BookingOpsClearRequest, type BookingOpsEscalateRequest, type BookingOpsNoteRequest, type BookingOpsQueuePage, type BookingOpsWriteResult, BOOKING_IDEMPOTENCY_HEADER, type BookingActionRequest, type BookingReferencesRequest, type BookingSupplierRequest, type BookingSupplierResult, type BookingWriteResult, type ManualBookingRequest, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -53,3 +53,15 @@ export const getMarketsSummary = (p: Params = {}) => apiRequest<MarketsSummary>(
 export const getReliabilitySummary = (p: Params = {}) => apiRequest<ReliabilitySummary>(`${ops.reliabilitySummary}${opsQuery(p)}`)
 export const getAccessReviewSummary = () => apiRequest<AccessReviewSummary>(ops.accessReviewSummary)
 export const getAccessReviewUsers = (p: Params = {}) => apiRequest<AccessReviewPage>(`${ops.accessReviewUsers}${opsQuery(p)}`)
+
+// ---- Operations queue (ADR 0039, Phase 4). Reads never write; every mutation carries the Idempotency-Key the dialog generated once. ----------------------
+export const getOpsQueue = (p: Params) => apiRequest<BookingOpsQueuePage>(`${ops.bookingOps}${opsQuery(p)}`)
+export const getOpsAssignees = () => apiRequest<BookingOpsAssignee[]>(ops.bookingOpsAssignees)
+export const getOpsPanel = (bookingId: string) => apiRequest<BookingOperationsPanel | null>(fill(ops.bookingOpsItem, { bookingId }))
+const opsPost = <T>(route: string, bookingId: string, body: unknown, key: string) => apiRequestWithMeta<T>(fill(route, { bookingId }), { method: 'POST', headers: keyed(key), body: JSON.stringify(body) })
+export const assignOpsCase = (bookingId: string, body: BookingOpsAssignRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsAssign, bookingId, body, key)
+export const acknowledgeOpsCase = (bookingId: string, body: BookingOpsAcknowledgeRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsAcknowledge, bookingId, body, key)
+export const escalateOpsCase = (bookingId: string, body: BookingOpsEscalateRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsEscalate, bookingId, body, key)
+export const noteOpsCase = (bookingId: string, body: BookingOpsNoteRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsNote, bookingId, body, key)
+export const clearOpsCase = (bookingId: string, body: BookingOpsClearRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsClear, bookingId, body, key)
+export const answerOpsCase = (bookingId: string, body: BookingOpsAnswerRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsAnswer, bookingId, body, key)

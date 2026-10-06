@@ -65,7 +65,7 @@ const COPY: Record<string, string> = {
   OPERATIONS_READ_DENIED: 'The booking service is not available to this environment right now. Nothing was changed.',
   SUPPLIER_NOT_CONFIGURED: 'No supplier connection is set up for this booking’s supplier, so nothing can be sent. Record the supplier’s answer by hand instead.',
   SUPPLIER_JOB_ACTIVE: 'A supplier job is already queued or running for this booking.',
-  SUPPLIER_OUTCOME_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first: sending again could create a duplicate booking.',
+  SUPPLIER_STATE_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first: sending again could create a duplicate booking.',
   ILLEGAL_SUPPLIER_OPERATION: 'That supplier operation is not available for this booking now.',
   SUPPLIER_JOBS_DISABLED: 'The supplier queue is switched off in this environment.',
   NETWORK_ERROR: 'The server could not be reached. Nothing was confirmed; you can retry safely, the same request will not be applied twice.',

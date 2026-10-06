@@ -1,4 +1,4 @@
-# Admin Booking module — running it locally (Phases 1 to 3)
+# Admin Booking module — running it locally (Phases 1 to 4)
 
 Source of truth: `docs/booking-module-spec.md`. Decisions: `docs/adr/0039-admin-booking-module.md`.
 
@@ -8,6 +8,7 @@ Source of truth: `docs/booking-module-spec.md`. Decisions: `docs/adr/0039-admin-
 - Phase 2 adds the lifecycle engine: named actions (confirm/reject on request, amend, cancel, no-show, close, edit references) through `transitionBooking`, the one writer of `Booking.status`; every change leaves a `BookingEvent` and an `AuditEvent`. See ADR 0039 (Phase 2 decisions) for the action table, permissions and what is deliberately not built yet.
 - Manual booking entry (`/bookings/new`) is behind `ADMIN_MANUAL_BOOKING_ENABLED` (default `false`; dev/staging only). It records a Pending-supplier booking; no supplier call, hold or money movement.
 - Phase 3 adds the supplier queue: send, cancel, retry now and sync, a runner with the spec's retries, a status check by our reference before a booking can be Failed, and a summary-only call log. There is **no production supplier adapter yet**; only the mock exists, for named tenants. See ADR 0039 (Phase 3 decisions).
+- Phase 4 adds the operations queue (`/bookings/queue`): which bookings need a person, why, how urgent, by when, and who owns them, from one ruleset in `@bedbanks/contracts`. **UNKNOWN is not FAILED, and a supplier timeout alone never authorises another booking request.** See ADR 0039 (Phase 4 decisions).
 - Still no payment, voucher or invoice from this module.
 - `BOOKING_ENABLED` stays `false`; Agent booking routes stay `booking_unavailable`.
 
@@ -30,3 +31,36 @@ Phase 2 actions: `booking.confirm.manual`, `booking.on-request.resolve`, `bookin
 - E2E (disposable DB): `booking-read` (isolation, masking, net, chips, filters), `booking-actions` (journey, permissions, CAS, idempotency, audit, manual entry), `booking-ops-role` (role boundary and narrow write grants), `booking-supplier` (queue, retries, ghost booking, unknown outcome, concurrency, crashed runner, mock gating).
 - Browser: `tools/admin-ops-verify/verify-bookings.cjs` (list/detail) and `verify-booking-actions.cjs` (dialogs, manual entry) and `verify-booking-supplier.cjs` (queue with the runner on); see that folder's README. Start the API with `ADMIN_MANUAL_BOOKING_ENABLED=true` for the latter.
 - Later phases will add: simulating supplier outcomes with the mock adapter behind `ADMIN_MANUAL_BOOKING_ENABLED`.
+
+## Operations queue (Phase 4)
+
+**Switches** (all default off, all independent): `ADMIN_BOOKING_OPS_ENABLED` shows the queue and the Operations panel; `ADMIN_SUPPLIER_JOBS_ENABLED` and `BOOKING_JOB_RUNNER_ENABLED` control supplier work; `ALLOW_MOCK_SUPPLIER` + `MOCK_SUPPLIER_TENANT_IDS` control the mock; `BOOKING_OPS_SLA_POLICY` (JSON) overrides SLA targets.
+
+**Permissions** (formal roles only; owner membership implies none; granted to no role by the migration): `booking.ops.view` (queue, panel; also needs operator-level `booking.read`), `booking.ops.assign` (assign, unassign, acknowledge), `booking.ops.escalate` (raise priority, flag follow-up), `booking.ops.resolve` (record the supplier's answer, resolve a follow-up), `booking.ops.note`. `booking.supplier.retry` still governs send, cancel, retry now and sync.
+
+**Reading the queue.** Tabs: Active, My queue, Unassigned, SLA breached, Due soon, Unknown supplier state, Cancellation issues, On request, Resolved / recent (activity in the last 7 days on a booking that is no longer a case). Filters live in the URL. The order is fixed by the server: priority, SLA state, oldest, id.
+
+| Reason | Priority by default | SLA target (min) | Safe next step |
+|---|---|---|---|
+| Supplier answer unknown | Urgent | 15 | Sync with supplier (never send again) |
+| Cancellation not confirmed by supplier | Urgent | 15 | Settle it with the supplier and record the outcome |
+| Cancel requested | High | 60 | Send the cancellation, or record the supplier's answer |
+| Supplier attempts exhausted | High | 30 | Record the supplier's answer |
+| Supplier not configured | High | 60 | Record the supplier's answer |
+| Pending supplier | Normal | 30 | Send to supplier, or retry now |
+| On request | Normal | 1440 | Sync, or record the supplier's answer |
+| Amendment requested | Normal | 240 | Review |
+| Missing supplier reference | Normal | 240 | Add the reference |
+| Manual follow-up | Normal | 480 | Follow up, then resolve |
+
+Breached SLA, check-in within 24 hours, or three or more failed supplier calls each raise the priority one level (to a maximum of Critical).
+
+**Runbook.**
+1. *Supplier answer unknown:* the supplier may hold the booking. Do not send it again. Press **Sync with supplier** (safe to repeat). If the supplier cannot be reached by the system, ask them and record the answer: **confirmed** (with their reference), **rejected**, or **no booking exists** (with who told you and their reference: this is the only thing that makes sending again safe).
+2. *Cancellation not confirmed:* the booking is still Cancel requested. Press **Sync**, or ask the supplier and record **cancelled** (with their cancellation reference) or **refused** (keeps it urgent). Nothing is marked cancelled on the supplier's silence.
+3. *Two people on one case:* the second to act is told it changed; reload, and use **Take over** deliberately.
+4. *Invalid SLA policy:* the queue answers 503 `BOOKING_OPS_SLA_POLICY_INVALID`; fix `BOOKING_OPS_SLA_POLICY`. The booking detail page keeps working without the Operations tab.
+
+**Runtime-role grants.** The booking role (`fbeds_booking_ops`) gains SELECT and INSERT on `BookingOpsState` and UPDATE on its operational columns only. Re-run `ops:provision-booking-ops-role` after deploying. The strict API role has no access to it.
+
+**Tests and harnesses.** Unit: `booking-ops-queue.spec.ts` (the ruleset, deterministic clock). E2E: `booking-ops-queue.e2e-spec.ts` (access, membership, ordering, SLA, assignment races, escalation, manual answers, supplier races), `booking-ops-role.e2e-spec.ts` (RLS and grants). Browser: `tools/admin-ops-verify/verify-booking-ops.cjs` (flows A to D).

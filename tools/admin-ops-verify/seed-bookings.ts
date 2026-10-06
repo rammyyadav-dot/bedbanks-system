@@ -16,6 +16,7 @@ const HOTELS: Array<[string, string, string, string]> = [['Atlantis The Palm', '
 const CURRENCIES = ['USD', 'GBP', 'EUR', 'AED']
 const GUESTS: Array<[string, string]> = [['Amira', 'Haddad'], ['Oliver', 'Grant'], ['Sofia', 'Marin'], ['Khalid', 'Rahman'], ['Emma', 'Walsh'], ['Lucas', 'Meyer']]
 
+const randomHex = (n: number) => require('crypto').randomBytes(Math.ceil(n / 2)).toString('hex').toUpperCase().slice(0, n)
 async function main() {
   const prisma = new PrismaService()
   const tag = `bk-${Date.now()}`
@@ -43,7 +44,11 @@ async function main() {
   const agency = await user('agency', ['booking.view.agency'], agencies[0])
   // Phase 2: an operator who can act, an agency user who can only request, and a hotel/agency for manual entry (the seeded ones).
   const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create', 'booking.supplier.retry']
-  const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE])
+  const OPS_ALL = ['booking.ops.view', 'booking.ops.assign', 'booking.ops.escalate', 'booking.ops.resolve', 'booking.ops.note']
+  const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE, ...OPS_ALL])
+  const viewer = await user('opsviewer', ['booking.read', 'booking.ops.view'])
+  const worker = await user('worker', ['booking.read', 'booking.ops.view', 'booking.ops.assign'])
+  const worker2 = await user('worker2', ['booking.read', 'booking.ops.view', 'booking.ops.assign'])
   const requester = await user('requester', ['booking.view.agency', 'booking.cancel.request', 'booking.amend.request'], agencies[0])
 
   // 40 bookings: four per status, rotating agency / supplier / hotel / currency / guest; some Urgent-like (check-in soon, deadline soon),
@@ -70,7 +75,27 @@ async function main() {
       await prisma.bookingEvent.create({ data: { tenantId: T, bookingId: b.id, toStatus: status, actorType: 'SYSTEM', reason: 'seed', payload: { seeded: true } } })
     }
   }
-  const out = { password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
+  // Phase 4 deterministic fixtures, dated relative to the seed time so SLA states are known: an unknown supplier answer, a refused cancellation, a breached pending booking.
+  const mins = (m: number) => new Date(Date.now() - m * 60_000)
+  async function fixture(tag: string, o: { status: 'PENDING_SUPPLIER' | 'CANCEL_REQUESTED'; supplier: string; created: number; supplierStatus?: string; supplierRef?: string; job?: { kind: 'BOOK' | 'CANCEL'; status: 'UNKNOWN' | 'FAILED'; err: string; minutesAgo: number }; events?: Array<{ action: string; minutesAgo: number }> }) {
+    const b = await prisma.booking.create({ data: { tenantId: T, reference: `FB-${randomHex(20)}`, supplier: o.supplier, hotelId: hotels[0], status: o.status, currency: 'AED', totalMinor: 150_000n, idempotencyKey: `${tag}-${runId}`, searchSnapshot: {}, agencyId: agencies[0], isRefundable: true,
+      supplierRef: o.supplierRef ?? null, supplierStatus: o.supplierStatus ?? null, checkIn: new Date(`${ymd(60)}T00:00:00Z`), checkOut: new Date(`${ymd(62)}T00:00:00Z`), nights: 2, createdAt: mins(o.created) } })
+    await prisma.bookingRoom.create({ data: { tenantId: T, bookingId: b.id, roomName: 'Deluxe Sea View', adults: 2 } })
+    await prisma.bookingGuest.create({ data: { tenantId: T, bookingId: b.id, firstName: 'Fixture', lastName: tag, isLead: true } })
+    await prisma.bookingEvent.create({ data: { tenantId: T, bookingId: b.id, toStatus: o.status, actorType: 'SYSTEM', reason: 'seed', payload: { seeded: true }, createdAt: mins(o.created) } })
+    if (o.status === 'CANCEL_REQUESTED') await prisma.bookingEvent.create({ data: { tenantId: T, bookingId: b.id, fromStatus: 'CONFIRMED', toStatus: 'CANCEL_REQUESTED', actorType: 'USER', action: 'requestCancellation', payload: {}, createdAt: mins(o.created) } })
+    for (const e of o.events ?? []) await prisma.bookingEvent.create({ data: { tenantId: T, bookingId: b.id, fromStatus: o.status, toStatus: o.status, actorType: 'SUPPLIER', action: e.action, payload: {}, createdAt: mins(e.minutesAgo) } })
+    if (o.job) { const lead0 = await prisma.user.findFirstOrThrow({ where: { email: leadEmail } }); await prisma.bookingSupplierJob.create({ data: { tenantId: T, bookingId: b.id, kind: o.job.kind, status: o.job.status, attempt: o.job.kind === 'BOOK' ? 4 : 1, runAfter: mins(o.job.minutesAgo), requestedByUserId: lead0.id, idempotencyKey: `${tag}-job-${runId}`, requestFingerprint: '0'.repeat(64), lastErrorCode: o.job.err, createdAt: mins(o.job.minutesAgo + 1), updatedAt: mins(o.job.minutesAgo) } }) }
+    return b.reference
+  }
+  const leadEmail = lead
+  const opsFixtures = {
+    unknown: await fixture('UNKNOWN', { status: 'PENDING_SUPPLIER', supplier: 'mock-confirm', created: 40, supplierStatus: 'UNKNOWN', job: { kind: 'BOOK', status: 'UNKNOWN', err: 'SUPPLIER_UNREACHABLE', minutesAgo: 10 }, events: [{ action: 'supplierUnknown', minutesAgo: 10 }] }),
+    cancelFailed: await fixture('CANCELFAIL', { status: 'CANCEL_REQUESTED', supplier: 'mock-cancel-fail', created: 30, supplierRef: 'SUP-FIXTURE', supplierStatus: 'CANCEL_FAILED', job: { kind: 'CANCEL', status: 'FAILED', err: 'CANCEL_NOT_ALLOWED', minutesAgo: 3 }, events: [{ action: 'supplierCancelFailed', minutesAgo: 3 }] }),
+    breached: await fixture('BREACHED', { status: 'PENDING_SUPPLIER', supplier: 'Acme Hotels', created: 95 }),
+    fresh: await fixture('FRESH', { status: 'PENDING_SUPPLIER', supplier: 'Acme Hotels', created: 2 }),
+  }
+  const out = { opsFixtures, workerEmail: worker, worker2Email: worker2, opsViewerEmail: viewer, password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-bookings.json', JSON.stringify(out, null, 2))
   console.log('seeded', n, 'bookings for', tag)
   await prisma.$disconnect()
