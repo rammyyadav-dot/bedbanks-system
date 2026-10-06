@@ -1,0 +1,64 @@
+name: AWS deploy
+
+# Manual, environment-gated (required reviewers on the GitHub environment). Rolls the named services to an image that already exists in ECR
+# for the given commit. It does NOT run migrations: those are an owner-run one-off task (docs/runbooks/aws-ecs-deployment.md, step 7).
+# ECS's deployment circuit breaker rolls a deployment back by itself if its tasks never become healthy.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        required: true
+        type: choice
+        options: [staging, production]
+      sha:
+        description: Full commit SHA whose images to deploy
+        required: true
+      services:
+        description: Space-separated subset of api admin agent supplier website (deploy api first)
+        required: true
+        default: "api admin agent supplier website"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Roll services one at a time and wait for stability
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          CLUSTER: fbeds-${{ inputs.environment }}
+          SHA: ${{ inputs.sha }}
+          SERVICES: ${{ inputs.services }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA" >&2; exit 1; }
+          for svc in $SERVICES; do
+            case "$svc" in api|admin|agent|supplier|website) ;; *) echo "unknown service $svc" >&2; exit 1 ;; esac
+            image="$REGISTRY/fbeds/$svc:$SHA"
+            aws ecr describe-images --repository-name "fbeds/$svc" --image-ids imageTag="$SHA" >/dev/null   # fail early if it was never built
+            family="$CLUSTER-$svc"
+            aws ecs describe-task-definition --task-definition "$family" --query taskDefinition > td.json
+            jq --arg img "$image" --arg name "$svc" \
+              'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | (.containerDefinitions[] | select(.name==$name) | .image) = $img' td.json > td-new.json
+            arn=$(aws ecs register-task-definition --cli-input-json file://td-new.json --query taskDefinition.taskDefinitionArn --output text)
+            aws ecs update-service --cluster "$CLUSTER" --service "$svc" --task-definition "$arn" >/dev/null
+            aws ecs wait services-stable --cluster "$CLUSTER" --services "$svc"
+            # A circuit-breaker rollback leaves the service "stable" on the OLD revision: verify we are really serving the new one.
+            now=$(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" --query 'services[0].taskDefinition' --output text)
+            [ "$now" = "$arn" ] || { echo "$svc did not stay on $arn (rolled back to $now)" >&2; exit 1; }
+            echo "$svc -> $image" >> "$GITHUB_STEP_SUMMARY"
+          done
