@@ -3,6 +3,7 @@
 // connection authenticated as the strict login. Never log connection strings.
 const assert = require('node:assert/strict')
 const { randomBytes } = require('node:crypto')
+const { appendFileSync } = require('node:fs')
 const { PrismaClient } = require('@prisma/client')
 const { API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole, verifyApiRuntimeRole } = require('../src/database/api-runtime-role')
 const { RUNTIME_ROLE_GRANTS } = require('../src/database/runtime-role-contract')
@@ -20,6 +21,18 @@ async function main() {
     const [server] = await owner.$queryRawUnsafe('SELECT current_database() AS database, current_setting(\'server_version\') AS version')
     assert.equal(server.database, 'fbeds_ci')
     assert.match(server.version, /^16\./, 'PostgreSQL 16 required')
+    if (process.argv.includes('--rotate-owner')) {
+      assert.equal(target.username, 'postgres', 'Disposable service bootstrap owner required')
+      assert.ok(process.env.GITHUB_ENV, 'Actions environment output required')
+      const password = randomBytes(32).toString('hex')
+      // Hex-only generated value; never interpolate user-provided credentials.
+      await owner.$executeRawUnsafe(`ALTER ROLE postgres PASSWORD '${password}'`)
+      target.password = password
+      console.log(`::add-mask::${password}`)
+      appendFileSync(process.env.GITHUB_ENV, `DATABASE_URL=${target.toString()}\nMAPPING_DATABASE_URL=${target.toString()}\n`)
+      console.log('Disposable service owner credential rotated; later steps receive the new credential without printing it.')
+      return
+    }
     const extensions = await owner.$queryRawUnsafe("SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pg_trgm') ORDER BY extname")
     assert.deepEqual(extensions.map((r) => r.extname), ['pg_trgm', 'vector'])
     const password = randomBytes(32).toString('hex')
