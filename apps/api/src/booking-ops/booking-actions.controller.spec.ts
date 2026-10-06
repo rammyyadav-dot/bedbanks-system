@@ -12,8 +12,8 @@ const declared = (n: string) => Reflect.getMetadata(REQUIRED_BOOKING_ACTION, pro
 const known = new Set<string>([...Object.values(departmentPermissions), 'booking.cancel'])
 
 describe('BookingActionsController authorization wiring (ADR 0039, Phase 2)', () => {
-  it('has the three write handlers and no others', () => expect(handlers.sort()).toEqual(['act', 'createManual', 'references']))
-  it.each(['act', 'createManual', 'references'])('%s declares permissions, all of them real catalogue keys, and runs the booking access guard', (name) => {
+  it('has the four write handlers and no others', () => expect(handlers.sort()).toEqual(['act', 'createManual', 'references', 'supplier']))
+  it.each(['act', 'createManual', 'references', 'supplier'])('%s declares permissions, all of them real catalogue keys, and runs the booking access guard', (name) => {
     const keys = declared(name)
     expect(keys && keys.length).toBeGreaterThan(0)
     for (const key of keys!) expect(known.has(key)).toBe(true)
@@ -24,6 +24,6 @@ describe('BookingActionsController authorization wiring (ADR 0039, Phase 2)', ()
   })
   it('the action route declares every permission any action can need, so no action is unreachable and none is opened to a stranger', () => {
     expect(new Set(declared('act'))).toEqual(new Set(['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.amend.request', 'booking.cancel', 'booking.cancel.request', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook']))
-    expect(declared('references')).toEqual(['booking.supplier-ref.edit']); expect(declared('createManual')).toEqual(['booking.manual.create'])
+    expect(declared('references')).toEqual(['booking.supplier-ref.edit']); expect(declared('supplier')).toEqual(['booking.supplier.retry']); expect(declared('createManual')).toEqual(['booking.manual.create'])
   })
 })

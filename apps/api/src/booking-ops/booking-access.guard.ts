@@ -12,6 +12,7 @@ export const REQUIRED_BOOKING_ACTION = 'fbeds:booking-action-permissions'
 
 /** Declares the formal permissions of which the caller must hold at least one (Phase 2 write routes). The route's service then checks the one named action. */
 export const RequireBookingAction = (...keys: string[]) => SetMetadata(REQUIRED_BOOKING_ACTION, keys)
+export const supplierDispatchEnabled = (env: Record<string, string | undefined> = process.env) => env.ADMIN_SUPPLIER_JOBS_ENABLED === 'true'
 export const manualBookingEnabled = (env: Record<string, string | undefined> = process.env) => env.ADMIN_MANUAL_BOOKING_ENABLED === 'true'
 
 /**
@@ -57,7 +58,7 @@ export class BookingAccessGuard implements CanActivate {
       throw new ForbiddenException('Access denied')
     }
     const permissions = formal.filter((key) => key.startsWith('booking.'))
-    const access: BookingAccessView = { level: operator ? 'OPERATOR' : 'AGENCY', canViewNet: formal.includes('booking.view.net'), canViewPii: formal.includes('booking.pii.view'), agencyId: operator ? null : agencyId, permissions, manualEntry: operator && formal.includes('booking.manual.create') && manualBookingEnabled() }
+    const access: BookingAccessView = { level: operator ? 'OPERATOR' : 'AGENCY', canViewNet: formal.includes('booking.view.net'), canViewPii: formal.includes('booking.pii.view'), agencyId: operator ? null : agencyId, permissions, manualEntry: operator && formal.includes('booking.manual.create') && manualBookingEnabled(), supplierDispatch: operator && formal.includes('booking.supplier.retry') && supplierDispatchEnabled() }
     ;(request as unknown as Record<string, unknown>)[ACCESS_KEY] = access
     return true
   }

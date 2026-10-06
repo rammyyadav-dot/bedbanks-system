@@ -10,14 +10,15 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, bookingTone } from '@/components/ops/ops-ui'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { OperationsRecord } from '@/components/bookings/OperationsRecord'
+import { SupplierPanel } from '@/components/bookings/SupplierPanel'
 import { deadlineUrgency, formatInZone, statusLabel } from '@/lib/booking-ui'
 import { getOpsBooking } from '@/lib/data/operations'
 
-const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pricing' }, { id: 'timeline', label: 'Timeline' }, { id: 'record', label: 'Operations record' }] as const
+const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pricing' }, { id: 'timeline', label: 'Timeline' }, { id: 'supplier', label: 'Supplier' }, { id: 'record', label: 'Operations record' }] as const
 type TabId = (typeof TABS)[number]['id']
 const parseTab = (v: string | null): TabId => TABS.find((t) => t.id === v)?.id ?? 'summary'
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(150px, 230px) 1fr', gap: '6px 14px', margin: 0, fontSize: 12 }
-const actionLabel = (a: NonNullable<BookingDetailView['timeline'][number]['action']>) => (a === 'createManual' ? 'Entered manually' : a === 'editReferences' ? 'References edited' : BOOKING_ACTION_RULES[a]?.label ?? a)
+const actionLabel = (a: NonNullable<BookingDetailView['timeline'][number]['action']>) => (a === 'createManual' ? 'Entered manually' : a === 'editReferences' ? 'References edited' : a === 'supplierQueued' ? 'Sent to the supplier queue' : a === 'supplierUnknown' ? 'Supplier answer unknown' : a === 'supplierNotFound' ? 'Supplier holds nothing' : a === 'supplierCancelFailed' ? 'Supplier cancellation refused' : BOOKING_ACTION_RULES[a]?.label ?? a)
 const muted: React.CSSProperties = { color: '#3f565c' }
 
 function Detail({ id }: { id: string }) {
@@ -28,15 +29,15 @@ function Detail({ id }: { id: string }) {
     <div className="admin-page">
       {notice && <div role="status" data-testid="booking-notice" className="workspace-panel" style={{ padding: '8px 14px', marginBottom: 10, fontSize: 12 }}>{notice}</div>}
       <OpsState state={state} onRetry={reload}>
-        {(d) => <DetailBody d={d} id={id} tab={tab} onChanged={(message) => { setNotice(message || null); reload() }} />}
+        {(d) => <DetailBody d={d} id={id} tab={tab} refresh={reload} onChanged={(message) => { setNotice(message || null); reload() }} />}
       </OpsState>
     </div>
   )
 }
 
-function DetailBody({ d, id, tab, onChanged }: { d: BookingDetailView; id: string; tab: TabId; onChanged: (message: string) => void }) {
+function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; id: string; tab: TabId; onChanged: (message: string) => void; refresh: () => void }) {
   const b = d.booking
-  const tabs = TABS.filter((t) => t.id !== 'record' || d.operationsRecord !== null)
+  const tabs = TABS.filter((t) => (t.id !== 'record' || d.operationsRecord !== null) && (t.id !== 'supplier' || d.supplier !== null))
   const urgency = deadlineUrgency(b.cancelDeadline, new Date())
   return (
     <>
@@ -50,6 +51,7 @@ function DetailBody({ d, id, tab, onChanged }: { d: BookingDetailView; id: strin
           {b.amended && <Tag tone="neutral">AMENDED</Tag>}
           {b.closedAt && <Tag tone="neutral">CLOSED</Tag>}
           {b.missingSupplierRef && <Tag tone="bad">MISSING SUPPLIER REF</Tag>}
+          {d.supplier?.supplierStatus === 'UNKNOWN' && <Tag tone="bad">SUPPLIER ANSWER UNKNOWN</Tag>}
         </div>
         <div style={{ ...muted, fontSize: 11 }}>
           {b.agency ? b.agency.name : 'Unassigned agency'}{b.agent ? ` · ${b.agent}` : ''} · {b.hotel.name ?? 'hotel not readable'}
@@ -66,6 +68,7 @@ function DetailBody({ d, id, tab, onChanged }: { d: BookingDetailView; id: strin
         {tab === 'summary' && <Summary d={d} />}
         {tab === 'pricing' && <Pricing d={d} />}
         {tab === 'timeline' && <Timeline d={d} />}
+        {tab === 'supplier' && d.supplier !== null && <SupplierPanel d={d} onChanged={onChanged} refresh={refresh} />}
         {tab === 'record' && d.operationsRecord !== null && (
           d.operationsRecord.state === 'available'
             ? <OperationsRecord b={d.operationsRecord.data} />

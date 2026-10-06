@@ -63,6 +63,11 @@ const COPY: Record<string, string> = {
   AGENCY_NOT_ACTIVE: 'New bookings are blocked for an agency that is not active.',
   CURRENCY_NOT_ENABLED: 'That currency is not enabled for this deployment.',
   OPERATIONS_READ_DENIED: 'The booking service is not available to this environment right now. Nothing was changed.',
+  SUPPLIER_NOT_CONFIGURED: 'No supplier connection is set up for this booking’s supplier, so nothing can be sent. Record the supplier’s answer by hand instead.',
+  SUPPLIER_JOB_ACTIVE: 'A supplier job is already queued or running for this booking.',
+  SUPPLIER_OUTCOME_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first: sending again could create a duplicate booking.',
+  ILLEGAL_SUPPLIER_OPERATION: 'That supplier operation is not available for this booking now.',
+  SUPPLIER_JOBS_DISABLED: 'The supplier queue is switched off in this environment.',
   NETWORK_ERROR: 'The server could not be reached. Nothing was confirmed; you can retry safely, the same request will not be applied twice.',
   API_TIMEOUT: 'The server did not answer in time. The change may or may not have been applied: reload the booking before trying again. Retrying this dialog is safe.',
 }
@@ -78,12 +83,13 @@ export function describeActionError(error: unknown): { message: string; requestI
 export interface ManualRoomForm { roomName: string; boardCode: string; adults: string; children: string; childAges: string }
 export interface ManualGuestForm { title: string; firstName: string; lastName: string; isLead: boolean }
 export interface ManualForm {
+  sendToSupplier: boolean
   agencyId: string; hotelId: string; supplier: string; checkIn: string; checkOut: string; currency: string; sell: string; net: string
   paymentMode: '' | 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL'; refundable: '' | 'yes' | 'no'; cancelDeadline: string; agentRef: string
   rooms: ManualRoomForm[]; guests: ManualGuestForm[]
 }
 export const emptyManualForm = (currency = 'AED'): ManualForm => ({
-  agencyId: '', hotelId: '', supplier: '', checkIn: '', checkOut: '', currency, sell: '', net: '', paymentMode: '', refundable: '', cancelDeadline: '', agentRef: '',
+  sendToSupplier: false, agencyId: '', hotelId: '', supplier: '', checkIn: '', checkOut: '', currency, sell: '', net: '', paymentMode: '', refundable: '', cancelDeadline: '', agentRef: '',
   rooms: [{ roomName: '', boardCode: '', adults: '2', children: '0', childAges: '' }], guests: [{ title: '', firstName: '', lastName: '', isLead: true }],
 })
 
@@ -117,7 +123,7 @@ export function buildManualRequest(form: ManualForm): { request: ManualBookingRe
   if (Object.keys(errors).length) return { errors }
   const request: ManualBookingRequest = {
     agencyId: form.agencyId, hotelId: form.hotelId, supplier: form.supplier.trim(), checkIn: form.checkIn, checkOut: form.checkOut, currency: form.currency, sellMinor: sellMinor as string, rooms, guests,
-    ...(netMinor ? { netMinor } : {}), ...(form.paymentMode ? { paymentMode: form.paymentMode } : {}), ...(form.refundable ? { isRefundable: form.refundable === 'yes' } : {}),
+    ...(form.sendToSupplier ? { sendToSupplier: true } : {}), ...(netMinor ? { netMinor } : {}), ...(form.paymentMode ? { paymentMode: form.paymentMode } : {}), ...(form.refundable ? { isRefundable: form.refundable === 'yes' } : {}),
     ...(form.cancelDeadline ? { cancelDeadline: new Date(form.cancelDeadline).toISOString() } : {}), ...(form.agentRef.trim() ? { agentRef: form.agentRef.trim() } : {}),
   }
   return { request }

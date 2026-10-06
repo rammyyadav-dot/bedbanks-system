@@ -4,9 +4,9 @@ import { buildBookingOrderBy, buildBookingWhere, describeApplied, parseBookingLi
 import { guestName, maskedGuestName } from './booking-masking'
 
 const NOW = new Date('2030-06-10T10:30:00.000Z')
-const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false }
+const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false, supplierDispatch: false }
 const operatorPii: BookingAccessView = { ...operator, canViewPii: true }
-const agency: BookingAccessView = { level: 'AGENCY', canViewNet: false, canViewPii: false, agencyId: 'ag-1', permissions: [], manualEntry: false }
+const agency: BookingAccessView = { level: 'AGENCY', canViewNet: false, canViewPii: false, agencyId: 'ag-1', permissions: [], manualEntry: false, supplierDispatch: false }
 const where = (raw: Record<string, unknown> = {}, access = operator, hotelIds: string[] | null = null) => buildBookingWhere(parseBookingListQuery(raw, access), { tenantId: 't1', access }, hotelIds, NOW)
 const and = (w: ReturnType<typeof where>) => ((w as { AND?: unknown[] }).AND ?? []) as Array<Record<string, any>>
 

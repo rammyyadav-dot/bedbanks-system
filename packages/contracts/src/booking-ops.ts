@@ -69,6 +69,8 @@ export interface BookingAccessView {
   permissions: string[]
   /** True when this caller may enter a manual booking: `booking.manual.create` held, operator level, and `ADMIN_MANUAL_BOOKING_ENABLED` on. Only hides a button; the API checks again. */
   manualEntry: boolean
+  /** True when this caller may send bookings to a supplier: `booking.supplier.retry` held, operator level, and `ADMIN_SUPPLIER_JOBS_ENABLED` on. Only hides controls; the API checks again. */
+  supplierDispatch: boolean
 }
 
 export interface BookingListRow {
@@ -142,7 +144,7 @@ export interface BookingTimelineItem {
   actor: string | null
   reason: string | null
   /** The lifecycle action that made this change, when it was made by one. */
-  action: BookingAction | 'createManual' | 'editReferences' | null
+  action: BookingAction | 'createManual' | 'editReferences' | 'supplierQueued' | 'supplierUnknown' | 'supplierNotFound' | 'supplierCancelFailed' | null
   /** True for rows written when the log was introduced: earlier history is in the audit items. */
   backfilled: boolean
   requestId: string | null
@@ -174,7 +176,39 @@ export interface BookingDetailView {
   operationsRecord: SectionState<BookingOperations> | null
   /** What this caller may do next on this booking, from the same rules the API enforces. Empty for a closed booking. */
   availableActions: BookingAvailableAction[]
+  /** The supplier queue for this booking: jobs, the call log and what may be done now. Operator-level callers only; null for an agency caller. */
+  supplier: BookingSupplierView | null
 }
+
+// ---- Phase 3: supplier jobs ---------------------------------------------------------------------------------------------
+export const BOOKING_SUPPLIER_JOB_KINDS = ['BOOK', 'CANCEL', 'STATUS_CHECK'] as const
+export type BookingSupplierJobKind = (typeof BOOKING_SUPPLIER_JOB_KINDS)[number]
+/** QUEUED/RETRY_WAIT: waiting for the runner. RUNNING: a call is in flight. UNKNOWN: the supplier's answer could not be established; the booking is never failed from here. */
+export const BOOKING_SUPPLIER_JOB_STATUSES = ['QUEUED', 'RUNNING', 'RETRY_WAIT', 'SUCCEEDED', 'FAILED', 'UNKNOWN'] as const
+export type BookingSupplierJobStatus = (typeof BOOKING_SUPPLIER_JOB_STATUSES)[number]
+/** The spec's retry schedule: after the first try, three retries, waiting 30 s, then 2 min, then 5 min. So a job makes at most four calls (spec: "3 attempts, 30s / 2 min / 5 min" read as three retries). */
+export const BOOKING_SUPPLIER_RETRY_DELAYS_SECONDS = [30, 120, 300] as const
+export const BOOKING_SUPPLIER_MAX_ATTEMPTS = 4
+export const BOOKING_SUPPLIER_OPS = ['send', 'cancel', 'retryNow', 'sync'] as const
+export type BookingSupplierOp = (typeof BOOKING_SUPPLIER_OPS)[number]
+export const BOOKING_SUPPLIER_OP_LABEL: Record<BookingSupplierOp, string> = { send: 'Send to supplier', cancel: 'Send cancellation to supplier', retryNow: 'Retry now', sync: 'Sync with supplier' }
+
+export interface BookingSupplierJobView { id: string; kind: BookingSupplierJobKind; status: BookingSupplierJobStatus; attempt: number; maxAttempts: number; runAfter: string | null; lastErrorCode: string | null; createdAt: string; completedAt: string | null }
+/** One call to the supplier. A summary only: raw supplier requests and responses are never stored. */
+export interface BookingSupplierCallView { id: string; at: string; action: BookingSupplierJobKind; attempt: number; outcome: string; errorCode: string | null; httpStatus: number | null; durationMs: number | null; supplierRef: string | null }
+export interface BookingSupplierView {
+  /** Why dispatch is unavailable, or null when this booking could be sent. */
+  dispatch: { available: boolean; reason: 'DISABLED' | 'NOT_PERMITTED' | 'SUPPLIER_NOT_CONFIGURED' | null }
+  supplierStatus: string | null
+  jobs: BookingSupplierJobView[]
+  calls: BookingSupplierCallView[]
+  /** What the caller may start now (permission, booking status and the queue state already considered). */
+  ops: BookingSupplierOp[]
+}
+
+/** `POST /admin/operations/bookings/:id/supplier`. Needs an Idempotency-Key. */
+export interface BookingSupplierRequest { op: BookingSupplierOp; /** CAS, as for actions. */ expectedStatus: BookingStatus }
+export interface BookingSupplierResult { bookingId: string; jobId: string; kind: BookingSupplierJobKind; status: BookingSupplierJobStatus; replayed: boolean }
 
 // ---- Phase 2: writes ---------------------------------------------------------------------------------------------------
 /** Every booking mutation requires this header (8-128 characters). A replay with the same key and the same request returns the first result. */
@@ -222,6 +256,8 @@ export interface ManualBookingRequest {
   agentRef?: string
   rooms: Array<{ roomName: string; boardCode?: string; adults: number; children?: number; childAges?: number[] }>
   guests: Array<{ title?: string; firstName: string; lastName: string; isLead?: boolean; type?: 'ADULT' | 'CHILD'; age?: number }>
+  /** Queue the booking to its supplier straight away (needs `booking.supplier.retry` and supplier jobs enabled). Otherwise it waits for "Send to supplier" or a manual answer. */
+  sendToSupplier?: boolean
 }
 export const MANUAL_BOOKING_FAILURE = { disabled: 'MANUAL_BOOKING_DISABLED' } as const
 

@@ -79,6 +79,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
 - `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
+- `BookingSupplierCall`: booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)
+- `BookingSupplierJob`: booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
@@ -187,4 +189,4 @@ A contract row may declare `readColumns` instead of `read: true`. Provisioning e
 The newer contract and migration 202610270001_strict_runtime_role_pool_freshness supersede the six-column capacity/provenance grant from PR #262. Only capacity and updated_at are writable. Quick Update statements that stamp provenance remain privileged; missing nights remain invalid. Column ACLs are explicitly revoked during convergence because table-level REVOKE does not remove them. The earlier migration is preserved unchanged.
 
 ## Booking module principal (ADR 0039)
-The Admin booking list/detail does not use the API runtime role (which has no booking grants). It uses `fbeds_booking_ops` (SELECT-only, provisioned by `ops:provision-booking-ops-role`, URL in `BOOKING_OPS_DATABASE_URL`). Since Phase 2 it also writes bookings, through `transitionBooking` only: INSERT on the booking tables and `AuditEvent`, UPDATE on named `Booking` columns, never DELETE. A missing role yields a 503 "not readable", never a fallback. See `docs/booking-module-README.md`.
+The Admin booking list/detail does not use the API runtime role (which has no booking grants). It uses `fbeds_booking_ops` (SELECT-only, provisioned by `ops:provision-booking-ops-role`, URL in `BOOKING_OPS_DATABASE_URL`). Since Phase 2 it also writes bookings, through `transitionBooking` only: INSERT on the booking tables and `AuditEvent`, UPDATE on named `Booking` columns, never DELETE. Phase 3 adds the supplier job and call tables (job rows updatable only in their own queue columns, calls append-only) and EXECUTE on one tenant-listing function; the job runner uses this same role and nothing broader. A missing role yields a 503 "not readable", never a fallback. See `docs/booking-module-README.md`.

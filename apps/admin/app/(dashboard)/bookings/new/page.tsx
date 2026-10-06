@@ -24,14 +24,14 @@ export default function NewManualBookingPage() {
       <PageHeader eyebrow="BOOKINGS" title="Enter a booking manually" description="For a phone or offline booking. It is recorded as Pending supplier. No supplier is called, no inventory is held and no credit is used; record the supplier’s answer afterwards." />
       <OpsState state={gate.state} onRetry={gate.reload}>
         {(access) => access.manualEntry
-          ? <ManualForm onCreated={(id) => router.push(`/bookings/${encodeURIComponent(id)}`)} />
+          ? <ManualForm canSend={access.supplierDispatch} onCreated={(id) => router.push(`/bookings/${encodeURIComponent(id)}`)} />
           : <div className="workspace-panel" role="status" data-state="forbidden" data-testid="manual-unavailable" style={{ padding: 18 }}><strong>Manual entry is not available to you here.</strong><p style={{ margin: '6px 0 0' }}>It needs the “manual booking” permission and is switched off in some environments. <Link href="/bookings">Back to bookings</Link></p></div>}
       </OpsState>
     </div>
   )
 }
 
-function ManualForm({ onCreated }: { onCreated: (bookingId: string) => void }) {
+function ManualForm({ onCreated, canSend }: { onCreated: (bookingId: string) => void; canSend: boolean }) {
   const [form, setForm] = useState<ManualForm>(emptyManualForm())
   const [key] = useState(newIdempotencyKey)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -106,6 +106,12 @@ function ManualForm({ onCreated }: { onCreated: (bookingId: string) => void }) {
         {err('guests')}
         {form.guests.length < 40 && <div><button type="button" className="admin-btn" onClick={() => set({ guests: [...form.guests, { title: '', firstName: '', lastName: '', isLead: false }] })}>Add a guest</button></div>}
       </fieldset>
+      {canSend && (
+        <label style={{ ...field, gridAutoFlow: 'column', justifyContent: 'start', alignItems: 'start', gap: 8 }}>
+          <input type="checkbox" checked={form.sendToSupplier} onChange={(e) => set({ sendToSupplier: e.target.checked })} />
+          <span>Send to the supplier now. It is queued and the result appears on the booking; if no supplier connection exists for this supplier name, nothing is created.</span>
+        </label>
+      )}
       {Object.keys(errors).length > 0 && <p role="alert" style={{ margin: 0, color: '#a11d1d', fontSize: 12 }}>Fix the highlighted fields and try again.</p>}
       {failure && <div role="alert" data-testid="manual-error" style={{ color: '#a11d1d', fontSize: 12 }}>{failure.message}{failure.requestId ? <div style={{ fontSize: 11, color: '#3f565c' }}>Reference: request {failure.requestId}</div> : null}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

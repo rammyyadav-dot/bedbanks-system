@@ -68,6 +68,18 @@ export class BookingOpsDatabase implements OnModuleDestroy {
     }
   }
 
+  /** Tenant ids that have a supplier job due, via the one SECURITY DEFINER function the role may execute. Ids only; no row is read across tenants. */
+  async dueTenants(now: Date): Promise<string[]> {
+    const client = this.connection()
+    try {
+      const rows = await client.$queryRaw<Array<{ fbeds_booking_due_tenants: string }>>`SELECT "fbeds_booking_due_tenants"(${now}::timestamp)`
+      return rows.map((r) => r.fbeds_booking_due_tenants)
+    } catch (error) {
+      if (isAccessFailure(error)) { this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`); throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED }) }
+      throw error
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.client?.$disconnect()
     this.client = null

@@ -76,6 +76,21 @@ enum BookingGuestType {
   CHILD
 }
 
+enum BookingSupplierJobKind {
+  BOOK
+  CANCEL
+  STATUS_CHECK
+}
+
+enum BookingSupplierJobStatus {
+  QUEUED
+  RUNNING
+  RETRY_WAIT
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+}
+
 enum BookingActorType {
   USER
   SYSTEM
@@ -532,6 +547,8 @@ model Tenant {
   bookingRooms BookingRoom[]
   bookingGuests BookingGuest[]
   bookingEvents BookingEvent[]
+  bookingSupplierJobs BookingSupplierJob[]
+  bookingSupplierCalls BookingSupplierCall[]
   agencies Agency[]
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
@@ -599,6 +616,7 @@ model TenantSettings {
 }
 
 model User {
+  bookingSupplierJobs BookingSupplierJob[] @relation("BookingSupplierJobRequester")
   bookingsAsAgent Booking[] @relation("BookingAgent")
   bookingsAssigned Booking[] @relation("BookingAssignee")
   agencyMemberships AgencyMember[]
@@ -801,6 +819,8 @@ model Booking {
   rooms               BookingRoom[]
   guests              BookingGuest[]
   events              BookingEvent[]
+  supplierJobs        BookingSupplierJob[]
+  supplierCalls       BookingSupplierCall[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, idempotencyKey])
@@ -862,6 +882,56 @@ model BookingGuest {
 
 /// Immutable lifecycle log. One row per status change, written by the transition function in the same transaction (Phase 2).
 /// A database trigger rejects UPDATE and DELETE. Rows written by the migration backfill say so in `payload`.
+/// Supplier work queue for the Admin booking module (ADR 0039, Phase 3): book, cancel, status check. One first try plus three retries (30 s / 2 min / 5 min).
+model BookingSupplierJob {
+  id                String                   @id @default(cuid())
+  tenantId          String                   @map("tenant_id")
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String                   @map("booking_id")
+  booking           Booking                  @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  kind              BookingSupplierJobKind
+  status            BookingSupplierJobStatus @default(QUEUED)
+  attempt           Int                      @default(0)
+  maxAttempts       Int                      @default(4) @map("max_attempts")
+  runAfter          DateTime                 @map("run_after")
+  lockedUntil       DateTime?                @map("locked_until")
+  requestedByUserId String?                  @map("requested_by_user_id")
+  requestedBy       User?                    @relation("BookingSupplierJobRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  idempotencyKey    String                   @map("idempotency_key")
+  requestFingerprint String                  @map("request_fingerprint")
+  lastErrorCode     String?                  @map("last_error_code")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  completedAt       DateTime?                @map("completed_at")
+  calls             BookingSupplierCall[]
+
+  @@unique([tenantId, bookingId, idempotencyKey])
+  @@index([tenantId, status, runAfter])
+  @@index([tenantId, bookingId, createdAt])
+}
+
+/// Append-only log of supplier calls: a summary, never a raw request or response (CLAUDE.md invariant 7).
+model BookingSupplierCall {
+  id                String                 @id @default(cuid())
+  tenantId          String                 @map("tenant_id")
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String                 @map("booking_id")
+  booking           Booking                @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  jobId             String?                @map("job_id")
+  job               BookingSupplierJob?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  action            BookingSupplierJobKind
+  attempt           Int
+  supplierKey       String                 @map("supplier_key")
+  outcome           String
+  errorCode         String?                @map("error_code")
+  httpStatus        Int?                   @map("http_status")
+  durationMs        Int?                   @map("duration_ms")
+  supplierReference String?                @map("supplier_reference")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  @@index([tenantId, bookingId, createdAt])
+}
+
 model BookingEvent {
   id         String           @id @default(cuid())
   tenantId   String           @map("tenant_id")

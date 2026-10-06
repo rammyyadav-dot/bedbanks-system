@@ -75,7 +75,7 @@ export const routes = {
     holds: '/admin/operations/holds', hold: '/admin/operations/holds/:holdId',
     bookings: '/admin/operations/bookings', booking: '/admin/operations/bookings/:bookingId',
     /** Phase 2 writes (ADR 0039): `POST bookings` enters a manual booking; the rest act on one booking. All need an Idempotency-Key header. */
-    bookingActions: '/admin/operations/bookings/:bookingId/actions', bookingReferences: '/admin/operations/bookings/:bookingId/references',
+    bookingActions: '/admin/operations/bookings/:bookingId/actions', bookingReferences: '/admin/operations/bookings/:bookingId/references', bookingSupplier: '/admin/operations/bookings/:bookingId/supplier',
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
     reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
     cancellations: '/admin/operations/cancellations',
