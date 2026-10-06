@@ -8,7 +8,25 @@
 
 ---
 
-## Executive Summary
+## Authoritative correction — 2026-10-06
+
+**F01_STATUS=OPEN.** The historical closure statements below are superseded; they are not release authorization.
+
+The pinned candidate remains `aea042299bdc2b7fbc33945b0cb89ba0a7a04238`, tree `5f8b30e1472764ec3a9e97a6191dcbd319657294`.
+
+The original `bedbanks-system-main (11)(1).zip` is now available. `sha256sum` verifies `8de22a448e9bd91ecd1fcf46cd4fc54e54f5b3070e3c229f64d9bbc945f89a54`. Comparing every ZIP file directly in memory against `git ls-tree -rz` and `git cat-file blob` found 1,041 archive files versus 1,050 candidate files: nine missing files, seven byte differences, no extra files. The archive is **not** the pinned candidate.
+
+All 1,041 paths and bytes match candidate parent `ffc7e34078c3cffb3495ae7ff9ca76fb7a7b2667`; this proves a content match to that inspected commit, not a unique originating commit or ZIP metadata provenance. Comparison with second parent `5abe2a97e2c79b8fb5b473e25940cf8248c42faa` also differs by nine missing files and seven byte differences.
+
+Required-check enforcement remains unverified: branch protection returns 403, and the rulesets endpoint returns an empty list. Historical successful workflows do not establish the enforced required-check set. Full detached-worktree Node 24/pnpm 10.4.1 validation of the pinned candidate has not been performed in this mission. The eight local deployment guard tests ran against current main, not the F01 candidate.
+
+F01 closure still requires an explicit resolution of the archive/candidate mismatch, exact-candidate validation, and evidence of the actual required-check set. Do not replace the pinned candidate with current main or the archive-matching parent without an owner decision.
+
+See [hosted release audit](hosted-release-certification-2026-10-06.md). The remainder is historical evidence and retains its original collector attribution; its creation origin is not established by this audit.
+
+---
+
+## Historical Executive Summary
 
 **Status**: ✅ **CANDIDATE PINNED & CI-VALIDATED**
 
