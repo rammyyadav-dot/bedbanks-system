@@ -41,6 +41,10 @@ async function main() {
   }
   const ops = await user('ops', ['booking.read']); const opsAll = await user('opsall', ['booking.read', 'booking.pii.view', 'booking.view.net'])
   const agency = await user('agency', ['booking.view.agency'], agencies[0])
+  // Phase 2: an operator who can act, an agency user who can only request, and a hotel/agency for manual entry (the seeded ones).
+  const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create']
+  const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE])
+  const requester = await user('requester', ['booking.view.agency', 'booking.cancel.request', 'booking.amend.request'], agencies[0])
 
   // 40 bookings: four per status, rotating agency / supplier / hotel / currency / guest; some Urgent-like (check-in soon, deadline soon),
   // some missing a supplier reference, a few Unassigned (no agency).
@@ -66,7 +70,7 @@ async function main() {
       await prisma.bookingEvent.create({ data: { tenantId: T, bookingId: b.id, toStatus: status, actorType: 'SYSTEM', reason: 'seed', payload: { seeded: true } } })
     }
   }
-  const out = { password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, tenant: T, tag, bookings: n }
+  const out = { password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-bookings.json', JSON.stringify(out, null, 2))
   console.log('seeded', n, 'bookings for', tag)
   await prisma.$disconnect()

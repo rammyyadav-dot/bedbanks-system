@@ -136,3 +136,9 @@ node tools/admin-ops-verify/verify-pool-capacity.cjs
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-bookings.ts)
 OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-bookings.cjs
 ```
+
+`seed-bookings.ts` also creates `lead` (every booking action) and `requester` (agency user, request only). `verify-booking-actions.cjs` (Phase 2) drives the action dialogs (modal, keyboard, axe, stale-status conflict, second confirmation, reference edit), manual entry and the agency/read-only views in Chromium, with the API started as above plus `ADMIN_MANUAL_BOOKING_ENABLED=true`. Re-seed before each run.
+
+```bash
+OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-actions.cjs
+```
