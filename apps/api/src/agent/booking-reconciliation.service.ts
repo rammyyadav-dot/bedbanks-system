@@ -81,7 +81,7 @@ export class BookingReconciliationService {
       return { holdId, bookingId: null, outcome: 'orphan_hold_released' }
     }
     // FAILED with a still-PROCESSING hold is an interrupted earlier reconciliation: finish it (every step is idempotent).
-    if (booking.status !== 'PENDING' && booking.status !== 'FAILED') return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
+    if (booking.status !== 'PENDING_SUPPLIER' && booking.status !== 'FAILED') return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
 
     const mutation = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.findFirst({
       where: { tenantId, bookingId: booking.id, operation: 'PREBOOK' },
@@ -107,7 +107,7 @@ export class BookingReconciliationService {
         return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
       }
       if (supplierMutationAcceptedReference(mutation)) {
-        if (booking.status !== 'PENDING') {
+        if (booking.status !== 'PENDING_SUPPLIER') {
           if (!dryRun) await this.noteManualReview(tenantId, userId, requestId, holdId, booking.id)
           return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
         }
@@ -125,7 +125,7 @@ export class BookingReconciliationService {
         if (!dryRun) await this.noteManualReview(tenantId, userId, requestId, holdId, booking.id)
         return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
       }
-    } else if (booking.status === 'PENDING') {
+    } else if (booking.status === 'PENDING_SUPPLIER') {
       const marker = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.findFirst({
         where: { tenantId, action: 'booking.prebook.succeeded', entityType: 'booking', entityId: booking.id }, orderBy: { createdAt: 'asc' }, select: { createdAt: true },
       }))
@@ -141,10 +141,10 @@ export class BookingReconciliationService {
     }
     if (dryRun) return { holdId, bookingId: booking.id, outcome: 'would_reconcile' }
 
-    if (booking.status === 'PENDING') {
+    if (booking.status === 'PENDING_SUPPLIER') {
       // Claim first: confirmation also locks the booking and requires PENDING, so exactly one of
       // "confirm" and "reconcile/expire" can win. Losing here means the booking was just confirmed.
-      const claimed = await this.prisma.withTenant(tenantId, tx => tx.booking.updateMany({ where: { id: booking.id, tenantId, status: 'PENDING' }, data: { status: 'FAILED' } }))
+      const claimed = await this.prisma.withTenant(tenantId, tx => tx.booking.updateMany({ where: { id: booking.id, tenantId, status: 'PENDING_SUPPLIER' }, data: { status: 'FAILED' } }))
       if (claimed.count !== 1) return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
     }
 

@@ -3,7 +3,11 @@ import { GUARDS_METADATA } from '@nestjs/common/constants'
 import { operationsPermissions } from '@bedbanks/contracts'
 import { AgentRbacGuard, REQUIRED_PERMISSION } from '../agent/rbac.guard'
 import { OperationsController } from './operations.controller'
+import { BookingAccessGuard } from '../booking-ops/booking-access.guard'
 import { REQUIRED_SUPPLY_PERMISSION, SupplyPermissionGuard } from './supply-permission.guard'
+
+/** The booking list and detail (ADR 0039) resolve operator-level `booking.read` or agency-scoped `booking.view.agency` inside one fail-closed guard. */
+const BOOKING_ACCESS_HANDLERS = ['bookings', 'booking']
 
 const proto = OperationsController.prototype as unknown as Record<string, unknown>
 const handlers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' && typeof proto[name] === 'function')
@@ -14,12 +18,18 @@ const guards = (name: string) => (Reflect.getMetadata(GUARDS_METADATA, proto[nam
 describe('OperationsController authorization wiring', () => {
   it('has handlers', () => expect(handlers.length).toBeGreaterThan(20))
 
-  it.each(handlers.filter(h => h !== 'capabilities'))('%s declares exactly one permission kind and runs the matching fail-closed guard', name => {
+  it.each(handlers.filter(h => h !== 'capabilities' && !BOOKING_ACCESS_HANDLERS.includes(h)))('%s declares exactly one permission kind and runs the matching fail-closed guard', name => {
     const agent = meta(REQUIRED_PERMISSION, name)
     const supply = meta(REQUIRED_SUPPLY_PERMISSION, name)
     expect([agent, supply].filter(Boolean)).toHaveLength(1)
     if (agent) { expect(agentPermissions.has(agent)).toBe(true); expect(guards(name)).toContain(AgentRbacGuard) }
     if (supply) { expect(supply.startsWith('supply.')).toBe(true); expect(guards(name)).toContain(SupplyPermissionGuard) }
+  })
+
+  it.each(BOOKING_ACCESS_HANDLERS)('%s runs the booking access guard, and declares no other permission kind', name => {
+    expect(guards(name)).toEqual([BookingAccessGuard])
+    expect(meta(REQUIRED_PERMISSION, name)).toBeUndefined()
+    expect(meta(REQUIRED_SUPPLY_PERMISSION, name)).toBeUndefined()
   })
 
   it('hotel commercial endpoints use only existing supply.* keys (no new permission names)', () => {

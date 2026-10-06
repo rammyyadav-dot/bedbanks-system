@@ -5,7 +5,7 @@ const NOW = new Date('2099-01-01T12:00:00.000Z')
 function setup(options: { holds?: string[]; booking?: any; prebookedMinutesAgo?: number; reservation?: any; claim?: number; unknown?: boolean; reviewCount?: number; mutation?: any } = {}) {
   const tx = {
     inventoryHold: { findMany: jest.fn().mockResolvedValue((options.holds ?? ['hold-a']).map((id) => ({ id }))) },
-    booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: NOW } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: options.claim ?? 1 }) },
+    booking: { findFirst: jest.fn().mockResolvedValue(options.booking === undefined ? { id: 'booking-a', status: 'PENDING_SUPPLIER', currency: 'AED', totalMinor: 6000n, updatedAt: NOW } : options.booking), updateMany: jest.fn().mockResolvedValue({ count: options.claim ?? 1 }) },
     supplierMutation: { findFirst: jest.fn().mockResolvedValue(options.mutation ?? null), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     auditEvent: {
       findFirst: jest.fn().mockImplementation((args: { where?: { action?: string } }) => {
@@ -33,7 +33,7 @@ describe('BookingReconciliationService', () => {
     expect(result.items).toEqual([{ holdId: 'hold-a', bookingId: 'booking-a', outcome: 'reconciled' }])
     expect(finance.release).toHaveBeenCalledWith(expect.objectContaining({ walletId: 'wallet-a', bookingId: 'booking-a', amountMinor: 6000n, idempotencyKey: 'booking:booking-a:authorize' }))
     expect(holds.release).toHaveBeenCalledWith('tenant-a', 'hold-a', 'req-a:reconcile', { type: 'USER', userId: 'user-a' })
-    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING' }, data: { status: 'FAILED' } })
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING_SUPPLIER' }, data: { status: 'FAILED' } })
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.reconciled', userId: 'user-a' }))
   })
 
@@ -54,7 +54,7 @@ describe('BookingReconciliationService', () => {
   it('expires a prebooked booking that was never confirmed within the window and returns wallet and inventory', async () => {
     const { service, finance, holds, tx, audit } = setup({ prebookedMinutesAgo: 61 })
     expect((await run(service)).items[0].outcome).toBe('prebook_expired')
-    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING' }, data: { status: 'FAILED' } })
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING_SUPPLIER' }, data: { status: 'FAILED' } })
     expect(finance.release).toHaveBeenCalledTimes(1); expect(holds.release).toHaveBeenCalledTimes(1)
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.expired', payload: expect.objectContaining({ prebookMaxMinutes: 60 }) }))
     const custom = setup({ prebookedMinutesAgo: 20 })
@@ -117,7 +117,7 @@ describe('BookingReconciliationService', () => {
 
   it('treats a durable supplier reference without the success audit as still prebooked', async () => {
     const snapshot = { supplierPrebook: { outcome: 'prebooked', supplierReference: 'supplier-ref-a' } }
-    const { service, finance, holds } = setup({ booking: { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: new Date(NOW.getTime() - 10 * 60_000), searchSnapshot: snapshot } })
+    const { service, finance, holds } = setup({ booking: { id: 'booking-a', status: 'PENDING_SUPPLIER', currency: 'AED', totalMinor: 6000n, updatedAt: new Date(NOW.getTime() - 10 * 60_000), searchSnapshot: snapshot } })
     expect((await run(service)).items[0].outcome).toBe('prebooked_awaiting_confirmation')
     expect(finance.release).not.toHaveBeenCalled()
     expect(holds.release).not.toHaveBeenCalled()
@@ -125,7 +125,7 @@ describe('BookingReconciliationService', () => {
 
   it('keeps a snapshot-only unknown outcome without releasing inventory', async () => {
     const snapshot = { supplierPrebook: { outcome: 'unknown', code: 'timeout' } }
-    const { service, finance, holds, tx } = setup({ booking: { id: 'booking-a', status: 'PENDING', currency: 'AED', totalMinor: 6000n, updatedAt: NOW, searchSnapshot: snapshot } })
+    const { service, finance, holds, tx } = setup({ booking: { id: 'booking-a', status: 'PENDING_SUPPLIER', currency: 'AED', totalMinor: 6000n, updatedAt: NOW, searchSnapshot: snapshot } })
     expect((await run(service)).items[0].outcome).toBe('manual_review_required')
     expect(finance.release).not.toHaveBeenCalled()
     expect(holds.release).not.toHaveBeenCalled()

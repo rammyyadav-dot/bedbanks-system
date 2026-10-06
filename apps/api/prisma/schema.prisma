@@ -37,11 +37,49 @@ enum Status {
   SUSPENDED
 }
 
+/// Booking lifecycle (ADR 0039, docs/booking-module-spec.md). `Closed` is not a status: it is a lock (`closedAt`, added later).
+/// Only the booking transition function may write this (Phase 2). The hold/prebook intake machine is `BookingTransactionState`.
 enum BookingStatus {
-  PENDING
+  PENDING_SUPPLIER
+  ON_REQUEST
   CONFIRMED
+  AMEND_REQUESTED
+  CANCEL_REQUESTED
   CANCELLED
+  CHECKED_OUT
+  NO_SHOW
+  REJECTED
   FAILED
+}
+
+/// How a booking arrived (spec workflow A). Existing bookings all came through the Agent portal.
+enum BookingChannel {
+  PORTAL
+  API
+  MANUAL
+}
+
+enum BookingPaymentMode {
+  CREDIT
+  PREPAID
+  PAY_AT_HOTEL
+}
+
+enum BookingPaymentStatus {
+  PAID
+  UNPAID
+  OVERDUE
+}
+
+enum BookingGuestType {
+  ADULT
+  CHILD
+}
+
+enum BookingActorType {
+  USER
+  SYSTEM
+  SUPPLIER
 }
 
 enum BookingDocumentType {
@@ -100,6 +138,7 @@ model HotelImage {
 }
 
 model Agency {
+  bookings Booking[]
   id          String       @id @default(cuid())
   tenantId    String       @map("tenant_id")
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -123,6 +162,7 @@ model Agency {
   fundingReceipts FundingReceipt[]
 
   @@unique([tenantId, code])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
 }
 
@@ -489,6 +529,9 @@ enum ConnectorExecutionStatus {
 }
 
 model Tenant {
+  bookingRooms BookingRoom[]
+  bookingGuests BookingGuest[]
+  bookingEvents BookingEvent[]
   agencies Agency[]
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
@@ -556,6 +599,8 @@ model TenantSettings {
 }
 
 model User {
+  bookingsAsAgent Booking[] @relation("BookingAgent")
+  bookingsAssigned Booking[] @relation("BookingAssignee")
   agencyMemberships AgencyMember[]
   agenciesCreated Agency[] @relation("AgencyCreator")
   casesOpened ServiceCase[] @relation("CaseOpener")
@@ -709,7 +754,7 @@ model Booking {
   reference      String         @unique
   supplier       String
   hotelId        String         @map("hotel_id")
-  status         BookingStatus  @default(PENDING)
+  status         BookingStatus  @default(PENDING_SUPPLIER)
   currency       String
   totalMinor     BigInt         @map("total_minor")
   idempotencyKey String         @map("idempotency_key")
@@ -720,9 +765,120 @@ model Booking {
   documents      BookingDocument[]
   supplierMutations SupplierMutation[]
 
+  // ---- Admin booking module (ADR 0039). Every new column is nullable or defaulted, so existing rows stay valid. A null is "unknown", never zero or false.
+  /// The agency (the bedbank's customer) that made the booking. Null: not derivable for older bookings, shown as "Unassigned" and visible only to operator-level readers.
+  agencyId            String?               @map("agency_id")
+  agency              Agency?               @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  /// The agent who made it. A user can be removed, so this is SET NULL; the agency link above is the durable one.
+  agentUserId         String?               @map("agent_user_id")
+  agentUser           User?                 @relation("BookingAgent", fields: [agentUserId], references: [id], onDelete: SetNull)
+  channel             BookingChannel        @default(PORTAL)
+  agentRef            String?               @map("agent_ref")
+  /// The supplier's own answer, kept apart from `status` (a free supplier word such as CONFIRMED or ON_REQUEST).
+  supplierStatus      String?               @map("supplier_status")
+  supplierRef         String?               @map("supplier_ref")
+  hotelConfirmationNo String?               @map("hotel_confirmation_no")
+  /// Promoted from the frozen search snapshot so the list can filter and sort on them.
+  checkIn             DateTime?             @map("check_in") @db.Date
+  checkOut            DateTime?             @map("check_out") @db.Date
+  nights              Int?
+  /// Integer minor units in `currency` (the sell amount is `totalMinor`). Unknown stays null.
+  netMinor            BigInt?               @map("net_minor")
+  markupMinor         BigInt?               @map("markup_minor")
+  /// Foreign-exchange rate frozen at booking time. Reports convert with this, never today's rate.
+  fxRate              Decimal?              @map("fx_rate") @db.Decimal(18, 8)
+  paymentMode         BookingPaymentMode?   @map("payment_mode")
+  paymentStatus       BookingPaymentStatus? @map("payment_status")
+  isRefundable        Boolean?              @map("is_refundable")
+  /// Free-cancellation deadline in UTC; shown in hotel local time.
+  cancelDeadline      DateTime?             @map("cancel_deadline")
+  assignedToId        String?               @map("assigned_to_id")
+  assignedTo          User?                 @relation("BookingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  /// Optimistic version: bumped by the transition function (Phase 2).
+  version             Int                   @default(1)
+  /// "Closed" is a lock, not a status (spec decision 2): the last real status stays visible.
+  closedAt            DateTime?             @map("closed_at")
+  rooms               BookingRoom[]
+  guests              BookingGuest[]
+  events              BookingEvent[]
+
+  @@unique([tenantId, id])
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
+  @@index([tenantId, status, checkIn])
+  @@index([tenantId, agencyId, status])
+  @@index([tenantId, supplierRef])
+  @@index([tenantId, hotelConfirmationNo])
+  @@index([tenantId, agentRef])
+  @@index([tenantId, cancelDeadline])
+  @@index([tenantId, createdAt])
 }
+
+/// The booked room product(s). `quantity` rooms of this type and board; occupancy is per room.
+model BookingRoom {
+  id         String         @id @default(cuid())
+  tenantId   String         @map("tenant_id")
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId  String         @map("booking_id")
+  booking    Booking        @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  position   Int            @default(1)
+  quantity   Int            @default(1)
+  roomTypeId String?        @map("room_type_id")
+  roomName   String?        @map("room_name")
+  boardCode  String?        @map("board_code")
+  adults     Int
+  children   Int            @default(0)
+  childAges  Int[]          @map("child_ages")
+  rateKey    String?        @map("rate_key")
+  sellMinor  BigInt?        @map("sell_minor")
+  netMinor   BigInt?        @map("net_minor")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  guests     BookingGuest[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, bookingId])
+}
+
+/// Guest personal data: masked for readers without `booking.pii.view`; every unmasked read is audited. Never logged.
+model BookingGuest {
+  id        String           @id @default(cuid())
+  tenantId  String           @map("tenant_id")
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId String           @map("booking_id")
+  booking   Booking          @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  roomId    String?          @map("room_id")
+  room      BookingRoom?     @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: NoAction)
+  title     String?
+  firstName String           @map("first_name")
+  lastName  String           @map("last_name")
+  isLead    Boolean          @default(false) @map("is_lead")
+  type      BookingGuestType @default(ADULT)
+  age       Int?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([tenantId, bookingId])
+  @@index([tenantId, lastName])
+}
+
+/// Immutable lifecycle log. One row per status change, written by the transition function in the same transaction (Phase 2).
+/// A database trigger rejects UPDATE and DELETE. Rows written by the migration backfill say so in `payload`.
+model BookingEvent {
+  id         String           @id @default(cuid())
+  tenantId   String           @map("tenant_id")
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId  String           @map("booking_id")
+  booking    Booking          @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  fromStatus BookingStatus?   @map("from_status")
+  toStatus   BookingStatus    @map("to_status")
+  actorType  BookingActorType @map("actor_type")
+  actorId    String?          @map("actor_id")
+  reason     String?
+  payload    Json             @default("{}")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  @@index([tenantId, bookingId, createdAt])
+}
+
 
 /// Durable record of one logical supplier mutation. Written before the adapter is called
 /// and updated with the supplier reference before ordinary booking or audit persistence.

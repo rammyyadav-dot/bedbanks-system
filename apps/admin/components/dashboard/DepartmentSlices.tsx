@@ -55,7 +55,7 @@ function Slices({ r }: { r: OperationsReadiness }): ReactNode {
         { label: 'Unhealthy', value: c.unhealthy, href: '/connectors' }, { label: 'Health unknown', value: c.unknown, href: '/connectors' },
       ]} />
       <Slice id="reservations" section={r.transactions} tiles={(t) => [
-        { label: 'Pending', value: t.bookings.pending, href: '/bookings?status=PENDING' }, { label: 'Confirmed', value: t.bookings.confirmed, href: '/bookings?status=CONFIRMED' },
+        { label: 'Pending', value: t.bookings.pending, href: '/bookings?status=PENDING_SUPPLIER' }, { label: 'Confirmed', value: t.bookings.confirmed, href: '/bookings?status=CONFIRMED' },
         { label: 'Failed', value: t.bookings.failed, href: '/bookings?status=FAILED' }, { label: 'Cancelled', value: t.bookings.cancelled, href: '/bookings?status=CANCELLED' },
         { label: 'Holds held', value: t.holds.held, href: '/holds?status=HELD' },
       ]} />

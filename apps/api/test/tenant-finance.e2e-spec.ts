@@ -62,7 +62,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     const a = await createTenant(`${tenantA}-booking`, `${userA}.booking`)
     const b = await createTenant(`${tenantB}-booking`, `${userB}.booking`)
     const key = `booking-key-${suffix}`
-    const data = { supplier: 'test-supplier', hotelId: 'hotel-1', status: 'PENDING' as const, currency: 'USD', totalMinor: 12500n, idempotencyKey: key, searchSnapshot: {} }
+    const data = { supplier: 'test-supplier', hotelId: 'hotel-1', status: 'PENDING_SUPPLIER' as const, currency: 'USD', totalMinor: 12500n, idempotencyKey: key, searchSnapshot: {} }
 
     await prisma.booking.create({ data: { ...data, tenantId: a.tenant.id, reference: `A-${suffix}` } })
     await expect(prisma.booking.create({ data: { ...data, tenantId: a.tenant.id, reference: `A-duplicate-${suffix}` } })).rejects.toThrow()

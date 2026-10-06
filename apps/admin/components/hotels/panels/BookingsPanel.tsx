@@ -9,7 +9,7 @@ import { ScrollRegion, td, th, tableStyle } from '../ui'
 
 /** Links into the existing booking and hold operations, filtered on the server by hotel. Booking 360 is not rebuilt here. */
 export function BookingsPanel({ hotelId }: { hotelId: string }) {
-  const bookings = useOpsQuery(() => getOpsBookings({ hotelId, pageSize: 10 }), [hotelId])
+  const bookings = useOpsQuery(() => getOpsBookings({ hotelId, pageSize: 25, chip: 'latest' }), [hotelId])
   const holds = useOpsQuery(() => getOpsHolds({ hotelId, pageSize: 10 }), [hotelId])
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -18,7 +18,7 @@ export function BookingsPanel({ hotelId }: { hotelId: string }) {
         <OpsState state={bookings.state} onRetry={bookings.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No bookings for this hotel', description: 'The query succeeded and this hotel has no bookings.' }}>
           {(data) => (
             <ScrollRegion label="Hotel bookings"><table style={tableStyle} aria-label="Hotel bookings"><thead><tr>{['Reference', 'Status', 'Stay', 'Total', 'Attention', 'Created'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
-              <tbody>{data.items.map((b) => <tr key={b.id}><td style={td}><Link href={`/bookings/${b.id}`} style={{ fontWeight: 600 }}>{b.reference}</Link></td><td style={td}><Tag tone={bookingTone(b.status)}>{b.status}</Tag></td><td style={td}>{b.checkIn && b.checkOut ? `${b.checkIn} → ${b.checkOut}` : '—'}</td><td style={td}><Money minor={b.totalMinor} currency={b.currency} /></td><td style={td}><AttentionTags flags={b.attention} /></td><td style={td}>{when(b.createdAt)}</td></tr>)}</tbody></table>
+              <tbody>{data.items.map((b) => <tr key={b.id}><td style={td}><Link href={`/bookings/${b.id}`} style={{ fontWeight: 600 }}>{b.reference}</Link></td><td style={td}><Tag tone={bookingTone(b.status)}>{b.status.replace(/_/g, ' ')}</Tag></td><td style={td}>{b.checkIn && b.checkOut ? `${b.checkIn} → ${b.checkOut}` : '—'}</td><td style={td}><Money minor={b.sellMinor} currency={b.currency} /></td><td style={td}>{b.attention === null ? <span style={{ color: '#3f565c' }} title="Reconciliation flags are not readable by the API database role">unavailable</span> : <AttentionTags flags={b.attention} />}</td><td style={td}>{when(b.createdAt)}</td></tr>)}</tbody></table>
               <p style={{ fontSize: 11, color: '#3f565c' }}>{data.total} booking{data.total === 1 ? '' : 's'} in total.</p></ScrollRegion>
           )}
         </OpsState>

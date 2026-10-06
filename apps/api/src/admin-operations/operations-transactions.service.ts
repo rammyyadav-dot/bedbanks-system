@@ -15,10 +15,9 @@ import { renderBookingDocument } from '../agent/booking-document.render'
 import { bookingAttention, DEFAULT_PREBOOK_MAX_MINUTES, DEFAULT_STALE_MINUTES } from './booking-attention'
 import { supplierMutationAcceptedReference } from '../agent/supplier-mutation-journal.service'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
-import { boolParam, dayParam, endOfDay, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
+import { dayParam, endOfDay, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 const HOLD_STATUSES = ['PENDING_RECHECK', 'RECHECKED', 'HOLD_PENDING', 'HELD', 'PROCESSING', 'CONFIRMED', 'RELEASED', 'EXPIRED', 'FAILED'] as const
-const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const
 const LEDGER_TYPES = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND'] as const
 const ACCOUNT_OWNER_PARAMS = ['HOUSE', 'AGENCY'] as const
 const RECENT_ENTRIES = 25
@@ -101,43 +100,21 @@ export class OperationsTransactionsService {
   }
 
   // ---- bookings ----------------------------------------------------------------------------------------------------
-  async bookings(tenantId: string, query: Record<string, unknown>): Promise<Paged<BookingRow>> {
-    const page = pageParams(query)
-    const status = enumParam('status', query.status, BOOKING_STATUSES)
-    const reference = idParam('reference', query.reference)
-    const hotelId = idParam('hotelId', query.hotelId)
-    const supplier = textParam('supplier', query.supplier, 64)
-    const createdFrom = dayParam('createdFrom', query.createdFrom)
-    const createdTo = dayParam('createdTo', query.createdTo)
-    const checkInFrom = dayParam('checkInFrom', query.checkInFrom)
-    const checkInTo = dayParam('checkInTo', query.checkInTo)
-    const attentionOnly = boolParam('attention', query.attention) === true
-    const base: Prisma.BookingWhereInput = {
-      tenantId, ...(status && { status }), ...(hotelId && { hotelId }), ...(supplier && { supplier }),
-      // Exact or prefix match only; never a contains/wildcard scan.
-      ...(reference && { reference: { startsWith: likeLiteral(reference) } }),
-      ...((createdFrom || createdTo) && { createdAt: { ...(createdFrom && { gte: createdFrom }), ...(createdTo && { lte: endOfDay(createdTo) }) } }),
-    }
-    const inWindow = (b: { searchSnapshot: Prisma.JsonValue }) => {
-      if (!checkInFrom && !checkInTo) return true
-      const ci = str(snap(b.searchSnapshot).checkIn)
-      if (!ci) return false
-      return (!checkInFrom || ci >= day(checkInFrom)) && (!checkInTo || ci <= day(checkInTo))
-    }
-    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
-      const needsScan = attentionOnly || Boolean(checkInFrom || checkInTo)
-      if (!needsScan) {
-        const [rows, total] = await Promise.all([
-          tx.booking.findMany({ where: base, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take }),
-          tx.booking.count({ where: base }),
-        ])
-        return paged(await this.bookingRows(tx, tenantId, rows), page, total)
-      }
-      // Snapshot-derived filters are evaluated over a bounded newest-first window; the cap is part of the response contract.
-      const scanned = await tx.booking.findMany({ where: base, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: SCAN_LIMIT })
-      const rows = (await this.bookingRows(tx, tenantId, scanned.filter(inWindow))).filter(r => !attentionOnly || r.attention.length > 0)
-      return paged(rows.slice(page.skip, page.skip + page.take), page, rows.length)
+  // The list and the core of the detail now come from the booking module's own principal (OperationsBookingsService, ADR 0039).
+  // What remains here is the existing transaction evidence (hold, finance, documents, reconciliation flags), read with the API role.
+
+  /**
+   * Reconciliation flags per booking, from holds, ledger, cancellations and audit. Null when the API database role cannot read that evidence:
+   * unknown, never "no flags". The rows come from the booking module's read, so this never reads the booking table itself.
+   */
+  async attentionByBooking(tenantId: string, rows: Array<{ id: string; status: string; searchSnapshot: Prisma.JsonValue }>): Promise<Map<string, BookingAttention[]> | null> {
+    if (rows.length === 0) return new Map()
+    const read = await sectionRead(() => this.prisma.withTenant(tenantId, async tx => {
+      const ev = await this.evidence(tx, tenantId, rows)
+      const now = new Date()
+      return new Map(rows.map(b => [b.id, this.attentionFor(b, ev, now)] as const))
     }))
+    return read.state === 'available' ? read.data : null
   }
 
   private async evidence(tx: Prisma.TransactionClient, tenantId: string, bookings: Array<{ id: string; searchSnapshot: Prisma.JsonValue }>) {
@@ -502,7 +479,7 @@ export class OperationsTransactionsService {
       const rows = await this.bookingRows(tx, tenantId, recent)
       return {
         holds: { held: hc('HELD'), processing: hc('PROCESSING'), total: holds.reduce((n, h) => n + h._count._all, 0) },
-        bookings: { pending: bc('PENDING'), confirmed: bc('CONFIRMED'), failed: bc('FAILED'), cancelled: bc('CANCELLED'), total: bookings.reduce((n, b) => n + b._count._all, 0) },
+        bookings: { pending: bc('PENDING_SUPPLIER'), confirmed: bc('CONFIRMED'), failed: bc('FAILED'), cancelled: bc('CANCELLED'), total: bookings.reduce((n, b) => n + b._count._all, 0) },
         reconciliationRequired: rows.filter(r => r.attention.includes('RECONCILIATION_REQUIRED') || r.attention.includes('PREBOOK_EXPIRED_UNRESOLVED')).length,
         cancellationsMissingRefund: rows.filter(r => r.attention.includes('REFUND_MISSING') || r.attention.includes('CANCELLATION_RECORD_MISSING')).length,
       }

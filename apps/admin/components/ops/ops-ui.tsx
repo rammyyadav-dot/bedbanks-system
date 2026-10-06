@@ -12,7 +12,9 @@ export function Tag({ tone = 'neutral', children }: { tone?: 'ok' | 'warn' | 'ba
   return <span style={{ background: colors[0], color: colors[1], padding: '2px 8px', borderRadius: 10, font: "600 10px 'Courier New', monospace", whiteSpace: 'nowrap' }}>{children}</span>
 }
 
-export const bookingTone = (status: string) => (status === 'CONFIRMED' ? 'ok' : status === 'PENDING' ? 'warn' : status === 'FAILED' ? 'bad' : 'neutral') as 'ok' | 'warn' | 'bad' | 'neutral'
+const BOOKING_IN_FLIGHT = new Set(['PENDING_SUPPLIER', 'ON_REQUEST', 'AMEND_REQUESTED', 'CANCEL_REQUESTED'])
+/** Display only: the tone of a booking status. The word is always shown too, so colour never carries the meaning alone. */
+export const bookingTone = (status: string) => (status === 'CONFIRMED' || status === 'CHECKED_OUT' ? 'ok' : BOOKING_IN_FLIGHT.has(status) ? 'warn' : status === 'FAILED' || status === 'REJECTED' || status === 'NO_SHOW' ? 'bad' : 'neutral') as 'ok' | 'warn' | 'bad' | 'neutral'
 export const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—')
 
 /** Plain-language meaning of each consistency flag, so an operator knows what to check. */

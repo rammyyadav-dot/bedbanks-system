@@ -9,10 +9,13 @@ import { OperationsGovernanceService } from './operations-governance.service'
 import { ApprovalsModule } from '../approvals/approvals.module'
 import { OperationsSupplyService } from './operations-supply.service'
 import { OperationsTransactionsService } from './operations-transactions.service'
+import { OperationsBookingsService } from './operations-bookings.service'
+import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
+import { BookingAccessGuard } from '../booking-ops/booking-access.guard'
 
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
   controllers: [OperationsController],
-  providers: [OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  providers: [BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
 })
 export class AdminOperationsModule {}

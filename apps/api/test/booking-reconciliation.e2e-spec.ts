@@ -200,7 +200,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
     await expect(flow.execute(command as never)).rejects.toThrow('Supplier prebook outcome is unknown')
     expect(supplierCalls).toBe(1)
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: hold.holdId } })).toMatchObject({ status: 'PROCESSING' })
-    expect(await prisma.booking.findFirst({ where: { tenantId, idempotencyKey: `${suffix}-unknown` } })).toMatchObject({ status: 'PENDING' })
+    expect(await prisma.booking.findFirst({ where: { tenantId, idempotencyKey: `${suffix}-unknown` } })).toMatchObject({ status: 'PENDING_SUPPLIER' })
     expect(await heldNights()).toEqual(heldBefore)
     expect(await walletNet()).toBe(netBefore - 125099n)
     await backdate(hold.holdId, 45)

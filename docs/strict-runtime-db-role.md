@@ -75,7 +75,10 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
 - `BookingDocument`: booking is disabled
+- `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
+- `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
+- `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
@@ -182,3 +185,6 @@ A contract row may declare `readColumns` instead of `read: true`. Provisioning e
 ## Freshness-preserving capacity grant (ADR 0037)
 
 The newer contract and migration 202610270001_strict_runtime_role_pool_freshness supersede the six-column capacity/provenance grant from PR #262. Only capacity and updated_at are writable. Quick Update statements that stamp provenance remain privileged; missing nights remain invalid. Column ACLs are explicitly revoked during convergence because table-level REVOKE does not remove them. The earlier migration is preserved unchanged.
+
+## Booking module principal (ADR 0039)
+The Admin booking list/detail does not use the API runtime role (which has no booking grants). It uses `fbeds_booking_ops` (SELECT-only, provisioned by `ops:provision-booking-ops-role`, URL in `BOOKING_OPS_DATABASE_URL`). A missing role yields a 503 "not readable", never a fallback. See `docs/booking-module-README.md`.

@@ -2,14 +2,16 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuard
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
-import { departmentPermissions, operationsPermissions, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
+import { departmentPermissions, operationsPermissions, type BookingAccessView, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
+import { BookingAccess, BookingAccessGuard } from '../booking-ops/booking-access.guard'
 import { OperationsHotelsService } from './operations-hotels.service'
+import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
@@ -28,7 +30,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -92,11 +94,12 @@ export class OperationsController {
   @Get('holds/:holdId') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
   hold(@ActiveTenant() tenantId: string, @Param('holdId') holdId: string) { return this.tx.hold(tenantId, holdId) }
 
-  @Get('bookings') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
-  bookings(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.bookings(tenantId, query) }
+  // Booking list and detail (ADR 0039): operator-level `booking.read`, or an agency-scoped `booking.view.agency`; see BookingAccessGuard.
+  @Get('bookings') @UseGuards(BookingAccessGuard)
+  bookings(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Query() query: Q) { return this.bookingsRead.list(tenantId, identity.user.id, access, query, requestIdOf(req)) }
 
-  @Get('bookings/:bookingId') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
-  booking(@ActiveTenant() tenantId: string, @Param('bookingId') bookingId: string) { return this.tx.booking(tenantId, bookingId) }
+  @Get('bookings/:bookingId') @UseGuards(BookingAccessGuard)
+  booking(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Param('bookingId') bookingId: string) { return this.bookingsRead.detail(tenantId, identity.user.id, access, bookingId, requestIdOf(req)) }
 
   @Get('bookings/:bookingId/documents/:type/html') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
   async documentHtml(@ActiveTenant() tenantId: string, @Param('bookingId') bookingId: string, @Param('type') type: string, @Res() response: Response) {

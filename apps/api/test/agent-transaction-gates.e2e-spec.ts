@@ -366,7 +366,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
     const created = await Promise.all(Array.from({ length: 51 }, (_, index) => prisma.booking.create({
       data: {
         tenantId, reference: `${suffix}-${index}`, supplier: 'contracted', hotelId, currency: 'AED', totalMinor: 1000n + BigInt(index),
-        idempotencyKey: `${suffix}-booking-${index}`, status: index === 50 ? 'CANCELLED' : index % 10 === 0 ? 'CONFIRMED' : 'PENDING',
+        idempotencyKey: `${suffix}-booking-${index}`, status: index === 50 ? 'CANCELLED' : index % 10 === 0 ? 'CONFIRMED' : 'PENDING_SUPPLIER',
         searchSnapshot: { checkIn: '2099-04-01', checkOut: '2099-04-03', rooms: 1, adults: 2, children: 0, leadGuest: { firstName: 'Amina', lastName: 'Noor' } },
         createdAt: new Date(Date.now() - index * 1000),
       },

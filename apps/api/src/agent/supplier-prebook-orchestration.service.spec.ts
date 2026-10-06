@@ -62,7 +62,7 @@ const command: any = {
   checkIn: '2099-01-01', checkOut: '2099-01-03', rooms: 1, adults: 2, children: 0, childAges: [],
   currency: 'AED', totalMinor: 6000, leadGuest: { firstName: 'Test', lastName: 'Guest' }, walletId: 'wallet-a',
 }
-const booking = { id: 'booking-a', reference: 'FB-ABC', status: 'PENDING' }
+const booking = { id: 'booking-a', reference: 'FB-ABC', status: 'PENDING_SUPPLIER' }
 
 function setup() {
   const bookings = { persistPending: jest.fn().mockResolvedValue(booking), recordSupplierPrebook: jest.fn().mockResolvedValue(undefined) }

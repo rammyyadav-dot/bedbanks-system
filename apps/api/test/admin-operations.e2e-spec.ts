@@ -22,6 +22,10 @@ import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database
 import { OperationsSupplyService } from '../src/admin-operations/operations-supply.service'
 import { OperationsHotelsService } from '../src/admin-operations/operations-hotels.service'
 import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
+import { OperationsBookingsService } from '../src/admin-operations/operations-bookings.service'
+import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
+import { provisionBookingOpsRole, BOOKING_OPS_LOGIN_ROLE } from '../src/database/booking-ops-role'
+import type { BookingAccessView } from '@bedbanks/contracts'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
 
 const ownerUrl = process.env.DATABASE_URL
@@ -43,6 +47,13 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const bookingTx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier), confirmation)
   const reconciliation = new BookingReconciliationService(prisma, finance, holds, audit)
   const tx = new OperationsTransactionsService(prisma, reconciliation)
+  // The booking list now reads through the booking module's own limited role (ADR 0039), provisioned in beforeAll on this disposable database.
+  const opsPassword = `ops-${randomBytes(20).toString('hex')}`
+  const opsUrl = (() => { const u = new URL(ownerUrl as string); u.username = BOOKING_OPS_LOGIN_ROLE; u.password = opsPassword; return u.toString() })()
+  const opsDb = new BookingOpsDatabase({ DATABASE_URL: ownerUrl, BOOKING_OPS_DATABASE_URL: opsUrl })
+  const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx)
+  const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null }
+  const listBookings = (tenantId: string, query: Record<string, unknown> = {}) => bookingsRead.list(tenantId, 'test-user', operator, query, 'req-test')
   const hotelOps = new OperationsHotelsService(prisma)
   const supply = new OperationsSupplyService(prisma, hotelOps)
   const suffix = `ops-${Date.now()}-${randomBytes(3).toString('hex')}`
@@ -119,6 +130,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
 
   beforeAll(async () => {
     await prisma.$connect()
+    await provisionBookingOpsRole(prisma, { password: opsPassword })
     A = await fixture('a'); B = await fixture('b')
     await prisma.cancellationPolicy.create({ data: { contractId: A.contractId, daysBeforeCheckin: 7, penaltyPercent: 0 } })
     confirmedA = await book(A, `${suffix}-confirmed`)
@@ -128,7 +140,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await prisma.connectorDefinition.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, type: 'API_JSON', status: 'DRAFT', name: `${suffix} connector`, version: '1', credentialReferences: { create: [{ secretRef: 'vault://never-returned', purpose: 'api_key' }] } } })
   })
 
-  afterAll(async () => { await purge(A); await purge(B); await prisma.$disconnect() })
+  afterAll(async () => { await purge(A); await purge(B); await opsDb.onModuleDestroy(); await prisma.$disconnect() })
 
   // ---- Booking 360 ---------------------------------------------------------------------------------------------------
   it('ADMIN-BOOKING-360: shows booking, hold, ledger, audit and documents for the right tenant, with integer-string money', async () => {
@@ -160,10 +172,11 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await expect(tx.booking(B.tenantId, confirmedA.bookingId)).rejects.toBeInstanceOf(NotFoundException)
     await expect(tx.hold(B.tenantId, confirmedA.holdId)).rejects.toBeInstanceOf(NotFoundException)
     await expect(tx.documentHtml(B.tenantId, confirmedA.bookingId, 'invoice')).rejects.toBeInstanceOf(NotFoundException)
-    const aBookings = (await tx.bookings(A.tenantId, {})).items.map(b => b.id)
-    const bBookings = await tx.bookings(B.tenantId, {})
+    const aBookings = (await listBookings(A.tenantId)).items.map(b => b.id)
+    const bBookings = await listBookings(B.tenantId)
     expect(bBookings.total).toBe(1)
-    expect(bBookings.items.every(b => !aBookings.includes(b.id) && b.tenantId === B.tenantId)).toBe(true)
+    expect(bBookings.items.every(b => !aBookings.includes(b.id))).toBe(true)
+    await expect(bookingsRead.detail(B.tenantId, 'test-user', operator, confirmedA.bookingId, 'req')).rejects.toBeInstanceOf(NotFoundException)
     expect((await tx.holds(B.tenantId, {})).items.every(h => h.tenantId === B.tenantId)).toBe(true)
     expect((await tx.wallets(B.tenantId, {})).items.every(w => w.tenantId === B.tenantId)).toBe(true)
     const ledgerB = await tx.ledger(B.tenantId, {})
@@ -176,26 +189,29 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   })
 
   it('ADMIN-IDS: a tenant id supplied in a query string is ignored; scope is the caller tenant only', async () => {
-    const result = await tx.bookings(B.tenantId, { tenantId: A.tenantId })
-    expect(result.items.every(b => b.tenantId === B.tenantId)).toBe(true)
+    const result = await listBookings(B.tenantId, { tenantId: A.tenantId })
+    const mine = new Set((await prisma.booking.findMany({ where: { tenantId: B.tenantId }, select: { id: true } })).map(b => b.id))
+    expect(result.items.length).toBeGreaterThan(0)
+    expect(result.items.every(b => mine.has(b.id))).toBe(true)
   })
 
   // ---- pagination and validation --------------------------------------------------------------------------------------
   it('ADMIN-PAGING: server-side paging, filters and strict validation', async () => {
-    const page1 = await tx.bookings(A.tenantId, { pageSize: '2', page: '1' })
-    const page2 = await tx.bookings(A.tenantId, { pageSize: '2', page: '2' })
+    const page1 = await listBookings(A.tenantId, { pageSize: '25', page: '1' })
+    const page2 = await listBookings(A.tenantId, { pageSize: '25', page: '2' })
     expect(page1.total).toBe(3)
-    expect(page1.items).toHaveLength(2)
-    expect(page2.items).toHaveLength(1)
-    expect(new Set([...page1.items, ...page2.items].map(b => b.id)).size).toBe(3)
-    expect((await tx.bookings(A.tenantId, { status: 'CANCELLED' })).items.map(b => b.id)).toEqual([cancelledA.bookingId])
+    expect(page1.items).toHaveLength(3)
+    expect(page2.items).toHaveLength(0) // past the end is empty with the same exact total, not an error
+    expect(page2.total).toBe(3)
+    expect(new Set(page1.items.map(b => b.id)).size).toBe(3)
+    expect((await listBookings(A.tenantId, { status: 'CANCELLED' })).items.map(b => b.id)).toEqual([cancelledA.bookingId])
     const reference = (await tx.booking(A.tenantId, confirmedA.bookingId)).booking.reference
-    expect((await tx.bookings(A.tenantId, { reference })).items.map(b => b.id)).toEqual([confirmedA.bookingId])
-    await expect(tx.bookings(A.tenantId, { pageSize: '1000' })).rejects.toBeInstanceOf(BadRequestException)
-    await expect(tx.bookings(A.tenantId, { page: '0' })).rejects.toBeInstanceOf(BadRequestException)
-    await expect(tx.bookings(A.tenantId, { status: 'DROP' })).rejects.toBeInstanceOf(BadRequestException)
-    await expect(tx.bookings(A.tenantId, { createdFrom: '2026-13-45' })).rejects.toBeInstanceOf(BadRequestException)
-    await expect(tx.bookings(A.tenantId, { reference: "x' OR 1=1 --" })).rejects.toBeInstanceOf(BadRequestException)
+    expect((await listBookings(A.tenantId, { reference })).items.map(b => b.id)).toEqual([confirmedA.bookingId])
+    await expect(listBookings(A.tenantId, { pageSize: '1000' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(listBookings(A.tenantId, { page: '0' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(listBookings(A.tenantId, { status: 'DROP' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(listBookings(A.tenantId, { from: '2026-13-45' })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(listBookings(A.tenantId, { reference: "x' OR 1=1 --" })).rejects.toBeInstanceOf(BadRequestException)
     await expect(tx.booking(A.tenantId, '../etc/passwd')).rejects.toBeInstanceOf(BadRequestException)
   })
 
@@ -398,7 +414,9 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     })
 
     it('ADMIN-DENIED: transaction views fail with OPERATIONS_READ_DENIED, never an empty list; the dashboard marks the section unavailable', async () => {
-      for (const call of [() => runtimeTx.bookings(A.tenantId, {}), () => runtimeTx.holds(A.tenantId, {}), () => runtimeTx.wallets(A.tenantId, {}), () => runtimeTx.ledger(A.tenantId, {}), () => runtimeTx.connectors(A.tenantId, {}), () => runtimeTx.cancellations(A.tenantId, {})]) {
+      // The booking list uses its own principal: with no BOOKING_OPS_DATABASE_URL it is the not-readable state, never a read with the API role.
+      const noOpsRole = new OperationsBookingsService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, runtimeTx)
+      for (const call of [() => noOpsRole.list(A.tenantId, 'u', operator, {}, 'r'), () => runtimeTx.holds(A.tenantId, {}), () => runtimeTx.wallets(A.tenantId, {}), () => runtimeTx.ledger(A.tenantId, {}), () => runtimeTx.connectors(A.tenantId, {}), () => runtimeTx.cancellations(A.tenantId, {})]) {
         const error = await call().then(() => null, e => e)
         expect(error).toBeInstanceOf(ServiceUnavailableException)
         expect((error as ServiceUnavailableException).getResponse()).toMatchObject({ code: OPERATIONS_READ_DENIED })

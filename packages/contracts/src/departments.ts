@@ -9,6 +9,8 @@ export const departmentPermissions = {
   caseRead: 'case.read', caseManage: 'case.manage',
   distributionRead: 'distribution.read', distributionManage: 'distribution.manage',
   fundingManage: 'funding.manage',
+  /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */
+  bookingViewAgency: 'booking.view.agency', bookingViewNet: 'booking.view.net', bookingPiiView: 'booking.pii.view',
 } as const
 export type DepartmentPermission = (typeof departmentPermissions)[keyof typeof departmentPermissions]
 
