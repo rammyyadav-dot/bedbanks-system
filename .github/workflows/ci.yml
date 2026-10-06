@@ -67,10 +67,23 @@ jobs:
       - run: pnpm --filter @bedbanks/api prisma:migrate:status
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - run: pnpm --filter @bedbanks/api type-check
+      - name: Certify disposable target, strict login and forced RLS
+        run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs
+      - name: Hotel database acceptance (sequential, strict-role HTTP plus owner fixture suites)
+        run: >-
+          pnpm --filter @bedbanks/api test:e2e --
+          hotel-commercial.e2e-spec.ts inventory-runtime-http.e2e-spec.ts
+          pool-capacity-editor.e2e-spec.ts hotel-setup.e2e-spec.ts
+          strict-runtime-role-hotel-setup.e2e-spec.ts strict-runtime-role-commercial.e2e-spec.ts
+          strict-runtime-role-workflows.e2e-spec.ts strict-runtime-role-replay.e2e-spec.ts
+          inventory-search-recheck.e2e-spec.ts inventory-pool-lifecycle.e2e-spec.ts
+          strict-role-rollout.e2e-spec.ts
       - name: Sandbox staging strict-role acceptance (disposable PostgreSQL)
         run: pnpm --filter @bedbanks/api test:e2e -- sandbox-content-staging.e2e-spec.ts
       - run: pnpm --filter @bedbanks/api test:e2e
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
+      - name: Re-certify strict login, protected columns and forced RLS after all suites
+        run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs
 
   verify:
     runs-on: ubuntu-latest

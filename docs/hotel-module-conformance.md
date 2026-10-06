@@ -109,3 +109,22 @@ Initial CI run `37400603151` at `e66916cb0730aaf2bbfc7658ae941626b24d13f4` execu
 ## Safety
 
 No schema, migration, persistent role provisioning, deployment, DNS, alias, booking, payment or live-supplier changes. All newly added HTTP fixtures are disposable test data only. No production authorization is implied.
+
+
+## Post-merge database certification mission (2026-10-06 UTC)
+
+This follow-up starts from main `3558c75beb27ff8c0fa65158e0041a07c08a9343`, tree `6691911ca5064ab2d421cb1f47af19cb684b9b4a`, after PR #278 merged. Branch: `fix/hotel-database-certification`. Earlier implementation and test records above remain historical. The published certification head, tree, final workflow attempts and counts will be recorded in the draft PR, outside this file's own commit hash.
+
+The local environment has Node v24.19.0 and pnpm 10.4.1. It cannot host PostgreSQL: only UID/GID 0 are mapped (`/proc/self/uid_map` and `gid_map`), all process capabilities are zero, `setpriv` cannot change UID, and Docker is unavailable. No workaround weakens PostgreSQL or application-role safety. Database certification therefore executes on the authorized ephemeral `pgvector/pgvector:pg16` GitHub Actions service at localhost:5432/fbeds_ci, using vector and pg_trgm. This is engineering evidence, not a persistent-database rollout.
+
+The CI migration-certification job now runs an explicit sequential hotel acceptance stage before full API e2e: hotel-commercial, inventory-runtime-http, pool-capacity-editor, hotel-setup, strict-runtime-role-hotel-setup/commercial/workflows/replay, inventory-search-recheck, inventory-pool-lifecycle and strict-role-rollout. Jest `--runInBand` prevents concurrent shared-role provisioning. The complete suite additionally covers mapping, tenant isolation and inventory rules. Generic fixture/authoring suites use the disposable owner; restricted acceptance suites explicitly change the API connection to the newly provisioned fbeds_api_login and test its real connection/privileges. Owner-run suites are not claimed as strict-role HTTP certification.
+
+A new CI-only script `apps/api/scripts/certify-disposable-runtime-role.cjs` runs before targeted tests and after full e2e plus drift. It rejects non-test, non-Actions, non-loopback and non-fbeds_ci targets before opening a connection; requires PostgreSQL 16 and both extensions; generates a new random password in memory; provisions through the existing authoritative contract; connects separately as the login; verifies current_user and session_user, all contract attributes/grants/ownership/memberships, protected-column probes, and enabled plus forced RLS for every contract tenant table. It prints only sanitized identity/version/count evidence. Post-test re-provisioning is deliberate and disposable: destructive privilege-drift tests rotate/revoke grants during their cases. The final fresh connection verifies restored canonical grants, not a password left by a fixture suite.
+
+No schema, historical migration, permission catalogue, application business logic or runtime-role grant changes are included. Missing inventory, protected sold/held/identity columns, supplier provenance/freshness, commercial-control fail-closed behavior, audit/idempotency and UNKNOWN diagnostics retain their existing tests and authorities.
+
+The GitHub branch-protection read returns 403 (integration access); repository ruleset listing returns an empty list, which does not establish classic branch protection. REQUIRED_CHECK_SET remains UNVERIFIED. Observed exact-head job success must be distinguished from required-check enforcement.
+
+Local frozen install, explicit client generation, syntax/negative safety checks and repository guards are recorded separately from CI database runs. Final results, commands/counts, original failures and any retry are in the draft PR evidence record; until those jobs finish they are pending, not a pass. Website-only browser CI does not certify Hotel Admin/Agent browser acceptance. BROWSER_ACCEPTANCE=NOT_VERIFIED; HOSTED_AGENT_MVP=NOT_VERIFIED; F01_STATUS=OPEN, candidate unchanged at aea042299bdc2b7fbc33945b0cb89ba0a7a04238; RELEASE_AUTHORIZATION=NOT_GRANTED.
+
+PRODUCTION_DB_MIGRATION_EXECUTED=NO; PERSISTENT_ROLE_PROVISIONING_EXECUTED=NO; PRODUCTION_DEPLOYMENT_EXECUTED=NO; DNS_OR_ALIAS_CHANGED=NO; LIVE_SUPPLIER_ENABLED_BY_THIS_WORK=NO; BOOKING_ENABLED_BY_THIS_WORK=NO; PAYMENT_ENABLED_BY_THIS_WORK=NO.
