@@ -1,13 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { Suspense, use } from 'react'
+import { Suspense, use, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import type { BookingDetailView } from '@bedbanks/contracts'
+import { BOOKING_ACTION_RULES, type BookingDetailView } from '@bedbanks/contracts'
 import { LoadingState } from '@/components/common/LoadingState'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, bookingTone } from '@/components/ops/ops-ui'
+import { BookingActions } from '@/components/bookings/BookingActions'
 import { OperationsRecord } from '@/components/bookings/OperationsRecord'
 import { deadlineUrgency, formatInZone, statusLabel } from '@/lib/booking-ui'
 import { getOpsBooking } from '@/lib/data/operations'
@@ -16,21 +17,24 @@ const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pric
 type TabId = (typeof TABS)[number]['id']
 const parseTab = (v: string | null): TabId => TABS.find((t) => t.id === v)?.id ?? 'summary'
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(150px, 230px) 1fr', gap: '6px 14px', margin: 0, fontSize: 12 }
+const actionLabel = (a: NonNullable<BookingDetailView['timeline'][number]['action']>) => (a === 'createManual' ? 'Entered manually' : a === 'editReferences' ? 'References edited' : BOOKING_ACTION_RULES[a]?.label ?? a)
 const muted: React.CSSProperties = { color: '#3f565c' }
 
 function Detail({ id }: { id: string }) {
   const tab = parseTab(useSearchParams().get('tab'))
   const { state, reload } = useOpsQuery(() => getOpsBooking(id), [id])
+  const [notice, setNotice] = useState<string | null>(null)
   return (
     <div className="admin-page">
+      {notice && <div role="status" data-testid="booking-notice" className="workspace-panel" style={{ padding: '8px 14px', marginBottom: 10, fontSize: 12 }}>{notice}</div>}
       <OpsState state={state} onRetry={reload}>
-        {(d) => <DetailBody d={d} id={id} tab={tab} />}
+        {(d) => <DetailBody d={d} id={id} tab={tab} onChanged={(message) => { setNotice(message || null); reload() }} />}
       </OpsState>
     </div>
   )
 }
 
-function DetailBody({ d, id, tab }: { d: BookingDetailView; id: string; tab: TabId }) {
+function DetailBody({ d, id, tab, onChanged }: { d: BookingDetailView; id: string; tab: TabId; onChanged: (message: string) => void }) {
   const b = d.booking
   const tabs = TABS.filter((t) => t.id !== 'record' || d.operationsRecord !== null)
   const urgency = deadlineUrgency(b.cancelDeadline, new Date())
@@ -51,6 +55,7 @@ function DetailBody({ d, id, tab }: { d: BookingDetailView; id: string; tab: Tab
           {b.agency ? b.agency.name : 'Unassigned agency'}{b.agent ? ` · ${b.agent}` : ''} · {b.hotel.name ?? 'hotel not readable'}
           {b.cancelDeadline ? <> · free cancellation until <strong style={{ color: urgency === 'soon' ? '#a11d1d' : undefined }}>{formatInZone(b.cancelDeadline, b.hotel.timeZone)}</strong>{urgency === 'passed' ? ' (passed)' : ''}</> : null}
         </div>
+        <BookingActions d={d} onChanged={onChanged} />
       </header>
       <nav aria-label="Booking sections" style={{ marginTop: 12 }}>
         <div className="admin-tabs" role="tablist">
@@ -153,7 +158,7 @@ function Timeline({ d }: { d: BookingDetailView }) {
         <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 8, fontSize: 12 }}>
           {d.timeline.map((e, i) => (
             <li key={i} data-kind={e.kind}>
-              <strong>{e.kind === 'status' ? e.title.replace(/_/g, ' ') : e.title}</strong>{' '}
+              <strong>{e.kind === 'status' ? e.title.replace(/_/g, ' ') : e.title}</strong>{e.action ? <span style={muted}> · {actionLabel(e.action)}</span> : null}{' '}
               <span style={muted}>· {formatInZone(e.at, null)}{e.actor ? ` · ${e.actor}` : e.actorType ? ` · ${e.actorType.toLowerCase()}` : ''}{e.requestId ? ` · request ${e.requestId}` : ''}</span>
               {e.reason ? <div style={muted}>{e.reason}</div> : null}
               {e.backfilled ? <div style={{ ...muted, fontSize: 11 }}>Recorded when the lifecycle log was introduced; earlier history is in the audit entries.</div> : null}

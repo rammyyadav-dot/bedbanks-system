@@ -1,5 +1,5 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { routes, BOOKING_IDEMPOTENCY_HEADER, type BookingActionRequest, type BookingReferencesRequest, type BookingWriteResult, type ManualBookingRequest, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -18,6 +18,14 @@ export const getOpsHold = (holdId: string) => apiRequest<HoldDetail>(fill(ops.ho
 /** Booking list and detail (ADR 0039). The detail takes the booking id or its FB- reference. */
 export const getOpsBookings = (p: Params) => apiRequest<BookingListPage>(`${ops.bookings}${opsQuery(p)}`)
 export const getOpsBooking = (bookingIdOrReference: string) => apiRequest<BookingDetailView>(fill(ops.booking, { bookingId: bookingIdOrReference }))
+/**
+ * Booking writes (ADR 0039, Phase 2). Each takes the Idempotency-Key the caller generated once per dialog, so a retry after a timeout replays instead of
+ * repeating. The API checks permission, status and agency again; nothing here is trusted.
+ */
+const keyed = (key: string) => ({ ...json, [BOOKING_IDEMPOTENCY_HEADER]: key })
+export const postBookingAction = (bookingId: string, body: BookingActionRequest, key: string) => apiRequestWithMeta<BookingWriteResult>(fill(ops.bookingActions, { bookingId }), { method: 'POST', headers: keyed(key), body: JSON.stringify(body) })
+export const patchBookingReferences = (bookingId: string, body: BookingReferencesRequest, key: string) => apiRequestWithMeta<BookingWriteResult>(fill(ops.bookingReferences, { bookingId }), { method: 'PATCH', headers: keyed(key), body: JSON.stringify(body) })
+export const createManualBooking = (body: ManualBookingRequest, key: string) => apiRequestWithMeta<BookingWriteResult>(ops.bookings, { method: 'POST', headers: keyed(key), body: JSON.stringify(body) })
 /** Same-origin URL of an already-issued, immutable document (opened in a new tab; the API never issues one from Admin). */
 export const opsDocumentUrl = (bookingId: string, type: 'voucher' | 'invoice' | 'credit-note') => `/api/v1${fill(ops.bookingDocument, { bookingId, type })}`
 export const getOpsReconciliation = () => apiRequest<ReconciliationQueue>(ops.reconciliation)
