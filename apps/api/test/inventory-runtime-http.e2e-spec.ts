@@ -61,7 +61,7 @@ describe('inventory over HTTP on the restricted API runtime role (PostgreSQL)', 
       await owner.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId: tenantA, ratePlanId: id, stayDate, allotment: 9 })) })
     }
     const agent = await user('agent', tenantA, ['hotel.search'])
-    const admin = await user('admin', tenantA, ['supply.hotels.read', 'supply.rates.read', 'supply.availability.read', 'supply.availability.manage'])
+    const admin = await user('admin', tenantA, ['agency.read', 'supply.hotels.read', 'supply.rates.read', 'supply.availability.read', 'supply.availability.manage'])
     const other = await user('other', tenantB, ['supply.hotels.read', 'supply.rates.read', 'supply.availability.read', 'supply.availability.manage'])
     await provisionApiRuntimeRole(owner, { password: runtimePassword })
     previousUrl = process.env.DATABASE_URL
@@ -98,6 +98,24 @@ describe('inventory over HTTP on the restricted API runtime role (PostgreSQL)', 
     expect(Number(who.n)).toBeGreaterThan(0)
     const probe = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL })
     try { expect(await verifyApiRuntimeRole(probe)).toEqual({ ok: true, failures: [] }) } finally { await probe.$disconnect() }
+  })
+
+  it('RH-01b stay diagnostics read buyer controls under the restricted role and show pooled stock, without writes', async () => {
+    const agency = await owner.agency.create({ data: { tenantId: tenantA, code: `${suffix}-diag`, name: 'Diagnostic agency', countryCode: 'AE', createdById: userIds[0] } })
+    const before = await owner.inventoryPoolDay.findMany({ where: { poolId }, orderBy: { stayDate: 'asc' } })
+    const q = `/admin/operations/hotels/${hotelId}/sellability?checkIn=${day(20)}&checkOut=${day(22)}&adults=2&currency=AED&nationality=IN&agencyId=${agency.id}`
+    try {
+      const inspected = (await call('get', q, 'admin').expect(200)).body.data
+      expect(inspected.readiness.buyer).toMatchObject({ assessed: true, market: 'AE', nationality: 'IN' })
+      expect(inspected.plans).toHaveLength(3)
+      for (const plan of inspected.plans) expect(plan.nights.map((n: { remaining: number }) => n.remaining)).toEqual([5, 5])
+      expect(inspected.readiness.certification).toBe('NOT_VERIFIED')
+      expect(await owner.inventoryPoolDay.findMany({ where: { poolId }, orderBy: { stayDate: 'asc' } })).toEqual(before)
+      await owner.agency.update({ where: { id: agency.id }, data: { status: 'SUSPENDED' } })
+      const suspended = (await call('get', q, 'admin').expect(200)).body.data
+      expect(suspended.sellable).toBe(false)
+      expect(suspended.plans.every((p: { reasons: string[] }) => p.reasons.includes('AGENCY_SUSPENDED'))).toBe(true)
+    } finally { await owner.agency.delete({ where: { id: agency.id } }) }
   })
 
   it('RH-02 Agent search shows the three pooled plans, recheck is authoritative, and neither consumes stock', async () => {

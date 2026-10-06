@@ -111,7 +111,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     await makeHotel('oscar', { tenant: 'B' })                             // tenant B's only hotel
     await prisma.cancellationPolicy.create({ data: { contractId: hotels.alpha.contractId, daysBeforeCheckin: 7, penaltyPercent: 0 } })
 
-    const owner = await user('owner', tenantA, supplyKeys, 'owner')
+    const owner = await user('owner', tenantA, [...supplyKeys, 'agency.read'], 'owner')
     const viewer = await user('viewer', tenantA, ['supply.hotels.read'])
     const none = await user('none', tenantA, [])
     const bowner = await user('bowner', tenantB, supplyKeys, 'owner')
@@ -355,6 +355,37 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     const holdsList = (await get(`/holds?hotelId=${h.id}&status=HELD`).expect(200)).body.data
     expect(holdsList.items.map((x: { id: string }) => x.id)).toEqual([created.holdId])
     await holds.release(tenantA, created.holdId, `${suffix}-rel`, { type: 'USER', userId: user.id })
+  })
+
+  it('HOTEL-OPS buyer diagnostic enforces agency permission, tenant scope, market rules and suspension without writes', async () => {
+    const creator = await prisma.user.findUniqueOrThrow({ where: { email: `${suffix}-owner@example.test` } })
+    const agency = await prisma.agency.create({ data: { tenantId: tenantA, code: `${suffix}-diagnostic`, name: 'Diagnostic fixture', countryCode: 'AE', createdById: creator.id } })
+    const other = await prisma.agency.create({ data: { tenantId: tenantB, code: `${suffix}-diagnostic-b`, name: 'Other tenant', countryCode: 'AE', createdById: creator.id } })
+    const q = `/hotels/${hotels.alpha.id}/sellability?checkIn=${day(10)}&checkOut=${day(13)}&adults=2&currency=AED&nationality=IN&agencyId=`
+    try {
+      await get(q + agency.id, 'bowner').expect(404)
+      // bowner has rates permission but not agency.read. Use the tenant-B hotel to reach that check.
+      await get(q.replace(hotels.alpha.id, hotels.oscar.id) + other.id, 'bowner').expect(403)
+      await get(q + other.id).expect(404)
+      await prisma.contract.update({ where: { id: hotels.alpha.contractId }, data: { salesMarkets: ['AE'], nationalities: ['IN'] } })
+      const ok = (await get(q + agency.id).expect(200)).body.data
+      expect(ok).toMatchObject({ sellable: true, readiness: { buyer: { assessed: true, market: 'AE', nationality: 'IN' }, certification: 'NOT_VERIFIED' } })
+      const wrong = (await get(q.replace('nationality=IN', 'nationality=GB') + agency.id).expect(200)).body.data
+      expect(wrong.sellable).toBe(false)
+      expect(wrong.plans[0].reasons).toContain('NATIONALITY_NOT_ALLOWED')
+      await prisma.agency.update({ where: { id: agency.id }, data: { status: 'SUSPENDED' } })
+      const blocked = (await get(q + agency.id).expect(200)).body.data
+      expect(blocked.plans[0].reasons).toContain('AGENCY_SUSPENDED')
+      await prisma.agency.update({ where: { id: agency.id }, data: { status: 'ACTIVE' } })
+      await prisma.distributionRestriction.create({ data: { tenantId: tenantA, agencyId: agency.id, scope: 'HOTEL', hotelId: hotels.alpha.id, reason: 'Fixture restriction', createdById: creator.id } })
+      const restricted = (await get(q + agency.id).expect(200)).body.data
+      expect(restricted.plans[0].reasons).toContain('DISTRIBUTION_RESTRICTED')
+      expect(restricted.readiness.plans[0].gates.find((g: { key: string }) => g.key === 'distribution').state).toBe('FAIL')
+    } finally {
+      await prisma.distributionRestriction.deleteMany({ where: { agencyId: agency.id } })
+      await prisma.agency.deleteMany({ where: { id: { in: [agency.id, other.id] } } })
+      await prisma.contract.update({ where: { id: hotels.alpha.contractId }, data: { salesMarkets: [], nationalities: [] } })
+    }
   })
 
   // ---- sellability inspector -----------------------------------------------------------------------------------------------
