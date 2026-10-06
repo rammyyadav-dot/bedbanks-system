@@ -142,3 +142,11 @@ OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-bookings.cjs
 ```bash
 OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-actions.cjs
 ```
+
+`verify-booking-supplier.cjs` (Phase 3) needs the API started with the runner and the mock supplier allowed for the seeded tenant, so seed first, then start the API:
+`ADMIN_MANUAL_BOOKING_ENABLED=true ADMIN_SUPPLIER_JOBS_ENABLED=true BOOKING_JOB_RUNNER_ENABLED=true BOOKING_JOB_RUNNER_INTERVAL_MS=1000 ALLOW_MOCK_SUPPLIER=true MOCK_SUPPLIER_TENANT_IDS=<tenant from .seed-bookings.json>`.
+It drives manual entry with "send now", the confirmed, ghost (timeout but booked), unreachable (unknown, never failed), flaky (Retry now) and unconfigured cases, axe on the Supplier tab, and the operator without permission and agency views.
+
+```bash
+OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-supplier.cjs
+```
