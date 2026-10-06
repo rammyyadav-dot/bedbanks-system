@@ -37,10 +37,18 @@ enum Status {
   SUSPENDED
 }
 
+/// Booking lifecycle (ADR 0039, docs/booking-module-spec.md). `Closed` is not a status: it is a lock (`closedAt`, added later).
+/// Only the booking transition function may write this (Phase 2). The hold/prebook intake machine is `BookingTransactionState`.
 enum BookingStatus {
-  PENDING
+  PENDING_SUPPLIER
+  ON_REQUEST
   CONFIRMED
+  AMEND_REQUESTED
+  CANCEL_REQUESTED
   CANCELLED
+  CHECKED_OUT
+  NO_SHOW
+  REJECTED
   FAILED
 }
 
@@ -709,7 +717,7 @@ model Booking {
   reference      String         @unique
   supplier       String
   hotelId        String         @map("hotel_id")
-  status         BookingStatus  @default(PENDING)
+  status         BookingStatus  @default(PENDING_SUPPLIER)
   currency       String
   totalMinor     BigInt         @map("total_minor")
   idempotencyKey String         @map("idempotency_key")

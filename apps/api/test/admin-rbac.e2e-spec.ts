@@ -116,7 +116,7 @@ describe('Admin dashboard HTTP authorization', () => {
     } })
     const pending = await prisma.booking.create({ data: {
       tenantId, reference: `RBAC-single-pending-${suffix}`, supplier: 'fixture-supplier',
-      hotelId: 'fixture-hotel', status: 'PENDING', currency: 'USD',
+      hotelId: 'fixture-hotel', status: 'PENDING_SUPPLIER', currency: 'USD',
       totalMinor: 1900n, idempotencyKey: `rbac-single-pending-${suffix}`, searchSnapshot: {},
     } })
     try {

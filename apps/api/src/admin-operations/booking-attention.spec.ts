@@ -16,14 +16,14 @@ describe('bookingAttention (read-only consistency flags)', () => {
   })
 
   it('flags a pending booking only once its processing hold is stale, not while in flight', () => {
-    const pending = { ...base, bookingStatus: 'PENDING', holdStatus: 'PROCESSING', hasDebit: false }
+    const pending = { ...base, bookingStatus: 'PENDING_SUPPLIER', holdStatus: 'PROCESSING', hasDebit: false }
     expect(bookingAttention({ ...pending, holdUpdatedAt: minutesAgo(10) })).toEqual([])
     expect(bookingAttention({ ...pending, holdUpdatedAt: minutesAgo(30) })).toEqual(['RECONCILIATION_REQUIRED'])
     expect(bookingAttention({ ...pending, holdUpdatedAt: minutesAgo(31), staleMinutes: 45 })).toEqual([])
   })
 
   it('flags an expired prebook that was never confirmed, but not one inside its window', () => {
-    const pending = { ...base, bookingStatus: 'PENDING', holdStatus: 'PROCESSING', hasDebit: false, holdUpdatedAt: minutesAgo(1) }
+    const pending = { ...base, bookingStatus: 'PENDING_SUPPLIER', holdStatus: 'PROCESSING', hasDebit: false, holdUpdatedAt: minutesAgo(1) }
     expect(bookingAttention({ ...pending, prebookAt: minutesAgo(59) })).toEqual([])
     expect(bookingAttention({ ...pending, prebookAt: minutesAgo(61) })).toEqual(['PREBOOK_EXPIRED_UNRESOLVED'])
   })
@@ -45,7 +45,7 @@ describe('bookingAttention (read-only consistency flags)', () => {
   })
 
   it('never infers a status: UNKNOWN-like pending evidence is not turned into FAILED', () => {
-    const flags = bookingAttention({ ...base, bookingStatus: 'PENDING', holdStatus: 'PROCESSING', hasDebit: false, holdUpdatedAt: minutesAgo(120), prebookAt: minutesAgo(120) })
+    const flags = bookingAttention({ ...base, bookingStatus: 'PENDING_SUPPLIER', holdStatus: 'PROCESSING', hasDebit: false, holdUpdatedAt: minutesAgo(120), prebookAt: minutesAgo(120) })
     expect(flags).toEqual(['RECONCILIATION_REQUIRED', 'PREBOOK_EXPIRED_UNRESOLVED'])
     expect(flags).not.toContain('FINANCIAL_MISMATCH')
   })

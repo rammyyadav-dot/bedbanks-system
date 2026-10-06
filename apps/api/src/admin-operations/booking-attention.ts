@@ -30,7 +30,7 @@ export function bookingAttention(f: AttentionFacts): BookingAttention[] {
   const flags: BookingAttention[] = []
   const stale = f.staleMinutes ?? DEFAULT_STALE_MINUTES
   const prebookMax = f.prebookMaxMinutes ?? DEFAULT_PREBOOK_MAX_MINUTES
-  if (f.bookingStatus === 'PENDING') {
+  if (f.bookingStatus === 'PENDING_SUPPLIER') {
     if (f.holdStatus === 'PROCESSING' && f.holdUpdatedAt && minutesSince(f.holdUpdatedAt, f.now) >= stale) flags.push('RECONCILIATION_REQUIRED')
     if (f.prebookAt && minutesSince(f.prebookAt, f.now) >= prebookMax) flags.push('PREBOOK_EXPIRED_UNRESOLVED')
   }

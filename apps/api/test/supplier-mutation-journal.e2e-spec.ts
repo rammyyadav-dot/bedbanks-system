@@ -355,7 +355,7 @@ describe('durable supplier mutation journal (PostgreSQL)', () => {
     await expect(flow(journal, counting('timeout').supplier).execute(commandFor(key, hold.holdId))).rejects.toThrow('unknown')
     const booking = await prisma.booking.findFirstOrThrow({ where: { tenantId, idempotencyKey: key } })
     await expect(confirmation.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: booking.id })).rejects.toThrow('Supplier outcome is unknown')
-    expect(await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } })).toMatchObject({ status: 'PENDING' })
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } })).toMatchObject({ status: 'PENDING_SUPPLIER' })
     expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: hold.holdId } })).toMatchObject({ status: 'PROCESSING' })
   })
 })

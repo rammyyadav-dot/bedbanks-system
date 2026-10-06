@@ -25,7 +25,7 @@ export class BookingConfirmationService {
       if (locked.length !== 1) throw new NotFoundException('Booking not found')
       const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId } })
       if (booking.status === 'CONFIRMED') return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: true }
-      if (booking.status !== 'PENDING') throw new ConflictException('Booking is not confirmable')
+      if (booking.status !== 'PENDING_SUPPLIER') throw new ConflictException('Booking is not confirmable')
 
       const mutation = await tx.supplierMutation.findFirst({ where: { tenantId, bookingId, operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' } })
       if (mutation) {

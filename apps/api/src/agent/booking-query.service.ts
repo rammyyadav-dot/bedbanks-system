@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import type { BookingStatus, Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { isAgentBookingStatus, statusesForAgentFilter, toAgentBookingStatus } from './agent-booking-status'
 
 export interface BookingSummaryView {
   id: string; reference: string; status: string; currency: string; totalMinor: string; createdAt: string
@@ -37,11 +38,6 @@ export interface BookingListPage {
 const DEFAULT_LIMIT = 20
 const MAX_LIST = 50
 const MAX_OFFSET = 10_000
-const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const satisfies readonly BookingStatus[]
-
-function isBookingStatus(value: string): value is BookingStatus {
-  return (BOOKING_STATUSES as readonly string[]).includes(value)
-}
 
 /** Read-only tenant-scoped booking views for the Agent portal. Amounts are integer minor-unit strings. */
 @Injectable()
@@ -52,8 +48,8 @@ export class BookingQueryService {
     const limit = Number.isFinite(options.limit) ? Math.min(MAX_LIST, Math.max(1, Math.trunc(options.limit!))) : DEFAULT_LIMIT
     const offset = Number.isFinite(options.offset) ? Math.trunc(options.offset!) : 0
     if (offset < 0 || offset > MAX_OFFSET) throw new BadRequestException('Offset is outside the supported window')
-    if (options.status !== undefined && !isBookingStatus(options.status)) throw new BadRequestException('Unknown booking status')
-    const where = { tenantId, ...(options.status ? { status: options.status } : {}) }
+    if (options.status !== undefined && !isAgentBookingStatus(options.status)) throw new BadRequestException('Unknown booking status')
+    const where = { tenantId, ...(options.status ? { status: { in: statusesForAgentFilter(options.status) } } : {}) }
     return this.prisma.withTenant(tenantId, async tx => {
       const total = await tx.booking.count({ where })
       const bookings = await tx.booking.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit, skip: offset })
@@ -116,7 +112,7 @@ export class BookingQueryService {
   private summary(booking: { id: string; reference: string; status: string; currency: string; totalMinor: bigint; createdAt: Date; hotelId: string; searchSnapshot: Prisma.JsonValue }, names: Map<string, string>): BookingSummaryView {
     const s = booking.searchSnapshot as Record<string, any>
     const guest = s.leadGuest as { firstName?: string; lastName?: string } | undefined
-    return { id: booking.id, reference: booking.reference, status: booking.status, currency: booking.currency, totalMinor: booking.totalMinor.toString(), createdAt: booking.createdAt.toISOString(),
+    return { id: booking.id, reference: booking.reference, status: toAgentBookingStatus(booking.status as never), currency: booking.currency, totalMinor: booking.totalMinor.toString(), createdAt: booking.createdAt.toISOString(),
       hotelName: names.get(booking.hotelId) ?? null, checkIn: typeof s.checkIn === 'string' ? s.checkIn : null, checkOut: typeof s.checkOut === 'string' ? s.checkOut : null,
       rooms: Number.isInteger(s.rooms) ? s.rooms : null, leadGuest: guest?.firstName && guest?.lastName ? `${guest.firstName} ${guest.lastName}` : null }
   }

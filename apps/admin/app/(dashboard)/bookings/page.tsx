@@ -15,7 +15,7 @@ function BookingsPageInner() {
     <OpsListPage<BookingRow>
       eyebrow="BOOKINGS" title="Bookings" description="Authoritative booking records for the active tenant, with server-evaluated consistency flags. Read-only."
       filters={[
-        { key: 'status', label: 'Status', type: 'select', options: ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'].map(v => ({ value: v, label: v })) },
+        { key: 'status', label: 'Status', type: 'select', options: ['PENDING_SUPPLIER', 'ON_REQUEST', 'CONFIRMED', 'AMEND_REQUESTED', 'CANCEL_REQUESTED', 'CANCELLED', 'CHECKED_OUT', 'NO_SHOW', 'REJECTED', 'FAILED'].map(v => ({ value: v, label: v.replace(/_/g, ' ') })) },
         { key: 'reference', label: 'Reference prefix', type: 'text', placeholder: 'e.g. FB-' }, { key: 'hotelId', label: 'Hotel id', type: 'text' },
         { key: 'createdFrom', label: 'Created from', type: 'date' }, { key: 'createdTo', label: 'Created to', type: 'date' },
         { key: 'checkInFrom', label: 'Check-in from', type: 'date' }, { key: 'checkInTo', label: 'Check-in to', type: 'date' },

@@ -18,7 +18,7 @@ import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { boolParam, dayParam, endOfDay, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 const HOLD_STATUSES = ['PENDING_RECHECK', 'RECHECKED', 'HOLD_PENDING', 'HELD', 'PROCESSING', 'CONFIRMED', 'RELEASED', 'EXPIRED', 'FAILED'] as const
-const BOOKING_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'FAILED'] as const
+const BOOKING_STATUSES = ['PENDING_SUPPLIER', 'ON_REQUEST', 'CONFIRMED', 'AMEND_REQUESTED', 'CANCEL_REQUESTED', 'CANCELLED', 'CHECKED_OUT', 'NO_SHOW', 'REJECTED', 'FAILED'] as const
 const LEDGER_TYPES = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND'] as const
 const ACCOUNT_OWNER_PARAMS = ['HOUSE', 'AGENCY'] as const
 const RECENT_ENTRIES = 25
@@ -502,7 +502,7 @@ export class OperationsTransactionsService {
       const rows = await this.bookingRows(tx, tenantId, recent)
       return {
         holds: { held: hc('HELD'), processing: hc('PROCESSING'), total: holds.reduce((n, h) => n + h._count._all, 0) },
-        bookings: { pending: bc('PENDING'), confirmed: bc('CONFIRMED'), failed: bc('FAILED'), cancelled: bc('CANCELLED'), total: bookings.reduce((n, b) => n + b._count._all, 0) },
+        bookings: { pending: bc('PENDING_SUPPLIER'), confirmed: bc('CONFIRMED'), failed: bc('FAILED'), cancelled: bc('CANCELLED'), total: bookings.reduce((n, b) => n + b._count._all, 0) },
         reconciliationRequired: rows.filter(r => r.attention.includes('RECONCILIATION_REQUIRED') || r.attention.includes('PREBOOK_EXPIRED_UNRESOLVED')).length,
         cancellationsMissingRefund: rows.filter(r => r.attention.includes('REFUND_MISSING') || r.attention.includes('CANCELLATION_RECORD_MISSING')).length,
       }

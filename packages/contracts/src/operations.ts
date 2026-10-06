@@ -74,7 +74,9 @@ export interface HoldDetail extends HoldRow { offerId: string; searchId: string;
 export interface HoldsQuery { status?: InventoryHoldStatus; hotelId?: string; from?: string; to?: string; page?: number; pageSize?: number }
 
 // ---- Bookings --------------------------------------------------------------------------------------------------------
-export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FAILED'
+/** The ten-value booking lifecycle (ADR 0039). `Closed` is a lock (`closedAt`), not a status. */
+export const BOOKING_STATUSES = ['PENDING_SUPPLIER', 'ON_REQUEST', 'CONFIRMED', 'AMEND_REQUESTED', 'CANCEL_REQUESTED', 'CANCELLED', 'CHECKED_OUT', 'NO_SHOW', 'REJECTED', 'FAILED'] as const
+export type BookingStatus = (typeof BOOKING_STATUSES)[number]
 /**
  * Server-evaluated consistency flags. Documents are issued lazily on first view, so an absent document is never a flag.
  * A flag is evidence to investigate, not an automatic verdict; nothing here changes booking state.

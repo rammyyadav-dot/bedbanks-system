@@ -19,7 +19,7 @@ const hold = {
 }
 const booking = {
   id: 'booking-a', tenantId: 'tenant-a', reference: 'FB-EXAMPLE', supplier: 'PENDING_SUPPLIER',
-  hotelId: 'hotel-a', status: 'PENDING', currency: 'AED', totalMinor: 125099n,
+  hotelId: 'hotel-a', status: 'PENDING_SUPPLIER', currency: 'AED', totalMinor: 125099n,
   idempotencyKey: 'booking-request-123',
   searchSnapshot: {
     version: 1, requestId: 'request-a', offerId: 'offer-a', searchId: 'search-a', inventoryHoldId: 'hold-a',
@@ -47,7 +47,7 @@ describe('BookingPersistenceService', () => {
     await expect(service.persistPending(command)).resolves.toEqual(booking)
     expect(tx.inventoryHold.findFirst).toHaveBeenCalledWith({ where: { id: 'hold-a', tenantId: 'tenant-a' } })
     expect(tx.booking.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
-      status: 'PENDING', supplier: 'PENDING_SUPPLIER', currency: 'AED', totalMinor: 125099n,
+      status: 'PENDING_SUPPLIER', supplier: 'PENDING_SUPPLIER', currency: 'AED', totalMinor: 125099n,
     }) }))
   })
 
@@ -90,7 +90,7 @@ describe('BookingPersistenceService', () => {
     const { service, tx } = setup()
     await service.persistPending(command)
     const data = tx.booking.create.mock.calls[0][0].data
-    expect(data.status).toBe('PENDING')
+    expect(data.status).toBe('PENDING_SUPPLIER')
     expect(data.supplier).toBe('PENDING_SUPPLIER')
     expect(data).not.toHaveProperty('supplierReference')
     expect(data).not.toHaveProperty('paymentReference')

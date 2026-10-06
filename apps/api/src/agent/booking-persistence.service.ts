@@ -92,7 +92,7 @@ export class BookingPersistenceService {
             reference: bookingReference(command),
             supplier: 'PENDING_SUPPLIER',
             hotelId: command.canonicalHotelId,
-            status: 'PENDING',
+            status: 'PENDING_SUPPLIER',
             currency: command.currency,
             totalMinor: BigInt(command.totalMinor),
             idempotencyKey: command.idempotencyKey,
@@ -119,7 +119,7 @@ export class BookingPersistenceService {
   async recordSupplierPrebook(tenantId: string, bookingId: string, record: RecordedSupplierPrebook): Promise<void> {
     await this.prisma.withTenant(tenantId, async tx => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
-      if (!booking || booking.status !== 'PENDING') throw new ConflictException('Booking is not pending')
+      if (!booking || booking.status !== 'PENDING_SUPPLIER') throw new ConflictException('Booking is not pending')
       const snapshot = booking.searchSnapshot
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) throw new ConflictException('Booking snapshot is invalid')
       const prior = readSupplierPrebook(snapshot)
@@ -181,7 +181,7 @@ export class BookingPersistenceService {
       existing.hotelId !== command.canonicalHotelId ||
       existing.currency !== command.currency ||
       existing.totalMinor !== BigInt(command.totalMinor) ||
-      existing.status !== 'PENDING' ||
+      existing.status !== 'PENDING_SUPPLIER' ||
       !sameCommercialSnapshot(existing.searchSnapshot, snapshot)
     ) {
       throw new ConflictException('Booking idempotency key was reused with different booking intent')
