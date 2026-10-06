@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_REASON_TEXT, HOTEL_STAR_RATING_MISSING } from '@bedbanks/contracts'
-import { HOTEL_TABS, contractTone, hotelHref, inventoryTone, listHref, mappingTone, parseTab, readListQuery, readinessTone, reasonText, sectionTab, severityTone, starsText } from './hotel-ui'
+import { HOTEL_TABS, contractTone, hotelHref, inventoryTone, listHref, mappingTone, parseTab, readListQuery, readinessTone, outcomeTone, outcomeLabel, readinessActionHref, reasonText, sectionTab, severityTone, starsText } from './hotel-ui'
 
 test('readiness, mapping, contract and inventory states map to tones without inventing states', () => {
   assert.deepEqual(['READY', 'PARTIAL', 'BLOCKED'].map((s) => readinessTone(s as never)), ['ok', 'warn', 'bad'])
@@ -40,4 +40,13 @@ test('list filters round-trip through the URL and unknown parameters are dropped
 
 test('stars text is explicit for assistive technology and for a missing rating', () => {
   assert.equal(starsText(5), '5 stars'); assert.equal(starsText(1), '1 star'); assert.equal(starsText(null), 'No rating')
+})
+
+test('readiness outcomes: UNKNOWN is never the failure tone, and every action lands on a real existing tab', () => {
+  assert.deepEqual((['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE'] as const).map(outcomeTone), ['ok', 'bad', 'warn', 'neutral'])
+  assert.equal(outcomeLabel('NOT_APPLICABLE'), 'N/A'); assert.equal(outcomeLabel('UNKNOWN'), 'UNKNOWN')
+  const ids = HOTEL_TABS.map((t) => t.id) as string[]
+  for (const tab of ['setup', 'rooms', 'amenities', 'images', 'policies', 'mappings', 'contracts', 'rates', 'inventory', 'sellability', 'audit'] as const) assert.ok(ids.includes(tab), tab)
+  assert.equal(readinessActionHref('h1', { tab: 'mappings', label: 'x', permission: null }), '/hotels/h1?tab=mappings')
+  assert.equal(readinessActionHref('h1', { tab: 'nonsense' as never, label: 'x', permission: null }), '/hotels/h1')
 })
