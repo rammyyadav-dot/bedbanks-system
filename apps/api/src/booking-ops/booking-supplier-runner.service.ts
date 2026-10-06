@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import { BOOKING_SUPPLIER_MAX_ATTEMPTS, BOOKING_SUPPLIER_RETRY_DELAYS_SECONDS, type BookingAction, type BookingStatus, type BookingSupplierJobKind } from '@bedbanks/contracts'
 import { BookingOpsDatabase } from './booking-ops-database'
@@ -101,6 +101,9 @@ export class BookingSupplierRunner implements OnModuleInit, OnModuleDestroy {
       else if (job.kind === 'CANCEL') await this.cancel(job, facts, adapter, context, now)
       else await this.sync(job, facts, adapter, context, now)
     } catch (error) {
+      // The booking was settled by someone else while the supplier call was in flight (an operator recorded the answer first): the supplier call is already in the log, and
+      // applying a second result would be wrong. The job is finished, not retried: a retry would be a second booking request.
+      if (error instanceof ConflictException && ['STALE_STATUS', 'ILLEGAL_TRANSITION', 'BOOKING_CLOSED'].includes((error.getResponse() as { code?: string }).code ?? '')) return this.finish(job, 'SUCCEEDED', 'ALREADY_APPLIED', now())
       // A bug or a database failure, not a supplier answer. The job is released for another go and the failure is visible, never swallowed into success.
       this.logger.error(`Supplier job ${job.id} errored: ${error instanceof Error ? error.name : 'unknown error'}`)
       await this.retryOrStop(job, 'RUNNER_ERROR', now(), 'UNKNOWN')

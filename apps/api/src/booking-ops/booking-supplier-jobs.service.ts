@@ -62,7 +62,7 @@ export class BookingSupplierJobsService {
       const configured = this.suppliers.resolve(tenantId, booking.supplier) !== null
       const allowed = supplierOpsFor({ status: booking.status as BookingStatus, closed: false, supplierStatus: booking.supplierStatus, hasActiveJob: active.length > 0, hasRetryWaitJob: active.some((j) => j.status === 'RETRY_WAIT'), hasUnknownJob: jobs[0]?.status === 'UNKNOWN', configured })
       if (!allowed.includes(op)) {
-        const reason = !configured && op !== 'retryNow' ? 'SUPPLIER_NOT_CONFIGURED' : active.length > 0 && op !== 'retryNow' ? 'SUPPLIER_JOB_ACTIVE' : op === 'send' && (jobs[0]?.status === 'UNKNOWN' || booking.supplierStatus === 'UNKNOWN') ? 'SUPPLIER_OUTCOME_UNKNOWN' : 'ILLEGAL_SUPPLIER_OPERATION'
+        const reason = !configured && op !== 'retryNow' ? 'SUPPLIER_NOT_CONFIGURED' : active.length > 0 && op !== 'retryNow' ? 'SUPPLIER_JOB_ACTIVE' : op === 'send' && (jobs[0]?.status === 'UNKNOWN' || booking.supplierStatus === 'UNKNOWN') ? 'SUPPLIER_STATE_UNKNOWN' : 'ILLEGAL_SUPPLIER_OPERATION'
         throw new ConflictException({ message: REFUSAL[reason], code: reason, currentStatus: booking.status })
       }
 
@@ -85,6 +85,6 @@ export class BookingSupplierJobsService {
 const REFUSAL: Record<string, string> = {
   SUPPLIER_NOT_CONFIGURED: 'No supplier adapter is configured for this booking’s supplier. Record the supplier’s answer by hand instead.',
   SUPPLIER_JOB_ACTIVE: 'A supplier job is already queued or running for this booking.',
-  SUPPLIER_OUTCOME_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first; sending again could create a duplicate booking.',
+  SUPPLIER_STATE_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first; sending again could create a duplicate booking.',
   ILLEGAL_SUPPLIER_OPERATION: 'That supplier operation is not available for this booking now.',
 }

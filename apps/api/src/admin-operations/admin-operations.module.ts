@@ -14,6 +14,9 @@ import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { BookingAccessGuard } from '../booking-ops/booking-access.guard'
 import { BookingActionsController } from '../booking-ops/booking-actions.controller'
 import { BookingActionsService } from '../booking-ops/booking-actions.service'
+import { BookingOpsController } from '../booking-ops/booking-ops.controller'
+import { BookingOpsQueueService } from '../booking-ops/booking-ops-queue.service'
+import { BookingOpsService } from '../booking-ops/booking-ops.service'
 import { BookingSupplierJobsService } from '../booking-ops/booking-supplier-jobs.service'
 import { BookingSupplierRunner } from '../booking-ops/booking-supplier-runner.service'
 import { BOOKING_SUPPLIER_RESOLVER } from '../booking-ops/supplier/booking-supplier.port'
@@ -21,7 +24,7 @@ import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplie
 
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
-  controllers: [OperationsController, BookingActionsController],
-  providers: [{ provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  controllers: [OperationsController, BookingActionsController, BookingOpsController],
+  providers: [BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
 })
 export class AdminOperationsModule {}

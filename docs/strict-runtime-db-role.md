@@ -78,6 +78,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
 - `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
+- `BookingOpsState`: booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)
 - `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
 - `BookingSupplierCall`: booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)
 - `BookingSupplierJob`: booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)

@@ -11,6 +11,7 @@ import { BookingSupplierCallError, type BookingSupplierBookRequest, type Booking
  *   mock-reject         definite rejection (no availability)
  *   mock-timeout        the call times out and the supplier did NOT book (retries, then Failed)
  *   mock-ghost          the call times out but the supplier DID book (the status check must find it: no ghost, no duplicate)
+ *   mock-ghost-late     booked, the call times out, and the first status check also fails; later status checks succeed (a supplier that recovers)
  *   mock-flaky          first call times out without booking, the second succeeds
  *   mock-down           every call, including the status check, fails: the outcome stays unknown, never Failed
  *   mock-cancel-fail    cancel is refused (the booking stays Cancel requested)
@@ -42,6 +43,7 @@ export class MockBookingSupplier implements BookingSupplierPort {
       case 'mock-on-request': this.held.set(request.reference, { state: 'ON_REQUEST', supplierRef: `MOCK-${request.reference.slice(3, 11)}`, hotelConfirmationNo: null }); return { outcome: 'ON_REQUEST', supplierRef: `MOCK-${request.reference.slice(3, 11)}`, hotelConfirmationNo: null }
       case 'mock-reject': return { outcome: 'REJECTED', code: 'NO_AVAILABILITY' }
       case 'mock-timeout': throw new BookingSupplierCallError('timeout', 'SUPPLIER_TIMEOUT')
+      case 'mock-ghost-late': if (n === 1) { confirm(); throw new BookingSupplierCallError('timeout', 'SUPPLIER_TIMEOUT') } return confirm()
       case 'mock-ghost': if (n === 1) { confirm(); throw new BookingSupplierCallError('timeout', 'SUPPLIER_TIMEOUT') } return confirm()
       case 'mock-flaky': if (n === 1) throw new BookingSupplierCallError('timeout', 'SUPPLIER_TIMEOUT'); return confirm()
       case 'mock-down': throw new BookingSupplierCallError('transport', 'SUPPLIER_UNREACHABLE')
@@ -60,6 +62,7 @@ export class MockBookingSupplier implements BookingSupplierPort {
   async statusByReference(_context: BookingSupplierContext, request: { reference: string; supplierKey: string }): Promise<BookingSupplierStatus> {
     const s = this.scenario(request.supplierKey)
     if (s === 'mock-down') throw new BookingSupplierCallError('transport', 'SUPPLIER_UNREACHABLE')
+    if (s === 'mock-ghost-late' && this.count('status', request.reference) === 1) throw new BookingSupplierCallError('transport', 'SUPPLIER_UNREACHABLE')
     const h = this.held.get(request.reference)
     return h ? { found: true, ...h } : { found: false }
   }

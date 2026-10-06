@@ -13,6 +13,7 @@ export const REQUIRED_BOOKING_ACTION = 'fbeds:booking-action-permissions'
 /** Declares the formal permissions of which the caller must hold at least one (Phase 2 write routes). The route's service then checks the one named action. */
 export const RequireBookingAction = (...keys: string[]) => SetMetadata(REQUIRED_BOOKING_ACTION, keys)
 export const supplierDispatchEnabled = (env: Record<string, string | undefined> = process.env) => env.ADMIN_SUPPLIER_JOBS_ENABLED === 'true'
+export const bookingOpsQueueEnabled = (env: Record<string, string | undefined> = process.env) => env.ADMIN_BOOKING_OPS_ENABLED === 'true'
 export const manualBookingEnabled = (env: Record<string, string | undefined> = process.env) => env.ADMIN_MANUAL_BOOKING_ENABLED === 'true'
 
 /**
@@ -55,10 +56,10 @@ export class BookingAccessGuard implements CanActivate {
     const scoped = operator || (agencyReader && Boolean(agencyId))
     if (!holdsAction || !scoped || (required && !operator && !agencyId)) {
       await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: agencyReader ? 'booking.view.agency' : 'booking.read', payload: { tenantId, requestId: (request as unknown as { requestId?: string }).requestId ?? null }, userId } })).catch(() => undefined)
-      throw new ForbiddenException('Access denied')
+      throw new ForbiddenException(required?.some((k) => k.startsWith('booking.ops.')) ? { message: 'Access denied', code: 'BOOKING_OPS_FORBIDDEN' } : 'Access denied')
     }
     const permissions = formal.filter((key) => key.startsWith('booking.'))
-    const access: BookingAccessView = { level: operator ? 'OPERATOR' : 'AGENCY', canViewNet: formal.includes('booking.view.net'), canViewPii: formal.includes('booking.pii.view'), agencyId: operator ? null : agencyId, permissions, manualEntry: operator && formal.includes('booking.manual.create') && manualBookingEnabled(), supplierDispatch: operator && formal.includes('booking.supplier.retry') && supplierDispatchEnabled() }
+    const access: BookingAccessView = { level: operator ? 'OPERATOR' : 'AGENCY', canViewNet: formal.includes('booking.view.net'), canViewPii: formal.includes('booking.pii.view'), agencyId: operator ? null : agencyId, permissions, manualEntry: operator && formal.includes('booking.manual.create') && manualBookingEnabled(), supplierDispatch: operator && formal.includes('booking.supplier.retry') && supplierDispatchEnabled(), opsQueue: operator && formal.includes('booking.ops.view') && bookingOpsQueueEnabled() }
     ;(request as unknown as Record<string, unknown>)[ACCESS_KEY] = access
     return true
   }

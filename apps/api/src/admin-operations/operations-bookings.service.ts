@@ -6,6 +6,7 @@ import {
   type BookingAccessView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingSupplierView, type BookingTimelineItem, type SectionState,
 } from '@bedbanks/contracts'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
+import { BookingOpsQueueService } from '../booking-ops/booking-ops-queue.service'
 import { ACTIVE_JOB_STATUSES, supplierDispatchAllowed, supplierOpsFor } from '../booking-ops/booking-supplier-jobs.service'
 import { BOOKING_SUPPLIER_RESOLVER, type BookingSupplierResolver } from '../booking-ops/supplier/booking-supplier.port'
 import { buildBookingOrderBy, buildBookingWhere, describeApplied, parseBookingListQuery, type BookingFilter } from '../booking-ops/booking-list-query'
@@ -36,7 +37,7 @@ export class OperationsBookingsService {
   /** Replaceable in tests so every date rule is deterministic. */
   clock: () => Date = () => new Date()
 
-  constructor(private readonly ops: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly evidence: OperationsTransactionsService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver) {}
+  constructor(private readonly ops: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly evidence: OperationsTransactionsService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly opsQueue: BookingOpsQueueService) {}
 
   // ---- list ---------------------------------------------------------------------------------------------------------------
   async list(tenantId: string, userId: string, access: BookingAccessView, rawQuery: Record<string, unknown>, requestId: string): Promise<BookingListPage> {
@@ -166,6 +167,8 @@ export class OperationsBookingsService {
         cancellationPolicy: null, markupRule: null, netVisibility,
       },
       timeline, operationsRecord,
+      // The operations panel degrades to absent (not to a wrong answer) if the SLA policy is invalid; the queue page itself reports that error.
+      operations: await this.opsQueue.panel(tenantId, access, b.id).catch((error) => { if (error instanceof ServiceUnavailableException) return null; throw error }),
       supplier: access.level === 'OPERATOR' ? this.supplierView(tenantId, access, b, jobs, calls) : null,
       availableActions: availableActions({ status: b.status as BookingStatus, closedAt: iso(b.closedAt), isRefundable: b.isRefundable, checkIn: b.checkIn ? b.checkIn.toISOString().slice(0, 10) : null }, access.level, new Set(access.permissions), new Date()),
     }

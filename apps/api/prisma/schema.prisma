@@ -76,6 +76,13 @@ enum BookingGuestType {
   CHILD
 }
 
+enum BookingOpsPriority {
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
 enum BookingSupplierJobKind {
   BOOK
   CANCEL
@@ -549,6 +556,7 @@ model Tenant {
   bookingEvents BookingEvent[]
   bookingSupplierJobs BookingSupplierJob[]
   bookingSupplierCalls BookingSupplierCall[]
+  bookingOpsStates BookingOpsState[]
   agencies Agency[]
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
@@ -617,6 +625,11 @@ model TenantSettings {
 
 model User {
   bookingSupplierJobs BookingSupplierJob[] @relation("BookingSupplierJobRequester")
+  bookingOpsAssigned BookingOpsState[] @relation("BookingOpsAssignee")
+  bookingOpsAssignedBy BookingOpsState[] @relation("BookingOpsAssignedBy")
+  bookingOpsAcknowledged BookingOpsState[] @relation("BookingOpsAcknowledgedBy")
+  bookingOpsEscalated BookingOpsState[] @relation("BookingOpsEscalatedBy")
+  bookingOpsResolved BookingOpsState[] @relation("BookingOpsResolvedBy")
   bookingsAsAgent Booking[] @relation("BookingAgent")
   bookingsAssigned Booking[] @relation("BookingAssignee")
   agencyMemberships AgencyMember[]
@@ -820,6 +833,7 @@ model Booking {
   guests              BookingGuest[]
   events              BookingEvent[]
   supplierJobs        BookingSupplierJob[]
+  opsState            BookingOpsState?
   supplierCalls       BookingSupplierCall[]
 
   @@unique([tenantId, id])
@@ -882,6 +896,41 @@ model BookingGuest {
 
 /// Immutable lifecycle log. One row per status change, written by the transition function in the same transaction (Phase 2).
 /// A database trigger rejects UPDATE and DELETE. Rows written by the migration backfill say so in `payload`.
+/// Durable operational state of the booking operations queue (ADR 0039, Phase 4): owner, acknowledgement, a manual priority floor, a manual follow-up flag.
+/// The queue itself, SLA state, reason and priority are derived and never stored here.
+model BookingOpsState {
+  id                   String              @id @default(cuid())
+  tenantId             String              @map("tenant_id")
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId            String              @map("booking_id")
+  booking              Booking             @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  assigneeUserId       String?             @map("assignee_user_id")
+  assignee             User?               @relation("BookingOpsAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  assignedAt           DateTime?           @map("assigned_at")
+  assignedByUserId     String?             @map("assigned_by_user_id")
+  assignedBy           User?               @relation("BookingOpsAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  acknowledgedAt       DateTime?           @map("acknowledged_at")
+  acknowledgedByUserId String?             @map("acknowledged_by_user_id")
+  acknowledgedBy       User?               @relation("BookingOpsAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  manualPriority       BookingOpsPriority? @map("manual_priority")
+  escalatedAt          DateTime?           @map("escalated_at")
+  escalatedByUserId    String?             @map("escalated_by_user_id")
+  escalatedBy          User?               @relation("BookingOpsEscalatedBy", fields: [escalatedByUserId], references: [id], onDelete: SetNull)
+  escalationReason     String?             @map("escalation_reason")
+  followUp             Boolean             @default(false) @map("follow_up")
+  followUpAt           DateTime?           @map("follow_up_at")
+  resolvedAt           DateTime?           @map("resolved_at")
+  resolvedByUserId     String?             @map("resolved_by_user_id")
+  resolvedBy           User?               @relation("BookingOpsResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  version              Int                 @default(1)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, bookingId])
+  @@index([tenantId, assigneeUserId])
+  @@index([tenantId, updatedAt])
+}
+
 /// Supplier work queue for the Admin booking module (ADR 0039, Phase 3): book, cancel, status check. One first try plus three retries (30 s / 2 min / 5 min).
 model BookingSupplierJob {
   id                String                   @id @default(cuid())
