@@ -100,7 +100,8 @@ export class BookingOpsQueueService {
     const start = (q.page - 1) * q.pageSize
     const slice = filtered.slice(start, start + q.pageSize)
     const names = await this.names(tenantId, slice.map((e) => e.row))
-    return { items: slice.map((e) => this.toItem(e, names)), total: filtered.length, page: q.page, pageSize: q.pageSize, tab: q.tab, counts, scanCapped: capped, slaPolicy: policy, generatedAt: now.toISOString() }
+    return { items: slice.map((e) => this.toItem(e, names)), total: filtered.length, page: q.page, pageSize: q.pageSize, tab: q.tab, counts, scanCapped: capped, slaPolicy: policy, generatedAt: now.toISOString(), viewer: { id: userId },
+      can: { assign: access.permissions.includes('booking.ops.assign'), escalate: access.permissions.includes('booking.ops.escalate'), resolve: access.permissions.includes('booking.ops.resolve'), note: access.permissions.includes('booking.ops.note'), supplierRetry: access.supplierDispatch } }
   }
 
   private matches(e: Evaluated, q: ParsedQueueQuery, me: string): boolean {
@@ -155,7 +156,7 @@ export class BookingOpsQueueService {
   }
 
   /** The operations panel of the booking detail page. Null when the queue is off or the caller lacks `booking.ops.view`; never an error on the detail page. */
-  async panel(tenantId: string, access: BookingAccessView, bookingId: string, now = new Date()): Promise<BookingOperationsPanel | null> {
+  async panel(tenantId: string, userId: string, access: BookingAccessView, bookingId: string, now = new Date()): Promise<BookingOperationsPanel | null> {
     if (!bookingOpsEnabled() || access.level !== 'OPERATOR' || !access.permissions.includes('booking.ops.view')) return null
     const policy = slaPolicy()
     const loaded = await this.db.withTenant(tenantId, async (tx) => {
@@ -176,7 +177,7 @@ export class BookingOpsQueueService {
     timeline.sort((a, b) => a.at.localeCompare(b.at))
     const state = e.facts.ops
     return {
-      item: this.toItem(e, names),
+      viewerId: userId, item: this.toItem(e, names),
       can: {
         assign: ev.inQueue && held.has('booking.ops.assign'), acknowledge: ev.inQueue && held.has('booking.ops.assign') && ev.assigneeUserId !== null, escalate: held.has('booking.ops.escalate') && !e.facts.closed,
         note: held.has('booking.ops.note'), clearFollowUp: held.has('booking.ops.resolve') && !!state && (state.followUp || state.manualPriority !== null) && !state.resolvedAt,

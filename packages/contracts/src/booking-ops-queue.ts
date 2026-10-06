@@ -384,12 +384,18 @@ export interface BookingOpsQueuePage {
   /** The SLA targets in force (minutes), so the screen can state them. */
   slaPolicy: BookingOpsSlaPolicy
   generatedAt: string
+  /** The caller, so "claim" can assign to themselves without the browser guessing an id. */
+  viewer: { id: string }
+  /** What the caller may do on this page (permission only; the API re-checks every action). */
+  can: { assign: boolean; escalate: boolean; resolve: boolean; note: boolean; supplierRetry: boolean }
 }
 export type BookingOpsCounts = Record<Exclude<BookingOpsTab, 'resolved'>, number> & { resolved: number }
 
 export interface BookingOpsAssignee { id: string; name: string }
 export interface BookingOpsTimelineItem { at: string; kind: 'event' | 'derived'; title: string; actorName: string | null; reason: string | null }
 export interface BookingOperationsPanel {
+  /** The caller, so "claim" assigns to themselves without the browser guessing an id. */
+  viewerId: string
   item: BookingOpsQueueItem
   /** What this caller may do now (permission and booking state both considered). */
   can: { assign: boolean; acknowledge: boolean; escalate: boolean; note: boolean; clearFollowUp: boolean; answers: BookingOpsAnswer[] }

@@ -10,15 +10,20 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, bookingTone } from '@/components/ops/ops-ui'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { OperationsRecord } from '@/components/bookings/OperationsRecord'
+import { OperationsPanel } from '@/components/bookings/OperationsPanel'
 import { SupplierPanel } from '@/components/bookings/SupplierPanel'
 import { deadlineUrgency, formatInZone, statusLabel } from '@/lib/booking-ui'
 import { getOpsBooking } from '@/lib/data/operations'
 
-const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pricing' }, { id: 'timeline', label: 'Timeline' }, { id: 'supplier', label: 'Supplier' }, { id: 'record', label: 'Operations record' }] as const
+const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pricing' }, { id: 'timeline', label: 'Timeline' }, { id: 'operations', label: 'Operations' }, { id: 'supplier', label: 'Supplier' }, { id: 'record', label: 'Operations record' }] as const
 type TabId = (typeof TABS)[number]['id']
 const parseTab = (v: string | null): TabId => TABS.find((t) => t.id === v)?.id ?? 'summary'
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(150px, 230px) 1fr', gap: '6px 14px', margin: 0, fontSize: 12 }
-const actionLabel = (a: NonNullable<BookingDetailView['timeline'][number]['action']>) => (a === 'createManual' ? 'Entered manually' : a === 'editReferences' ? 'References edited' : a === 'supplierQueued' ? 'Sent to the supplier queue' : a === 'supplierUnknown' ? 'Supplier answer unknown' : a === 'supplierNotFound' ? 'Supplier holds nothing' : a === 'supplierCancelFailed' ? 'Supplier cancellation refused' : BOOKING_ACTION_RULES[a]?.label ?? a)
+const EXTRA_ACTION_LABEL: Record<string, string> = {
+  createManual: 'Entered manually', editReferences: 'References edited', supplierQueued: 'Sent to the supplier queue', supplierUnknown: 'Supplier answer unknown', supplierNotFound: 'Supplier holds nothing', supplierCancelFailed: 'Supplier cancellation refused',
+  opsAssigned: 'Assigned', opsUnassigned: 'Unassigned', opsAcknowledged: 'Acknowledged', opsEscalated: 'Escalated', opsDeescalated: 'Escalation cleared', opsResolved: 'Operations case resolved', opsNote: 'Operations note', opsAnswer: 'Supplier answer recorded by an operator',
+}
+const actionLabel = (a: string) => EXTRA_ACTION_LABEL[a] ?? (a in BOOKING_ACTION_RULES ? BOOKING_ACTION_RULES[a as keyof typeof BOOKING_ACTION_RULES].label : a)
 const muted: React.CSSProperties = { color: '#3f565c' }
 
 function Detail({ id }: { id: string }) {
@@ -37,7 +42,7 @@ function Detail({ id }: { id: string }) {
 
 function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; id: string; tab: TabId; onChanged: (message: string) => void; refresh: () => void }) {
   const b = d.booking
-  const tabs = TABS.filter((t) => (t.id !== 'record' || d.operationsRecord !== null) && (t.id !== 'supplier' || d.supplier !== null))
+  const tabs = TABS.filter((t) => (t.id !== 'record' || d.operationsRecord !== null) && (t.id !== 'supplier' || d.supplier !== null) && (t.id !== 'operations' || d.operations !== null))
   const urgency = deadlineUrgency(b.cancelDeadline, new Date())
   return (
     <>
@@ -51,6 +56,7 @@ function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; 
           {b.amended && <Tag tone="neutral">AMENDED</Tag>}
           {b.closedAt && <Tag tone="neutral">CLOSED</Tag>}
           {b.missingSupplierRef && <Tag tone="bad">MISSING SUPPLIER REF</Tag>}
+          {d.operations?.item.inQueue && <Tag tone={d.operations.item.priority === 'NORMAL' || d.operations.item.priority === 'HIGH' ? 'warn' : 'bad'}>{d.operations.item.priority} · {d.operations.item.primaryReason?.replace(/_/g, ' ')}</Tag>}
           {d.supplier?.supplierStatus === 'UNKNOWN' && <Tag tone="bad">SUPPLIER ANSWER UNKNOWN</Tag>}
         </div>
         <div style={{ ...muted, fontSize: 11 }}>
@@ -68,6 +74,7 @@ function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; 
         {tab === 'summary' && <Summary d={d} />}
         {tab === 'pricing' && <Pricing d={d} />}
         {tab === 'timeline' && <Timeline d={d} />}
+        {tab === 'operations' && d.operations !== null && <OperationsPanel d={d} onChanged={onChanged} refresh={refresh} />}
         {tab === 'supplier' && d.supplier !== null && <SupplierPanel d={d} onChanged={onChanged} refresh={refresh} />}
         {tab === 'record' && d.operationsRecord !== null && (
           d.operationsRecord.state === 'available'

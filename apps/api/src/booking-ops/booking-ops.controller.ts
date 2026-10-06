@@ -33,7 +33,7 @@ export class BookingOpsController {
   assignees(@ActiveTenant() tenantId: string, @BookingAccess() access: BookingAccessView) { return this.ops.assignees(tenantId, access) }
 
   @Get(':bookingId') @RequireBookingAction('booking.ops.view') @UseGuards(BookingAccessGuard)
-  item(@ActiveTenant() tenantId: string, @BookingAccess() access: BookingAccessView, @Param('bookingId') bookingId: string) { return this.queue.panel(tenantId, access, bookingId) }
+  item(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Param('bookingId') bookingId: string) { return this.queue.panel(tenantId, identity.user.id, access, bookingId) }
 
   @Post(':bookingId/assign') @HttpCode(200) @RequireBookingAction('booking.ops.assign') @UseGuards(BookingAccessGuard)
   assign(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Param('bookingId') id: string, @Headers('idempotency-key') key: string | undefined, @Body() body: BookingOpsAssignRequest) {

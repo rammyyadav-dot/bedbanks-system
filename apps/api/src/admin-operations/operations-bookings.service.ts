@@ -168,7 +168,7 @@ export class OperationsBookingsService {
       },
       timeline, operationsRecord,
       // The operations panel degrades to absent (not to a wrong answer) if the SLA policy is invalid; the queue page itself reports that error.
-      operations: await this.opsQueue.panel(tenantId, access, b.id).catch((error) => { if (error instanceof ServiceUnavailableException) return null; throw error }),
+      operations: await this.opsQueue.panel(tenantId, userId, access, b.id).catch((error) => { if (error instanceof ServiceUnavailableException) return null; throw error }),
       supplier: access.level === 'OPERATOR' ? this.supplierView(tenantId, access, b, jobs, calls) : null,
       availableActions: availableActions({ status: b.status as BookingStatus, closedAt: iso(b.closedAt), isRefundable: b.isRefundable, checkIn: b.checkIn ? b.checkIn.toISOString().slice(0, 10) : null }, access.level, new Set(access.permissions), new Date()),
     }

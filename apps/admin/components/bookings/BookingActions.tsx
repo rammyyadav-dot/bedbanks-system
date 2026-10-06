@@ -1,41 +1,14 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { BookingAvailableAction, BookingDetailView } from '@bedbanks/contracts'
 import { patchBookingReferences, postBookingAction } from '@/lib/data/operations'
 import { buildActionRequest, describeActionError, emptyActionForm, FIELD_LABEL, isOptional, MAX_LENGTH, newIdempotencyKey, visibleFields, type ActionFormState } from '@/lib/booking-actions-ui'
 import { statusLabel } from '@/lib/booking-ui'
+import { Modal } from './Modal'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
 const input: React.CSSProperties = { border: '1px solid #c5d4d8', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
-
-/** A modal that traps Tab, closes on Escape and returns focus to the control that opened it. */
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null
-    const first = ref.current?.querySelector<HTMLElement>('textarea, input, button')
-    first?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
-      if (e.key !== 'Tab' || !ref.current) return
-      const items = Array.from(ref.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled])'))
-      if (items.length === 0) return
-      const a = items[0]; const z = items[items.length - 1]
-      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus() } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus() }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey); opener?.focus?.() }
-  }, [onClose])
-  return (
-    <div className="admin-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div ref={ref} className="admin-modal" role="dialog" aria-modal="true" aria-label={title} style={{ width: 'min(520px, 100%)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h3>{title}</h3>
-        {children}
-      </div>
-    </div>
-  )
-}
 
 function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; action: BookingAvailableAction; onClose: () => void; onDone: (message: string) => void }) {
   const [form, setForm] = useState<ActionFormState>(emptyActionForm())

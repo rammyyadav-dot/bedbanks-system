@@ -3,6 +3,7 @@ import { departments, sidebarGroups, type DepartmentPermission, type OperationsP
 import {
   LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
   BookOpen, Lock, Wrench, Globe, Activity, UserCheck, Percent, Users, LifeBuoy, EyeOff, Landmark, Receipt, BanknoteArrowDown, Hourglass, History, Cable, Gauge, Undo2, TriangleAlert, BadgeCheck,
+  ListChecks,
 } from 'lucide-react';
 
 export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission | DepartmentPermission; }
@@ -11,7 +12,7 @@ export interface NavSection { label?: string; items: NavItem[]; }
 const icons: Record<string, LucideIcon> = {
   '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/hotels': Hotel, '/mappings': Link2,
   '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
-  '/sellability': ClipboardCheck, '/rate-certification': BadgeCheck, '/operations': Gauge, '/bookings': BookOpen, '/holds': Lock, '/cancellations': Undo2,
+  '/sellability': ClipboardCheck, '/rate-certification': BadgeCheck, '/operations': Gauge, '/bookings': BookOpen, '/bookings/queue': ListChecks, '/holds': Lock, '/cancellations': Undo2,
   '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/finance/funding': BanknoteArrowDown, '/finance/receivables': Hourglass, '/commercial/markups': Percent, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
 };
 
