@@ -196,8 +196,8 @@ export class BookingOpsService {
       const jobs = await c.tx.bookingSupplierJob.findMany({ where: { tenantId, bookingId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 5, select: { id: true, status: true } })
       const active = jobs.some((j) => ['QUEUED', 'RUNNING', 'RETRY_WAIT'].includes(j.status))
       if (rule.needsNoActiveJob && active) throw conflict('A supplier job is queued or running for this booking. Wait for it, or retry it first: recording this now could be overtaken by it.', 'BOOKING_OPS_CONFLICT')
-      const unknownJob = jobs[0]?.status === 'UNKNOWN' ? jobs[0] : null
-      const closeUnknown = async (code: string) => { if (unknownJob) await c.tx.bookingSupplierJob.updateMany({ where: { id: unknownJob.id, tenantId, status: 'UNKNOWN' }, data: { status: 'SUCCEEDED', lastErrorCode: code, lockedUntil: null, completedAt: now } }) }
+      // Every job still marked UNKNOWN for this booking is answered by a person's evidence: none may be left claiming the outcome is unknown.
+      const closeUnknown = async (code: string) => { await c.tx.bookingSupplierJob.updateMany({ where: { tenantId, bookingId, status: 'UNKNOWN' }, data: { status: 'SUCCEEDED', lastErrorCode: code, lockedUntil: null, completedAt: now } }) }
       const move = (action: 'systemConfirm' | 'systemConfirmOnRequest' | 'systemOnRequest' | 'systemFail' | 'systemRejectOnRequest' | 'systemCompleteCancellation', supplierStatus: string) =>
         transitionBooking(c.tx, { tenantId, bookingId, action, expectedStatus: status, actor: { type: 'USER', id: userId }, level: 'SYSTEM', now, reason, supplierRef, hotelConfirmationNo, supplierCancellationRef, supplierStatus })
       let to: BookingStatus = status

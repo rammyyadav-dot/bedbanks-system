@@ -128,6 +128,22 @@ describe('booking module database role (PostgreSQL)', () => {
     expect(await verifyBookingOpsRole(probe)).toEqual({ ok: true, failures: [] })
   })
 
+  it('BO-E09: operations state (Phase 4): forced RLS, insert and column updates allowed, keys and deletes denied, and a tenant cannot touch another tenant\'s row', async () => {
+    const PD = /42501|permission denied/i
+    const a = await owner.booking.findFirstOrThrow({ where: { tenantId: tenantA } }); const b = await owner.booking.findFirstOrThrow({ where: { tenantId: tenantB } })
+    await asTenant(tenantA, (tx) => tx.bookingOpsState.create({ data: { tenantId: tenantA, bookingId: a.id, followUp: true, followUpAt: new Date() }, select: { id: true } }))
+    await asTenant(tenantA, (tx) => tx.bookingOpsState.updateMany({ where: { bookingId: a.id }, data: { manualPriority: 'URGENT', escalationReason: 'x', version: { increment: 1 } } }))
+    expect(await asTenant(tenantA, (tx) => tx.bookingOpsState.count())).toBe(1); expect(await asTenant(tenantB, (tx) => tx.bookingOpsState.count())).toBe(0); expect(await asTenant(null, (tx) => tx.bookingOpsState.count())).toBe(0)
+    expect(await denied(() => asTenant(tenantB, (tx) => tx.bookingOpsState.create({ data: { tenantId: tenantA, bookingId: a.id }, select: { id: true } })))).toMatch(/row-level security|42501|Unique/i)
+    expect(await asTenant(tenantB, (tx) => tx.bookingOpsState.updateMany({ data: { followUp: false } }))).toMatchObject({ count: 0 }) // RLS hides it: nothing to update
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingOpsState.updateMany({ data: { bookingId: b.id } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingOpsState.updateMany({ data: { tenantId: tenantB } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingOpsState.deleteMany()))).toMatch(PD)
+    expect(await denied(() => owner.$executeRawUnsafe(`INSERT INTO "BookingOpsState" (id, tenant_id, booking_id, manual_priority, updated_at) VALUES ('x', '${tenantA}', '${b.id}', 'NORMAL', now())`))).toMatch(/violates|check|foreign/i)
+    expect((await verifyBookingOpsRole(probe)).ok).toBe(true)
+    await owner.$executeRawUnsafe(`DELETE FROM "BookingOpsState" WHERE tenant_id = '${tenantA}'`)
+  })
+
   it('BO-E08: the module connection serves the tenant through the role, and a wrong password or missing role is the not-readable state (no fallback)', async () => {
     const good = new BookingOpsDatabase({ DATABASE_URL: ownerUrl, BOOKING_OPS_DATABASE_URL: url })
     expect(await good.withTenant(tenantA, (tx) => tx.booking.count())).toBe(2)
