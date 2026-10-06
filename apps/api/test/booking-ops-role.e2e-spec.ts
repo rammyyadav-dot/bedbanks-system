@@ -75,12 +75,28 @@ describe('booking module database role (PostgreSQL)', () => {
     }
   })
 
-  it('BO-E04: Phase 1 is read-only: every write to a granted table is denied', async () => {
-    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { version: 99 } })))).toMatch(/42501|permission denied/i)
-    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { status: 'CANCELLED' } })))).toMatch(/42501|permission denied/i)
-    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingEvent.create({ data: { tenantId: tenantA, bookingId: 'x', toStatus: 'CONFIRMED', actorType: 'SYSTEM', payload: {} } })))).toMatch(/42501|permission denied/i)
-    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingGuest.deleteMany()))).toMatch(/42501|permission denied/i)
-    expect(await denied(() => asTenant(tenantA, (tx) => tx.supplierMutation.deleteMany()))).toMatch(/42501|permission denied/i)
+  it('BO-E04: writes are narrow: only the transition columns, only inserts on the booking tables, audit is write-only, nothing is deletable', async () => {
+    const PD = /42501|permission denied/i
+    const first = await owner.booking.findFirstOrThrow({ where: { tenantId: tenantA } })
+    // allowed: the lifecycle columns, an event insert, an audit insert (no read-back)
+    await asTenant(tenantA, (tx) => tx.booking.updateMany({ where: { id: first.id }, data: { status: 'CANCELLED', version: 2, supplierRef: 'X-1', hotelConfirmationNo: 'H-1', agentRef: 'A-1', closedAt: new Date() } }))
+    await asTenant(tenantA, (tx) => tx.bookingEvent.create({ data: { tenantId: tenantA, bookingId: first.id, fromStatus: 'CONFIRMED', toStatus: 'CANCELLED', actorType: 'SYSTEM', payload: {} } }))
+    await asTenant(tenantA, (tx) => tx.auditEvent.createMany({ data: [{ tenantId: tenantA, actorType: 'SYSTEM', action: 'booking.test', entityType: 'booking', entityId: first.id, payload: {} }] }))
+    // denied: any other Booking column, deletes, updating the immutable log, writing supplier journals, reading audit
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { totalMinor: 1n } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { reference: 'FB-HACK' } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { agencyId: null } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.deleteMany()))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingEvent.updateMany({ data: { reason: 'x' } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingEvent.deleteMany()))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingGuest.deleteMany()))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingGuest.updateMany({ data: { firstName: 'x' } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.supplierMutation.deleteMany()))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.supplierMutation.updateMany({ data: { supplierStatus: 'X' } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.auditEvent.deleteMany()))).toMatch(PD)
+    // RLS still binds writes: another tenant's id in the row is refused by the policy even though the grant allows the insert
+    expect(await denied(() => asTenant(tenantB, (tx) => tx.bookingEvent.create({ data: { tenantId: tenantA, bookingId: first.id, toStatus: 'CONFIRMED', actorType: 'SYSTEM', payload: {} } })))).toMatch(/row-level security|42501/i)
+    await owner.$executeRawUnsafe(`UPDATE "Booking" SET status = 'CONFIRMED', version = 1, closed_at = NULL, supplier_ref = NULL, hotel_confirmation_no = NULL, agent_ref = NULL WHERE id = '${first.id}'`)
   })
 
   it('BO-E05: ledger, wallets, documents, cancellations, holds, audit, identity, hotels and agencies are not readable', async () => {

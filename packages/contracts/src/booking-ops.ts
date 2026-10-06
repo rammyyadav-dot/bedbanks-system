@@ -6,6 +6,7 @@
  * recorded), never zero or false. Guest names are masked unless the caller holds `booking.pii.view`; net, markup and margin are null unless the
  * caller holds `booking.view.net`. Agency-scoped callers only ever receive their own agency's bookings.
  */
+import type { BookingAction, BookingAvailableAction } from './booking-lifecycle'
 import type { BookingAttention, BookingOperations, BookingStatus, MinorString, SectionState } from './operations'
 
 export const BOOKING_QUICK_SEARCHES = ['needsAction', 'latest', 'checkInNext7', 'missingSupplierRef', 'deadline48h', 'failed', 'latestCancelled', 'onRequest', 'unpaid', 'noShowCandidates'] as const
@@ -64,6 +65,10 @@ export interface BookingAccessView {
   canViewPii: boolean
   /** For an agency-scoped caller: the agency every result belongs to. */
   agencyId: string | null
+  /** The caller's formal booking.* keys (owner membership implies none of the Phase 2 keys). The API re-checks on every action. */
+  permissions: string[]
+  /** True when this caller may enter a manual booking: `booking.manual.create` held, operator level, and `ADMIN_MANUAL_BOOKING_ENABLED` on. Only hides a button; the API checks again. */
+  manualEntry: boolean
 }
 
 export interface BookingListRow {
@@ -136,6 +141,8 @@ export interface BookingTimelineItem {
   actorType: 'USER' | 'SYSTEM' | 'SUPPLIER' | null
   actor: string | null
   reason: string | null
+  /** The lifecycle action that made this change, when it was made by one. */
+  action: BookingAction | 'createManual' | 'editReferences' | null
   /** True for rows written when the log was introduced: earlier history is in the audit items. */
   backfilled: boolean
   requestId: string | null
@@ -165,4 +172,56 @@ export interface BookingDetailView {
   timeline: BookingTimelineItem[]
   /** The existing transaction record: hold, finance, documents, reconciliation flags. Unavailable when the API database role cannot read it; null for an agency-scoped caller, who never sees internal finance or audit. */
   operationsRecord: SectionState<BookingOperations> | null
+  /** What this caller may do next on this booking, from the same rules the API enforces. Empty for a closed booking. */
+  availableActions: BookingAvailableAction[]
 }
+
+// ---- Phase 2: writes ---------------------------------------------------------------------------------------------------
+/** Every booking mutation requires this header (8-128 characters). A replay with the same key and the same request returns the first result. */
+export const BOOKING_IDEMPOTENCY_HEADER = 'idempotency-key'
+export const BOOKING_REASON_MAX = 500
+export const BOOKING_REF_MAX = 64
+
+/** `POST /admin/operations/bookings/:id/actions`. The caller names the action and the status they saw; the API decides legality. */
+export interface BookingActionRequest {
+  action: BookingAction
+  /** CAS: the request fails with 409 if the booking is no longer in this status. */
+  expectedStatus: BookingStatus
+  reason?: string
+  supplierRef?: string
+  hotelConfirmationNo?: string
+  supplierCancellationRef?: string
+  confirmNonRefundable?: boolean
+}
+/** `PATCH /admin/operations/bookings/:id/references`: add or correct references without changing the status. Omitted fields are untouched; null clears. */
+export interface BookingReferencesRequest { supplierRef?: string | null; hotelConfirmationNo?: string | null; agentRef?: string | null; reason: string }
+export interface BookingWriteResult {
+  bookingId: string
+  reference: string
+  status: BookingStatus
+  version: number
+  closed: boolean
+  /** True when the idempotency key had already been used for this same request: nothing new was written. */
+  replayed: boolean
+}
+
+/** `POST /admin/operations/bookings`: a manual (offline or phone) booking, behind `ADMIN_MANUAL_BOOKING_ENABLED`. No supplier is called, no credit is used. */
+export interface ManualBookingRequest {
+  agencyId: string
+  hotelId: string
+  supplier: string
+  checkIn: string
+  checkOut: string
+  currency: string
+  /** Integer minor units as a string. */
+  sellMinor: string
+  netMinor?: string
+  paymentMode?: 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL'
+  isRefundable?: boolean
+  cancelDeadline?: string
+  agentRef?: string
+  rooms: Array<{ roomName: string; boardCode?: string; adults: number; children?: number; childAges?: number[] }>
+  guests: Array<{ title?: string; firstName: string; lastName: string; isLead?: boolean; type?: 'ADULT' | 'CHILD'; age?: number }>
+}
+export const MANUAL_BOOKING_FAILURE = { disabled: 'MANUAL_BOOKING_DISABLED' } as const
+

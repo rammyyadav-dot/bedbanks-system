@@ -7,7 +7,7 @@ import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role
  * as it and booking rows hold guest personal data. The booking module therefore reads through its own connection (`BOOKING_OPS_DATABASE_URL`)
  * as `fbeds_booking_ops`, a member of the NOLOGIN group `fbeds_booking`. Nothing else in the API uses it, and the API role gets no booking grant.
  *
- * Phase 1 is read-only and names exactly the tables the list and detail screens need. Row-level security stays forced and this role cannot
+ * Phase 1 read what the list and detail screens need; Phase 2 adds narrow writes for the transition function (see the constants below). Row-level security stays forced and this role cannot
  * bypass it: every read still runs inside a transaction that sets the tenant. Write grants are added per phase, as narrow column grants for the
  * transition function only, in their own change to this file.
  * No grant on LedgerEntry, Wallet, BookingDocument or any hotel, agency, user or session table until a later phase needs it.
@@ -22,8 +22,14 @@ const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
 export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation'] as const
+/**
+ * Phase 2 write grants, as narrow as the transition function needs (ADR 0039). No DELETE and no TRUNCATE anywhere. Status, lock, version and the supplier
+ * references can be UPDATEd only as named columns (which is also why the immutable `BookingEvent` gets INSERT only). AuditEvent is INSERT-only and not readable.
+ */
+export const BOOKING_OPS_UPDATE_COLUMNS = { Booking: ['status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at'] } as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent'] as const
 /** Tables the role must never be able to read or write. Checked by the verifier. */
-export const BOOKING_OPS_FORBIDDEN_TABLES = ['LedgerEntry', 'Wallet', 'BookingDocument', 'Cancellation', 'InventoryHold', 'AuditEvent', 'users', 'sessions', 'memberships', 'Agency', 'AgencyMember', 'Hotel', 'Contract', 'DailyRate', 'ConnectorCredentialReference'] as const
+export const BOOKING_OPS_FORBIDDEN_TABLES = ['LedgerEntry', 'Wallet', 'BookingDocument', 'Cancellation', 'InventoryHold', 'users', 'sessions', 'memberships', 'Agency', 'AgencyMember', 'Hotel', 'Contract', 'DailyRate', 'ConnectorCredentialReference'] as const
 
 export function assertBookingOpsInput(loginRole: string, password: string): void {
   if (!IDENTIFIER.test(loginRole)) throw new Error('Login role must match [a-z][a-z0-9_]{2,62}')
@@ -31,16 +37,18 @@ export function assertBookingOpsInput(loginRole: string, password: string): void
   if (!PASSWORD.test(password)) throw new Error('Password must be 32-128 URL-safe characters [A-Za-z0-9_-]')
 }
 
-/** Phase 1 grant statements, in order. The one place the booking role's privileges are stated. */
+/** Grant statements, in order. The one place the booking role's privileges are stated. */
 export function bookingOpsGrantStatements(group = BOOKING_OPS_GROUP_ROLE): string[] {
   return [
     `GRANT USAGE ON SCHEMA public TO "${group}"`,
     ...BOOKING_OPS_READ_TABLES.map((table) => `GRANT SELECT ON "${table}" TO "${group}"`),
+    ...BOOKING_OPS_INSERT_TABLES.map((table) => `GRANT INSERT ON "${table}" TO "${group}"`),
+    ...Object.entries(BOOKING_OPS_UPDATE_COLUMNS).map(([table, columns]) => `GRANT UPDATE (${columns.map((c) => `"${c}"`).join(', ')}) ON "${table}" TO "${group}"`),
   ]
 }
 
 /**
- * Idempotently creates the group role and one LOGIN member, then (re)asserts exactly the Phase 1 grants.
+ * Idempotently creates the group role and one LOGIN member, then (re)asserts exactly the granted privileges (read, plus the narrow Phase 2 writes).
  * Owner-only: it must run as the database owner or another role allowed to CREATE ROLE and GRANT. It never creates SUPERUSER, BYPASSRLS,
  * CREATEROLE, CREATEDB or REPLICATION roles, and it revokes everything first so a stale or broader grant cannot survive. Never log the password.
  */
@@ -86,9 +94,25 @@ export async function verifyBookingOpsRole(db: Pick<Executor, '$queryRawUnsafe'>
   const readList = BOOKING_OPS_READ_TABLES.map((t) => `'${t}'`).join(',')
   const [missing] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${readList}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'SELECT')`)
   if (Number(missing?.n ?? 0) > 0) failures.push('role cannot read every booking table it needs')
-  const [writes] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
-    `SELECT count(*) AS n FROM unnest(ARRAY[${readList}]) t WHERE has_table_privilege(current_user, format('%I', t), 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')`)
-  if (Number(writes?.n ?? 0) > 0) failures.push('role holds a write privilege that Phase 1 does not grant')
+  const everyTable = [...new Set<string>([...BOOKING_OPS_READ_TABLES, ...BOOKING_OPS_INSERT_TABLES])].map((t) => `'${t}'`).join(',')
+  const [broad] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
+    `SELECT count(*) AS n FROM unnest(ARRAY[${everyTable}]) t WHERE has_table_privilege(current_user, format('%I', t), 'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')`)
+  if (Number(broad?.n ?? 0) > 0) failures.push('role holds a table-wide UPDATE or any DELETE, TRUNCATE, REFERENCES or TRIGGER privilege')
+  const insertList = BOOKING_OPS_INSERT_TABLES.map((t) => `'${t}'`).join(',')
+  const [insertGap] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${insertList}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'INSERT')`)
+  if (Number(insertGap?.n ?? 0) > 0) failures.push('role cannot insert where the transition function needs it')
+  const [extraInsert] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${readList}]) t WHERE t <> ALL(ARRAY[${insertList}]) AND has_table_privilege(current_user, format('%I', t), 'INSERT')`)
+  if (Number(extraInsert?.n ?? 0) > 0) failures.push('role can insert into a table that is read-only for it')
+  const [audit] = await db.$queryRawUnsafe<Array<{ readable: boolean }>>(`SELECT has_table_privilege(current_user, '"AuditEvent"', 'SELECT') AS readable`)
+  if (audit?.readable) failures.push('role can read the audit log')
+  for (const [table, columns] of Object.entries(BOOKING_OPS_UPDATE_COLUMNS)) {
+    const [cols] = await db.$queryRawUnsafe<Array<{ extra: bigint; missing: bigint }>>(
+      `SELECT count(*) FILTER (WHERE has_column_privilege(current_user, '"${table}"', a.attname, 'UPDATE') AND a.attname <> ALL(ARRAY[${columns.map((c) => `'${c}'`).join(',')}])) AS extra,
+              count(*) FILTER (WHERE NOT has_column_privilege(current_user, '"${table}"', a.attname, 'UPDATE') AND a.attname = ANY(ARRAY[${columns.map((c) => `'${c}'`).join(',')}])) AS missing
+         FROM pg_attribute a WHERE a.attrelid = '"${table}"'::regclass AND a.attnum > 0 AND NOT a.attisdropped`)
+    if (Number(cols?.extra ?? 0) > 0) failures.push(`role can update a ${table} column the transition function does not own`)
+    if (Number(cols?.missing ?? 0) > 0) failures.push(`role cannot update a ${table} column it needs`)
+  }
   const forbiddenList = BOOKING_OPS_FORBIDDEN_TABLES.map((t) => `'${t}'`).join(',')
   const [forbidden] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
     `SELECT count(*) AS n FROM unnest(ARRAY[${forbiddenList}]) t WHERE has_table_privilege(current_user, format('%I', t), 'SELECT,INSERT,UPDATE,DELETE')`)

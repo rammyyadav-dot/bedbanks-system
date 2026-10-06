@@ -1,20 +1,24 @@
-import { BOOKING_OPS_FORBIDDEN_TABLES, BOOKING_OPS_GROUP_ROLE, BOOKING_OPS_LOGIN_ROLE, BOOKING_OPS_READ_TABLES, assertBookingOpsInput, bookingOpsGrantStatements, provisionBookingOpsRole } from './booking-ops-role'
+import { BOOKING_OPS_FORBIDDEN_TABLES, BOOKING_OPS_INSERT_TABLES, BOOKING_OPS_GROUP_ROLE, BOOKING_OPS_LOGIN_ROLE, BOOKING_OPS_READ_TABLES, assertBookingOpsInput, bookingOpsGrantStatements, provisionBookingOpsRole } from './booking-ops-role'
 import { apiRuntimeGrantStatements } from './api-runtime-role'
 
 const PASSWORD = 'booking-ops-unit-test-password-0123456789'
 
 describe('booking module database role (ADR 0039)', () => {
-  it('BO-01: Phase 1 grants are SELECT on exactly the five booking tables, plus schema usage, and nothing else', () => {
+  it('BO-01: grants are SELECT on the five booking tables, INSERT on the four booking tables plus AuditEvent, and UPDATE on named Booking columns only', () => {
     const statements = bookingOpsGrantStatements()
     expect(statements[0]).toBe(`GRANT USAGE ON SCHEMA public TO "${BOOKING_OPS_GROUP_ROLE}"`)
-    expect(statements.slice(1)).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
-    expect(statements.join(' ')).not.toMatch(/INSERT|UPDATE|DELETE|TRUNCATE|ALL PRIVILEGES|WITH GRANT OPTION|BYPASSRLS/i)
+    expect(statements.filter((q) => q.startsWith('GRANT SELECT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT INSERT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent'].map((t) => `GRANT INSERT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT UPDATE'))).toEqual([`GRANT UPDATE ("status", "supplier_ref", "hotel_confirmation_no", "agent_ref", "version", "closed_at", "updated_at") ON "Booking" TO "${BOOKING_OPS_GROUP_ROLE}"`])
+    expect(statements.join(' ')).not.toMatch(/DELETE|TRUNCATE|ALL PRIVILEGES|WITH GRANT OPTION|BYPASSRLS|REFERENCES|TRIGGER/i)
+    expect(statements.length).toBe(1 + 5 + 5 + 1)
   })
 
   it('BO-02: no grant reaches ledger, wallet, documents, audit, identity or hotel tables, and the two lists never overlap', () => {
     const text = bookingOpsGrantStatements().join(' ')
     for (const table of BOOKING_OPS_FORBIDDEN_TABLES) expect(text).not.toContain(`"${table}"`)
-    for (const table of BOOKING_OPS_READ_TABLES) expect(BOOKING_OPS_FORBIDDEN_TABLES as readonly string[]).not.toContain(table)
+    for (const table of [...BOOKING_OPS_READ_TABLES, ...BOOKING_OPS_INSERT_TABLES]) expect(BOOKING_OPS_FORBIDDEN_TABLES as readonly string[]).not.toContain(table)
+    expect(bookingOpsGrantStatements().filter((q) => q.includes('"AuditEvent"'))).toEqual([`GRANT INSERT ON "AuditEvent" TO "${BOOKING_OPS_GROUP_ROLE}"`]) // the audit log is write-only for this role
   })
 
   it('BO-03: the API runtime role gets no booking grant from this module or from its own statements', () => {

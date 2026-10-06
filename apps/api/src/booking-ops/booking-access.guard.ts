@@ -1,4 +1,5 @@
-import { CanActivate, createParamDecorator, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
+import { CanActivate, createParamDecorator, ExecutionContext, ForbiddenException, Injectable, SetMetadata } from '@nestjs/common'
+import { Reflector } from '@nestjs/core'
 import type { Request } from 'express'
 import type { BookingAccessView } from '@bedbanks/contracts'
 import { membershipGrantsPermission } from '../agent/agent-permissions'
@@ -7,6 +8,11 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { PrismaService } from '../database/prisma.service'
 
 const ACCESS_KEY = 'fbeds:booking-access'
+export const REQUIRED_BOOKING_ACTION = 'fbeds:booking-action-permissions'
+
+/** Declares the formal permissions of which the caller must hold at least one (Phase 2 write routes). The route's service then checks the one named action. */
+export const RequireBookingAction = (...keys: string[]) => SetMetadata(REQUIRED_BOOKING_ACTION, keys)
+export const manualBookingEnabled = (env: Record<string, string | undefined> = process.env) => env.ADMIN_MANUAL_BOOKING_ENABLED === 'true'
 
 /**
  * Who may read bookings, and how much (ADR 0039). Fails closed.
@@ -19,7 +25,7 @@ const ACCESS_KEY = 'fbeds:booking-access'
  */
 @Injectable()
 export class BookingAccessGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>()
@@ -42,11 +48,16 @@ export class BookingAccessGuard implements CanActivate {
       const member = await this.prisma.withTenant(tenantId, (tx) => tx.agencyMember.findUnique({ where: { tenantId_userId: { tenantId, userId } }, select: { agencyId: true } }))
       agencyId = member?.agencyId ?? null
     }
-    if (!operator && (!agencyReader || !agencyId)) {
+    const required = this.reflector.get<string[] | undefined>(REQUIRED_BOOKING_ACTION, context.getHandler())
+    // Write routes: the caller must hold one of the declared action permissions as a formal role (owner membership implies none), and, for agency callers, be tied to an agency.
+    const holdsAction = !required || required.some((key) => formal.includes(key))
+    const scoped = operator || (agencyReader && Boolean(agencyId))
+    if (!holdsAction || !scoped || (required && !operator && !agencyId)) {
       await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'permission', entityId: agencyReader ? 'booking.view.agency' : 'booking.read', payload: { tenantId, requestId: (request as unknown as { requestId?: string }).requestId ?? null }, userId } })).catch(() => undefined)
       throw new ForbiddenException('Access denied')
     }
-    const access: BookingAccessView = { level: operator ? 'OPERATOR' : 'AGENCY', canViewNet: formal.includes('booking.view.net'), canViewPii: formal.includes('booking.pii.view'), agencyId: operator ? null : agencyId }
+    const permissions = formal.filter((key) => key.startsWith('booking.'))
+    const access: BookingAccessView = { level: operator ? 'OPERATOR' : 'AGENCY', canViewNet: formal.includes('booking.view.net'), canViewPii: formal.includes('booking.pii.view'), agencyId: operator ? null : agencyId, permissions, manualEntry: operator && formal.includes('booking.manual.create') && manualBookingEnabled() }
     ;(request as unknown as Record<string, unknown>)[ACCESS_KEY] = access
     return true
   }

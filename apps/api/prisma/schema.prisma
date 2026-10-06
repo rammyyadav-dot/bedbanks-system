@@ -874,8 +874,13 @@ model BookingEvent {
   actorId    String?          @map("actor_id")
   reason     String?
   payload    Json             @default("{}")
+  /// The named lifecycle action that made the change (Phase 2). Null on rows written earlier.
+  action             String?  @map("action")
+  idempotencyKey     String?  @map("idempotency_key")
+  requestFingerprint String?  @map("request_fingerprint")
   createdAt  DateTime         @default(now()) @map("created_at")
 
+  @@unique([tenantId, bookingId, idempotencyKey])
   @@index([tenantId, bookingId, createdAt])
 }
 

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
+  availableActions,
   OPERATIONS_READ_DENIED,
   type BookingAccessView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingTimelineItem, type SectionState,
 } from '@bedbanks/contracts'
@@ -160,6 +161,7 @@ export class OperationsBookingsService {
         cancellationPolicy: null, markupRule: null, netVisibility,
       },
       timeline, operationsRecord,
+      availableActions: availableActions({ status: b.status as BookingStatus, closedAt: iso(b.closedAt), isRefundable: b.isRefundable, checkIn: b.checkIn ? b.checkIn.toISOString().slice(0, 10) : null }, access.level, new Set(access.permissions), new Date()),
     }
   }
 
@@ -178,13 +180,14 @@ export class OperationsBookingsService {
       const backfilled = (e.payload as { backfill?: unknown } | null)?.backfill === true
       return {
         kind: 'status', at: e.createdAt.toISOString(), title: e.fromStatus ? `${e.fromStatus} → ${e.toStatus}` : `Recorded as ${e.toStatus}`, fromStatus: e.fromStatus as BookingStatus | null, toStatus: e.toStatus as BookingStatus,
-        actorType: e.actorType, actor: e.actorId ? users.get(e.actorId) ?? null : null, reason: e.reason, backfilled, requestId: null,
+        actorType: e.actorType, actor: e.actorId ? users.get(e.actorId) ?? null : null, reason: access.level === 'OPERATOR' ? e.reason : null, // internal reasons (supplier answers, failure notes) are for operators
+        action: (e.action as BookingTimelineItem['action']) ?? null, backfilled, requestId: null,
       }
     })
     if (access.level !== 'OPERATOR') return status
     const audit = await sectionRead(() => this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.findMany({ where: { tenantId, entityType: 'booking', entityId: bookingId, action: { startsWith: 'booking.' } }, orderBy: { createdAt: 'asc' }, take: 200 })))
     const items: BookingTimelineItem[] = audit.state === 'available'
-      ? audit.data.map((a) => { const v = auditView(a); return { kind: 'audit' as const, at: v.at, title: v.action, fromStatus: null, toStatus: null, actorType: (a.actorType === 'USER' ? 'USER' : 'SYSTEM') as 'USER' | 'SYSTEM', actor: v.userId ? users.get(v.userId) ?? null : null, reason: null, backfilled: false, requestId: v.requestId } })
+      ? audit.data.map((a) => { const v = auditView(a); return { kind: 'audit' as const, at: v.at, title: v.action, fromStatus: null, toStatus: null, actorType: (a.actorType === 'USER' ? 'USER' : 'SYSTEM') as 'USER' | 'SYSTEM', actor: v.userId ? users.get(v.userId) ?? null : null, reason: null, action: null, backfilled: false, requestId: v.requestId } })
       : []
     return [...status, ...items].sort((x, y) => x.at.localeCompare(y.at))
   }
