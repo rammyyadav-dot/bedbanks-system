@@ -11,6 +11,10 @@ export const departmentPermissions = {
   fundingManage: 'funding.manage',
   /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */
   bookingViewAgency: 'booking.view.agency', bookingViewNet: 'booking.view.net', bookingPiiView: 'booking.pii.view',
+  /** Booking lifecycle actions (ADR 0039, Phase 2). Each authorises one named action in `booking-lifecycle.ts`; none is a generic "update status". */
+  bookingOnRequestResolve: 'booking.on-request.resolve', bookingConfirmManual: 'booking.confirm.manual', bookingSupplierRefEdit: 'booking.supplier-ref.edit',
+  bookingAmend: 'booking.amend', bookingAmendRequest: 'booking.amend.request', bookingCancelRequest: 'booking.cancel.request', bookingCancelNonRefundable: 'booking.cancel.nonrefundable',
+  bookingRebook: 'booking.rebook', bookingNoShowMark: 'booking.no-show.mark', bookingManualCreate: 'booking.manual.create',
 } as const
 export type DepartmentPermission = (typeof departmentPermissions)[keyof typeof departmentPermissions]
 

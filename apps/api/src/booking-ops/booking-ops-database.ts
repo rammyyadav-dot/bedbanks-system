@@ -51,6 +51,23 @@ export class BookingOpsDatabase implements OnModuleDestroy {
     }
   }
 
+  /**
+   * A write transaction (Phase 2). Same connection, same role, same tenant setting; ReadCommitted so that two operators racing on one booking get a clean
+   * compare-and-set conflict from `transitionBooking` instead of a serialization failure. The role's write grants are narrow (see booking-ops-role.ts).
+   */
+  async withTenantWrite<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    const client = this.connection()
+    try {
+      return await client.withTenant(tenantId, work, { isolationLevel: 'ReadCommitted' })
+    } catch (error) {
+      if (isAccessFailure(error)) {
+        this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`)
+        throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
+      }
+      throw error
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.client?.$disconnect()
     this.client = null

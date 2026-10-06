@@ -1,3 +1,4 @@
+import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
@@ -64,7 +65,9 @@ export class BookingConfirmationService {
       await tx.ledgerEntry.create({ data: { tenantId, walletId: reservation.walletId, type: 'RELEASE', amountMinor, currency: booking.currency, reference, idempotencyKey: `${authorizationKey}:settle-release` } })
       await tx.ledgerEntry.create({ data: { tenantId, walletId: reservation.walletId, type: 'DEBIT', amountMinor: -amountMinor, currency: booking.currency, reference, idempotencyKey: `${authorizationKey}:settle-debit` } })
 
-      await tx.booking.update({ where: { id: bookingId }, data: { status: 'CONFIRMED', supplier: 'contracted-inventory' } })
+      // The one writer of Booking.status (ADR 0039): records the move and its immutable event. `supplier` is not part of the lifecycle.
+      await transitionBooking(tx, { tenantId, bookingId, action: 'systemConfirm', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'USER', id: userId }, level: 'SYSTEM', idempotencyKey: `confirm:${bookingId}`, now: new Date() })
+      await tx.booking.update({ where: { id: bookingId }, data: { supplier: 'contracted-inventory' } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.confirmed', entityType: 'booking', entityId: bookingId,
         payload: { requestId, inventoryHoldId: holdId, walletId: reservation.walletId, currency: booking.currency, amountMinor: amountMinor.toString() } } })
       return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: false }

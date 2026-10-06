@@ -54,3 +54,39 @@ Enforced in Phase 1 are marked **E**; the rest are catalogued `planned` and beco
 
 ## Consequences
 Phases 2 to 6 follow the spec's order after Phase 1 is accepted. Finance effects go through the existing ledger and finance services as events. Documents never show net rate or supplier name. Hosted acceptance, live suppliers, booking enablement and payments stay out of scope.
+
+## Phase 2 decisions: the lifecycle engine (2026-10-06)
+
+**One writer.** `transitionBooking(tx, input)` (`apps/api/src/booking-ops/booking-transition.ts`) is the only code that writes `Booking.status` and `Booking.closedAt`. A source-scan test (`booking-status-writers.spec.ts`) fails the build on any other write. The Agent confirmation, cancellation and reconciliation services now call it (system actions `systemConfirm`, `systemFail`, `systemRequestCancellation` + `systemCompleteCancellation`), so every status change, from any source, leaves an immutable `BookingEvent`. `transitionBooking` takes the caller's transaction, so it works under whichever principal opened it.
+
+**Named actions, not "set status".** The spec's transition table lives in `@bedbanks/contracts` (`booking-lifecycle.ts`: `BOOKING_TRANSITIONS`, `BOOKING_ACTION_RULES`). Each action has one legal `from`, one `to`, the formal permission(s) that authorise it, the fields it requires, and who may do it (operator, agency, system). The Admin shows exactly `availableActions` returned by the API, computed by the same function the API enforces. A test asserts the rules and the table cannot drift, over every ordered pair of the ten statuses.
+
+| Action | Move | Permission (formal role) | Required |
+|---|---|---|---|
+| recordConfirmed | Pending supplier → Confirmed | `booking.confirm.manual` | supplier ref |
+| recordOnRequest | Pending supplier → On request | `booking.confirm.manual` | |
+| recordFailed | Pending supplier → Failed | `booking.confirm.manual` | reason |
+| confirmOnRequest | On request → Confirmed | `booking.on-request.resolve` | supplier ref + hotel conf. no. |
+| rejectOnRequest | On request → Rejected | `booking.on-request.resolve` | reason |
+| requestAmendment | Confirmed → Amend requested | `booking.amend` (operator) / `booking.amend.request` (agency, own agency) | reason |
+| approveAmendment | Amend requested → Confirmed, version +1 | `booking.amend` | |
+| rejectAmendment | Amend requested → Confirmed, unchanged | `booking.amend` | reason |
+| requestCancellation | Confirmed → Cancel requested | `booking.cancel` if known refundable, else `booking.cancel.nonrefundable`; agency: `booking.cancel.request` | reason; second confirmation unless known refundable (always for agency) |
+| confirmCancellation | Cancel requested → Cancelled | as above (operator only) | supplier cancellation ref |
+| markNoShow | Checked out → No-show | `booking.no-show.mark` | reason; within 7 days of check-in |
+| close | Failed: set `closedAt` | `booking.rebook` | reason |
+| system* / markCheckedOut | platform only | none (never offered to a person) | |
+
+Unknown refundability is treated as non-refundable. Owner membership implies none of these keys; they come from formal roles only (a deliberate choice, including for the pre-existing `booking.cancel`, when used in Admin).
+
+**Concurrency and idempotency.** Every write takes an `Idempotency-Key` header. The key and a SHA-256 request fingerprint are stored on the `BookingEvent` row (new nullable columns, unique per tenant + booking + key): a replay returns the first result with `replayed: true` and writes nothing; the same key with a different request is a 409. The caller also sends `expectedStatus` and the update is a compare-and-set on it, so two operators racing on one booking get exactly one winner and a 409 that names the current status. Writes run `ReadCommitted`.
+
+**Audit.** Each write inserts a `BookingEvent` and an `AuditEvent` in the same transaction as the change: both exist or neither. The audit payload carries the action, from/to, permission, caller level, request id and whether a reason was given; never the reason text, guest names or references. Refusals for missing permission write `permission.denied`.
+
+**Database grants (narrow, in `booking-ops-role.ts`).** On top of Phase 1's SELECT: INSERT on `Booking`, `BookingRoom`, `BookingGuest`, `BookingEvent`, `AuditEvent`; UPDATE on the named columns `status, supplier_ref, hotel_confirmation_no, agent_ref, version, closed_at, updated_at` of `Booking`. No DELETE, no TRUNCATE, no table-wide UPDATE, `AuditEvent` write-only, `BookingEvent` still append-only by trigger. The verifier checks all of it, including that no other `Booking` column is updatable. The API role gets no booking grant. **Re-run `ops:provision-booking-ops-role` (owner) after deploying Phase 2**, or the write routes answer 503 "not readable".
+
+**Manual entry** (`POST /admin/operations/bookings`) needs `booking.manual.create` and `ADMIN_MANUAL_BOOKING_ENABLED=true` (default false; enable only in dev/staging). It creates a Pending-supplier booking with channel MANUAL and the standard `FB-` reference, one event, one audit event. It calls no supplier, holds no inventory and moves no money or credit (those arrive with Phases 3 and 5); the screen says so. The API database role (not the booking role) confirms the hotel and agency belong to the operator and that the agency is ACTIVE. Money is integer minor units in strings; only currencies enabled by policy are accepted.
+
+**Deliberately not in Phase 2** (each needs a later phase, and the screen does not pretend otherwise): applying an approved amendment to the booking data (needs re-pricing and the supplier), penalty and refund calculation and any ledger or document effect (Phase 5), offering an alternative and rebooking from a failed booking (needs a link between bookings and supplier calls, Phase 3), the nightly Checked-out job and closing terminal bookings after the dispute window (the window length is still an open question; Phase 4/6), assignment and SLA (Phase 4). `markCheckedOut` exists in the table as a system-only action but nothing schedules it yet.
+
+**Manual outcomes are a stopgap.** Until supplier integration, ops record the supplier's answer by hand (`recordConfirmed` etc.). In Phase 3 the job runner records the same outcomes through `transitionBooking` as the system; the manual actions then stay for the case where a supplier answers off-platform.

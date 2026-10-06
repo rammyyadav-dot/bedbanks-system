@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient({ datasourceUrl: url })
   try {
     await provisionBookingOpsRole(prisma, { loginRole, password })
-    console.log(`Provisioned login role "${loginRole}" (member of ${BOOKING_OPS_GROUP_ROLE}) on database "${target.database}": read-only on the Phase 1 booking tables.`)
+    console.log(`Provisioned login role "${loginRole}" (member of ${BOOKING_OPS_GROUP_ROLE}) on database "${target.database}": SELECT on the booking tables, INSERT on the booking tables and the audit log, UPDATE on named Booking columns only (ADR 0039).`)
     console.log('Build BOOKING_OPS_DATABASE_URL yourself with this role and the password, store it in the secret manager, and never commit it.')
   } finally {
     await prisma.$disconnect()

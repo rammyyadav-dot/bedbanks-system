@@ -52,7 +52,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const opsUrl = (() => { const u = new URL(ownerUrl as string); u.username = BOOKING_OPS_LOGIN_ROLE; u.password = opsPassword; return u.toString() })()
   const opsDb = new BookingOpsDatabase({ DATABASE_URL: ownerUrl, BOOKING_OPS_DATABASE_URL: opsUrl })
   const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx)
-  const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null }
+  const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false }
   const listBookings = (tenantId: string, query: Record<string, unknown> = {}) => bookingsRead.list(tenantId, 'test-user', operator, query, 'req-test')
   const hotelOps = new OperationsHotelsService(prisma)
   const supply = new OperationsSupplyService(prisma, hotelOps)

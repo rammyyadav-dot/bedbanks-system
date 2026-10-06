@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BOOKING_PAGE_SIZES, BOOKING_QUICK_SEARCH_LABEL, BOOKING_QUICK_SEARCHES, type BookingListQuery, type BookingListPage } from '@bedbanks/contracts'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -44,7 +45,8 @@ export function BookingsWorkspace() {
 
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="BOOKINGS" title="Bookings" description="Every reservation across agencies and suppliers. Read-only in this phase: you can find, filter and open any booking; nothing here changes one." />
+      <PageHeader eyebrow="BOOKINGS" title="Bookings" description="Every reservation across agencies and suppliers. Find, filter and open any booking; open one to act on it." />
+      {last?.access.manualEntry && <p style={{ margin: '0 0 10px' }}><Link href="/bookings/new" className="admin-btn" data-testid="new-manual-booking">Enter a booking manually</Link></p>}
       <nav aria-label="Quick searches" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
         {BOOKING_QUICK_SEARCHES.map((c) => (
           <button key={c} type="button" className="admin-btn" aria-pressed={chip === c} style={chip === c ? { background: '#0d2631', color: '#fff', borderColor: '#0d2631' } : undefined} onClick={() => go({ chip: c })}>{BOOKING_QUICK_SEARCH_LABEL[c]}</button>
