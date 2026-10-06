@@ -87,6 +87,10 @@ Egress: tasks use NAT (suppliers, ECR, Secrets Manager); S3 is a gateway endpoin
 ## Database connections and pooling
 **Finding re-examined.** No Next.js route handler in this repository touches the database: Prisma is used only by the long-running NestJS API, and the portals reach it through the server-side `/api/v1` proxy. So there is no per-request serverless connection fan-out, and `@neondatabase/serverless` (a driver for serverless and edge runtimes) is not needed and would mean moving Prisma onto driver adapters for no gain. The real exposure was different: Prisma's default pool is `cpus * 2 + 1` **per client**, and in a container `cpus` is the host's core count, with three clients per task (main, booking module, hold-expiry sweeper) and several tasks. Nothing capped it, and a request waiting for a connection waited without a limit.
 
+**Wording correction.** Prisma's default pool is finite but CPU-sized (`cpus * 2 + 1` per client), not unbounded; the risk is that it follows the *host's* cores in a container and multiplies by clients and tasks, with no wait limit.
+
+**Dedicated clients.** Any new long-lived client built from its own URL (for example a cancellation, settlement or deadline-monitoring database) must call `withPoolSettings(url, env, { maxVar, defaultMax })`; `pool-usage.spec.ts` fails the build if one does not. Its size must be added to the Terraform budget (`db_cancellation_pool_max` is reserved at 5 for that purpose).
+
 **What now bounds it** (`apps/api/src/database/pool-config.ts`, applied in `PrismaService`, the booking module's client and the sweeper):
 | Setting | Default | Variable |
 |---|---|---|
@@ -98,7 +102,7 @@ Egress: tasks use NAT (suppliers, ECR, Secrets Manager); S3 is a gateway endpoin
 | Transaction pooler in front (disables prepared statements) | off; auto-on for `-pooler.`/`pgbouncer` hosts | `DB_PGBOUNCER=true` |
 A value already in the URL wins; a malformed variable stops startup. Verified against PostgreSQL: with a pool of 3, 30 concurrent callers peaked at 3 server connections, and with all 3 held a further request failed after about 1 s (`P2024`) instead of queueing.
 
-**Connection budget.** Worst case = (main + booking + sweeper) x maximum tasks = (10 + 5 + 2) x (2 x 4) = 136 with the defaults (the Terraform output `db_connection_budget` prints it). RDS `db.m7g.large` allows roughly 900 (`max_connections` is derived from memory), so the budget is comfortable; a smaller instance class or more tasks must be re-checked. The `db-connections` alarm fires above `db_connections_alarm_threshold` (default 400). Raise pools only with the database's limit in view: more connections rarely mean more throughput.
+**Connection budget.** Worst case = (main + booking + sweeper + reserved cancellation client) x maximum tasks = (10 + 5 + 2 + 5) x (2 x 4) = 176 with the defaults (the Terraform output `db_connection_budget` prints it). RDS `db.m7g.large` allows roughly 900 (`max_connections` is derived from memory), so the budget is comfortable; a smaller instance class or more tasks must be re-checked. The `db-connections` alarm fires above `db_connections_alarm_threshold` (default 400). Raise pools only with the database's limit in view: more connections rarely mean more throughput.
 
 **Readiness under saturation.** `/api/v1/health/ready` runs `SELECT 1` through the same pool. If a pool is saturated for longer than the load balancer's three 5-second probes, tasks are taken out of rotation, which adds load to the rest. If load tests show this, give readiness its own one-connection client or relax the unhealthy threshold; do not raise the pool to hide it.
 

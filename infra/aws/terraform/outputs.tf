@@ -12,7 +12,9 @@ output "cluster_name" { value = aws_ecs_cluster.this.name }
 output "secret_arns" {
   value = { database_url = aws_secretsmanager_secret.api_database_url.arn, booking_ops_database_url = aws_secretsmanager_secret.booking_ops_database_url.arn, redis_url = aws_secretsmanager_secret.redis_url.arn }
 }
-# Worst case the stack can open: every API task at its autoscaling maximum, every pool full (+2 for the hold-expiry sweeper when enabled).
+# Worst case the stack can open: every API task at its autoscaling maximum, every pool full. Per task: main + booking module + hold-expiry sweeper (2)
+# + the reserved cancellation/settlement client. The sweeper and the reserved client are counted even when disabled/absent, so enabling them cannot break the budget.
+locals { per_task_connections = var.db_pool_max + var.db_booking_pool_max + 2 + var.db_cancellation_pool_max }
 output "db_connection_budget" {
-  value = { worst_case = (var.db_pool_max + var.db_booking_pool_max + 2) * var.api_desired_count * 4, per_task = var.db_pool_max + var.db_booking_pool_max + 2 }
+  value = { worst_case = local.per_task_connections * var.api_desired_count * 4, per_task = local.per_task_connections }
 }

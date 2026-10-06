@@ -105,3 +105,8 @@ variable "db_connections_alarm_threshold" {
   default     = 400
   description = "Alarm when the database has more than this many client connections. Keep it below ~70% of max_connections (see the runbook's connection budget)."
 }
+variable "db_cancellation_pool_max" {
+  type        = number
+  default     = 5
+  description = "RESERVED for a dedicated cancellation/settlement client (CancellationDatabase). It is counted in the connection budget now so the budget stays honest when that client is added; no task receives a variable for it until the client exists."
+}
