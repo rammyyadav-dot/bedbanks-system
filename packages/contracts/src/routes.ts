@@ -76,6 +76,8 @@ export const routes = {
     bookings: '/admin/operations/bookings', booking: '/admin/operations/bookings/:bookingId',
     /** Phase 2 writes (ADR 0039): `POST bookings` enters a manual booking; the rest act on one booking. All need an Idempotency-Key header. */
     bookingActions: '/admin/operations/bookings/:bookingId/actions', bookingReferences: '/admin/operations/bookings/:bookingId/references', bookingSupplier: '/admin/operations/bookings/:bookingId/supplier',
+    /** Operations queue (Phase 4). `bookingOps` is the list; counts, assignees and the per-booking actions hang off it. */
+    bookingOps: '/admin/operations/booking-queue', bookingOpsAssignees: '/admin/operations/booking-queue/assignees', bookingOpsAssign: '/admin/operations/booking-queue/:bookingId/assign', bookingOpsAcknowledge: '/admin/operations/booking-queue/:bookingId/acknowledge', bookingOpsEscalate: '/admin/operations/booking-queue/:bookingId/escalate', bookingOpsNote: '/admin/operations/booking-queue/:bookingId/note', bookingOpsClear: '/admin/operations/booking-queue/:bookingId/clear', bookingOpsAnswer: '/admin/operations/booking-queue/:bookingId/supplier-answer',
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
     reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
     cancellations: '/admin/operations/cancellations',
