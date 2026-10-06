@@ -134,18 +134,18 @@ async function openHotel(page, key, tab) {
   await openHotel(page, 'bravo', 'sellability')
   // the seeded stop-sell is on the 15th day from today for the Deluxe plan; stay nights d+14..d+16
   const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
-  await page.getByLabel('Check-in').fill(day(14)); await page.getByLabel('Check-out').fill(day(17))
+  await page.getByRole('form', { name: 'Sellability inspector' }).getByLabel('Check-in').fill(day(14)); await page.getByRole('form', { name: 'Sellability inspector' }).getByLabel('Check-out').fill(day(17))
   await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-testid=sellability-result]')
   const bad = page.locator('[data-testid=sellability-result] section[data-sellable=false]').first()
   const badText = (await bad.innerText()).replace(/\s+/g, ' ')
   check('multi-night failure: the Deluxe plan is NOT SELLABLE, names STOP_SELL and the failing night', (await bad.count()) === 1 && /STOP_SELL/.test(badText) && (await bad.locator(`li[data-date="${day(15)}"][data-sellable=false]`).count()) === 1 && (await bad.locator(`li[data-date="${day(14)}"][data-sellable=true]`).count()) === 1, badText.slice(0, 140))
   check('failed gate list shows Stop sell FAIL and Daily rate PASS', (await bad.locator('li[data-gate=stopSell][data-state=FAIL]').count()) === 1 && (await bad.locator('li[data-gate=rate][data-state=PASS]').count()) === 1)
   check('the other room stays sellable for the same dates (per-plan verdicts)', (await page.locator('[data-testid=sellability-result] section[data-sellable=true]').count()) === 1)
-  await page.getByLabel('Check-out').fill(day(14)); check('editing stay criteria clears the old verdict before submitting', (await page.locator('[data-testid=sellability-result]').count()) === 0); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-state]')
+  await page.getByRole('form', { name: 'Sellability inspector' }).getByLabel('Check-out').fill(day(14)); check('editing stay criteria clears the old verdict before submitting', (await page.locator('[data-testid=sellability-result]').count()) === 0); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-state]')
   check('an invalid stay shows the API validation message, not a result', /1-31 nights/.test(await text(page)) && (await page.locator('[data-testid=sellability-result]').count()) === 0)
   await page.screenshot({ path: `${SHOTS}/sellability-failed.png`, fullPage: true })
   let posts = 0; page.on('request', (r) => { if (r.url().includes('/sellability')) posts++ })
-  await page.getByLabel('Check-out').fill(day(16)); await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /Check sellability/.test(x.textContent)); b.click(); b.click() })
+  await page.getByRole('form', { name: 'Sellability inspector' }).getByLabel('Check-out').fill(day(16)); await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /Check sellability/.test(x.textContent)); b.click(); b.click() })
   await page.waitForSelector('[data-testid=sellability-result]'); check('a double click sends one inspection request', posts === 1, `requests=${posts}`)
 
   // ---- bookings, holds, audit cross-navigation ----------------------------------------------------------------------------------
