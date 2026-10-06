@@ -4,7 +4,9 @@ import type { Prisma } from '@prisma/client'
 import {
   actionBlock, BOOKING_ACTION_RULES, BOOKING_REASON_MAX, BOOKING_REF_MAX, missingFields,
   type BookingAction, type BookingActionField, type BookingStatus,
+  type StoredPenaltyQuote,
 } from '@bedbanks/contracts'
+import { emitTransitionFinance, isRequestingCancellation } from './booking-finance-events'
 
 /**
  * `transitionBooking`: the ONE writer of `Booking.status` and `Booking.closedAt` (ADR 0039, Phase 2).
@@ -32,6 +34,10 @@ export interface TransitionInput {
   confirmNonRefundable?: boolean
   /** The supplier's own word (free text such as CONFIRMED or ON_REQUEST), kept apart from the status. Written with the move. */
   supplierStatus?: string
+  /** Admin-originated callers set this so the move also records its money fact (ADR 0039, Phase 5). The Agent flow does not: it already posts to the wallet ledger. */
+  emitFinance?: boolean
+  /** Penalty worked out by the caller when cancellation is requested; stored on that request's event and fixed from then on. */
+  penaltyQuote?: StoredPenaltyQuote
   /** When present the request is replay-safe. */
   idempotencyKey?: string
   now: Date
@@ -57,7 +63,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   if (input.actor.type === 'USER' && !input.actor.id) throw new BadRequestException({ message: 'A user action needs an actor', code: 'ACTOR_REQUIRED' })
   if (!rule.actors.includes(input.level)) throw new ConflictException({ message: 'This action is not available to this kind of caller', code: 'ILLEGAL_TRANSITION' })
 
-  const booking = await tx.booking.findFirst({ where: { id: input.bookingId, tenantId: input.tenantId }, select: { id: true, reference: true, status: true, version: true, closedAt: true, isRefundable: true, checkIn: true } })
+  const booking = await tx.booking.findFirst({ where: { id: input.bookingId, tenantId: input.tenantId }, select: { id: true, reference: true, status: true, version: true, closedAt: true, isRefundable: true, checkIn: true, currency: true, totalMinor: true, netMinor: true, paymentMode: true } })
   if (!booking) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
 
   const fingerprint = requestFingerprint(input.bookingId, { ...input, reason, supplierRef, hotelConfirmationNo, supplierCancellationRef })
@@ -100,9 +106,11 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   if (input.action === 'approveAmendment') payload.amendment = 'approved'
   if (input.action === 'rejectAmendment') payload.amendment = 'rejected'
   if (closing) payload.closed = true
+  if (input.emitFinance && input.penaltyQuote && isRequestingCancellation(input.action)) payload.penaltyQuote = input.penaltyQuote as unknown as Prisma.InputJsonObject
   await tx.bookingEvent.create({ data: {
     tenantId: input.tenantId, bookingId: booking.id, fromStatus: rule.from, toStatus: rule.to, actorType: input.actor.type, actorId: input.actor.id ?? null,
     reason: reason ?? null, action: input.action, payload, idempotencyKey: input.idempotencyKey ?? null, requestFingerprint: input.idempotencyKey ? fingerprint : null,
   } })
+  if (input.emitFinance) await emitTransitionFinance(tx, { id: booking.id, tenantId: input.tenantId, currency: booking.currency, totalMinor: booking.totalMinor, netMinor: booking.netMinor, paymentMode: booking.paymentMode }, input.action, input.actor.type === 'USER' ? input.actor.id ?? null : null)
   return { bookingId: booking.id, reference: booking.reference, status: rule.to, version: booking.version + (rule.bumpsVersion ? 1 : 0), closed: closing, replayed: false }
 }

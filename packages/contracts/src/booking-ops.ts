@@ -258,6 +258,8 @@ export interface ManualBookingRequest {
   paymentMode?: 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL'
   isRefundable?: boolean
   cancelDeadline?: string
+  /** The cancellation terms of this booking, frozen with it. Without them the penalty of a later cancellation is a person's decision, never a guess. `penaltyMinor` is a string of minor units. */
+  cancellationRules?: Array<{ daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string }>
   agentRef?: string
   rooms: Array<{ roomName: string; boardCode?: string; adults: number; children?: number; childAges?: number[] }>
   guests: Array<{ title?: string; firstName: string; lastName: string; isLead?: boolean; type?: 'ADULT' | 'CHILD'; age?: number }>

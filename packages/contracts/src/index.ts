@@ -16,5 +16,6 @@ export * from './hotel-quick-update';
 export * from './hotel-images';
 export * from './hotel-inventory';
 export * from './rate-certification';
+export * from './booking-finance';
 export * from './booking-lifecycle';
 export * from './booking-ops-queue';

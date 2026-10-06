@@ -3,7 +3,7 @@
  * Every dynamic value is escaped; amounts are integer minor units formatted with BigInt only; no scripts, no
  * external resources, so the page is safe to serve under a locked-down Content-Security-Policy.
  */
-export type BookingDocumentKind = 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE'
+export type BookingDocumentKind = 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE' | 'CANCELLATION_NOTE'
 
 export interface RenderableDocument {
   type: BookingDocumentKind
@@ -33,37 +33,47 @@ export function formatMinor(amountMinor: string, currency: string): string {
   return `${negative ? '-' : ''}${currency} ${whole}${fraction}`
 }
 
-const TITLES: Record<BookingDocumentKind, string> = { VOUCHER: 'Hotel Voucher', INVOICE: 'Tax Invoice', CREDIT_NOTE: 'Credit Note' }
+const TITLES: Record<BookingDocumentKind, string> = { VOUCHER: 'Hotel Voucher', INVOICE: 'Tax Invoice', CREDIT_NOTE: 'Credit Note', CANCELLATION_NOTE: 'Cancellation Note' }
 const row = (label: string, value: unknown) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
 
 export function renderBookingDocument(doc: RenderableDocument): string {
   const p = doc.payload
   const stay = p.stay ?? {}
   const rows: string[] = [row('Booking reference', p.bookingReference)]
+  if (p.agentRef) rows.push(row('Agent reference', p.agentRef))
+  if (p.hotelConfirmationNo) rows.push(row('Hotel confirmation no.', p.hotelConfirmationNo))
   if (p.hotel) rows.push(row('Hotel', `${p.hotel.name}${p.hotel.city ? `, ${p.hotel.city}` : ''}${p.hotel.countryCode ? ` (${p.hotel.countryCode})` : ''}`))
   if (p.room) rows.push(row('Room', p.room.name), row('Board', `${p.board?.name ?? ''}${p.board?.code ? ` (${p.board.code})` : ''}`))
   if (stay.checkIn) rows.push(row('Check-in', stay.checkIn), row('Check-out', stay.checkOut), row('Nights', stay.nights), row('Rooms', stay.rooms),
     row('Guests', `${stay.adults} adult${stay.adults === 1 ? '' : 's'}${stay.children ? `, ${stay.children} child${stay.children === 1 ? '' : 'ren'} (ages ${(stay.childAges ?? []).join(', ')})` : ''}`))
   if (p.leadGuest) rows.push(row('Lead guest', `${p.leadGuest.firstName} ${p.leadGuest.lastName}`))
+  if (Array.isArray(p.guests) && p.guests.length > 1) rows.push(row('All guests', p.guests.join(', ')))
 
   let body = ''
   if (doc.type === 'VOUCHER') {
     const rules: Array<{ daysBeforeCheckin: number; penalty: string }> = p.cancellationPolicy ?? []
     body = `<h2>Cancellation policy</h2>${rules.length === 0 ? '<p>No cancellation penalty is defined for this contract.</p>'
       : `<ul>${rules.map((rule) => `<li>Within ${escapeHtml(rule.daysBeforeCheckin)} day(s) of check-in: ${escapeHtml(rule.penalty)}</li>`).join('')}</ul>`}
-      <p class="note">Present this voucher at check-in. It carries no rate information.</p>`
+      ${p.nonRefundable ? '<p><strong>Non-refundable:</strong> the full amount is retained if this booking is cancelled.</p>' : ''}<p class="note">Present this voucher at check-in. It carries no rate information.</p>`
   } else if (doc.type === 'INVOICE') {
     const lines: Array<{ description: string; amountMinor: string }> = p.lines ?? []
     body = `<h2>Charges</h2><table class="lines">${lines.map((line) => `<tr><td>${escapeHtml(line.description)}</td><td class="amt">${escapeHtml(formatMinor(line.amountMinor, p.currency))}</td></tr>`).join('')}
       <tr class="total"><td>Total</td><td class="amt">${escapeHtml(formatMinor(p.totalMinor, p.currency))}</td></tr></table>
-      <p>Paid from wallet. Status: ${escapeHtml(p.payment?.status ?? '')}.</p>`
+      <p>${p.payment?.text ? escapeHtml(p.payment.text) : `Paid from wallet. Status: ${escapeHtml(p.payment?.status ?? '')}`}.</p>`
+  } else if (doc.type === 'CANCELLATION_NOTE') {
+    const basis = p.penaltyState === 'QUOTED' ? (p.basis === 'NON_REFUNDABLE' ? 'Non-refundable booking: the full amount is retained.' : p.ruleDaysBeforeCheckin === null ? 'Cancelled before any penalty applied.' : `Cancellation terms: within ${p.ruleDaysBeforeCheckin} day(s) of check-in.`) : p.penaltyState === 'WAIVED' ? `Penalty reduced by approval from ${formatMinor(p.quotedPenaltyMinor ?? '0', p.currency)}.` : 'Penalty decided by the operator.'
+    body = `<h2>Cancellation</h2><table class="lines">
+      <tr><td>Booking total (invoice ${escapeHtml(p.originalInvoiceNumber)})</td><td class="amt">${escapeHtml(formatMinor(p.totalMinor, p.currency))}</td></tr>
+      <tr><td>Cancellation penalty</td><td class="amt">${escapeHtml(formatMinor(p.penaltyMinor, p.currency))}</td></tr>
+      <tr class="total"><td>Refundable amount</td><td class="amt">${escapeHtml(formatMinor(p.refundMinor, p.currency))}</td></tr></table>
+      <p>${escapeHtml(basis)}</p>${p.cancelledAt ? `<p class="note">Cancelled ${escapeHtml(String(p.cancelledAt).slice(0, 10))}</p>` : ''}`
   } else {
     body = `<h2>Adjustment</h2><table class="lines">
       <tr><td>Original charge (invoice ${escapeHtml(p.originalInvoiceNumber)})</td><td class="amt">${escapeHtml(formatMinor(p.totalMinor, p.currency))}</td></tr>
       <tr><td>Cancellation penalty retained</td><td class="amt">${escapeHtml(formatMinor(p.penaltyMinor, p.currency))}</td></tr>
-      <tr class="total"><td>Credited to wallet</td><td class="amt">${escapeHtml(formatMinor(p.refundMinor, p.currency))}</td></tr></table>`
+      <tr class="total"><td>${p.creditedTo ? escapeHtml(p.creditedTo) : 'Credited to wallet'}</td><td class="amt">${escapeHtml(formatMinor(p.refundMinor, p.currency))}</td></tr></table>`
   }
-  const cancelled = doc.type !== 'CREDIT_NOTE' && doc.bookingStatus === 'CANCELLED'
+  const cancelled = (doc.type === 'VOUCHER' || doc.type === 'INVOICE') && doc.bookingStatus === 'CANCELLED'
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(TITLES[doc.type])} ${escapeHtml(doc.number)}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><style>
 body{font:14px/1.5 system-ui,sans-serif;color:#0d2631;max-width:760px;margin:24px auto;padding:0 20px}
