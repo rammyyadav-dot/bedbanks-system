@@ -156,3 +156,9 @@ OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-suppli
 ```bash
 OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-ops.cjs
 ```
+
+`verify-booking-finance.cjs` (Phase 5) drives money and documents in Chromium against the seeded finance fixtures: cancel with a penalty (preview before confirming, penalty fixed at the request, correct invoice, credit note and cancellation note), a booking with no stored terms (needs a decision, credit note withheld, decided, then issued), a waiver by a second person (raising refused), the voucher without net rate or supplier, read-only viewer, no-permission operator and agency user, and the manual-entry rules. Same stack and `OWNER_DATABASE_URL` as the other booking harnesses (seed first; the fixtures are consumed by a run, so re-seed to repeat).
+
+```bash
+OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-finance.cjs
+```

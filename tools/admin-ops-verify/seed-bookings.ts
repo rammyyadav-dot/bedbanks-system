@@ -43,12 +43,15 @@ async function main() {
   const ops = await user('ops', ['booking.read']); const opsAll = await user('opsall', ['booking.read', 'booking.pii.view', 'booking.view.net'])
   const agency = await user('agency', ['booking.view.agency'], agencies[0])
   // Phase 2: an operator who can act, an agency user who can only request, and a hotel/agency for manual entry (the seeded ones).
-  const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create', 'booking.supplier.retry']
+  const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create', 'booking.supplier.retry', 'booking.finance.view', 'booking.documents.issue']
   const OPS_ALL = ['booking.ops.view', 'booking.ops.assign', 'booking.ops.escalate', 'booking.ops.resolve', 'booking.ops.note']
   const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE, ...OPS_ALL])
   const viewer = await user('opsviewer', ['booking.read', 'booking.ops.view'])
   const worker = await user('worker', ['booking.read', 'booking.ops.view', 'booking.ops.assign'])
   const worker2 = await user('worker2', ['booking.read', 'booking.ops.view', 'booking.ops.assign'])
+  // Phase 5: someone who can only see the money, and a second person who may approve a waiver.
+  const finViewer = await user('finviewer', ['booking.read', 'booking.finance.view'])
+  const approver = await user('approver', ['booking.read', 'booking.finance.view', 'booking.penalty.waive.approve'])
   const requester = await user('requester', ['booking.view.agency', 'booking.cancel.request', 'booking.amend.request'], agencies[0])
 
   // 40 bookings: four per status, rotating agency / supplier / hotel / currency / guest; some Urgent-like (check-in soon, deadline soon),
@@ -95,7 +98,20 @@ async function main() {
     breached: await fixture('BREACHED', { status: 'PENDING_SUPPLIER', supplier: 'Acme Hotels', created: 95 }),
     fresh: await fixture('FRESH', { status: 'PENDING_SUPPLIER', supplier: 'Acme Hotels', created: 2 }),
   }
-  const out = { opsFixtures, workerEmail: worker, worker2Email: worker2, opsViewerEmail: viewer, password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
+  // Phase 5 money fixtures: confirmed bookings (with a CONFIRMED money fact, a hotel confirmation number and, for two of them, cancellation terms frozen with the booking).
+  const RULES = { rules: [{ daysBeforeCheckin: 14, penaltyPercent: 50 }, { daysBeforeCheckin: 3, penaltyPercent: 100 }], frozenAt: new Date().toISOString(), source: 'MANUAL_ENTRY' }
+  async function money(label: string, o: { rules: boolean; refundable: boolean | null }) {
+    const b = await prisma.booking.create({ data: { tenantId: T, reference: `FB-${randomHex(20)}`, supplier: 'Secret Supplier Ltd', hotelId: hotels[0], status: 'CONFIRMED', currency: 'AED', totalMinor: 100_000n, netMinor: 80_000n, markupMinor: 20_000n, idempotencyKey: `${label}-${runId}`, searchSnapshot: {}, agencyId: agencies[0], agentRef: `AG-${label}`,
+      supplierRef: `SUP-SECRET-${label}`, supplierStatus: 'CONFIRMED', hotelConfirmationNo: `HC-${label}`, paymentMode: 'CREDIT', isRefundable: o.refundable, checkIn: new Date(`${ymd(9)}T00:00:00Z`), checkOut: new Date(`${ymd(11)}T00:00:00Z`), nights: 2,
+      cancellationPolicy: o.rules ? (RULES as never) : undefined } })
+    await prisma.bookingRoom.create({ data: { tenantId: T, bookingId: b.id, roomName: 'Deluxe Sea View', boardCode: 'BB', adults: 2 } })
+    await prisma.bookingGuest.create({ data: { tenantId: T, bookingId: b.id, firstName: 'Money', lastName: label, isLead: true } })
+    await prisma.bookingEvent.create({ data: { tenantId: T, bookingId: b.id, toStatus: 'CONFIRMED', actorType: 'SYSTEM', reason: 'seed', payload: { seeded: true } } })
+    await prisma.bookingFinanceEvent.create({ data: { tenantId: T, bookingId: b.id, type: 'CONFIRMED', currency: 'AED', sellMinor: 100_000n, netMinor: 80_000n, paymentMode: 'CREDIT' } })
+    return b.reference
+  }
+  const financeFixtures = { penalty: await money('PENALTY', { rules: true, refundable: true }), noTerms: await money('NOTERMS', { rules: false, refundable: true }), waiver: await money('WAIVER', { rules: true, refundable: true }), nonRefundable: await money('NONREF', { rules: false, refundable: false }) }
+  const out = { financeFixtures, finViewerEmail: finViewer, approverEmail: approver, opsFixtures, workerEmail: worker, worker2Email: worker2, opsViewerEmail: viewer, password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-bookings.json', JSON.stringify(out, null, 2))
   console.log('seeded', n, 'bookings for', tag)
   await prisma.$disconnect()

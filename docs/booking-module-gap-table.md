@@ -40,8 +40,8 @@ Source: `docs/booking-module-spec.md` and its 2026-10-06 decisions. Written befo
 | Supplier adapter and queue | `SupplierAdapter` port (`agent/supplier.port.ts`), `SupplierMutation` journal, `supplier-prebook-orchestration` | No job table, no retries schedule, no mock adapter with configurable outcomes |
 | Cancellation | `booking-cancellation.service.ts`, `Cancellation` | Spec's Cancel requested then Cancelled, penalty from frozen policy, non-refundable second confirmation |
 | Finance | `LedgerService`, `FinanceService`, wallets | Emit events; never edit balances; existing services keep posting |
-| Documents | `BookingDocument` VOUCHER, INVOICE, CREDIT_NOTE; HTML render | Cancellation note, adjustment invoice, white-label rules (no net rate or supplier name) |
-| Notifications, webhooks | None for bookings | Phase 5, log-only mailer in dev |
+| Documents | `BookingDocument` VOUCHER, INVOICE, CREDIT_NOTE; HTML render | Phase 5: cancellation note and the voucher/invoice/credit-note content for Admin bookings (no net rate or supplier name) are built; adjustment invoice (no-show, amendment) is not |
+| Notifications, webhooks | None for bookings | **Deferred (Phase 5 decision):** no provider or per-tenant channel exists; a log-only mailer would log recipients and present a placeholder as a capability. Documents are issued and viewable only |
 | Urgent and SLA | Reconciliation attention flags only | Phase 4 |
 | Permissions | `booking.read`, `booking.reconcile`, `booking.cancel`; `booking.status.update` and `booking.confirm` are FORBIDDEN keys | Map spec names to new `booking.*` keys (ADR); status changes only through the service, never through a "status update" permission |
 | Booking enablement | `BOOKING_ENABLED=false`; Agent routes return `booking_unavailable` | Unchanged. `ADMIN_MANUAL_BOOKING_ENABLED` (default false) added in Phase 2 |
