@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
+import { withPoolSettings } from '../database/pool-config'
 import { InventoryHoldService } from './inventory-hold.service'
 
 export const HOLD_EXPIRY_BATCH_SIZE = 100
@@ -86,7 +87,7 @@ export class HoldExpirySweeper implements OnModuleInit, OnModuleDestroy {
 }
 
 function defaultRuntime(databaseUrl: string): HoldExpiryRuntime {
-  const prisma = new PrismaService({ datasourceUrl: databaseUrl })
+  const prisma = new PrismaService({ datasourceUrl: withPoolSettings(databaseUrl, process.env, { maxVar: 'DB_SWEEPER_POOL_MAX', defaultMax: 2 }) })
   const holds = new InventoryHoldService(prisma)
   return {
     listActiveTenantIds: async () => (await prisma.tenant.findMany({ where: { status: 'ACTIVE' }, select: { id: true } })).map(tenant => tenant.id),

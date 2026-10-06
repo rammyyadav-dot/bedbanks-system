@@ -3,9 +3,11 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { describePool, withPoolSettings } from './pool-config';
 
 /**
  * Thin wrapper around PrismaClient that plugs into Nest's lifecycle.
@@ -28,10 +30,22 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
+  private readonly pool: string;
+
+  /**
+   * The pool is bounded here for every client (see pool-config.ts). A URL that already carries its own limits keeps them; a caller that passes
+   * `datasources` (the legacy form) is left untouched. The default client reads DATABASE_URL, as the Prisma schema does.
+   */
+  constructor(@Optional() options?: Prisma.PrismaClientOptions) {
+    const url = options?.datasourceUrl ?? process.env.DATABASE_URL;
+    const bounded = url && !options?.datasources ? withPoolSettings(url) : undefined;
+    super(bounded ? { ...options, datasourceUrl: bounded } : options);
+    this.pool = bounded ? describePool(bounded) : 'not configured';
+  }
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
-    this.logger.log('Database connection established');
+    this.logger.log(`Database connection established (pool ${this.pool})`);
   }
 
   async onModuleDestroy(): Promise<void> {

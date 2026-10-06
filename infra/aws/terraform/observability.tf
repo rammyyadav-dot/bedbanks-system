@@ -74,3 +74,15 @@ resource "aws_cloudwatch_metric_alarm" "db_storage" {
   dimensions          = { DBInstanceIdentifier = aws_db_instance.this.identifier }
   alarm_actions       = [aws_sns_topic.alarms.arn]
 }
+resource "aws_cloudwatch_metric_alarm" "db_connections" {
+  alarm_name          = "${local.name}-db-connections"
+  namespace           = "AWS/RDS"
+  metric_name         = "DatabaseConnections"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 5
+  threshold           = var.db_connections_alarm_threshold
+  comparison_operator = "GreaterThanThreshold"
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.this.identifier }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+}

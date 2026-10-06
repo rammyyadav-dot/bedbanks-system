@@ -90,3 +90,18 @@ variable "booking_ops_enabled" {
   default     = false
   description = "Inject BOOKING_OPS_DATABASE_URL (the booking module's limited role). Set the secret value first; ECS refuses to start a task whose secret is empty."
 }
+variable "db_pool_max" {
+  type        = number
+  default     = 10
+  description = "Prisma connections per API task, main client."
+}
+variable "db_booking_pool_max" {
+  type        = number
+  default     = 5
+  description = "Prisma connections per API task, booking-module client."
+}
+variable "db_connections_alarm_threshold" {
+  type        = number
+  default     = 400
+  description = "Alarm when the database has more than this many client connections. Keep it below ~70% of max_connections (see the runbook's connection budget)."
+}

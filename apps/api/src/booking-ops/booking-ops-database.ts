@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, Optional, ServiceUnavailableExcept
 import type { Prisma } from '@prisma/client'
 import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { databaseErrorCode, isDatabasePermissionDenied } from '../database/db-errors'
+import { withPoolSettings } from '../database/pool-config'
 import { PrismaService } from '../database/prisma.service'
 
 export const BOOKING_OPS_ENV = Symbol('BOOKING_OPS_ENV')
@@ -34,7 +35,8 @@ export class BookingOpsDatabase implements OnModuleDestroy {
 
   private connection(): PrismaService {
     if (!this.configured()) throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
-    this.client ??= new PrismaService({ datasourceUrl: this.env.BOOKING_OPS_DATABASE_URL as string })
+    // The booking module's own pool is small: it shares the database with the main client of the same task (see database/pool-config.ts).
+    this.client ??= new PrismaService({ datasourceUrl: withPoolSettings(this.env.BOOKING_OPS_DATABASE_URL as string, this.env, { maxVar: 'DB_BOOKING_POOL_MAX', defaultMax: 5 }) })
     return this.client
   }
 

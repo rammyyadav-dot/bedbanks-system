@@ -29,6 +29,10 @@ locals {
     AUTH_COOKIE_SECURE  = "true"
     ADMIN_ORIGIN        = "https://${local.portals.admin.host}"
     TRUSTED_ORIGINS     = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
+    # Bounded Prisma pools (apps/api/src/database/pool-config.ts). Budget: (DB_POOL_MAX + DB_BOOKING_POOL_MAX + DB_SWEEPER_POOL_MAX) x max tasks < RDS max_connections.
+    DB_POOL_MAX             = tostring(var.db_pool_max)
+    DB_BOOKING_POOL_MAX     = tostring(var.db_booking_pool_max)
+    DB_POOL_TIMEOUT_SECONDS = "10"
   }, var.api_env) : { name = k, value = v }])
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },
