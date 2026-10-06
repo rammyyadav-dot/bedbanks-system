@@ -7,6 +7,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { getHotelDistribution } from '@/lib/data/hotel-commercial'
 import { hotelHref, reasonText } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
+import { ReadinessPanel } from './ReadinessPanel'
 import { SellabilityPanel } from './SellabilityPanel'
 
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
@@ -72,6 +73,7 @@ export function DistributionPanel({ hotelId, rooms }: { hotelId: string; rooms: 
           </>
         )}
       </OpsState>
+      <ReadinessPanel hotelId={hotelId} />
       <section aria-label="Check a specific stay" style={{ display: 'grid', gap: 8 }}>
         <h2 style={{ fontSize: 14, margin: 0 }}>Check a specific stay</h2>
         <p style={note}>Runs the Agent&apos;s own stay evaluator for the dates and party you choose. Read-only: it creates no hold and no booking.</p>

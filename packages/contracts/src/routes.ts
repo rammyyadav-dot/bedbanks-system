@@ -71,7 +71,7 @@ export const routes = {
     hotelsSummary: '/admin/operations/hotels/summary', hotel: '/admin/operations/hotels/:hotelId',
     hotelContracts: '/admin/operations/hotels/:hotelId/contracts', hotelMappings: '/admin/operations/hotels/:hotelId/mappings',
     hotelCalendar: '/admin/operations/hotels/:hotelId/calendar', hotelSellability: '/admin/operations/hotels/:hotelId/sellability',
-    hotelAudit: '/admin/operations/hotels/:hotelId/audit', hotelDistribution: '/admin/operations/hotels/:hotelId/distribution', exceptions: '/admin/operations/exceptions',
+    hotelAudit: '/admin/operations/hotels/:hotelId/audit', hotelDistribution: '/admin/operations/hotels/:hotelId/distribution', hotelReadiness: '/admin/operations/hotels/:hotelId/readiness', exceptions: '/admin/operations/exceptions',
     holds: '/admin/operations/holds', hold: '/admin/operations/holds/:holdId',
     bookings: '/admin/operations/bookings', booking: '/admin/operations/bookings/:bookingId',
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',

@@ -1,5 +1,5 @@
 import {
-  COMMERCIAL_REASON_TEXT, type CommercialReadiness, type ContractState, type GateState, type HotelSection, type InventoryState, type IssueSeverity, type MappingState, type SupplyDataState,
+  COMMERCIAL_REASON_TEXT, type CommercialReadiness, type ReadinessAction, type ReadinessGateOutcome, type ContractState, type GateState, type HotelSection, type InventoryState, type IssueSeverity, type MappingState, type SupplyDataState,
 } from '@bedbanks/contracts'
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'neutral'
@@ -70,3 +70,9 @@ export function listHref(filters: Partial<Record<ListFilterKey, string>>, page =
 
 /** Stars as text, with a visible word for assistive technology and the no-rating case. */
 export const starsText = (stars: number | null): string => (stars === null ? 'No rating' : `${stars} star${stars === 1 ? '' : 's'}`)
+
+/** UNKNOWN is its own state: it is never shown with the failure tone, because "could not be read" is not "failed". */
+export const outcomeTone = (s: ReadinessGateOutcome): Tone => (s === 'PASS' ? 'ok' : s === 'FAIL' ? 'bad' : s === 'UNKNOWN' ? 'warn' : 'neutral')
+export const outcomeLabel = (s: ReadinessGateOutcome): string => (s === 'NOT_APPLICABLE' ? 'N/A' : s)
+/** Where a readiness blocker is resolved: the existing workspace tab, never a second editor. Unknown tabs fall back to Overview via parseTab. */
+export const readinessActionHref = (hotelId: string, action: ReadinessAction): string => hotelHref(hotelId, parseTab(action.tab))

@@ -6,7 +6,7 @@ import {
   type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
-  type InventoryMode,
+  type InventoryMode, type HotelCompleteness, type HotelContacts, type HotelReadinessAssessment,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { bookingEnabled } from '../agent/booking-transaction.service'
@@ -23,6 +23,10 @@ import {
   type AssessContract, type AssessHotelInput, type AssessPlan, type HotelAssessment,
 } from '../supply/commercial-assessment'
 import { loadPrimaryImages, loadProfileSummaries } from '../hotel-setup/hotel-profile-summary'
+import { assessCompleteness } from '../hotel-setup/hotel-setup-rules'
+import { assessReadiness, type AgencyEvidence } from '../supply/hotel-readiness'
+import { normalizeCountry } from '../supply/market-rules'
+import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from '../agent/currency'
 import { auditView } from './operations-transactions.service'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
@@ -541,9 +545,7 @@ export class OperationsHotelsService {
       let agencyStatus: string | null = null
       let restrictions: Array<{ scope: string; hotelId: string | null; supplierId: string | null }> = []
       if (agencyId) {
-        if (!userId) throw new ForbiddenException('Access denied')
-        const assignments = await tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } } })
-        if (!assignments.some(a => a.role.permissions.some(p => p.permission.key === 'agency.read'))) throw new ForbiddenException('Access denied')
+        await this.requireAgencyRead(tx, tenantId, userId)
         let agency: { status: string; countryCode: string | null } | null
         try {
           agency = await tx.agency.findFirst({ where: { id: agencyId, tenantId }, select: { status: true, countryCode: true } })
@@ -588,6 +590,90 @@ export class OperationsHotelsService {
         sellable: sellablePlans.length > 0, hotelReasons, offers: sellablePlans.length, cheapestMinor: cheapest === null ? null : cheapest.toString(), currency: cheapest === null ? null : [...currencies][0], plans: results, evaluatedAt: now.toISOString(),
       }
     })
+  }
+
+
+  /** Naming an agency exposes agency data, so it needs the existing tenant-scoped `agency.read` on top of the route permission. Fails closed. */
+  private async requireAgencyRead(tx: Prisma.TransactionClient, tenantId: string, userId: string | undefined): Promise<void> {
+    if (!userId) throw new ForbiddenException('Access denied')
+    const assignments = await tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } } })
+    if (!assignments.some((a) => a.role.permissions.some((p) => p.permission.key === 'agency.read'))) throw new ForbiddenException('Access denied')
+  }
+
+  // ---- unified readiness (explicit criteria) -------------------------------------------------------------------------------
+  /**
+   * Seven separate gates for one explicit stay, occupancy, nationality, agency and currency. Commercial verdicts come from the shared evaluator;
+   * unreadable evidence (a privilege boundary) is reported UNKNOWN, never FAIL, zero or empty. Read-only: nothing is allocated or written.
+   */
+  async readiness(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>, userId?: string): Promise<HotelReadinessAssessment> {
+    const checkInDate = dayParam('checkIn', query.checkIn); const checkOutDate = dayParam('checkOut', query.checkOut)
+    if (!checkInDate || !checkOutDate) throw new BadRequestException('checkIn and checkOut are required')
+    const checkIn = day(checkInDate); const checkOut = day(checkOutDate)
+    const nights = stayNightCount(checkIn, checkOut)
+    if (nights < 1 || nights > INSPECT_MAX_NIGHTS) throw new BadRequestException(`The stay must be 1-${INSPECT_MAX_NIGHTS} nights`)
+    if (checkIn < this.today()) throw new BadRequestException('Check-in must not be in the past')
+    const adults = intParam('adults', query.adults, 1, 9); const children = intParam('children', query.children, 0, 9) ?? 0; const rooms = intParam('rooms', query.rooms, 1, 9) ?? 1
+    if (adults === undefined) throw new BadRequestException('adults is required')
+    const childAges = (typeof query.childAges === 'string' && query.childAges.length > 0 ? query.childAges.split(',') : []).map((age) => (/^\d{1,2}$/.test(age.trim()) ? Number(age) : NaN))
+    if (childAges.length !== children || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) throw new BadRequestException('childAges must list one age (0-17) for each child')
+    const nationalityRaw = textParam('nationality', query.nationality, 2)
+    const nationality = nationalityRaw === undefined ? null : normalizeCountry(nationalityRaw)
+    if (nationalityRaw !== undefined && nationality === null) throw new BadRequestException('nationality must be a two-letter ISO country code')
+    const currency = textParam('currency', query.currency, 3)?.toUpperCase() ?? defaultSettlementCurrency()
+    assertSupportedSettlementCurrency(currency)
+    const agencyId = idParam('agencyId', query.agencyId) ?? null
+    const dates = stayDates(checkIn, checkOut)
+    const win: Win = { from: checkIn, days: nights, to: dates[dates.length - 1], dates }
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const hotel = await this.hotelRecord(tx, tenantId, hotelIdRaw)
+      const assess = (await this.loadInputs(tx, tenantId, [hotel], win)).get(hotel.id)!
+      const content = await this.readCompleteness(tx, tenantId, hotel)
+      let agency: AgencyEvidence | null | 'UNREADABLE' = null
+      let market: string | null = null
+      if (agencyId) {
+        await this.requireAgencyRead(tx, tenantId, userId)
+        const row = await tx.agency.findFirst({ where: { id: agencyId, tenantId }, select: { id: true, name: true, status: true, countryCode: true } })
+        if (!row) throw new NotFoundException('Agency not found')
+        market = normalizeCountry(row.countryCode)
+        agency = await this.readAgencyRestrictions(tx, tenantId, row, hotel.id)
+      }
+      const supplierNames = new Map(assess.plans.map((p) => [p.contract.supplierId, p.contract.supplier.displayName]))
+      return assessReadiness({ criteria: { checkIn, checkOut, nights, rooms, adults, children, childAges, nationality, agencyId, market, currency }, now: this.clock(), assess, content, agency, supplierNames })
+    })
+  }
+
+  /** Profile completeness behind a SAVEPOINT: a denied read is `null` (UNKNOWN), any other error propagates as an infrastructure failure. */
+  private async readCompleteness(tx: Prisma.TransactionClient, tenantId: string, hotel: HotelRecord): Promise<HotelCompleteness | null> {
+    await tx.$executeRawUnsafe('SAVEPOINT readiness_profile_read')
+    try {
+      const [profile, activeRooms] = await Promise.all([tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId } }), tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } })])
+      await tx.$executeRawUnsafe('RELEASE SAVEPOINT readiness_profile_read')
+      const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).replace(/\.?0+$/, '') || '0')
+      return assessCompleteness({
+        name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
+        starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
+        contacts: (profile?.contacts && typeof profile.contacts === 'object' && !Array.isArray(profile.contacts) ? profile.contacts : {}) as HotelContacts, activeRooms,
+      })
+    } catch (error) {
+      if (!isBookingReadDenied(error)) throw error
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT readiness_profile_read')
+      return null
+    }
+  }
+
+  /** The agency's ACTIVE distribution restrictions. Unreadable, or a restriction that names no target, is 'UNREADABLE': it never means unrestricted (ADR 0031). */
+  private async readAgencyRestrictions(tx: Prisma.TransactionClient, tenantId: string, agency: { id: string; name: string; status: string }, hotelId: string): Promise<AgencyEvidence | 'UNREADABLE'> {
+    await tx.$executeRawUnsafe('SAVEPOINT readiness_agency_read')
+    try {
+      const rows = await tx.distributionRestriction.findMany({ where: { tenantId, agencyId: agency.id, status: 'ACTIVE' }, select: { scope: true, hotelId: true, supplierId: true } })
+      await tx.$executeRawUnsafe('RELEASE SAVEPOINT readiness_agency_read')
+      if (rows.some((r) => !((r.scope === 'HOTEL' && r.hotelId) || (r.scope === 'SUPPLIER' && r.supplierId)))) return 'UNREADABLE'
+      return { id: agency.id, name: agency.name, status: agency.status, hotelRestricted: rows.some((r) => r.scope === 'HOTEL' && r.hotelId === hotelId), restrictedSupplierIds: rows.filter((r) => r.scope === 'SUPPLIER').map((r) => r.supplierId as string) }
+    } catch (error) {
+      if (!isBookingReadDenied(error)) throw error
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT readiness_agency_read')
+      return 'UNREADABLE'
+    }
   }
 
   // ---- audit ---------------------------------------------------------------------------------------------------------------

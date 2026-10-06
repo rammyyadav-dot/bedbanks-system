@@ -8,6 +8,55 @@ Validated implementation head: `6c8e50755af8d08d7930c9b5799c7bda74ba3799`, tree 
 
 F01 remains OPEN. Its candidate remains `aea042299bdc2b7fbc33945b0cb89ba0a7a04238`; this work does not certify or change it.
 
+## Requirement matrix (inspected on `b6fbf4e`, then extended by this branch)
+
+Legend: IMPLEMENTED (code present, permission-controlled, audited where it mutates, with a named test), PARTIAL (what is missing is stated), MISSING, BLOCKED (dependency stated), OUT_OF_SCOPE. "Evidence" names existing suites; whether they ran is stated in the validation record, not here.
+
+| Requirement | Status | Source | Evidence / gap |
+|---|---|---|---|
+| Hotel directory: server pagination, filters, identity, lifecycle, empty/denied/conflict states, Add hotel | IMPLEMENTED | `apps/admin/app/(dashboard)/hotels/page.tsx`, `operations-hotels.service.ts` (`list`), `hotels/new/page.tsx` | `hotel-commercial.e2e-spec.ts`; `verify-hotels.cjs` |
+| Hotel workspace tabs (overview, setup, rooms, amenities, images, policies, mappings, contracts, rates, inventory, quick update, distribution, bookings, audit) | IMPLEMENTED | `hotels/[id]/page.tsx`, `components/hotels/panels/*` | `verify-hotels.cjs`. Rate Plans and Rates Calendar live in "Contracts & Rate Plans" and "Rates & Inventory"; Quality & Publication is Hotel Setup plus Distribution & Readiness; no second editor was added |
+| Setup, duplicate search, draft, maker-checker publication, stale-version rejection | IMPLEMENTED | `hotel-setup/*`, `hotel-publication.service.ts`, ADR 0021/0022 | `hotel-setup.e2e-spec.ts`, `strict-runtime-role-hotel-setup.e2e-spec.ts` |
+| Rooms, amenities, images, policies; archive not delete; canonical occupancy rule | IMPLEMENTED | `hotel-rooms.service.ts`, `hotel-room-rules.ts`, `hotel-images.service.ts`, ADR 0027 | `hotel-room-rules.spec.ts`, `hotel-images.e2e-spec.ts`. Image rights, malware scan, EXIF stripping: MISSING (policy and a scanning service) |
+| Supplier hotel/room/board mapping governance | IMPLEMENTED | `supply/mapping.service.ts`, ADR 0004/0009 | `supply.e2e-spec.ts`, `hybrid-match.spec.ts` |
+| Contracts, markets, nationalities; sale dates vs stay dates | PARTIAL | `contract-market` rules (`supply/market-rules.ts`), ADR 0035 | `market-rules.spec.ts`, `contract-market-enforcement.e2e-spec.ts`. Booking-window display vs travel window remains PARTIAL |
+| Rate plans, nightly integer-minor rates, NET markup, cancellation | IMPLEMENTED | `rate-certification/*`, `supply/markup-rules.ts`, ADR 0018/0033/0034 | `rate-certification.e2e-spec.ts`, `daily-rate-amount-positive.e2e-spec.ts`. Tax lines, supplements, extra-bed and child charges: MISSING (no charge model) |
+| Inventory modes, shared pools, release deadlines, freshness | IMPLEMENTED | `supply/contracted-sellability.ts`, `stay-snapshot.ts`, `zoned-time.ts`, ADR 0030 | `inventory-semantics.spec.ts`, `zoned-time.spec.ts`, `inventory-pool*.e2e-spec.ts` |
+| Pool capacity editing, per-plan consumption, provenance preserved | IMPLEMENTED | `inventory/pool-capacity.service.ts`, ADR 0036/0037 | `pool-capacity-editor.e2e-spec.ts`, `strict-role-rollout.e2e-spec.ts` |
+| Distribution restrictions, agency suspension, markup controls | IMPLEMENTED | `supply/distribution-restrictions.ts`, `agent/agency-suspension.guard.ts`, ADR 0018/0019/0020 | `distribution-restrictions.spec.ts`, `markup-rules.spec.ts` |
+| Supplier sandbox staging, checkpoints, lease fencing, quarantine | IMPLEMENTED (sandbox only) | `sandbox/sandbox-content-store.ts`, `docs/supplier-sandbox-integration.md` | `sandbox-content-staging.e2e-spec.ts`. No live supplier, by design |
+| Agent search, authoritative recheck, no allocation on recheck | IMPLEMENTED | `agent/agent-search.service.ts`, `contracted-inventory.adapter.ts`, `offer-hold.service.ts` | `inventory-search-recheck.e2e-spec.ts`, `dubai-agent-search.e2e-spec.ts`. Hosted journey NOT_VERIFIED |
+| Per-plan buyer-aware stay diagnostic | IMPLEMENTED | `hotel-stay-readiness.ts`, `operations-hotels.service.ts` (`sellability`) | `hotel-stay-readiness.spec.ts`, `hotel-commercial.e2e-spec.ts` (earlier commits on this branch) |
+| **Unified readiness: seven gates, PASS/FAIL/UNKNOWN/NOT_APPLICABLE, criteria, references, action** | **IMPLEMENTED (this change)** | `packages/contracts/src/hotel-readiness.ts`, `supply/hotel-readiness.ts`, `operations-hotels.service.ts` (`readiness`), `panels/ReadinessPanel.tsx`, ADR 0038 | `hotel-readiness.spec.ts` (16), `hotel-readiness.e2e-spec.ts` (9, runtime role), `verify-hotel-readiness.cjs` (29) |
+| Search/recheck certification evidence per hotel | MISSING (reported UNKNOWN) | `offer.recheck.*` audit rows carry the offer id only | Needs a per-hotel evidence record; see Remaining work |
+| Child-age pricing, extra-bed policy, mixed-room parties, FX | MISSING | no schema, no policy | Child ages are validated and disclosed as not assessed |
+| Production rollout, persistent roles, live suppliers, booking, payment | OUT_OF_SCOPE | n/a | Not performed |
+
+## Unified readiness (this change)
+
+ADR 0038. One read-only endpoint, `GET /admin/operations/hotels/:hotelId/readiness`, route `hotelReadiness` in `@bedbanks/contracts`. It composes `assessCompleteness`, `evaluateContractedStay` (with the stated buyer) and the existing agency controls. It does not replace the Hotel 360 window gates or the per-plan stay diagnostic; both classify reasons from `SELLABILITY_GATES`.
+
+| Gate | Judged from | UNKNOWN when |
+|---|---|---|
+| CONTENT | Twelve publication requirements | Profile unreadable by the runtime role |
+| MAPPING | `SUPPLIER_MAPPING_INVALID` per rate plan; hotel mapping when no plan exists | n/a |
+| CONTRACT | Supplier, contract, plan, room, occupancy, stay rules, market and nationality | n/a |
+| RATE | Every night priced in the stated currency; NET needs a markup rule | n/a |
+| INVENTORY | Availability, stop-sell, closure, freshness, stock (plan or pool), ON_REQUEST | n/a |
+| DISTRIBUTION | Published, rated hotel; agency suspension and restrictions | Agency restrictions unreadable |
+| SEARCH_RECHECK_EVIDENCE | Nothing persisted per hotel | Always (the prediction is shown, labelled as a prediction) |
+
+Rules asserted by tests: UNKNOWN is never FAIL; a missing rate or stock is a named failure, never zero; unknown nationality fails closed against a restricted contract; gates passing on different plans do not make a PASS verdict; unreadable agency controls remove predicted offers; the prediction agrees with Agent search for five nationality/market/restriction cases (`HR-E07`).
+
+## Permission and database-principal matrix (additions)
+
+| Operation | User permission | Database principal |
+|---|---|---|
+| Readiness without an agency | `supply.rates.read` | Existing runtime-role reads; profile read behind a SAVEPOINT |
+| Readiness naming an agency | Above plus existing `agency.read` (shared check with the stay diagnostic) | Agency and DistributionRestriction reads; denial is UNKNOWN |
+
+No grant, permission-catalogue entry, migration or role contract changed. The application under test in `hotel-readiness.e2e-spec.ts` and in the browser harness connects as `fbeds_api_login`: not superuser, not BYPASSRLS, not owner (asserted by `HR-E01`).
+
 ## Authority and workflow map
 
 | Area | Existing authority | Audit finding / scope |
@@ -86,6 +135,56 @@ Tools: Node v24.19.0 / pnpm 10.4.1. Nested scripts use a scratch-only pnpm wrapp
 Initial API unit execution overlapped client generation and failed with missing generated types; the complete run after generation passed. Initial root checks hit the environment's alternate pnpm; reruns use the pinned wrapper. Initial lint caught a duplicate import introduced here; corrected before the passing run. The existing browser harness is updated for the scoped wording and adds missing-buyer/certification and stale-verdict checks; those checks have not been executed. Added tests cover reason preservation, missing context, per-plan isolation, hosted-certification boundaries; HTTP buyer permissions/tenant isolation/market rules/suspension/restrictions; strict-role pooled-stock diagnostics and non-mutation.
 
 Cached PostgreSQL binaries were extracted, but `runuser -u nobody` fails with `cannot set groups: Operation not permitted`; PostgreSQL cannot initialize as root. Database-dependent tests and real API/browser journeys are BLOCKED locally until a disposable runner executes them. Existing CI provisions PostgreSQL 16 and Node24/pnpm10.4.1; its results must be inspected before claiming database certification. No historical evidence is substituted for those runs.
+
+## Validation of the unified readiness change (this session)
+
+Node v24.21.0, pnpm 10.4.1, PostgreSQL 16 with pgvector, Redis, Chromium 1194 (Playwright 1.56.1). Everything ran against disposable local databases created for this run (`fbeds_hotel_check`, `fbeds_ci`) and torn down with the container. Code head for the runs below: `eb4a1aa478508aa335e06bddccb96df08ceec678`, tree `26804a21aba5bb2f87f32df08f931ea81ecf93e1` (it contained #278's commits merged in). Later commits are documentation and harness-assertion only. After #278 was merged the work was rebased onto `main` `3558c75`; the resulting tree `ee424a2b4f8881ee341fda7e2e909822d1ac4213` is identical to the tree of the last validated state (the browser runs and the harness assertions were executed on it), so no run is attributed to a tree it did not execute against except the database suites, which ran on the code at `eb4a1aa` (documentation and harness changes only since). No CI result for any head after `6c8e507` is recorded in this file; exact-head CI is reported on the draft PR.
+
+| Check | Result |
+|---|---|
+| `pnpm prisma:validate`, `prisma:migrate:deploy` on an empty database, `prisma:migrate:status`, `prisma:migrate:drift` | PASS; all migrations applied; "No schema drift" |
+| `pnpm check:architecture`, `pnpm check:schema` | PASS (24 controllers contract-checked) |
+| `pnpm type-check`, `pnpm lint` | PASS 14/14 each; one existing unused-disable warning |
+| API unit (`jest --runInBand`) | 74 suites, 818 tests PASS |
+| `hotel-readiness.spec.ts` | 16/16 PASS |
+| API database e2e, full run, fresh database, owner connection for fixtures | 64 suites / 566 tests PASS in the full run; two suites (`sandbox-content-staging`, `hotel-search-index`, 7 tests) failed only because my first invocation lacked `MAPPING_DATABASE_URL` and the required `fbeds_ci` database name, and PASSED on rerun with them |
+| `hotel-readiness.e2e-spec.ts` (HR-E01..E09), application as `fbeds_api_login` | 9/9 PASS, including cross-tenant 404, 401/403, `agency.read` gate, criteria validation, connection reuse without leakage, no allocation or business audit, UNKNOWN under revoked grants, and prediction parity with Agent search |
+| Admin tests, API build, Admin production build | 44/44 PASS; both builds PASS |
+| Existing hotel browser harness `verify-hotels.cjs` (production Admin, owner-connected API; includes Add hotel, setup, publication, rooms, mapping, Quick Update, directory, states, keyboard, axe, 1280/768/390) | 166/166 PASS after correcting two assertions that still named the pre-rename header label |
+| New browser harness `verify-hotel-readiness.cjs`, API connected as `fbeds_api_login` (confirmed in `pg_stat_activity`) | 29/29 PASS: gates, blockers, navigation, states, double submit, keyboard, 1280/768/390, axe, forbidden viewer, cross-tenant |
+
+Not run, and not claimed: hosted environment, persistent databases, production-clone, live suppliers, the workspace `pnpm build` (the Agent font fetch is blocked without network), and a browser journey that goes on to a real Agent search and recheck in the browser (the Agent journey is covered by the database suites and by `HR-E07` parity, not by a browser run).
+
+## Final gates
+
+```
+HOTEL_CONTENT_WORKFLOW=IMPLEMENTED_EXISTING (verify-hotels 166/166 owner-connected API)
+HOTEL_READINESS_ASSESSMENT=IMPLEMENTED (unit 16, db 9, browser 29)
+ROOM_OCCUPANCY_VALIDATION=PARTIAL (head-count and per-room limits enforced; child-age pricing, mixed-room parties not modelled)
+MAPPING_GOVERNANCE=IMPLEMENTED_EXISTING (unchanged; surfaced as the MAPPING gate)
+CONTRACT_RATE_VALIDATION=PARTIAL (integer money and NET markup enforced; tax lines, supplements, child charges missing)
+INVENTORY_SEMANTICS_PRESERVED=YES (no inventory code changed; full e2e passed)
+FRESHNESS_PROVENANCE_PRESERVED=YES (no inventory code changed; full e2e passed)
+STRICT_ROLE_VALIDATION=PASS_FOR_THIS_CHANGE (readiness e2e and browser as fbeds_api_login; existing strict-role suites in the full run)
+TENANT_ISOLATION=PASS (e2e HR-E02, HR-E08; browser cross-tenant)
+AUDIT_IDEMPOTENCY=NOT_AFFECTED (no mutation added)
+AGENT_SEARCH_RECHECK=DB_SUITES_PASS_ONLY (HR-E07 parity, inventory-search-recheck e2e); browser and hosted NOT_VERIFIED
+BROWSER_ACCEPTANCE=PASS_LOCAL (166 + 29)
+FINAL_HEAD_CI=SEE_DRAFT_PR
+HOSTED_AGENT_MVP=NOT_VERIFIED
+F01_STATUS=OPEN (candidate aea042299bdc2b7fbc33945b0cb89ba0a7a04238 untouched)
+DRAFT_PR=#280 (follow-up to the merged #278)
+
+PRODUCTION_DB_MIGRATION_EXECUTED=NO
+PERSISTENT_ROLE_PROVISIONING_EXECUTED=NO
+PRODUCTION_DEPLOYMENT_EXECUTED=NO
+DNS_OR_ALIAS_CHANGED=NO
+LIVE_SUPPLIER_ENABLED=NO
+BOOKING_ENABLED=NO
+PAYMENT_ENABLED=NO
+```
+
+The runtime role `fbeds_api_login` was provisioned only inside the two disposable local databases. The earlier remark in this file that database suites were BLOCKED locally describes that earlier session; this session had a working PostgreSQL.
 
 ## Next build order
 

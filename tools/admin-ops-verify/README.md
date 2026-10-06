@@ -46,6 +46,17 @@ keyboard use, horizontal overflow at 1280 / 768 / 390 px, and axe (WCAG A/AA) on
 
 `verify-hotels.cjs` also covers Hotel Setup, rooms, amenities, policies, images, supplier mapping governance, Quick Update, Distribution & Readiness, the directory's identifier search, a read-only user and a cross-tenant request. Re-seed with `seed-hotels.ts` before every run: the run edits the seeded hotels (it publishes one, creates mappings and applies a rate change), so a second run on the same seed starts from changed data.
 
+## Hotel readiness for stated criteria (ADR 0038)
+
+`verify-hotel-readiness.cjs` drives the readiness panel on Distribution & Readiness after `seed-hotels.ts`: seven gates, scope and limitation text, blockers by gate (mapping, rate, availability, no rate plan, draft hotel), navigation into the existing tabs, child-age fields, invalid criteria, 503, 500 and network failures, double submit, keyboard use, overflow at 1280 / 768 / 390 px, axe, a viewer without `supply.rates.read` and a cross-tenant request. Run it against an API that connects as the provisioned non-owner runtime role (`provisionApiRuntimeRole`), not the owner: the point is to see privilege-denied evidence reported as UNKNOWN.
+
+```bash
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-hotels.ts)
+node tools/admin-ops-verify/verify-hotel-readiness.cjs
+```
+
+`verify-hotels.cjs` expects an owner-connected API (its Bookings tab reads tables the runtime role is denied by design); the two scripts are run against different API principals.
+
 ## Agency credit limit
 
 `seed-credit.ts` creates a tenant with an agency and two Admin users who can read and manage agencies; `verify-credit.cjs` drives the Credit panel in Chromium (request, a second person approves and applies, removal is also a request). Same disposable-database guard as above.
