@@ -359,8 +359,8 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
 
   it('HOTEL-OPS buyer diagnostic enforces agency permission, tenant scope, market rules and suspension without writes', async () => {
     const creator = await prisma.user.findUniqueOrThrow({ where: { email: `${suffix}-owner@example.test` } })
-    const agency = await prisma.agency.create({ data: { tenantId: tenantA, code: `${suffix}-diagnostic`, name: 'Diagnostic fixture', countryCode: 'AE', createdById: creator.id } })
-    const other = await prisma.agency.create({ data: { tenantId: tenantB, code: `${suffix}-diagnostic-b`, name: 'Other tenant', countryCode: 'AE', createdById: creator.id } })
+    const agency = await prisma.agency.create({ data: { tenantId: tenantA, code: `${suffix}-diagnostic`.toUpperCase(), name: 'Diagnostic fixture', countryCode: 'AE', createdById: creator.id } })
+    const other = await prisma.agency.create({ data: { tenantId: tenantB, code: `${suffix}-diagnostic-b`.toUpperCase(), name: 'Other tenant', countryCode: 'AE', createdById: creator.id } })
     const q = `/hotels/${hotels.alpha.id}/sellability?checkIn=${day(10)}&checkOut=${day(13)}&adults=2&currency=AED&nationality=IN&agencyId=`
     try {
       await get(q + agency.id, 'bowner').expect(404)

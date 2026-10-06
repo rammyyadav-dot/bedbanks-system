@@ -94,6 +94,10 @@ Cached PostgreSQL binaries were extracted, but `runuser -u nobody` fails with `c
 3. Resolve hosted topology/API/strict-role fixture prerequisites and run hosted acceptance independently; no alias cutover from this PR.
 4. Define child pricing, mixed-room occupancy and remaining commercial policies before implementing those models.
 
+## Database CI investigation
+
+Initial CI run `37400603151` at `e66916cb0730aaf2bbfc7658ae941626b24d13f4` executed 65 e2e suites: 63 passed, 2 failed (562 passed / 2 failed tests). Both new diagnostic fixtures used lowercase agency codes and failed the existing uppercase `Agency_code_format` constraint before exercising the endpoints. Fixture codes are corrected to uppercase; the constraint and application behavior are untouched. Certification requires the corrected-head run to pass; the initial run is not a PASS.
+
 ## Remaining work
 
 - Full child-age/extra-bed pricing, heterogeneous room parties, promotion stacking and explicit tax/supplement policies need separate business contracts; no invented rules.

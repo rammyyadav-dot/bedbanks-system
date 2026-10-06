@@ -101,7 +101,7 @@ describe('inventory over HTTP on the restricted API runtime role (PostgreSQL)', 
   })
 
   it('RH-01b stay diagnostics read buyer controls under the restricted role and show pooled stock, without writes', async () => {
-    const agency = await owner.agency.create({ data: { tenantId: tenantA, code: `${suffix}-diag`, name: 'Diagnostic agency', countryCode: 'AE', createdById: userIds[0] } })
+    const agency = await owner.agency.create({ data: { tenantId: tenantA, code: `${suffix}-diag`.toUpperCase(), name: 'Diagnostic agency', countryCode: 'AE', createdById: userIds[0] } })
     const before = await owner.inventoryPoolDay.findMany({ where: { poolId }, orderBy: { stayDate: 'asc' } })
     const q = `/admin/operations/hotels/${hotelId}/sellability?checkIn=${day(20)}&checkOut=${day(22)}&adults=2&currency=AED&nationality=IN&agencyId=${agency.id}`
     try {
