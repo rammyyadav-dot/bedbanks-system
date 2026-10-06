@@ -94,6 +94,15 @@ describe('booking module database role (PostgreSQL)', () => {
     expect(await denied(() => owner.$executeRawUnsafe(`DELETE FROM "BookingEvent" WHERE tenant_id = '${tenantA}'`))).toMatch(/append-only/)
   })
 
+  it('BO-E06b: deleting a booking (never done by the application) cascades to its rooms, guests and log; a direct delete of the log still fails', async () => {
+    const throwaway = await booking(tenantA, 'cascade')
+    await owner.bookingRoom.create({ data: { tenantId: tenantA, bookingId: throwaway.id, adults: 2 } })
+    expect(await owner.bookingEvent.count({ where: { bookingId: throwaway.id } })).toBe(1)
+    await owner.booking.delete({ where: { id: throwaway.id } })
+    expect(await owner.bookingEvent.count({ where: { bookingId: throwaway.id } })).toBe(0)
+    expect(await owner.bookingRoom.count({ where: { bookingId: throwaway.id } })).toBe(0)
+  })
+
   it('BO-E07: provisioning is idempotent and re-asserts the grants (a broadened grant does not survive a re-run)', async () => {
     await owner.$executeRawUnsafe(`GRANT SELECT ON "LedgerEntry" TO "${BOOKING_OPS_GROUP_ROLE}"`)
     expect((await verifyBookingOpsRole(probe)).ok).toBe(false)

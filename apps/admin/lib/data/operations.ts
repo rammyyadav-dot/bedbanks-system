@@ -1,5 +1,5 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type BookingOperations, type BookingRow, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { routes, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -15,8 +15,9 @@ export const getAuditSummary = (p: Params = {}) => apiRequest<AuditSummary>(`${o
 export const getOpsSuppliers = (p: Params) => apiRequest<Paged<SupplierOperationsRow>>(`${ops.suppliers}${opsQuery(p)}`)
 export const getOpsHolds = (p: Params) => apiRequest<Paged<HoldRow>>(`${ops.holds}${opsQuery(p)}`)
 export const getOpsHold = (holdId: string) => apiRequest<HoldDetail>(fill(ops.hold, { holdId }))
-export const getOpsBookings = (p: Params) => apiRequest<Paged<BookingRow>>(`${ops.bookings}${opsQuery(p)}`)
-export const getOpsBooking = (bookingId: string) => apiRequest<BookingOperations>(fill(ops.booking, { bookingId }))
+/** Booking list and detail (ADR 0039). The detail takes the booking id or its FB- reference. */
+export const getOpsBookings = (p: Params) => apiRequest<BookingListPage>(`${ops.bookings}${opsQuery(p)}`)
+export const getOpsBooking = (bookingIdOrReference: string) => apiRequest<BookingDetailView>(fill(ops.booking, { bookingId: bookingIdOrReference }))
 /** Same-origin URL of an already-issued, immutable document (opened in a new tab; the API never issues one from Admin). */
 export const opsDocumentUrl = (bookingId: string, type: 'voucher' | 'invoice' | 'credit-note') => `/api/v1${fill(ops.bookingDocument, { bookingId, type })}`
 export const getOpsReconciliation = () => apiRequest<ReconciliationQueue>(ops.reconciliation)

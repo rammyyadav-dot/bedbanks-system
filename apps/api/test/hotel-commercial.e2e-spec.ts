@@ -14,6 +14,7 @@ import { InventoryHoldService } from '../src/agent/inventory-hold.service'
 import { CONTRACT_EXPIRING_DAYS, OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
 import { OperationsHotelsService } from '../src/admin-operations/operations-hotels.service'
+import { enableBookingOps } from './support/booking-ops'
 
 jest.setTimeout(120_000)
 
@@ -85,8 +86,10 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
   const get = (path: string, who = 'owner') => { const r = request(app.getHttpServer()).get(`/api/v1/admin/operations${path}`); return who === 'anon' ? r : r.set('Cookie', cookies[who]) }
   const supplyKeys = ['supply.hotels.read', 'supply.contracts.read', 'supply.mappings.read', 'supply.rates.read', 'supply.suppliers.read', 'audit.read', 'booking.read', 'hotel.search']
 
+  let restoreBookingOps: () => void = () => undefined
   beforeAll(async () => {
     await prisma.$connect()
+    restoreBookingOps = await enableBookingOps(prisma) // the Admin booking routes read through the booking module's own role (ADR 0039)
     tenantA = (await prisma.tenant.create({ data: { name: `${suffix} A`, slug: `${suffix}-a` } })).id
     tenantB = (await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })).id
     supplierA = (await prisma.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} sA`, displayName: 'Supplier Alpha', countryCode: 'AE', defaultCurrency: 'AED' } })).id
@@ -126,6 +129,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
   })
 
   afterAll(async () => {
+    restoreBookingOps()
     await app?.close()
     for (const tenantId of [tenantA, tenantB].filter(Boolean)) {
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
@@ -464,7 +468,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     await prisma.booking.create({ data: { tenantId: tenantA, reference: `${suffix}-BK1`, supplier: 'contracted', hotelId: hotels.alpha.id, status: 'CONFIRMED', currency: 'AED', totalMinor: 90_000n, idempotencyKey: `${suffix}-bk1`, searchSnapshot: { checkIn: day(10), checkOut: day(12) } } })
     const d = await detail('alpha'); expect(d.counts.bookings).toBe(1)
     const bookings = (await get(`/bookings?hotelId=${hotels.alpha.id}`).expect(200)).body.data
-    expect(bookings.total).toBe(1); expect(bookings.items[0]).toMatchObject({ hotelId: hotels.alpha.id, totalMinor: '90000', currency: 'AED' })
+    expect(bookings.total).toBe(1); expect(bookings.items[0]).toMatchObject({ hotel: { id: hotels.alpha.id }, sellMinor: '90000', currency: 'AED' })
     expect((await get(`/bookings?hotelId=${hotels.bravo.id}`).expect(200)).body.data.total).toBe(0)
     await new AgentAuditService(new PrismaService()).record({ tenantId: tenantA, userId: (await prisma.user.findFirstOrThrow({ where: { email: `${suffix}-owner@example.test` } })).id, action: 'supply.hotel.updated', entityType: 'hotel', entityId: hotels.alpha.id, payload: { requestId: 'req-hc-1', email: 'secret@example.com', token: 'tok-123', note: 'kept' } })
     const audit = (await get(`/hotels/${hotels.alpha.id}/audit`).expect(200)).body.data

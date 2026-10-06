@@ -9,6 +9,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { enableBookingOps } from './support/booking-ops'
 
 const prisma = new PrismaClient()
 jest.setTimeout(180000)
@@ -79,8 +80,10 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     nationality: 'IN', currency: 'AED', limit: 100, ...patch,
   })
 
+  let restoreBookingOps: () => void = () => undefined
   beforeAll(async () => {
     await prisma.$connect()
+    restoreBookingOps = await enableBookingOps(prisma) // the Admin booking routes read through the booking module's own role (ADR 0039)
     const [tenant, other, empty] = await Promise.all([
       prisma.tenant.create({ data: { name: `${suffix} Agency`, slug: `${suffix}-a` } }),
       prisma.tenant.create({ data: { name: `${suffix} Other`, slug: `${suffix}-b` } }),
@@ -145,6 +148,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   }, 180000)
 
   afterAll(async () => {
+    restoreBookingOps()
     mkdirSync('/opt/cursor/artifacts', { recursive: true })
     writeFileSync('/opt/cursor/artifacts/dubai-100-metrics.json', JSON.stringify({
       ...measured, hotels: HOTEL_COUNT, offers: HOTEL_COUNT, activePlans: HOTEL_COUNT * PLANS_PER_HOTEL,

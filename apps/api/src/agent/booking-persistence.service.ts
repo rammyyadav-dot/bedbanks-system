@@ -86,7 +86,12 @@ export class BookingPersistenceService {
         if (!hold) throw new ForbiddenException('Inventory hold is unavailable')
         this.assertAuthoritativeHold(hold, command)
 
-        return tx.booking.create({
+        // The Admin booking module's promoted columns and child rows (ADR 0039): written in this same transaction from the same command,
+        // so the list never has to guess from the JSON snapshot. The agency is the booking user's agency membership, or null (Unassigned).
+        const member = await tx.agencyMember.findUnique({ where: { tenantId_userId: { tenantId: command.tenantId, userId: command.userId } }, select: { agencyId: true } })
+        const checkIn = new Date(`${command.checkIn}T00:00:00.000Z`)
+        const checkOut = new Date(`${command.checkOut}T00:00:00.000Z`)
+        const created = await tx.booking.create({
           data: {
             tenantId: command.tenantId,
             reference: bookingReference(command),
@@ -97,8 +102,26 @@ export class BookingPersistenceService {
             totalMinor: BigInt(command.totalMinor),
             idempotencyKey: command.idempotencyKey,
             searchSnapshot: snapshot,
+            channel: 'PORTAL',
+            agencyId: member?.agencyId ?? null,
+            agentUserId: command.userId,
+            agentRef: command.agencyReference?.trim().slice(0, 120) || null,
+            checkIn, checkOut, nights: Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000),
           },
         })
+        const [room, board] = await Promise.all([
+          tx.roomType.findFirst({ where: { id: command.canonicalRoomTypeId, hotelId: command.canonicalHotelId, hotel: { tenantId: command.tenantId } }, select: { name: true } }),
+          tx.boardBasis.findFirst({ where: { id: command.boardBasisId, tenantId: command.tenantId }, select: { code: true } }),
+        ])
+        const bookingRoom = await tx.bookingRoom.create({
+          data: {
+            tenantId: command.tenantId, bookingId: created.id, position: 1, quantity: command.rooms, roomTypeId: command.canonicalRoomTypeId, roomName: room?.name ?? null, boardCode: board?.code?.trim() ?? null,
+            adults: command.adults, children: command.children, childAges: command.childAges, sellMinor: BigInt(command.totalMinor),
+          },
+        })
+        await tx.bookingGuest.create({ data: { tenantId: command.tenantId, bookingId: created.id, roomId: bookingRoom.id, firstName: command.leadGuest.firstName, lastName: command.leadGuest.lastName, isLead: true, type: 'ADULT' } })
+        await tx.bookingEvent.create({ data: { tenantId: command.tenantId, bookingId: created.id, fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: command.userId, reason: 'Booking created', payload: { requestId: command.requestId } } })
+        return created
       })
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error

@@ -44,7 +44,8 @@ test('operations modules are in the sidebar only with a declared permission, and
     const item = flatNav.find((n) => n.href === href)
     assert.ok(item, `${href} must be listed`)
     assert.ok(item.requires, `${href} must declare the permission that gates it`)
-    const page = readFileSync(join(root, 'app', '(dashboard)', ...href.split('/').filter(Boolean), 'page.tsx'), 'utf8')
+    // The bookings page is a thin shell over its workspace component, which owns the data access (ADR 0039).
+    const page = readFileSync(join(root, 'app', '(dashboard)', ...href.split('/').filter(Boolean), 'page.tsx'), 'utf8') + (href === '/bookings' ? readFileSync(join(root, 'components', 'bookings', 'BookingsWorkspace.tsx'), 'utf8') : '')
     assert.doesNotMatch(page, /FeatureUnavailable/, `${href} must not be a placeholder`)
     assert.match(page, /lib\/data\/operations/, `${href} must read the operations API`)
   }

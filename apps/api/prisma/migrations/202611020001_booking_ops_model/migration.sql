@@ -20,7 +20,8 @@
 -- The backfill runs per tenant with the tenant context set, so it also works for an owner subject to forced row-level security.
 --
 -- Rollback notes: columns and tables can be dropped in reverse order of creation once nothing reads them; no existing column was altered or
---   dropped. Dropping Booking_tenant_id_id_key requires dropping the three child tables first.
+--   dropped. Dropping Booking_tenant_id_id_key requires dropping the three child tables first. The child tables cascade from Booking, so deleting a
+--   booking (which the application never does) removes its rooms, guests and log.
 -- Tenant-index review: every new index leads with tenant_id; the three child tables are keyed (tenant_id, booking_id).
 
 -- CreateEnum
@@ -169,22 +170,22 @@ ALTER TABLE "Booking" ADD CONSTRAINT "Booking_assigned_to_id_fkey" FOREIGN KEY (
 ALTER TABLE "BookingRoom" ADD CONSTRAINT "BookingRoom_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "BookingRoom" ADD CONSTRAINT "BookingRoom_tenant_id_booking_id_fkey" FOREIGN KEY ("tenant_id", "booking_id") REFERENCES "Booking"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "BookingRoom" ADD CONSTRAINT "BookingRoom_tenant_id_booking_id_fkey" FOREIGN KEY ("tenant_id", "booking_id") REFERENCES "Booking"("tenant_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "BookingGuest" ADD CONSTRAINT "BookingGuest_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "BookingGuest" ADD CONSTRAINT "BookingGuest_tenant_id_booking_id_fkey" FOREIGN KEY ("tenant_id", "booking_id") REFERENCES "Booking"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "BookingGuest" ADD CONSTRAINT "BookingGuest_tenant_id_booking_id_fkey" FOREIGN KEY ("tenant_id", "booking_id") REFERENCES "Booking"("tenant_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "BookingGuest" ADD CONSTRAINT "BookingGuest_tenant_id_room_id_fkey" FOREIGN KEY ("tenant_id", "room_id") REFERENCES "BookingRoom"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "BookingGuest" ADD CONSTRAINT "BookingGuest_tenant_id_room_id_fkey" FOREIGN KEY ("tenant_id", "room_id") REFERENCES "BookingRoom"("tenant_id", "id") ON DELETE NO ACTION ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "BookingEvent" ADD CONSTRAINT "BookingEvent_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "BookingEvent" ADD CONSTRAINT "BookingEvent_tenant_id_booking_id_fkey" FOREIGN KEY ("tenant_id", "booking_id") REFERENCES "Booking"("tenant_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "BookingEvent" ADD CONSTRAINT "BookingEvent_tenant_id_booking_id_fkey" FOREIGN KEY ("tenant_id", "booking_id") REFERENCES "Booking"("tenant_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
 -- Integrity checks (values are only ever added with these true)
@@ -210,9 +211,12 @@ CREATE POLICY "BookingGuest_tenant_isolation" ON "BookingGuest"
 CREATE POLICY "BookingEvent_tenant_isolation" ON "BookingEvent"
   USING ("tenant_id" = "fbeds_current_tenant_id"()) WITH CHECK ("tenant_id" = "fbeds_current_tenant_id"());
 
--- The lifecycle log is append-only
+-- The lifecycle log is append-only: a direct UPDATE or DELETE is rejected. The one exception is the foreign-key cascade when the booking itself is
+-- deleted (never done by the application; an owner erasing a booking erases its log with it). A cascade runs inside the foreign-key trigger, so
+-- pg_trigger_depth() is greater than 1; a direct statement is at depth 1.
 CREATE OR REPLACE FUNCTION "fbeds_booking_event_immutable"() RETURNS trigger AS $$
 BEGIN
+  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN RETURN OLD; END IF;
   RAISE EXCEPTION 'BookingEvent is append-only' USING ERRCODE = '42501';
 END;
 $$ LANGUAGE plpgsql;

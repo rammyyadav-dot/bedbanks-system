@@ -75,7 +75,10 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
 - `BookingDocument`: booking is disabled
+- `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
+- `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
+- `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
