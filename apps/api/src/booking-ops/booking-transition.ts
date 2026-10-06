@@ -80,8 +80,9 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
 
   const closing = input.action === 'close'
   const data: Prisma.BookingUpdateManyMutationInput = { status: rule.to }
-  if (supplierRef !== undefined && (input.action === 'recordConfirmed' || input.action === 'confirmOnRequest')) data.supplierRef = supplierRef
-  if (hotelConfirmationNo !== undefined && (input.action === 'recordConfirmed' || input.action === 'confirmOnRequest')) data.hotelConfirmationNo = hotelConfirmationNo
+  const writesRefs = input.action === 'recordConfirmed' || input.action === 'confirmOnRequest' || input.action === 'systemConfirm'
+  if (supplierRef !== undefined && writesRefs) data.supplierRef = supplierRef
+  if (hotelConfirmationNo !== undefined && writesRefs) data.hotelConfirmationNo = hotelConfirmationNo
   if (rule.bumpsVersion) data.version = { increment: 1 }
   if (closing) data.closedAt = input.now
   // Compare-and-set: only the row in the status the caller saw, and not locked, is changed.

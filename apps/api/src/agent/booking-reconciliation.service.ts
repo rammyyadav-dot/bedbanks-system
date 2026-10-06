@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { transitionBooking } from '../booking-ops/booking-transition'
+import { ConflictException, Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from './audit.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
@@ -144,8 +145,12 @@ export class BookingReconciliationService {
     if (booking.status === 'PENDING_SUPPLIER') {
       // Claim first: confirmation also locks the booking and requires PENDING, so exactly one of
       // "confirm" and "reconcile/expire" can win. Losing here means the booking was just confirmed.
-      const claimed = await this.prisma.withTenant(tenantId, tx => tx.booking.updateMany({ where: { id: booking.id, tenantId, status: 'PENDING_SUPPLIER' }, data: { status: 'FAILED' } }))
-      if (claimed.count !== 1) return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
+      const claimed = await this.prisma.withTenant(tenantId, tx => transitionBooking(tx, { tenantId, bookingId: booking.id, action: 'systemFail', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'SYSTEM' }, level: 'SYSTEM', reason: 'Reconciliation: the supplier outcome was never confirmed', idempotencyKey: `reconcile:${booking.id}:fail`, now: new Date() }).then(() => true, (error: unknown) => {
+        // Losing the race (confirmed or already moved in the meantime) is the "not pending" outcome; anything else is a real failure.
+        if (error instanceof ConflictException) return false
+        throw error
+      }))
+      if (!claimed) return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
     }
 
     const authorizationKey = `booking:${booking.id}:authorize`

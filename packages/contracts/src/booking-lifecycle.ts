@@ -31,6 +31,7 @@ export const BOOKING_ACTIONS = [
   'requestAmendment', 'approveAmendment', 'rejectAmendment',
   'requestCancellation', 'confirmCancellation',
   'markNoShow', 'markCheckedOut', 'close',
+  'systemConfirm', 'systemFail', 'systemRequestCancellation', 'systemCompleteCancellation',
 ] as const
 export type BookingAction = (typeof BOOKING_ACTIONS)[number]
 
@@ -71,6 +72,11 @@ export const BOOKING_ACTION_RULES: Readonly<Record<BookingAction, BookingActionR
   confirmCancellation: R({ action: 'confirmCancellation', label: 'Record cancellation', from: 'CANCEL_REQUESTED', to: 'CANCELLED', permissions: ['booking.cancel', 'booking.cancel.nonrefundable'], required: ['supplierCancellationRef'], actors: ['OPERATOR'], secondConfirmationWhenNonRefundable: true, effect: 'The supplier cancelled; enter its cancellation reference. No money moves in this phase.' }),
   markNoShow: R({ action: 'markNoShow', label: 'Mark no-show', from: 'CHECKED_OUT', to: 'NO_SHOW', permissions: ['booking.no-show.mark'], required: ['reason'], actors: ['OPERATOR'], effect: `The hotel reported a no-show, within ${NO_SHOW_WINDOW_DAYS} days of check-in. No penalty is applied in this phase.` }),
   markCheckedOut: R({ action: 'markCheckedOut', label: 'Check out', from: 'CONFIRMED', to: 'CHECKED_OUT', permissions: [], required: [], actors: ['SYSTEM'], effect: 'Done by the nightly job the day after check-out.' }),
+  // Platform-driven outcomes (the Agent flows and reconciliation today; the supplier job runner in Phase 3). Never offered to a person.
+  systemConfirm: R({ action: 'systemConfirm', label: 'Confirm (platform)', from: 'PENDING_SUPPLIER', to: 'CONFIRMED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The confirmation completed through the platform.' }),
+  systemFail: R({ action: 'systemFail', label: 'Fail (platform)', from: 'PENDING_SUPPLIER', to: 'FAILED', permissions: [], required: ['reason'], actors: ['SYSTEM'], effect: 'The attempt could not be completed and was released.' }),
+  systemRequestCancellation: R({ action: 'systemRequestCancellation', label: 'Cancel (platform, start)', from: 'CONFIRMED', to: 'CANCEL_REQUESTED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'A cancellation was started through the platform.' }),
+  systemCompleteCancellation: R({ action: 'systemCompleteCancellation', label: 'Cancel (platform, complete)', from: 'CANCEL_REQUESTED', to: 'CANCELLED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The cancellation completed through the platform.' }),
   close: R({ action: 'close', label: 'Close as failed', from: 'FAILED', to: 'FAILED', permissions: ['booking.rebook'], required: ['reason'], actors: ['OPERATOR'], effect: 'Locks the failed booking for edits. Its failure stays visible for reporting.' }),
 }
 

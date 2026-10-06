@@ -1,3 +1,4 @@
+import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
@@ -64,7 +65,10 @@ export class BookingCancellationService {
           await tx.ledgerEntry.create({ data: { tenantId, walletId: debit.walletId, type: 'REFUND', amountMinor: refund, currency: booking.currency, reference: `booking:${bookingId}`, idempotencyKey: `booking:${bookingId}:cancel-refund` } })
         }
         const cancellation = await tx.cancellation.create({ data: { bookingId, reason: command.reason?.slice(0, 500) ?? null, refundMinor: refund } })
-        await tx.booking.update({ where: { id: bookingId }, data: { status: 'CANCELLED' } })
+        // Through the one writer of Booking.status (ADR 0039): start, then complete, as two recorded moves in the same transaction.
+        const move = { tenantId, bookingId, actor: { type: 'USER' as const, id: userId }, level: 'SYSTEM' as const, now: new Date() }
+        await transitionBooking(tx, { ...move, action: 'systemRequestCancellation', expectedStatus: 'CONFIRMED', idempotencyKey: `cancel:${bookingId}:request` })
+        await transitionBooking(tx, { ...move, action: 'systemCompleteCancellation', expectedStatus: 'CANCEL_REQUESTED', idempotencyKey: `cancel:${bookingId}:complete` })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.cancelled', entityType: 'booking', entityId: bookingId,
           payload: { requestId, cancellationId: cancellation.id, currency: booking.currency, totalMinor: booking.totalMinor.toString(), penaltyMinor: penalty.toString(), refundMinor: refund.toString(), walletId: debit.walletId } } })
         return { ...view, status: 'CANCELLED' as const, alreadyCancelled: false, cancellationId: cancellation.id }
