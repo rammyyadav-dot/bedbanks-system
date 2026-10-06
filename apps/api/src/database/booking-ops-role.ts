@@ -21,13 +21,19 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
-export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation'] as const
+export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall'] as const
 /**
  * Phase 2 write grants, as narrow as the transition function needs (ADR 0039). No DELETE and no TRUNCATE anywhere. Status, lock, version and the supplier
  * references can be UPDATEd only as named columns (which is also why the immutable `BookingEvent` gets INSERT only). AuditEvent is INSERT-only and not readable.
  */
-export const BOOKING_OPS_UPDATE_COLUMNS = { Booking: ['status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at'] } as const
-export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent'] as const
+export const BOOKING_OPS_UPDATE_COLUMNS = {
+  Booking: ['status', 'supplier_status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at'],
+  /** Phase 3: the runner claims, retries and completes its own jobs, and nothing else about them. */
+  BookingSupplierJob: ['status', 'attempt', 'run_after', 'locked_until', 'last_error_code', 'completed_at', 'updated_at'],
+} as const
+/** Phase 3: the one function the runner may call, to learn which tenants have due jobs (returns tenant ids only). */
+export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)'] as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall'] as const
 /** Tables the role must never be able to read or write. Checked by the verifier. */
 export const BOOKING_OPS_FORBIDDEN_TABLES = ['LedgerEntry', 'Wallet', 'BookingDocument', 'Cancellation', 'InventoryHold', 'users', 'sessions', 'memberships', 'Agency', 'AgencyMember', 'Hotel', 'Contract', 'DailyRate', 'ConnectorCredentialReference'] as const
 
@@ -44,6 +50,7 @@ export function bookingOpsGrantStatements(group = BOOKING_OPS_GROUP_ROLE): strin
     ...BOOKING_OPS_READ_TABLES.map((table) => `GRANT SELECT ON "${table}" TO "${group}"`),
     ...BOOKING_OPS_INSERT_TABLES.map((table) => `GRANT INSERT ON "${table}" TO "${group}"`),
     ...Object.entries(BOOKING_OPS_UPDATE_COLUMNS).map(([table, columns]) => `GRANT UPDATE (${columns.map((c) => `"${c}"`).join(', ')}) ON "${table}" TO "${group}"`),
+    ...BOOKING_OPS_FUNCTIONS.map((fn) => `GRANT EXECUTE ON FUNCTION ${fn} TO "${group}"`),
   ]
 }
 
@@ -60,6 +67,7 @@ export async function provisionBookingOpsRole(db: Executor, input: { loginRole?:
   await db.$executeRawUnsafe(upsertLoginRoleSql(loginRole, input.password, attributes, 10))
   await db.$executeRawUnsafe(`GRANT "${BOOKING_OPS_GROUP_ROLE}" TO "${loginRole}"`)
   await db.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "${BOOKING_OPS_GROUP_ROLE}"`)
+  await db.$executeRawUnsafe(`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM "${BOOKING_OPS_GROUP_ROLE}"`)
   for (const statement of bookingOpsGrantStatements()) await db.$executeRawUnsafe(statement)
 }
 
@@ -103,6 +111,10 @@ export async function verifyBookingOpsRole(db: Pick<Executor, '$queryRawUnsafe'>
   if (Number(insertGap?.n ?? 0) > 0) failures.push('role cannot insert where the transition function needs it')
   const [extraInsert] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${readList}]) t WHERE t <> ALL(ARRAY[${insertList}]) AND has_table_privilege(current_user, format('%I', t), 'INSERT')`)
   if (Number(extraInsert?.n ?? 0) > 0) failures.push('role can insert into a table that is read-only for it')
+  for (const fn of BOOKING_OPS_FUNCTIONS) {
+    const [f] = await db.$queryRawUnsafe<Array<{ ok: boolean }>>(`SELECT has_function_privilege(current_user, '${fn.replace(/'/g, "''")}', 'EXECUTE') AS ok`)
+    if (!f?.ok) failures.push(`role cannot execute ${fn}`)
+  }
   const [audit] = await db.$queryRawUnsafe<Array<{ readable: boolean }>>(`SELECT has_table_privilege(current_user, '"AuditEvent"', 'SELECT') AS readable`)
   if (audit?.readable) failures.push('role can read the audit log')
   for (const [table, columns] of Object.entries(BOOKING_OPS_UPDATE_COLUMNS)) {

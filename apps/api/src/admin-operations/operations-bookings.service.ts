@@ -1,11 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
   availableActions,
   OPERATIONS_READ_DENIED,
-  type BookingAccessView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingTimelineItem, type SectionState,
+  type BookingAccessView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingSupplierView, type BookingTimelineItem, type SectionState,
 } from '@bedbanks/contracts'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
+import { ACTIVE_JOB_STATUSES, supplierDispatchAllowed, supplierOpsFor } from '../booking-ops/booking-supplier-jobs.service'
+import { BOOKING_SUPPLIER_RESOLVER, type BookingSupplierResolver } from '../booking-ops/supplier/booking-supplier.port'
 import { buildBookingOrderBy, buildBookingWhere, describeApplied, parseBookingListQuery, type BookingFilter } from '../booking-ops/booking-list-query'
 import { guestName } from '../booking-ops/booking-masking'
 import { PrismaService } from '../database/prisma.service'
@@ -34,7 +36,7 @@ export class OperationsBookingsService {
   /** Replaceable in tests so every date rule is deterministic. */
   clock: () => Date = () => new Date()
 
-  constructor(private readonly ops: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly evidence: OperationsTransactionsService) {}
+  constructor(private readonly ops: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly evidence: OperationsTransactionsService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver) {}
 
   // ---- list ---------------------------------------------------------------------------------------------------------------
   async list(tenantId: string, userId: string, access: BookingAccessView, rawQuery: Record<string, unknown>, requestId: string): Promise<BookingListPage> {
@@ -130,9 +132,12 @@ export class OperationsBookingsService {
       const b = await tx.booking.findFirst({ where: scope, include: { rooms: { orderBy: { position: 'asc' } }, guests: { orderBy: [{ isLead: 'desc' }, { createdAt: 'asc' }] } } })
       if (!b) throw new NotFoundException('Booking not found')
       const events = await tx.bookingEvent.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 500 })
-      return { b, events }
+      // The supplier queue is internal: operator-level callers only.
+      const jobs = access.level === 'OPERATOR' ? await tx.bookingSupplierJob.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 10 }) : []
+      const calls = access.level === 'OPERATOR' ? await tx.bookingSupplierCall.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 30 }) : []
+      return { b, events, jobs, calls }
     })
-    const { b, events } = core
+    const { b, events, jobs, calls } = core
     const names = await this.names(tenantId, [b])
     const hotel = names.hotels.get(b.hotelId)
     const row = this.row(b, names, access, null, false)
@@ -161,7 +166,21 @@ export class OperationsBookingsService {
         cancellationPolicy: null, markupRule: null, netVisibility,
       },
       timeline, operationsRecord,
+      supplier: access.level === 'OPERATOR' ? this.supplierView(tenantId, access, b, jobs, calls) : null,
       availableActions: availableActions({ status: b.status as BookingStatus, closedAt: iso(b.closedAt), isRefundable: b.isRefundable, checkIn: b.checkIn ? b.checkIn.toISOString().slice(0, 10) : null }, access.level, new Set(access.permissions), new Date()),
+    }
+  }
+
+  private supplierView(tenantId: string, access: BookingAccessView, b: { supplier: string; status: string; closedAt: Date | null; supplierStatus: string | null }, jobs: Prisma.BookingSupplierJobGetPayload<object>[], calls: Prisma.BookingSupplierCallGetPayload<object>[]): BookingSupplierView {
+    const configured = this.suppliers.resolve(tenantId, b.supplier) !== null
+    const active = jobs.filter((j) => (ACTIVE_JOB_STATUSES as string[]).includes(j.status))
+    const allowed = access.permissions.includes('booking.supplier.retry') && supplierDispatchAllowed()
+    const ops = allowed ? supplierOpsFor({ status: b.status as BookingStatus, closed: b.closedAt !== null, supplierStatus: b.supplierStatus, hasActiveJob: active.length > 0, hasRetryWaitJob: active.some((j) => j.status === 'RETRY_WAIT'), hasUnknownJob: jobs[0]?.status === 'UNKNOWN', configured }) : []
+    return {
+      dispatch: { available: allowed && configured, reason: !supplierDispatchAllowed() ? 'DISABLED' : !access.permissions.includes('booking.supplier.retry') ? 'NOT_PERMITTED' : !configured ? 'SUPPLIER_NOT_CONFIGURED' : null },
+      supplierStatus: b.supplierStatus, ops,
+      jobs: jobs.map((j) => ({ id: j.id, kind: j.kind, status: j.status, attempt: j.attempt, maxAttempts: j.maxAttempts, runAfter: iso(j.runAfter), lastErrorCode: j.lastErrorCode, createdAt: j.createdAt.toISOString(), completedAt: iso(j.completedAt) })),
+      calls: calls.map((c) => ({ id: c.id, at: c.createdAt.toISOString(), action: c.action, attempt: c.attempt, outcome: c.outcome, errorCode: c.errorCode, httpStatus: c.httpStatus, durationMs: c.durationMs, supplierRef: c.supplierReference })),
     }
   }
 

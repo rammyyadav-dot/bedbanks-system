@@ -31,7 +31,7 @@ export const BOOKING_ACTIONS = [
   'requestAmendment', 'approveAmendment', 'rejectAmendment',
   'requestCancellation', 'confirmCancellation',
   'markNoShow', 'markCheckedOut', 'close',
-  'systemConfirm', 'systemFail', 'systemRequestCancellation', 'systemCompleteCancellation',
+  'systemConfirm', 'systemOnRequest', 'systemConfirmOnRequest', 'systemRejectOnRequest', 'systemFail', 'systemRequestCancellation', 'systemCompleteCancellation',
 ] as const
 export type BookingAction = (typeof BOOKING_ACTIONS)[number]
 
@@ -74,6 +74,9 @@ export const BOOKING_ACTION_RULES: Readonly<Record<BookingAction, BookingActionR
   markCheckedOut: R({ action: 'markCheckedOut', label: 'Check out', from: 'CONFIRMED', to: 'CHECKED_OUT', permissions: [], required: [], actors: ['SYSTEM'], effect: 'Done by the nightly job the day after check-out.' }),
   // Platform-driven outcomes (the Agent flows and reconciliation today; the supplier job runner in Phase 3). Never offered to a person.
   systemConfirm: R({ action: 'systemConfirm', label: 'Confirm (platform)', from: 'PENDING_SUPPLIER', to: 'CONFIRMED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The confirmation completed through the platform.' }),
+  systemOnRequest: R({ action: 'systemOnRequest', label: 'On request (platform)', from: 'PENDING_SUPPLIER', to: 'ON_REQUEST', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The supplier answered "on request" through the platform.' }),
+  systemConfirmOnRequest: R({ action: 'systemConfirmOnRequest', label: 'Confirm on request (platform)', from: 'ON_REQUEST', to: 'CONFIRMED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The supplier confirmed an on-request booking through the platform.' }),
+  systemRejectOnRequest: R({ action: 'systemRejectOnRequest', label: 'Reject on request (platform)', from: 'ON_REQUEST', to: 'REJECTED', permissions: [], required: ['reason'], actors: ['SYSTEM'], effect: 'The supplier declined an on-request booking through the platform.' }),
   systemFail: R({ action: 'systemFail', label: 'Fail (platform)', from: 'PENDING_SUPPLIER', to: 'FAILED', permissions: [], required: ['reason'], actors: ['SYSTEM'], effect: 'The attempt could not be completed and was released.' }),
   systemRequestCancellation: R({ action: 'systemRequestCancellation', label: 'Cancel (platform, start)', from: 'CONFIRMED', to: 'CANCEL_REQUESTED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'A cancellation was started through the platform.' }),
   systemCompleteCancellation: R({ action: 'systemCompleteCancellation', label: 'Cancel (platform, complete)', from: 'CANCEL_REQUESTED', to: 'CANCELLED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The cancellation completed through the platform.' }),

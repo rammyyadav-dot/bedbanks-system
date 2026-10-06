@@ -30,6 +30,8 @@ export interface TransitionInput {
   hotelConfirmationNo?: string
   supplierCancellationRef?: string
   confirmNonRefundable?: boolean
+  /** The supplier's own word (free text such as CONFIRMED or ON_REQUEST), kept apart from the status. Written with the move. */
+  supplierStatus?: string
   /** When present the request is replay-safe. */
   idempotencyKey?: string
   now: Date
@@ -80,9 +82,10 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
 
   const closing = input.action === 'close'
   const data: Prisma.BookingUpdateManyMutationInput = { status: rule.to }
-  const writesRefs = input.action === 'recordConfirmed' || input.action === 'confirmOnRequest' || input.action === 'systemConfirm'
+  const writesRefs = input.action === 'recordConfirmed' || input.action === 'confirmOnRequest' || input.action === 'systemConfirm' || input.action === 'systemConfirmOnRequest'
   if (supplierRef !== undefined && writesRefs) data.supplierRef = supplierRef
   if (hotelConfirmationNo !== undefined && writesRefs) data.hotelConfirmationNo = hotelConfirmationNo
+  if (input.supplierStatus !== undefined) data.supplierStatus = input.supplierStatus.slice(0, 40)
   if (rule.bumpsVersion) data.version = { increment: 1 }
   if (closing) data.closedAt = input.now
   // Compare-and-set: only the row in the status the caller saw, and not locked, is changed.

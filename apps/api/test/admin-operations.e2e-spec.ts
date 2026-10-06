@@ -1,3 +1,4 @@
+import { BookingSupplierRegistry } from '../src/booking-ops/supplier/booking-supplier.registry'
 import { randomBytes } from 'crypto'
 import { BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import { PrismaClient } from '@prisma/client'
@@ -51,8 +52,8 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const opsPassword = `ops-${randomBytes(20).toString('hex')}`
   const opsUrl = (() => { const u = new URL(ownerUrl as string); u.username = BOOKING_OPS_LOGIN_ROLE; u.password = opsPassword; return u.toString() })()
   const opsDb = new BookingOpsDatabase({ DATABASE_URL: ownerUrl, BOOKING_OPS_DATABASE_URL: opsUrl })
-  const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx)
-  const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false }
+  const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx, new BookingSupplierRegistry({}))
+  const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false, supplierDispatch: false }
   const listBookings = (tenantId: string, query: Record<string, unknown> = {}) => bookingsRead.list(tenantId, 'test-user', operator, query, 'req-test')
   const hotelOps = new OperationsHotelsService(prisma)
   const supply = new OperationsSupplyService(prisma, hotelOps)
@@ -415,7 +416,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
 
     it('ADMIN-DENIED: transaction views fail with OPERATIONS_READ_DENIED, never an empty list; the dashboard marks the section unavailable', async () => {
       // The booking list uses its own principal: with no BOOKING_OPS_DATABASE_URL it is the not-readable state, never a read with the API role.
-      const noOpsRole = new OperationsBookingsService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, runtimeTx)
+      const noOpsRole = new OperationsBookingsService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, runtimeTx, new BookingSupplierRegistry({}))
       for (const call of [() => noOpsRole.list(A.tenantId, 'u', operator, {}, 'r'), () => runtimeTx.holds(A.tenantId, {}), () => runtimeTx.wallets(A.tenantId, {}), () => runtimeTx.ledger(A.tenantId, {}), () => runtimeTx.connectors(A.tenantId, {}), () => runtimeTx.cancellations(A.tenantId, {})]) {
         const error = await call().then(() => null, e => e)
         expect(error).toBeInstanceOf(ServiceUnavailableException)

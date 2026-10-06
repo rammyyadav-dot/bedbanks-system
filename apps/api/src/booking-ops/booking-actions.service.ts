@@ -1,10 +1,12 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { randomBytes, createHash } from 'node:crypto'
 import {
   BOOKING_ACTION_RULES, BOOKING_ACTIONS, BOOKING_REASON_MAX, BOOKING_REF_MAX, BOOKING_STATUSES, MANUAL_BOOKING_FAILURE, permissionFor,
   type BookingAccessView, type BookingAction, type BookingActionRequest, type BookingReferencesRequest, type BookingStatus, type BookingWriteResult, type ManualBookingRequest,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { BOOKING_SUPPLIER_RESOLVER, type BookingSupplierResolver } from './supplier/booking-supplier.port'
+import { supplierJobsEnabled } from './booking-supplier-jobs.service'
 import { manualBookingEnabled } from './booking-access.guard'
 import { BookingOpsDatabase } from './booking-ops-database'
 import { transitionBooking } from './booking-transition'
@@ -17,7 +19,7 @@ const bad = (message: string, code: string) => new BadRequestException({ message
 /** Everything an Admin user can change on a booking (ADR 0039, Phase 2). Each public method is one transaction on the booking role and one audit event. */
 @Injectable()
 export class BookingActionsService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver) {}
 
   static idempotencyKey(raw: unknown): string {
     if (typeof raw !== 'string' || !KEY.test(raw)) throw bad('An Idempotency-Key header of 8 to 128 letters, digits or . _ : - is required', 'IDEMPOTENCY_KEY_REQUIRED')
@@ -105,7 +107,13 @@ export class BookingActionsService {
     if (!manualBookingEnabled()) throw new ForbiddenException({ message: 'Manual booking entry is switched off in this environment', code: MANUAL_BOOKING_FAILURE.disabled })
     if (access.level !== 'OPERATOR' || !access.permissions.includes('booking.manual.create')) throw new ForbiddenException({ message: 'You do not have permission to enter a booking manually', code: 'PERMISSION_DENIED' })
     const valid = validateManualBooking(body ?? {})
-    const fingerprint = createHash('sha256').update(JSON.stringify([valid, (valid.sellMinor).toString()], (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).digest('hex')
+    const send = (body as ManualBookingRequest).sendToSupplier === true
+    if (send) {
+      if (!supplierJobsEnabled()) throw new ForbiddenException({ message: 'Supplier jobs are switched off in this environment', code: 'SUPPLIER_JOBS_DISABLED' })
+      if (!access.permissions.includes('booking.supplier.retry')) throw new ForbiddenException({ message: 'You do not have permission to use the supplier queue', code: 'PERMISSION_DENIED' })
+      if (!this.suppliers.resolve(tenantId, valid.supplier)) throw new ConflictException({ message: 'No supplier adapter is configured for this supplier. Create the booking without sending it, then record the supplier’s answer by hand.', code: 'SUPPLIER_NOT_CONFIGURED' })
+    }
+    const fingerprint = createHash('sha256').update(JSON.stringify([valid, send], (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).digest('hex')
 
     // The API database role (not the booking role) confirms the hotel and the agency belong to this operator and that the agency is active.
     const [hotel, agency] = await this.prisma.withTenant(tenantId, (t) => Promise.all([t.hotel.findFirst({ where: { id: valid.hotelId, tenantId }, select: { id: true } }), t.agency.findFirst({ where: { id: valid.agencyId, tenantId }, select: { id: true, status: true } })]))
@@ -130,7 +138,12 @@ export class BookingActionsService {
       const rooms = []
       for (const room of valid.rooms) rooms.push(await tx.bookingRoom.create({ data: { tenantId, bookingId: created.id, position: room.position, roomName: room.roomName, boardCode: room.boardCode, adults: room.adults, children: room.children, childAges: room.childAges }, select: { id: true } }))
       for (const guest of valid.guests) await tx.bookingGuest.create({ data: { tenantId, bookingId: created.id, roomId: rooms[0]?.id ?? null, title: guest.title, firstName: guest.firstName, lastName: guest.lastName, isLead: guest.isLead, type: guest.type, age: guest.age }, select: { id: true } })
-      await tx.bookingEvent.create({ data: { tenantId, bookingId: created.id, fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: userId, reason: null, action: 'createManual', payload: { channel: 'MANUAL', noSupplierCall: true, noCreditUsed: true } } })
+      await tx.bookingEvent.create({ data: { tenantId, bookingId: created.id, fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: userId, reason: null, action: 'createManual', payload: { channel: 'MANUAL', noSupplierCall: true, noCreditUsed: true, queuedForSupplier: send } } })
+      if (send) {
+        const jobKey = `${key}:book`.slice(0, 128)
+        const queued = await tx.bookingSupplierJob.create({ data: { tenantId, bookingId: created.id, kind: 'BOOK', status: 'QUEUED', runAfter: new Date(), requestedByUserId: userId, idempotencyKey: jobKey, requestFingerprint: createHash('sha256').update(JSON.stringify([created.id, 'send'])).digest('hex') }, select: { id: true } })
+        await tx.bookingEvent.create({ data: { tenantId, bookingId: created.id, fromStatus: 'PENDING_SUPPLIER', toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: userId, action: 'supplierQueued', payload: { op: 'send', kind: 'BOOK', jobId: queued.id } } })
+      }
       await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'booking.manual.created', entityType: 'booking', entityId: created.id, payload: { channel: 'MANUAL', agencyId: valid.agencyId, hotelId: valid.hotelId, currency: valid.currency, sellMinor: valid.sellMinor.toString(), rooms: valid.rooms.length, guests: valid.guests.length, requestId } }] })
       return { bookingId: created.id, reference, status: 'PENDING_SUPPLIER' as const, version: created.version, closed: false, replayed: false }
     })

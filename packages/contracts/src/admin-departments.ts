@@ -85,10 +85,10 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('distribution.manage', 'distribution', 'S2', 'Create and retire distribution restrictions that hide inventory from an agency'),
 
   // Planned: named by the department matrix, granted to nobody and enforced nowhere.
-  planned('booking.view.supplier-payload', 'reservations', 'S2', 'See raw supplier request and response payloads (Phase 3)'),
+  planned('booking.view.supplier-payload', 'reservations', 'S2', 'See raw supplier request and response payloads (not built: raw supplier payloads are never stored, ADR 0039)'),
   enforced('booking.on-request.resolve', 'reservations', 'S3', 'Confirm, reject or offer an alternative on an on-request booking'),
   enforced('booking.confirm.manual', 'reservations', 'S3', 'Mark a pending-supplier booking confirmed manually'),
-  planned('booking.supplier.retry', 'reservations', 'S2', 'Retry a supplier call or sync (Phase 3)', 'booking.read'),
+  enforced('booking.supplier.retry', 'reservations', 'S2', 'Send a booking to its supplier, retry a supplier call now, or sync its status with the supplier'),
   enforced('booking.supplier-ref.edit', 'reservations', 'S2', 'Add or edit the supplier reference'),
   enforced('booking.amend', 'reservations', 'S3', 'Amend a booking'),
   enforced('booking.amend.request', 'reservations', 'S2', 'Request an amendment as an agency user'),

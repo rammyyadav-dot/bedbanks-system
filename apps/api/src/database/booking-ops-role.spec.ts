@@ -7,11 +7,15 @@ describe('booking module database role (ADR 0039)', () => {
   it('BO-01: grants are SELECT on the five booking tables, INSERT on the four booking tables plus AuditEvent, and UPDATE on named Booking columns only', () => {
     const statements = bookingOpsGrantStatements()
     expect(statements[0]).toBe(`GRANT USAGE ON SCHEMA public TO "${BOOKING_OPS_GROUP_ROLE}"`)
-    expect(statements.filter((q) => q.startsWith('GRANT SELECT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
-    expect(statements.filter((q) => q.startsWith('GRANT INSERT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent'].map((t) => `GRANT INSERT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
-    expect(statements.filter((q) => q.startsWith('GRANT UPDATE'))).toEqual([`GRANT UPDATE ("status", "supplier_ref", "hotel_confirmation_no", "agent_ref", "version", "closed_at", "updated_at") ON "Booking" TO "${BOOKING_OPS_GROUP_ROLE}"`])
+    expect(statements.filter((q) => q.startsWith('GRANT SELECT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT INSERT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall'].map((t) => `GRANT INSERT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT UPDATE'))).toEqual([
+      `GRANT UPDATE ("status", "supplier_status", "supplier_ref", "hotel_confirmation_no", "agent_ref", "version", "closed_at", "updated_at") ON "Booking" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "attempt", "run_after", "locked_until", "last_error_code", "completed_at", "updated_at") ON "BookingSupplierJob" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+    ])
+    expect(statements.filter((q) => q.startsWith('GRANT EXECUTE'))).toEqual([`GRANT EXECUTE ON FUNCTION "fbeds_booking_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`])
     expect(statements.join(' ')).not.toMatch(/DELETE|TRUNCATE|ALL PRIVILEGES|WITH GRANT OPTION|BYPASSRLS|REFERENCES|TRIGGER/i)
-    expect(statements.length).toBe(1 + 5 + 5 + 1)
+    expect(statements.length).toBe(1 + 7 + 7 + 2 + 1)
   })
 
   it('BO-02: no grant reaches ledger, wallet, documents, audit, identity or hotel tables, and the two lists never overlap', () => {
@@ -35,7 +39,7 @@ describe('booking module database role (ADR 0039)', () => {
     const sql = first.join('\n')
     expect(sql).toContain('NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS')
     expect(sql).not.toMatch(/\bSUPERUSER\b(?<!NOSUPERUSER)/)
-    expect(first.findIndex((q) => q.startsWith('REVOKE ALL'))).toBeLessThan(first.findIndex((q) => q.startsWith('GRANT SELECT')))
+    expect(first.findIndex((q) => q.startsWith('REVOKE ALL ON ALL TABLES'))).toBeLessThan(first.findIndex((q) => q.startsWith('GRANT SELECT')))
     expect(sql).toContain(`GRANT "${BOOKING_OPS_GROUP_ROLE}" TO "${BOOKING_OPS_LOGIN_ROLE}"`)
   })
 
