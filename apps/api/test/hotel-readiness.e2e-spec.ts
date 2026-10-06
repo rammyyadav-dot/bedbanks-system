@@ -82,8 +82,8 @@ describe('hotel readiness (PostgreSQL, HTTP, runtime role, two tenants)', () => 
     supplierB = (await owner.supplier.create({ data: { tenantId: tenantB, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} b`, displayName: 'Beta', countryCode: 'AE', defaultCurrency: 'AED' } })).id
     boardA = (await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'BB', name: 'B&B' } })).id
     boardB = (await owner.boardBasis.create({ data: { tenantId: tenantB, code: 'BB', name: 'B&B' } })).id
-    const keys = ['supply.hotels.read', 'supply.rates.read', 'supply.contracts.read', 'supply.mappings.read']
-    await user('owner', tenantA, keys); await user('viewer', tenantA, ['supply.hotels.read']); await user('none', tenantA, []); await user('bowner', tenantB, keys)
+    const keys = ['supply.hotels.read', 'supply.rates.read', 'supply.contracts.read', 'supply.mappings.read', 'agency.read']
+    await user('owner', tenantA, keys); await user('viewer', tenantA, ['supply.hotels.read']); await user('norates', tenantA, ['supply.hotels.read', 'supply.rates.read']); await user('none', tenantA, []); await user('bowner', tenantB, keys)
     await makeHotel('ready'); await makeHotel('draft', { content: 'DRAFT', profile: false }); await makeHotel('pending', { mapping: 'PENDING' })
     await makeHotel('norate', { rates: false }); await makeHotel('nostock', { availability: false })
     await makeHotel('indian', { nationalities: ['IN'] }); await makeHotel('gbmarket', { salesMarkets: ['GB'] }); await makeHotel('beta', { tenant: 'B' })
@@ -101,7 +101,7 @@ describe('hotel readiness (PostgreSQL, HTTP, runtime role, two tenants)', () => 
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     app.useGlobalFilters(new HttpExceptionFilter()); app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
-    for (const label of ['owner', 'viewer', 'none', 'bowner']) {
+    for (const label of ['owner', 'viewer', 'norates', 'none', 'bowner']) {
       const r = await request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', origin).send({ email: `${suffix}-${label}@example.test`, password }).expect(200)
       cookies[label] = (r.headers['set-cookie'][0] as string).split(';')[0]
     }
@@ -133,6 +133,8 @@ describe('hotel readiness (PostgreSQL, HTTP, runtime role, two tenants)', () => 
     await get('beta', base, 'owner').expect(404)    // tenant B's hotel through tenant A
     await get('ready', base, 'bowner').expect(404)  // tenant A's hotel through tenant B
     await get('ready', `${base}&agencyId=${agencies.bag}`).expect(404) // tenant B's agency through tenant A
+    await get('ready', base, 'norates').expect(200)                      // rate-level evaluation alone is enough without an agency
+    await get('ready', `${base}&agencyId=${agencies.ae}`, 'norates').expect(403) // naming an agency needs agency.read as well (as for the stay diagnostic)
     expect((await ok('beta', base, 'bowner')).hotelName).toContain('beta')
   })
 

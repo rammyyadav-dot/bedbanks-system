@@ -545,9 +545,7 @@ export class OperationsHotelsService {
       let agencyStatus: string | null = null
       let restrictions: Array<{ scope: string; hotelId: string | null; supplierId: string | null }> = []
       if (agencyId) {
-        if (!userId) throw new ForbiddenException('Access denied')
-        const assignments = await tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } } })
-        if (!assignments.some(a => a.role.permissions.some(p => p.permission.key === 'agency.read'))) throw new ForbiddenException('Access denied')
+        await this.requireAgencyRead(tx, tenantId, userId)
         let agency: { status: string; countryCode: string | null } | null
         try {
           agency = await tx.agency.findFirst({ where: { id: agencyId, tenantId }, select: { status: true, countryCode: true } })
@@ -595,12 +593,19 @@ export class OperationsHotelsService {
   }
 
 
+  /** Naming an agency exposes agency data, so it needs the existing tenant-scoped `agency.read` on top of the route permission. Fails closed. */
+  private async requireAgencyRead(tx: Prisma.TransactionClient, tenantId: string, userId: string | undefined): Promise<void> {
+    if (!userId) throw new ForbiddenException('Access denied')
+    const assignments = await tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } } })
+    if (!assignments.some((a) => a.role.permissions.some((p) => p.permission.key === 'agency.read'))) throw new ForbiddenException('Access denied')
+  }
+
   // ---- unified readiness (explicit criteria) -------------------------------------------------------------------------------
   /**
    * Seven separate gates for one explicit stay, occupancy, nationality, agency and currency. Commercial verdicts come from the shared evaluator;
    * unreadable evidence (a privilege boundary) is reported UNKNOWN, never FAIL, zero or empty. Read-only: nothing is allocated or written.
    */
-  async readiness(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>): Promise<HotelReadinessAssessment> {
+  async readiness(tenantId: string, hotelIdRaw: string, query: Record<string, unknown>, userId?: string): Promise<HotelReadinessAssessment> {
     const checkInDate = dayParam('checkIn', query.checkIn); const checkOutDate = dayParam('checkOut', query.checkOut)
     if (!checkInDate || !checkOutDate) throw new BadRequestException('checkIn and checkOut are required')
     const checkIn = day(checkInDate); const checkOut = day(checkOutDate)
@@ -626,6 +631,7 @@ export class OperationsHotelsService {
       let agency: AgencyEvidence | null | 'UNREADABLE' = null
       let market: string | null = null
       if (agencyId) {
+        await this.requireAgencyRead(tx, tenantId, userId)
         const row = await tx.agency.findFirst({ where: { id: agencyId, tenantId }, select: { id: true, name: true, status: true, countryCode: true } })
         if (!row) throw new NotFoundException('Agency not found')
         market = normalizeCountry(row.countryCode)

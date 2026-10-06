@@ -6,7 +6,7 @@ import {
 import { evaluateContractedStay } from './contracted-sellability'
 import { buildStaySnapshot } from './stay-snapshot'
 import { markupResolverFor } from './markup-rules'
-import { mappingFor, type AssessHotelInput } from './commercial-assessment'
+import { mappingFor, SELLABILITY_GATES, type AssessHotelInput } from './commercial-assessment'
 
 /**
  * Unified hotel readiness for ONE explicit set of criteria. Pure: no I/O, no clock (`now` is injected).
@@ -46,14 +46,16 @@ const ACTION: Record<Exclude<ReadinessGateId, 'CONTENT'>, ReadinessAction> = {
 }
 const SECTION_TAB: Record<string, ReadinessActionTab> = { identity: 'setup', location: 'setup', classification: 'setup', content: 'setup', operations: 'setup', contacts: 'setup', governance: 'setup', rooms: 'rooms' }
 
-/** Which gate owns a canonical reason. A reason not listed fails closed into CONTRACT rather than being ignored. */
-const GATE_OF_REASON: Record<string, ReadinessGateId> = {
-  SUPPLIER_MAPPING_INVALID: 'MAPPING',
-  HOTEL_INACTIVE: 'DISTRIBUTION', [HOTEL_STAR_RATING_MISSING]: 'DISTRIBUTION',
-  DAILY_RATE_MISSING_OR_INVALID: 'RATE', RATE_CURRENCY_MISMATCH: 'RATE', RATE_AMOUNT_BASIS_UNVERIFIED: 'RATE', NET_RATE_MARKUP_UNAVAILABLE: 'RATE',
-  AVAILABILITY_MISSING: 'INVENTORY', STOP_SELL: 'INVENTORY', CLOSED_TO_ARRIVAL: 'INVENTORY', CLOSED_TO_DEPARTURE: 'INVENTORY', NO_INVENTORY: 'INVENTORY',
-  POOL_EXHAUSTED: 'INVENTORY', INVENTORY_CLOSED: 'INVENTORY', INVENTORY_STALE: 'INVENTORY', ON_REQUEST_ONLY: 'INVENTORY',
+/**
+ * Which readiness gate owns a canonical reason. Derived from the shared `SELLABILITY_GATES` table (the same table the inspector and the per-plan
+ * stay diagnostic use), so a reason added there is classified here too. A reason that table does not list (for example a market rule) fails
+ * closed into CONTRACT rather than being ignored.
+ */
+const GATE_OF_KEY: Record<string, ReadinessGateId> = {
+  hotel: 'DISTRIBUTION', supplier: 'CONTRACT', mapping: 'MAPPING', room: 'CONTRACT', contract: 'CONTRACT', plan: 'CONTRACT', rate: 'RATE',
+  availability: 'INVENTORY', stopSell: 'INVENTORY', inventory: 'INVENTORY', occupancy: 'CONTRACT', stay: 'CONTRACT',
 }
+const GATE_OF_REASON: Record<string, ReadinessGateId> = Object.fromEntries(SELLABILITY_GATES.flatMap((g) => g.reasons.map((reason) => [reason, GATE_OF_KEY[g.key] ?? 'CONTRACT'])))
 const gateOf = (reason: string): ReadinessGateId => GATE_OF_REASON[reason] ?? 'CONTRACT'
 const textOf = (code: string): string => COMMERCIAL_REASON_TEXT[code] ?? code
 
