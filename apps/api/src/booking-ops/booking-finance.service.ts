@@ -10,6 +10,7 @@ import { renderBookingDocument } from '../agent/booking-document.render'
 import { PrismaService } from '../database/prisma.service'
 import { BookingActionsService } from './booking-actions.service'
 import { BookingOpsDatabase } from './booking-ops-database'
+import { BookingPenaltyQuoter } from './booking-penalty-quote'
 import { currentPenalty } from './booking-finance-events'
 import { buildDocumentPayload } from './booking-finance-documents'
 
@@ -24,11 +25,12 @@ const refuse = (message: string, code: string = BOOKING_FINANCE_FAILURE.forbidde
  */
 @Injectable()
 export class BookingFinanceService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly quoter: BookingPenaltyQuoter) {}
 
   async view(tenantId: string, access: BookingAccessView, bookingId: string): Promise<BookingFinanceView> {
     if (!operatorWith(access, 'booking.finance.view')) throw refuse('You do not have permission to see booking finance')
-    return this.db.withTenant(tenantId, async (tx) => {
+    const now = new Date()
+    const view = await this.db.withTenant(tenantId, async (tx) => {
       const b = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, reference: true, status: true, closedAt: true, currency: true, totalMinor: true, netMinor: true, paymentMode: true, isRefundable: true, hotelConfirmationNo: true, cancellationPolicy: true } })
       if (!b) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
       const state = await this.state(tx, tenantId, b)
@@ -49,9 +51,12 @@ export class BookingFinanceService {
         documents: state.docs.map((d): BookingIssuedDocumentView => ({ id: d.id, type: d.type as BookingDocumentType, number: d.number, issuedAt: d.issuedAt.toISOString(), htmlPath: htmlPathOf(b.id, d.type as BookingDocumentType) })),
         eligible,
         can: { issueDocuments: operatorWith(access, 'booking.documents.issue'), decidePenalty: operatorWith(access, 'booking.cancel.nonrefundable'), waivePenalty: operatorWith(access, 'booking.penalty.waive.approve') },
+        cancellationPreview: null,
         ledger: 'NOT_POSTED_BY_THIS_MODULE',
-      }
+      } satisfies BookingFinanceView
     })
+    // Worked out after the read transaction (it also reads the hotel's time zone with the API role). Only a Confirmed booking can be cancelled from here.
+    return view.status === 'CONFIRMED' && !view.closed ? { ...view, cancellationPreview: await this.quoter.quote(tenantId, bookingId, now) } : view
   }
 
   /** Decide an undecided penalty (`booking.cancel.nonrefundable`) or waive part of a quoted one (`booking.penalty.waive.approve`, never by the person who requested the cancellation). */

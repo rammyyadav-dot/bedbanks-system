@@ -161,6 +161,8 @@ export interface BookingFinanceView {
   isRefundable: boolean | null
   terms: { rules: FrozenCancellationRule[] | null; frozenAt: string | null; source: string | null }
   penalty: EffectivePenalty & { quote: StoredPenaltyQuote | null; waivedFrom: string | null }
+  /** While the booking is Confirmed: what cancelling right now would cost, so the operator sees it before asking. Not stored; the real quote is taken when cancellation is requested. */
+  cancellationPreview: StoredPenaltyQuote | null
   events: BookingFinanceEventView[]
   documents: BookingIssuedDocumentView[]
   eligible: Record<BookingDocumentType, DocumentBlock>

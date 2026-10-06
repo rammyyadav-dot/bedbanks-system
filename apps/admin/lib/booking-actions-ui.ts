@@ -1,6 +1,7 @@
 // Pure helpers for the booking action dialogs and the manual entry form (ADR 0039, Phase 2). No React, no network.
 import { BOOKING_REASON_MAX, BOOKING_REF_MAX, type BookingActionField, type BookingAvailableAction, type BookingActionRequest, type BookingStatus, type ManualBookingRequest } from '@bedbanks/contracts'
 import { ApiResponseError } from './api/errors'
+import { buildRules, type RuleForm } from './booking-finance-ui'
 import { parseMajorToMinor } from './minor-units'
 
 export const newIdempotencyKey = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random().toString(16).slice(2)}`)
@@ -87,10 +88,12 @@ export interface ManualForm {
   agencyId: string; hotelId: string; supplier: string; checkIn: string; checkOut: string; currency: string; sell: string; net: string
   paymentMode: '' | 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL'; refundable: '' | 'yes' | 'no'; cancelDeadline: string; agentRef: string
   rooms: ManualRoomForm[]; guests: ManualGuestForm[]
+  /** Cancellation terms frozen with the booking (Phase 5). Empty: a later cancellation's penalty is a person's decision. */
+  rules: RuleForm[]
 }
 export const emptyManualForm = (currency = 'AED'): ManualForm => ({
   sendToSupplier: false, agencyId: '', hotelId: '', supplier: '', checkIn: '', checkOut: '', currency, sell: '', net: '', paymentMode: '', refundable: '', cancelDeadline: '', agentRef: '',
-  rooms: [{ roomName: '', boardCode: '', adults: '2', children: '0', childAges: '' }], guests: [{ title: '', firstName: '', lastName: '', isLead: true }],
+  rooms: [{ roomName: '', boardCode: '', adults: '2', children: '0', childAges: '' }], guests: [{ title: '', firstName: '', lastName: '', isLead: true }], rules: [],
 })
 
 const wholeNumber = (v: string): number | null => (/^\d{1,2}$/.test(v.trim()) ? Number(v.trim()) : null)
@@ -120,11 +123,17 @@ export function buildManualRequest(form: ManualForm): { request: ManualBookingRe
     return { ...(g.title.trim() ? { title: g.title.trim() } : {}), firstName: g.firstName.trim(), lastName: g.lastName.trim(), isLead: g.isLead }
   })
   if (guests.filter((g) => g.isLead).length !== 1) errors.guests = 'Choose exactly one lead guest'
+  let cancellationRules: ManualBookingRequest['cancellationRules']
+  if (form.rules.length) {
+    if (form.refundable === 'no') errors.rules = 'A non-refundable booking has no cancellation rules; the whole amount is the penalty'
+    const built = buildRules(form.rules, form.currency)
+    if ('errors' in built) Object.assign(errors, built.errors); else cancellationRules = built.rules
+  }
   if (Object.keys(errors).length) return { errors }
   const request: ManualBookingRequest = {
     agencyId: form.agencyId, hotelId: form.hotelId, supplier: form.supplier.trim(), checkIn: form.checkIn, checkOut: form.checkOut, currency: form.currency, sellMinor: sellMinor as string, rooms, guests,
     ...(form.sendToSupplier ? { sendToSupplier: true } : {}), ...(netMinor ? { netMinor } : {}), ...(form.paymentMode ? { paymentMode: form.paymentMode } : {}), ...(form.refundable ? { isRefundable: form.refundable === 'yes' } : {}),
-    ...(form.cancelDeadline ? { cancelDeadline: new Date(form.cancelDeadline).toISOString() } : {}), ...(form.agentRef.trim() ? { agentRef: form.agentRef.trim() } : {}),
+    ...(form.cancelDeadline ? { cancelDeadline: new Date(form.cancelDeadline).toISOString() } : {}), ...(form.agentRef.trim() ? { agentRef: form.agentRef.trim() } : {}), ...(cancellationRules ? { cancellationRules } : {}),
   }
   return { request }
 }

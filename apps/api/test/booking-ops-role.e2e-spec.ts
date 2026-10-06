@@ -101,10 +101,16 @@ describe('booking module database role (PostgreSQL)', () => {
     await owner.$executeRawUnsafe(`UPDATE "Booking" SET status = 'CONFIRMED', version = 1, closed_at = NULL, supplier_ref = NULL, hotel_confirmation_no = NULL, agent_ref = NULL WHERE id = '${first.id}'`)
   })
 
-  it('BO-E05: ledger, wallets, documents, cancellations, holds, audit, identity, hotels and agencies are not readable', async () => {
-    for (const read of [(tx: any) => tx.ledgerEntry.count(), (tx: any) => tx.wallet.count(), (tx: any) => tx.bookingDocument.count(), (tx: any) => tx.cancellation.count(), (tx: any) => tx.inventoryHold.count(), (tx: any) => tx.auditEvent.count(), (tx: any) => tx.user.count(), (tx: any) => tx.session.count(), (tx: any) => tx.hotel.count(), (tx: any) => tx.agency.count()]) {
+  it('BO-E05: ledger, wallets, cancellations, holds, audit, identity, hotels and agencies are not readable', async () => {
+    for (const read of [(tx: any) => tx.ledgerEntry.count(), (tx: any) => tx.wallet.count(), (tx: any) => tx.cancellation.count(), (tx: any) => tx.inventoryHold.count(), (tx: any) => tx.auditEvent.count(), (tx: any) => tx.user.count(), (tx: any) => tx.session.count(), (tx: any) => tx.hotel.count(), (tx: any) => tx.agency.count()]) {
       expect(await denied(() => asTenant(tenantA, read))).toMatch(/42501|permission denied/i)
     }
+  })
+
+  it('BO-E05b: documents and money facts are readable and insertable by the booking role, never updatable or deletable (Phase 5)', async () => {
+    expect(await asTenant(tenantA, (tx: any) => tx.bookingDocument.count())).toBe(0)
+    expect(await asTenant(tenantA, (tx: any) => tx.bookingFinanceEvent.count())).toBe(0)
+    for (const q of [`UPDATE "BookingDocument" SET number = 'x'`, `DELETE FROM "BookingDocument"`, `UPDATE "BookingFinanceEvent" SET sell_minor = 1`, `DELETE FROM "BookingFinanceEvent"`]) expect(await denied(() => asTenant(tenantA, (tx: any) => tx.$executeRawUnsafe(q)))).toMatch(/42501|permission denied/i)
   })
 
   it('BO-E06: the lifecycle log is append-only even for the owner (UPDATE and DELETE are rejected by a trigger)', async () => {

@@ -9,6 +9,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { getAgencies } from '@/lib/data/departments'
 import { getHotelsCommercial } from '@/lib/data/hotel-commercial'
 import { createManualBooking, getOpsBookings } from '@/lib/data/operations'
+import { emptyRuleForm } from '@/lib/booking-finance-ui'
 import { buildManualRequest, describeActionError, emptyManualForm, newIdempotencyKey, type ManualForm } from '@/lib/booking-actions-ui'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
@@ -105,6 +106,20 @@ function ManualForm({ onCreated, canSend }: { onCreated: (bookingId: string) => 
         ))}
         {err('guests')}
         {form.guests.length < 40 && <div><button type="button" className="admin-btn" onClick={() => set({ guests: [...form.guests, { title: '', firstName: '', lastName: '', isLead: false }] })}>Add a guest</button></div>}
+      </fieldset>
+      <fieldset style={{ border: '1px solid #dbe6e9', borderRadius: 6, padding: 12, display: 'grid', gap: 10 }} data-testid="cancellation-terms">
+        <legend style={{ fontSize: 12 }}>Cancellation terms (frozen with the booking)</legend>
+        <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>Optional. Each rule says what share of the total is charged once the cancellation is within that many days of check-in. Without rules, the penalty of a later cancellation is decided by a person.</p>
+        {form.rules.map((r, i) => (
+          <div key={i} style={grid} role="group" aria-label={`Rule ${i + 1}`}>
+            <label style={field}><span>Within (days before check-in)</span><input inputMode="numeric" value={r.days} onChange={(e) => set({ rules: form.rules.map((x, j) => (j === i ? { ...x, days: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`rules.${i}.days`])} />{err(`rules.${i}.days`)}</label>
+            <label style={field}><span>Penalty is</span><select value={r.kind} onChange={(e) => set({ rules: form.rules.map((x, j) => (j === i ? { ...x, kind: e.target.value as 'percent' | 'fixed' } : x)) })} style={input}><option value="percent">a percent of the total</option><option value="fixed">a fixed amount</option></select></label>
+            <label style={field}><span>{r.kind === 'percent' ? 'Percent (0 to 100)' : `Amount (${form.currency})`}</span><input inputMode="decimal" value={r.value} onChange={(e) => set({ rules: form.rules.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`rules.${i}.value`])} />{err(`rules.${i}.value`)}</label>
+            <button type="button" className="admin-btn" onClick={() => set({ rules: form.rules.filter((_, j) => j !== i) })}>Remove rule {i + 1}</button>
+          </div>
+        ))}
+        {err('rules')}
+        {form.rules.length < 12 && <div><button type="button" className="admin-btn" onClick={() => set({ rules: [...form.rules, emptyRuleForm()] })}>Add a cancellation rule</button></div>}
       </fieldset>
       {canSend && (
         <label style={{ ...field, gridAutoFlow: 'column', justifyContent: 'start', alignItems: 'start', gap: 8 }}>
