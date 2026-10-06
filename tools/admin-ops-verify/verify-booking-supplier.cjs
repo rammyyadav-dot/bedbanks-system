@@ -70,9 +70,9 @@ const tab = async (page, name) => { await page.getByRole('tab', { name }).click(
   await page.locator('[data-op=retryNow]').click()
   check('Retry now from the detail page runs it and it confirms', await until(() => status(flaky.id).startsWith('CONFIRMED|CONFIRMED|MOCK-')), status(flaky.id))
 
-  const none = await enter(page, 'Acme Hotels', true)
-  check('a supplier with no connection is refused honestly and nothing is created', /No supplier connection|no supplier adapter/i.test(none.error ?? '') && sql(`SELECT count(*) FROM "Booking" WHERE tenant_id='${seed.tenant}' AND supplier='Acme Hotels'`) === '0', none.error)
-  const plain = await enter(page, 'Acme Hotels', false); await tab(page, 'Supplier')
+  const none = await enter(page, 'Zed Unconnected Hotels', true)
+  check('a supplier with no connection is refused honestly and nothing is created', /No supplier connection|no supplier adapter/i.test(none.error ?? '') && sql(`SELECT count(*) FROM "Booking" WHERE tenant_id='${seed.tenant}' AND supplier='Zed Unconnected Hotels'`) === '0', none.error)
+  const plain = await enter(page, 'Zed Unconnected Hotels', false); await tab(page, 'Supplier')
   check('without a connection the Supplier tab says so and offers nothing to send', /No supplier connection is set up/.test(await page.getByTestId('supplier-panel').innerText()) && (await page.locator('[data-testid=supplier-panel] [data-op]').count()) === 0)
   await ctx.close()
 

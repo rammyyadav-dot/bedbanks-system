@@ -66,7 +66,7 @@ const actions = (page) => page.locator('[data-testid=booking-actions] button').a
 
   // ---- edit references ----
   const noref = pick('CONFIRMED', 'AND supplier_ref IS NULL'); await open(page, noref)
-  check('a Confirmed booking without a supplier reference shows the flag', await page.getByText('MISSING SUPPLIER REF').isVisible())
+  check('a Confirmed booking without a supplier reference shows the flag', await page.getByText('MISSING SUPPLIER REF', { exact: true }).isVisible())
   await page.getByRole('button', { name: 'Edit references' }).click(); const d4 = page.locator('[role=dialog]'); await d4.getByLabel('Supplier reference').fill('SUP-EDIT-1'); await d4.getByLabel(/Reason/).fill('Phoned the supplier')
   await d4.getByRole('button', { name: 'Save references' }).click(); await page.waitForSelector('[data-testid=booking-notice]')
   await page.waitForFunction(() => !document.body.innerText.includes('MISSING SUPPLIER REF'))

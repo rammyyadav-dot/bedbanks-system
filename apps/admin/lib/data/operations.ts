@@ -57,7 +57,7 @@ export const getAccessReviewUsers = (p: Params = {}) => apiRequest<AccessReviewP
 // ---- Operations queue (ADR 0039, Phase 4). Reads never write; every mutation carries the Idempotency-Key the dialog generated once. ----------------------
 export const getOpsQueue = (p: Params) => apiRequest<BookingOpsQueuePage>(`${ops.bookingOps}${opsQuery(p)}`)
 export const getOpsAssignees = () => apiRequest<BookingOpsAssignee[]>(ops.bookingOpsAssignees)
-export const getOpsPanel = (bookingId: string) => apiRequest<BookingOperationsPanel | null>(fill(ops.bookingOps + '/:bookingId', { bookingId }))
+export const getOpsPanel = (bookingId: string) => apiRequest<BookingOperationsPanel | null>(fill(ops.bookingOpsItem, { bookingId }))
 const opsPost = <T>(route: string, bookingId: string, body: unknown, key: string) => apiRequestWithMeta<T>(fill(route, { bookingId }), { method: 'POST', headers: keyed(key), body: JSON.stringify(body) })
 export const assignOpsCase = (bookingId: string, body: BookingOpsAssignRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsAssign, bookingId, body, key)
 export const acknowledgeOpsCase = (bookingId: string, body: BookingOpsAcknowledgeRequest, key: string) => opsPost<BookingOpsWriteResult>(ops.bookingOpsAcknowledge, bookingId, body, key)
