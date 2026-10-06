@@ -59,7 +59,7 @@ The UI clears results when criteria change and ignores late responses for old cr
 
 ## Files and migrations
 
-Changes are limited to the contracts, existing operations controller/service, canonical gate presentation, Admin inspector and workspace label, new readiness presentation unit suite, two existing database HTTP suites and this report. No schema, migration or runtime-role contract changes.
+Changes are limited to the contracts, existing operations controller/service, canonical gate presentation, Admin inspector and workspace label, new readiness presentation unit suite, two existing database HTTP suites, the existing browser harness and this report. No schema, migration or runtime-role contract changes.
 
 ## Validation record
 
@@ -83,7 +83,7 @@ Tools: Node v24.19.0 / pnpm 10.4.1. Nested scripts use a scratch-only pnpm wrapp
 | Database e2e / strict-role HTTP suites | BLOCKED locally; new cases are implemented but not claimed executed |
 | Browser acceptance / hosted Agent acceptance | NOT_VERIFIED; no real browser/API journey executed |
 
-Initial API unit execution overlapped client generation and failed with missing generated types; the complete run after generation passed. Initial root checks hit the environment's alternate pnpm; reruns use the pinned wrapper. Initial lint caught a duplicate import introduced here; corrected before the passing run. Added tests cover reason preservation, missing context, per-plan isolation, hosted-certification boundaries; HTTP buyer permissions/tenant isolation/market rules/suspension/restrictions; strict-role pooled-stock diagnostics and non-mutation.
+Initial API unit execution overlapped client generation and failed with missing generated types; the complete run after generation passed. Initial root checks hit the environment's alternate pnpm; reruns use the pinned wrapper. Initial lint caught a duplicate import introduced here; corrected before the passing run. The existing browser harness is updated for the scoped wording and adds missing-buyer/certification and stale-verdict checks; those checks have not been executed. Added tests cover reason preservation, missing context, per-plan isolation, hosted-certification boundaries; HTTP buyer permissions/tenant isolation/market rules/suspension/restrictions; strict-role pooled-stock diagnostics and non-mutation.
 
 Cached PostgreSQL binaries were extracted, but `runuser -u nobody` fails with `cannot set groups: Operation not permitted`; PostgreSQL cannot initialize as root. Database-dependent tests and real API/browser journeys are BLOCKED locally until a disposable runner executes them. Existing CI provisions PostgreSQL 16 and Node24/pnpm10.4.1; its results must be inspected before claiming database certification. No historical evidence is substituted for those runs.
 

@@ -128,7 +128,8 @@ async function openHotel(page, key, tab) {
   await openHotel(page, 'alpha', 'sellability')
   await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-testid=sellability-result]')
   let res = (await page.locator('[data-testid=sellability-result]').innerText()).replace(/\s+/g, ' ')
-  check('sellable stay: SELLABLE, offers and the cheapest integer total (AED 1,497.00)', /SELLABLE/.test(res) && !/NOT SELLABLE\s+\d/.test(res.slice(0, 20)) && /Offers:\s*2/.test(res) && /AED\s?1,497\.00/.test(res), res.slice(0, 160))
+  check('supply-eligible stay: offers and the cheapest integer total (AED 1,497.00)', /SUPPLY ELIGIBLE/.test(res) && !/NOT ELIGIBLE/.test(res.slice(0, 20)) && /Offers:\s*2/.test(res) && /AED\s?1,497\.00/.test(res), res.slice(0, 160))
+  check('a buyer-independent diagnostic never certifies buyer or Agent recheck', (await page.locator('[data-readiness-gate=distribution][data-state=UNKNOWN]').count()) === 2 && (await page.locator('[data-readiness-gate=search_recheck][data-state=UNKNOWN]').count()) === 2)
   await page.screenshot({ path: `${SHOTS}/sellability-ok.png`, fullPage: true })
   await openHotel(page, 'bravo', 'sellability')
   // the seeded stop-sell is on the 15th day from today for the Deluxe plan; stay nights d+14..d+16
@@ -140,7 +141,7 @@ async function openHotel(page, key, tab) {
   check('multi-night failure: the Deluxe plan is NOT SELLABLE, names STOP_SELL and the failing night', (await bad.count()) === 1 && /STOP_SELL/.test(badText) && (await bad.locator(`li[data-date="${day(15)}"][data-sellable=false]`).count()) === 1 && (await bad.locator(`li[data-date="${day(14)}"][data-sellable=true]`).count()) === 1, badText.slice(0, 140))
   check('failed gate list shows Stop sell FAIL and Daily rate PASS', (await bad.locator('li[data-gate=stopSell][data-state=FAIL]').count()) === 1 && (await bad.locator('li[data-gate=rate][data-state=PASS]').count()) === 1)
   check('the other room stays sellable for the same dates (per-plan verdicts)', (await page.locator('[data-testid=sellability-result] section[data-sellable=true]').count()) === 1)
-  await page.getByLabel('Check-out').fill(day(14)); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-state]')
+  await page.getByLabel('Check-out').fill(day(14)); check('editing stay criteria clears the old verdict before submitting', (await page.locator('[data-testid=sellability-result]').count()) === 0); await page.getByRole('button', { name: 'Check sellability' }).click(); await page.waitForSelector('[data-state]')
   check('an invalid stay shows the API validation message, not a result', /1-31 nights/.test(await text(page)) && (await page.locator('[data-testid=sellability-result]').count()) === 0)
   await page.screenshot({ path: `${SHOTS}/sellability-failed.png`, fullPage: true })
   let posts = 0; page.on('request', (r) => { if (r.url().includes('/sellability')) posts++ })
