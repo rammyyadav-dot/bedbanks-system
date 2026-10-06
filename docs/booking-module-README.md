@@ -1,4 +1,4 @@
-# Admin Booking module — running it locally (Phases 1 to 4)
+# Admin Booking module — running it locally (Phases 1 to 5)
 
 Source of truth: `docs/booking-module-spec.md`. Decisions: `docs/adr/0039-admin-booking-module.md`.
 
@@ -9,7 +9,8 @@ Source of truth: `docs/booking-module-spec.md`. Decisions: `docs/adr/0039-admin-
 - Manual booking entry (`/bookings/new`) is behind `ADMIN_MANUAL_BOOKING_ENABLED` (default `false`; dev/staging only). It records a Pending-supplier booking; no supplier call, hold or money movement.
 - Phase 3 adds the supplier queue: send, cancel, retry now and sync, a runner with the spec's retries, a status check by our reference before a booking can be Failed, and a summary-only call log. There is **no production supplier adapter yet**; only the mock exists, for named tenants. See ADR 0039 (Phase 3 decisions).
 - Phase 4 adds the operations queue (`/bookings/queue`): which bookings need a person, why, how urgent, by when, and who owns them, from one ruleset in `@bedbanks/contracts`. **UNKNOWN is not FAILED, and a supplier timeout alone never authorises another booking request.** See ADR 0039 (Phase 4 decisions).
-- Still no payment, voucher or invoice from this module.
+- Phase 5 adds money and documents: an append-only outbox of money facts (confirmed, on-request hold and release, cancelled with penalty and refund, penalty decided or waived), cancellation terms frozen with the booking, the penalty fixed when cancellation is requested (waivable by a second person, never raised), and immutable vouchers, invoices, credit notes and cancellation notes. **The module does not post to the ledger or move a balance, and it sends no notification or webhook.** See ADR 0039 Phase 5 and the section below.
+- Still no payment from this module.
 - `BOOKING_ENABLED` stays `false`; Agent booking routes stay `booking_unavailable`.
 
 ## Run it
@@ -64,3 +65,19 @@ Breached SLA, check-in within 24 hours, or three or more failed supplier calls e
 **Runtime-role grants.** The booking role (`fbeds_booking_ops`) gains SELECT and INSERT on `BookingOpsState` and UPDATE on its operational columns only. Re-run `ops:provision-booking-ops-role` after deploying. The strict API role has no access to it.
 
 **Tests and harnesses.** Unit: `booking-ops-queue.spec.ts` (the ruleset, deterministic clock). E2E: `booking-ops-queue.e2e-spec.ts` (access, membership, ordering, SLA, assignment races, escalation, manual answers, supplier races), `booking-ops-role.e2e-spec.ts` (RLS and grants). Browser: `tools/admin-ops-verify/verify-booking-ops.cjs` (flows A to D).
+
+## Money and documents (Phase 5)
+
+**Permissions** (formal roles only, granted to no role by the migration): `booking.finance.view` (the Finance & documents tab; net cost also needs `booking.view.net`), `booking.documents.issue` (issue and view documents), `booking.penalty.waive.approve` (reduce a penalty; never the person who requested the cancellation). Deciding an undecided penalty needs `booking.cancel.nonrefundable`. Operator level only.
+
+**Reading the tab.** *Money*: sell total, payment mode, refundability and the cancellation terms frozen with the booking. *Cancellation penalty*: before a cancellation, what cancelling now would cost; after, the penalty fixed at the request (Quoted), Decided or Waived, with the refund. *Documents*: each one issued once, with the reason when it is not available yet. *Money events*: the facts recorded, each "awaiting Finance booking".
+
+| Situation | What the system does | What a person does |
+|---|---|---|
+| Confirmed with stored terms | Cancelling inside a rule window fixes the penalty from the rule when requested | Record the supplier's cancellation; issue invoice, credit note (sell - penalty), cancellation note |
+| Non-refundable | Penalty = whole amount; no credit note is possible | Issue the cancellation note |
+| No stored terms, or refundability unknown | Cancellation proceeds; penalty is "needs decision"; the credit note is withheld | Decide the penalty (`booking.cancel.nonrefundable`), then issue |
+| Penalty too high | Quoted penalty stands | A second person with `booking.penalty.waive.approve` waives it down (before cancellation documents exist) |
+| Voucher | Needs the hotel confirmation number; carries no net rate or supplier name | Issue, print |
+
+**Not built:** notifications and webhooks (needs an email provider, per-tenant channels and signed delivery: an owner decision), ledger posting, no-show and amendment money, tax, agency-user document access. After deploying, the owner re-runs `ops:provision-booking-ops-role` (new grants). Browser check: `tools/admin-ops-verify/verify-booking-finance.cjs`.

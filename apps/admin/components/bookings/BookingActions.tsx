@@ -1,14 +1,35 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { BookingAvailableAction, BookingDetailView } from '@bedbanks/contracts'
-import { patchBookingReferences, postBookingAction } from '@/lib/data/operations'
+import { Money } from '@/components/ops/ops-ui'
+import { quoteSummary } from '@/lib/booking-finance-ui'
+import { getBookingFinance, patchBookingReferences, postBookingAction } from '@/lib/data/operations'
 import { buildActionRequest, describeActionError, emptyActionForm, FIELD_LABEL, isOptional, MAX_LENGTH, newIdempotencyKey, visibleFields, type ActionFormState } from '@/lib/booking-actions-ui'
 import { statusLabel } from '@/lib/booking-ui'
 import { Modal } from './Modal'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
 const input: React.CSSProperties = { border: '1px solid #c5d4d8', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
+
+/** Before an operator asks for a cancellation they see what it costs (spec F.1). Shown only to callers who may see booking finance; absent otherwise, never zero. */
+function useCancellationPreview(d: BookingDetailView, action: BookingAvailableAction): React.ReactNode {
+  const allowed = action.action === 'requestCancellation' && d.access.level === 'OPERATOR' && d.access.permissions.includes('booking.finance.view')
+  const [view, setView] = useState<Awaited<ReturnType<typeof getBookingFinance>> | 'failed' | null>(null)
+  useEffect(() => { if (!allowed) return; let live = true; getBookingFinance(d.booking.id).then((v) => { if (live) setView(v) }, () => { if (live) setView('failed') }); return () => { live = false } }, [allowed, d.booking.id])
+  if (!allowed) return null
+  if (view === null) return <p role="status" style={{ margin: 0, fontSize: 12, color: '#3f565c' }}>Working out the penalty…</p>
+  if (view === 'failed' || !view.cancellationPreview) return <p role="status" data-testid="cancel-preview" style={{ margin: 0, fontSize: 12, color: '#8a5a00' }}>The penalty could not be worked out here. It will be recorded when you ask for the cancellation.</p>
+  const q = view.cancellationPreview
+  return (
+    <div role="status" data-testid="cancel-preview" style={{ border: '1px solid #e6d3a0', background: '#fffaf0', padding: 10, borderRadius: 6, fontSize: 12 }}>
+      {q.status === 'quotable'
+        ? <strong>Cancelling now costs a penalty of <Money minor={q.penaltyMinor} currency={view.currency} />; <Money minor={q.refundMinor} currency={view.currency} /> would be refunded.</strong>
+        : <strong>The penalty cannot be worked out automatically; a person will decide it.</strong>}
+      <div style={{ color: '#3f565c', fontSize: 11, marginTop: 2 }}>{quoteSummary(q)} The penalty is fixed when you submit this request.</div>
+    </div>
+  )
+}
 
 function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; action: BookingAvailableAction; onClose: () => void; onDone: (message: string) => void }) {
   const [form, setForm] = useState<ActionFormState>(emptyActionForm())
@@ -17,6 +38,7 @@ function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; ac
   const [error, setError] = useState<ReturnType<typeof describeActionError> | null>(null)
   const [missing, setMissing] = useState<string[]>([])
   const fields = visibleFields(action)
+  const preview = useCancellationPreview(d, action)
   const set = (patch: Partial<ActionFormState>) => setForm((f) => ({ ...f, ...patch }))
 
   async function submit(e: React.FormEvent) {
@@ -35,6 +57,7 @@ function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; ac
     <Modal title={action.label} onClose={busy ? () => undefined : onClose}>
       <form onSubmit={submit} noValidate style={{ display: 'grid', gap: 10 }} data-testid="booking-action-form">
         <p style={{ margin: 0, color: '#3f565c', fontSize: 12 }}>{d.booking.reference}: {statusLabel(d.booking.status)} → <strong>{statusLabel(action.to)}</strong>. {action.effect}</p>
+        {preview}
         {fields.map((f) => (
           <label key={f} style={field}>
             <span>{FIELD_LABEL[f]}{isOptional(action, f) ? ' (optional)' : ' (required)'}</span>

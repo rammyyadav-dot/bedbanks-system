@@ -11,11 +11,12 @@ import { Money, Tag, bookingTone } from '@/components/ops/ops-ui'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { OperationsRecord } from '@/components/bookings/OperationsRecord'
 import { OperationsPanel } from '@/components/bookings/OperationsPanel'
+import { FinancePanel } from '@/components/bookings/FinancePanel'
 import { SupplierPanel } from '@/components/bookings/SupplierPanel'
 import { deadlineUrgency, formatInZone, statusLabel } from '@/lib/booking-ui'
 import { getOpsBooking } from '@/lib/data/operations'
 
-const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pricing' }, { id: 'timeline', label: 'Timeline' }, { id: 'operations', label: 'Operations' }, { id: 'supplier', label: 'Supplier' }, { id: 'record', label: 'Operations record' }] as const
+const TABS = [{ id: 'summary', label: 'Summary' }, { id: 'pricing', label: 'Pricing' }, { id: 'timeline', label: 'Timeline' }, { id: 'operations', label: 'Operations' }, { id: 'supplier', label: 'Supplier' }, { id: 'finance', label: 'Finance & documents' }, { id: 'record', label: 'Operations record' }] as const
 type TabId = (typeof TABS)[number]['id']
 const parseTab = (v: string | null): TabId => TABS.find((t) => t.id === v)?.id ?? 'summary'
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(150px, 230px) 1fr', gap: '6px 14px', margin: 0, fontSize: 12 }
@@ -42,7 +43,7 @@ function Detail({ id }: { id: string }) {
 
 function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; id: string; tab: TabId; onChanged: (message: string) => void; refresh: () => void }) {
   const b = d.booking
-  const tabs = TABS.filter((t) => (t.id !== 'record' || d.operationsRecord !== null) && (t.id !== 'supplier' || d.supplier !== null) && (t.id !== 'operations' || d.operations !== null))
+  const tabs = TABS.filter((t) => (t.id !== 'record' || d.operationsRecord !== null) && (t.id !== 'supplier' || d.supplier !== null) && (t.id !== 'operations' || d.operations !== null) && (t.id !== 'finance' || (d.access.level === 'OPERATOR' && d.access.permissions.includes('booking.finance.view'))))
   const urgency = deadlineUrgency(b.cancelDeadline, new Date())
   return (
     <>
@@ -75,6 +76,7 @@ function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; 
         {tab === 'pricing' && <Pricing d={d} />}
         {tab === 'timeline' && <Timeline d={d} />}
         {tab === 'operations' && d.operations !== null && <OperationsPanel d={d} onChanged={onChanged} refresh={refresh} />}
+        {tab === 'finance' && d.access.level === 'OPERATOR' && d.access.permissions.includes('booking.finance.view') && <FinancePanel d={d} onChanged={onChanged} />}
         {tab === 'supplier' && d.supplier !== null && <SupplierPanel d={d} onChanged={onChanged} refresh={refresh} />}
         {tab === 'record' && d.operationsRecord !== null && (
           d.operationsRecord.state === 'available'

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { randomBytes, createHash } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import {
   BOOKING_ACTION_RULES, BOOKING_ACTIONS, BOOKING_REASON_MAX, BOOKING_REF_MAX, BOOKING_STATUSES, MANUAL_BOOKING_FAILURE, permissionFor,
   type BookingAccessView, type BookingAction, type BookingActionRequest, type BookingReferencesRequest, type BookingStatus, type BookingWriteResult, type ManualBookingRequest,
@@ -9,6 +10,7 @@ import { BOOKING_SUPPLIER_RESOLVER, type BookingSupplierResolver } from './suppl
 import { supplierJobsEnabled } from './booking-supplier-jobs.service'
 import { manualBookingEnabled } from './booking-access.guard'
 import { BookingOpsDatabase } from './booking-ops-database'
+import { BookingPenaltyQuoter } from './booking-penalty-quote'
 import { transitionBooking } from './booking-transition'
 import { validateManualBooking } from './manual-booking'
 
@@ -19,7 +21,7 @@ const bad = (message: string, code: string) => new BadRequestException({ message
 /** Everything an Admin user can change on a booking (ADR 0039, Phase 2). Each public method is one transaction on the booking role and one audit event. */
 @Injectable()
 export class BookingActionsService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly quoter: BookingPenaltyQuoter) {}
 
   static idempotencyKey(raw: unknown): string {
     if (typeof raw !== 'string' || !KEY.test(raw)) throw bad('An Idempotency-Key header of 8 to 128 letters, digits or . _ : - is required', 'IDEMPOTENCY_KEY_REQUIRED')
@@ -38,6 +40,8 @@ export class BookingActionsService {
     const level = access.level
     const held = new Set(access.permissions)
 
+    // The penalty is worked out once, when cancellation is requested, outside the write transaction, and stored on that request (fixed from then on).
+    const penaltyQuote = action === 'requestCancellation' ? await this.quoter.quote(tenantId, bookingId, now) : undefined
     return this.db.withTenantWrite(tenantId, async (tx) => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, agencyId: true, isRefundable: true } })
       // An agency-scoped caller never learns another agency's booking exists.
@@ -50,7 +54,7 @@ export class BookingActionsService {
       const outcome = await transitionBooking(tx, {
         tenantId, bookingId: booking.id, action, expectedStatus: body.expectedStatus as BookingStatus, actor: { type: 'USER', id: userId }, level, now,
         reason: clean(body.reason), supplierRef: clean(body.supplierRef), hotelConfirmationNo: clean(body.hotelConfirmationNo), supplierCancellationRef: clean(body.supplierCancellationRef),
-        confirmNonRefundable: body.confirmNonRefundable === true, idempotencyKey: key,
+        confirmNonRefundable: body.confirmNonRefundable === true, idempotencyKey: key, emitFinance: true, penaltyQuote,
       })
       if (!outcome.replayed) {
         // Same transaction as the status change: either both exist or neither. Free-text (reason) is never copied into the audit payload.
@@ -134,6 +138,7 @@ export class BookingActionsService {
         tenantId, reference, supplier: valid.supplier, hotelId: valid.hotelId, status: 'PENDING_SUPPLIER', currency: valid.currency, totalMinor: valid.sellMinor, idempotencyKey: key, searchSnapshot: snapshot,
         agencyId: valid.agencyId, channel: 'MANUAL', agentRef: valid.agentRef, checkIn: new Date(`${valid.checkIn}T00:00:00Z`), checkOut: new Date(`${valid.checkOut}T00:00:00Z`), nights: valid.nights,
         netMinor: valid.netMinor, markupMinor: valid.markupMinor, paymentMode: valid.paymentMode, isRefundable: valid.isRefundable, cancelDeadline: valid.cancelDeadline,
+        cancellationPolicy: valid.cancellationRules ? ({ rules: valid.cancellationRules, frozenAt: new Date().toISOString(), source: 'MANUAL_ENTRY' } as unknown as Prisma.InputJsonObject) : undefined,
       }, select: { id: true, version: true } })
       const rooms = []
       for (const room of valid.rooms) rooms.push(await tx.bookingRoom.create({ data: { tenantId, bookingId: created.id, position: room.position, roomName: room.roomName, boardCode: room.boardCode, adults: room.adults, children: room.children, childAges: room.childAges }, select: { id: true } }))

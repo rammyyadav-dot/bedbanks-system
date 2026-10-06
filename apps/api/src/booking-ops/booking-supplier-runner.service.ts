@@ -223,7 +223,7 @@ export class BookingSupplierRunner implements OnModuleInit, OnModuleDestroy {
   /** Records the supplier's answer through `transitionBooking`, finishes the job and writes the audit event, all in one transaction. */
   private async move(job: Claimed, f: Facts, action: BookingAction, fields: { supplierRef?: string; hotelConfirmationNo?: string; supplierCancellationRef?: string; reason?: string; supplierStatus: string }, jobStatus: 'SUCCEEDED', code: string | null, at: Date): Promise<void> {
     await this.db.withTenantWrite(job.tenantId, async (tx) => {
-      const out = await transitionBooking(tx, { tenantId: job.tenantId, bookingId: f.id, action, expectedStatus: f.status, actor: { type: 'SUPPLIER' }, level: 'SYSTEM', now: at, idempotencyKey: `job:${job.id}:${job.attempt}:${action}`, ...fields })
+      const out = await transitionBooking(tx, { tenantId: job.tenantId, bookingId: f.id, action, expectedStatus: f.status, actor: { type: 'SUPPLIER' }, level: 'SYSTEM', now: at, idempotencyKey: `job:${job.id}:${job.attempt}:${action}`, emitFinance: true, ...fields })
       await this.stop(tx, job, jobStatus, code, at)
       if (!out.replayed) await this.audit(tx, job, f, `booking.${action}`, { from: f.status, to: out.status, jobId: job.id, attempt: job.attempt })
     })

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import type { ManualBookingRequest } from '@bedbanks/contracts'
+import { parseFrozenRules, type FrozenCancellationRule, type ManualBookingRequest } from '@bedbanks/contracts'
 import { enabledCurrency } from '../agent/currency'
 
 /**
@@ -12,6 +12,7 @@ export interface ValidManualBooking {
   currency: string; sellMinor: bigint; netMinor: bigint | null; markupMinor: bigint | null
   paymentMode: 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL' | null
   isRefundable: boolean | null; cancelDeadline: Date | null; agentRef: string | null
+  cancellationRules: FrozenCancellationRule[] | null
   rooms: Array<{ position: number; roomName: string; boardCode: string | null; adults: number; children: number; childAges: number[] }>
   guests: Array<{ title: string | null; firstName: string; lastName: string; isLead: boolean; type: 'ADULT' | 'CHILD'; age: number | null }>
 }
@@ -60,6 +61,13 @@ export function validateManualBooking(body: Partial<ManualBookingRequest>): Vali
     if (d.getTime() > checkIn.ms + 86_400_000) throw bad('cancelDeadline cannot be after check-in')
     cancelDeadline = d
   }
+  let cancellationRules: FrozenCancellationRule[] | null = null
+  if (body.cancellationRules !== undefined && body.cancellationRules !== null) {
+    cancellationRules = parseFrozenRules(body.cancellationRules)
+    if (!cancellationRules) throw bad('cancellationRules must be 1 to 12 rules, each with whole days and either a percent from 0 to 100 or a fixed amount in minor units', 'INVALID_CANCELLATION_RULES')
+    if (body.isRefundable === false) throw bad('A non-refundable booking has no cancellation rules; the whole amount is the penalty', 'INVALID_CANCELLATION_RULES')
+    if (cancellationRules.some((r) => r.penaltyMinor !== undefined && BigInt(r.penaltyMinor) > sellMinor)) throw bad('A fixed penalty cannot be more than the sell amount', 'INVALID_CANCELLATION_RULES')
+  }
   if (!Array.isArray(body.rooms) || body.rooms.length < 1 || body.rooms.length > 9) throw bad('Enter 1 to 9 rooms')
   const rooms = body.rooms.map((r, i) => {
     const children = r.children === undefined ? 0 : int(r.children, `rooms[${i}].children`, 0, 9)
@@ -78,6 +86,6 @@ export function validateManualBooking(body: Partial<ManualBookingRequest>): Vali
   return {
     agencyId: str(body.agencyId, 'agencyId', 64) as string, hotelId: str(body.hotelId, 'hotelId', 64) as string, supplier: str(body.supplier, 'supplier', 80) as string,
     checkIn: checkIn.text, checkOut: checkOut.text, nights, currency, sellMinor, netMinor, markupMinor: netMinor === null ? null : sellMinor - netMinor, paymentMode: paymentMode as ValidManualBooking['paymentMode'],
-    isRefundable: body.isRefundable ?? null, cancelDeadline, agentRef: str(body.agentRef, 'agentRef', 64, false), rooms, guests,
+    isRefundable: body.isRefundable ?? null, cancelDeadline, agentRef: str(body.agentRef, 'agentRef', 64, false), cancellationRules, rooms, guests,
   }
 }

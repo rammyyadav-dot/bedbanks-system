@@ -199,7 +199,7 @@ export class BookingOpsService {
       // Every job still marked UNKNOWN for this booking is answered by a person's evidence: none may be left claiming the outcome is unknown.
       const closeUnknown = async (code: string) => { await c.tx.bookingSupplierJob.updateMany({ where: { tenantId, bookingId, status: 'UNKNOWN' }, data: { status: 'SUCCEEDED', lastErrorCode: code, lockedUntil: null, completedAt: now } }) }
       const move = (action: 'systemConfirm' | 'systemConfirmOnRequest' | 'systemOnRequest' | 'systemFail' | 'systemRejectOnRequest' | 'systemCompleteCancellation', supplierStatus: string) =>
-        transitionBooking(c.tx, { tenantId, bookingId, action, expectedStatus: status, actor: { type: 'USER', id: userId }, level: 'SYSTEM', now, reason, supplierRef, hotelConfirmationNo, supplierCancellationRef, supplierStatus })
+        transitionBooking(c.tx, { tenantId, bookingId, action, expectedStatus: status, actor: { type: 'USER', id: userId }, level: 'SYSTEM', now, reason, supplierRef, hotelConfirmationNo, supplierCancellationRef, supplierStatus, emitFinance: true })
       let to: BookingStatus = status
       switch (answer) {
         case 'SUPPLIER_CONFIRMED': to = (await move(status === 'ON_REQUEST' ? 'systemConfirmOnRequest' : 'systemConfirm', 'CONFIRMED')).status; await closeUnknown('MANUAL_ANSWER'); break
