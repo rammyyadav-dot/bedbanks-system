@@ -10,6 +10,8 @@ export interface HoldExpiryRuntime {
   listActiveTenantIds(): Promise<string[]>
   expireDue(tenantId: string): Promise<number>
   close(): Promise<void>
+  /** Optional identity check run once at startup (P0-01). */
+  verify?(): Promise<void>
 }
 
 type Env = Record<string, string | undefined>
@@ -42,6 +44,7 @@ export class HoldExpirySweeper implements OnModuleInit, OnModuleDestroy {
     const interval = Number(this.env.HOLD_EXPIRY_SWEEP_INTERVAL_MS ?? DEFAULT_INTERVAL_MS)
     if (!Number.isInteger(interval) || interval < MIN_INTERVAL_MS) throw new Error(`HOLD_EXPIRY_SWEEP_INTERVAL_MS must be an integer >= ${MIN_INTERVAL_MS}`)
     this.runtime = this.createRuntime(url)
+    try { await this.runtime.verify?.() } catch (error) { await this.runtime.close().catch(() => undefined); this.runtime = undefined; throw error } // P0-01: a privileged sweeper credential stops startup
     this.timer = setInterval(() => { void this.runOnce() }, interval)
     this.timer.unref()
     this.logger.log(`Hold expiry sweeper enabled every ${interval}ms`)
@@ -92,5 +95,6 @@ function defaultRuntime(databaseUrl: string): HoldExpiryRuntime {
     listActiveTenantIds: async () => (await prisma.tenant.findMany({ where: { status: 'ACTIVE' }, select: { id: true } })).map(tenant => tenant.id),
     expireDue: tenantId => holds.expireDue(tenantId),
     close: () => prisma.$disconnect(),
+    verify: () => prisma.assertRestrictedRuntimeRole('Hold expiry sweeper'),
   }
 }

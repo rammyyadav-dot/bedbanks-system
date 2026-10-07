@@ -1,7 +1,9 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
+// Developer seed: needs write access the restricted runtime login does not have, so it uses the owner credential (never in production).
+if (process.env.NODE_ENV === 'production') throw new Error('The developer seed must not run in production');
+const prisma = new PrismaClient({ datasourceUrl: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL });
 const BCRYPT_SALT_ROUNDS = 12;
 
 async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {

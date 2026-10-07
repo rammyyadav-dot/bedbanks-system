@@ -21,6 +21,7 @@ jobs:
       - run: pnpm check:schema
       - run: pnpm check:architecture
       - run: node --test tools/clone-certification-guard.test.mjs
+      - run: node --import tsx --test tools/runtime-db-role-check.test.ts
 
   prisma-migration-certification:
     name: Prisma migration certification

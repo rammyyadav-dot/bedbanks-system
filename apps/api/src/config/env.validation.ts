@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { parseOriginList } from './trusted-origins';
+import { checkRuntimeUrl, runtimeGuardMode } from '../database/runtime-db-identity';
 import {
   IsEnum,
   IsIn,
@@ -129,6 +130,13 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
       'Refusing to start: NODE_ENV=production requires AUTH_COOKIE_SECURE=true. ' +
         'Running with an insecure session cookie in production is not permitted.',
     );
+  }
+
+  // P0-01 (ADR 0040): the identity guard may only be switched off by the test harness; any other combination is a startup error, never a silent downgrade.
+  runtimeGuardMode({ ...(config as Record<string, string | undefined>), NODE_ENV: validatedConfig.NODE_ENV });
+  const runtimeUrl = checkRuntimeUrl(validatedConfig.DATABASE_URL);
+  if (!runtimeUrl.ok && runtimeUrl.reason?.includes('known owner') && validatedConfig.NODE_ENV === Environment.Production) {
+    throw new Error(`Refusing to start: DATABASE_URL must be the restricted runtime login (${runtimeUrl.reason}). Use MIGRATION_DATABASE_URL only for migrations.`);
   }
 
   const origin = new URL(validatedConfig.ADMIN_ORIGIN);

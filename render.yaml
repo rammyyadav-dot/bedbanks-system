@@ -23,8 +23,14 @@ services:
           type: keyvalue
           name: fbeds-redis
           property: connectionString
-      # Runtime URL for fbeds_api_login (never the owner URL). Set in the dashboard.
+      # Runtime URL for fbeds_api_login (never the owner URL). Set in the dashboard. The API verifies at startup that this
+      # login is not a superuser, has no BYPASSRLS and owns nothing, and refuses to boot otherwise (ADR 0040).
+      # MIGRATION_DATABASE_URL / PROVISION_DATABASE_URL (owner credentials) are deliberately NOT defined here: they belong to
+      # the release job and operators only, and tools/runtime-db-role-check.ts fails CI if they appear in this file.
       - key: DATABASE_URL
+        sync: false
+      # Dedicated booking-module login (fbeds_booking_ops_login), also identity-checked at first use. Never the same value as DATABASE_URL.
+      - key: BOOKING_OPS_DATABASE_URL
         sync: false
       # Exact public origin of the Admin site, no path, no trailing slash.
       - key: ADMIN_ORIGIN

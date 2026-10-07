@@ -26,11 +26,15 @@ Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
 
 `FUNDING_ENABLED` (ADR 0028 slice 2) stays unset until finance is ready to record agency bank transfers. Before setting it to `true`: apply migration `202610220001_agency_funding_receipts` and grant `funding.manage` to at least two finance users (the declarer can never verify, clear or post the same receipt). Funding writes go to `Wallet` and `LedgerEntry`, which the strict runtime role does not write (ADR 0032), so they need the privileged database connection.
 
+## Database credentials (P0-01)
+
+The service gets only the restricted logins: `DATABASE_URL` (`fbeds_api_login`) and `BOOKING_OPS_DATABASE_URL`. The migration/owner credential (`MIGRATION_DATABASE_URL`, `PROVISION_DATABASE_URL`) belongs to the release job or an operator shell and is never set on the service or a preview environment. The API refuses to start if its login is a superuser, has BYPASSRLS, owns tables or is a known owner name, and `pnpm check:runtime-db-role` fails CI if a service definition says otherwise. Details and rotation: [api-runtime-role.md](api-runtime-role.md), ADR 0040.
+
 ## Order of operations
 
 1. **Back up** the database (provider snapshot).
 2. **Migrate** as the database owner from a trusted shell, with the owner URL (for Neon use the unpooled URL):
-   `DATABASE_URL=<owner url> pnpm --filter @bedbanks/api prisma:migrate:deploy`
+   `MIGRATION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api prisma:migrate:deploy:owner` (the wrapper hands the owner URL to that one command only)
    Never run `prisma migrate dev` against this database.
 3. **Provision the runtime role** exactly as in `docs/runbooks/api-runtime-role.md` (needs owner approval for a remote database). Build `DATABASE_URL` for the API from `fbeds_api_login`. The API must not run as the table owner: that role has `BYPASSRLS` and tenant isolation would not be enforced (ADR 0008).
 4. **Create the first administrator** (do not use `db:seed`: it creates a demo tenant and user for local development and grants no `supply.*` or platform permissions). As the database owner, from a trusted shell:

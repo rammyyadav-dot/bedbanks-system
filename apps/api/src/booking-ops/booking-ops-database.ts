@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client'
 import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { databaseErrorCode, isDatabasePermissionDenied } from '../database/db-errors'
 import { PrismaService } from '../database/prisma.service'
+import { RuntimeRoleViolation } from '../database/runtime-db-identity'
 
 export const BOOKING_OPS_ENV = Symbol('BOOKING_OPS_ENV')
 
@@ -22,6 +23,7 @@ const NOT_READABLE = 'This operations view is not readable by the API database r
 export class BookingOpsDatabase implements OnModuleDestroy {
   private readonly logger = new Logger(BookingOpsDatabase.name)
   private client: PrismaService | null = null
+  private verified = false
   private readonly env: Record<string, string | undefined>
 
   constructor(@Optional() env?: Record<string, string | undefined>) { this.env = env ?? process.env }
@@ -38,8 +40,26 @@ export class BookingOpsDatabase implements OnModuleDestroy {
     return this.client
   }
 
+  /**
+   * P0-01: the booking connection is checked once, on first use, with the same identity rules as the HTTP client (restricted login only). A violation is
+   * logged loudly and answered with the sanitized 503; it never degrades to a different principal and the failure is not cached as success.
+   */
+  private async verify(client: PrismaService): Promise<void> {
+    if (this.verified) return
+    try {
+      await client.assertRestrictedRuntimeRole('Booking module')
+      this.verified = true
+    } catch (error) {
+      if (!(error instanceof RuntimeRoleViolation)) throw error
+      this.logger.error(error.message)
+      this.client = null
+      throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
+    }
+  }
+
   async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const client = this.connection()
+    await this.verify(client)
     try {
       return await client.withTenant(tenantId, work, { isolationLevel: 'RepeatableRead' })
     } catch (error) {
@@ -57,6 +77,7 @@ export class BookingOpsDatabase implements OnModuleDestroy {
    */
   async withTenantWrite<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const client = this.connection()
+    await this.verify(client)
     try {
       return await client.withTenant(tenantId, work, { isolationLevel: 'ReadCommitted' })
     } catch (error) {
@@ -71,6 +92,7 @@ export class BookingOpsDatabase implements OnModuleDestroy {
   /** Tenant ids that have a supplier job due, via the one SECURITY DEFINER function the role may execute. Ids only; no row is read across tenants. */
   async dueTenants(now: Date): Promise<string[]> {
     const client = this.connection()
+    await this.verify(client)
     try {
       const rows = await client.$queryRaw<Array<{ fbeds_booking_due_tenants: string }>>`SELECT "fbeds_booking_due_tenants"(${now}::timestamp)`
       return rows.map((r) => r.fbeds_booking_due_tenants)
