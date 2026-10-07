@@ -43,11 +43,22 @@ export interface BookingListQuery {
   hotel?: string
   status?: string
   supplierStatus?: string
-  dateType?: BookingDateType
+  dateType?: BookingDateType | 'updated'
   from?: string
   to?: string
   paymentMode?: string
   paymentStatus?: string
+  /** Hotel city or country text. */
+  destination?: string
+  source?: 'PORTAL' | 'API' | 'MANUAL'
+  /** ISO-4217 code; required with an amount range. Amounts are integer minor units as digits. */
+  currency?: string
+  amountMin?: string
+  amountMax?: string
+  /** A user id or `unassigned`. Needs `booking.ops.view`. */
+  opsOwner?: string
+  /** Bookings that have this money event. Needs `booking.finance.view`. */
+  moneyEvent?: string
   missingSupplierRef?: boolean
   nonRefundable?: boolean
   amended?: boolean

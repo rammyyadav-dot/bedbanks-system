@@ -21,7 +21,7 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Phase 5 adds BookingDocument (issue-once, immutable by trigger) and BookingFinanceEvent (append-only): SELECT + INSERT, never UPDATE. Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
-export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent'] as const
+export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView'] as const
 /**
  * Phase 2 write grants, as narrow as the transition function needs (ADR 0039). No DELETE and no TRUNCATE anywhere. Status, lock, version and the supplier
  * references can be UPDATEd only as named columns (which is also why the immutable `BookingEvent` gets INSERT only). AuditEvent is INSERT-only and not readable.
@@ -30,12 +30,19 @@ export const BOOKING_OPS_UPDATE_COLUMNS = {
   Booking: ['status', 'supplier_status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at'],
   /** Phase 3: the runner claims, retries and completes its own jobs, and nothing else about them. */
   BookingSupplierJob: ['status', 'attempt', 'run_after', 'locked_until', 'last_error_code', 'completed_at', 'updated_at'],
+  /** Phase 6B: a person's own saved view. The keys (tenant, owner) and the row's creation are never updatable: a view cannot change hands. */
+  BookingSavedView: ['name', 'name_key', 'description', 'filter_version', 'filters_json', 'sort_json', 'visible_columns_json', 'default_slot', 'version', 'updated_at'],
   /** Phase 4: the operational state columns, and never the keys (tenant, booking) or the row's creation. */
   BookingOpsState: ['assignee_user_id', 'assigned_at', 'assigned_by_user_id', 'acknowledged_at', 'acknowledged_by_user_id', 'manual_priority', 'escalated_at', 'escalated_by_user_id', 'escalation_reason', 'follow_up', 'follow_up_at', 'resolved_at', 'resolved_by_user_id', 'version', 'updated_at'],
 } as const
 /** Phase 3: the one function the runner may call, to learn which tenants have due jobs (returns tenant ids only). */
 export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)'] as const
-export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent'] as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView'] as const
+/**
+ * The ONE table the role may DELETE from: a person's own saved booking views (Phase 6B). They are preferences, not records: no evidence is lost by removing one, and the
+ * deletion is audited. Every other table is delete-proof for this role, and the verifier checks both sides of that.
+ */
+export const BOOKING_OPS_DELETE_TABLES = ['BookingSavedView'] as const
 /** Tables the role must never be able to read or write. Checked by the verifier. */
 export const BOOKING_OPS_FORBIDDEN_TABLES = ['LedgerEntry', 'Wallet', 'Cancellation', 'InventoryHold', 'users', 'sessions', 'memberships', 'Agency', 'AgencyMember', 'Hotel', 'Contract', 'DailyRate', 'ConnectorCredentialReference'] as const
 
@@ -53,6 +60,7 @@ export function bookingOpsGrantStatements(group = BOOKING_OPS_GROUP_ROLE): strin
     ...BOOKING_OPS_INSERT_TABLES.map((table) => `GRANT INSERT ON "${table}" TO "${group}"`),
     ...Object.entries(BOOKING_OPS_UPDATE_COLUMNS).map(([table, columns]) => `GRANT UPDATE (${columns.map((c) => `"${c}"`).join(', ')}) ON "${table}" TO "${group}"`),
     ...BOOKING_OPS_FUNCTIONS.map((fn) => `GRANT EXECUTE ON FUNCTION ${fn} TO "${group}"`),
+    ...BOOKING_OPS_DELETE_TABLES.map((table) => `GRANT DELETE ON "${table}" TO "${group}"`),
   ]
 }
 
@@ -105,9 +113,14 @@ export async function verifyBookingOpsRole(db: Pick<Executor, '$queryRawUnsafe'>
   const [missing] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${readList}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'SELECT')`)
   if (Number(missing?.n ?? 0) > 0) failures.push('role cannot read every booking table it needs')
   const everyTable = [...new Set<string>([...BOOKING_OPS_READ_TABLES, ...BOOKING_OPS_INSERT_TABLES])].map((t) => `'${t}'`).join(',')
+  const deletable = BOOKING_OPS_DELETE_TABLES.map((t) => `'${t}'`).join(',')
   const [broad] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(
-    `SELECT count(*) AS n FROM unnest(ARRAY[${everyTable}]) t WHERE has_table_privilege(current_user, format('%I', t), 'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')`)
-  if (Number(broad?.n ?? 0) > 0) failures.push('role holds a table-wide UPDATE or any DELETE, TRUNCATE, REFERENCES or TRIGGER privilege')
+    `SELECT count(*) AS n FROM unnest(ARRAY[${everyTable}]) t
+      WHERE CASE WHEN t = ANY(ARRAY[${deletable}]) THEN has_table_privilege(current_user, format('%I', t), 'UPDATE,TRUNCATE,REFERENCES,TRIGGER')
+                 ELSE has_table_privilege(current_user, format('%I', t), 'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') END`)
+  const [noDelete] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${deletable}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'DELETE')`)
+  if (Number(noDelete?.n ?? 0) > 0) failures.push('role cannot delete a saved view')
+  if (Number(broad?.n ?? 0) > 0) failures.push('role holds a table-wide UPDATE, a DELETE outside saved views, or any TRUNCATE, REFERENCES or TRIGGER privilege')
   const insertList = BOOKING_OPS_INSERT_TABLES.map((t) => `'${t}'`).join(',')
   const [insertGap] = await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM unnest(ARRAY[${insertList}]) t WHERE NOT has_table_privilege(current_user, format('%I', t), 'INSERT')`)
   if (Number(insertGap?.n ?? 0) > 0) failures.push('role cannot insert where the transition function needs it')

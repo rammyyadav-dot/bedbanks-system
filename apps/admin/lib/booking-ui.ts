@@ -1,6 +1,6 @@
 import {
-  BOOKING_DATE_TYPES, BOOKING_PAGE_SIZES, BOOKING_PAYMENT_MODES, BOOKING_PAYMENT_STATUSES, BOOKING_QUICK_SEARCHES, BOOKING_SORTS, BOOKING_STATUSES,
-  type BookingDateType, type BookingListQuery, type BookingQuickSearch, type BookingSort, type BookingStatus,
+  BOOKING_COLUMN_IDS, BOOKING_DATE_TYPES, BOOKING_PAGE_SIZES, BOOKING_PAYMENT_MODES, BOOKING_PAYMENT_STATUSES, BOOKING_QUICK_SEARCHES, BOOKING_SORTS, BOOKING_STATUSES,
+  type BookingColumnId, type BookingDateType, type BookingListQuery, type BookingQuickSearch, type BookingSort, type BookingStatus,
 } from '@bedbanks/contracts'
 
 /**
@@ -14,7 +14,7 @@ const csv = (value: string | null): string[] => (value ?? '').split(',').map((v)
 const oneOf = <T extends string>(value: string | null, allowed: readonly T[]): T | undefined => (value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : undefined)
 
 /** The filter keys that live in the URL, in a stable order so a shared link is identical however it was built. */
-export const BOOKING_QUERY_KEYS = ['chip', 'reference', 'guest', 'agencyId', 'supplier', 'hotel', 'status', 'supplierStatus', 'dateType', 'from', 'to', 'paymentMode', 'paymentStatus', 'missingSupplierRef', 'nonRefundable', 'amended', 'attention', 'sort', 'dir', 'page', 'pageSize'] as const
+export const BOOKING_QUERY_KEYS = ['chip', 'reference', 'guest', 'agencyId', 'supplier', 'hotel', 'status', 'supplierStatus', 'dateType', 'from', 'to', 'paymentMode', 'paymentStatus', 'destination', 'source', 'currency', 'amountMin', 'amountMax', 'opsOwner', 'moneyEvent', 'missingSupplierRef', 'nonRefundable', 'amended', 'attention', 'sort', 'dir', 'page', 'pageSize'] as const
 
 /** Reads the URL into a query. Unknown or malformed values are dropped (the API would reject them), never carried along. */
 export function readBookingQuery(params: URLSearchParams): BookingListQuery {
@@ -26,8 +26,10 @@ export function readBookingQuery(params: URLSearchParams): BookingListQuery {
   const statuses = csv(params.get('status')).filter((s): s is BookingStatus => (BOOKING_STATUSES as readonly string[]).includes(s))
   return {
     chip: oneOf(params.get('chip'), BOOKING_QUICK_SEARCHES), reference: text('reference'), guest: text('guest', 60), agencyId: text('agencyId', 400), supplier: text('supplier'), hotel: text('hotel', 60),
-    status: statuses.length ? statuses.join(',') : undefined, supplierStatus: text('supplierStatus', 40), dateType: oneOf(params.get('dateType'), BOOKING_DATE_TYPES),
-    from: day('from'), to: day('to'), paymentMode: oneOf(params.get('paymentMode'), BOOKING_PAYMENT_MODES), paymentStatus: oneOf(params.get('paymentStatus'), BOOKING_PAYMENT_STATUSES),
+    status: statuses.length ? statuses.join(',') : undefined, supplierStatus: text('supplierStatus', 40), dateType: oneOf(params.get('dateType'), [...BOOKING_DATE_TYPES, 'updated'] as const),
+    from: day('from'), to: day('to'), destination: text('destination', 60), source: oneOf(params.get('source'), ['PORTAL', 'API', 'MANUAL'] as const), currency: ((): string | undefined => { const v = params.get('currency'); return v && /^[A-Z]{3}$/.test(v) ? v : undefined })(),
+    amountMin: ((): string | undefined => { const v = params.get('amountMin'); return v && /^\d{1,15}$/.test(v) ? v : undefined })(), amountMax: ((): string | undefined => { const v = params.get('amountMax'); return v && /^\d{1,15}$/.test(v) ? v : undefined })(),
+    opsOwner: text('opsOwner', 80), moneyEvent: text('moneyEvent', 30), paymentMode: oneOf(params.get('paymentMode'), BOOKING_PAYMENT_MODES), paymentStatus: oneOf(params.get('paymentStatus'), BOOKING_PAYMENT_STATUSES),
     missingSupplierRef: flag('missingSupplierRef'), nonRefundable: flag('nonRefundable'), amended: flag('amended'), attention: flag('attention'),
     sort: oneOf(params.get('sort'), BOOKING_SORTS), dir: oneOf(params.get('dir'), ['asc', 'desc'] as const),
     page: Number.isInteger(page) && page > 1 ? page : undefined,
@@ -36,7 +38,7 @@ export function readBookingQuery(params: URLSearchParams): BookingListQuery {
 }
 
 /** True when the URL asks for any filter other than a chip, paging or sorting. */
-export const hasFilters = (q: BookingListQuery): boolean => Boolean(q.reference || q.guest || q.agencyId || q.supplier || q.hotel || q.status || q.supplierStatus || ((q.from || q.to) && q.dateType !== undefined) || q.from || q.to || q.paymentMode || q.paymentStatus || q.missingSupplierRef || q.nonRefundable || q.amended || q.attention)
+export const hasFilters = (q: BookingListQuery): boolean => Boolean(q.reference || q.guest || q.agencyId || q.supplier || q.hotel || q.status || q.supplierStatus || ((q.from || q.to) && q.dateType !== undefined) || q.from || q.to || q.paymentMode || q.paymentStatus || q.destination || q.source || q.currency || q.amountMin || q.amountMax || q.opsOwner || q.moneyEvent || q.missingSupplierRef || q.nonRefundable || q.amended || q.attention)
 
 /** The page opens on Needs action (spec); once the person asks for anything else, that is what they get. */
 export function effectiveChip(q: BookingListQuery): BookingQuickSearch | undefined {
@@ -86,8 +88,8 @@ export function deadlineUrgency(iso: string | null, now: Date): 'none' | 'soon' 
 }
 
 // ---- columns ---------------------------------------------------------------------------------------------------------------
-export const BOOKING_COLUMN_IDS = ['reference', 'status', 'agency', 'supplier', 'guest', 'hotel', 'stay', 'booked', 'deadline', 'amount', 'actions'] as const
-export type BookingColumnId = (typeof BOOKING_COLUMN_IDS)[number]
+export { BOOKING_COLUMN_IDS }
+export type { BookingColumnId }
 export const BOOKING_COLUMN_LABEL: Record<BookingColumnId, string> = {
   reference: 'Booking #', status: 'Status', agency: 'Agency / Agent', supplier: 'Supplier / Supplier ref', guest: 'Lead guest', hotel: 'Hotel / Room', stay: 'Stay', booked: 'Booked on', deadline: 'Deadline', amount: 'Sell / Net', actions: 'Actions',
 }

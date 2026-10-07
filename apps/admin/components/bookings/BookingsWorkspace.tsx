@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BOOKING_PAGE_SIZES, BOOKING_QUICK_SEARCH_LABEL, BOOKING_QUICK_SEARCHES, type BookingListQuery, type BookingListPage } from '@bedbanks/contracts'
@@ -12,9 +12,11 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { getAgencies } from '@/lib/data/departments'
 import { getOpsBookings } from '@/lib/data/operations'
 import { BOOKING_COLUMN_LABEL, BOOKING_COLUMNS_STORAGE_KEY, DEFAULT_BOOKING_COLUMNS, bookingHref, bookingQueryString, effectiveChip, normalizeColumns, readBookingQuery, withFilters, type BookingColumnId } from '@/lib/booking-ui'
+import { VIEW_PARAM, viewHref, withView } from '@/lib/booking-views-ui'
 import { BookingCell } from './BookingCells'
 import { BookingFilters } from './BookingFilters'
 import { ColumnPicker } from './ColumnPicker'
+import { SavedViews } from './SavedViews'
 
 function loadColumns(): BookingColumnId[] {
   try { const raw = window.localStorage.getItem(BOOKING_COLUMNS_STORAGE_KEY); return raw ? normalizeColumns(JSON.parse(raw)) : [...DEFAULT_BOOKING_COLUMNS] } catch { return [...DEFAULT_BOOKING_COLUMNS] }
@@ -39,15 +41,26 @@ export function BookingsWorkspace() {
   useEffect(() => { if (state.status === 'ready') { setLast(state.data); setNow(new Date()) } }, [state])
   const agencies = useOpsQuery(() => getAgencies({ pageSize: 100 }).then((p) => p.items.map((a) => ({ id: a.id, name: a.name }))).catch(() => null), [])
 
-  const go = (change: Partial<BookingListQuery>, keepPage = false) => router.replace(bookingHref(keepPage ? { ...query, ...change } : withFilters(query, change)), { scroll: false })
+  // The active saved view is a UI marker in the URL; the list API never receives it (the query reader only knows filter keys).
+  const viewId = search.get(VIEW_PARAM)
+  const go = (change: Partial<BookingListQuery>, keepPage = false) => router.replace(withView(bookingHref(keepPage ? { ...query, ...change } : withFilters(query, change)), viewId), { scroll: false })
   const saveColumns = (next: BookingColumnId[]) => { setColumns(next); try { window.localStorage.setItem(BOOKING_COLUMNS_STORAGE_KEY, JSON.stringify(next)) } catch { /* storage unavailable: the choice lasts for this visit */ } }
   const clearFilters = () => router.replace(bookingHref({ chip: 'latest' }), { scroll: false })
+  const openView = useCallback((view: Parameters<typeof viewHref>[0]) => {
+    const href = viewHref(view)
+    if (!href) return
+    if (view.visibleColumns) setColumns(normalizeColumns(view.visibleColumns)) // shown for this visit; the person's own column choice is left alone
+    router.replace(href, { scroll: false })
+  }, [router])
+  const markActive = useCallback((id: string | null) => router.replace(withView(bookingHref(query), id), { scroll: false }), [router, query])
 
   return (
     <div className="admin-page">
       <PageHeader eyebrow="BOOKINGS" title="Bookings" description="Every reservation across agencies and suppliers. Find, filter and open any booking; open one to act on it." />
       {last?.access.opsQueue && <p style={{ margin: '0 0 10px' }}><Link href="/bookings/queue" className="admin-btn" data-testid="open-ops-queue">Operations queue</Link></p>}
       {last?.access.manualEntry && <p style={{ margin: '0 0 10px' }}><Link href="/bookings/new" className="admin-btn" data-testid="new-manual-booking">Enter a booking manually</Link></p>}
+      <SavedViews access={last?.access ?? null} query={apiQuery} columns={columns} activeId={viewId} urlIsBlank={search.toString() === ''} onOpen={openView} onActive={markActive}
+        onReset={() => { setColumns(loadColumns()); router.replace('/bookings', { scroll: false }) }} />
       <nav aria-label="Quick searches" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
         {BOOKING_QUICK_SEARCHES.map((c) => (
           <button key={c} type="button" className="admin-btn" aria-pressed={chip === c} style={chip === c ? { background: '#0d2631', color: '#fff', borderColor: '#0d2631' } : undefined} onClick={() => go({ chip: c })}>{BOOKING_QUICK_SEARCH_LABEL[c]}</button>
@@ -55,7 +68,7 @@ export function BookingsWorkspace() {
       </nav>
       {chip === 'needsAction' && <p style={{ color: '#3f565c', fontSize: 11, margin: '0 0 8px' }}>Needs action here means: pending supplier, on request, amendment or cancellation requested, failed, or confirmed with no supplier reference. Urgent flags and SLA ordering arrive with the queue (a later phase).</p>}
       <BookingFilters query={query} access={last?.access ?? null} agencies={agencies.state.status === 'ready' ? agencies.state.data : null}
-        onApply={(next) => router.replace(bookingHref(withFilters({ chip: query.chip, sort: query.sort, dir: query.dir }, { ...next, chip: undefined })), { scroll: false })} onClear={clearFilters} />
+        onApply={(next) => router.replace(withView(bookingHref(withFilters({ chip: query.chip, sort: query.sort, dir: query.dir }, { ...next, chip: undefined })), viewId), { scroll: false })} onClear={clearFilters} />
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', margin: '10px 0' }}>
         <span role="status" aria-live="polite" data-testid="result-count" style={{ fontSize: 12 }}>
           {state.status === 'ready' ? `${state.data.total} booking${state.data.total === 1 ? '' : 's'}` : state.status === 'loading' ? 'Loading…' : 'Not loaded'}

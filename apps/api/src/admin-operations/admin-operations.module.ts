@@ -15,6 +15,8 @@ import { BookingAccessGuard } from '../booking-ops/booking-access.guard'
 import { BookingActionsController } from '../booking-ops/booking-actions.controller'
 import { BookingActionsService } from '../booking-ops/booking-actions.service'
 import { BookingFinanceController } from '../booking-ops/booking-finance.controller'
+import { BookingSavedViewsController } from '../booking-ops/booking-saved-views.controller'
+import { BookingSavedViewsService } from '../booking-ops/booking-saved-views.service'
 import { BookingQueryService } from '../booking-ops/booking-query.service'
 import { BookingFinanceService } from '../booking-ops/booking-finance.service'
 import { BookingPenaltyQuoter } from '../booking-ops/booking-penalty-quote'
@@ -28,7 +30,7 @@ import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplie
 
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
-  controllers: [OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController],
-  providers: [BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  controllers: [OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController],
+  providers: [BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
 })
 export class AdminOperationsModule {}
