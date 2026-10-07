@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { assertRuntimeDbIdentity, runtimeGuardMode } from './runtime-db-identity';
 
 /**
  * Thin wrapper around PrismaClient that plugs into Nest's lifecycle.
@@ -31,7 +32,23 @@ export class PrismaService
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
+    await this.assertRestrictedRuntimeRole('API');
     this.logger.log('Database connection established');
+  }
+
+  /**
+   * P0-01 (ADR 0040): fail closed unless this connection is a restricted login (not superuser, no BYPASSRLS, owns nothing, not the migration owner).
+   * The error names the invariant only; it never contains the connection string or password. Also used by every other runtime client.
+   */
+  async assertRestrictedRuntimeRole(label: string): Promise<void> {
+    if (runtimeGuardMode() === 'off') return;
+    try {
+      const identity = await assertRuntimeDbIdentity(this, label);
+      this.logger.log(`${label} database role verified: user=${identity.currentUser} (not superuser, no BYPASSRLS, owns nothing)`);
+    } catch (error) {
+      await this.$disconnect().catch(() => undefined);
+      throw error;
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

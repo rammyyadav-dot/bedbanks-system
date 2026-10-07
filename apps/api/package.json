@@ -19,6 +19,8 @@
     "prisma:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
+    "prisma:migrate:deploy:owner": "node scripts/with-migration-url.cjs prisma migrate deploy --schema=prisma/schema.prisma",
+    "prisma:migrate:status:owner": "node scripts/with-migration-url.cjs prisma migrate status --schema=prisma/schema.prisma",
     "prisma:migrate:drift": "node scripts/check-migration-drift.mjs",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",

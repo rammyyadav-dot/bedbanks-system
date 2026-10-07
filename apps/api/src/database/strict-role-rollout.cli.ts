@@ -4,6 +4,9 @@
  *   # owner credential: what would a rollout change? (never writes)
  *   PROVISION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api ops:strict-role-rollout status [--allow-remote --confirm-database=<name>]
  *
+ *   # owner credential: who owns every table, is RLS forced, what does the runtime group hold? (never writes; JSON with --json)
+ *   PROVISION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api ops:strict-role-rollout audit [--json] [--allow-remote --confirm-database=<name>]
+ *
  *   # runtime login credential: does the provisioned role match the contract? (never writes)
  *   API_DATABASE_URL=<runtime login url> pnpm --filter @bedbanks/api ops:strict-role-rollout verify [--allow-remote --confirm-database=<name>]
  *
@@ -13,6 +16,7 @@ import { readdirSync } from 'fs'
 import { join } from 'path'
 import { PrismaClient } from '@prisma/client'
 import { checkTarget } from './provision-hold-expiry-role.cli'
+import { runtimeOwnershipAudit } from './ownership-audit'
 import { rolloutStatus, rolloutVerify } from './strict-role-rollout'
 
 async function main(): Promise<void> {
@@ -34,6 +38,22 @@ async function main(): Promise<void> {
       console.log(`Verdict: ${s.verdict}`)
       if (s.verdict === 'BLOCKED') process.exitCode = 1
     } finally { await prisma.$disconnect() }
+  } else if (mode === 'audit') {
+    const url = process.env.PROVISION_DATABASE_URL
+    if (!url) throw new Error('PROVISION_DATABASE_URL (the owner connection) is required')
+    const target = checkTarget(url, rest)
+    const prisma = new PrismaClient({ datasourceUrl: url })
+    try {
+      const a = await runtimeOwnershipAudit(prisma)
+      if (rest.includes('--json')) console.log(JSON.stringify(a, null, 2))
+      else {
+        console.log(`Database: ${target.database}`)
+        console.log(`Tables: ${a.tables} (forced RLS ${a.forcedTables}, documented exemptions ${a.exemptTables}); owners: ${a.owners.join(', ')}`)
+        for (const f of a.failures) console.log(`FAIL  ${f}`)
+        console.log(`Result: ${a.failures.length ? 'NOT OK' : 'OK'}`)
+      }
+      if (a.failures.length) process.exitCode = 1
+    } finally { await prisma.$disconnect() }
   } else if (mode === 'verify') {
     const url = process.env.API_DATABASE_URL
     if (!url) throw new Error('API_DATABASE_URL (the runtime login connection) is required')
@@ -48,7 +68,7 @@ async function main(): Promise<void> {
       if (!r.ok) process.exitCode = 1
     } finally { await prisma.$disconnect() }
   } else {
-    throw new Error('usage: ops:strict-role-rollout status|verify [--allow-remote --confirm-database=<name>]')
+    throw new Error('usage: ops:strict-role-rollout status|audit|verify [--allow-remote --confirm-database=<name>]')
   }
 }
 
