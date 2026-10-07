@@ -4,7 +4,7 @@ import test from 'node:test'
 import { GUEST_MARKETS, clearGuestNationality, guestNationalityKey, isGuestMarket, readGuestNationality, rememberGuestNationality } from './guest-market.ts'
 import { occupancyCompact, occupancySummary, resolvedChildAges } from './occupancy.ts'
 import { canSubmitDestination, destinationSuggestions } from './destination-suggestions.ts'
-import { buildRoomStays } from './occupancy.ts'
+import { buildRoomStays, supportedRoomStaysError } from './occupancy.ts'
 import { criteriaFilters, minorToMajorInput, parseMajorAmount } from './search-filters.ts'
 import { activeFilterLabel } from './search-summary.ts'
 import { appendHotelPage } from './search-page.ts'
@@ -115,4 +115,19 @@ test('a later page does not repeat hotels already shown', () => {
   assert.deepEqual(page.hotels.map((hotel) => hotel.hotelId), ['h1', 'h2', 'h3'])
   assert.deepEqual(page.added.map((hotel) => hotel.hotelId), ['h3'])
   assert.deepEqual(first.map((hotel) => hotel.hotelId), ['h1', 'h2'])
+})
+
+test('calendar uses Dubai midnight and does not silently change checkout after picking check-in', () => {
+  const now = Date.parse('2026-10-01T20:30:00Z')
+  assert.equal(applyStayPick({ checkIn: '2026-10-02', checkOut: '2026-10-05' }, '2026-10-01', 'check-in', now), null)
+  assert.deepEqual(applyStayPick({ checkIn: '2026-10-02', checkOut: '2026-10-05' }, '2026-10-10', 'check-in', now), { checkIn: '2026-10-10', checkOut: '2026-10-05', selecting: 'check-out' })
+  assert.equal(nightCount('2026-02-30', '2026-03-03'), null)
+})
+
+ test('UI scope refuses mixed contracted room occupancies without modifying them', () => {
+  const mixed = [{ adults: 2, childAges: [] }, { adults: 1, childAges: [7] }]
+  const before = JSON.stringify(mixed)
+  assert.match(supportedRoomStaysError(mixed), /not supported/)
+  assert.equal(JSON.stringify(mixed), before)
+  assert.equal(supportedRoomStaysError([{ adults: 2, childAges: [7] }, { adults: 2, childAges: [7] }]), null)
 })

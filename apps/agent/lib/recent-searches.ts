@@ -1,4 +1,5 @@
 import type { DestinationRef, SearchRoomStay, SearchSort } from '@bedbanks/domain'
+import { buildRoomStays } from './occupancy.ts'
 import { isGuestMarket } from './guest-markets.mjs'
 
 const SELLING_CURRENCIES = ['AED', 'USD', 'EUR', 'GBP', 'INR', 'SAR', 'QAR', 'OMR', 'KWD', 'BHD', 'SGD', 'AUD', 'CAD', 'JPY'] as const
@@ -35,8 +36,8 @@ function validMinor(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
-export function recentSearchKey(userId: string) {
-  return `fbeds.agent.recent-searches.${userId}`
+export function recentSearchKey(userId: string, tenantId?: string) {
+  return `fbeds.agent.recent-searches.${userId}${tenantId ? `.tenant.${encodeURIComponent(tenantId)}` : ''}`
 }
 
 function validRef(value: unknown): value is DestinationRef {
@@ -48,12 +49,13 @@ function validRef(value: unknown): value is DestinationRef {
 
 function validStays(value: unknown): value is SearchRoomStay[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 8) return false
-  return value.every((stay) => {
-    if (!stay || typeof stay !== 'object') return false
-    const row = stay as Record<string, unknown>
-    return Number.isInteger(row.adults) && (row.adults as number) >= 1 && Array.isArray(row.children) &&
-      row.children.every((child) => child && typeof child === 'object' && Number.isInteger((child as { age?: unknown }).age))
+  const drafts = value.map((stay) => {
+    if (!stay || typeof stay !== 'object' || !Array.isArray((stay as { children?: unknown }).children)) return null
+    const row = stay as { adults: number; children: { age: number }[] }
+    if (row.children.some((child) => !child || typeof child !== 'object')) return null
+    return { adults: row.adults, childAges: row.children.map((child) => child.age) }
   })
+  return drafts.every((stay) => stay !== null) && buildRoomStays(drafts as { adults: number; childAges: number[] }[]).ok
 }
 
 export function canReplayRecentSearch(item: RecentSearch): boolean {
@@ -66,6 +68,8 @@ function isRecentSearch(value: unknown): value is RecentSearch {
   if (!value || typeof value !== 'object') return false
   const item = value as Record<string, unknown>
   const ages = item.childAges
+  if (item.boardBasisIds !== undefined && (!Array.isArray(item.boardBasisIds) || !item.boardBasisIds.every((id) => typeof id === 'string' && id.trim()))) return false
+  if (item.propertyTypes !== undefined && (!Array.isArray(item.propertyTypes) || !item.propertyTypes.every((type) => typeof type === 'string' && type.trim()))) return false
   if (item.nationality !== undefined && !isGuestMarket(item.nationality)) return false
   if (item.starRatings !== undefined && !validStars(item.starRatings)) return false
   if (item.refundableOnly !== undefined && item.refundableOnly !== true) return false
@@ -105,6 +109,8 @@ export function recentSearchIdentity(item: RecentSearch): string {
     item.refundableOnly ? '1' : '0',
     item.minPriceMinor ?? '',
     item.maxPriceMinor ?? '',
+    [...(item.boardBasisIds ?? [])].sort().join(','),
+    [...(item.propertyTypes ?? [])].sort().join(','),
   ].join('|')
 }
 
@@ -112,10 +118,10 @@ function sameSearch(left: RecentSearch, right: RecentSearch) {
   return recentSearchIdentity(left) === recentSearchIdentity(right)
 }
 
-export function readRecentSearches(storage: Pick<Storage, 'getItem'>, userId: string): RecentSearch[] {
+export function readRecentSearches(storage: Pick<Storage, 'getItem'>, userId: string, tenantId?: string): RecentSearch[] {
   if (!userId) return []
   try {
-    const parsed = JSON.parse(storage.getItem(recentSearchKey(userId)) ?? '[]') as unknown
+    const parsed = JSON.parse(storage.getItem(recentSearchKey(userId, tenantId)) ?? '[]') as unknown
     if (!Array.isArray(parsed)) return []
     return parsed.filter(isRecentSearch).slice(0, limit).map((item) => ({
       destination: item.destination.trim(),
@@ -167,25 +173,32 @@ function storedSearch(search: RecentSearch): RecentSearch {
   }
 }
 
-export function deleteRecentSearch(storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, userId: string, search: RecentSearch) {
+export function deleteRecentSearch(storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, userId: string, search: RecentSearch, tenantId?: string) {
   if (!userId) return
-  const next = readRecentSearches(storage, userId).filter((item) => !sameSearch(item, search))
-  if (next.length === 0) storage.removeItem(recentSearchKey(userId))
-  else storage.setItem(recentSearchKey(userId), JSON.stringify(next))
+  const next = readRecentSearches(storage, userId, tenantId).filter((item) => !sameSearch(item, search))
+  if (next.length === 0) storage.removeItem(recentSearchKey(userId, tenantId))
+  else storage.setItem(recentSearchKey(userId, tenantId), JSON.stringify(next))
 }
 
-export function rememberRecentSearch(storage: Pick<Storage, 'getItem' | 'setItem'>, userId: string, search: RecentSearch) {
+export function rememberRecentSearch(storage: Pick<Storage, 'getItem' | 'setItem'>, userId: string, search: RecentSearch, tenantId?: string) {
   const candidate: RecentSearch = { ...search, childAges: [...search.childAges] }
   if (!candidate.starRatings?.length) delete candidate.starRatings
   if (!candidate.refundableOnly) delete candidate.refundableOnly
   if (!userId || !isRecentSearch(candidate)) return
   const clean = storedSearch(candidate)
-  const next = [clean, ...readRecentSearches(storage, userId).filter((item) => !sameSearch(item, clean))].slice(0, limit)
-  storage.setItem(recentSearchKey(userId), JSON.stringify(next))
+  const next = [clean, ...readRecentSearches(storage, userId, tenantId).filter((item) => !sameSearch(item, clean))].slice(0, limit)
+  storage.setItem(recentSearchKey(userId, tenantId), JSON.stringify(next))
 }
 
-export function clearRecentSearches(storage: Pick<Storage, 'removeItem'>, userId: string) {
-  if (userId) storage.removeItem(recentSearchKey(userId))
+export function clearRecentSearches(storage: Pick<Storage, 'removeItem'> & Partial<Pick<Storage, 'key' | 'length'>>, userId: string, tenantId?: string) {
+  if (!userId) return
+  storage.removeItem(recentSearchKey(userId, tenantId))
+  if (tenantId || !storage.key || typeof storage.length !== 'number') return
+  const prefix = `${recentSearchKey(userId)}.tenant.`
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const key = storage.key(index)
+    if (key?.startsWith(prefix)) storage.removeItem(key)
+  }
 }
 
 const sessionMark = 'fbeds.agent.had-session'

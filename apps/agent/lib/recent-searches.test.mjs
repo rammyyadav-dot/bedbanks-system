@@ -99,3 +99,35 @@ test('marks a session without treating logout as expiry', () => {
   assert.equal(consumeExpiredSession(storage), true)
   assert.equal(consumeExpiredSession(storage), false)
 })
+
+test('tenant histories are isolated and tenant change clears only the departed tenant', () => {
+  const storage = memory()
+  rememberRecentSearch(storage, 'agent-a', search, 'tenant-a')
+  rememberRecentSearch(storage, 'agent-a', { ...search, destination: 'Other' }, 'tenant-b')
+  assert.equal(readRecentSearches(storage, 'agent-a', 'tenant-a')[0].destination, 'Dubai')
+  assert.equal(readRecentSearches(storage, 'agent-a', 'tenant-b')[0].destination, 'Other')
+  assert.deepEqual(readRecentSearches(storage, 'agent-a'), [])
+  clearRecentSearches(storage, 'agent-a', 'tenant-a')
+  assert.deepEqual(readRecentSearches(storage, 'agent-a', 'tenant-a'), [])
+  assert.equal(readRecentSearches(storage, 'agent-a', 'tenant-b').length, 1)
+})
+
+test('logout clears every tenant history for the account, preserving another account', () => {
+  const values = new Map()
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key), key: (index) => [...values.keys()][index], get length() { return values.size } }
+  rememberRecentSearch(storage, 'a', search, 'tenant-1')
+  rememberRecentSearch(storage, 'a', search, 'tenant-2')
+  rememberRecentSearch(storage, 'b', search, 'tenant-1')
+  clearRecentSearches(storage, 'a')
+  assert.deepEqual(readRecentSearches(storage, 'a', 'tenant-1'), [])
+  assert.deepEqual(readRecentSearches(storage, 'a', 'tenant-2'), [])
+  assert.equal(readRecentSearches(storage, 'b', 'tenant-1').length, 1)
+})
+
+test('deduplication includes board and property filters and ignores their order', () => {
+  const storage = memory()
+  rememberRecentSearch(storage, 'a', { ...search, boardBasisIds: ['BB', 'RO'], propertyTypes: ['HOTEL'] }, 't')
+  rememberRecentSearch(storage, 'a', { ...search, boardBasisIds: ['RO', 'BB'], propertyTypes: ['HOTEL'] }, 't')
+  rememberRecentSearch(storage, 'a', { ...search, boardBasisIds: ['BB'], propertyTypes: ['HOTEL'] }, 't')
+  assert.equal(readRecentSearches(storage, 'a', 't').length, 2)
+})

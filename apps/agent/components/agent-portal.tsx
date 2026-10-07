@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { searchAttemptNotice } from '@/lib/search-notice'
 import { SearchView } from '@/components/search/agent-search-view'
+import { AgentSignOut } from './agent-auth-gate'
 import { AgentHome } from '@/components/home/agent-home'
 import { Bookings } from '@/components/booking/agent-bookings'
 import { AgentAccount } from '@/components/account/agent-account'
@@ -16,14 +17,14 @@ import type { AgentIdentity, FinanceSummary } from '@/lib/api-client'
 import { creditBreakdown, formatMinorAmount } from '@/lib/format'
 import { isGuestMarket, readGuestNationality, rememberGuestNationality } from '@/lib/guest-market'
 import { criteriaFilters, minorToMajorInput, type FilterDraft } from '@/lib/search-filters'
-import { buildRoomStays, defaultRoomStay, type RoomStayDraft } from '@/lib/occupancy'
+import { buildRoomStays, supportedRoomStaysError, defaultRoomStay, type RoomStayDraft } from '@/lib/occupancy'
 import { canSubmitDestination } from '@/lib/destination-suggestions'
-import { fetchDestinations, fetchFacets, type SearchFacets } from '@/lib/destination-client'
-import { defaultSearchStay } from '@/lib/stay-calendar'
+import { fetchFacets, type SearchFacets } from '@/lib/destination-client'
+import { businessToday, defaultSearchStay } from '@/lib/stay-calendar'
 import { appendHotelPage, paginationAfterLoadMore } from '@/lib/search-page'
 import { beginSearchRun, invalidateSearchRun, settleSearchRun } from '@/lib/search-attempt'
 import { replaceSearchResult } from '@/lib/search-refresh'
-import { canReplayRecentSearch, rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
+import { canReplayRecentSearch, clearRecentSearches, rememberRecentSearch, type RecentSearch } from '@/lib/recent-searches'
 import type { HotelSearchResult } from '@/types/hotel'
 
 type View = 'home' | 'search' | 'bookings' | 'wallet' | 'account'
@@ -86,6 +87,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     const saved = readGuestNationality(window.sessionStorage, identity.user.id)
     if (saved) setNationality(saved)
   }, [identity.user.id])
+  useEffect(() => () => { clearRecentSearches(window.sessionStorage, identity.user.id, tenantId) }, [identity.user.id, tenantId])
   useEffect(() => { void fetchFacets(tenantId).then(setFacets) }, [tenantId])
   const dismissToast = () => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
@@ -108,6 +110,10 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     if (!canSubmitDestination(source.destinationRef)) return { error: 'Select a city or hotel. Typed text is not a destination.' }
     const stays = buildRoomStays(source.roomStays)
     if (!stays.ok) return { error: stays.reason }
+    const unsupported = supportedRoomStaysError(source.roomStays)
+    if (unsupported) return { error: unsupported }
+    if (source.checkIn < businessToday()) return { error: 'Correct past stay dates before searching (Asia/Dubai).' }
+    if (!identity.settlementCurrencies.includes(source.currency)) return { error: 'Choose a supported selling currency.' }
     const parsed = criteriaFilters(filters)
     if (!parsed.ok) return { error: parsed.reason }
     return {
@@ -141,6 +147,9 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     searchingRef.current = false
     setSearching(false)
     setLoadingMore(false)
+    setSearchResult(null)
+    setRefreshError('')
+    setLoadMoreError('')
   }
   const applyOverride = (override?: SearchOverride): { criteria: SearchCriteria } | { error: string } => {
     const nextLabel = override?.destinationLabel ?? destination
@@ -237,7 +246,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
         ...(built.criteria.filters?.maxPriceMinor !== undefined ? { maxPriceMinor: built.criteria.filters.maxPriceMinor } : {}),
         ...(built.criteria.filters?.boardBasisIds ? { boardBasisIds: built.criteria.filters.boardBasisIds } : {}),
         ...(built.criteria.filters?.propertyTypes ? { propertyTypes: built.criteria.filters.propertyTypes } : {}),
-      })
+      }, tenantId)
       const notice = searchAttemptNotice({ kind: 'resolved', status: result.status })
       setSearchFailed(Boolean(notice))
       if (notice) show(notice)
@@ -276,6 +285,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       show('This saved search can no longer be replayed because its canonical destination is missing.')
       return
     }
+    if (!identity.settlementCurrencies.includes(search.currency)) { show('This saved currency is no longer supported. Choose a selling currency and run a fresh search.'); return }
     beginSearch({
       destinationLabel: search.destination,
       destinationCity: search.destinationRef.type === 'city' ? search.destination : search.cityName ?? '',
@@ -284,7 +294,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       checkOut: search.checkOut,
       roomStays: search.roomStays.map((stay) => ({ adults: stay.adults, childAges: stay.children.map((child) => child.age) })),
       ...(search.nationality ? { nationality: search.nationality } : {}),
-      currency: identity.settlementCurrencies.includes(search.currency) ? search.currency : identity.settlementCurrencies[0], // a saved search in a currency that is no longer enabled (ADR 0029) replays in the default
+      currency: search.currency,
       ...(search.sort ? { sort: search.sort } : {}),
       starRatings: search.starRatings ?? [],
       refundableOnly: Boolean(search.refundableOnly),
@@ -293,15 +303,6 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       boardBasisIds: search.boardBasisIds ?? [],
       propertyTypes: search.propertyTypes ?? [],
     })
-  }
-  async function searchDubai() {
-    const results = await fetchDestinations('Dubai', tenantId)
-    const city = results.find((item) => item.type === 'city' && item.id === 'city:AE:dubai') ?? results.find((item) => item.type === 'city' && item.countryCode === 'AE' && item.name.toLocaleLowerCase('en-US') === 'dubai')
-    if (!city || city.type !== 'city') {
-      show('Dubai is not available from the canonical catalogue for this workspace.')
-      return
-    }
-    beginSearch({ destinationLabel: city.name, destinationCity: city.name, destinationRef: { type: 'city', id: city.id, countryCode: city.countryCode } })
   }
   async function handlePage(offset: number) {
     const current = searchResult
@@ -384,8 +385,8 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       <nav className={`market-nav ${mobileNav ? 'is-open' : ''}`} aria-label="Marketplace">
         <NavItem icon={<House size={16} />} label="Home" active={view === 'home'} onClick={() => nav('home')} />
         <NavItem icon={<Search size={16} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} />
-        <NavItem icon={<FileText size={16} />} label="My bookings" active={view === 'bookings'} muted={!bookingEnabled} detail={bookingEnabled ? undefined : 'Not enabled'} onClick={() => nav('bookings')} />
-        <NavItem icon={<WalletCards size={16} />} label="Wallet" active={view === 'wallet'} onClick={() => nav('wallet')} />
+        {bookingEnabled && <NavItem icon={<FileText size={16} />} label="My bookings" active={view === 'bookings'} muted={!bookingEnabled} detail={bookingEnabled ? undefined : 'Not enabled'} onClick={() => nav('bookings')} />}
+        {!financeDenied && <NavItem icon={<WalletCards size={16} />} label="Wallet" active={view === 'wallet'} onClick={() => nav('wallet')} />}
         <NavItem icon={<UserRound size={16} />} label="Account" active={view === 'account'} onClick={() => nav('account')} />
         <a href="/support"><CircleHelp size={16} /> Support</a>
         <button className="market-nav-close" type="button" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button>
@@ -393,11 +394,11 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       <div className="portal-header-actions market-account-bar">
         <span className="market-currency" title={supplierNote}>{currency}</span>
         <a className="portal-header-link" href="/support">Help</a>
-        <span className="market-account"><strong>{agentName}</strong><small>{agency}</small></span>
+        <details className="market-profile" onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }}><summary className="market-account"><strong>{agentName}</strong><small>{agency}</small></summary><div className="market-profile-menu"><button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); nav('account') }}>Account</button><AgentSignOut userId={identity.user.id} onComplete={() => window.location.reload()} /></div></details>
       </div>
     </header>
     <div className="portal-body"><main className="portal-main">
-      {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={bookingEnabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onSearchDubai={() => { void searchDubai() }} onReplay={replaySearch} />}
+      {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={bookingEnabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onReplay={replaySearch} />}
       {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}
       {view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
       {view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} tenantId={tenantId} overdue={finance?.overdue ? { state: finance.overdue.state, daysOverdue: finance.overdue.daysOverdue, unpaidLabel: formatMinorAmount(finance.overdue.unpaidMinor, finance.currency) } : null} />}
