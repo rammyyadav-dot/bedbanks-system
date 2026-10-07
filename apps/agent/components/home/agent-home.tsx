@@ -6,7 +6,6 @@ import { agentFacingBooking } from '@/lib/booking-attention'
 import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import { contactEmail, marketplaceHome, privacyLink, tradeAnnouncements } from '@/lib/marketplace-content'
 import { guestMarketName } from '@/lib/guest-market'
-import { nightCount } from '@/lib/stay-calendar'
 import { roomStaySummary, type RoomStayDraft } from '@/lib/occupancy'
 import { formatStay } from '@/lib/format'
 import type { DestinationRef, SearchSort } from '@bedbanks/domain'
@@ -90,7 +89,7 @@ export function AgentHome({
             {visible.map((item) => (
               <li key={recentSearchIdentity(item)}>
                 <strong>{item.destination}</strong>
-                <span>{formatStay(item.checkIn, item.checkOut)} · {nightCount(item.checkIn, item.checkOut) ?? 'Invalid'} nights</span>
+                <span>{formatStay(item.checkIn, item.checkOut)}</span>
                 <span>{item.roomStays ? roomStaySummary(item.roomStays.map((stay) => ({ adults: stay.adults, childAges: stay.children.map((child) => child.age) }))) : stayOccupancyLabel(item.rooms, item.adults, item.children, item.childAges)}{item.nationality ? ` · ${guestMarketName(item.nationality)}` : ''}</span>
                 {activeFilterLabel(item) ? <span>{activeFilterLabel(item)}</span> : null}
                 <div>

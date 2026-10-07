@@ -120,6 +120,7 @@ function DestinationField({ destination, resolved, invalid, tenantId, onChange, 
     if (item.type === 'city') onChange(item.name, { type: 'city', id: item.id, countryCode: item.countryCode }, item.name)
     else onChange(`${item.name}, ${item.cityName}`, { type: 'hotel', id: item.id }, item.cityName)
     setOpen(false)
+    setActive(-1)
     box.current?.querySelector('input')?.focus()
   }
   return (
@@ -128,7 +129,7 @@ function DestinationField({ destination, resolved, invalid, tenantId, onChange, 
       <div className={invalid ? 'has-error' : ''}>
         <MapPin size={16} aria-hidden="true" />
         <input id={`${listId}-input`} value={destination} placeholder="Select a city or hotel" aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list" aria-activedescendant={open && suggestions[active] ? `${listId}-${active}` : undefined} role="combobox" autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value, null, ''); setRemote([]); setActive(-1); setOpen(true) }} onKeyDown={(event) => {
-          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActive((value) => suggestions.length ? (value + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length : -1) }
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActive((value) => suggestions.length ? value < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.length - 1 : (value + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length : -1) }
           if (event.key === 'Enter' && open && suggestions[active]) { event.preventDefault(); select(suggestions[active]) }
           if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
         }} />
