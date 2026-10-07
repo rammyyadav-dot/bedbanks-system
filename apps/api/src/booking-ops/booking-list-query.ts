@@ -1,15 +1,15 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
-  BOOKING_DATE_TYPES, BOOKING_NEEDS_ACTION_STATUSES, BOOKING_PAGE_SIZES, BOOKING_PAYMENT_MODES, BOOKING_PAYMENT_STATUSES, BOOKING_QUICK_SEARCHES, BOOKING_SORTS, BOOKING_STATUSES, BOOKING_UNASSIGNED_AGENCY,
-  type BookingAccessView, type BookingDateType, type BookingQuickSearch, type BookingSort, type BookingStatus,
+  BOOKING_NEEDS_ACTION_STATUSES, BOOKING_UNASSIGNED_AGENCY, normalizeBookingQuery,
+  type BookingAccessView, type BookingFinanceEventType, type BookingQueryDateType, type BookingQueryV1, type BookingQuickSearch, type BookingSort, type BookingSource, type BookingStatus,
 } from '@bedbanks/contracts'
-import { boolParam, dayParam, endOfDay, enumParam, idParam, likeLiteral, textParam } from '../admin-operations/query-params'
+import { endOfDay, likeLiteral } from '../admin-operations/query-params'
 
 /**
- * Pure parsing and query building for the booking list (ADR 0039). No I/O and no clock: `now` is injected, so every chip is deterministic under test.
- * Everything is validated and bounded; an unknown value is a 400, never silently widened. The caller's scope (tenant, agency) is applied by the
- * builder from the authenticated access, never from a query parameter.
+ * Query building for the booking list (ADR 0039). Parsing and validation live in ONE place, `normalizeBookingQuery` in `@bedbanks/contracts` (Phase 6A);
+ * this file adds what the contract deliberately cannot know: who is asking. Pure: no I/O and no clock (`now` is injected). The caller's scope (tenant, agency)
+ * is applied by the builder from the authenticated access, never from a query parameter, and a field the caller may not use is a 403, never ignored.
  */
 export interface BookingFilter {
   chip: BookingQuickSearch | null
@@ -20,13 +20,20 @@ export interface BookingFilter {
   supplier: string | null
   hotelId: string | null
   hotelText: string | null
+  destination: string | null
   statuses: BookingStatus[]
   supplierStatus: string | null
-  dateType: BookingDateType | null
+  dateType: BookingQueryDateType | null
   from: Date | null
   to: Date | null
   paymentMode: string | null
   paymentStatus: string | null
+  source: BookingSource | null
+  currency: string | null
+  amountMin: bigint | null
+  amountMax: bigint | null
+  opsOwner: string | null
+  moneyEvent: BookingFinanceEventType | null
   missingSupplierRef: boolean
   nonRefundable: boolean
   amended: boolean
@@ -37,61 +44,46 @@ export interface BookingFilter {
   pageSize: number
 }
 
-const REFERENCE = /^[A-Za-z0-9._\- /]{1,64}$/
-const csv = (value: unknown): string[] => (typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [])
-
-/** Default sort for a chip when the caller does not choose one. Phase 4 replaces needsAction with nearest SLA breach. */
-const CHIP_SORT: Record<BookingQuickSearch, { sort: BookingSort; dir: 'asc' | 'desc' }> = {
-  needsAction: { sort: 'created', dir: 'asc' }, latest: { sort: 'created', dir: 'desc' }, checkInNext7: { sort: 'checkIn', dir: 'asc' }, missingSupplierRef: { sort: 'created', dir: 'asc' },
-  deadline48h: { sort: 'deadline', dir: 'asc' }, failed: { sort: 'created', dir: 'desc' }, latestCancelled: { sort: 'created', dir: 'desc' }, onRequest: { sort: 'created', dir: 'asc' },
-  unpaid: { sort: 'created', dir: 'asc' }, noShowCandidates: { sort: 'checkIn', dir: 'desc' },
+/** The fields whose use depends on what the caller may see. Row scope is separate (the builder). */
+export function assertQueryAccess(query: BookingQueryV1, access: BookingAccessView): void {
+  const deny = () => { throw new ForbiddenException('Access denied') }
+  // Searching names would confirm that a guest exists to a reader who may not see names.
+  if (query.guest !== null && !access.canViewPii) deny()
+  if (access.level === 'AGENCY') {
+    if (query.agencyIds.some((id) => id !== access.agencyId)) deny()
+    if (query.opsOwner !== null || query.moneyEvent !== null) deny()
+  } else {
+    // Filtering on a fact is a way of reading it: the same permission that shows it is needed to filter by it.
+    if (query.moneyEvent !== null && !access.permissions.includes('booking.finance.view')) deny()
+    if (query.opsOwner !== null && !access.permissions.includes('booking.ops.view')) deny()
+  }
 }
 
-export function parseBookingListQuery(raw: Record<string, unknown>, access: BookingAccessView): BookingFilter {
-  const chip = enumParam('chip', raw.chip, BOOKING_QUICK_SEARCHES) ?? null
-  const referenceText = textParam('reference', raw.reference, 64)
-  if (referenceText && !REFERENCE.test(referenceText)) throw new BadRequestException('Invalid reference')
-  const guest = textParam('guest', raw.guest, 60) ?? null
-  if (guest !== null) {
-    if (guest.length < 2) throw new BadRequestException('Guest search needs at least 2 characters')
-    // Searching names would confirm that a guest exists to a reader who may not see names.
-    if (!access.canViewPii) throw new ForbiddenException('Access denied')
-  }
-  const requestedAgencies = csv(raw.agencyId)
-  if (requestedAgencies.length > 25) throw new BadRequestException('Invalid agencyId')
-  for (const id of requestedAgencies) if (id !== BOOKING_UNASSIGNED_AGENCY) idParam('agencyId', id)
-  if (access.level === 'AGENCY' && requestedAgencies.some((id) => id !== access.agencyId)) throw new ForbiddenException('Access denied')
-  const statuses = csv(raw.status).map((s) => enumParam('status', s, BOOKING_STATUSES) as BookingStatus)
-  if (statuses.length > BOOKING_STATUSES.length) throw new BadRequestException('Invalid status')
-  const from = dayParam('from', raw.from) ?? null
-  const to = dayParam('to', raw.to) ?? null
-  if (from && to && from > to) throw new BadRequestException('from must not be after to')
-  const dateType = enumParam('dateType', raw.dateType, BOOKING_DATE_TYPES) ?? (from || to ? 'created' : null)
-  const pageSize = raw.pageSize === undefined || raw.pageSize === '' ? 25 : Number(raw.pageSize)
-  if (!(BOOKING_PAGE_SIZES as readonly number[]).includes(pageSize)) throw new BadRequestException('Invalid pageSize (25, 50 or 100)')
-  const page = raw.page === undefined || raw.page === '' ? 1 : Number(raw.page)
-  if (!Number.isInteger(page) || page < 1 || page > 100_000) throw new BadRequestException('Invalid page')
-  const chipSort = chip ? CHIP_SORT[chip] : { sort: 'created' as BookingSort, dir: 'desc' as const }
+export function toBookingFilter(query: BookingQueryV1, page: { page: number; pageSize: number }): BookingFilter {
   return {
-    chip, reference: referenceText ?? null, guest,
-    agencyIds: requestedAgencies.filter((id) => id !== BOOKING_UNASSIGNED_AGENCY),
-    includeUnassigned: requestedAgencies.includes(BOOKING_UNASSIGNED_AGENCY),
-    supplier: textParam('supplier', raw.supplier, 64) ?? null,
-    hotelId: idParam('hotelId', raw.hotelId) ?? null,
-    hotelText: ((): string | null => { const t = textParam('hotel', raw.hotel, 60) ?? null; if (t !== null && t.length < 2) throw new BadRequestException('Hotel search needs at least 2 characters'); return t })(),
-    statuses: [...new Set(statuses)],
-    supplierStatus: textParam('supplierStatus', raw.supplierStatus, 40) ?? null,
-    dateType, from, to,
-    paymentMode: enumParam('paymentMode', raw.paymentMode, BOOKING_PAYMENT_MODES) ?? null,
-    paymentStatus: enumParam('paymentStatus', raw.paymentStatus, BOOKING_PAYMENT_STATUSES) ?? null,
-    missingSupplierRef: boolParam('missingSupplierRef', raw.missingSupplierRef) === true,
-    nonRefundable: boolParam('nonRefundable', raw.nonRefundable) === true,
-    amended: boolParam('amended', raw.amended) === true,
-    attention: boolParam('attention', raw.attention) === true,
-    sort: enumParam('sort', raw.sort, BOOKING_SORTS) ?? chipSort.sort,
-    dir: enumParam('dir', raw.dir, ['asc', 'desc'] as const) ?? chipSort.dir,
-    page, pageSize,
+    chip: query.chip, reference: query.reference, guest: query.guest,
+    agencyIds: query.agencyIds.filter((id) => id !== BOOKING_UNASSIGNED_AGENCY), includeUnassigned: query.agencyIds.includes(BOOKING_UNASSIGNED_AGENCY),
+    supplier: query.supplier, hotelId: query.hotelId, hotelText: query.hotel, destination: query.destination, statuses: query.statuses, supplierStatus: query.supplierStatus,
+    dateType: query.dateType, from: query.from ? new Date(`${query.from}T00:00:00.000Z`) : null, to: query.to ? new Date(`${query.to}T00:00:00.000Z`) : null,
+    paymentMode: query.paymentMode, paymentStatus: query.paymentStatus, source: query.source, currency: query.currency,
+    amountMin: query.amountMin === null ? null : BigInt(query.amountMin), amountMax: query.amountMax === null ? null : BigInt(query.amountMax),
+    opsOwner: query.opsOwner, moneyEvent: query.moneyEvent,
+    missingSupplierRef: query.missingSupplierRef, nonRefundable: query.nonRefundable, amended: query.amended, attention: query.attention,
+    sort: query.sort, dir: query.dir, page: page.page, pageSize: page.pageSize,
   }
+}
+
+/** A malformed or unsupported query is always a 400 that names every problem at once. */
+export function invalidQuery(issues: Array<{ field: string; code: string; message: string }>): BadRequestException {
+  return new BadRequestException({ message: issues[0]?.message ?? 'Invalid query', code: 'BOOKING_QUERY_INVALID', issues })
+}
+
+/** Normalizes, then applies the caller's access. The one entry every consumer (list, saved views, bulk, export, reconciliation) goes through. */
+export function parseBookingListQuery(raw: Record<string, unknown>, access: BookingAccessView): BookingFilter {
+  const result = normalizeBookingQuery(raw)
+  if (!result.ok) throw invalidQuery(result.issues)
+  assertQueryAccess(result.query, access)
+  return toBookingFilter(result.query, result.page)
 }
 
 const DAY_MS = 86_400_000
@@ -123,8 +115,14 @@ export function buildBookingWhere(filter: BookingFilter, scope: { tenantId: stri
   if (filter.missingSupplierRef) and.push({ status: 'CONFIRMED', supplierRef: null })
   if (filter.nonRefundable) and.push({ isRefundable: false })
   if (filter.amended) and.push({ version: { gt: 1 } })
+  if (filter.source) and.push({ channel: filter.source })
+  if (filter.currency) and.push({ currency: filter.currency })
+  if (filter.amountMin !== null || filter.amountMax !== null) and.push({ totalMinor: { ...(filter.amountMin !== null && { gte: filter.amountMin }), ...(filter.amountMax !== null && { lte: filter.amountMax }) } })
+  if (filter.opsOwner === BOOKING_UNASSIGNED_AGENCY) and.push({ OR: [{ opsState: { is: null } }, { opsState: { is: { assigneeUserId: null } } }] })
+  else if (filter.opsOwner) and.push({ opsState: { is: { assigneeUserId: filter.opsOwner } } })
+  if (filter.moneyEvent) and.push({ financeEvents: { some: { type: filter.moneyEvent } } })
   if (filter.dateType && (filter.from || filter.to)) {
-    const column = { created: 'createdAt', checkIn: 'checkIn', checkOut: 'checkOut', cancelDeadline: 'cancelDeadline' }[filter.dateType] as 'createdAt' | 'checkIn' | 'checkOut' | 'cancelDeadline'
+    const column = { created: 'createdAt', updated: 'updatedAt', checkIn: 'checkIn', checkOut: 'checkOut', cancelDeadline: 'cancelDeadline' }[filter.dateType] as 'createdAt' | 'updatedAt' | 'checkIn' | 'checkOut' | 'cancelDeadline'
     // Date columns compare on the calendar day; timestamp columns include the whole last day.
     const isDay = column === 'checkIn' || column === 'checkOut'
     and.push({ [column]: { ...(filter.from && { gte: filter.from }), ...(filter.to && { lte: isDay ? filter.to : endOfDay(filter.to) }) } })
@@ -161,7 +159,10 @@ export function describeApplied(filter: BookingFilter): Array<{ key: string; lab
   add('chip', 'Quick search', filter.chip)
   add('reference', 'Reference', filter.reference); add('guest', 'Guest', filter.guest)
   add('agencyId', 'Agency', [...filter.agencyIds, ...(filter.includeUnassigned ? ['Unassigned'] : [])].join(', '))
-  add('supplier', 'Supplier', filter.supplier); add('hotel', 'Hotel', filter.hotelText ?? filter.hotelId)
+  add('supplier', 'Supplier', filter.supplier); add('hotel', 'Hotel', filter.hotelText ?? filter.hotelId); add('destination', 'Destination', filter.destination)
+  add('source', 'Source', filter.source); add('currency', 'Currency', filter.currency)
+  add('amountMin', 'Amount from', filter.amountMin !== null && filter.amountMin.toString()); add('amountMax', 'Amount to', filter.amountMax !== null && filter.amountMax.toString())
+  add('opsOwner', 'Operations owner', filter.opsOwner); add('moneyEvent', 'Money event', filter.moneyEvent)
   add('status', 'Status', filter.statuses.join(', ')); add('supplierStatus', 'Supplier status', filter.supplierStatus)
   if (filter.dateType && (filter.from || filter.to)) add('dateType', filter.dateType, `${filter.from?.toISOString().slice(0, 10) ?? '…'} to ${filter.to?.toISOString().slice(0, 10) ?? '…'}`)
   add('paymentMode', 'Payment mode', filter.paymentMode); add('paymentStatus', 'Payment status', filter.paymentStatus)
