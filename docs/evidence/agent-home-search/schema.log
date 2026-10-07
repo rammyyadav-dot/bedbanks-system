@@ -1,0 +1,5 @@
+
+> bedbanks-system@ check:schema /workspace/bedbanks-system
+> node --import tsx tools/no-divergent-schema-check.ts
+
+Schema source-of-truth check passed: apps/api/prisma/schema.prisma

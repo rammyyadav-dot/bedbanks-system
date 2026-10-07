@@ -1,0 +1,4 @@
+
+> @bedbanks/agent-portal@0.1.0 type-check /workspace/bedbanks-system/apps/agent
+> tsc --noEmit
+

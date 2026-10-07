@@ -1,0 +1,7 @@
+Scope: all 15 workspace projects
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+╭ Warning ─────────────────────────────────────────────────────────────────────╮│                                                                              ││   Ignored build scripts: @prisma/client, @prisma/engines, @scarf/scarf,      ││   @swc/core, esbuild, prisma.                                                ││   Run "pnpm approve-builds" to pick which dependencies should be allowed     ││   to run scripts.                                                            ││                                                                              │╰──────────────────────────────────────────────────────────────────────────────╯
+
+Done in 1.6s using pnpm v10.4.1

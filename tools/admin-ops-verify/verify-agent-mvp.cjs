@@ -38,12 +38,12 @@ async function newSession(browser, email, viewport = { width: 1280, height: 900 
   return { ctx, page, posts, pageErrors }
 }
 async function chooseDubai(page) {
-  await page.getByLabel('Destination').click(); await page.getByLabel('Destination').fill('Dubai'); await page.getByRole('option', { name: /Dubai/ }).first().click()
+  await page.getByLabel('Destination', { exact: true }).click(); await page.getByLabel('Destination', { exact: true }).fill('Dubai'); await page.getByRole('option', { name: /Dubai/ }).first().click()
 }
 async function setStay(page, from, to) {
   await page.locator('.market-field:has(> span:text-is("Stay")) button.market-control').click()
   await page.getByLabel('Check-in').fill(from); await page.getByLabel('Check-out').fill(to)
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Apply dates' }).click()
 }
 async function search(page, from = IN_FROM, to = IN_TO) {
   await chooseDubai(page); await setStay(page, from, to)
@@ -77,7 +77,7 @@ async function select(page, rowIndex = 0) {
 const bookingControls = async (page) => (await page.locator('main.portal-main').getByRole('button').allInnerTexts()).filter((t) => /\b(book|pay|confirm|checkout|reserve)\b/i.test(t) || /^hold/i.test(t)).length
 
 ;(async () => {
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE_PATH || undefined })
   const before = counters()
 
   // ---- A. unauthenticated -> login -> session ------------------------------------------------------------------------------------------
@@ -229,7 +229,7 @@ const bookingControls = async (page) => (await page.locator('main.portal-main').
     check('L1 an expired or revoked session shows a clear recovery path (sign in again) instead of a silent failure', /sign in|session expired|expired/i.test(t), t.slice(0, 160))
     await ex.ctx.close()
     const lo = await newSession(browser, seed.agentEmail); await search(lo.page)
-    await lo.page.getByRole('button', { name: /Sign out/ }).click(); await lo.page.waitForSelector('#email', { timeout: 15000 })
+    await lo.page.locator('.market-profile summary').click(); await lo.page.getByRole('button', { name: /Sign out/ }).click(); await lo.page.waitForSelector('#email', { timeout: 15000 })
     const st = await lo.page.evaluate(() => JSON.stringify({ ...sessionStorage }))
     const ctxAfter = await lo.page.evaluate(async () => (await fetch('/api/v1/agent/context', { credentials: 'include' })).status)
     check('L2 sign-out clears the session and account-specific browser state, and the API refuses the old session', ctxAfter === 401 && !/Dubai|recent/i.test(st) && (await lo.page.locator('article.market-hotel-card').count()) === 0, `${ctxAfter} ${st.slice(0, 80)}`)
@@ -243,16 +243,17 @@ const bookingControls = async (page) => (await page.locator('main.portal-main').
     await r.page.route('**/api/v1/agent/search', (route) => route.abort())
     await r.page.getByRole('button', { name: /^Search/ }).first().click(); await r.page.waitForTimeout(1500)
     const t = (await r.page.locator('main.portal-main').innerText()).replace(/\s+/g, ' ')
-    check('N1 [injected] an unreachable API shows an honest error, keeps the criteria, and offers Retry', /try again|unavailable|retry/i.test(t) && (await r.page.getByLabel('Destination').inputValue()) === 'Dubai', t.slice(0, 160))
+    check('N1 [injected] an unreachable API shows an honest error, keeps the criteria, and offers Retry', /try again|unavailable|retry/i.test(t) && (await r.page.getByLabel('Destination', { exact: true }).inputValue()) === 'Dubai', t.slice(0, 160))
     await r.page.unroute('**/api/v1/agent/search')
     await r.page.getByRole('button', { name: /Retry|Search/ }).first().click(); await r.page.waitForSelector('article.market-hotel-card', { timeout: 30000 })
     check('N2 retry succeeds without re-entering the criteria', (await r.page.locator('article.market-hotel-card').count()) > 0)
     // out-of-order responses: the first search is held back, a second one is sent and must win
     await r.page.route('**/api/v1/agent/search', async (route) => { const body = route.request().postDataJSON(); if (body.nationality === 'IN' && !body.offset) { await new Promise((x) => setTimeout(x, 3500)) } await route.continue() })
-    await r.page.locator('select[aria-label="Guest nationality"], select[aria-label*="ationality"]').first().selectOption('GB').catch(() => {})
-    await r.page.getByRole('button', { name: /^Search|Retry/ }).first().click().catch(() => {})
+    await r.page.getByRole('button', { name: /^Search|Retry/ }).first().click()
     await r.page.waitForTimeout(500)
-    await r.page.getByRole('button', { name: /^Search|Retry/ }).first().click().catch(() => {})
+    await r.page.locator('.market-search-tools .market-field > button').click()
+    await r.page.getByLabel('Country', { exact: true }).selectOption('GB')
+    await r.page.getByRole('button', { name: /^Search|Retry/ }).first().click()
     await r.page.waitForTimeout(5000)
     const summary = (await r.page.locator('.market-criteria-bar').innerText().catch(() => '')).replace(/\s+/g, ' ')
     check('N3 [injected delay] an older, slower search response cannot overwrite the newer search', /United Kingdom|GB/.test(summary), summary)
@@ -270,10 +271,10 @@ const bookingControls = async (page) => (await page.locator('main.portal-main').
   }
   {
     const k = await newSession(browser, seed.agentEmail)
-    await k.page.getByLabel('Destination').focus(); await k.page.keyboard.type('Dubai'); await k.page.waitForTimeout(600)
-    await k.page.getByRole('option', { name: /Dubai/ }).first().focus(); await k.page.keyboard.press('Enter')
-    check('O2 the destination can be chosen from the keyboard', (await k.page.getByText('Canonical destination selected').count()) === 1)
-    await setStay(k.page, IN_FROM, IN_TO); await k.page.getByLabel('Destination').focus(); await k.page.keyboard.press('Enter')
+    await k.page.getByLabel('Destination', { exact: true }).focus(); await k.page.keyboard.type('Dubai'); await k.page.waitForTimeout(600)
+    await k.page.keyboard.press('ArrowDown'); await k.page.keyboard.press('Enter')
+    check('O2 the destination can be chosen from the keyboard', (await k.page.getByText('City or hotel selected').count()) === 1)
+    await setStay(k.page, IN_FROM, IN_TO); await k.page.getByLabel('Destination', { exact: true }).focus(); await k.page.keyboard.press('Enter')
     await k.page.waitForSelector('article.market-hotel-card', { timeout: 30000 })
     check('O3 Enter in the search form runs the search', (await k.page.locator('article.market-hotel-card').count()) > 0)
     const focusStyle = await k.page.evaluate(() => { const b = document.querySelector('article.market-hotel-card button'); b.focus(); const cs = getComputedStyle(b); return cs.outlineStyle + ' ' + cs.outlineWidth + ' ' + cs.boxShadow })
