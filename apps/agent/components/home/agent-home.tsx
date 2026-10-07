@@ -1,15 +1,14 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { BookingService, type BookingSummary } from '@/services/booking-service'
 import { agentFacingBooking } from '@/lib/booking-attention'
 import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
-import { contactEmail, dubaiSpotlight, editorialDestinations, howItWorks, marketplaceHome, privacyLink, tradeAnnouncements } from '@/lib/marketplace-content'
+import { contactEmail, marketplaceHome, privacyLink, tradeAnnouncements } from '@/lib/marketplace-content'
 import { guestMarketName } from '@/lib/guest-market'
+import { roomStaySummary, type RoomStayDraft } from '@/lib/occupancy'
 import { formatStay } from '@/lib/format'
 import type { DestinationRef, SearchSort } from '@bedbanks/domain'
-import { type RoomStayDraft } from '@/lib/occupancy'
 import { canReplayRecentSearch, deleteRecentSearch, readRecentSearches, recentSearchIdentity, type RecentSearch } from '@/lib/recent-searches'
 import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
 
@@ -19,7 +18,7 @@ export function AgentHome({
   roomStays, setRoomStays, currency, setCurrency, sort, setSort,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions,   searching, searchFailed, tenantId, bookingEnabled, onOpenBookings, onSearch, onSearchDubai, onChange, onReplay,
+  boards, propertyTypeOptions,   searching, searchFailed, tenantId, bookingEnabled, onOpenBookings, onSearch, onChange, onReplay,
 }: {
   userId: string
   destination: string
@@ -57,17 +56,16 @@ export function AgentHome({
   bookingEnabled: boolean
   onOpenBookings: () => void
   onSearch: () => void
-  onSearchDubai: () => void
   onChange: (action: () => void) => void
   onReplay: (search: RecentSearch) => void
 }) {
   const [recent, setRecent] = useState<RecentSearch[]>([])
   const [showAll, setShowAll] = useState(false)
-  useEffect(() => { setRecent(readRecentSearches(window.sessionStorage, userId)) }, [userId, searching])
+  useEffect(() => { setRecent(readRecentSearches(window.sessionStorage, userId, tenantId)) }, [userId, tenantId, searching])
   const visible = showAll ? recent : recent.slice(0, 4)
   const remove = (item: RecentSearch) => {
-    deleteRecentSearch(window.sessionStorage, userId, item)
-    setRecent(readRecentSearches(window.sessionStorage, userId))
+    deleteRecentSearch(window.sessionStorage, userId, item, tenantId)
+    setRecent(readRecentSearches(window.sessionStorage, userId, tenantId))
   }
 
   return (
@@ -92,7 +90,7 @@ export function AgentHome({
               <li key={recentSearchIdentity(item)}>
                 <strong>{item.destination}</strong>
                 <span>{formatStay(item.checkIn, item.checkOut)}</span>
-                <span>{stayOccupancyLabel(item.rooms, item.adults, item.children, item.childAges)}{item.nationality ? ` · ${guestMarketName(item.nationality)}` : ''}</span>
+                <span>{item.roomStays ? roomStaySummary(item.roomStays.map((stay) => ({ adults: stay.adults, childAges: stay.children.map((child) => child.age) }))) : stayOccupancyLabel(item.rooms, item.adults, item.children, item.childAges)}{item.nationality ? ` · ${guestMarketName(item.nationality)}` : ''}</span>
                 {activeFilterLabel(item) ? <span>{activeFilterLabel(item)}</span> : null}
                 <div>
                   {canReplayRecentSearch(item) ? <button type="button" className="portal-link" onClick={() => onReplay(item)}>Search again →</button> : <span>This saved search can no longer be replayed.</span>}
@@ -103,52 +101,11 @@ export function AgentHome({
           </ul>
         )}
       </section>
-      <ReservationStrip enabled={bookingEnabled} tenantId={tenantId} onOpen={onOpenBookings} />
-      <section className="market-strip" aria-label="Dubai search">
-        <p>{marketplaceHome.offerStrip}</p>
-        <button type="button" className="portal-primary" onClick={onSearchDubai} disabled={searching}>{dubaiSpotlight.action}</button>
-      </section>
-      <section className="trade-home-grid" aria-label="Marketplace highlights">
-        <article className="trade-discovery-card is-authoritative">
-          <p className="trade-kicker">Searchable destination</p>
-          <h2>{dubaiSpotlight.title}</h2>
-          <p>{dubaiSpotlight.text}</p>
-          <button type="button" className="portal-primary" onClick={onSearchDubai} disabled={searching}>{dubaiSpotlight.action}</button>
-        </article>
-        <article className="trade-discovery-card">
-          <p className="trade-kicker">Editorial</p>
-          <h2>Other destinations</h2>
-          <ul>
-            {editorialDestinations.map((item) => <li key={item.name}><strong>{item.name}</strong><span>{item.note}</span></li>)}
-          </ul>
-        </article>
-        <article className="trade-discovery-card">
-          <p className="trade-kicker">Quotes</p>
-          <h2>Rates come from search</h2>
-          <p>This page does not publish a price list. Open a hotel from the search results to see the room, board basis, currency, and total stay price for the dates you entered.</p>
-        </article>
-      </section>
+      {bookingEnabled && <ReservationStrip enabled={bookingEnabled} tenantId={tenantId} onOpen={onOpenBookings} />}
       <section className="trade-announcements" aria-label="Marketplace notices">
         <h2>Marketplace notices</h2>
         <div className="trade-home-grid">
           {tradeAnnouncements.map((item) => <article key={item.title} className="trade-discovery-card"><p className="trade-kicker">Notice</p><h3>{item.title}</h3><p>{item.text}</p></article>)}
-        </div>
-      </section>
-      <section className="trade-home-split">
-        <div>
-          <h2>How it works</h2>
-          <ol className="trade-steps">
-            {howItWorks.map((step, index) => <li key={step.title}><span>{index + 1}</span><div><strong>{step.title}</strong><p>{step.text}</p></div></li>)}
-          </ol>
-        </div>
-        <div>
-          <h2>Support</h2>
-          <ul className="trade-link-list">
-            <li><Link href="/support">Agent support</Link></li>
-            <li><Link href="/contact">Contact the team</Link></li>
-            <li><Link href="/news">Trade updates</Link></li>
-            <li><a href={`mailto:${contactEmail}`}>Email {contactEmail}</a></li>
-          </ul>
         </div>
       </section>
       <footer className="trade-footer is-quiet">

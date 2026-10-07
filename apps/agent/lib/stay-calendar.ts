@@ -1,4 +1,4 @@
-import { addUtcDays, utcToday } from './stay-dates.mjs'
+import { businessToday } from './stay-dates.mjs'
 
 export { addUtcDays, businessToday, defaultSearchStay, SEARCH_BUSINESS_TIME_ZONE, utcToday } from './stay-dates.mjs'
 
@@ -49,12 +49,10 @@ export function applyStayPick(
   selecting: 'check-in' | 'check-out',
   now = Date.now(),
 ): { checkIn: string; checkOut: string; selecting: 'check-in' | 'check-out' } | null {
-  const today = utcToday(now)
+  const today = businessToday(now)
   if (!parse(picked) || picked < today) return null
   if (selecting === 'check-in') {
-    const nights = nightCount(picked, stay.checkOut)
-    const checkOut = nights !== null && nights <= 30 ? stay.checkOut : addUtcDays(picked, 1) ?? stay.checkOut
-    return { checkIn: picked, checkOut, selecting: 'check-out' }
+    return { checkIn: picked, checkOut: stay.checkOut, selecting: 'check-out' }
   }
   const nights = nightCount(stay.checkIn, picked)
   if (nights === null || nights > 30) return null

@@ -1,0 +1,54 @@
+PASS  A1 unauthenticated visitors reach the login form, and a fresh visit is not reported as an expired session  — context 401
+PASS  A2 a wrong password is refused with a clear message and no session
+PASS  A3 sign-in never navigates to an untrusted return destination  — http://localhost:3003/login?next=//evil.example&returnTo=https://evil.example
+PASS  A4 the session cookie is HttpOnly and no token or secret is in script-visible cookies or browser storage
+PASS  A5 tenant and agency context come from the authenticated server context, and booking is disabled there  — false
+PASS  B1 Dubai search for one room, two adults returns server-paginated results with an accurate "Showing 1–25 of N"  — Showing 1–25 of 100 hotels
+PASS  B2 the criteria summary shows the canonical destination, dates, occupancy, nationality and AED
+PASS  C1 incremental loading adds hotels with no duplicates and reaches the server total  — 100/100/100
+PASS  C2 after loading everything the count is accurate: "Showing 1–N of N"  — Showing 1–100 of 100 hotels
+PASS  C3 stale-supplier and CLOSED hotels are absent; another tenant's hotel is absent; ON_REQUEST is shown but not selectable
+PASS  C4 no booking, hold or payment request was sent by searching  — POST /api/v1/auth/login
+PASS  D1 hotel details show the profile, a valid image, room group, board, occupancy, total-stay AED and cancellation terms  — ← Back to results Scenario Image Palace ★★★★★ Dubai · HOTEL · 1 Verification Road · 17 Oct – 19 Oct 2026 · 2 nights · 1R · 2A · India · AED DELUXE 1 rate BB-pic Bed and breakfast Breakfast included Re
+PASS  D2 a hotel with no image shows an honest placeholder, not a fabricated photo
+PASS  D3 long hotel, room and plan names wrap without horizontal overflow  — 0
+PASS  D4 distinct offers stay distinct (three plans of one shared pool, same price), identified by canonical offer ids  — 3 ci_a2efa694-ead1-4190-ad2d-cb3c6305ed77,ci_84b5668b-a4ee-4eb6-974e-d1ddc71b09a3,ci_702baf84-cef8-487c-b727-a8b967dce5e7
+PASS  E1 selecting an offer runs the authoritative recheck and ends at "Offer rechecked" with the server result  — Selected offer Deluxe · Bed and breakfast · quoted AED 1,060.00. Recheck uses this offer. Offer rechecked Current price and availability have been verified. Booking activation is not available for this account. Rechecked offer Thi
+PASS  E2 the rechecked offer shows its server expiry as a readable date and time (not a raw timestamp)  — · valid until 7 Oct 2026, 14:03 (Asia/Dubai) Booking is not enabled for this workspace. This recheck holds no inventory and creates no booking, hold or payment.
+PASS  E3 no Book, Pay, Confirm or Hold action is offered after a successful recheck (booking is disabled)
+PASS  K1 all three plans of the shared pool recheck independently without multiplying stock or allocating it
+PASS  Q1 rechecking caused no allocation: availability, pool, hold, booking and ledger counters are unchanged  — {"availability":"0/0","pool":"0/0","holds":"0","bookings":"0","ledger":"0"}
+PASS  Q2 the only non-GET requests were search and recheck (no booking, hold, payment or funding call)  — POST /api/v1/auth/login | POST /api/v1/agent/search/status | POST /api/v1/agent/search | POST /api/v1/agent/rates/recheck
+PASS  K2 when the shared pool is sold out, every plan sharing it is unavailable at recheck (stock is counted once)  — Selected offer Deluxe · Bed and breakfast · quoted AED 1,060.00. Recheck uses this offer. View alternative rooms Search 
+PASS  F1 a changed price is reported as "Price updated" with the previous and current total, not silently accepted  — Selected offer Deluxe · Bed and breakfast · quoted AED 1,120.00. Recheck uses this offer. Accept New Price Choose Another Offer Price updated The price changed since this search. Accept the current price to recheck it, or choose a
+PASS  F2 nothing is rechecked as valid until the agent explicitly accepts the new price
+PASS  F3 after acceptance the recheck confirms the new total
+PASS  G1 an offer that sold out after the search is "no longer available" with no inventory allocated  — Selected offer Deluxe · Bed and breakfast · quoted AED 1,140.00. Recheck uses this offer. View alternative rooms Search again This offer is no longer available Availability changed since your search. 
+PASS  J1 ON_REQUEST inventory is labelled and cannot be selected or rechecked  — BB-onreq Bed and breakfast Breakfast included Refundable contracted rate 1R · 2A · On request · not confirmed · Prepaid AED 1,080.00 Total stay On request
+PASS  I1 stale supplier inventory fails closed: the hotel is not offered at all (not as zero, not as available)
+PASS  H1 [injected] an expired-offer recheck result tells the agent to refresh, with no inventory allocated, and offers "Refresh rates"  — Selected offer Deluxe · Bed and breakfast · quoted AED 628.00. Recheck uses this offer. Refresh rates This rate has expired Refresh the latest rates to continue. No inventory was allocated.
+PASS  H2 the real API answers "offer_expired" once the offer's server expiry has passed (short-TTL process), and "rechecked" before  — rechecked -> offer_expired
+PASS  M1 cross-tenant: tenant B's session cannot act as tenant A (403), sees only its own hotel, and cannot recheck tenant A's offer  — 403 1 unavailable
+PASS  M2 a read-only user without hotel.search is denied search (403) and unauthenticated search is 401  — 403
+PASS  P1 booking and hold endpoints are closed by the server (not by a client flag): no booking was created  — 403/404
+PASS  L1 an expired or revoked session shows a clear recovery path (sign in again) instead of a silent failure  — Your gateway to smarter hotel distribution. Discover hotel opportunities, compare room and board options, and recheck availability through one trade-focused wor
+PASS  L2 sign-out clears the session and account-specific browser state, and the API refuses the old session  — 401 {}
+PASS  N1 [injected] an unreachable API shows an honest error, keeps the criteria, and offers Retry  — Destination City or hotel selected Stay 17–19 Oct 2 nights · Sat – Mon Rooms & guests 1 Room · 2 Adults Identical occupancy per room Retry Search Guest national
+PASS  N2 retry succeeds without re-entering the criteria
+PASS  N3 [injected delay] an older, slower search response cannot overwrite the newer search  — Dubai 17–19 Oct 1R · 2A United Kingdom AED Modify
+PASS  O1 no horizontal overflow at 390px on results and on the rechecked offer  — 0/0
+PASS  O1 no horizontal overflow at 768px on results and on the rechecked offer  — 0/0
+PASS  O1 no horizontal overflow at 1280px on results and on the rechecked offer  — 0/0
+PASS  O2 the destination can be chosen from the keyboard
+PASS  O3 Enter in the search form runs the search
+PASS  O4 keyboard focus is visible on actionable controls  — solid 2px none
+PASS  O5 exactly one main landmark  — 1
+PASS  O6 axe (WCAG A/AA) on the search results: no serious or critical violations
+PASS  O7 axe (WCAG A/AA) on the hotel detail with a recheck outcome: no serious or critical violations
+PASS  O8 loading and recheck outcomes are announced to screen readers (live region or status/alert role)
+PASS  O9 no uncaught page errors during the journey
+PASS  Q3 across the whole journey no booking, hold or ledger row was created  — {"availability":"0/0","pool":"0/0","holds":"0","bookings":"0","ledger":"0"}
+
+TIMINGS {"search_ms":445,"recheck_ms":137} total hotels 100
+
+50/50 checks passed

@@ -68,6 +68,10 @@ async function main() {
   const agent = await user('agent', A, ['hotel.search', 'booking.read'])
   const noaccess = await user('noaccess', A, [])
   const bagent = await user('bagent', B, ['hotel.search', 'booking.read'])
+  const homeAgent = await user('homeagent', A, ['hotel.search', 'booking.read'])
+  await prisma.membership.create({ data: { userId: homeAgent.id, tenantId: B, role: 'agent' } })
+  const betaRoles = await prisma.userRole.findMany({ where: { userId: bagent.id, tenantId: B } })
+  await prisma.userRole.createMany({ data: betaRoles.map((role) => ({ userId: homeAgent.id, tenantId: B, roleId: role.roleId })) })
   const fillerNames: string[] = []
   for (let i = 1; i <= FILLERS; i++) { const n = `Filler Hotel ${String(i).padStart(2, '0')}`; fillerNames.push(n); await hotel(`f${i}`, n, { price: BigInt(30_000 + i * 700), stars: 3 + (i % 3) }) }
   const pic = await hotel('pic', 'Scenario Image Palace', { price: 51_000n })
@@ -81,7 +85,7 @@ async function main() {
   await hotel('change', 'Scenario Price Change Plaza', { price: 56_000n })
   await hotel('gone', 'Scenario Unavailable Residence', { price: 57_000n, allotment: 1 })
   await hotel('beta', 'Beta Tenant Only Hotel', { tenant: B, ctx: b, price: 58_000n })
-  const out = { password, tag, tenantA: A, tenantB: B, agentEmail: agent.email, noaccessEmail: noaccess.email, bagentEmail: bagent.email, hotels: ids, plans, poolId, fillerNames, names: { pic: 'Scenario Image Palace', pool: 'Scenario Shared Pool Tower', stale: 'Scenario Stale Supplier Inn', onreq: 'Scenario On Request Suites', closed: 'Scenario Closed Court', change: 'Scenario Price Change Plaza', gone: 'Scenario Unavailable Residence', long: 'Scenario Grand Waterfront Residences And Conference Resort At The Dubai Marina With An Exceptionally Long Name', beta: 'Beta Tenant Only Hotel' }, fillers: FILLERS }
+  const out = { password, tag, tenantA: A, tenantB: B, agentEmail: agent.email, noaccessEmail: noaccess.email, bagentEmail: bagent.email, homeAgentEmail: homeAgent.email, hotels: ids, plans, poolId, fillerNames, names: { pic: 'Scenario Image Palace', pool: 'Scenario Shared Pool Tower', stale: 'Scenario Stale Supplier Inn', onreq: 'Scenario On Request Suites', closed: 'Scenario Closed Court', change: 'Scenario Price Change Plaza', gone: 'Scenario Unavailable Residence', long: 'Scenario Grand Waterfront Residences And Conference Resort At The Dubai Marina With An Exceptionally Long Name', beta: 'Beta Tenant Only Hotel' }, fillers: FILLERS }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-agent-mvp.json', JSON.stringify(out, null, 2))
   console.log(`seeded ${FILLERS} filler hotels and 8 scenario hotels (tenant A), 1 hotel (tenant B)`)
   await prisma.$disconnect()

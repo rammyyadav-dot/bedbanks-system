@@ -1,0 +1,17 @@
+✔ local development preserves the documented API default (2.020587ms)
+✔ hosted portals reject missing, insecure, malformed and mis-prefixed API URLs (0.569269ms)
+✔ container images are hosted too: PORTAL_HOSTED=1 enforces the same rules as VERCEL=1 (0.435312ms)
+✔ each portal uses the validated destination and preserves the API path (10.20174ms)
+✔ the target must be an https bare origin (http only for localhost when allowed) (1.521502ms)
+✔ session cookie problems are named (0.929259ms)
+✔ server-only names and connection strings are detected without echoing a value (0.343366ms)
+✔ the search body is the canonical Dubai one-room two-adult AED request (25.35907ms)
+✔ the smoke fails closed against an API that serves nothing useful, and never prints credentials (32.307787ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 320.749716

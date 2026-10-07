@@ -9,9 +9,9 @@ import { fetchDestinations } from '@/lib/destination-client'
 import { criteriaFilters } from '@/lib/search-filters'
 import { useCurrencyOptions } from '@/components/search/currency-options'
 import { GUEST_MARKETS, guestMarketName } from '@/lib/guest-market'
-import { buildRoomStays, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, roomStaySummary, type RoomStayDraft } from '@/lib/occupancy'
+import { buildRoomStays, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, roomStaySummary, supportedRoomStaysError, type RoomStayDraft } from '@/lib/occupancy'
 import { formatCompactStay, weekdayShort } from '@/lib/format'
-import { addUtcDays, applyStayPick, monthGrid, monthLabel, nightCount, shiftMonth, utcToday } from '@/lib/stay-calendar'
+import { addUtcDays, applyStayPick, monthGrid, monthLabel, nightCount, shiftMonth, businessToday } from '@/lib/stay-calendar'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -60,6 +60,7 @@ export function SearchCriteriaForm({
   tenantId: string
 }) {
   const currencyOptions = useCurrencyOptions()
+  const errorId = useId()
   const [advanced, setAdvanced] = useState(false)
   const [formError, setFormError] = useState('')
   const submitLabel = searching ? marketplaceHome.searchingCta : searchFailed ? marketplaceHome.retryCta : marketplaceHome.searchCta
@@ -71,54 +72,72 @@ export function SearchCriteriaForm({
     if (!canSubmitDestination(destinationRef)) return setFormError('Select a city or hotel. Typed text is not a destination.')
     if (!parsed.ok) return setFormError(parsed.reason)
     if (!stays.ok) return setFormError(stays.reason)
+    const occupancyError = supportedRoomStaysError(roomStays)
+    if (occupancyError) return setFormError(occupancyError)
+    if (checkIn < businessToday()) return setFormError('Check-in cannot be before today in Asia/Dubai.')
     if (nights === null || nights > 30) return setFormError('Choose a stay of 1 to 30 nights.')
     setFormError('')
     onSubmit()
   }
   return (
-    <form className="market-search" id="hotel-search" aria-label="Hotel search" onSubmit={(event) => { event.preventDefault(); if (!searching) submit() }}>
+    <form className="market-search" id="hotel-search" aria-label="Hotel search" aria-describedby={formError ? errorId : undefined} onSubmit={(event) => { event.preventDefault(); if (!searching) submit() }}>
       <div className="market-search-row">
-        <DestinationField destination={destination} resolved={canSubmitDestination(destinationRef)} invalid={destinationInvalid || Boolean(formError && !canSubmitDestination(destinationRef))} tenantId={tenantId} onChange={(label, ref, cityName) => change(() => setDestination(label, ref, cityName))} />
+        <DestinationField errorId={errorId} destination={destination} resolved={canSubmitDestination(destinationRef)} invalid={destinationInvalid || Boolean(formError && !canSubmitDestination(destinationRef))} tenantId={tenantId} onChange={(label, ref, cityName) => change(() => setDestination(label, ref, cityName))} />
         <StayField checkIn={checkIn} checkOut={checkOut} nights={nights} onChange={(next) => change(() => { setCheckIn(next.checkIn); setCheckOut(next.checkOut) })} />
         <OccupancyField stays={roomStays} onChange={(next) => change(() => setRoomStays(next))} />
-        <NationalityField nationality={nationality} onChange={(value) => change(() => setNationality(value))} />
         <button className="portal-primary market-search-cta" type="submit" disabled={searching}><Search size={16} /> {submitLabel}</button>
       </div>
       <div className="market-search-tools">
+        <NationalityField nationality={nationality} onChange={(value) => change(() => setNationality(value))} />
         <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>
         <label><span>{marketplaceHome.currencyLabel}</span> <select aria-label="Selling currency" value={currency} onChange={(event) => change(() => setCurrency(event.target.value))}>{currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
       </div>
-      {formError && <p className="portal-field-error" role="alert">{formError}</p>}
+      {formError && <p id={errorId} className="portal-field-error" role="alert">{formError}</p>}
       <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} {marketplaceHome.residencyNote} A search total is not confirmed availability.</p>
       {advanced && <AdvancedFields currency={currency} starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPrice={minPrice} setMinPrice={(value) => change(() => setMinPrice(value))} maxPrice={maxPrice} setMaxPrice={(value) => change(() => setMaxPrice(value))} boardBasisIds={boardBasisIds} setBoardBasisIds={(value) => change(() => setBoardBasisIds(value))} boards={boards} propertyTypes={propertyTypes} setPropertyTypes={(value) => change(() => setPropertyTypes(value))} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={(value) => change(() => setSort(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPrice(''); setMaxPrice(''); setBoardBasisIds([]); setPropertyTypes([]); setSort('default') })} />}
     </form>
   )
 }
 
-function DestinationField({ destination, resolved, invalid, tenantId, onChange }: { destination: string; resolved: boolean; invalid: boolean; tenantId: string; onChange: (label: string, ref: DestinationRef | null, cityName: string) => void }) {
+function DestinationField({ destination, resolved, invalid, tenantId, onChange, errorId }: { errorId: string; destination: string; resolved: boolean; invalid: boolean; tenantId: string; onChange: (label: string, ref: DestinationRef | null, cityName: string) => void }) {
   const listId = useId()
   const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(-1)
   const [remote, setRemote] = useState<DestinationResolution[]>([])
   const box = useRef<HTMLDivElement>(null)
   useDismiss(box, () => setOpen(false))
   useEffect(() => {
-    if (!open || destination.trim().length < 2) { setRemote([]); return }
-    const timer = window.setTimeout(() => { void fetchDestinations(destination, tenantId).then(setRemote) }, 200)
-    return () => window.clearTimeout(timer)
+    let current = true
+    setRemote([])
+    if (!open || destination.trim().length < 2) return
+    const timer = window.setTimeout(() => { void fetchDestinations(destination, tenantId).then((items) => { if (current) setRemote(items) }) }, 200)
+    return () => { current = false; window.clearTimeout(timer) }
   }, [destination, open, tenantId])
   const local = destinationSuggestions(destination).map((item) => item.ref.type === 'city' ? { type: 'city' as const, id: item.ref.id, name: item.value, countryCode: item.ref.countryCode } : null).filter((item): item is Extract<DestinationResolution, { type: 'city' }> => item !== null)
   const remoteIds = new Set(remote.map((item) => `${item.type}:${item.id}`))
   const suggestions = [...remote, ...local.filter((item) => !remoteIds.has(`city:${item.id}`))]
+  const select = (item: DestinationResolution) => {
+    if (item.type === 'city') onChange(item.name, { type: 'city', id: item.id, countryCode: item.countryCode }, item.name)
+    else onChange(`${item.name}, ${item.cityName}`, { type: 'hotel', id: item.id }, item.cityName)
+    setOpen(false)
+    setActive(-1)
+    box.current?.querySelector('input')?.focus()
+  }
   return (
     <div className="market-field" ref={box}>
-      <span>Destination</span>
+      <label htmlFor={`${listId}-input`}>Destination</label>
       <div className={invalid ? 'has-error' : ''}>
         <MapPin size={16} aria-hidden="true" />
-        <input value={destination} placeholder="Select a city or hotel" aria-label="Destination" aria-invalid={invalid} aria-expanded={open} aria-controls={listId} role="combobox" autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value, null, ''); setOpen(true) }} />
+        <input id={`${listId}-input`} value={destination} placeholder="Select a city or hotel" aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list" aria-activedescendant={open && suggestions[active] ? `${listId}-${active}` : undefined} role="combobox" autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value, null, ''); setRemote([]); setActive(-1); setOpen(true) }} onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActive((value) => suggestions.length ? value < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.length - 1 : (value + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length : -1) }
+          if (event.key === 'Enter' && open && suggestions[active]) { event.preventDefault(); select(suggestions[active]) }
+          if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
+        }} />
       </div>
-      {resolved && <small>Canonical destination selected</small>}
-      {open && suggestions.length > 0 && <ul className="market-suggest" id={listId} role="listbox">
-        {suggestions.map((item) => <li key={`${item.type}:${item.id}`} role="presentation"><button type="button" role="option" onClick={() => { if (item.type === 'city') onChange(item.name, { type: 'city', id: item.id, countryCode: item.countryCode }, item.name); else onChange(`${item.name}, ${item.cityName}`, { type: 'hotel', id: item.id }, item.cityName); setOpen(false) }}><strong>{item.name}</strong><small>{item.type === 'city' ? 'City' : 'Hotel'}</small><span>{item.type === 'city' ? item.countryCode : item.cityName}</span></button></li>)}
+      {resolved && <small>City or hotel selected</small>}
+      {open && <ul className="market-suggest" id={listId} role="listbox" aria-label="Destinations">
+        {suggestions.map((item, index) => <li key={`${item.type}:${item.id}`} role="option" id={`${listId}-${index}`} aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => select(item)}><strong>{item.name}</strong><small>{item.type === 'city' ? 'City' : 'Hotel'}</small><span>{item.type === 'city' ? item.countryCode : item.cityName}</span></li>)}
+        {suggestions.length === 0 && <li role="presentation">No supported destination found. Select a city or hotel from the catalogue. Areas are not supported.</li>}
       </ul>}
     </div>
   )
@@ -126,79 +145,109 @@ function DestinationField({ destination, resolved, invalid, tenantId, onChange }
 
 function StayField({ checkIn, checkOut, nights, onChange }: { checkIn: string; checkOut: string; nights: number | null; onChange: (stay: { checkIn: string; checkOut: string }) => void }) {
   const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState({ checkIn, checkOut })
+  const [error, setError] = useState('')
   const [selecting, setSelecting] = useState<'check-in' | 'check-out'>('check-in')
+  const dialogId = useId()
   const box = useRef<HTMLDivElement>(null)
-  const start = /^(\d{4})-(\d{2})-/.exec(checkIn)
-  const initial = start ? { year: Number(start[1]), monthIndex: Number(start[2]) - 1 } : { year: Number(utcToday().slice(0, 4)), monthIndex: Number(utcToday().slice(5, 7)) - 1 }
+  const initial = { year: Number(businessToday().slice(0, 4)), monthIndex: Number(businessToday().slice(5, 7)) - 1 }
   const [cursor, setCursor] = useState(initial)
   useDismiss(box, () => setOpen(false))
-  const checkInDay = weekdayShort(checkIn)
-  const checkOutDay = weekdayShort(checkOut)
+  const close = () => { setOpen(false); box.current?.querySelector('button')?.focus() }
   const nextMonth = shiftMonth(cursor.year, cursor.monthIndex, 1)
+  const draftNights = nightCount(draft.checkIn, draft.checkOut)
   const pick = (iso: string) => {
-    const next = applyStayPick({ checkIn, checkOut }, iso, selecting)
-    if (!next) return
-    setSelecting(next.selecting)
-    onChange({ checkIn: next.checkIn, checkOut: next.checkOut })
+    const next = applyStayPick(draft, iso, selecting)
+    if (!next) return setError('Choose a future stay of 1 to 30 nights, with check-out after check-in.')
+    setError(''); setSelecting(next.selecting); setDraft(next)
+  }
+  const apply = () => {
+    if (draft.checkIn < businessToday() || draftNights === null || draftNights > 30) return setError('Choose a stay of 1 to 30 nights starting today or later in Asia/Dubai.')
+    onChange(draft); close()
   }
   return (
     <div className="market-field" ref={box}>
       <span>Stay</span>
-      <button type="button" className="market-control" aria-expanded={open} onClick={() => { if (start) setCursor({ year: Number(start[1]), monthIndex: Number(start[2]) - 1 }); setOpen((value) => !value) }}>
+      <button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? dialogId : undefined} onClick={() => {
+        if (open) return close()
+        setDraft({ checkIn, checkOut }); setError(''); setSelecting('check-in')
+        if (/^\d{4}-\d{2}-\d{2}$/.test(checkIn)) setCursor({ year: Number(checkIn.slice(0, 4)), monthIndex: Number(checkIn.slice(5, 7)) - 1 })
+        setOpen(true)
+      }}>
         <CalendarDays size={16} aria-hidden="true" />
-        <span><strong>{formatCompactStay(checkIn, checkOut)}</strong><small>{nights ? `${nights} night${nights === 1 ? '' : 's'}` : 'Choose dates'}{checkInDay && checkOutDay ? ` · ${checkInDay} – ${checkOutDay}` : ''}</small></span>
+        <span><strong>{formatCompactStay(checkIn, checkOut)}</strong><small>{nights ? `${nights} night${nights === 1 ? '' : 's'}` : 'Choose dates'}{weekdayShort(checkIn) && weekdayShort(checkOut) ? ` · ${weekdayShort(checkIn)} – ${weekdayShort(checkOut)}` : ''}</small></span>
       </button>
-      {open && <div className="market-popover market-calendar" role="dialog" aria-label="Stay dates">
+      {open && <div id={dialogId} className="market-popover market-calendar" role="dialog" aria-label="Stay dates">
         <div className="market-calendar-head">
           <button type="button" aria-label="Previous month" onClick={() => setCursor((value) => shiftMonth(value.year, value.monthIndex, -1))}><ChevronLeft size={16} /></button>
-          <div className="market-calendar-months"><Month year={cursor.year} monthIndex={cursor.monthIndex} checkIn={checkIn} checkOut={checkOut} onPick={pick} /><Month className="is-second" year={nextMonth.year} monthIndex={nextMonth.monthIndex} checkIn={checkIn} checkOut={checkOut} onPick={pick} /></div>
+          <div className="market-calendar-months"><Month year={cursor.year} monthIndex={cursor.monthIndex} checkIn={draft.checkIn} checkOut={draft.checkOut} onPick={pick} /><Month className="is-second" year={nextMonth.year} monthIndex={nextMonth.monthIndex} checkIn={draft.checkIn} checkOut={draft.checkOut} onPick={pick} /></div>
           <button type="button" aria-label="Next month" onClick={() => setCursor((value) => shiftMonth(value.year, value.monthIndex, 1))}><ChevronRight size={16} /></button>
         </div>
         <div className="market-date-entry">
-          <label>Check-in<input type="date" value={checkIn} aria-label="Check-in" onChange={(event) => { const next = applyStayPick({ checkIn, checkOut }, event.target.value, 'check-in'); if (next) onChange(next) }} /></label>
-          <label>Check-out<input type="date" value={checkOut} min={addUtcDays(checkIn, 1) ?? undefined} aria-label="Check-out" onChange={(event) => { const next = applyStayPick({ checkIn, checkOut }, event.target.value, 'check-out'); if (next) onChange(next) }} /></label>
+          <label>Check-in<input type="date" min={businessToday()} value={draft.checkIn} aria-label="Check-in" aria-invalid={Boolean(error)} aria-describedby={error ? `${dialogId}-error` : undefined} onChange={(event) => { setError(''); setDraft((value) => ({ ...value, checkIn: event.target.value })) }} /></label>
+          <label>Check-out<input type="date" value={draft.checkOut} min={addUtcDays(draft.checkIn, 1) ?? undefined} aria-label="Check-out" aria-invalid={Boolean(error)} aria-describedby={error ? `${dialogId}-error` : undefined} onChange={(event) => { setError(''); setDraft((value) => ({ ...value, checkOut: event.target.value })) }} /></label>
         </div>
-        <p>{nights ? `${nights} night${nights === 1 ? '' : 's'}` : 'Check-out must be after check-in.'} Dates before today cannot be selected.</p>
+        <p>{draftNights ? `${draftNights} night${draftNights === 1 ? '' : 's'}` : 'Check-out must be after check-in.'} Search dates use Asia/Dubai.</p>
+        {error && <p id={`${dialogId}-error`} className="portal-field-error" role="alert">{error}</p>}
+        <div className="market-room-actions"><button type="button" onClick={close}>Cancel</button><button type="button" className="portal-primary" onClick={apply}>Apply dates</button></div>
       </div>}
     </div>
   )
 }
 
 function Month({ year, monthIndex, checkIn, checkOut, onPick, className = '' }: { year: number; monthIndex: number; checkIn: string; checkOut: string; onPick: (iso: string) => void; className?: string }) {
-  const today = utcToday()
+  const today = businessToday()
   return <div className={`market-month ${className}`}>
     <strong>{monthLabel(year, monthIndex)}</strong>
-    <div className="market-month-grid">{WEEKDAYS.map((day) => <b key={day}>{day}</b>)}{monthGrid(year, monthIndex).map((cell) => {
+    <div className="market-month-grid" onKeyDown={(event) => {
+      const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key]
+      if (delta === undefined) return
+      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'))
+      const index = buttons.indexOf(event.target as HTMLButtonElement)
+      const next = buttons[index + delta]
+      if (next && !next.disabled) { event.preventDefault(); next.focus() }
+    }}>{WEEKDAYS.map((day) => <b key={day}>{day}</b>)}{monthGrid(year, monthIndex).map((cell) => {
       const selected = cell.iso === checkIn || cell.iso === checkOut
       const inRange = cell.iso > checkIn && cell.iso < checkOut
       const disabled = !cell.inMonth || cell.iso < today
-      return <button type="button" key={cell.iso} disabled={disabled} className={`${selected ? 'is-selected' : ''} ${inRange ? 'is-range' : ''} ${cell.inMonth ? '' : 'is-outside'}`} onClick={() => onPick(cell.iso)}>{Number(cell.iso.slice(8))}</button>
+      return <button type="button" key={cell.iso} aria-label={cell.iso} aria-pressed={selected} disabled={disabled} className={`${selected ? 'is-selected' : ''} ${inRange ? 'is-range' : ''} ${cell.inMonth ? '' : 'is-outside'}`} onClick={() => onPick(cell.iso)}>{Number(cell.iso.slice(8))}</button>
     })}</div>
   </div>
 }
 
 function OccupancyField({ stays, onChange }: { stays: RoomStayDraft[]; onChange: (value: RoomStayDraft[]) => void }) {
   const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(stays)
+  const [error, setError] = useState('')
+  const dialogId = useId()
   const box = useRef<HTMLDivElement>(null)
   useDismiss(box, () => setOpen(false))
-  const update = (index: number, next: RoomStayDraft) => onChange(stays.map((stay, position) => position === index ? next : stay))
+  const update = (index: number, next: RoomStayDraft) => { setError(''); setDraft(draft.map((stay, position) => position === index ? next : stay)) }
   return (
     <div className="market-field" ref={box}>
       <span>Rooms & guests</span>
-      <button type="button" className="market-control" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <span><strong>{roomStaySummary(stays)}</strong><small>Each room has its own guests</small></span>
+      <button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? dialogId : undefined} onClick={() => { setDraft(stays.map((stay) => ({ ...stay, childAges: [...stay.childAges] }))); setError(''); setOpen((value) => !value) }}>
+        <span><strong>{roomStaySummary(stays)}</strong><small>Identical occupancy per room</small></span>
       </button>
-      {open && <div className="market-popover market-occupancy" role="dialog" aria-label="Rooms and guests">
-        {stays.map((stay, index) => <fieldset key={index} className="market-room-stay"><legend>Room {index + 1}</legend>
+      {open && <div id={dialogId} className="market-popover market-occupancy" role="dialog" aria-label="Rooms and guests">
+        {draft.map((stay, index) => <fieldset key={index} className="market-room-stay" aria-describedby={error ? `${dialogId}-error` : undefined}><legend>Room {index + 1}</legend>
           <Stepper label={`Room ${index + 1} adults`} value={stay.adults} min={1} max={MAX_ADULTS_PER_ROOM} onChange={(adults) => update(index, { ...stay, adults })} />
           <Stepper label={`Room ${index + 1} children`} value={stay.childAges.length} min={0} max={MAX_CHILDREN_PER_ROOM} onChange={(count) => update(index, { ...stay, childAges: Array.from({ length: count }, (_, child) => stay.childAges[child] ?? null) })} />
           {stay.childAges.map((age, child) => <label key={child} className="market-child-age">Room {index + 1} child {child + 1} age<select aria-label={`Room ${index + 1} child ${child + 1} age`} value={age ?? ''} onChange={(event) => { const picked = event.target.value; if (picked === '') return; update(index, { ...stay, childAges: stay.childAges.map((current, position) => position === child ? Number(picked) : current) }) }}><option value="" disabled>Age</option>{Array.from({ length: 18 }, (_, value) => <option key={value} value={value}>{value} years</option>)}</select></label>)}
         </fieldset>)}
         <div className="market-room-actions">
-          <button type="button" disabled={stays.length >= MAX_ROOMS} onClick={() => onChange([...stays, { adults: 2, childAges: [] }])}>Add room</button>
-          <button type="button" disabled={stays.length <= 1} onClick={() => onChange(stays.slice(0, -1))}>Remove room</button>
+          <button type="button" disabled={draft.length >= MAX_ROOMS} onClick={() => setDraft([...draft, { adults: 2, childAges: [] }])}>Add room</button>
+          <button type="button" disabled={draft.length <= 1} onClick={() => setDraft(draft.slice(0, -1))}>Remove room</button>
         </div>
-        <p>Every child needs an age before search. Mixed room occupancies are sent as separate rooms.</p>
+        <p>Every child needs an age. Contracted inventory currently supports rooms with identical guests and child ages. Different occupancies are not yet supported.</p>
+        {error && <p id={`${dialogId}-error`} className="portal-field-error" role="alert">{error}</p>}
+        <div className="market-room-actions"><button type="button" onClick={() => { setOpen(false); box.current?.querySelector('button')?.focus() }}>Cancel</button><button type="button" className="portal-primary" onClick={() => {
+          const built = buildRoomStays(draft)
+          if (!built.ok) return setError(built.reason)
+          const unsupported = supportedRoomStaysError(draft)
+          if (unsupported) return setError(unsupported)
+          onChange(draft); setOpen(false); box.current?.querySelector('button')?.focus()
+        }}>Apply guests</button></div>
       </div>}
     </div>
   )
@@ -209,7 +258,15 @@ function Stepper({ label, value, min, max, onChange }: { label: string; value: n
 }
 
 function NationalityField({ nationality, onChange }: { nationality: string; onChange: (value: string) => void }) {
-  return <label className="market-field"><span>{marketplaceHome.nationalityLabel}</span><div><select aria-label={marketplaceHome.nationalityLabel} value={nationality} onChange={(event) => onChange(event.target.value)}>{GUEST_MARKETS.map((market) => <option key={market.code} value={market.code}>{market.name}</option>)}</select></div><small>{guestMarketName(nationality)}</small></label>
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const box = useRef<HTMLDivElement>(null)
+  const id = useId()
+  useDismiss(box, () => setOpen(false))
+  const markets = GUEST_MARKETS.filter((market) => market.name.toLowerCase().includes(query.toLowerCase()) || market.code.toLowerCase().includes(query.toLowerCase()))
+  return <div className="market-field" ref={box}><span>{marketplaceHome.nationalityLabel}</span><button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? id : undefined} onClick={() => { setQuery(''); setOpen((value) => !value) }}>{guestMarketName(nationality)} ({nationality})</button>
+    {open && <div id={id} className="market-popover market-nationality" role="dialog" aria-label="Guest nationality"><label>Find a country<input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} /></label><label>Country<select aria-label="Country" size={6} value={nationality} onChange={(event) => { onChange(event.target.value); setOpen(false); box.current?.querySelector('button')?.focus() }}>{markets.map((market) => <option key={market.code} value={market.code}>{market.name} ({market.code})</option>)}</select></label>{markets.length === 0 && <p role="status">No supported country matches.</p>}<button type="button" onClick={() => { setOpen(false); box.current?.querySelector('button')?.focus() }}>Cancel</button></div>}
+  </div>
 }
 
 function AdvancedFields({ currency, starRatings, setStarRatings, refundableOnly, setRefundableOnly, minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, boards, propertyTypes, setPropertyTypes, propertyTypeOptions, sort, setSort, onClear }: {
@@ -252,9 +309,20 @@ function AdvancedFields({ currency, starRatings, setStarRatings, refundableOnly,
 function useDismiss(box: { current: HTMLElement | null }, close: () => void) {
   useEffect(() => {
     const onPointer = (event: PointerEvent) => { if (box.current && !box.current.contains(event.target as Node)) close() }
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && box.current?.querySelector('[role=dialog], [role=listbox]')) { close(); box.current.querySelector<HTMLElement>('button, input')?.focus() } }
+    const position = () => {
+      const popover = box.current?.querySelector<HTMLElement>('[role=dialog], [role=listbox]')
+      if (!popover || !box.current) return
+      const anchor = box.current.getBoundingClientRect()
+      popover.style.position = 'fixed'
+      popover.style.left = `${Math.max(8, Math.min(anchor.left, window.innerWidth - popover.offsetWidth - 8))}px`
+      popover.style.top = `${Math.max(8, Math.min(anchor.bottom + 6, window.innerHeight - popover.offsetHeight - 8))}px`
+    }
+    position()
+    window.addEventListener('resize', position)
+    window.addEventListener('scroll', position, true)
     document.addEventListener('pointerdown', onPointer)
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('pointerdown', onPointer); document.removeEventListener('keydown', onKey) }
+    return () => { window.removeEventListener('resize', position); window.removeEventListener('scroll', position, true); document.removeEventListener('pointerdown', onPointer); document.removeEventListener('keydown', onKey) }
   }, [box, close])
 }

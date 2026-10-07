@@ -51,7 +51,7 @@ export function roomStaySummary(stays: RoomStayDraft[]): string {
   const rooms = stays.length
   const adults = stays.reduce((sum, stay) => sum + stay.adults, 0)
   const children = stays.reduce((sum, stay) => sum + stay.childAges.length, 0)
-  return occupancySummary(rooms, adults, children)
+  return occupancySummary(rooms, adults, children).replace(' · 0 Children', '')
 }
 
 /** Ages are unresolved until the agent picks one. Zero is a chosen infant age, not a default. */
@@ -59,4 +59,11 @@ export function resolvedChildAges(children: number, childAges: DraftChildAge[]):
   if (!Number.isInteger(children) || children < 0 || childAges.length !== children) return null
   if (childAges.some((age) => !Number.isInteger(age) || (age as number) < 0 || (age as number) > 17)) return null
   return childAges as number[]
+}
+
+/** UI scope guard matching the contracted adapter: mixed occupancies cannot be priced yet. Never copy or drop guests to make them fit. */
+export function supportedRoomStaysError(stays: RoomStayDraft[]): string | null {
+  const first = stays[0]
+  if (!first || stays.every((stay) => stay.adults === first.adults && JSON.stringify(stay.childAges) === JSON.stringify(first.childAges))) return null
+  return 'Different guests per room are not supported by contracted inventory yet. Choose identical occupancies or search each room separately.'
 }

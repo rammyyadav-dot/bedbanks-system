@@ -170,3 +170,14 @@ OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-views.
 ```
 
 `verify-booking-bulk.cjs` (Phase 6C) drives bulk actions in Chromium on the strict-role stack with its own fixtures: capability gating (and the direct API refused for someone without it), row selection, select page and clear (no write), confirmation and owner required, all-success, partial (mixed selection), stale (a booking changed after selection), double click and network failure with retry (one operation), and acknowledge; with database evidence for each effect, event and audit, and axe on the dialogs. Re-seed before each run.
+
+## Agent search-first home
+
+`verify-agent-home-search.cjs` drives the production Agent home, calendar, guest and nationality controls, criterion invalidation and account-local recent search replay/removal against the same strict-role disposable runtime as `verify-agent-mvp.cjs`. Seed with `seed-agent-mvp.ts`; `FILLERS=94` makes 100 visible Dubai hotels for the MVP pagination journey. Application API connections must use the restricted runtime login; the seed and failure-scenario SQL use the disposable owner separately. Run the MVP harness before adding an extra membership for tenant-switch checks.
+
+```bash
+CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium SHOT_DIR=<evidence directory> node tools/admin-ops-verify/verify-agent-home-search.cjs
+OWNER_DATABASE_URL=<disposable owner> CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium SHOT_DIR=<evidence directory> node tools/admin-ops-verify/verify-agent-mvp.cjs
+```
+
+The executable override is optional; without it Playwright uses its installed Chromium. Destination delay/failure interception is marked `[stub]` or `[injected]` and establishes UI presentation only. Home checks cover 1280/768/390px, popup bounds and Escape focus, canonical destination keyboard selection/free text refusal, date draft cancellation and invalid ranges, child ages, honest mixed-occupancy rejection, canonical nationality search/AED, real search/recheck context, stale result invalidation, fresh history replay/removal, real two-room/child-age recheck, same-account tenant switching, injected pagination/recheck/missing-mapping failures with real retry, and axe on the home and open calendar. Mixed occupancy remains an adapter gap: the domain accepts separate rooms, but contracted inventory currently prices only identical room occupancies. Area resolution remains unsupported.

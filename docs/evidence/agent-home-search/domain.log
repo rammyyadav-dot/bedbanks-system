@@ -1,0 +1,36 @@
+✔ retains nested room/rate/board/policy/total and strips unknown fields (4.93521ms)
+✔ preserves an optional contract id (0.462672ms)
+✔ rejects missing board ID (0.221226ms)
+✔ rejects conflicting room ID (0.595547ms)
+✔ rejects conflicting supplier ID (0.192454ms)
+✔ rejects expired offer (0.180225ms)
+✔ rejects fractional amount (0.287824ms)
+✔ rejects unsafe amount (0.360471ms)
+✔ rejects cross currency (1.097707ms)
+✔ rejects other occupancy (0.598101ms)
+✔ rejects inconsistent sell amount (0.275275ms)
+✔ rejects an offer from another tenant when tenant context is supplied (0.294454ms)
+✔ enforces canonical hotel, star, board, refundable, price and availability filters (1.029737ms)
+✔ AED 700 is 70000 minor of the total stay, not 700 per night (2.620961ms)
+✔ enforces the bounded hotel result limit after validation (0.467118ms)
+✔ pages a stable order without duplicates or a second slice (0.507588ms)
+✔ keeps an already paged response and rejects an inconsistent continuation (0.989067ms)
+✔ rejects duplicated offer ID and malformed search dates (0.245231ms)
+✔ validates version, exact search context and status before rendering (0.338619ms)
+✔ rejects past, overlong, unsupported and unknown search input (0.191983ms)
+✔ accepts a canonical city or hotel and keeps free-text searches valid for existing callers (0.484214ms)
+✔ keeps per-room occupancy and rejects a flattened mismatch (0.638781ms)
+✔ echoes room occupancy, nationality, currency, sort and filters through a paged response (0.611581ms)
+✔ matches a city exactly and a hotel only by its canonical id (0.520286ms)
+✔ sorts and filters before the 25-hotel page window (10.470435ms)
+✔ keeps stored address and drops a hotel with a malformed coordinate (9.575968ms)
+✔ keeps a well-formed primary image reference and rejects a malformed one (ADR 0027) (0.518564ms)
+✔ an on-request rate stays in results as not available, and a contradictory flag is rejected (0.226493ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 191.237989

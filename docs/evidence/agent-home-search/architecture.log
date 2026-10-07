@@ -1,0 +1,29 @@
+
+> bedbanks-system@ check:architecture /workspace/bedbanks-system
+> pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:public-env && pnpm check:runtime-db-role
+
+
+> bedbanks-system@ check:contracts /workspace/bedbanks-system
+> node --import tsx tools/contract-check.ts
+
+Contract check passed for 29 controller(s).
+
+> bedbanks-system@ check:no-float /workspace/bedbanks-system
+> node --import tsx tools/no-float-check.ts
+
+No floating-point literals found in 2 money-path file(s).
+
+> bedbanks-system@ check:no-silent-fallback /workspace/bedbanks-system
+> node --import tsx tools/no-silent-fallback-check.ts
+
+No silent connector fallbacks found in 3 file(s).
+
+> bedbanks-system@ check:public-env /workspace/bedbanks-system
+> node --import tsx tools/public-env-check.ts
+
+Agent and Admin public env names are limited to the API base URL.
+
+> bedbanks-system@ check:runtime-db-role /workspace/bedbanks-system
+> node --import tsx tools/runtime-db-role-check.ts
+
+Runtime DB role check passed: 695 file(s) scanned; 10 audited database client site(s) (1 runtime).
