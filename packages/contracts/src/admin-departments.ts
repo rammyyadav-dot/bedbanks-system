@@ -96,7 +96,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('booking.cancel.nonrefundable', 'reservations', 'S3', 'Cancel a non-refundable booking or waive a penalty'),
   enforced('booking.penalty.waive.approve', 'finance', 'S3', 'Approve a cancellation penalty waiver (a lower penalty than the quote); never the person who requested the cancellation'),
   enforced('booking.finance.view', 'finance', 'S2', 'See the money facts, cancellation terms and penalty of a booking'),
-  enforced('booking.savedview.read', 'reservations', 'S1', 'See and open the caller\'s own saved booking views'),
+  enforced('booking.savedview.read', 'reservations', 'S0', 'See and open the caller\'s own saved booking views'),
   enforced('booking.savedview.create', 'reservations', 'S1', 'Save the current booking list as a personal view'),
   enforced('booking.savedview.update.own', 'reservations', 'S1', 'Rename, update, default or reset the caller\'s own saved views'),
   enforced('booking.savedview.delete.own', 'reservations', 'S1', 'Delete the caller\'s own saved views'),
