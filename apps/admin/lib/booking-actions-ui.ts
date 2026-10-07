@@ -45,6 +45,12 @@ export const isOptional = (action: BookingAvailableAction, field: BookingActionF
 export const MAX_LENGTH: Record<BookingActionField, number> = { reason: BOOKING_REASON_MAX, supplierRef: BOOKING_REF_MAX, hotelConfirmationNo: BOOKING_REF_MAX, supplierCancellationRef: BOOKING_REF_MAX, confirmNonRefundable: 0 }
 
 const COPY: Record<string, string> = {
+  BOOKING_BULK_EMPTY: 'Select at least one booking.',
+  BOOKING_BULK_TOO_MANY: 'You can act on at most 100 bookings at once. Nothing was applied.',
+  BOOKING_BULK_DUPLICATE_IDS: 'The same booking was selected twice. Nothing was applied.',
+  BOOKING_BULK_UNSUPPORTED_ACTION: 'That bulk action is not available. Nothing was applied.',
+  BOOKING_BULK_INVALID: 'The bulk request was not valid. Nothing was applied.',
+  BOOKING_BULK_FORBIDDEN: 'You do not have permission to run this bulk action. Nothing was applied.',
   STALE_STATUS: 'This booking changed while you were working. Close this and reload to see its current status.',
   ILLEGAL_TRANSITION: 'That move is not allowed from the booking’s current status.',
   BOOKING_CLOSED: 'This booking is closed and locked for edits.',

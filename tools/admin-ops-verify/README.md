@@ -168,3 +168,5 @@ OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-financ
 ```bash
 OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-views.cjs
 ```
+
+`verify-booking-bulk.cjs` (Phase 6C) drives bulk actions in Chromium on the strict-role stack with its own fixtures: capability gating (and the direct API refused for someone without it), row selection, select page and clear (no write), confirmation and owner required, all-success, partial (mixed selection), stale (a booking changed after selection), double click and network failure with retry (one operation), and acknowledge; with database evidence for each effect, event and audit, and axe on the dialogs. Re-seed before each run.

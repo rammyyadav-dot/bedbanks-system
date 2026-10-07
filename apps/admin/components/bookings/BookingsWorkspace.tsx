@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BOOKING_PAGE_SIZES, BOOKING_QUICK_SEARCH_LABEL, BOOKING_QUICK_SEARCHES, type BookingListQuery, type BookingListPage } from '@bedbanks/contracts'
+import { BOOKING_PAGE_SIZES, BOOKING_QUICK_SEARCH_LABEL, BOOKING_QUICK_SEARCHES, type BookingBulkAction, type BookingListQuery, type BookingListPage } from '@bedbanks/contracts'
 import { PageHeader } from '@/components/common/PageHeader'
 import { EmptyState } from '@/components/common/EmptyState'
 import { OpsState } from '@/components/ops/OpsState'
@@ -13,6 +13,8 @@ import { getAgencies } from '@/lib/data/departments'
 import { getOpsBookings } from '@/lib/data/operations'
 import { BOOKING_COLUMN_LABEL, BOOKING_COLUMNS_STORAGE_KEY, DEFAULT_BOOKING_COLUMNS, bookingHref, bookingQueryString, effectiveChip, normalizeColumns, readBookingQuery, withFilters, type BookingColumnId } from '@/lib/booking-ui'
 import { VIEW_PARAM, viewHref, withView } from '@/lib/booking-views-ui'
+import { bulkCapabilities, EMPTY_SELECTION, failedIds, pageSelectionState, toggleSelected, togglePage, type Selection } from '@/lib/booking-bulk-ui'
+import { BulkDialog, BulkToolbar } from './BulkActions'
 import { BookingCell } from './BookingCells'
 import { BookingFilters } from './BookingFilters'
 import { ColumnPicker } from './ColumnPicker'
@@ -37,6 +39,10 @@ export function BookingsWorkspace() {
   const [columns, setColumns] = useState<BookingColumnId[]>([...DEFAULT_BOOKING_COLUMNS])
   const [last, setLast] = useState<BookingListPage | null>(null)
   const [now, setNow] = useState(() => new Date())
+  // Explicit selection of booking ids (kept across pages, never a "select all matching"). The server judges every booking again.
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
+  const [bulk, setBulk] = useState<BookingBulkAction | null>(null)
+  const capabilities = bulkCapabilities(last?.access ?? null)
   useEffect(() => { setColumns(loadColumns()) }, [])
   useEffect(() => { if (state.status === 'ready') { setLast(state.data); setNow(new Date()) } }, [state])
   const agencies = useOpsQuery(() => getAgencies({ pageSize: 100 }).then((p) => p.items.map((a) => ({ id: a.id, name: a.name }))).catch(() => null), [])
@@ -77,10 +83,12 @@ export function BookingsWorkspace() {
         </span>
         <ColumnPicker columns={columns} onChange={saveColumns} />
       </div>
+      {capabilities.length > 0 && <BulkToolbar selection={selection} capabilities={capabilities} onClear={() => setSelection(EMPTY_SELECTION)} onStart={setBulk} />}
+      {bulk && <BulkDialog action={bulk} selection={selection} onClose={() => setBulk(null)} onDone={(op) => { setSelection(new Set(failedIds(op))); reload() }} />}
       <OpsState state={state} onRetry={reload}>
         {(data) => data.items.length === 0
           ? <BookingEmpty data={data} onClear={clearFilters} />
-          : <BookingTable data={data} columns={columns} now={now} onPage={(page) => go({ page }, true)} onSize={(pageSize) => go({ pageSize: pageSize === 25 ? undefined : pageSize })} />}
+          : <BookingTable data={data} columns={columns} now={now} selectable={capabilities.length > 0} selection={selection} onSelect={(id) => setSelection((s) => toggleSelected(s, id))} onSelectPage={(ids) => setSelection((s) => togglePage(s, ids))} onPage={(page) => go({ page }, true)} onSize={(pageSize) => go({ pageSize: pageSize === 25 ? undefined : pageSize })} />}
       </OpsState>
     </div>
   )
@@ -100,15 +108,16 @@ function BookingEmpty({ data, onClear }: { data: BookingListPage; onClear: () =>
   )
 }
 
-function BookingTable({ data, columns, now, onPage, onSize }: { data: BookingListPage; columns: BookingColumnId[]; now: Date; onPage: (page: number) => void; onSize: (size: number) => void }) {
+function BookingTable({ data, columns, now, selectable, selection, onSelect, onSelectPage, onPage, onSize }: { data: BookingListPage; columns: BookingColumnId[]; now: Date; selectable: boolean; selection: Selection; onSelect: (id: string) => void; onSelectPage: (ids: string[]) => void; onPage: (page: number) => void; onSize: (size: number) => void }) {
   return (
     <div className="workspace-panel">
       <div style={{ overflowX: 'auto' }} role="region" aria-label="Bookings table" tabIndex={0}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} aria-label="Bookings" data-testid="bookings-table">
-          <thead><tr>{columns.map((c) => <th key={c} scope="col" style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: '#3f565c', borderBottom: '1px solid #e6eef0', whiteSpace: 'nowrap' }}>{BOOKING_COLUMN_LABEL[c]}</th>)}</tr></thead>
+          <thead><tr>{selectable && <th scope="col" style={{ padding: '10px 6px 10px 14px', width: 24 }}><PageCheckbox state={pageSelectionState(selection, data.items.map((r) => r.id))} onChange={() => onSelectPage(data.items.map((r) => r.id))} /></th>}{columns.map((c) => <th key={c} scope="col" style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: '#3f565c', borderBottom: '1px solid #e6eef0', whiteSpace: 'nowrap' }}>{BOOKING_COLUMN_LABEL[c]}</th>)}</tr></thead>
           <tbody>
             {data.items.map((row) => (
-              <tr key={row.id} data-status={row.status} style={{ borderBottom: '1px solid #edf2f3' }}>
+              <tr key={row.id} data-status={row.status} aria-selected={selectable ? selection.has(row.id) : undefined} style={{ borderBottom: '1px solid #edf2f3', background: selection.has(row.id) ? '#f1f7f9' : undefined }}>
+                {selectable && <td style={{ padding: '10px 6px 10px 14px' }}><input type="checkbox" data-testid="row-select" data-booking-id={row.id} aria-label={`Select booking ${row.reference}`} checked={selection.has(row.id)} onChange={() => onSelect(row.id)} /></td>}
                 {columns.map((c) => <td key={c} style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: '#2c4a55', verticalAlign: 'top' }}><BookingCell column={c} row={row} now={now} attentionAvailable={data.attentionAvailable} /></td>)}
               </tr>
             ))}
@@ -122,4 +131,8 @@ function BookingTable({ data, columns, now, onPage, onSize }: { data: BookingLis
       {!data.attentionAvailable && <p style={{ fontSize: 11, color: '#3f565c', padding: '0 14px 12px', margin: 0 }}>Reconciliation flags are not shown: the API database role cannot read the transaction records they come from. That is not the same as "no flags".</p>}
     </div>
   )
+}
+
+function PageCheckbox({ state, onChange }: { state: 'none' | 'some' | 'all'; onChange: () => void }) {
+  return <input type="checkbox" data-testid="select-page" aria-label="Select all bookings on this page" checked={state === 'all'} ref={(el) => { if (el) el.indeterminate = state === 'some' }} onChange={onChange} />
 }

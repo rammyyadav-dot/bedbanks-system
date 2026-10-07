@@ -74,6 +74,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
+- `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
+- `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
 - `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
 - `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
 - `BookingFinanceEvent`: booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)
