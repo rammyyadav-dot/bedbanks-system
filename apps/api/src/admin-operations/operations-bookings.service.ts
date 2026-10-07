@@ -9,7 +9,8 @@ import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { BookingOpsQueueService } from '../booking-ops/booking-ops-queue.service'
 import { ACTIVE_JOB_STATUSES, supplierDispatchAllowed, supplierOpsFor } from '../booking-ops/booking-supplier-jobs.service'
 import { BOOKING_SUPPLIER_RESOLVER, type BookingSupplierResolver } from '../booking-ops/supplier/booking-supplier.port'
-import { buildBookingOrderBy, buildBookingWhere, describeApplied, parseBookingListQuery, type BookingFilter } from '../booking-ops/booking-list-query'
+import { describeApplied, type BookingFilter } from '../booking-ops/booking-list-query'
+import { BookingQueryService } from '../booking-ops/booking-query.service'
 import { guestName } from '../booking-ops/booking-masking'
 import { PrismaService } from '../database/prisma.service'
 import { sectionRead } from './operations-read'
@@ -17,7 +18,6 @@ import { auditView, OperationsTransactionsService } from './operations-transacti
 
 /** The newest bookings the reconciliation-flag filter will examine; the response says when the cap was reached. */
 export const BOOKING_ATTENTION_SCAN_CAP = 500
-const HOTEL_TEXT_CAP = 200
 const REFERENCE_PARAM = /^[A-Za-z0-9_.:-]{1,80}$/
 
 type CoreRow = Prisma.BookingGetPayload<{ include: { rooms: true; guests: true } }>
@@ -37,15 +37,13 @@ export class OperationsBookingsService {
   /** Replaceable in tests so every date rule is deterministic. */
   clock: () => Date = () => new Date()
 
-  constructor(private readonly ops: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly evidence: OperationsTransactionsService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly opsQueue: BookingOpsQueueService) {}
+  constructor(private readonly ops: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly evidence: OperationsTransactionsService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly opsQueue: BookingOpsQueueService, private readonly query: BookingQueryService) {}
 
   // ---- list ---------------------------------------------------------------------------------------------------------------
   async list(tenantId: string, userId: string, access: BookingAccessView, rawQuery: Record<string, unknown>, requestId: string): Promise<BookingListPage> {
-    const filter = parseBookingListQuery(rawQuery, access)
+    const filter = this.query.parse(rawQuery, access)
     const now = this.clock()
-    const hotelIds = filter.hotelText ? await this.resolveHotels(tenantId, filter.hotelText) : null
-    const where = buildBookingWhere(filter, { tenantId, access }, hotelIds, now)
-    const orderBy = buildBookingOrderBy(filter)
+    const { where, orderBy } = await this.query.select(tenantId, access, filter, now)
     const include = { rooms: { orderBy: { position: 'asc' as const }, take: 1 }, guests: { where: { isLead: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } }
 
     let rows: CoreRow[]; let total: number; let scanCapped = false
@@ -73,14 +71,6 @@ export class OperationsBookingsService {
     return {
       items, page: filter.page, pageSize: filter.pageSize, total, access, applied: describeApplied(filter), attentionAvailable: attention !== null, scanCapped,
     }
-  }
-
-  /** Hotels matching a name, city or country text, within this tenant. A text that matches no hotel matches no booking. */
-  private async resolveHotels(tenantId: string, text: string): Promise<string[]> {
-    const contains = { contains: text.replace(/[\\%_]/g, (c) => `\\${c}`), mode: 'insensitive' as const }
-    const hotels = await this.prisma.withTenant(tenantId, (tx) => tx.hotel.findMany({ where: { tenantId, OR: [{ name: contains }, { city: contains }, { countryCode: { equals: text, mode: 'insensitive' } }] }, select: { id: true }, take: HOTEL_TEXT_CAP + 1 }))
-    if (hotels.length > HOTEL_TEXT_CAP) throw new BadRequestException('That hotel search matches too many hotels; narrow it')
-    return hotels.map((h) => h.id)
   }
 
   private async names(tenantId: string, rows: Array<{ hotelId: string; agencyId: string | null; agentUserId: string | null; assignedToId: string | null }>) {

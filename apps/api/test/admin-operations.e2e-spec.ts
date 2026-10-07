@@ -24,6 +24,7 @@ import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database
 import { OperationsSupplyService } from '../src/admin-operations/operations-supply.service'
 import { OperationsHotelsService } from '../src/admin-operations/operations-hotels.service'
 import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
+import { BookingQueryService } from '../src/booking-ops/booking-query.service'
 import { OperationsBookingsService } from '../src/admin-operations/operations-bookings.service'
 import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
 import { provisionBookingOpsRole, BOOKING_OPS_LOGIN_ROLE } from '../src/database/booking-ops-role'
@@ -53,7 +54,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const opsPassword = `ops-${randomBytes(20).toString('hex')}`
   const opsUrl = (() => { const u = new URL(ownerUrl as string); u.username = BOOKING_OPS_LOGIN_ROLE; u.password = opsPassword; return u.toString() })()
   const opsDb = new BookingOpsDatabase({ DATABASE_URL: ownerUrl, BOOKING_OPS_DATABASE_URL: opsUrl })
-  const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx, new BookingSupplierRegistry({}), new BookingOpsQueueService(opsDb, prisma, new BookingSupplierRegistry({})))
+  const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx, new BookingSupplierRegistry({}), new BookingOpsQueueService(opsDb, prisma, new BookingSupplierRegistry({})), new BookingQueryService(opsDb, prisma))
   const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false, supplierDispatch: false, opsQueue: false }
   const listBookings = (tenantId: string, query: Record<string, unknown> = {}) => bookingsRead.list(tenantId, 'test-user', operator, query, 'req-test')
   const hotelOps = new OperationsHotelsService(prisma)
@@ -190,8 +191,9 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     expect(bHotels.items.map(h => h.id)).toEqual([B.hotelId]) // never tenant A's hotel
   })
 
-  it('ADMIN-IDS: a tenant id supplied in a query string is ignored; scope is the caller tenant only', async () => {
-    const result = await listBookings(B.tenantId, { tenantId: A.tenantId })
+  it('ADMIN-IDS: a tenant id supplied in a query string is refused (Phase 6A: unsupported fields are a 400, never ignored); scope is the caller tenant only', async () => {
+    await expect(listBookings(B.tenantId, { tenantId: A.tenantId })).rejects.toThrow(/Unsupported field "tenantId"/)
+    const result = await listBookings(B.tenantId, {})
     const mine = new Set((await prisma.booking.findMany({ where: { tenantId: B.tenantId }, select: { id: true } })).map(b => b.id))
     expect(result.items.length).toBeGreaterThan(0)
     expect(result.items.every(b => mine.has(b.id))).toBe(true)
@@ -417,7 +419,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
 
     it('ADMIN-DENIED: transaction views fail with OPERATIONS_READ_DENIED, never an empty list; the dashboard marks the section unavailable', async () => {
       // The booking list uses its own principal: with no BOOKING_OPS_DATABASE_URL it is the not-readable state, never a read with the API role.
-      const noOpsRole = new OperationsBookingsService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, runtimeTx, new BookingSupplierRegistry({}), new BookingOpsQueueService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, new BookingSupplierRegistry({})))
+      const noOpsRole = new OperationsBookingsService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, runtimeTx, new BookingSupplierRegistry({}), new BookingOpsQueueService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma, new BookingSupplierRegistry({})), new BookingQueryService(new BookingOpsDatabase({ DATABASE_URL: process.env.DATABASE_URL }), runtimePrisma))
       for (const call of [() => noOpsRole.list(A.tenantId, 'u', operator, {}, 'r'), () => runtimeTx.holds(A.tenantId, {}), () => runtimeTx.wallets(A.tenantId, {}), () => runtimeTx.ledger(A.tenantId, {}), () => runtimeTx.connectors(A.tenantId, {}), () => runtimeTx.cancellations(A.tenantId, {})]) {
         const error = await call().then(() => null, e => e)
         expect(error).toBeInstanceOf(ServiceUnavailableException)

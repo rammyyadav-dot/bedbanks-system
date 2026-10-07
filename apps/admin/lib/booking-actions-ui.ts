@@ -69,6 +69,13 @@ const COPY: Record<string, string> = {
   SUPPLIER_STATE_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first: sending again could create a duplicate booking.',
   ILLEGAL_SUPPLIER_OPERATION: 'That supplier operation is not available for this booking now.',
   SUPPLIER_JOBS_DISABLED: 'The supplier queue is switched off in this environment.',
+  SAVED_VIEW_NAME_TAKEN: 'You already have a view with that name. Choose another.',
+  SAVED_VIEW_LIMIT: 'You can keep at most 50 saved views. Delete one first.',
+  SAVED_VIEW_STALE: 'This view was changed somewhere else. Reload the list and try again.',
+  SAVED_VIEW_FORBIDDEN: 'You cannot save a view that uses a filter you are not allowed to use.',
+  SAVED_VIEW_NOT_FOUND: 'That view no longer exists.',
+  SAVED_VIEW_INVALID: 'The view could not be saved.',
+  BOOKING_QUERY_INVALID: 'One of the filters is not valid.',
   NETWORK_ERROR: 'The server could not be reached. Nothing was confirmed; you can retry safely, the same request will not be applied twice.',
   API_TIMEOUT: 'The server did not answer in time. The change may or may not have been applied: reload the booking before trying again. Retrying this dialog is safe.',
 }
@@ -76,7 +83,7 @@ const COPY: Record<string, string> = {
 export function describeActionError(error: unknown): { message: string; requestId: string | null; reload: boolean } {
   if (!(error instanceof ApiResponseError)) return { message: 'Something went wrong. Nothing was confirmed.', requestId: null, reload: false }
   const base = COPY[error.code] ?? (error.status >= 500 ? 'The server could not complete the request. Nothing was confirmed.' : error.message || 'The request was refused.')
-  const detail = error.code === 'MISSING_FIELDS' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' ? ` ${error.message}` : ''
+  const detail = error.code === 'MISSING_FIELDS' || error.code === 'SAVED_VIEW_INVALID' || error.code === 'BOOKING_QUERY_INVALID' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' ? ` ${error.message}` : ''
   return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' }
 }
 

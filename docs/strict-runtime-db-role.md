@@ -81,6 +81,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BookingLeadTimeRule`: supply authoring
 - `BookingOpsState`: booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)
 - `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
+- `BookingSavedView`: booking module only: a person's own saved booking views, written (and deleted) by the booking role; preferences, never policy (ADR 0039, Phase 6B)
 - `BookingSupplierCall`: booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)
 - `BookingSupplierJob`: booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)
 - `Cancellation`: booking is disabled

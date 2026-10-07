@@ -1,4 +1,4 @@
-# Admin Booking module — running it locally (Phases 1 to 5)
+# Admin Booking module — running it locally (Phases 1 to 6B)
 
 Source of truth: `docs/booking-module-spec.md`. Decisions: `docs/adr/0039-admin-booking-module.md`.
 
@@ -10,6 +10,7 @@ Source of truth: `docs/booking-module-spec.md`. Decisions: `docs/adr/0039-admin-
 - Phase 3 adds the supplier queue: send, cancel, retry now and sync, a runner with the spec's retries, a status check by our reference before a booking can be Failed, and a summary-only call log. There is **no production supplier adapter yet**; only the mock exists, for named tenants. See ADR 0039 (Phase 3 decisions).
 - Phase 4 adds the operations queue (`/bookings/queue`): which bookings need a person, why, how urgent, by when, and who owns them, from one ruleset in `@bedbanks/contracts`. **UNKNOWN is not FAILED, and a supplier timeout alone never authorises another booking request.** See ADR 0039 (Phase 4 decisions).
 - Phase 5 adds money and documents: an append-only outbox of money facts (confirmed, on-request hold and release, cancelled with penalty and refund, penalty decided or waived), cancellation terms frozen with the booking, the penalty fixed when cancellation is requested (waivable by a second person, never raised), and immutable vouchers, invoices, credit notes and cancellation notes. **The module does not post to the ledger or move a balance, and it sends no notification or webhook.** See ADR 0039 Phase 5 and the section below.
+- Phase 6 (so far, 6A and 6B): one canonical booking query (`BookingQueryV1`, one service) and personal saved views. See "Booking query and saved views" below.
 - Still no payment from this module.
 - `BOOKING_ENABLED` stays `false`; Agent booking routes stay `booking_unavailable`.
 
@@ -81,3 +82,9 @@ Breached SLA, check-in within 24 hours, or three or more failed supplier calls e
 | Voucher | Needs the hotel confirmation number; carries no net rate or supplier name | Issue, print |
 
 **Not built:** notifications and webhooks (needs an email provider, per-tenant channels and signed delivery: an owner decision), ledger posting, no-show and amendment money, tax, agency-user document access. After deploying, the owner re-runs `ops:provision-booking-ops-role` (new grants). Browser check: `tools/admin-ops-verify/verify-booking-finance.cjs`.
+
+## Booking query and saved views (Phase 6A/6B)
+
+**One query.** Every list, view, and later bulk or export uses the same grammar (`BookingQueryV1`). Unknown fields are rejected (400, with every problem listed), values are validated, equal queries normalize identically, results are ordered deterministically (ties broken by id) and scoped to your tenant and, for agency users, your agency. Filters that expose a fact need the permission that shows it (guest: `booking.pii.view`; money event: `booking.finance.view`; operations owner: `booking.ops.view`). New filters: destination, source, currency with an amount range (minor units), operations owner, money event, last updated.
+
+**Saved views.** Permissions (formal roles only, granted to no role by the migration): `booking.savedview.read`, `.create`, `.update.own`, `.delete.own`. A view is yours alone (no sharing, no administrator access), up to 50, with a unique name per person. Toolbar above the list: pick a view (it opens as the normal filtered list), **Save current view**, **Update view** (when you changed it), **Rename**, **Save as new view**, **Set as default / Remove default**, **Delete**, **Reset to system default**. A view whose filters the system no longer understands, or that uses something you may no longer use, is listed as "cannot be applied" and is never applied; you can rename or delete it. Your default view opens only when you arrive with no filters. After deploying, the owner re-runs `ops:provision-booking-ops-role` (one new table, and the role's only DELETE grant). Browser check: `tools/admin-ops-verify/verify-booking-views.cjs`.

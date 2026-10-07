@@ -18,4 +18,6 @@ export * from './hotel-inventory';
 export * from './rate-certification';
 export * from './booking-finance';
 export * from './booking-lifecycle';
+export * from './booking-query';
+export * from './booking-saved-views';
 export * from './booking-ops-queue';

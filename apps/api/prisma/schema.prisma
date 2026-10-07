@@ -568,6 +568,7 @@ model Tenant {
   bookingSupplierCalls BookingSupplierCall[]
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
+  bookingSavedViews BookingSavedView[]
   agencies Agency[]
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
@@ -686,6 +687,8 @@ model Membership {
 
   tenantId String @map("tenant_id")
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  savedViews BookingSavedView[]
 
   @@unique([userId, tenantId])
   @@index([tenantId])
@@ -911,6 +914,31 @@ model BookingGuest {
 
 /// Immutable lifecycle log. One row per status change, written by the transition function in the same transaction (Phase 2).
 /// A database trigger rejects UPDATE and DELETE. Rows written by the migration backfill say so in `payload`.
+/// A person's saved view of the booking list (ADR 0039, Phase 6B): a preference, never a security policy. Re-validated on every open.
+/// `defaultSlot` is 1 on the person's default view and NULL otherwise; the unique key over it allows at most one default per person per tenant.
+model BookingSavedView {
+  id                 String     @id @default(cuid())
+  tenantId           String     @map("tenant_id")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ownerUserId        String     @map("owner_user_id")
+  membership         Membership @relation(fields: [ownerUserId, tenantId], references: [userId, tenantId], onDelete: Cascade)
+  name               String     @db.VarChar(60)
+  nameKey            String     @map("name_key") @db.VarChar(60)
+  description        String?    @db.VarChar(200)
+  filterVersion      Int        @default(1) @map("filter_version")
+  filtersJson        Json       @map("filters_json")
+  sortJson           Json       @map("sort_json")
+  visibleColumnsJson Json?      @map("visible_columns_json")
+  defaultSlot        Int?       @map("default_slot") @db.SmallInt
+  version            Int        @default(1)
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  @@unique([tenantId, ownerUserId, nameKey])
+  @@unique([tenantId, ownerUserId, defaultSlot])
+  @@index([tenantId, ownerUserId])
+}
+
 /// Money facts of the Admin booking module (ADR 0039, Phase 5): an append-only outbox the Finance module reads. Nothing here posts to a ledger or touches a balance.
 model BookingFinanceEvent {
   id            String                   @id @default(cuid())

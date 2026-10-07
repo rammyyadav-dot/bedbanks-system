@@ -14,7 +14,7 @@ test('an empty URL opens on Needs action; any other filter or chip replaces it',
 
 test('the URL round-trips: unknown and malformed values are dropped, never forwarded to the API', () => {
   const parsed = q('chip=nonsense&status=ON_REQUEST,PENDING,FAILED&from=2030-13-45x&dateType=booked&pageSize=30&page=-2&agencyId=ag1,unassigned&sort=name&dir=up')
-  assert.deepEqual(parsed, { chip: undefined, reference: undefined, guest: undefined, agencyId: 'ag1,unassigned', supplier: undefined, hotel: undefined, status: 'ON_REQUEST,FAILED', supplierStatus: undefined, dateType: undefined, from: undefined, to: undefined, paymentMode: undefined, paymentStatus: undefined, missingSupplierRef: undefined, nonRefundable: undefined, amended: undefined, attention: undefined, sort: undefined, dir: undefined, page: undefined, pageSize: undefined })
+  assert.deepEqual(parsed, { chip: undefined, reference: undefined, guest: undefined, agencyId: 'ag1,unassigned', supplier: undefined, hotel: undefined, status: 'ON_REQUEST,FAILED', supplierStatus: undefined, dateType: undefined, from: undefined, to: undefined, destination: undefined, source: undefined, currency: undefined, amountMin: undefined, amountMax: undefined, opsOwner: undefined, moneyEvent: undefined, paymentMode: undefined, paymentStatus: undefined, missingSupplierRef: undefined, nonRefundable: undefined, amended: undefined, attention: undefined, sort: undefined, dir: undefined, page: undefined, pageSize: undefined })
   assert.equal(bookingQueryString(q('status=FAILED&chip=failed&page=3&pageSize=50&nonRefundable=true')), '?chip=failed&status=FAILED&nonRefundable=true&page=3&pageSize=50')
   assert.equal(bookingHref({}), '/bookings')
   assert.equal(bookingHref(q('pageSize=25')), '/bookings') // the default page size is not written
@@ -72,4 +72,9 @@ test('moving a column never displaces Booking # or Actions', () => {
 test('status words are plain', () => {
   assert.equal(statusLabel('PENDING_SUPPLIER'), 'PENDING SUPPLIER')
   assert.equal(statusLabel('CANCEL_REQUESTED'), 'CANCEL REQUESTED')
+})
+
+test('the new filters round-trip through the URL and are validated before they are forwarded', () => {
+  const parsed = q('destination=Dubai&source=MANUAL&currency=AED&amountMin=1000&amountMax=90000&opsOwner=unassigned&moneyEvent=CANCELLED&dateType=updated&from=2030-01-01')
+  assert.equal(bookingQueryString(parsed), '?dateType=updated&from=2030-01-01&destination=Dubai&source=MANUAL&currency=AED&amountMin=1000&amountMax=90000&opsOwner=unassigned&moneyEvent=CANCELLED')
 })
