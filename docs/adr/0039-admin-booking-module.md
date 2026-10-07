@@ -174,3 +174,23 @@ Unknown refundability is treated as non-refundable. Owner membership implies non
 **Database role.** Views live on the booking module's role, not the API role (they are preferences of the booking list, and this avoids a strict-runtime-role migration). That role gains SELECT, INSERT, DELETE and column-level UPDATE on `BookingSavedView` only: the table is **the single DELETE the role has anywhere** (no evidence is lost by deleting a preference, and the deletion is audited), the verifier checks both sides, and the owner re-runs `ops:provision-booking-ops-role`. Audit events (`booking.savedview.created|updated|deleted|default_set|default_cleared`) carry ids and the changed field names only, never names or filters. Migration `202611080001_booking_saved_views` (forward-only, rollback notes in the file).
 
 **Not in 6A/6B:** bulk actions, async export, print and the reconciliation job (6C onward). `CancellationDatabase` was not created: no runtime isolation requirement for it has been shown.
+
+## Phase 6C decisions: bulk actions (2026-10-07)
+
+**Scope.** Exactly two actions on explicit booking ids: `ASSIGN_OWNER` (assign, change or clear the operations owner) and `ACKNOWLEDGE`. At most 100 ids; more is refused (400 `BOOKING_BULK_TOO_MANY`), never truncated. No "select all matching", no filters in the request, no financial action, no status change, no background job, no export. Anything else is `BOOKING_BULK_UNSUPPORTED_ACTION`.
+
+**Bulk is orchestration only.** `BookingBulkService` calls the existing `BookingOpsService.assign` / `acknowledge` once per booking. It never updates a booking itself (no `updateMany`, no raw SQL, no direct write to `Booking`, `BookingOpsState` or `BookingEvent`), so each item keeps the single-booking row lock, version compare-and-set, idempotency, immutable event and audit. A source-scan unit test (BU-10) fails if the service gains a write path.
+
+**Three authorization layers.** (1) the bulk capability (`booking.bulk.assign` / `booking.bulk.acknowledge`, both S1; `booking.bulk.read` S0), (2) tenant and visibility from the server session only (a foreign or unknown id is the same `NOT_FOUND`, without its reference), and (3) the exact single-booking permission (`booking.ops.assign`) re-checked by the existing service for every booking. Holding the capability does not grant the underlying permission; a missing underlying permission fails each item as `FORBIDDEN`.
+
+**Persisted operation, derived inner key.** `BookingBulkOperation` (+ one `BookingBulkOperationItem` per id) is written before any item runs. The inner idempotency key of each booking is `bulk:<operationId>:<bookingId>`, derived from the persisted operation identity rather than request order, so a crash can resume: an item whose inner event already exists is recognised as applied and never applied twice. The request itself is idempotent by a database unique key `(tenant, requestedBy, action, idempotencyKey)` plus a request fingerprint (the same ids in another order are the same request; a different request with the same key is `409 IDEMPOTENCY_CONFLICT`). A stale `PROCESSING` operation (no progress for 120 s) is taken over by the next identical request.
+
+**Per-item judgement and status.** Each item is judged on the booking's state at that moment (a booking that left the queue after it was selected fails `INVALID_STATE`; a concurrent change is `STALE_STATE`). Failure reasons are stable codes (`NOT_FOUND`, `FORBIDDEN`, `ASSIGNEE_NOT_ALLOWED`, `INVALID_STATE`, `STALE_STATE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL_ERROR`); no exception text, guest data or booking snapshot is stored. Operation status: all succeeded `SUCCEEDED`, some `PARTIAL`, none `FAILED`; the UI never shows success for a partial result.
+
+**Audit.** `booking.bulk.requested` and `booking.bulk.completed` (counts and status only, no ids, filters, references or PII) plus each booking's normal `booking.ops.*` audit and event.
+
+**Privacy.** Operations are private to the person who requested them (`GET /admin/operations/booking-bulk-actions/:id` answers 404 for anyone else, even with `booking.bulk.read`).
+
+**Database.** Forced RLS on both tables; the booking role gets INSERT/SELECT and UPDATE only on progress columns (status, counts, timestamps, error code); no DELETE; the strict API role has no access. Rollback notes are in the migration header. Deployment: re-run `ops:provision-booking-ops-role` (new grants) and grant the new permissions to roles deliberately; the migration grants them to no role.
+
+**Not in 6C.** Background jobs, export, print, reconciliation, notifications, ledger posting, bulk financial or status mutation, and `CancellationDatabase` (it does not exist and is not created).

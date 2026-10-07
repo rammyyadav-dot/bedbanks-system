@@ -569,6 +569,8 @@ model Tenant {
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
   bookingSavedViews BookingSavedView[]
+  bookingBulkOperations BookingBulkOperation[]
+  bookingBulkOperationItems BookingBulkOperationItem[]
   agencies Agency[]
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
@@ -689,6 +691,7 @@ model Membership {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   savedViews BookingSavedView[]
+  bulkOperations BookingBulkOperation[]
 
   @@unique([userId, tenantId])
   @@index([tenantId])
@@ -914,6 +917,76 @@ model BookingGuest {
 
 /// Immutable lifecycle log. One row per status change, written by the transition function in the same transaction (Phase 2).
 /// A database trigger rejects UPDATE and DELETE. Rows written by the migration backfill say so in `payload`.
+enum BookingBulkActionType {
+  ASSIGN_OWNER
+  ACKNOWLEDGE
+}
+
+enum BookingBulkStatus {
+  PENDING
+  PROCESSING
+  PARTIAL
+  SUCCEEDED
+  FAILED
+}
+
+enum BookingBulkSelectionMode {
+  EXPLICIT_IDS
+}
+
+enum BookingBulkItemStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// One bulk request (ADR 0039, Phase 6C): orchestration record only. The effect of each item is made by the existing single-booking service. Idempotent by the
+/// unique key (tenant, requester, action, idempotency key). Stores ids, counts and stable codes, never guest data or exception text.
+model BookingBulkOperation {
+  id                 String                   @id @default(cuid())
+  tenantId           String                   @map("tenant_id")
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requestedByUserId  String                   @map("requested_by_user_id")
+  membership         Membership               @relation(fields: [requestedByUserId, tenantId], references: [userId, tenantId], onDelete: Cascade)
+  actionType         BookingBulkActionType    @map("action_type")
+  status             BookingBulkStatus        @default(PENDING)
+  selectionMode      BookingBulkSelectionMode @default(EXPLICIT_IDS) @map("selection_mode")
+  requestVersion     Int                      @default(1) @map("request_version")
+  actionPayload      Json                     @default("{}") @map("action_payload")
+  idempotencyKey     String                   @map("idempotency_key") @db.VarChar(128)
+  requestFingerprint String                   @map("request_fingerprint") @db.Char(64)
+  requestedCount     Int                      @map("requested_count")
+  processedCount     Int                      @default(0) @map("processed_count")
+  succeededCount     Int                      @default(0) @map("succeeded_count")
+  failedCount        Int                      @default(0) @map("failed_count")
+  startedAt          DateTime?                @map("started_at")
+  completedAt        DateTime?                @map("completed_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  items              BookingBulkOperationItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestedByUserId, actionType, idempotencyKey], map: "BookingBulkOperation_idempotency_key")
+  @@index([tenantId, requestedByUserId, createdAt], map: "BookingBulkOperation_requester_created_idx")
+}
+
+/// One selected booking in a bulk request. `bookingId` is deliberately not a foreign key: an id that does not exist must still be recorded as NOT_FOUND.
+model BookingBulkOperationItem {
+  id          String                @id @default(cuid())
+  tenantId    String                @map("tenant_id")
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operationId String                @map("operation_id")
+  operation   BookingBulkOperation  @relation(fields: [tenantId, operationId], references: [tenantId, id], onDelete: Cascade)
+  bookingId   String                @map("booking_id") @db.VarChar(80)
+  position    Int
+  status      BookingBulkItemStatus @default(PENDING)
+  errorCode   String?               @map("error_code") @db.VarChar(40)
+  processedAt DateTime?             @map("processed_at")
+
+  @@unique([operationId, bookingId])
+  @@index([tenantId, operationId])
+}
+
 /// A person's saved view of the booking list (ADR 0039, Phase 6B): a preference, never a security policy. Re-validated on every open.
 /// `defaultSlot` is 1 on the person's default view and NULL otherwise; the unique key over it allows at most one default per person per tenant.
 model BookingSavedView {

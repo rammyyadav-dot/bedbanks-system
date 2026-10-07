@@ -21,7 +21,7 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Phase 5 adds BookingDocument (issue-once, immutable by trigger) and BookingFinanceEvent (append-only): SELECT + INSERT, never UPDATE. Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
-export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView'] as const
+export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem'] as const
 /**
  * Phase 2 write grants, as narrow as the transition function needs (ADR 0039). No DELETE and no TRUNCATE anywhere. Status, lock, version and the supplier
  * references can be UPDATEd only as named columns (which is also why the immutable `BookingEvent` gets INSERT only). AuditEvent is INSERT-only and not readable.
@@ -32,12 +32,15 @@ export const BOOKING_OPS_UPDATE_COLUMNS = {
   BookingSupplierJob: ['status', 'attempt', 'run_after', 'locked_until', 'last_error_code', 'completed_at', 'updated_at'],
   /** Phase 6B: a person's own saved view. The keys (tenant, owner) and the row's creation are never updatable: a view cannot change hands. */
   BookingSavedView: ['name', 'name_key', 'description', 'filter_version', 'filters_json', 'sort_json', 'visible_columns_json', 'default_slot', 'version', 'updated_at'],
+  /** Phase 6C: progress only. The key columns (tenant, requester, action, idempotency key, fingerprint, counts requested) and the row's creation are never updatable. */
+  BookingBulkOperation: ['status', 'processed_count', 'succeeded_count', 'failed_count', 'started_at', 'completed_at', 'updated_at'],
+  BookingBulkOperationItem: ['status', 'error_code', 'processed_at'],
   /** Phase 4: the operational state columns, and never the keys (tenant, booking) or the row's creation. */
   BookingOpsState: ['assignee_user_id', 'assigned_at', 'assigned_by_user_id', 'acknowledged_at', 'acknowledged_by_user_id', 'manual_priority', 'escalated_at', 'escalated_by_user_id', 'escalation_reason', 'follow_up', 'follow_up_at', 'resolved_at', 'resolved_by_user_id', 'version', 'updated_at'],
 } as const
 /** Phase 3: the one function the runner may call, to learn which tenants have due jobs (returns tenant ids only). */
 export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)'] as const
-export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView'] as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem'] as const
 /**
  * The ONE table the role may DELETE from: a person's own saved booking views (Phase 6B). They are preferences, not records: no evidence is lost by removing one, and the
  * deletion is audited. Every other table is delete-proof for this role, and the verifier checks both sides of that.

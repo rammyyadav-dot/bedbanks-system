@@ -45,7 +45,8 @@ async function main() {
   // Phase 2: an operator who can act, an agency user who can only request, and a hotel/agency for manual entry (the seeded ones).
   const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create', 'booking.supplier.retry', 'booking.finance.view', 'booking.documents.issue', 'booking.savedview.read', 'booking.savedview.create', 'booking.savedview.update.own', 'booking.savedview.delete.own']
   const OPS_ALL = ['booking.ops.view', 'booking.ops.assign', 'booking.ops.escalate', 'booking.ops.resolve', 'booking.ops.note']
-  const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE, ...OPS_ALL])
+  const BULK = ['booking.bulk.assign', 'booking.bulk.acknowledge', 'booking.bulk.read'] // Phase 6C: only the lead may run bulk actions; the worker holds the single-booking permission alone
+  const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE, ...OPS_ALL, ...BULK])
   const viewer = await user('opsviewer', ['booking.read', 'booking.ops.view'])
   const worker = await user('worker', ['booking.read', 'booking.ops.view', 'booking.ops.assign'])
   const worker2 = await user('worker2', ['booking.read', 'booking.ops.view', 'booking.ops.assign'])
