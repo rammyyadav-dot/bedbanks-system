@@ -43,7 +43,7 @@ async function main() {
   const ops = await user('ops', ['booking.read']); const opsAll = await user('opsall', ['booking.read', 'booking.pii.view', 'booking.view.net'])
   const agency = await user('agency', ['booking.view.agency'], agencies[0])
   // Phase 2: an operator who can act, an agency user who can only request, and a hotel/agency for manual entry (the seeded ones).
-  const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create', 'booking.supplier.retry', 'booking.finance.view', 'booking.documents.issue']
+  const WRITE = ['booking.confirm.manual', 'booking.on-request.resolve', 'booking.amend', 'booking.cancel', 'booking.cancel.nonrefundable', 'booking.no-show.mark', 'booking.rebook', 'booking.supplier-ref.edit', 'booking.manual.create', 'booking.supplier.retry', 'booking.finance.view', 'booking.documents.issue', 'booking.savedview.read', 'booking.savedview.create', 'booking.savedview.update.own', 'booking.savedview.delete.own']
   const OPS_ALL = ['booking.ops.view', 'booking.ops.assign', 'booking.ops.escalate', 'booking.ops.resolve', 'booking.ops.note']
   const lead = await user('lead', ['booking.read', 'booking.pii.view', 'booking.view.net', 'agency.read', 'supply.hotels.read', ...WRITE, ...OPS_ALL])
   const viewer = await user('opsviewer', ['booking.read', 'booking.ops.view'])
@@ -52,6 +52,8 @@ async function main() {
   // Phase 5: someone who can only see the money, and a second person who may approve a waiver.
   const finViewer = await user('finviewer', ['booking.read', 'booking.finance.view'])
   const approver = await user('approver', ['booking.read', 'booking.finance.view', 'booking.penalty.waive.approve'])
+  // Phase 6B: a second person with the saved-view permissions (and no guest-data permission), to prove views are private and re-validated per person.
+  const views2 = await user('views2', ['booking.read', 'booking.savedview.read', 'booking.savedview.create', 'booking.savedview.update.own', 'booking.savedview.delete.own'])
   const requester = await user('requester', ['booking.view.agency', 'booking.cancel.request', 'booking.amend.request'], agencies[0])
 
   // 40 bookings: four per status, rotating agency / supplier / hotel / currency / guest; some Urgent-like (check-in soon, deadline soon),
@@ -111,7 +113,7 @@ async function main() {
     return b.reference
   }
   const financeFixtures = { penalty: await money('PENALTY', { rules: true, refundable: true }), noTerms: await money('NOTERMS', { rules: false, refundable: true }), waiver: await money('WAIVER', { rules: true, refundable: true }), nonRefundable: await money('NONREF', { rules: false, refundable: false }) }
-  const out = { financeFixtures, finViewerEmail: finViewer, approverEmail: approver, opsFixtures, workerEmail: worker, worker2Email: worker2, opsViewerEmail: viewer, password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
+  const out = { views2Email: views2, financeFixtures, finViewerEmail: finViewer, approverEmail: approver, opsFixtures, workerEmail: worker, worker2Email: worker2, opsViewerEmail: viewer, password, opsEmail: ops, opsAllEmail: opsAll, agencyEmail: agency, leadEmail: lead, requesterEmail: requester, tenant: T, tag, bookings: n }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-bookings.json', JSON.stringify(out, null, 2))
   console.log('seeded', n, 'bookings for', tag)
   await prisma.$disconnect()

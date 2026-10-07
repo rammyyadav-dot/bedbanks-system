@@ -162,3 +162,9 @@ OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-ops.cj
 ```bash
 OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-finance.cjs
 ```
+
+`verify-booking-views.cjs` (Phase 6A/6B) drives saved views and the new filters in Chromium: save, open (the URL is the normal booking query and the count matches), changed marker, update, rename, duplicate name (case-insensitive), save as new, default (applied only on a blank visit), reset, delete, audit without filters, a stale and a restricted view (never applied), privacy between two people (404, no hijack), no toolbar without the permission, destination, source and currency-with-amount filters in minor units, unsupported field and incomplete amount range rejected by the API, axe and 390 px. `seed-bookings.ts` adds the `views2` user. Same stack and `OWNER_DATABASE_URL` as the other booking harnesses; re-seed to repeat.
+
+```bash
+OWNER_DATABASE_URL=<owner url> node tools/admin-ops-verify/verify-booking-views.cjs
+```
