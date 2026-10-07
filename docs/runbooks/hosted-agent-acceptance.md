@@ -47,7 +47,7 @@ It creates one session and nothing else: no hold, booking, payment or inventory 
 Open the Agent host in a clean browser: unauthenticated visit reaches sign-in; sign in; search Dubai (one room, two adults); load more; open a hotel; select an offer and read "Offer rechecked" with its valid-until time; confirm there is no Book, Pay or Confirm action; sign out. At 390 px width confirm nothing scrolls sideways.
 
 ## 5. Recording the result
-Add to the PR or release record: deployment ID and URL, source SHA, the project settings observed (names only), the smoke output, and the browser pass notes. Only then set `HOSTED_AGENT_MVP=PASS`. If any step fails, record the failing check and stop; do not change aliases or environment variables as a troubleshooting shortcut.
+Add to the PR or release record: deployment ID and URL, source SHA, the project settings observed (names only), the smoke output, and the browser pass notes. Use the fill-in template `docs/evidence/agent-dubai-mvp/hosted-acceptance-record.md`. Only then set `HOSTED_AGENT_MVP=PASS`. If any step fails, record the failing check and stop; do not change aliases or environment variables as a troubleshooting shortcut.
 
 ## Rehearsal evidence
 The same script passed 13/13 against the local production build and the real API on the strict runtime login (`docs/evidence/agent-dubai-mvp/hosted-smoke-local.txt`). That is a rehearsal, not hosted evidence.
