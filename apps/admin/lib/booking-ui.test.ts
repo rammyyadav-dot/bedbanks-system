@@ -69,9 +69,22 @@ test('moving a column never displaces Booking # or Actions', () => {
   assert.equal(BOOKING_COLUMN_IDS.length, 11)
 })
 
-test('status words are plain', () => {
-  assert.equal(statusLabel('PENDING_SUPPLIER'), 'PENDING SUPPLIER')
-  assert.equal(statusLabel('CANCEL_REQUESTED'), 'CANCEL REQUESTED')
+test('all ten booking statuses use canonical, unambiguous human-readable labels', () => {
+  const expected = {
+    PENDING_SUPPLIER: 'Pending supplier',
+    ON_REQUEST: 'On request',
+    CONFIRMED: 'Confirmed',
+    AMEND_REQUESTED: 'Amendment requested',
+    CANCEL_REQUESTED: 'Cancellation requested',
+    CHECKED_OUT: 'Checked out',
+    NO_SHOW: 'No-show',
+    CANCELLED: 'Cancelled',
+    REJECTED: 'Rejected',
+    FAILED: 'Failed',
+  }
+  for (const [status, label] of Object.entries(expected)) assert.equal(statusLabel(status), label)
+  assert.notEqual(statusLabel('CANCEL_REQUESTED'), statusLabel('CANCELLED'))
+  assert.notEqual(statusLabel('PENDING_SUPPLIER'), statusLabel('FAILED'))
 })
 
 test('the new filters round-trip through the URL and are validated before they are forwarded', () => {
