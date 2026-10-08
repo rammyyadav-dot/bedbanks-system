@@ -72,7 +72,7 @@ export function BookingsWorkspace() {
           <button key={c} type="button" className="admin-btn" aria-pressed={chip === c} style={chip === c ? { background: '#0d2631', color: '#fff', borderColor: '#0d2631' } : undefined} onClick={() => go({ chip: c })}>{BOOKING_QUICK_SEARCH_LABEL[c]}</button>
         ))}
       </nav>
-      {chip === 'needsAction' && <p style={{ color: '#3f565c', fontSize: 11, margin: '0 0 8px' }}>Needs action here means: pending supplier, on request, amendment or cancellation requested, failed, or confirmed with no supplier reference. Urgent flags and SLA ordering arrive with the queue (a later phase).</p>}
+      {chip === 'needsAction' && <p style={{ color: '#3f565c', fontSize: 11, margin: '0 0 8px' }}>Needs action here means: pending supplier, on request, amendment or cancellation requested, failed, or confirmed with no supplier reference. For operational priority and SLA handling, open the Operations queue when enabled for your role.</p>}
       <BookingFilters query={query} access={last?.access ?? null} agencies={agencies.state.status === 'ready' ? agencies.state.data : null}
         onApply={(next) => router.replace(withView(bookingHref(withFilters({ chip: query.chip, sort: query.sort, dir: query.dir }, { ...next, chip: undefined })), viewId), { scroll: false })} onClear={clearFilters} />
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', margin: '10px 0' }}>
