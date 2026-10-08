@@ -88,9 +88,9 @@ const COPY: Record<string, string> = {
 /** Plain words for an API failure, plus the server's own message for validation errors, and the request id for support. */
 export function describeActionError(error: unknown): { message: string; requestId: string | null; reload: boolean } {
   if (!(error instanceof ApiResponseError)) return { message: 'The request outcome could not be verified. Reload the booking before trying again.', requestId: null, reload: true }
-  const base = COPY[error.code] ?? (error.status >= 500 ? 'The server could not complete the request. Nothing was confirmed.' : error.message || 'The request was refused.')
+  const base = COPY[error.code] ?? (error.status >= 500 ? 'The server could not complete the request reliably. Reload the booking to verify its current state before retrying.' : error.message || 'The request was refused.')
   const detail = error.code === 'MISSING_FIELDS' || error.code === 'SAVED_VIEW_INVALID' || error.code === 'BOOKING_QUERY_INVALID' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' ? ` ${error.message}` : ''
-  return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' || error.code === 'NETWORK_ERROR' }
+  return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' || error.code === 'NETWORK_ERROR' || error.status >= 500 }
 }
 
 // ---- manual entry ------------------------------------------------------------------------------------------------------
