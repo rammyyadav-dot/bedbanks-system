@@ -8,7 +8,7 @@ import {
  * which validates and applies them. These functions only read and write the URL, label values and remember which columns a person shows.
  */
 
-export const statusLabel = (status: string): string => status.replace(/_/g, ' ')
+export const statusLabel = (status: string): string => ({ PENDING_SUPPLIER: 'Pending supplier', ON_REQUEST: 'On request', CONFIRMED: 'Confirmed', AMEND_REQUESTED: 'Amendment requested', CANCEL_REQUESTED: 'Cancellation requested', CHECKED_OUT: 'Checked out', NO_SHOW: 'No-show', CANCELLED: 'Cancelled', REJECTED: 'Rejected', FAILED: 'Failed' } as Record<string, string>)[status] ?? status.replace(/_/g, ' ')
 
 const csv = (value: string | null): string[] => (value ?? '').split(',').map((v) => v.trim()).filter(Boolean)
 const oneOf = <T extends string>(value: string | null, allowed: readonly T[]): T | undefined => (value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : undefined)
