@@ -19,14 +19,14 @@ function useCancellationPreview(d: BookingDetailView, action: BookingAvailableAc
   useEffect(() => { if (!allowed) return; let live = true; getBookingFinance(d.booking.id).then((v) => { if (live) setView(v) }, () => { if (live) setView('failed') }); return () => { live = false } }, [allowed, d.booking.id])
   if (!allowed) return null
   if (view === null) return <p role="status" style={{ margin: 0, fontSize: 12, color: '#3f565c' }}>Working out the penalty…</p>
-  if (view === 'failed' || !view.cancellationPreview) return <p role="status" data-testid="cancel-preview" style={{ margin: 0, fontSize: 12, color: '#8a5a00' }}>The penalty could not be worked out here. It will be recorded when you ask for the cancellation.</p>
+  if (view === 'failed' || !view.cancellationPreview) return <p role="status" data-testid="cancel-preview" style={{ margin: 0, fontSize: 12, color: '#8a5a00' }}>The penalty could not be verified here. It may require an operator decision after the request; no zero penalty or paid refund is implied.</p>
   const q = view.cancellationPreview
   return (
     <div role="status" data-testid="cancel-preview" style={{ border: '1px solid #e6d3a0', background: '#fffaf0', padding: 10, borderRadius: 6, fontSize: 12 }}>
       {q.status === 'quotable'
-        ? <strong>Cancelling now costs a penalty of <Money minor={q.penaltyMinor} currency={view.currency} />; <Money minor={q.refundMinor} currency={view.currency} /> would be refunded.</strong>
+        ? <strong>Based on the current stored terms, the estimated penalty is <Money minor={q.penaltyMinor} currency={view.currency} /> and the potential refund is <Money minor={q.refundMinor} currency={view.currency} />. No refund has been paid.</strong>
         : <strong>The penalty cannot be worked out automatically; a person will decide it.</strong>}
-      <div style={{ color: '#3f565c', fontSize: 11, marginTop: 2 }}>{quoteSummary(q)} The penalty is fixed when you submit this request.</div>
+      <div style={{ color: '#3f565c', fontSize: 11, marginTop: 2 }}>{quoteSummary(q)} The authoritative penalty is recorded at request time where terms permit; a quote is not settlement.</div>
     </div>
   )
 }
@@ -58,6 +58,7 @@ function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; ac
       <form onSubmit={submit} noValidate style={{ display: 'grid', gap: 10 }} data-testid="booking-action-form">
         <p style={{ margin: 0, color: '#3f565c', fontSize: 12 }}>{d.booking.reference}: {statusLabel(d.booking.status)} → <strong>{statusLabel(action.to)}</strong>. {action.effect}</p>
         {preview}
+        {(action.action === 'requestCancellation' || action.action === 'confirmCancellation') && <p role="note" style={{ margin: 0, fontSize: 12, color: '#8a5a00' }}>This operation records a booking lifecycle decision only. Supplier confirmation, financial posting and refund payment must be verified separately; no refund is paid by this dialog.</p>}
         {fields.map((f) => (
           <label key={f} style={field}>
             <span>{FIELD_LABEL[f]}{isOptional(action, f) ? ' (optional)' : ' (required)'}</span>
