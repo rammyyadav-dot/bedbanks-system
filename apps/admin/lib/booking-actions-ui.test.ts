@@ -24,6 +24,17 @@ test('a non-refundable cancellation demands the second confirmation and sends it
   assert.deepEqual('request' in ok && ok.request, { action: 'requestCancellation', expectedStatus: 'CONFIRMED', reason: 'Guest cancelled', confirmNonRefundable: true })
 })
 
+test('recording supplier cancellation needs a reference and non-refundable confirmation', () => {
+  const from = availableActions({ status: 'CANCEL_REQUESTED', closedAt: null, isRefundable: null, checkIn: '2030-07-01' }, 'OPERATOR', new Set(['booking.cancel.nonrefundable']), new Date('2030-06-01T00:00:00Z'))
+  const action = from.find((item) => item.action === 'confirmCancellation')
+  assert.ok(action)
+  assert.equal(action.needsSecondConfirmation, true)
+  const missing = buildActionRequest(action, 'CANCEL_REQUESTED', emptyActionForm())
+  assert.deepEqual('missing' in missing ? missing.missing : null, ['supplierCancellationRef', 'confirmNonRefundable'])
+  const ready = buildActionRequest(action, 'CANCEL_REQUESTED', { ...emptyActionForm(), supplierCancellationRef: ' SUP-CANCEL-77 ', confirmNonRefundable: true })
+  assert.deepEqual('request' in ready && ready.request, { action: 'confirmCancellation', expectedStatus: 'CANCEL_REQUESTED', supplierCancellationRef: 'SUP-CANCEL-77', confirmNonRefundable: true })
+})
+
 test('optional fields are offered, required ones are marked, and the form never invents a field', () => {
   assert.deepEqual(visibleFields(act('approveAmendment')), ['reason'])
   assert.deepEqual(visibleFields(act('confirmOnRequest')), ['supplierRef', 'hotelConfirmationNo'])
