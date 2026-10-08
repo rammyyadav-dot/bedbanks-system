@@ -32,9 +32,13 @@ test('optional fields are offered, required ones are marked, and the form never 
 test('errors are explained in plain words, a stale view asks for a reload, and a timeout says the outcome is unknown', () => {
   const stale = describeActionError(new ApiResponseError('STALE_STATUS', 'x', 409, 'req-1'))
   assert.match(stale.message, /changed while you were working/); assert.equal(stale.reload, true); assert.equal(stale.requestId, 'req-1')
-  assert.match(describeActionError(new ApiResponseError('API_TIMEOUT', 'x', 504)).message, /may or may not have been applied/)
-  assert.match(describeActionError(new ApiResponseError('INTERNAL_SERVER_ERROR', 'stack trace here', 500)).message, /Nothing was confirmed/)
+  assert.match(describeActionError(new ApiResponseError('API_TIMEOUT', 'x', 504)).message, /may already have been applied/)
+  assert.match(describeActionError(new ApiResponseError('INTERNAL_SERVER_ERROR', 'stack trace here', 500)).message, /Reload the booking/)
   assert.doesNotMatch(describeActionError(new ApiResponseError('INTERNAL_SERVER_ERROR', 'stack trace here', 500)).message, /stack trace/)
+  assert.equal(describeActionError(new ApiResponseError('INTERNAL_SERVER_ERROR', 'x', 500)).reload, true)
+  assert.equal(describeActionError(new ApiResponseError('NETWORK_ERROR', 'x', 0)).reload, true)
+  assert.match(describeActionError(new Error('connection lost')).message, /outcome could not be verified/)
+  assert.equal(describeActionError(new Error('connection lost')).reload, true)
 })
 
 test('manual entry: money is converted to integer minor units with no floating point, and bad input is reported per field', () => {
