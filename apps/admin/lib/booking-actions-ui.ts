@@ -82,15 +82,15 @@ const COPY: Record<string, string> = {
   SAVED_VIEW_NOT_FOUND: 'That view no longer exists.',
   SAVED_VIEW_INVALID: 'The view could not be saved.',
   BOOKING_QUERY_INVALID: 'One of the filters is not valid.',
-  NETWORK_ERROR: 'The server could not be reached. Nothing was confirmed; you can retry safely, the same request will not be applied twice.',
-  API_TIMEOUT: 'The server did not answer in time. The change may or may not have been applied: reload the booking before trying again. Retrying this dialog is safe.',
+  NETWORK_ERROR: 'The connection was lost. The outcome is not known; reload the booking to verify the current state before deciding whether to retry with the same request key.',
+  API_TIMEOUT: 'The server did not answer in time. The change may already have been applied. Reload the booking before retrying; this dialog keeps the same idempotency key.',
 }
 /** Plain words for an API failure, plus the server's own message for validation errors, and the request id for support. */
 export function describeActionError(error: unknown): { message: string; requestId: string | null; reload: boolean } {
-  if (!(error instanceof ApiResponseError)) return { message: 'Something went wrong. Nothing was confirmed.', requestId: null, reload: false }
+  if (!(error instanceof ApiResponseError)) return { message: 'The request outcome could not be verified. Reload the booking before trying again.', requestId: null, reload: true }
   const base = COPY[error.code] ?? (error.status >= 500 ? 'The server could not complete the request. Nothing was confirmed.' : error.message || 'The request was refused.')
   const detail = error.code === 'MISSING_FIELDS' || error.code === 'SAVED_VIEW_INVALID' || error.code === 'BOOKING_QUERY_INVALID' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' ? ` ${error.message}` : ''
-  return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' }
+  return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' || error.code === 'NETWORK_ERROR' }
 }
 
 // ---- manual entry ------------------------------------------------------------------------------------------------------
