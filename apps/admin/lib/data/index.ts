@@ -57,7 +57,7 @@ export async function getHotelMappings() { return apiRequest<HotelMappingRecord[
 export async function getBoardBases() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases'); }
 export interface RoomTypeRecord { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean }
 export interface AdminDailyRate {
-  id: string; tenantId: string; ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL' | null; currency: string;
+  id: string; tenantId: string; ratePlanId: string; stayDate: string; updatedAt: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL' | null; currency: string;
   ratePlan: { id: string; code: string; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
 }
 export async function getDailyRates(from: string, to = from, ratePlanId?: string) { return apiRequest<AdminDailyRate[]>(`/supply/daily-rates?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${ratePlanId ? `&ratePlanId=${encodeURIComponent(ratePlanId)}` : ''}`); }
@@ -67,7 +67,7 @@ export async function checkSellability(input: SellabilityRequest) { return apiRe
 export async function getCapabilities() { return apiRequest<SupplyCapabilities>(supplyRoutes.capabilities); }
 
 export interface AdminAvailabilityRow {
-  id: string; tenantId: string; ratePlanId: string; stayDate: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number;
+  id: string; tenantId: string; ratePlanId: string; stayDate: string; updatedAt: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number;
   ratePlan: { id: string; code: string; releaseDays: number; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
 }
 export async function getInventory(from: string, to = from, ratePlanId?: string) { return apiRequest<AdminAvailabilityRow[]>(`/supply/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${ratePlanId ? `&ratePlanId=${encodeURIComponent(ratePlanId)}` : ''}`); }
@@ -88,3 +88,14 @@ export interface RatePlanInput { contractId: string; roomTypeId: string; boardBa
 export async function createRatePlan(input: RatePlanInput) { return apiRequest<AdminRatePlan>('/supply/rate-plans', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
+
+import type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
+export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
+export const previewCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
+export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarApply, { method: 'POST', headers: json, body: JSON.stringify(input) })
+
+export async function getRatePlanPortfolio(input: { search?: string; status?: string; page: number; pageSize: number }) {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== '') query.set(key, String(value))
+  return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
+}
