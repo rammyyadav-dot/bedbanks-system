@@ -159,7 +159,7 @@ function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchRe
   const unavailable = ['provider_unavailable', 'auth_required', 'access_denied', 'destination_unavailable'].includes(status)
   const mapping = status === 'mapping_unavailable'
   const title = unavailable ? 'Search is temporarily unavailable.' : mapping ? 'This offer is not available for booking yet' : status === 'empty' ? 'No hotels matched this search.' : 'We couldn’t complete this hotel search'
-  const copy = unavailable ? 'Please try again in a moment.' : mapping ? 'The supplier offer could not be verified against the fBeds hotel and room catalogue.' : status === 'empty' ? 'Change the dates, broaden the destination, or clear filters. This is not a supplier outage.' : 'Your search details are preserved. Try again or adjust the search criteria.'
+  const copy = unavailable ? 'Please try again in a moment.' : mapping ? 'The supplier offer could not be verified against the fabBeds hotel and room catalogue.' : status === 'empty' ? 'Change the dates, broaden the destination, or clear filters. This is not a supplier outage.' : 'Your search details are preserved. Try again or adjust the search criteria.'
   return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div>{unavailable ? <button className="portal-primary" onClick={onRetry}>Try again</button> : <button className="portal-primary" onClick={onEdit}>Modify search</button>}{!unavailable && <button className="portal-link" onClick={onRetry}>Try again</button>}</div></div>
 }
 function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : 'Agency credit' }

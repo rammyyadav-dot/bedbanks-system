@@ -1,5 +1,7 @@
 'use client'
 
+import { BrandLogo } from '@/components/brand-logo'
+
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { Eye, EyeOff, Headset, Info, MessageSquare, Rss } from 'lucide-react'
@@ -55,7 +57,7 @@ export function AgentEntrance({
     <div className="trade-entrance">
       <section className="trade-hero">
         <div className="trade-panel">
-          <img className="trade-hero-logo" src="/fabbeds-logo.png" alt="FabBeds" width={1143} height={295} />
+          <BrandLogo className="trade-hero-logo" />
           <h1>{heroCopy.headline}</h1>
           <p className="trade-lead">{heroCopy.supporting}</p>
           {sessionExpired && <p className="trade-banner" role="status">Your secure session has expired. Sign in again to continue.</p>}
