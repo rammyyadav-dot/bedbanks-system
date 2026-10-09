@@ -6,7 +6,7 @@ export const heroCopy = {
   primaryCta: 'Agent Sign In',
   secondaryCta: 'Request Agent Access',
   joinLabel: 'Join us',
-  partnerInvitation: 'Travel agencies can request access. The FabBeds team reviews each request. Sending a message does not create an account or a workspace role.',
+  partnerInvitation: 'Travel agencies can request access. The fabBeds team reviews each request. Sending a message does not create an account or a workspace role.',
 } as const
 
 export const privacyLink = {
@@ -26,9 +26,9 @@ export type EditorialPage = {
 export const editorialPages = {
   about: {
     path: '/about',
-    kicker: 'About fBeds',
+    kicker: 'About fabBeds',
     title: 'A trade workspace for hotel distribution.',
-    summary: 'fBeds is an enterprise bedbank program focused on reducing fragmentation across hospitality supply, B2B demand, and booking technology.',
+    summary: 'fabBeds is an enterprise bedbank program focused on reducing fragmentation across hospitality supply, B2B demand, and booking technology.',
     sections: [
       {
         title: 'What this workspace does',
@@ -50,7 +50,7 @@ export const editorialPages = {
     path: '/support',
     kicker: 'Agent Support',
     title: 'Help with search and workspace access.',
-    summary: 'Use the verified fBeds contact email. Support messages do not include session tokens or account credentials.',
+    summary: 'Use the verified fabBeds contact email. Support messages do not include session tokens or account credentials.',
     sections: [
       {
         title: 'Before you write',
@@ -68,13 +68,13 @@ export const editorialPages = {
   contact: {
     path: '/contact',
     kicker: 'Contact Our Team',
-    title: 'Talk with the fBeds team.',
+    title: 'Talk with the fabBeds team.',
     summary: 'Tell us whether you source hotels, sell B2B travel, or operate an agency workspace.',
     sections: [
       {
         title: 'Verified channel',
         paragraphs: [
-          `The contact address published for fBeds is ${contactEmail}.`,
+          `The contact address published for fabBeds is ${contactEmail}.`,
           'No office address or telephone number is published in this portal.',
         ],
       },
@@ -104,14 +104,14 @@ export const editorialPages = {
   access: {
     path: '/access',
     kicker: 'Request Agent Access',
-    title: 'Ask the fBeds team to review agency access.',
+    title: 'Ask the fabBeds team to review agency access.',
     summary: 'Online lead submission is not configured. This page does not create an account or grant a role.',
     sections: [
       {
         title: 'What to include',
         paragraphs: [
           'Email your agency name, a work contact name, a work email address, and the market you sell.',
-          'Access is granted only after the fBeds team reviews the request outside this form.',
+          'Access is granted only after the fabBeds team reviews the request outside this form.',
         ],
       },
     ],

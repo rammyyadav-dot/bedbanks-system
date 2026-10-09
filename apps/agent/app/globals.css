@@ -564,3 +564,20 @@ label, .field span { color: #5a5a55; }
 .market-field > .market-calendar { width: min(680px, calc(100vw - 32px)); }
 .market-field > .market-occupancy { width: min(320px, calc(100vw - 32px)); }
 .market-field > .market-nationality { width: min(300px, calc(100vw - 32px)); }
+
+/* Supplied fabBeds wordmark with a consistent stacked brand signature. */
+.fabbeds-brand { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; width: 216px; max-width: 100%; }
+.fabbeds-brand img { display: block; width: 148px; max-width: 100%; height: auto; }
+.fabbeds-brand small { display: block; color: #4b5563; font: 600 8px/1.4 Arial, sans-serif; letter-spacing: .55px; text-align: center; white-space: nowrap; }
+.portal-brand { padding: 0; flex-shrink: 0; min-width: 0; }
+.portal-brand .fabbeds-brand { display: inline-flex; width: 210px; height: auto; margin: 0; background: transparent; border-radius: 0; }
+.portal-brand .fabbeds-brand small { display: block; }
+.trade-hero-logo.fabbeds-brand { width: min(420px, 92%); }
+.trade-hero-logo.fabbeds-brand img { width: 320px; }
+.trade-hero-logo.fabbeds-brand small { font-size: 11px; letter-spacing: 1px; }
+@media (max-width: 640px) {
+  .portal-brand .fabbeds-brand { width: 170px; gap: 4px; }
+  .portal-brand .fabbeds-brand img { width: 116px; }
+  .portal-brand .fabbeds-brand small { font-size: 6.5px; letter-spacing: .35px; }
+  .trade-hero-logo.fabbeds-brand small { font-size: 8px; letter-spacing: .55px; }
+}

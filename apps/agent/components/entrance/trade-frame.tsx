@@ -1,17 +1,10 @@
 import type { ReactNode } from 'react'
+import { BrandLogo } from '@/components/brand-logo'
 import Link from 'next/link'
 import { contactEmail, entranceCards, privacyLink } from '@/lib/marketplace-content'
 
 export function TradeMark({ compact = false }: { compact?: boolean }) {
-  return (
-    <span className={`trade-mark ${compact ? 'is-compact' : ''}`}>
-      <span className="trade-mark-badge" aria-hidden="true">f</span>
-      <span>
-        <strong>fBeds</strong>
-        {compact ? null : <small>Agent workspace</small>}
-      </span>
-    </span>
-  )
+  return <BrandLogo className={compact ? 'is-compact' : ''} />
 }
 
 export function TradeFooter({ quiet = false }: { quiet?: boolean }) {
@@ -42,7 +35,7 @@ export function PublicPage({ kicker, title, summary, sections, children }: {
   return (
     <div className="trade-public">
       <header className="trade-public-bar">
-        <Link href="/" aria-label="fBeds agent entrance"><TradeMark /></Link>
+        <Link href="/" aria-label="fabBeds agent entrance"><TradeMark /></Link>
         <Link className="trade-button" href="/">Agent Sign In</Link>
       </header>
       <main className="trade-public-main">

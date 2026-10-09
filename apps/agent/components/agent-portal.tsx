@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { BrandLogo } from '@/components/brand-logo'
 import { useEffect, useRef, useState } from 'react'
 import { searchAttemptNotice } from '@/lib/search-notice'
 import { SearchView } from '@/components/search/agent-search-view'
@@ -381,7 +382,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
   return <div className="portal-shell market-shell">
     <header className="portal-header market-header">
       <button className="portal-mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label={mobileNav ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNav}><Menu size={20} /></button>
-      <button className="portal-brand" onClick={() => nav('home')}><span>f</span><strong>fBeds</strong></button>
+      <button className="portal-brand" aria-label="fabBeds home" onClick={() => nav('home')}><BrandLogo /></button>
       <nav className={`market-nav ${mobileNav ? 'is-open' : ''}`} aria-label="Marketplace">
         <NavItem icon={<House size={16} />} label="Home" active={view === 'home'} onClick={() => nav('home')} />
         <NavItem icon={<Search size={16} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} />
