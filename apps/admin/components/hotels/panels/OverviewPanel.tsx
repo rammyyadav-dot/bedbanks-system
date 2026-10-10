@@ -8,6 +8,11 @@ import { when } from '@/components/ops/ops-ui'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotelSetup } from '@/lib/data/hotel-setup'
 import { getHotelAudit } from '@/lib/data/hotel-commercial'
+import { getHotelImages } from '@/lib/data/hotel-images'
+import { getHotelAmenities } from '@/lib/data/hotel-rooms'
+import { AuthImage } from '../AuthImage'
+import { HotelProfile, ProfileCard } from '../HotelProfile'
+import styles from '../HotelProfile.module.css'
 import { hotelHref } from '@/lib/hotel-ui'
 import { Completeness } from '../Completeness'
 import { IssuePanel, ReadinessGates } from '../ui'
@@ -19,10 +24,14 @@ import { IssuePanel, ReadinessGates } from '../ui'
 export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: () => void }) {
   const can = useCan()
   const setup = useOpsQuery(() => getHotelSetup(data.hotel.id), [data.hotel.id, data.hotel.updatedAt])
+  const images = useOpsQuery(() => getHotelImages(data.hotel.id), [data.hotel.id, data.hotel.updatedAt])
+  const amenities = useOpsQuery(() => getHotelAmenities(data.hotel.id), [data.hotel.id, data.hotel.updatedAt])
+  const canManage = can('supply.hotels.manage')
   const showAudit = can('audit.read')
   const recent = useOpsQuery(() => (showAudit ? getHotelAudit(data.hotel.id, { page: 1, pageSize: 5 }) : Promise.resolve(null)), [data.hotel.id, showAudit, data.hotel.updatedAt])
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div className={styles.grid}>
       <div className="workspace-panel" style={{ padding: 18 }}>
         <OpsState state={setup.state} onRetry={setup.reload}>
           {(s) => (
@@ -58,6 +67,28 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
         )}
         {showAudit && <p style={{ fontSize: 11, margin: '8px 0 0' }}><Link href={hotelHref(data.hotel.id, 'audit')}>Full audit trail</Link></p>}
       </div>
+      </div>
+      {setup.state.status === 'ready' && <HotelProfile setup={setup.state.data} canManage={canManage} />}
+      <div className={styles.grid}>
+        <ProfileCard title="Hotel photos" hotelId={data.hotel.id} tab="images" action={canManage ? 'Manage' : 'View'}>
+          <OpsState state={images.state} onRetry={images.reload}>
+            {(d) => {
+              const primary = d.items.find(i => i.isPrimary) ?? d.items[0]
+              return primary ? <>
+                <AuthImage key={primary.id} contentPath={primary.contentPath} alt={primary.altText} width={primary.width} height={primary.height} className={styles.image} fallback={<div className={styles.imageFallback} role="status">Image preview unavailable</div>} />
+                <p className={styles.note}>{d.items.length} saved image{d.items.length === 1 ? '' : 's'} · {primary.isPrimary ? 'Primary image' : 'First image'} preview</p>
+              </> : <p className={styles.note}>No hotel images recorded.</p>
+            }}
+          </OpsState>
+        </ProfileCard>
+        <ProfileCard title="Hotel amenities" hotelId={data.hotel.id} tab="amenities" action={canManage ? 'Edit' : 'View'}>
+          <OpsState state={amenities.state} onRetry={amenities.reload}>
+            {(d) => d.hotel.length ? <ul className={styles.list}>{d.hotel.map(a => <li key={a.code}>{d.catalogue.find(c => c.code === a.code)?.label ?? a.code} · {a.feeType === 'FREE' ? 'Free' : a.feeType === 'PAID' ? 'Paid' : 'Fee not known'}</li>)}</ul> : <p className={styles.note}>No hotel amenities recorded.</p>}
+          </OpsState>
+          <p className={styles.note}>Unrecorded amenities do not mean the hotel lacks them. Room amenities are listed with each room.</p>
+        </ProfileCard>
+      </div>
+
     </div>
   )
 }
