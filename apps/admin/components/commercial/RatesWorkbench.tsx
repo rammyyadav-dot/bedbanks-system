@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ErrorState } from '@/components/common/ErrorState'
@@ -10,14 +10,21 @@ import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
 import { dateRange } from '@/lib/dubai-operations'
 import { formatMinorUnits, minorToMajorInput, parseMajorToMinor } from '@/lib/minor-units'
-import { bulkUpdateAvailability, bulkUpdateDailyRates, getDailyRates, getInventory, getRatePlans, type AdminAvailabilityRow, type AdminDailyRate, type AdminRatePlan } from '@/lib/data'
+import { applyCalendar, previewCalendar, type CalendarEdit, type CalendarPreview, getDailyRates, getInventory, getRatePlans, type AdminAvailabilityRow, type AdminDailyRate, type AdminRatePlan } from '@/lib/data'
 
 interface DayDraft { amount: string; basis: 'SELL' | 'NET'; allotment: string; stopSell: boolean; minStay: string }
 const today = () => new Date().toISOString().slice(0, 10)
 const emptyDraft = (minStay: number): DayDraft => ({ amount: '', basis: 'SELL', allotment: '', stopSell: false, minStay: String(minStay) })
 
+function describeCell(kind: string, value: Record<string, unknown> | null): string {
+  if (!value) return 'New cell'
+  if (kind === 'rate') return `${formatMinorUnits(String(value.amountMinor), String(value.currency))} · ${value.amountBasis === 'NET' ? 'Net rate' : value.amountBasis === 'SELL' ? 'Sell rate' : 'Unverified basis'}`
+  return `${String(value.allotment)} rooms · ${value.stopSell ? 'Stop sell' : 'Open'} · Minimum ${String(value.minStay)} nights`
+}
+
 /** Rates and inventory for one rate plan over a 7- or 30-day window, edited together and saved through the authoritative bulk endpoints. */
 export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?: string }) {
+  const loadSequence = useRef(0)
   const can = useCan()
   const canRates = can('supply.rates.manage')
   const canInventory = can('supply.availability.manage')
@@ -34,6 +41,7 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
   const [drafts, setDrafts] = useState<Record<string, DayDraft>>({})
   const [bulk, setBulk] = useState({ amount: '', allotment: '' })
   const [saving, setSaving] = useState(false)
+  const [review, setReview] = useState<{ input: CalendarEdit; result: CalendarPreview } | null>(null)
   const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
 
   const plan = plans.find((candidate) => candidate.id === ratePlanId)
@@ -47,9 +55,11 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
 
   const loadGrid = useCallback(async () => {
     if (!plan || dates.length === 0) return
-    setLoadingGrid(true); setGridError(null); setMessage(null)
+    const sequence = ++loadSequence.current
+    setLoadingGrid(true); setGridError(null); setMessage(null); setReview(null)
     try {
       const [rateRows, inventoryRows] = await Promise.all([getDailyRates(dates[0], dates[dates.length - 1], plan.id), getInventory(dates[0], dates[dates.length - 1], plan.id)])
+      if (sequence !== loadSequence.current) return
       setRates(rateRows); setInventory(inventoryRows)
       const next: Record<string, DayDraft> = {}
       for (const stayDate of dates) {
@@ -58,41 +68,55 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
         next[stayDate] = { amount: rate ? minorToMajorInput(rate.amountMinor, rate.currency) : '', basis: rate?.amountBasis === 'NET' ? 'NET' : 'SELL', allotment: row ? String(row.allotment) : '', stopSell: row?.stopSell ?? false, minStay: String(row?.minStay ?? plan.minStay) }
       }
       setDrafts(next)
-    } catch (error) { setRates([]); setInventory([]); setDrafts({}); setGridError(describeApiError(error, 'load rates and inventory')) } finally { setLoadingGrid(false) }
+    } catch (error) { if (sequence !== loadSequence.current) return; setRates([]); setInventory([]); setDrafts({}); setGridError(describeApiError(error, 'load rates and inventory')) } finally { if (sequence === loadSequence.current) setLoadingGrid(false) }
   }, [plan, dates])
-  useEffect(() => { void loadGrid() }, [loadGrid])
+  useEffect(() => { void loadGrid(); return () => { ++loadSequence.current } }, [loadGrid])
 
-  const patch = (stayDate: string, change: Partial<DayDraft>) => setDrafts((current) => ({ ...current, [stayDate]: { ...(current[stayDate] ?? emptyDraft(plan?.minStay ?? 1)), ...change } }))
-  const applyToAll = () => setDrafts((current) => Object.fromEntries(dates.map((stayDate) => [stayDate, { ...(current[stayDate] ?? emptyDraft(plan?.minStay ?? 1)), ...(bulk.amount.trim() ? { amount: bulk.amount.trim() } : {}), ...(bulk.allotment.trim() ? { allotment: bulk.allotment.trim() } : {}) }])))
+  const patch = (stayDate: string, change: Partial<DayDraft>) => { setReview(null); setDrafts((current) => ({ ...current, [stayDate]: { ...(current[stayDate] ?? emptyDraft(plan?.minStay ?? 1)), ...change } })) }
+  const applyToAll = () => { setReview(null); setDrafts((current) => Object.fromEntries(dates.map((stayDate) => [stayDate, { ...(current[stayDate] ?? emptyDraft(plan?.minStay ?? 1)), ...(bulk.amount.trim() ? { amount: bulk.amount.trim() } : {}), ...(!plan?.inventoryPoolId && bulk.allotment.trim() ? { allotment: bulk.allotment.trim() } : {}) }]))) }
 
   async function save() {
-    if (!plan) return
+    if (!plan || saving) return
+    setReview(null)
     setMessage(null)
-    const rateRows: Parameters<typeof bulkUpdateDailyRates>[0] = []
-    const availabilityRows: Parameters<typeof bulkUpdateAvailability>[0] = []
+    const rateRows: NonNullable<CalendarEdit['rates']> = []
+    const availabilityRows: NonNullable<CalendarEdit['availability']> = []
     for (const stayDate of dates) {
       const draft = drafts[stayDate]; if (!draft) continue
       if (canRates && draft.amount.trim() !== '') {
         const amountMinor = parseMajorToMinor(draft.amount, plan.currency)
         if (amountMinor === null) return setMessage({ kind: 'error', text: `${stayDate}: enter a plain amount in ${plan.currency} with at most the currency's decimal places.` })
-        rateRows.push({ ratePlanId: plan.id, stayDate, occupancy: plan.occupancy, amountMinor, amountBasis: draft.basis, currency: plan.currency })
+        const storedRate = rates.find(row => row.stayDate.slice(0, 10) === stayDate && row.occupancy === plan.occupancy)
+        if (!storedRate || storedRate.amountMinor !== amountMinor || storedRate.amountBasis !== draft.basis) rateRows.push({ expectedUpdatedAt: storedRate?.updatedAt ?? null, ratePlanId: plan.id, stayDate, occupancy: plan.occupancy, amountMinor, amountBasis: draft.basis, currency: plan.currency })
       }
       if (canInventory && draft.allotment.trim() !== '') {
         const allotment = /^\d+$/.test(draft.allotment.trim()) ? Number(draft.allotment) : NaN, minStay = /^\d+$/.test(draft.minStay.trim()) ? Number(draft.minStay) : NaN
         if (!Number.isInteger(allotment) || !Number.isInteger(minStay) || minStay < 1) return setMessage({ kind: 'error', text: `${stayDate}: allotment must be a whole number and minimum stay at least 1.` })
-        availabilityRows.push({ ratePlanId: plan.id, stayDate, allotment, stopSell: draft.stopSell, minStay })
+        const storedAvailability = inventory.find(row => row.stayDate.slice(0, 10) === stayDate)
+        if (!storedAvailability || storedAvailability.allotment !== allotment || storedAvailability.stopSell !== draft.stopSell || storedAvailability.minStay !== minStay) availabilityRows.push({ expectedUpdatedAt: storedAvailability?.updatedAt ?? null, ratePlanId: plan.id, stayDate, allotment, stopSell: draft.stopSell, minStay })
       }
     }
     if (rateRows.length === 0 && availabilityRows.length === 0) return setMessage({ kind: 'error', text: 'Nothing to save: enter a rate or availability for at least one day.' })
     setSaving(true)
-    const outcomes: string[] = []
     try {
-      if (rateRows.length) { await bulkUpdateDailyRates(rateRows); outcomes.push(`${rateRows.length} rate${rateRows.length === 1 ? '' : 's'}`) }
-      if (availabilityRows.length) { await bulkUpdateAvailability(availabilityRows); outcomes.push(`${availabilityRows.length} availability row${availabilityRows.length === 1 ? '' : 's'}`) }
+      const input: CalendarEdit = { ...(rateRows.length ? { rates: rateRows } : {}), ...(availabilityRows.length ? { availability: availabilityRows } : {}) }
+      const result = await previewCalendar(input)
+      setReview({ input, result })
+    } catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'preview changes') }) }
+    finally { setSaving(false) }
+  }
+
+  async function confirm() {
+    if (!review || saving) return
+    setSaving(true)
+    try {
+      await applyCalendar(review.input)
       await loadGrid()
-      setMessage({ kind: 'ok', text: `Saved ${outcomes.join(' and ')}. Values below were re-read from the API.` })
+      setReview(null)
+      setMessage({ kind: 'ok', text: 'All changes saved together. Values were reloaded from the API.' })
     } catch (error) {
-      setMessage({ kind: 'error', text: `${outcomes.length ? `${outcomes.join(' and ')} saved, but the next step failed. ` : ''}${describeApiError(error, 'save rates and inventory')} Reload to see what was stored.` })
+      setReview(null)
+      setMessage({ kind: 'error', text: `${describeApiError(error, 'apply changes')} Reload the calendar before retrying if the outcome is uncertain.` })
     } finally { setSaving(false) }
   }
 
@@ -106,9 +130,9 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
       {loadingPlans ? <LoadingState rows={3} /> : planError ? <ErrorState title="Rate plans unavailable" description={`${planError} No fallback data is shown.`} /> : (
         <>
           <section className="admin-filter-bar" aria-label="Rates and inventory selection">
-            <PlanPicker plans={plans} ratePlanId={ratePlanId} onChange={setRatePlanId} />
-            <input aria-label="Start date" type="date" className="admin-filter-select" value={start} onChange={(e) => setStart(e.target.value)} />
-            <select aria-label="Window" className="admin-filter-select" value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={7}>7 days</option><option value={30}>30 days</option></select>
+            <PlanPicker plans={plans} ratePlanId={ratePlanId} onChange={(value) => { if (saving) return; ++loadSequence.current; setReview(null); setRatePlanId(value) }} />
+            <input aria-label="Start date" type="date" className="admin-filter-select" value={start} disabled={saving} onChange={(e) => { ++loadSequence.current; setReview(null); setStart(e.target.value) }} />
+            <select aria-label="Window" className="admin-filter-select" value={days} disabled={saving} onChange={(e) => { ++loadSequence.current; setReview(null); setDays(Number(e.target.value)) }}><option value={7}>7 days</option><option value={30}>30 days</option></select>
             {plan?.inventoryPoolId ? <span role="note" data-testid="pooled-plan-note" className="admin-note" style={{ fontSize: 12, flexBasis: '100%' }}>This plan sells from a shared inventory pool, so the allotment entered here does not control its stock and is not used by search. Set the pool capacity in Inventory &amp; Allotment or Quick Update.</span> : null}
             {plan ? <Link href={`/sellability?ratePlanId=${plan.id}&checkIn=${dates[0] ?? start}&nights=${Math.min(days, 7)}`} className="admin-btn">Check sellability</Link> : null}
           </section>
@@ -118,13 +142,22 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
               <p style={{ fontSize: 12 }}>{plan.roomType.hotel.name} · {plan.roomType.name} · {plan.boardBasis.code.trim()} · {plan.currency} · {plan.occupancy} adult{plan.occupancy === 1 ? '' : 's'} · release {plan.releaseDays} day{plan.releaseDays === 1 ? '' : 's'} · status <strong>{plan.status}</strong>. Rates and inventory are per room.</p>
               {canEdit ? <div className="admin-filter-bar" style={{ marginTop: 8 }}>
                 {canRates ? <input aria-label={`Fill every day with a rate in ${plan.currency}`} className="admin-filter-select" inputMode="decimal" placeholder={`Rate for all days (${plan.currency})`} value={bulk.amount} onChange={(e) => setBulk({ ...bulk, amount: e.target.value })} /> : null}
-                {canInventory ? <input aria-label="Fill every day with an allotment" className="admin-filter-select" inputMode="numeric" placeholder="Allotment for all days" value={bulk.allotment} onChange={(e) => setBulk({ ...bulk, allotment: e.target.value })} /> : null}
-                <button type="button" className="admin-btn" onClick={applyToAll}>Fill all days</button>
-                <button type="button" className="admin-btn admin-btn-primary" onClick={save} disabled={saving || loadingGrid}>{saving ? 'Saving…' : 'Save changes'}</button>
+                {canInventory && !plan.inventoryPoolId ? <input aria-label="Fill every day with an allotment" className="admin-filter-select" inputMode="numeric" placeholder="Allotment for all days" value={bulk.allotment} onChange={(e) => setBulk({ ...bulk, allotment: e.target.value })} /> : null}
+                <button type="button" className="admin-btn" disabled={saving} onClick={applyToAll}>Fill all days</button>
+                <button type="button" className="admin-btn admin-btn-primary" onClick={save} disabled={saving || loadingGrid || Boolean(gridError)}>{saving ? 'Checking…' : 'Review changes'}</button>
               </div> : <p role="status" style={{ fontSize: 12 }}>You have read-only access to rates and inventory.</p>}
               {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#bc5652' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
             </section>
           ) : null}
+          {review ? <section className="workspace-panel" style={{ padding: 18 }} aria-label="Review calendar changes">
+            <h2>Review {review.result.affectedCells} changed cells</h2>
+            <p>All changes are applied together. A validation or concurrent-edit conflict saves none. Shared pool capacity is managed separately.</p>
+            <div style={{ overflowX: 'auto' }}><table style={{ width: '100%' }}><thead><tr><th>Date</th><th>Type</th><th>Before</th><th>After</th></tr></thead><tbody>
+              {review.result.changes.map((change, i) => <tr key={i}><td>{change.stayDate}</td><td>{change.kind}</td><td>{describeCell(change.kind, change.before)}</td><td>{describeCell(change.kind, change.after)}</td></tr>)}
+            </tbody></table></div>
+            <button type="button" className="admin-btn admin-btn-primary" disabled={saving} onClick={confirm}>Apply reviewed changes</button>
+            <button type="button" className="admin-btn" disabled={saving} onClick={() => setReview(null)}>Cancel</button>
+          </section> : null}
           {plan && loadingGrid ? <LoadingState rows={7} /> : null}
           {plan && gridError ? <ErrorState title="Rates and inventory unavailable" description={`${gridError} No fallback data is shown.`} /> : null}
           {plan && !loadingGrid && !gridError ? (
@@ -136,13 +169,13 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
                   return (
                     <tr key={stayDate} style={{ borderBottom: '1px solid #edf2f3' }}>
                       <td style={{ padding: '8px 12px' }}>{stayDate}</td>
-                      <td style={{ padding: '8px 12px' }}><input aria-label={`Rate ${stayDate}`} className="admin-filter-select" style={{ width: 96 }} inputMode="decimal" value={draft.amount} disabled={!canRates} onChange={(e) => patch(stayDate, { amount: e.target.value })} /></td>
+                      <td style={{ padding: '8px 12px' }}><input aria-label={`Rate ${stayDate}`} className="admin-filter-select" style={{ width: 96 }} inputMode="decimal" value={draft.amount} disabled={saving || !canRates} onChange={(e) => patch(stayDate, { amount: e.target.value })} /></td>
                       <td style={{ padding: '8px 12px' }}>{stored ? formatMinorUnits(stored.amountMinor, stored.currency) : <span style={{ color: '#bc5652' }}>No rate</span>}</td>
-                      <td style={{ padding: '8px 12px' }}><select aria-label={`Basis ${stayDate}`} className="admin-filter-select" value={draft.basis} disabled={!canRates} onChange={(e) => patch(stayDate, { basis: e.target.value as 'SELL' | 'NET' })}><option value="SELL">SELL</option><option value="NET">NET</option></select></td>
-                      <td style={{ padding: '8px 12px' }}><input aria-label={`Allotment ${stayDate}`} className="admin-filter-select" style={{ width: 70 }} inputMode="numeric" value={draft.allotment} disabled={!canInventory} onChange={(e) => patch(stayDate, { allotment: e.target.value })} /></td>
+                      <td style={{ padding: '8px 12px' }}><select aria-label={`Basis ${stayDate}`} className="admin-filter-select" value={draft.basis} disabled={saving || !canRates} onChange={(e) => patch(stayDate, { basis: e.target.value as 'SELL' | 'NET' })}><option value="SELL">SELL</option><option value="NET">NET</option></select></td>
+                      <td style={{ padding: '8px 12px' }}><input aria-label={`Allotment ${stayDate}`} className="admin-filter-select" style={{ width: 70 }} inputMode="numeric" value={draft.allotment} disabled={saving || !canInventory || Boolean(plan.inventoryPoolId)} onChange={(e) => patch(stayDate, { allotment: e.target.value })} /></td>
                       <td style={{ padding: '8px 12px' }}>{row ? `${row.sold} / ${row.held}` : <span style={{ color: '#bc5652' }}>No inventory</span>}</td>
-                      <td style={{ padding: '8px 12px' }}><input aria-label={`Stop sell ${stayDate}`} type="checkbox" checked={draft.stopSell} disabled={!canInventory} onChange={(e) => patch(stayDate, { stopSell: e.target.checked })} /></td>
-                      <td style={{ padding: '8px 12px' }}><input aria-label={`Minimum stay ${stayDate}`} className="admin-filter-select" style={{ width: 56 }} inputMode="numeric" value={draft.minStay} disabled={!canInventory} onChange={(e) => patch(stayDate, { minStay: e.target.value })} /></td>
+                      <td style={{ padding: '8px 12px' }}><input aria-label={`Stop sell ${stayDate}`} type="checkbox" checked={draft.stopSell} disabled={saving || !canInventory} onChange={(e) => patch(stayDate, { stopSell: e.target.checked })} /></td>
+                      <td style={{ padding: '8px 12px' }}><input aria-label={`Minimum stay ${stayDate}`} className="admin-filter-select" style={{ width: 56 }} inputMode="numeric" value={draft.minStay} disabled={saving || !canInventory} onChange={(e) => patch(stayDate, { minStay: e.target.value })} /></td>
                       <td style={{ padding: '8px 12px' }}>{plan.releaseDays}d <Link href={`/rates/plans/${plan.id}`} style={{ marginLeft: 6 }}>edit</Link></td>
                     </tr>
                   )

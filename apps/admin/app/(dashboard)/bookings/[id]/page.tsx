@@ -154,8 +154,8 @@ function Pricing({ d }: { d: BookingDetailView }) {
         <dl style={dl}>
           <dt>Refundable</dt><dd>{p.isRefundable === null ? <span style={muted}>Not recorded</span> : p.isRefundable ? 'Yes' : 'No (non-refundable)'}</dd>
           <dt>Free cancellation until</dt><dd>{p.cancelDeadline ? formatInZone(p.cancelDeadline, d.booking.hotel.timeZone) : <span style={muted}>Not recorded</span>}</dd>
-          <dt>Policy snapshot</dt><dd><span style={muted}>Not stored on bookings yet. The penalty steps are not invented here.</span></dd>
-          <dt>Markup rule applied</dt><dd><span style={muted}>Not stored on bookings yet.</span></dd>
+          <dt>Policy snapshot</dt><dd><span style={muted}>Review Finance & documents for the frozen cancellation terms, if available to your role. No penalty is assumed here.</span></dd>
+          <dt>Markup rule applied</dt><dd><span style={muted}>Not available in this booking detail view.</span></dd>
         </dl>
       </section>
     </div>

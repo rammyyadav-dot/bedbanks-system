@@ -22,3 +22,4 @@ export * from './booking-lifecycle';
 export * from './booking-query';
 export * from './booking-saved-views';
 export * from './booking-ops-queue';
+export * from './rate-calendar';

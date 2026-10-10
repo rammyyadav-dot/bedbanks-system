@@ -10,6 +10,8 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { hashPassword } from '../src/auth/utils/password'
 import { PrismaService } from '../src/database/prisma.service'
 import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
+import { SupplyService } from '../src/supply/supply.service'
+import { AgentAuditService } from '../src/agent/audit.service'
 import { RateCertificationService } from '../src/rate-certification/rate-certification.service'
 import { CommercialControlUnavailableError } from '../src/supply/commercial-controls'
 
@@ -113,7 +115,7 @@ describe('rate plan audit and certification (PostgreSQL, HTTP, two tenants)', ()
     await makeHotel('hotel', { currency: 'USD' })                    // wrong-currency rows    FAIL      NOT_READY
     await makeHotel('oscar', { tenant: 'B', zeroDays: [10] })        // tenant B: one zero amount
 
-    const owner = await user('owner', tenantA, ['supply.rates.read', 'supply.hotels.read'], 'owner'); ownerUserId = owner.id
+    const owner = await user('owner', tenantA, ['supply.rates.read', 'supply.rates.manage', 'supply.hotels.read'], 'owner'); ownerUserId = owner.id
     const viewer = await user('viewer', tenantA, ['supply.hotels.read'])
     const none = await user('none', tenantA, [])
     const bowner = await user('bowner', tenantB, ['supply.rates.read'], 'owner')
@@ -338,6 +340,18 @@ describe('rate plan audit and certification (PostgreSQL, HTTP, two tenants)', ()
       await runtime.$connect()
       const [who] = await runtime.$queryRawUnsafe<Array<{ current_user: string; rolbypassrls: boolean; rolsuper: boolean }>>('SELECT current_user, (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS rolbypassrls, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS rolsuper')
       expect(who).toEqual({ current_user: API_RUNTIME_LOGIN_ROLE, rolbypassrls: false, rolsuper: false })
+      // Enriched calendar: preview/paging work on the real restricted login. Applying a rate remains prohibited by ADR 0032.
+      const supply = new SupplyService(runtime, new AgentAuditService(runtime))
+      const originalRate = await owner.dailyRate.findUniqueOrThrow({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: hotels.bravo.planId, stayDate: utc(10), occupancy: 2 } } })
+      const edit = { rates: [{ ratePlanId: hotels.bravo.planId, stayDate: day(10), occupancy: 2, currency: 'AED', amountBasis: 'SELL', amountMinor: '46000', expectedUpdatedAt: originalRate.updatedAt.toISOString() }] }
+      const preview = await supply.editCalendar(tenantA, ownerUserId, edit, 'strict-preview', true, true)
+      expect(preview).toMatchObject({ preview: true, atomic: true, affectedCells: 1 })
+      const portfolio = await supply.ratePlanPortfolio(tenantA, ownerUserId, { page: '1', pageSize: '2' })
+      expect(portfolio.items).toHaveLength(2)
+      expect(portfolio.total).toBe(9)
+      await expect(supply.editCalendar(tenantA, ownerUserId, { rates: [{ ...edit.rates[0], ratePlanId: hotels.oscar.planId }] }, 'cross-tenant-preview', true, true)).rejects.toMatchObject({ status: 400 })
+      await expect(supply.editCalendar(tenantA, ownerUserId, edit, 'strict-apply', false, true)).rejects.toThrow()
+      expect(await owner.dailyRate.findUniqueOrThrow({ where: { id: originalRate.id } })).toEqual(originalRate)
       const strict = new RateCertificationService(runtime); const open = new RateCertificationService(new PrismaService())
       const clock = new Date(base + 12 * 3_600_000); strict.clock = () => clock; open.clock = () => clock
       expect(stripClock(await strict.summary(tenantA, q))).toEqual(stripClock(await open.summary(tenantA, q)))

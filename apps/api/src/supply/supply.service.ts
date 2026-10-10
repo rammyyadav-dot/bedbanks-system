@@ -1,6 +1,7 @@
 import { assertHotelIdentityAvailable } from '../hotel-setup/hotel-identity'
 import { assertRoomActivationAllowed, lockHotelSetup, touchSetup } from '../hotel-setup/hotel-setup-shared'
 import { isIanaTimeZone, assessCompleteness, regressions } from '../hotel-setup/hotel-setup-rules'
+import { calendarDate, rateInput, availabilityInput, inputRows, uniqueRows } from './rate-input'
 import { occupancyProblems } from './room-rules'
 import { enabledCurrency } from '../agent/currency'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
@@ -10,7 +11,7 @@ import type { Prisma } from '@prisma/client'
 import { evaluateNightSellability } from './contracted-sellability'
 import { parseMarketList } from './market-rules'
 
-const date = (value: string) => { const parsed = new Date(`${value}T00:00:00.000Z`); if (Number.isNaN(parsed.getTime())) throw new BadRequestException('Invalid date'); return parsed }
+const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
 const marketList = (field: string, value: unknown): string[] => { const parsed = parseMarketList(value); if (parsed === null) throw new BadRequestException(`${field} must be a list of two-letter country codes`); return parsed }
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
@@ -265,6 +266,35 @@ export class SupplyService {
   async createChildPolicy(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minAge) || !Number.isInteger(input.maxAge) || input.minAge < 0 || input.maxAge < input.minAge || input.maxAge > 17) throw new BadRequestException('Invalid child policy ages'); const supplementMinor = input.supplementMinor == null ? null : BigInt(input.supplementMinor); if (supplementMinor !== null && supplementMinor < 0n) throw new BadRequestException('Invalid child supplement'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.child_policy.created', 'child_policy', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } }); if (!contract) throw new NotFoundException('Contract not found'); const overlap = await tx.childPolicy.findFirst({ where: { contractId, minAge: { lte: input.maxAge }, maxAge: { gte: input.minAge } } }); if (overlap) throw new BadRequestException('Child policy age ranges overlap'); const currency = input.currency == null ? null : enabledCurrency(input.currency); if (currency && currency.length !== 3) throw new BadRequestException('Invalid policy currency'); const value = await tx.childPolicy.create({ data: { contractId, minAge: input.minAge, maxAge: input.maxAge, extraBedAllowed: input.extraBedAllowed ?? false, supplementMinor, currency } }); return { id: value.id, value: { ...value, supplementMinor: value.supplementMinor?.toString() ?? null } } }) }
   async createLeadTimeRule(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minLeadHours) || input.minLeadHours < 0 || (input.maxLeadDays != null && (!Number.isInteger(input.maxLeadDays) || input.maxLeadDays < 0))) throw new BadRequestException('Invalid lead-time rule'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.lead_time_rule.updated', 'booking_lead_time_rule', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } }); if (!contract) throw new NotFoundException('Contract not found'); const value = await tx.bookingLeadTimeRule.upsert({ where: { contractId }, update: { minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null }, create: { contractId, minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null } }); return { id: value.id, value } }) }
 
+  async ratePlanPortfolio(tenantId: string, userId: string, query: Record<string, unknown>) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const number = (value: unknown, fallback: number, max: number) => {
+      if (value === undefined) return fallback
+      if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value) || Number(value) > max) throw new BadRequestException('Invalid pagination')
+      return Number(value)
+    }
+    const page = number(query.page, 1, 100000), pageSize = number(query.pageSize, 25, 100)
+    const scalar = (key: string) => {
+      const value = query[key]
+      if (value === undefined) return undefined
+      if (typeof value !== 'string' || value.length > 100) throw new BadRequestException(`Invalid ${key}`)
+      return value.trim() || undefined
+    }
+    const search = scalar('search'), status = scalar('status'), hotelId = scalar('hotelId'), supplierId = scalar('supplierId'), boardBasisId = scalar('boardBasisId'), currency = scalar('currency')
+    if (status && !['DRAFT', 'ACTIVE', 'SUSPENDED', 'EXPIRED'].includes(status)) throw new BadRequestException('Invalid rate plan status')
+    const where: Prisma.RatePlanWhereInput = {
+      tenantId, ...(status ? { status: status as 'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED' } : {}),
+      ...(hotelId ? { roomType: { hotelId, hotel: { tenantId } } } : {}),
+      ...(supplierId ? { contract: { tenantId, supplierId } } : {}), ...(boardBasisId ? { boardBasisId } : {}), ...(currency ? { currency: enabledCurrency(currency) } : {}),
+      ...(search ? { OR: [{ code: { contains: search, mode: 'insensitive' } }, { roomType: { hotel: { tenantId, name: { contains: search, mode: 'insensitive' } } } }, { contract: { tenantId, supplier: { displayName: { contains: search, mode: 'insensitive' } } } }] } : {}),
+    }
+    return this.prisma.withTenant(tenantId, async tx => {
+      const total = await tx.ratePlan.count({ where })
+      const items = await tx.ratePlan.findMany({ where, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: [{ code: 'asc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize })
+      return { items, total, page, pageSize, hasMore: page * pageSize < total }
+    }, { isolationLevel: 'RepeatableRead' })
+  }
+
   async ratePlans(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.ratePlan.findMany({ where: { tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: { code: 'asc' } })) }
   async ratePlan(tenantId: string, userId: string, ratePlanId: string) { await this.check(tenantId, userId, 'supply.rates.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: true } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true } })); if (!value) throw new NotFoundException('Rate plan not found'); return value }
   async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0 } }); return { id: value.id, value } }) }
@@ -309,23 +339,94 @@ export class SupplyService {
   }
 
   async bulkAvailability(tenantId: string, userId: string, input: any, requestId?: string) {
-    if (!Array.isArray(input.rows) || input.rows.length < 1 || input.rows.length > 366) throw new BadRequestException('Invalid availability rows')
-    await this.check(tenantId, userId, 'supply.availability.manage')
-    const results = []
-    for (const row of input.rows) results.push(await this.upsertAvailability(tenantId, userId, row, requestId))
-    return results
+    const result = await this.editCalendar(tenantId, userId, { availability: inputRows(input.rows, 'availability') }, requestId)
+    return result.availability
   }
 
   async bulkDailyRates(tenantId: string, userId: string, input: any, requestId?: string) {
-    if (!Array.isArray(input.rows) || input.rows.length < 1 || input.rows.length > 366) throw new BadRequestException('Invalid daily rate rows')
-    await this.check(tenantId, userId, 'supply.rates.manage')
-    const results = []
-    for (const row of input.rows) results.push(await this.upsertDailyRate(tenantId, userId, row, requestId))
-    return results
+    const result = await this.editCalendar(tenantId, userId, { rates: inputRows(input.rows, 'daily rate') }, requestId)
+    return result.rates
   }
 
-  async upsertDailyRate(tenantId: string, userId: string, input: any, requestId?: string) { if ((!Number.isSafeInteger(input.amountMinor) && typeof input.amountMinor !== 'string') || !Number.isInteger(input.occupancy) || !['NET', 'SELL'].includes(input.amountBasis)) throw new BadRequestException('Invalid daily rate'); const amountMinor = BigInt(input.amountMinor); if (amountMinor <= 0n) throw new BadRequestException('amountMinor must be greater than zero'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.daily_rate.updated', 'daily_rate', requestId, async tx => { const plan = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId } }); if (!plan || plan.currency !== enabledCurrency(input.currency)) throw new BadRequestException('Rate plan or currency is invalid'); const value = await tx.dailyRate.upsert({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: input.ratePlanId, stayDate: date(input.stayDate), occupancy: input.occupancy } }, update: { amountMinor, amountBasis: input.amountBasis, currency: enabledCurrency(input.currency) }, create: { tenantId, ratePlanId: input.ratePlanId, stayDate: date(input.stayDate), occupancy: input.occupancy, amountMinor, amountBasis: input.amountBasis, currency: enabledCurrency(input.currency) } }); return { id: value.id, value: { ...value, amountMinor: value.amountMinor.toString() } } }) }
-  async upsertAvailability(tenantId: string, userId: string, input: any, requestId?: string) { if (!Number.isInteger(input.allotment) || input.allotment < 0 || (input.sold !== undefined && (!Number.isInteger(input.sold) || input.sold < 0 || input.sold > input.allotment))) throw new BadRequestException('Invalid availability'); return this.write(tenantId, userId, 'supply.availability.manage', 'supply.availability.updated', 'daily_availability', requestId, async tx => { const plan = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId } }); if (!plan) throw new BadRequestException('Rate plan does not belong to tenant'); const stayDate = date(input.stayDate); const existing = await tx.dailyAvailability.findUnique({ where: { ratePlanId_stayDate: { ratePlanId: input.ratePlanId, stayDate } } }); if (existing && input.allotment < existing.sold + existing.held) throw new BadRequestException('Allotment cannot be below committed inventory'); const value = await tx.dailyAvailability.upsert({ where: { ratePlanId_stayDate: { ratePlanId: input.ratePlanId, stayDate } }, update: { allotment: input.allotment, stopSell: input.stopSell ?? false, minStay: input.minStay ?? 1 }, create: { tenantId, ratePlanId: input.ratePlanId, stayDate, allotment: input.allotment, sold: input.sold ?? 0, stopSell: input.stopSell ?? false, minStay: input.minStay ?? 1 } }); return { id: value.id, value } }) }
+  async upsertDailyRate(tenantId: string, userId: string, input: any, requestId?: string) {
+    return (await this.editCalendar(tenantId, userId, { rates: [input] }, requestId)).rates[0]
+  }
+
+  async upsertAvailability(tenantId: string, userId: string, input: any, requestId?: string) {
+    return (await this.editCalendar(tenantId, userId, { availability: [input] }, requestId)).availability[0]
+  }
+
+  /** One transaction for the entire calendar edit. Preview performs the same validation without writes.
+   * The strict runtime grant contract remains authoritative; this does not elevate the connection. */
+  async editCalendar(tenantId: string, userId: string, input: { rates?: unknown; availability?: unknown }, requestId?: string, preview = false, requireVersions = false) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid calendar edit')
+    const rates = input.rates === undefined ? [] : inputRows(input.rates, 'daily rate').map(rateInput)
+    const availability = input.availability === undefined ? [] : inputRows(input.availability, 'availability').map(availabilityInput)
+    if (rates.length + availability.length === 0 || rates.length + availability.length > 366) throw new BadRequestException('Provide 1 to 366 total calendar changes')
+    uniqueRows(rates); uniqueRows(availability)
+    if (requireVersions && [...rates, ...availability].some(row => row.expectedUpdatedAt === undefined)) throw new BadRequestException('Every cell requires expectedUpdatedAt (null for a new cell)')
+    for (const permission of [...(rates.length ? ['supply.rates.manage'] : []), ...(availability.length ? ['supply.availability.manage'] : [])]) {
+      try { await this.check(tenantId, userId, permission) } catch (error) {
+        if (error instanceof ForbiddenException) await this.audit.record({ tenantId, userId, action: 'permission.denied', entityType: 'permission', entityId: permission, payload: { tenantId, requestId: requestId ?? null } }).catch(() => undefined)
+        throw error
+      }
+    }
+    try {
+      return await this.prisma.withTenant(tenantId, async tx => {
+        const ids = [...new Set([...rates, ...availability].map(row => row.ratePlanId))].sort()
+        const plans = await tx.ratePlan.findMany({ where: { tenantId, id: { in: ids } }, include: { contract: true } })
+        if (plans.length !== ids.length) throw new BadRequestException('Rate plan unavailable in this tenant')
+        const checkVersion = (expected: string | null | undefined, current: { updatedAt: Date } | null) => {
+          if (expected !== undefined && expected !== (current?.updatedAt.toISOString() ?? null)) throw new ConflictException({ code: 'CALENDAR_CHANGED', message: 'A cell changed since it was loaded. Reload and review your changes.' })
+        }
+        const rateChanges = []
+        const availabilityChanges = []
+        for (const row of rates) {
+          const plan = plans.find(plan => plan.id === row.ratePlanId)!
+          if (plan.currency !== row.currency || plan.contract.settlementCurrency !== row.currency || plan.occupancy !== row.occupancy) throw new BadRequestException('Rate currency or occupancy does not match the plan and contract')
+          if (row.stayDate < plan.contract.validFrom || row.stayDate > plan.contract.validTo) throw new BadRequestException('Rate date is outside the contract')
+          const before = await tx.dailyRate.findUnique({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy } } })
+          checkVersion(row.expectedUpdatedAt, before)
+          rateChanges.push({ row, before })
+        }
+        for (const row of availability) {
+          const plan = plans.find(plan => plan.id === row.ratePlanId)!
+          if (row.stayDate < plan.contract.validFrom || row.stayDate > plan.contract.validTo) throw new BadRequestException('Availability date is outside the contract')
+          const before = await tx.dailyAvailability.findUnique({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate } } })
+          checkVersion(row.expectedUpdatedAt, before)
+          if (before && row.allotment < before.sold + before.held) throw new BadRequestException('Allotment cannot be below committed inventory')
+          // A pooled plan has a single physical stock authority. Its local restrictions may change, not its ignored allotment.
+          if (plan.inventoryPoolId && (!before || row.allotment !== before.allotment)) throw new BadRequestException('Change shared stock through the inventory pool capacity workflow')
+          availabilityChanges.push({ row, before })
+        }
+        const changes = [
+          ...rateChanges.map(({ row, before }) => ({ kind: 'rate', ratePlanId: row.ratePlanId, stayDate: row.stayDate.toISOString().slice(0, 10), before: before ? { amountMinor: before.amountMinor.toString(), amountBasis: before.amountBasis, currency: before.currency } : null, after: { amountMinor: row.amountMinor.toString(), amountBasis: row.amountBasis, currency: row.currency } })),
+          ...availabilityChanges.map(({ row, before }) => ({ kind: 'availability', ratePlanId: row.ratePlanId, stayDate: row.stayDate.toISOString().slice(0, 10), before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay } : null, after: { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1 } })),
+        ]
+        const savedRates = []
+        const savedAvailability = []
+        if (!preview) {
+          for (const { row, before } of rateChanges) {
+            const values = { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy, amountMinor: row.amountMinor, amountBasis: row.amountBasis, currency: row.currency }
+            const saved = await tx.dailyRate.upsert({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy } }, create: { tenantId, ...values }, update: { amountMinor: row.amountMinor, amountBasis: row.amountBasis, currency: row.currency, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
+            savedRates.push({ ...saved, amountMinor: saved.amountMinor.toString() })
+            await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.daily_rate.updated', entityType: 'daily_rate', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { amountMinor: before.amountMinor.toString(), amountBasis: before.amountBasis } : null, after: { amountMinor: row.amountMinor.toString(), amountBasis: row.amountBasis } } } })
+          }
+          for (const { row, before } of availabilityChanges) {
+            const data = { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1 }
+            const saved = await tx.dailyAvailability.upsert({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate } }, create: { tenantId, ratePlanId: row.ratePlanId, stayDate: row.stayDate, ...data }, update: { ...data, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
+            savedAvailability.push(saved)
+            await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.availability.updated', entityType: 'daily_availability', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay } : null, after: data } } })
+          }
+        }
+        return { atomic: true, preview, affectedCells: changes.length, changes, rates: savedRates, availability: savedAvailability }
+      }, { isolationLevel: 'Serializable' })
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2034' || (error as { code?: string }).code === 'P2002') throw new ConflictException({ code: 'CALENDAR_CHANGED', message: 'Concurrent calendar change. Reload and review before retrying.' })
+      throw error
+    }
+  }
+
   /**
    * Per-night sellability diagnostic. `reasons` are stable backend codes; clients render them verbatim.
    * Optional stay context (`checkInDate` + `nights`) additionally evaluates minimum stay, maximum stay and release days.
