@@ -44,6 +44,8 @@ API lint has one pre-existing unused eslint-disable warning in inventory-admin.s
 
 The final response gives PASS/FAIL and counts observed on the exact implementation commit. Local preflight results and screenshots are under docs/evidence/enterprise-hotel-overview. A local PASS is not a hosted or production certification.
 
+Completed exact-commit certification: [ceac745 results and screenshots](evidence/enterprise-hotel-overview/certified-ceac745/README.md). Implementation commit ceac745a7757cd207845001650d12e82ef894649 passed the local gates; the later evidence-only commit does not change application code.
+
 Required gates: canonical model/API; identity conflicts; lifecycle approval; immutable relations; RBAC/private contacts; runtime role/forced RLS; location/media/policies/amenities; authoritative commercial/search controls; admin browser; accessibility/responsive layout; API/Admin/Agent regressions; production builds; migration replay/drift; architecture/schema checks; exact-commit verification; transaction flags remain disabled.
 
 ## Limits and release constraints
