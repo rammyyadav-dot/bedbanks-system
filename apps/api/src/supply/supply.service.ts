@@ -1,3 +1,5 @@
+import { assertHotelIdentityAvailable } from '../hotel-setup/hotel-identity'
+import { isIanaTimeZone, assessCompleteness, regressions } from '../hotel-setup/hotel-setup-rules'
 import { occupancyProblems } from './room-rules'
 import { enabledCurrency } from '../agent/currency'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
@@ -126,11 +128,62 @@ export class SupplyService {
 
   async hotels(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.hotels.read'); return this.prisma.withTenant(tenantId, tx => tx.hotel.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })) }
   async hotel(tenantId: string, userId: string, hotelId: string) { await this.check(tenantId, userId, 'supply.hotels.read'); const hotel = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId }, include: { roomTypes: { where: { isActive: true }, orderBy: { name: 'asc' } } } })); if (!hotel) throw new NotFoundException('Hotel not found'); return hotel }
-  private hotelData(tenantId: string, input: any) { const name = clean(input.name); const propertyType = clean(input.propertyType); const city = clean(input.city); const countryCode = clean(input.countryCode).toUpperCase(); const timeZone = clean(input.timeZone) || 'Asia/Dubai'; const contentStatuses = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED']; const contentStatus = input.contentStatus ?? 'DRAFT'; if (!name || !propertyType || !city || !/^[A-Z]{2}$/.test(countryCode) || !contentStatuses.includes(contentStatus) || (input.starRating !== undefined && input.starRating !== null && (!Number.isInteger(input.starRating) || input.starRating < 1 || input.starRating > 5))) throw new BadRequestException('Invalid hotel fields'); return { tenantId, name, propertyType, starRating: input.starRating ?? null, address: input.address == null ? null : clean(input.address), city, countryCode, timeZone, contentStatus, externalRef: input.externalRef == null ? null : clean(input.externalRef) } }
+  private hotelData(tenantId: string, input: any) { const name = clean(input.name); const propertyType = clean(input.propertyType); const city = clean(input.city); const countryCode = clean(input.countryCode).toUpperCase(); const timeZone = clean(input.timeZone) || 'Asia/Dubai'; const contentStatuses = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED', 'ARCHIVED']; const contentStatus = input.contentStatus ?? 'DRAFT'; if (!name || name.length > 160 || !propertyType || propertyType.length > 120 || !city || city.length > 120 || !isIanaTimeZone(timeZone) || !/^[A-Z]{2}$/.test(countryCode) || !contentStatuses.includes(contentStatus) || (input.starRating !== undefined && input.starRating !== null && (!Number.isInteger(input.starRating) || input.starRating < 1 || input.starRating > 5))) throw new BadRequestException('Invalid hotel fields'); return { tenantId, name, propertyType, starRating: input.starRating ?? null, address: input.address == null ? null : clean(input.address), city, countryCode, timeZone, contentStatus, externalRef: input.externalRef == null ? null : clean(input.externalRef) } }
   /** Publishing is a maker-checker action (ADR 0022); the generic hotel endpoints may not set or reach COMPLETE. */
   private refusePublication(): never { throw new ConflictException({ message: 'Publishing a hotel needs a second approver. Use the hotel Setup publication request.', code: 'HOTEL_PUBLICATION_REQUIRES_APPROVAL' }) }
-  async createHotel(tenantId: string, userId: string, input: any, requestId?: string) { const data = this.hotelData(tenantId, input); if (data.contentStatus === 'COMPLETE') this.refusePublication(); return this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.created', 'hotel', requestId, async tx => { const value = await tx.hotel.create({ data }); return { id: value.id, value } }) }
-  async updateHotel(tenantId: string, userId: string, hotelId: string, input: any, requestId?: string) { const allowed = ['name', 'propertyType', 'starRating', 'address', 'city', 'countryCode', 'timeZone', 'contentStatus', 'externalRef']; if (Object.keys(input).some((key) => !allowed.includes(key) || key === 'tenantId')) throw new BadRequestException('Invalid hotel fields'); const current = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId } })); if (!current) throw new NotFoundException('Hotel not found'); const data = this.hotelData(tenantId, { ...current, ...input }); if (data.contentStatus === 'COMPLETE' && current.contentStatus !== 'COMPLETE') this.refusePublication(); return this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.updated', 'hotel', requestId, async tx => { const value = await tx.hotel.update({ where: { id: hotelId }, data }); if (current.contentStatus === 'COMPLETE' && data.contentStatus !== 'COMPLETE') await tx.hotelProfile.updateMany({ where: { hotelId, tenantId }, data: { approvedById: null, approvedAt: null } }); return { id: value.id, value } }) }
+  async createHotel(tenantId: string, userId: string, input: any, requestId?: string) {
+    const allowed = ['name', 'propertyType', 'starRating', 'address', 'city', 'countryCode', 'timeZone', 'contentStatus', 'externalRef']
+    if (Object.keys(input).some(k => !allowed.includes(k))) throw new BadRequestException('Invalid hotel fields')
+    const data = this.hotelData(tenantId, input)
+    if (data.contentStatus === 'COMPLETE') this.refusePublication()
+    if (data.contentStatus === 'ARCHIVED') throw new BadRequestException('Create a draft before archiving it through Hotel Setup')
+    try {
+      return await this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.created', 'hotel', requestId, async tx => {
+        await assertHotelIdentityAvailable(tx, tenantId, data)
+        const value = await tx.hotel.create({ data })
+        return { id: value.id, value }
+      })
+    } catch (error) { this.hotelWriteConflict(error); throw error }
+  }
+
+  private hotelWriteConflict(error: unknown): void {
+    const code = (error as { code?: string }).code
+    if (code === 'P2002') throw new ConflictException({ code: 'HOTEL_EXTERNAL_REF_CONFLICT', message: 'This hotel reference is already in use in the tenant.' })
+    if (code === 'P2025') throw new ConflictException({ code: 'HOTEL_SETUP_STALE', message: 'The hotel changed during this edit. Reload and review the latest profile.' })
+  }
+
+  async updateHotel(tenantId: string, userId: string, hotelId: string, input: any, requestId?: string) {
+    const allowed = ['name', 'propertyType', 'starRating', 'address', 'city', 'countryCode', 'timeZone', 'contentStatus', 'externalRef']
+    if (Object.keys(input).some(key => !allowed.includes(key))) throw new BadRequestException('Invalid hotel fields')
+    const current = await this.prisma.withTenant(tenantId, tx => tx.hotel.findFirst({ where: { id: hotelId, tenantId } }))
+    if (!current) throw new NotFoundException('Hotel not found')
+    const data = this.hotelData(tenantId, { ...current, ...input })
+    if (data.contentStatus === 'COMPLETE' && current.contentStatus !== 'COMPLETE') this.refusePublication()
+    try {
+      return await this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.updated', 'hotel', requestId, async tx => {
+        if (data.contentStatus !== current.contentStatus && [data.contentStatus, current.contentStatus].includes('ARCHIVED')) {
+          throw new ConflictException({ code: 'HOTEL_STATUS_REQUIRES_SETUP', message: 'Change hotel lifecycle through Hotel Setup with a concurrency token and reason.' })
+        }
+        await assertHotelIdentityAvailable(tx, tenantId, data, hotelId)
+        if (current.contentStatus === 'COMPLETE' && data.contentStatus === 'COMPLETE') {
+          const profile = await tx.hotelProfile.findFirst({ where: { hotelId, tenantId } })
+          const base = {
+            ...current, latitude: current.latitude?.toString() ?? null, longitude: current.longitude?.toString() ?? null,
+            starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null,
+            checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
+            contacts: (profile?.contacts ?? {}) as import('@bedbanks/contracts').HotelContacts,
+            activeRooms: await tx.roomType.count({ where: { hotelId, isActive: true } }),
+          }
+          const lost = regressions(assessCompleteness(base), assessCompleteness({ ...base, ...data, starVerified: data.starRating === current.starRating && base.starVerified }))
+          if (lost.length) throw new ConflictException({ code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST', message: 'A published hotel cannot lose a publication requirement. Use Hotel Setup.' })
+        }
+        const value = await tx.hotel.update({ where: { id: hotelId, updatedAt: current.updatedAt }, data })
+        if (current.starRating !== data.starRating) await tx.hotelProfile.updateMany({ where: { hotelId, tenantId }, data: { starVerifiedAt: null, starVerifiedById: null } })
+        if (current.contentStatus === 'COMPLETE' && data.contentStatus !== 'COMPLETE') await tx.hotelProfile.updateMany({ where: { hotelId, tenantId }, data: { approvedById: null, approvedAt: null } })
+        return { id: value.id, value }
+      })
+    } catch (error) { this.hotelWriteConflict(error); throw error }
+  }
   private roomData(input: any) {
     const name = clean(input.name)
     const code = clean(input.code)

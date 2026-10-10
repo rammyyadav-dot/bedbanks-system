@@ -5,9 +5,12 @@ const zlib = require('zlib')
 const { createRequire } = require('module')
 const req = createRequire(path.join(__dirname, '../../apps/website/package.json'))
 const { chromium } = req('@playwright/test')
+const AxeBuilder = req('@axe-core/playwright').default
 const seed = require(process.env.SEED_JSON ?? path.join(__dirname, '.seed-hotel-journey.json'))
 const BASE = process.env.ADMIN_URL ?? 'http://localhost:3000'
 const results = []
+const SHOT_DIR = process.env.SHOT_DIR
+if (SHOT_DIR) require('fs').mkdirSync(SHOT_DIR, { recursive: true })
 const check = (name, ok, extra = '') => { results.push({ name, ok: !!ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + String(extra).slice(0, 160) : ''}`) }
 
 /** A real, decodable PNG (solid colour), built without dependencies. */
@@ -27,13 +30,15 @@ async function login(browser, email) {
 }
 
 ;(async () => {
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH, args: ['--no-sandbox'] } : {}) })
   const { page } = await login(browser, seed.makerEmail)
 
   // ---- 1. Add hotel hands off into Hotel Setup ----
   await page.goto(`${BASE}/hotels/new`); await page.waitForSelector('form')
   check('Add hotel explains the journey and that publication needs a second person', /second person must approve/.test(await page.getByTestId('new-hotel-steps').innerText()))
-  await page.getByLabel(/^name$/i).fill('Journey Palm Hotel'); await page.getByLabel(/^city$/i).fill('Dubai'); await page.getByLabel(/^country code$/i).fill('AE')
+  await page.getByRole('button', { name: 'Create hotel', exact: true }).click()
+  check('required creation fields block an incomplete submit', new URL(page.url()).pathname === '/hotels/new' && await page.locator('input:invalid').count() > 0)
+  await page.getByLabel(/^name$/i).fill('Journey Palm Hotel'); await page.getByLabel(/City \/ destination/i).fill('Dubai'); await page.getByLabel(/Country \(ISO-2\)/i).fill('AE'); await page.getByLabel('IANA time zone').fill('Asia/Dubai')
   await page.getByRole('button', { name: 'Create hotel' }).click(); await page.waitForURL(/\/hotels\/[^/?]+\?tab=setup/, { timeout: 20000 }); await page.waitForSelector('[data-testid=setup-form]', { timeout: 20000 })
   const hotelId = new URL(page.url()).pathname.split('/').pop()
   check('creating a hotel on the strict role succeeds and opens Hotel Setup', Boolean(hotelId) && /tab=setup/.test(page.url()))
@@ -44,6 +49,10 @@ async function login(browser, email) {
   await page.getByLabel('Source of the category').fill('Tourism authority register'); await page.getByLabel('Short description (max 500)').fill('A quiet hotel on the Palm.')
   await page.getByLabel('Check-in time (hotel local)').fill('14:00'); await page.getByLabel('Check-out time (hotel local)').fill('12:00')
   await page.getByLabel('reservations name').fill('Front desk'); await page.getByLabel('reservations email').fill('journey-res@hotel.test')
+  await page.getByLabel('Longitude').fill('')
+  await page.getByTestId('setup-save').click(); await page.getByTestId('setup-error').waitFor()
+  check('server coordinate validation is shown contextually without saving the draft', /latitude and longitude/i.test(await page.getByTestId('setup-error').innerText()))
+  await page.getByLabel('Longitude').fill('55.1234')
   await page.getByTestId('setup-save').click(); await page.waitForSelector('[data-testid=setup-notice]:has-text("Saved")', { timeout: 15000 })
   await page.reload(); await page.waitForSelector('[data-testid=setup-form]')
   check('Hotel Setup saves the profile and the hotel row on the strict role, read back after a reload', (await page.getByLabel('Street address').inputValue()) === '1 Palm Road' && (await page.getByLabel('Area').inputValue()) === 'Palm Jumeirah')
@@ -97,6 +106,51 @@ async function login(browser, email) {
   // ---- 6. A privileged path is a typed 403, not a crash ----
   const refused = await page.evaluate(async (id) => { const r = await fetch(`/api/v1/supply/hotels/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ externalRef: 'privileged-column' }) }); return { status: r.status, body: await r.json().catch(() => ({})) } }, hotelId)
   check('a privileged column (hotel external_ref, supply authoring) answers a typed 403 with no database text', refused.status === 403 && refused.body.error?.code === 'RUNTIME_ROLE_OPERATION_PROHIBITED' && !/permission denied|42501|external_ref|Hotel"/.test(JSON.stringify(refused.body)), JSON.stringify(refused.body).slice(0, 120))
+
+  // ---- 7. Enterprise overview, real API reads and reviewed lifecycle ----
+  await page.goto(`${BASE}/hotels/${hotelId}`)
+  await page.getByTestId('hotel-profile').waitFor()
+  await page.getByTestId('overview-linked-records').waitFor()
+  await page.waitForSelector('[data-testid=auth-image]')
+  check('overview shows persisted descriptions, operations, contacts, amenities and primary image', /A quiet hotel on the Palm/.test(await page.getByTestId('hotel-profile').innerText()) && /journey-res@hotel.test/.test(await page.getByTestId('hotel-profile').innerText()) && (await page.getByTestId('auth-image').count()) === 1)
+  check('a published profile with no commercial supply is not presented as sellable', /Buyer-independent supply coverage: Not available/.test(await page.getByTestId('overview-linked-records').innerText()))
+  for (const width of [320, 390, 768, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
+    check(`enterprise overview fits ${width}px`, !overflow)
+    if (SHOT_DIR) await page.screenshot({ path: path.join(SHOT_DIR, `overview-${width}.png`), fullPage: true })
+  }
+  const axe = await new AxeBuilder({ page }).include('[data-testid=hotel-profile]').include('[data-testid=overview-linked-records]').analyze()
+  check('profile and linked operational summaries pass axe', axe.violations.length === 0, axe.violations.map(v => v.id).join(','))
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(`${BASE}/hotels/${hotelId}?tab=setup`)
+  await page.getByTestId('status-form').waitFor()
+  await page.getByLabel('Change to').selectOption('ARCHIVED')
+  await page.getByTestId('status-form').getByLabel('Reason (required)', { exact: true }).fill('Property retired from distribution')
+  await page.getByRole('button', { name: 'Apply status', exact: true }).click()
+  await page.waitForSelector('[data-testid=profile-status]:has-text("ARCHIVED")')
+  check('archive is non-destructive and disables publication request controls', (await page.getByTestId('publication-request').count()) === 0)
+  await page.goto(`${BASE}/hotels/${hotelId}`)
+  await page.getByTestId('hotel-profile').waitFor()
+  check('archived overview retains the canonical id, primary image and linked room', (await page.getByTestId('hotel-profile').innerText()).includes(hotelId) && (await page.getByTestId('overview-linked-records').innerText()).includes('Deluxe King'))
+  if (SHOT_DIR) await page.screenshot({ path: path.join(SHOT_DIR, 'overview-archived.png'), fullPage: true })
+  await page.goto(`${BASE}/hotels/new`)
+  await page.getByLabel(/^name$/i).fill('Journey Palm Hotel')
+  await page.getByLabel(/^address$/i).fill('1 Palm Road')
+  await page.getByLabel(/City \/ destination/i).fill('Dubai')
+  await page.getByLabel(/Country \(ISO-2\)/i).fill('AE')
+  await page.getByLabel('IANA time zone').fill('Asia/Dubai')
+  await page.getByRole('button', { name: 'Create hotel', exact: true }).click()
+  await page.locator('form [role=alert]').waitFor()
+  check('duplicate property creation reports the canonical conflict in the UI', /already exists/.test(await page.locator('form [role=alert]').innerText()), await page.locator('form [role=alert]').innerText())
+  const reader = await login(browser, seed.viewerEmail)
+  await reader.page.goto(`${BASE}/hotels/${hotelId}`)
+  await reader.page.getByTestId('overview-contacts-hidden').waitFor()
+  check('read-only admin sees no private contacts or restricted operational details', !(await reader.page.getByTestId('hotel-profile').innerText()).includes('journey-res@hotel.test') && /require.*permission/.test(await reader.page.getByTestId('overview-linked-records').innerText()))
+  await reader.page.goto(`${BASE}/hotels/new`)
+  await reader.page.getByText('Hotel creation requires hotel management permission.').waitFor()
+  check('read-only creation control is disabled', await reader.page.getByRole('button', { name: 'Create hotel', exact: true }).isDisabled())
+  await reader.ctx.close()
 
   await browser.close()
   const failed = results.filter((r) => !r.ok)

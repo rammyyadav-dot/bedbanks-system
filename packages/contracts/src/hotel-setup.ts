@@ -19,7 +19,7 @@ export const HOTEL_POLICY_LABELS: Record<HotelPolicyKey, string> = {
   children: 'Children', extraBeds: 'Extra beds', pets: 'Pets', accessibility: 'Accessibility', localCharges: 'Local charges (paid at the hotel)',
 };
 
-export const HOTEL_PROFILE_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED'] as const;
+export const HOTEL_PROFILE_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED', 'ARCHIVED'] as const;
 export type HotelProfileStatus = (typeof HOTEL_PROFILE_STATUSES)[number];
 /** Property types the UI offers. The API accepts any non-empty value that is already used elsewhere in the tenant. */
 export const HOTEL_PROPERTY_TYPES = ['HOTEL', 'RESORT', 'APARTMENT', 'VILLA', 'HOSTEL', 'GUESTHOUSE'] as const;
@@ -112,3 +112,6 @@ export interface HotelPublicationApproval {
 export interface HotelPublicationRequest { requestId: string; expectedToken: string; reason: string }
 export interface HotelPublicationDecision { reason: string }
 export interface HotelPublicationResult { approval: HotelPublicationApproval; setup: HotelSetupView }
+
+/** Suggestions from canonical tenant hotels, not a parallel geographical master. New destinations remain explicitly editable. */
+export interface HotelLocationOptions { countries: string[]; cities: string[]; countryCode: string | null; capped: boolean }

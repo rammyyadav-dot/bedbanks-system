@@ -63,7 +63,9 @@ export function HotelProfile({ setup: s, canManage }: { setup: HotelSetupView; c
       <Facts rows={[
         ['Profile status', s.governance.status], ['Source system', s.governance.sourceSystem],
         ['Internal owner', canManage && s.governance.owner ? `${s.governance.owner.name || 'Unnamed member'} (${s.governance.owner.email})` : s.governance.ownerUserId ? 'Assigned member' : null],
+        ['Approved by', s.governance.approvedById], ['Last editor', s.governance.updatedById],
         ['Approved at', s.governance.approvedAt ? when(s.governance.approvedAt) : null], ['Last saved', when(s.governance.updatedAt)],
+        ['Publication requested by', s.publication?.requestedById], ['Publication reviewer', s.publication?.decidedById], ['Review reason', s.publication?.decisionReason],
         ['Publication request', s.publication ? `${s.publication.status}${s.publication.changedSinceRequest ? ' · profile changed since request' : ''}` : 'No open request'],
       ]} />
       <p className={styles.note}>{s.profileExists ? 'Saved hotel profile.' : 'No extended profile saved yet. Open Hotel Setup to complete it.'}</p>

@@ -60,6 +60,7 @@ export class HotelPublicationService {
     if (typeof body?.expectedToken !== 'string' || !body.expectedToken) throw new BadRequestException('expectedToken is required')
     const { data, version } = await this.state(tenantId, hotelId)
     if (body.expectedToken !== version) this.setup.stale()
+    if (data.hotel.contentStatus === 'ARCHIVED') throw new ConflictException({ code: 'HOTEL_ARCHIVED', message: 'Restore the archived hotel to DRAFT before requesting publication.' })
     if (data.hotel.contentStatus === 'COMPLETE') throw new ConflictException('The hotel is already published')
     this.unmet(data)
     const open = await this.openRequest(tenantId, data.hotel.id, version)
