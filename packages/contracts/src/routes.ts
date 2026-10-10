@@ -10,6 +10,7 @@ export const routes = {
     images: '/admin/hotels/:hotelId/images', imagesOrder: '/admin/hotels/:hotelId/images/order', image: '/admin/hotels/:hotelId/images/:imageId', imageContent: '/admin/hotels/:hotelId/images/:imageId/content',
   },
   adminHotelSetup: {
+    locationOptions: '/admin/hotels/location-options',
     setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status', ownerCandidates: '/admin/hotels/:hotelId/setup/owner-candidates',
     publicationRequest: '/admin/hotels/:hotelId/setup/publication/request',
     publicationApprove: '/admin/hotels/:hotelId/setup/publication/:approvalId/approve', publicationReject: '/admin/hotels/:hotelId/setup/publication/:approvalId/reject',

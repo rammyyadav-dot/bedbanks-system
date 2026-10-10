@@ -30,7 +30,7 @@ import { HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/l
 const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'supply.availability.read' | 'supply.rooms.read' | 'booking.read' | 'audit.read'>> = {
   rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', inventory: 'supply.availability.read', bookings: 'booking.read', audit: 'audit.read',
 }
-const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
+const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : ['SUSPENDED', 'ARCHIVED'].includes(value) ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
 
 function Hotel360() {
   const { id } = useParams<{ id: string }>()
@@ -46,7 +46,7 @@ function Hotel360() {
           <>
             <PageHeader eyebrow={`HOTEL · ${data.hotel.code ?? data.hotel.id}`} title={data.hotel.name} description={`${data.hotel.city}, ${data.hotel.countryCode} · ${data.hotel.propertyType} · ${starsText(data.hotel.starRating)}`} actions={<Link href="/hotels" className="admin-btn">All hotels</Link>} />
             <dl data-testid="hotel-header" className="hotel-facts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px 16px', margin: '0 0 12px' }}>
-              <div><dt>Hotel status</dt><dd><StatusBadge status={entityStatus(data.hotel.contentStatus)} /> {data.hotel.contentStatus}</dd></div>
+              <div><dt>Profile lifecycle</dt><dd><StatusBadge status={entityStatus(data.hotel.contentStatus)} /> {data.hotel.contentStatus}</dd></div>
               <div><dt>Commercial readiness</dt><dd><ReadinessChip value={data.readiness} blockers={data.blockers} /></dd></div>
               <div><dt>Supply coverage (buyer-independent)</dt><dd><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
               <div><dt>Supplier</dt><dd>{data.suppliers.length ? data.suppliers.map((s) => s.displayName).join(', ') : '—'}</dd></div>
@@ -60,7 +60,13 @@ function Hotel360() {
             <nav aria-label="Hotel sections">
               <div className="admin-tabs" role="tablist">
                 {visibleTabs.map((t) => (
-                  <Link key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id} aria-controls="hotel-panel" href={hotelHref(id, t.id)} replace scroll={false} className={`admin-tab ${tab === t.id ? 'active' : ''}`}>{t.label}{t.id === 'overview' && data.issues.length > 0 ? ` (${data.issues.length})` : ''}</Link>
+                  <Link key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id} aria-controls="hotel-panel" tabIndex={tab === t.id ? 0 : -1} onKeyDown={event => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                    const links = Array.from(event.currentTarget.parentElement!.querySelectorAll<HTMLAnchorElement>('[role="tab"]'))
+                    const index = links.indexOf(event.currentTarget)
+                    const next = event.key === 'Home' ? 0 : event.key === 'End' ? links.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + links.length) % links.length
+                    event.preventDefault(); links[next]?.focus()
+                  }} href={hotelHref(id, t.id)} replace scroll={false} className={`admin-tab ${tab === t.id ? 'active' : ''}`}>{t.label}{t.id === 'overview' && data.issues.length > 0 ? ` (${data.issues.length})` : ''}</Link>
                 ))}
               </div>
             </nav>

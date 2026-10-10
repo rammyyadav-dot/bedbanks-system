@@ -32,7 +32,7 @@ export function evaluateNightSellability(plan: NightSellabilityPlan | null, inpu
     reasons.push('RATE_PLAN_MISSING')
     return reasons
   }
-  if (plan.roomType.hotel.contentStatus === 'SUSPENDED') reasons.push('HOTEL_INACTIVE')
+  if (['SUSPENDED', 'ARCHIVED'].includes(plan.roomType.hotel.contentStatus)) reasons.push('HOTEL_INACTIVE')
   if (!plan.roomType.isActive) reasons.push('ROOM_TYPE_INACTIVE')
   if (!plan.boardBasis.isActive) reasons.push('BOARD_BASIS_INACTIVE')
   if (plan.contract.supplier.status !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE')

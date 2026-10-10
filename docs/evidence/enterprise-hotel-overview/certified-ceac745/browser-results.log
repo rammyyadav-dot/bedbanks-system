@@ -1,0 +1,28 @@
+PASS  Add hotel explains the journey and that publication needs a second person
+PASS  required creation fields block an incomplete submit
+PASS  creating a hotel on the strict role succeeds and opens Hotel Setup
+PASS  server coordinate validation is shown contextually without saving the draft
+PASS  Hotel Setup saves the profile and the hotel row on the strict role, read back after a reload
+PASS  a room with bedding and an amenity is created on the strict role
+PASS  archive keeps the room listed and restore makes it ACTIVE again
+PASS  hotel amenities save on the strict role, read back after a reload
+PASS  an image uploads and the browser decodes the bytes served back on the strict role
+PASS  the API reports every publication requirement met  — 12 of 12 publication requirements met — the profile can be published. A draft can be saved incomplete.
+PASS  the requester cannot approve their own publication request
+PASS  after a second person approves, the hotel is published (COMPLETE)
+PASS  a privileged column (hotel external_ref, supply authoring) answers a typed 403 with no database text  — {"success":false,"error":{"code":"RUNTIME_ROLE_OPERATION_PROHIBITED","message":"This operation is not available through 
+PASS  overview shows persisted descriptions, operations, contacts, amenities and primary image
+PASS  a published profile with no commercial supply is not presented as sellable
+PASS  enterprise overview fits 320px
+PASS  enterprise overview fits 390px
+PASS  enterprise overview fits 768px
+PASS  enterprise overview fits 1280px
+PASS  enterprise overview fits 1440px
+PASS  profile and linked operational summaries pass axe
+PASS  archive is non-destructive and disables publication request controls
+PASS  archived overview retains the canonical id, primary image and linked room
+PASS  duplicate property creation reports the canonical conflict in the UI  — A hotel with the same name, country, city and street address already exists in this tenant.
+PASS  read-only admin sees no private contacts or restricted operational details
+PASS  read-only creation control is disabled
+
+26/26 checks passed

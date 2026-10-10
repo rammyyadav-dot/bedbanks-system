@@ -10,6 +10,8 @@ import { getHotelSetup } from '@/lib/data/hotel-setup'
 import { getHotelAudit } from '@/lib/data/hotel-commercial'
 import { getHotelImages } from '@/lib/data/hotel-images'
 import { getHotelAmenities } from '@/lib/data/hotel-rooms'
+import { HotelOperationalSummary } from '../HotelOperationalSummary'
+import { amenityGroup } from '@/lib/hotel-amenity-groups'
 import { AuthImage } from '../AuthImage'
 import { HotelProfile, ProfileCard } from '../HotelProfile'
 import styles from '../HotelProfile.module.css'
@@ -68,6 +70,7 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
         {showAudit && <p style={{ fontSize: 11, margin: '8px 0 0' }}><Link href={hotelHref(data.hotel.id, 'audit')}>Full audit trail</Link></p>}
       </div>
       </div>
+      <HotelOperationalSummary data={data} />
       {setup.state.status === 'ready' && <HotelProfile setup={setup.state.data} canManage={canManage} />}
       <div className={styles.grid}>
         <ProfileCard title="Hotel photos" hotelId={data.hotel.id} tab="images" action={canManage ? 'Manage' : 'View'}>
@@ -83,7 +86,7 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
         </ProfileCard>
         <ProfileCard title="Hotel amenities" hotelId={data.hotel.id} tab="amenities" action={canManage ? 'Edit' : 'View'}>
           <OpsState state={amenities.state} onRetry={amenities.reload}>
-            {(d) => d.hotel.length ? <ul className={styles.list}>{d.hotel.map(a => <li key={a.code}>{d.catalogue.find(c => c.code === a.code)?.label ?? a.code} · {a.feeType === 'FREE' ? 'Free' : a.feeType === 'PAID' ? 'Paid' : 'Fee not known'}</li>)}</ul> : <p className={styles.note}>No hotel amenities recorded.</p>}
+            {(d) => d.hotel.length ? <ul className={styles.list}>{d.hotel.map(a => <li key={a.code}><strong>{amenityGroup(a.code)}</strong> · {d.catalogue.find(c => c.code === a.code)?.label ?? a.code} · {a.feeType === 'FREE' ? 'Free' : a.feeType === 'PAID' ? 'Paid' : 'Fee not known'}</li>)}</ul> : <p className={styles.note}>No hotel amenities recorded.</p>}
           </OpsState>
           <p className={styles.note}>Unrecorded amenities do not mean the hotel lacks them. Room amenities are listed with each room.</p>
         </ProfileCard>

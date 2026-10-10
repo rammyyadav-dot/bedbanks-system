@@ -6,7 +6,8 @@ import {
 import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
 import { idParam, likeLiteral, textParam } from '../admin-operations/query-params'
-import { setupToken } from './hotel-setup-shared'
+import { assertHotelIdentityAvailable } from './hotel-identity'
+import { lockHotelSetup, setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
 
 const STATUS_CHANGED = 'hotel.setup.status_changed'
@@ -123,11 +124,13 @@ export class HotelSetupService {
     if (data.changed.length === 0) throw new BadRequestException('Nothing to save: no field was supplied')
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
+        await lockHotelSetup(tx, tenantId, hotelId)
         const before = await this.load(tx, tenantId, hotelId)
         const again = await this.replayed(tx, tenantId, before.hotel.id, SAVED, key)
         if (again) return { setup: this.toView(before, true), auditRequestId: again.requestId ?? '', replayed: true }
         if (body.expectedToken !== this.token(before.hotel, before.profile)) this.stale()
 
+        if (Object.keys(data.hotel).some(k => ['name', 'city', 'countryCode', 'address'].includes(k))) await assertHotelIdentityAvailable(tx, tenantId, { ...before.hotel, ...data.hotel }, before.hotel.id)
         const beforeCurrent = this.current(before.hotel, before.profile, before.activeRooms)
         const afterCurrent: CurrentSetup = {
           ...beforeCurrent, ...data.hotel,
@@ -187,16 +190,18 @@ export class HotelSetupService {
   async changeStatus(tenantId: string, userId: string, hotelId: string, body: HotelSetupStatusChange, requestId: string | null): Promise<HotelSetupSaved> {
     const key = this.key(body?.idempotencyKey)
     if (typeof body.expectedToken !== 'string' || !body.expectedToken) throw new BadRequestException('expectedToken is required')
-    if (!(HOTEL_PROFILE_STATUSES as readonly string[]).includes(body.to)) throw new BadRequestException('to must be DRAFT, INCOMPLETE, COMPLETE or SUSPENDED')
+    if (!(HOTEL_PROFILE_STATUSES as readonly string[]).includes(body.to)) throw new BadRequestException('to must be DRAFT, INCOMPLETE, COMPLETE, SUSPENDED or ARCHIVED')
     const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
     if (reason.length < 3 || reason.length > 500) throw new BadRequestException('A reason of 3 to 500 characters is required')
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
+        await lockHotelSetup(tx, tenantId, hotelId)
         const before = await this.load(tx, tenantId, hotelId)
         const again = await this.replayed(tx, tenantId, before.hotel.id, STATUS_CHANGED, key)
         if (again) return { setup: this.toView(before, true), auditRequestId: again.requestId ?? '', replayed: true }
         if (body.expectedToken !== this.token(before.hotel, before.profile)) this.stale()
         if (before.hotel.contentStatus === body.to) throw new ConflictException('The hotel already has this status')
+        if (before.hotel.contentStatus === 'ARCHIVED' && body.to !== 'DRAFT') throw new ConflictException({ code: 'HOTEL_ARCHIVED', message: 'Restore the archived hotel to DRAFT before any other lifecycle change.' })
         if (body.to === 'COMPLETE') throw new ConflictException({ message: 'Publishing a hotel needs a second approver. Make a publication request instead.', code: 'HOTEL_PUBLICATION_REQUIRES_APPROVAL' })
         const now = new Date()
         await tx.hotel.update({ where: { id: before.hotel.id }, data: { contentStatus: body.to, updatedAt: now } })

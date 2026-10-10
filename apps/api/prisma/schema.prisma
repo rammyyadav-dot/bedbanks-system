@@ -500,6 +500,7 @@ enum ContentStatus {
   INCOMPLETE
   COMPLETE
   SUSPENDED
+  ARCHIVED
 }
 
 enum ContractStatus {

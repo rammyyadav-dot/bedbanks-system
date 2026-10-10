@@ -149,8 +149,9 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
 
   afterAll(async () => {
     restoreBookingOps()
-    mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/dubai-100-metrics.json', JSON.stringify({
+    const artifactDir = process.env.TEST_ARTIFACT_DIR ?? '/opt/cursor/artifacts'
+    mkdirSync(artifactDir, { recursive: true })
+    writeFileSync(`${artifactDir}/dubai-100-metrics.json`, JSON.stringify({
       ...measured, hotels: HOTEL_COUNT, offers: HOTEL_COUNT, activePlans: HOTEL_COUNT * PLANS_PER_HOTEL,
       sellableNights: sellableNights.length, cachePolicy: 'contracted-inventory-uncached',
     }, null, 2))

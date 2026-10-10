@@ -1,5 +1,7 @@
 'use client'
 
+import { HotelLocationFields } from '../HotelLocationFields'
+
 import { useMemo, useRef, useState } from 'react'
 import {
   HOTEL_CONTACT_KINDS, HOTEL_PROFILE_STATUSES, HOTEL_PROPERTY_TYPES, KNOWN_EXTERNAL_SCHEMES,
@@ -190,14 +192,12 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
           </div>
         </>)}
         {section('Location', <>
-          {input('countryCode', 'Country (ISO-2)', { maxLength: 2, required: true })}
-          {input('city', 'City', { maxLength: 120, required: true })}
+          <HotelLocationFields countryCode={form.countryCode} city={form.city} timeZone={form.timeZone} readOnly={ro} onChange={set} />
           {input('area', 'Area', { maxLength: 120 })}
           {input('address', 'Street address', { maxLength: 300 })}
           {input('postalCode', 'Postal code', { maxLength: 20 })}
           {input('latitude', 'Latitude', { inputMode: 'decimal', placeholder: '25.197200' })}
           {input('longitude', 'Longitude', { inputMode: 'decimal', placeholder: '55.274400' })}
-          {input('timeZone', 'IANA time zone', { maxLength: 64, required: true, placeholder: 'Asia/Dubai' })}
         </>, 'Release and cancellation deadlines use this time zone.')}
         {section('Classification', <>
           <label style={field}>Star category<select className="input-wrap" value={form.starRating} onChange={(e) => set('starRating', e.target.value)} disabled={ro}><option value="">Unrated</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} star{n === 1 ? '' : 's'}</option>)}</select></label>
@@ -273,7 +273,7 @@ function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; set
       <h2 style={{ fontSize: 14, margin: 0 }}>Profile approval</h2>
       <p style={note}>Current status: <strong data-testid="profile-status">{setup.governance.status}</strong>{setup.governance.approvedAt ? ` · approved ${when(setup.governance.approvedAt)}` : ''}. Publishing needs a second approver (see Publication). Publishing makes the hotel eligible for the Agent catalogue. It does not enable booking, payment or supplier access; commercial readiness is assessed separately. Withdrawing or suspending a hotel takes effect at once.</p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
-        <label style={field}>Change to<select className="input-wrap" value={to} onChange={(e) => { key.current = null; setTo(e.target.value as HotelProfileStatus) }}>{HOTEL_PROFILE_STATUSES.filter((s) => s !== setup.governance.status && s !== 'COMPLETE').map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+        <label style={field}>Change to<select className="input-wrap" value={to} onChange={(e) => { key.current = null; setTo(e.target.value as HotelProfileStatus) }}>{HOTEL_PROFILE_STATUSES.filter((s) => s !== setup.governance.status && s !== 'COMPLETE' && (setup.governance.status !== 'ARCHIVED' || s === 'DRAFT')).map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
         <label style={{ ...field, minWidth: 260 }}>Reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { key.current = null; setReason(e.target.value) }} /></label>
         <button type="submit" className="button primary" disabled={busy || reason.trim().length < 3}>{busy ? 'Applying…' : 'Apply status'}</button>
       </div>
@@ -291,6 +291,7 @@ function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup
   const [notice, setNotice] = useState<string | null>(null)
   const unmet = setup.completeness.requirements.filter((r) => !r.met)
   if (setup.governance.status === 'COMPLETE') return null
+  if (setup.governance.status === 'ARCHIVED') return <p className="workspace-panel" style={{ padding: 18 }}>Archived hotels cannot be submitted for publication. Restore to DRAFT using the status control before requesting review.</p>
   async function run(label: string, call: (key: string) => ReturnType<typeof requestHotelPublication>, done: string, reuseKey = false) {
     if (inFlight.current) return
     inFlight.current = true; setBusy(true); setNotice(null)

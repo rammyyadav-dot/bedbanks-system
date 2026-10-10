@@ -16,3 +16,9 @@
 .imageFallback { display: grid; place-items: center; padding: 24px; aspect-ratio: 4 / 3; background: #eef3f5; border-radius: 8px; color: #3f565c; font-size: 13px; }
 .list { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 13px; }
 @media (max-width: 420px) { .facts > div { grid-template-columns: 1fr; gap: 3px; } }
+
+.grid > :global(.workspace-panel) { min-width: 0; overflow-wrap: anywhere; }
+.grid :global([data-gate]) { grid-template-columns: minmax(0, 1fr) auto !important; }
+.grid :global([data-gate] > span:last-child) { grid-column: 1 / -1; }
+.grid :global([data-testid="overview-facts"]) { grid-template-columns: minmax(0, .8fr) minmax(0, 1.5fr) !important; }
+.grid :global([data-testid="overview-facts"] dd) { margin: 0; min-width: 0; }
