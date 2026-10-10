@@ -1,0 +1,16 @@
+Pre-fix regression failure excerpts (synthetic disposable data):
+  ● hotel setup (PostgreSQL, HTTP, two tenants) › enterprise publication serializes with a reviewed setup edit before checking approval freshness
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 409
+    Received: 200
+
+      878 |       const [saved, published] = await Promise.all([edit, execution])
+      879 |       expect(saved.status).toBe(200)
+    > 880 |       expect(published.status).toBe(409)
+          |                                ^
+      881 |       expect(published.body.error.code).toBe('HOTEL_CHANGED_AFTER_APPROVAL')
+      882 |       const current = await load(id)
+      883 |       expect(current.governance.status).toBe('DRAFT')
+

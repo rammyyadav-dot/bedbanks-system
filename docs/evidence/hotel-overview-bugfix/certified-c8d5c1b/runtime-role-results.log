@@ -1,0 +1,8 @@
+{"ok":true,"failures":[]}
+[
+  {
+    current_user: 'fbeds_api_login',
+    rolsuper: false,
+    rolbypassrls: false
+  }
+]
