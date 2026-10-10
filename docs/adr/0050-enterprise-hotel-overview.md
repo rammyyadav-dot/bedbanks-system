@@ -14,6 +14,8 @@ Existing database uniqueness for tenant external references, external identifier
 
 Setup save/status operations serialize their reviewed-token check through a per-hotel transaction lock. Legacy hotel edits additionally use updatedAt compare-and-swap, cannot introduce publication, cannot enter/leave ARCHIVED, and cannot remove an existing publication requirement while remaining COMPLETE. A legacy category change clears verification.
 
+Publication execution, canonical/legacy room authoring and amenity saves now share that hotel lock before checking current state. Canonical and legacy room edits use one shared last-active-room rule; concurrent archives cannot remove every active room of a published property. Room writes bump the existing Setup version so a prior publication approval must be reviewed again. No new status, approval engine or database authority is introduced.
+
 ## Location and presentation
 
 Location suggestions are tenant-scoped distinct country/city strings from canonical hotels, bounded to 250 countries and 200 cities, permission-guarded with no public geography fallback. Country selection uses ISO-2 format; new destinations remain explicitly editable because the current schema has no geographical master. Time zone must be deliberately entered in the Admin creation form; IANA validation uses the existing server rule. No geocoding or inference is added.

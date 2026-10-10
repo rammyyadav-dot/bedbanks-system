@@ -850,6 +850,83 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(responses.find(r => r.status === 409)!.body.error.code).toBe('HOTEL_SETUP_STALE')
   })
 
+  it('enterprise legacy room edits cannot archive the last active room of a published hotel', async () => {
+    const id = await newDraft('Legacy room publication')
+    const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Only room', code: 'ONLY', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    await publish(id)
+    const blocked = await api('patch', `/supply/hotels/${id}/rooms/${room.id}`, 'manager', { isActive: false }).expect(422)
+    expect(blocked.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENT_LOST')
+    expect((await prisma.roomType.findUniqueOrThrow({ where: { id: room.id } })).isActive).toBe(true)
+  })
+
+  it('enterprise parallel room archives preserve the last active room of a published hotel', async () => {
+    const id = await newDraft('Parallel room publication')
+    const rooms = await Promise.all(['A', 'B'].map(code => prisma.roomType.create({ data: { hotelId: id, name: `Room ${code}`, code, maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })))
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    await publish(id)
+    const responses = await Promise.all(rooms.map(r => api('post', `/admin/hotels/${id}/rooms/${r.id}/archive`, 'manager', { idempotencyKey: key(), expectedToken: String(r.updatedAt.getTime()), reason: 'Close for renovation' })))
+    expect(responses.map(r => r.status).sort()).toEqual([200, 422])
+    expect(await prisma.roomType.count({ where: { hotelId: id, isActive: true } })).toBe(1)
+  })
+
+  it.each(['canonical', 'legacy'])('enterprise %s room changes invalidate an already approved profile version', async route => {
+    const id = await newDraft(`${route} room review`)
+    const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Reviewed room', code: 'REVIEW', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    const token = (await load(id)).concurrencyToken
+    const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed property and room' }).expect(200)).body.data
+    await api('post', `${pubPath(id)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked room details' }).expect(200)
+    if (route === 'canonical') await api('patch', `/admin/hotels/${id}/rooms/${room.id}`, 'manager', { idempotencyKey: key(), expectedToken: String(room.updatedAt.getTime()), name: 'Changed room' }).expect(200)
+    else await api('patch', `/supply/hotels/${id}/rooms/${room.id}`, 'manager', { name: 'Changed room' }).expect(200)
+    expect((await load(id)).concurrencyToken).not.toBe(token)
+    const blocked = await api('post', `${pubPath(id)}/${made.approval.id}/execute`, 'manager', {}).expect(409)
+    expect(blocked.body.error.code).toBe('HOTEL_CHANGED_AFTER_APPROVAL')
+  })
+
+  it('enterprise amenities serialize two writes against the same reviewed setup token', async () => {
+    const id = await newDraft('Concurrent amenities')
+    const token = (await load(id)).concurrencyToken
+    const responses = await Promise.all(['POOL', 'SPA'].map(code => api('put', `/admin/hotels/${id}/amenities`, 'manager', { idempotencyKey: key(), expectedToken: token, amenities: [{ code, feeType: 'FREE' }] })))
+    expect(responses.map(r => r.status).sort()).toEqual([200, 409])
+    expect(responses.find(r => r.status === 409)!.body.error.code).toBe('HOTEL_SETUP_STALE')
+  })
+
+  it('enterprise publication serializes with a reviewed setup edit before checking approval freshness', async () => {
+    const id = await newDraft('Publication edit race')
+    await prisma.roomType.create({ data: { hotelId: id, name: 'Race room', code: 'RACE', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    const token = (await load(id)).concurrencyToken
+    const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed complete content' }).expect(200)).body.data
+    await api('post', `${pubPath(id)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked content' }).expect(200)
+    const service = app.get(HotelSetupService)
+    const original = service.load.bind(service)
+    let release!: () => void, entered!: () => void
+    const paused = new Promise<void>(resolve => { entered = resolve })
+    const resume = new Promise<void>(resolve => { release = resolve })
+    let held = false
+    const spy = jest.spyOn(service, 'load').mockImplementation(async (...args) => {
+      const state = await original(...args)
+      if (args[2] === id && !held) { held = true; entered(); await resume }
+      return state
+    })
+    const edit = save(id, token, { address: null }).then(response => response)
+    try {
+      await paused // Setup holds its transaction lock with the reviewed DRAFT snapshot.
+      const execution = api('post', `${pubPath(id)}/${made.approval.id}/execute`, 'manager', {}).then(response => response)
+      // Give publication time to reach its lock (or finish on the unsafe implementation).
+      await Promise.race([execution, new Promise(resolve => setTimeout(resolve, 250))])
+      release()
+      const [saved, published] = await Promise.all([edit, execution])
+      expect(saved.status).toBe(200)
+      expect(published.status).toBe(409)
+      expect(published.body.error.code).toBe('HOTEL_CHANGED_AFTER_APPROVAL')
+      const current = await load(id)
+      expect(current.governance.status).toBe('DRAFT')
+      expect(current.completeness.publishable).toBe(false)
+    } finally { release(); await edit; spy.mockRestore() }
+  })
+
   it('enterprise archive: preserves identifiers and linked rooms, refuses publication and supports reviewed restoration', async () => {
     const id = await newDraft('Archive lifecycle')
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)

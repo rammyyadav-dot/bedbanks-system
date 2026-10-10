@@ -7,7 +7,7 @@ import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
 import { idParam, likeLiteral, textParam } from '../admin-operations/query-params'
 import { assertHotelIdentityAvailable } from './hotel-identity'
-import { setupToken } from './hotel-setup-shared'
+import { lockHotelSetup, setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
 
 const STATUS_CHANGED = 'hotel.setup.status_changed'
@@ -124,7 +124,7 @@ export class HotelSetupService {
     if (data.changed.length === 0) throw new BadRequestException('Nothing to save: no field was supplied')
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`hotel-setup:${tenantId}:${hotelId}`}, 0))`
+        await lockHotelSetup(tx, tenantId, hotelId)
         const before = await this.load(tx, tenantId, hotelId)
         const again = await this.replayed(tx, tenantId, before.hotel.id, SAVED, key)
         if (again) return { setup: this.toView(before, true), auditRequestId: again.requestId ?? '', replayed: true }
@@ -195,7 +195,7 @@ export class HotelSetupService {
     if (reason.length < 3 || reason.length > 500) throw new BadRequestException('A reason of 3 to 500 characters is required')
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`hotel-setup:${tenantId}:${hotelId}`}, 0))`
+        await lockHotelSetup(tx, tenantId, hotelId)
         const before = await this.load(tx, tenantId, hotelId)
         const again = await this.replayed(tx, tenantId, before.hotel.id, STATUS_CHANGED, key)
         if (again) return { setup: this.toView(before, true), auditRequestId: again.requestId ?? '', replayed: true }

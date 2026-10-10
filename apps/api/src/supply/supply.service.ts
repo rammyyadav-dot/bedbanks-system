@@ -1,4 +1,5 @@
 import { assertHotelIdentityAvailable } from '../hotel-setup/hotel-identity'
+import { assertRoomActivationAllowed, lockHotelSetup, touchSetup } from '../hotel-setup/hotel-setup-shared'
 import { isIanaTimeZone, assessCompleteness, regressions } from '../hotel-setup/hotel-setup-rules'
 import { occupancyProblems } from './room-rules'
 import { enabledCurrency } from '../agent/currency'
@@ -161,6 +162,7 @@ export class SupplyService {
     if (data.contentStatus === 'COMPLETE' && current.contentStatus !== 'COMPLETE') this.refusePublication()
     try {
       return await this.write(tenantId, userId, 'supply.hotels.manage', 'supply.hotel.updated', 'hotel', requestId, async tx => {
+        await lockHotelSetup(tx, tenantId, hotelId)
         if (data.contentStatus !== current.contentStatus && [data.contentStatus, current.contentStatus].includes('ARCHIVED')) {
           throw new ConflictException({ code: 'HOTEL_STATUS_REQUIRES_SETUP', message: 'Change hotel lifecycle through Hotel Setup with a concurrency token and reason.' })
         }
@@ -213,22 +215,35 @@ export class SupplyService {
   async createRoom(tenantId: string, userId: string, hotelId: string, input: any, requestId?: string) {
     if (Object.keys(input).some(key => !['name', 'code', 'maxAdults', 'maxChildren', 'maxOccupancy', 'beddingMetadata', 'isActive'].includes(key))) throw new BadRequestException('Invalid room fields')
     const data = this.roomData(input)
-    return this.write(tenantId, userId, 'supply.rooms.manage', 'supply.room.created', 'room_type', requestId, async tx => { await this.tenantHotel(tx, tenantId, hotelId); const value = await tx.roomType.create({ data: { hotelId, ...data } }); return { id: value.id, value } })
+    return this.write(tenantId, userId, 'supply.rooms.manage', 'supply.room.created', 'room_type', requestId, async tx => { await lockHotelSetup(tx, tenantId, hotelId); await this.tenantHotel(tx, tenantId, hotelId); const value = await tx.roomType.create({ data: { hotelId, ...data } }); await touchSetup(tx, tenantId, hotelId, userId, new Date()); return { id: value.id, value } })
   }
   async updateRoom(tenantId: string, userId: string, hotelId: string, roomId: string, input: any, requestId?: string) {
     const allowed = ['name', 'code', 'maxAdults', 'maxChildren', 'maxOccupancy', 'beddingMetadata', 'isActive']
     if (!Object.keys(input).length || Object.keys(input).some(key => !allowed.includes(key) || key === 'hotelId' || key === 'tenantId')) throw new BadRequestException('Invalid room fields')
     return this.write(tenantId, userId, 'supply.rooms.manage', 'supply.room.updated', 'room_type', requestId, async tx => {
-      await this.tenantHotel(tx, tenantId, hotelId)
+      await lockHotelSetup(tx, tenantId, hotelId)
+      const hotel = await this.tenantHotel(tx, tenantId, hotelId)
       const current = await tx.roomType.findFirst({ where: { id: roomId, hotelId } })
       if (!current) throw new NotFoundException('Room not found')
       const data = this.roomData({ ...current, ...input })
+      if (data.isActive !== current.isActive) await assertRoomActivationAllowed(tx, hotel, current.id, data.isActive)
       const value = await tx.roomType.update({ where: { id: roomId }, data })
+      await touchSetup(tx, tenantId, hotelId, userId, new Date())
       return { id: value.id, value }
     })
   }
   async roomTypes(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rooms.read'); return this.prisma.withTenant(tenantId, tx => tx.roomType.findMany({ where: { hotel: { tenantId } }, orderBy: { name: 'asc' } })) }
-  async createRoomType(tenantId: string, userId: string, input: any, requestId?: string) { if (!Number.isInteger(input.maxAdults) || !Number.isInteger(input.maxChildren ?? 0) || !Number.isInteger(input.maxOccupancy) || input.maxAdults < 1 || (input.maxChildren ?? 0) < 0 || input.maxOccupancy < input.maxAdults + (input.maxChildren ?? 0)) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rooms.manage', 'supply.room.created', 'room_type', requestId, async tx => { const hotel = await tx.hotel.findFirst({ where: { id: input.hotelId, tenantId } }); if (!hotel) throw new BadRequestException('Hotel does not belong to tenant'); const value = await tx.roomType.create({ data: { hotelId: input.hotelId, name: clean(input.name), code: clean(input.code), maxAdults: input.maxAdults, maxChildren: input.maxChildren ?? 0, maxOccupancy: input.maxOccupancy, beddingMetadata: input.beddingMetadata ?? {} } }); return { id: value.id, value } }) }
+  async createRoomType(tenantId: string, userId: string, input: any, requestId?: string) {
+    if (!Number.isInteger(input.maxAdults) || !Number.isInteger(input.maxChildren ?? 0) || !Number.isInteger(input.maxOccupancy) || input.maxAdults < 1 || (input.maxChildren ?? 0) < 0 || input.maxOccupancy < input.maxAdults + (input.maxChildren ?? 0)) throw new BadRequestException('Invalid occupancy')
+    return this.write(tenantId, userId, 'supply.rooms.manage', 'supply.room.created', 'room_type', requestId, async tx => {
+      const hotel = await tx.hotel.findFirst({ where: { id: input.hotelId, tenantId } })
+      if (!hotel) throw new BadRequestException('Hotel does not belong to tenant')
+      await lockHotelSetup(tx, tenantId, hotel.id)
+      const value = await tx.roomType.create({ data: { hotelId: hotel.id, name: clean(input.name), code: clean(input.code), maxAdults: input.maxAdults, maxChildren: input.maxChildren ?? 0, maxOccupancy: input.maxOccupancy, beddingMetadata: input.beddingMetadata ?? {} } })
+      await touchSetup(tx, tenantId, hotel.id, userId, new Date())
+      return { id: value.id, value }
+    })
+  }
   async boardBases(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId, isActive: true }, orderBy: { code: 'asc' } })) }
   async contracts(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); return this.prisma.withTenant(tenantId, tx => tx.contract.findMany({ where: { tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } } }, orderBy: { validFrom: 'desc' } })) }
   async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true } })); if (!value) throw new NotFoundException('Contract not found'); return value }

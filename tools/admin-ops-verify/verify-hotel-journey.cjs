@@ -9,6 +9,7 @@ const AxeBuilder = req('@axe-core/playwright').default
 const seed = require(process.env.SEED_JSON ?? path.join(__dirname, '.seed-hotel-journey.json'))
 const BASE = process.env.ADMIN_URL ?? 'http://localhost:3000'
 const results = []
+const browserErrors = [], consoleErrors = [], serverFailures = [], httpFailures = []
 const SHOT_DIR = process.env.SHOT_DIR
 if (SHOT_DIR) require('fs').mkdirSync(SHOT_DIR, { recursive: true })
 const check = (name, ok, extra = '') => { results.push({ name, ok: !!ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + String(extra).slice(0, 160) : ''}`) }
@@ -24,6 +25,14 @@ function png(w, h, [r, g, b]) {
 }
 async function login(browser, email) {
   const ctx = await browser.newContext(); const page = await ctx.newPage()
+  page.on('pageerror', error => browserErrors.push(error.name))
+  page.on('console', message => { if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) consoleErrors.push(message.text().slice(0, 120)) })
+  page.on('response', response => {
+    if (!response.url().startsWith(BASE) || response.status() < 400) return
+    const pathname = new URL(response.url()).pathname, method = response.request().method(), status = response.status()
+    httpFailures.push(`${status} ${method} ${pathname}`)
+    if (status >= 500) serverFailures.push(`${status} ${pathname}`)
+  })
   await page.goto(`${BASE}/login`); await page.fill('#email', email); await page.fill('#password', seed.password)
   await page.click('button[type=submit]'); await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20000 })
   return { ctx, page }
@@ -125,6 +134,11 @@ async function login(browser, email) {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`${BASE}/hotels/${hotelId}?tab=setup`)
   await page.getByTestId('status-form').waitFor()
+  await page.getByLabel('Change to').selectOption('SUSPENDED')
+  await page.getByTestId('status-form').getByLabel('Reason (required)', { exact: true }).fill('Pause pending operational review')
+  await page.getByRole('button', { name: 'Apply status', exact: true }).click()
+  await page.waitForSelector('[data-testid=profile-status]:has-text("SUSPENDED")')
+  check('suspension withdraws profile approval', !(await page.getByTestId('status-form').innerText()).includes(' · approved ') && (await page.getByTestId('publication-request').count()) === 1)
   await page.getByLabel('Change to').selectOption('ARCHIVED')
   await page.getByTestId('status-form').getByLabel('Reason (required)', { exact: true }).fill('Property retired from distribution')
   await page.getByRole('button', { name: 'Apply status', exact: true }).click()
@@ -134,6 +148,13 @@ async function login(browser, email) {
   await page.getByTestId('hotel-profile').waitFor()
   check('archived overview retains the canonical id, primary image and linked room', (await page.getByTestId('hotel-profile').innerText()).includes(hotelId) && (await page.getByTestId('overview-linked-records').innerText()).includes('Deluxe King'))
   if (SHOT_DIR) await page.screenshot({ path: path.join(SHOT_DIR, 'overview-archived.png'), fullPage: true })
+  await page.goto(`${BASE}/hotels/${hotelId}?tab=setup`)
+  await page.getByTestId('status-form').waitFor()
+  await page.getByLabel('Change to').selectOption('DRAFT')
+  await page.getByTestId('status-form').getByLabel('Reason (required)', { exact: true }).fill('Restore for a new content review')
+  await page.getByRole('button', { name: 'Apply status', exact: true }).click()
+  await page.waitForSelector('[data-testid=profile-status]:has-text("DRAFT")')
+  check('restoring an archived property requires a fresh publication request', (await page.getByTestId('publication-request').count()) === 1)
   await page.goto(`${BASE}/hotels/new`)
   await page.getByLabel(/^name$/i).fill('Journey Palm Hotel')
   await page.getByLabel(/^address$/i).fill('1 Palm Road')
@@ -152,6 +173,10 @@ async function login(browser, email) {
   check('read-only creation control is disabled', await reader.page.getByRole('button', { name: 'Create hotel', exact: true }).isDisabled())
   await reader.ctx.close()
 
+  check('hotel journey has no uncaught browser errors', browserErrors.length === 0, browserErrors.join(', '))
+  check('hotel journey has no unexpected console errors', consoleErrors.length === 0, consoleErrors.join(', '))
+  check('hotel journey has no server error responses', serverFailures.length === 0, serverFailures.join(', '))
+  console.log(`Observed failed HTTP responses (includes intentional denial/conflict probes): ${JSON.stringify(httpFailures)}`)
   await browser.close()
   const failed = results.filter((r) => !r.ok)
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
