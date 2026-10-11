@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
 import { PrismaClient } from '@prisma/client'
+import { TenantControlDatabase } from '../src/platform-admin/tenant-control.database'
+import { tenantControlOwnerFixture } from './tenant-control-owner-fixture'
 import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
@@ -39,7 +41,7 @@ describe('Admin settings HTTP', () => {
       { tenantId: otherTenantId, userId: otherOwner.id, role: 'owner' },
     ] })
 
-    const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
+    const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(TenantControlDatabase).useValue(tenantControlOwnerFixture(prisma)).compile()
     app = module.createNestApplication()
     app.use(cookieParser())
     app.setGlobalPrefix('api/v1')
@@ -88,17 +90,17 @@ describe('Admin settings HTTP', () => {
   it('updates, audits and replays idempotently', async () => {
     const cookie = await login(ownerEmail)
     const key = `settings-${suffix}`
-    const first = await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Idempotency-Key', key).send(payload).expect(200)
+    const first = await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Origin', 'http://localhost:3001').set('Idempotency-Key', key).send(payload).expect(200)
     expect(first.body.data).toMatchObject({ name: 'Settings Tenant A', timeZone: 'Asia/Dubai', lowBalanceThreshold: { amountMinor: '150000', currency: 'AED' } })
-    await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Idempotency-Key', key).send(payload).expect(200)
+    await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Origin', 'http://localhost:3001').set('Idempotency-Key', key).send(payload).expect(200)
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'settings.updated' } })).toBe(1)
-    await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Idempotency-Key', key).send({ ...payload, timeZone: 'UTC' }).expect(409)
-    await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).send(payload).expect(400)
+    await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Origin', 'http://localhost:3001').set('Idempotency-Key', key).send({ ...payload, timeZone: 'UTC' }).expect(409)
+    await request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Origin', 'http://localhost:3001').send(payload).expect(400)
   })
 
   it('rejects tenant selection, floats and unsupported values', async () => {
     const cookie = await login(ownerEmail)
-    const patch = (body: object, key: string) => request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Idempotency-Key', key).send(body)
+    const patch = (body: object, key: string) => request(app.getHttpServer()).patch('/api/v1/admin/settings').set('Cookie', cookie).set('Origin', 'http://localhost:3001').set('Idempotency-Key', key).send(body)
     await patch({ ...payload, tenantId: otherTenantId }, `tenant-${suffix}`).expect(400)
     await patch({ ...payload, lowBalanceThreshold: { amountMinor: '1500.50', currency: 'AED' } }, `float-${suffix}`).expect(400)
     await patch({ ...payload, lowBalanceThreshold: { amountMinor: 150000, currency: 'AED' } }, `number-${suffix}`).expect(400)

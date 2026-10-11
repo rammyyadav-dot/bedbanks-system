@@ -9,8 +9,8 @@ type Reader = { $queryRawUnsafe<T = unknown>(query: string): Promise<T> }
  * Tables without forced row-level security, each with the reason. Anything else without FORCE is a certification failure. Platform and migration tables are not tenant data
  * and the runtime group holds NO privilege on them (asserted below); the four others are the identity/catalog tables the contract already declares `rls: 'none'`.
  */
-export const RLS_EXEMPT_TABLES: Readonly<Record<string, { reason: string; runtimePrivileges: 'none' | 'per-contract' }>> = {
-  tenants: { reason: 'the tenant root: its own id is the tenant, there is no tenant_id column; the runtime resolves a tenant by id and never writes it', runtimePrivileges: 'per-contract' },
+export const RLS_EXEMPT_TABLES: Readonly<Record<string, { reason: string; runtimePrivileges: 'none' | 'per-contract'; allowForced?: boolean }>> = {
+  tenants: { reason: 'global tenant root readable before tenant selection; ordinary API never writes it. Optional tenant-control provisioning forces RLS with global auth reads and scoped restricted-authoring writes (ADR 0041)', runtimePrivileges: 'per-contract', allowForced: true },
   Permission: { reason: 'global catalogue of permission keys, not tenant data; read-only for the runtime', runtimePrivileges: 'per-contract' },
   users: { reason: 'global identity; a person belongs to tenants through memberships. Looked up before a tenant is known (login); writes limited by column in the contract', runtimePrivileges: 'per-contract' },
   sessions: { reason: 'authentication sessions are found by token hash before any tenant context exists; writes limited by column in the contract', runtimePrivileges: 'per-contract' },
@@ -51,7 +51,7 @@ export async function runtimeOwnershipAudit(db: Reader, opts: { group?: string; 
   const logins = new Set([...(opts.runtimeLogins ?? []), group])
   const contractTables = new Set(RUNTIME_ROLE_GRANTS.map((g) => g.table))
   for (const row of rows) {
-    if (logins.has(row.owner) || /^fbeds_(api|booking|hold)/.test(row.owner)) failures.push(`${row.table} is owned by runtime role ${row.owner}`)
+    if (logins.has(row.owner) || /^fbeds_(api|booking|hold|tenant_control)/.test(row.owner)) failures.push(`${row.table} is owned by runtime role ${row.owner}`)
     if (opts.migrationOwner && row.owner !== opts.migrationOwner) failures.push(`${row.table} is owned by ${row.owner}, not the migration owner`)
     const exemption = RLS_EXEMPT_TABLES[row.table]
     if (!row.rlsForced) {
@@ -59,7 +59,7 @@ export async function runtimeOwnershipAudit(db: Reader, opts: { group?: string; 
       else if (exemption.runtimePrivileges === 'none' && row.runtimeGrants.length) failures.push(`${row.table} is exempt from RLS as a non-tenant table but the runtime group holds ${row.runtimeGrants.join(', ')}`)
       else if (exemption.runtimePrivileges === 'per-contract' && !contractTables.has(row.table)) failures.push(`${row.table} is exempt from RLS but is not in the runtime grant contract`)
     } else if (!row.rlsEnabled) failures.push(`${row.table} has FORCE without ENABLE ROW LEVEL SECURITY`)
-    if (exemption && row.rlsForced) failures.push(`${row.table} is listed as RLS-exempt but has forced RLS: update the exemption list`)
+    if (exemption && row.rlsForced && !exemption.allowForced) failures.push(`${row.table} is listed as RLS-exempt but has forced RLS: update the exemption list`)
     if (row.runtimeGrants.some((p) => p === 'TRUNCATE' || p === 'REFERENCES' || p === 'TRIGGER')) failures.push(`${row.table}: the runtime group holds ${row.runtimeGrants.filter((p) => ['TRUNCATE', 'REFERENCES', 'TRIGGER'].includes(p)).join(', ')}`)
   }
   if (caps?.schema_create) failures.push('the runtime group can CREATE in schema public')

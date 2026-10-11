@@ -1,0 +1,31 @@
+# ADR 0041: Tenant Control Center and restricted authoring
+
+Status: Proposed for review; implemented in a draft PR. No deployment authorized.
+
+## Baseline and decision
+
+Baseline `work` at `5e145867c5daaad02b83475c832a78ab72e172ae` had a clean working tree, a read-only platform directory, ACTIVE/SUSPENDED tenant states, tenant memberships without revocation, and Settings choosing the owner or first membership. The ordinary `fbeds_api` grant contract deliberately excluded tenant and Settings writes. Reuse the existing PrismaService context transactions, PlatformRole assignments, Membership, TenantSettings, immutable AuditEvent, ApprovalRequest, and ApprovalService. Do not invent a second ledger, pricing engine, identity provider, or distribution engine.
+
+The opt-in `TENANT_CONTROL_DATABASE_URL` connects as `fbeds_tenant_control_login`, a member of a dedicated NOLOGIN group. Live identity checks always reject owner, superuser, BYPASSRLS, ownership and privileged role membership; the connection also checks its expected login and forbidden finance write grants. There is no fallback to another principal. An owner-only provisioning CLI defines the exact read/insert/column-update set and installs forced tenant RLS on tenant writes. The ordinary API grant contract is unchanged. There is no tenant DELETE, audit UPDATE/DELETE, user provisioning, wallet grant, ledger grant, supplier distribution write or rate write.
+
+Tenant business governance is a one-to-one TenantControlProfile; preferences never grant commercial access. A normalized country/registration key is database-unique. Profile/membership/compliance writes lock the selected Tenant, compare the profile version, and atomically record audit events. Creation is serialized, idempotent and transactional; new tenants use canonical SUSPENDED plus profile stage REVIEW. Existing tenant status enum values are not changed. Compliance needs a different reviewer and every profile edit invalidates it. Activation/suspension uses canonical maker-checker approvals; activation rechecks readiness at execution. Existing supplier/hybrid profiles cannot activate through this workflow until distribution entitlement certification exists. Closure stays unavailable pending approved retention rules.
+
+Membership revocation is soft and revalidated at authentication and tenant guards. The final active owner cannot be removed and an operator cannot alter their own membership. Ordinary membership mutations cannot write platform assignments or formal permission bundles. Onboarding links a previously verified existing administrator; invitation delivery and document upload remain unavailable until secure canonical integrations exist.
+
+Settings now requires a server-validated active membership selection. Multiple memberships without a selection fail closed. Its permission check and service use the same selected tenant. Browser Settings asks the user to choose when there are multiple memberships, and explicitly sends that context on both read and save. The settings transaction uses the restricted authoring connection, serializes updates and retains idempotency history in immutable audit events. Money remains signed-64-bit bounded integer minor-unit strings; no financial position changes.
+
+Suspended memberships are returned in a separate servicing-only identity field. Only explicitly decorated existing booking queue and booking finance routes accept that context, retaining their existing formal RBAC and feature gates. Search, supply, Settings, manual booking, supplier dispatch and booking mutations remain subject to ordinary ACTIVE-only context. Refund/cancellation supplier workflows are not enabled by this change.
+
+## Route map
+
+Admin `/tenants` is the server-filtered directory; `/tenants/[id]` contains Overview, Business profile, Users & memberships, Roles & permissions, Commercial, Finance & credit, Operations, Compliance, Workspace settings, and Audit & activity. Business navigation links existing Agencies, Suppliers, Access review and Reconciliation approvals views.
+
+API `/platform/tenants`: GET directory and POST onboarding; `/:tenantId/summary`: GET detail; `/:tenantId/profile`: PATCH; `/:tenantId/memberships`: POST existing-user membership action; `/:tenantId/compliance`: POST independent decision; `/:tenantId/lifecycle`: POST maker request; `/:tenantId/approvals/:approvalId`: POST canonical decision/execution; `/:tenantId/audit`: GET scoped paginated/filterable safe timeline. `/admin/settings` retains its existing contract and permission.
+
+## Migration, indexes and rollback
+
+Forward migration `202611100001_tenant_control_center` follows the repository's already dated migration history. It adds a nullable membership revocation timestamp and a new profile table with classification/country and review-stage indexes, a tenant primary key, and a unique registration key. It retains all existing data. RLS and exact grants on the dedicated role are installed only by owner provisioning. Review role provisioning and tenant policies before rollout. Application rollback disables the dedicated URL and removes new controls; retain profile and audit data and do not roll back migrations destructively. Settings then reports explicit unavailable authoring rather than silently changing credentials.
+
+## Consequences and limits
+
+The canonical auth tenant directory remains globally readable as before; authoring tenant updates require selected tenant context and creation permits only inactive records in platform context. Profile business data is platform-directory-readable only with no selected tenant; detail contexts cannot read another tenant profile. Audit lists exclude raw payloads. Directory membership/activity metrics are nullable when the authoring/context permissions are unavailable. Booking and financial totals are unavailable rather than inferred or represented as zero. Last activity filters, membership pagination beyond 200 detail rows, arbitrary formal role edits, invitation delivery, controlled document storage, finance integration and supplier entitlement activation remain further reviewed work. These limits prevent calling this entire enterprise specification production certified.

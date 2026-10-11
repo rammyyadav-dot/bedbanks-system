@@ -53,7 +53,7 @@ describe('Enterprise Admin permission catalogue (ADR 0015)', () => {
 
   it('keeps platform authority in the platform scope and tenant work in the tenant scope', () => {
     for (const key of ['role_permission.assign', 'user_role.assign']) expect(permissionCatalogue.find((p) => p.key === key)?.scope).toBe('PLATFORM')
-    for (const p of permissionCatalogue.filter((x) => x.status === 'enforced')) expect(p.scope).toBe('TENANT')
+    for (const p of permissionCatalogue.filter((x) => x.status === 'enforced')) expect(p.scope).toBe(p.key.startsWith('platform.') || p.key === 'tenant.lifecycle.manage' ? 'PLATFORM' : 'TENANT')
   })
 
   it('gates every live module with an enforced permission and gives planned modules no route', () => {

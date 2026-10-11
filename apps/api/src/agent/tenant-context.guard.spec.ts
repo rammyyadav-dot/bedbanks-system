@@ -83,3 +83,27 @@ describe('agent controller tenant handling', () => {
     expect(source).not.toMatch(/@Headers\(\s*['"]x-fbeds-tenant-id/)
   })
 })
+
+describe('Suspended tenant servicing boundary', () => {
+  const identity = { user: { id: 'user-a' }, memberships: [], servicingMemberships: [{ tenantId: 'suspended', tenantName: 'Suspended', role: 'owner' }] }
+  const tx = { membership: { findUnique: jest.fn().mockResolvedValue({ tenantId: 'suspended', revokedAt: null, tenant: { status: 'SUSPENDED' } }) }, auditEvent: { create: jest.fn().mockResolvedValue({}) } }
+  const prisma = { withTenant: jest.fn(async (_id: string, run: (client: typeof tx) => unknown) => run(tx)) } as unknown as PrismaService
+  it('does not allow suspended memberships on ordinary commercial routes', async () => {
+    const guard = new TenantContextGuard(prisma)
+    await expect(guard.canActivate(context(identity, 'suspended'))).rejects.toBeInstanceOf(ForbiddenException)
+  })
+  it('allows only the server-declared servicing context, still with a fresh membership check', async () => {
+    const reflector = { getAllAndOverride: () => true } as unknown as import('@nestjs/core').Reflector
+    const guard = new TenantContextGuard(prisma, reflector)
+    const ctx = context(identity, 'suspended')
+    Object.assign(ctx, { getHandler: () => ({}), getClass: () => ({}) })
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
+    expect(ctx.switchToHttp().getRequest().suspendedServicingAllowed).toBe(true)
+  })
+  it('continues to deny revoked servicing memberships', async () => {
+    tx.membership.findUnique.mockResolvedValueOnce({ tenantId: 'suspended', revokedAt: new Date(), tenant: { status: 'SUSPENDED' } } as never)
+    const reflector = { getAllAndOverride: () => true } as unknown as import('@nestjs/core').Reflector
+    const ctx = context(identity, 'suspended');Object.assign(ctx, { getHandler: () => ({}), getClass: () => ({}) })
+    await expect(new TenantContextGuard(prisma, reflector).canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException)
+  })
+})

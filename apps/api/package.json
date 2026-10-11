@@ -35,7 +35,9 @@
     "ops:bootstrap-first-admin": "node --no-experimental-strip-types -r @swc-node/register src/database/bootstrap-first-admin.cli.ts",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
     "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
-    "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand"
+    "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand",
+    "ops:certify-tenant-control": "node --no-experimental-strip-types -r @swc-node/register src/database/certify-tenant-control.cli.ts",
+    "ops:provision-tenant-control-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-tenant-control-role.cli.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

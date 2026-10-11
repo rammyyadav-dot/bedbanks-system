@@ -32,7 +32,7 @@ test('Admin money is never converted with floating point', () => {
 
 test('MVP navigation lists only authoritative commercial modules and no stale mock banner', () => {
   const hrefs = flatNav.map((item) => item.href)
-  for (const gone of ['/finance', '/pricing', '/distribution', '/reports', '/notifications', '/tenants', '/users']) assert.ok(!navSections.flatMap((s) => s.items).some((item) => item.href === gone), `${gone} must not be in the sidebar`)
+  for (const gone of ['/finance', '/pricing', '/distribution', '/reports', '/notifications', '/users']) assert.ok(!navSections.flatMap((s) => s.items).some((item) => item.href === gone), `${gone} must not be in the sidebar`)
   for (const present of ['/dashboard', '/suppliers', '/hotels', '/board-basis', '/mappings', '/contracts', '/rates/plans', '/rates', '/sellability', '/access', '/settings']) assert.ok(hrefs.includes(present), present)
   const sidebar = readFileSync(join(root, 'components/layout/Sidebar.tsx'), 'utf8')
   assert.doesNotMatch(sidebar, /mock data|Admin User|Platform Administrator|enforced later/)
@@ -57,14 +57,15 @@ test('placeholder routes that remain say so and render no records', () => {
   }
 })
 
-test('tenant directory is a read-only page over the audited platform API', () => {
-  for (const rel of ['tenants/page.tsx', 'tenants/[id]/page.tsx']) {
-    const page = readFileSync(join(root, 'app', '(dashboard)', rel), 'utf8')
-    assert.doesNotMatch(page, /FeatureUnavailable/, rel)
-    assert.match(page, /lib\/data\/server/, rel)
-    assert.match(page, /ServerLoadFailure/, `${rel} must show 401/403/failure states, never an empty list`)
-    assert.doesNotMatch(page, /method:\s*'(POST|PUT|PATCH|DELETE)'|<form/, `${rel} must stay read-only`)
+test('tenant control screens consume authoritative contracts and expose failure states', () => {
+  for (const name of ['TenantDirectory', 'TenantDetail']) {
+    const source = readFileSync(join(root, 'components/tenants', `${name}.tsx`), 'utf8')
+    assert.match(source, /apiRequest/)
+    assert.match(source, /routes\.platform/)
+    assert.match(source, /role="alert"/)
+    assert.doesNotMatch(source, /mock data|placeholder saving/)
   }
+  assert.match(readFileSync(join(root, 'components/tenants/TenantWizard.tsx'), 'utf8'), /Idempotency-Key/)
 })
 
 test('users placeholder points to Access review and Roles & Permissions only', () => {
@@ -193,7 +194,7 @@ test('sellability warnings are surfaced once, in plain language, without changin
 })
 
 test('department navigation (ADR 0015): grouped by department, live modules only, every entry has a real page', () => {
-  assert.deepEqual(navSections.map((s) => s.label), ['Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Clients & service', 'Finance', 'Platform'])
+  assert.deepEqual(navSections.map((s) => s.label), ['Business', 'Control tower', 'Supply & contracting', 'Rates & inventory', 'Reservations', 'Clients & service', 'Finance', 'Platform'])
   const items = navSections.flatMap((s) => s.items)
   assert.equal(new Set(items.map((i) => i.href)).size, items.length, 'a route appears once in the sidebar')
   for (const item of items) {
@@ -201,7 +202,7 @@ test('department navigation (ADR 0015): grouped by department, live modules only
     assert.ok(item.icon, `${item.href} needs an icon`)
     assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
   }
-  for (const planned of ['Promotions', 'Risk flags', 'Refunds', 'Tenants', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+  for (const planned of ['Promotions', 'Risk flags', 'Refunds', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
 })
 
 test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {

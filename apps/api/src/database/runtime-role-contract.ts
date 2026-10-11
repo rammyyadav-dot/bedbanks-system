@@ -203,7 +203,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   Wallet: 'finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)',
   FundingReceipt: 'finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)',
   HotelSearchIndex: 'search-index maintenance (reindex) is an operator job; the runtime only reads the index',
-  Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',
+  TenantControlProfile: 'dedicated tenant control authoring role only', Membership: 'dedicated tenant membership authoring role only', Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',
   User: 'identity provisioning (create user) is an operator action; the runtime only records the last sign-in',
   PlatformRole: 'platform administration', PlatformRoleAssignment: 'platform administration', PlatformRolePermission: 'platform administration',
 }

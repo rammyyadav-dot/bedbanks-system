@@ -100,6 +100,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
 - `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
 - `LedgerEntry`: finance-gated
+- `Membership`: dedicated tenant membership authoring role only
 - `PlatformRole`: platform administration
 - `PlatformRoleAssignment`: platform administration
 - `PlatformRolePermission`: platform administration
@@ -112,6 +113,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierRoomMapping`: mapping governance
 - `Tenant`: tenant settings authoring
+- `TenantControlProfile`: dedicated tenant control authoring role only
 - `TenantSettings`: tenant settings authoring
 - `User`: identity provisioning (create user) is an operator action; the runtime only records the last sign-in
 - `Wallet`: finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)

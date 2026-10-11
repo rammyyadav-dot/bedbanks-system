@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
 import { PrismaClient } from '@prisma/client'
+import { TenantControlDatabase } from '../src/platform-admin/tenant-control.database'
+import { tenantControlOwnerFixture } from './tenant-control-owner-fixture'
 import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
@@ -47,7 +49,7 @@ describe('Platform admin access foundation', () => {
     assignment = { userId: operator.id, roleId }
     await prisma.platformRoleAssignment.create({ data: assignment })
 
-    const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
+    const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(TenantControlDatabase).useValue(tenantControlOwnerFixture(prisma)).compile()
     app = module.createNestApplication()
     app.use(cookieParser())
     app.setGlobalPrefix('api/v1')
@@ -85,7 +87,7 @@ describe('Platform admin access foundation', () => {
   it('lists tenants from explicit database-backed platform permission and persists request ID audit data', async () => {
     const requestId = `platform-request-${suffix}`
     const response = await request(app.getHttpServer()).get('/api/v1/platform/tenants').set('Cookie', await login(operatorEmail)).set('x-request-id', requestId).expect(200)
-    expect(response.body.data).toEqual(expect.arrayContaining([
+    expect(response.body.data.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: tenantAId, name: expect.stringContaining('Platform Tenant A') }),
       expect.objectContaining({ id: tenantBId, name: expect.stringContaining('Platform Tenant B') }),
     ]))

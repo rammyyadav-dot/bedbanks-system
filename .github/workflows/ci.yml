@@ -132,6 +132,8 @@ jobs:
       - name: Replace disposable service bootstrap credential with a fresh owner credential
         run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs --rotate-owner
       - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
+      - name: Certify tenant control with distinct restricted API and authoring roles
+        run: pnpm --filter @bedbanks/api ops:certify-tenant-control
       - run: pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/preview-di.smoke.ts
       - run: pnpm -r --if-present type-check
       - run: pnpm -r --if-present lint
