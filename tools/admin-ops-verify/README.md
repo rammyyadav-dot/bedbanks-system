@@ -189,6 +189,17 @@ The executable override is optional; without it Playwright uses its installed Ch
 ```bash
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-hotels.ts)
 node tools/admin-ops-verify/verify-rate-plans.cjs
+
+### Rate Plans tab on the strict runtime login (ADR 0041 Amendment 3)
+
+`verify-rate-plans.cjs` also checks the capability route and the structured-failure path (a 409 `RATE_PLAN_NOT_READY` injected in the test only; its object-valued `details` must be listed in the dialog). `verify-rate-plans-strict.cjs` runs against an API that connects as the **strict** `fbeds_api_login` (provision it with `provisionApiRuntimeRole`; `DATABASE_URL` in the verifier's own shell stays the owner, for fixtures only). Run it twice after re-seeding with `seed-hotels.ts`:
+
+```bash
+# API started with RATE_PLAN_OPS_DATABASE_URL (provision with provisionRatePlanOpsRole): Activate and Suspend work, Clone is disabled and explained
+LIFECYCLE_ROLE=configured node tools/admin-ops-verify/verify-rate-plans-strict.cjs
+# API started without it: all three controls are disabled and explained, nothing is sent, and a direct call is still a typed 403
+LIFECYCLE_ROLE=absent node tools/admin-ops-verify/verify-rate-plans-strict.cjs
+```
 ```
 
 ## Agent search only offers ACTIVE rate plans (ADR 0041)

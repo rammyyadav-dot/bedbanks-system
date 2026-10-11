@@ -98,4 +98,53 @@ Role attributes: NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB, NOREPLICATI
 Operator action to enable it in an environment: provision the role, store `RATE_PLAN_OPS_DATABASE_URL`, deploy. Not exercised here: hosted or persistent databases, production-clone compatibility, browser journeys. The `PATCH` bypass remains closed independently of this role.
 
 ## Not decided here
-Four-eye approval for activation (the existing approvals module has not been reviewed for this entity), promotions, derived rates and per-plan market overrides are not built.
+Promotions, derived rates and per-plan market overrides are not built. Four-eye approval is assessed in Amendment 3 and **not** implemented: it needs an owner decision.
+
+
+## Amendment 3: environment capability, clone decision, error propagation, boot smoke, four-eye assessment (issue 304)
+
+### Status
+Items 1 to 4 are implemented (API route, contract, Admin, tests). Item 5 is a **proposal only**: nothing in it is built, and it needs an explicit owner decision before any code. No schema, migration, grant or runtime-role change. ADR 0032 and Amendment 2's grants are unchanged.
+
+### 1. Clone stays unavailable in strict environments (decision)
+Clone inserts a `RatePlan` row. `fbeds_rateplan_ops` must not insert, and widening `fbeds_api` is excluded by ADR 0032. **Decision: clone is unavailable under the strict runtime login until a separately approved, narrowly scoped, audited writer exists.** The alternatives, for that future decision:
+
+| Option | Cost | Verdict now |
+|---|---|---|
+| Add `INSERT` on `RatePlan` to the lifecycle role | A role that can insert plans can also insert an ACTIVE one unless a trigger or CHECK forces DRAFT on insert; needs a reviewed migration | Rejected for now |
+| New role `fbeds_rateplan_clone`: `INSERT` on `RatePlan` plus audit, source `SELECT`, with a reviewed `BEFORE INSERT` trigger forcing `status = DRAFT` for that role | One more credential, migration and rollback note | Candidate, needs approval |
+| Leave clone out of strict environments | Operators use "Create Rate Plan" | **Chosen** |
+
+The refusal stays database-enforced (`403 RUNTIME_ROLE_OPERATION_PROHIBITED`, sanitized, audited, nothing written). It is not enforced by the new capability route; the route only lets the Admin say so before the click.
+
+### 2. Capability route
+`GET /supply/rate-plans/capabilities` (`supply.rates.read`) returns `{activate, suspend, clone}`, each `{available, reason}`. It is derived from the runtime identity's real privileges (`has_column_privilege(..., 'RatePlan', 'status', 'UPDATE')`, `has_table_privilege(..., 'RatePlan', 'INSERT')`) and whether `RATE_PLAN_OPS_DATABASE_URL` is configured; the pure decision is `rate-plan-capabilities.ts`. Reasons: `LIFECYCLE_ROLE_NOT_PROVISIONED`, `STRICT_ROLE_NO_WRITER`. It reports no credential, host or role name. "Configured" does not prove the lifecycle role is reachable; a configured but unusable role still answers a sanitized `503 RATE_PLAN_OPS_UNAVAILABLE` at use. A failed probe is an error, not "available". The Admin disables the control with the reason as tooltip and a notice, and fails closed (disabled) while the lookup is pending or failed. The API stays the only authority.
+
+### 3. Structured error details
+The Admin client now keeps object-valued `error.details` as `ApiResponseError.structuredDetails` next to the unchanged string `details`. `readinessFailuresFromError` validates the shape and the dialog lists the server-rejected checks immediately, still refreshing the live checklist.
+
+### 4. Boot smoke
+`ops:strict-role-boot-smoke` now boots the real API three times: (A) ordinary restricted role only: activate, suspend, clone fail closed with typed sanitized 403, nothing written, no status audit; `PATCH status`, 401, 403, tenant 404 and missing version behave; (B) lifecycle role provisioned and verified (role verifier plus 21 `ops:verify-rate-plan-ops-role` probes) and configured: activate and suspend succeed with exactly one audit event, authorization and tenant isolation still apply, a plan without rates is `409 RATE_PLAN_NOT_READY` with structured checks, stale versions are `409`, clone stays refused; (C) a rejected lifecycle credential gives sanitized `503` and no fallback write.
+
+### 5. Four-eye activation: assessment and proposal (not implemented)
+**Existing subsystem (ADR 0016, used by ADR 0018, 0020, 0022).** `ApprovalRequest` is tenant-scoped with forced RLS and is already in the strict runtime role's write set; a database CHECK forbids decider = requester; one-way state machine with a single-use `execute` claim; audit events; catalogue-bound actions of class S2/S3 only. Reuse is possible without new tables and without widening `fbeds_rateplan_ops`: approval state lives on the runtime connection, the status write stays on the lifecycle connection.
+
+**Gaps that block a direct reuse (each needs a decision or work):**
+1. No catalogue key. Precedent: `markup.activate` and `hotel.activate` are `approvalOnly` S3 keys refining `supply.rates.manage`. A key such as `rate_plan.activate` would be a contracts change.
+2. Two connections, so the claim and the status write are not one transaction. `ApprovalService.execute` claims APPROVED to EXECUTED first and releases it if the action throws, which is safe only because the transition is idempotent and version-checked, as it is here. Needs an explicit test.
+3. Binding to what was reviewed (ADR 0022 pattern): store `updatedAt`; changed after request means it cannot be approved, changed after approval means it cannot be applied (409); readiness is re-run at apply, so approval never waives a check.
+4. The existing `POST .../activate` must stop being a one-actor path where the policy applies (as ADR 0022 closed `to: COMPLETE`). That is a behaviour change for every suite that activates through the route.
+5. Database-level enforcement: the approval is application-level. A holder of the lifecycle credential can still write `status` directly. A trigger requiring an approved request would close it but is a migration and a grant change; it is not proposed here.
+6. The plan has no creator column. "The creator cannot approve" can be enforced as requester not equal to approver (already guaranteed by service and CHECK). Enforcing it against whoever created or last edited the plan would need the audit trail or a new column, and is a policy choice.
+
+**Owner decisions required before any code:**
+- Scope: always required (as hotel publication), or a per-tenant setting (a settings schema change), or only above a threshold. fBeds has defined no threshold.
+- Consequence to accept: with "always required" a tenant with one holder of `supply.rates.manage` cannot activate a plan (the same consequence as ADR 0022).
+- Who may approve: any other holder of `supply.rates.manage`, or a dedicated approver permission.
+- Suspension stays single-actor (it only removes exposure), unless the owner decides otherwise.
+- Whether the lifecycle role's direct-write exposure (point 5) is acceptable.
+
+**Proposed shape if accepted:** request (`supply.rates.manage`, version bound) then decide by a different user, then apply on the lifecycle connection through `ApprovalService.execute`, with readiness re-run, `supply.rate_plan.status_changed` carrying the approval id, approver and executor. Tests: self-approval refused (service and CHECK), stale version on approve and on apply, double apply, concurrent apply, tenant isolation, strict-role boot smoke (A/B/C) extended with the approval path.
+
+### Remaining after this amendment
+Operator provisioning of `fbeds_rateplan_ops` and `RATE_PLAN_OPS_DATABASE_URL` in each strict environment; hosted certification by procedure (`docs/runbooks/rate-plan-ops-role-certification.md`); the clone writer decision; the four-eye decision above.

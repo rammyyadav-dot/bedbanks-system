@@ -12,6 +12,7 @@ import { evaluateNightSellability } from './contracted-sellability'
 import { parseMarketList } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type RatePlanAction } from './rate-plan-activation'
+import { deriveRatePlanCapabilities } from './rate-plan-capabilities'
 
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
@@ -375,6 +376,15 @@ export class SupplyService {
   async ratePlanReadiness(tenantId: string, userId: string, ratePlanId: string) {
     await this.check(tenantId, userId, 'supply.rates.read')
     return this.prisma.withTenant(tenantId, async tx => { const { plan, readiness } = await this.activationReadiness(tx, tenantId, ratePlanId); return { ratePlanId, status: plan.status, updatedAt: plan.updatedAt.toISOString(), ...readiness } })
+  }
+  /**
+   * Which lifecycle actions can work here (ADR 0041 Amendment 3), from the runtime identity's real privileges. Read-only catalogue functions; no tenant data is touched.
+   * A failed probe propagates as an error: the Admin treats "unknown" as unavailable rather than offering a control that may fail.
+   */
+  async ratePlanCapabilities(tenantId: string, userId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const [grants] = await this.prisma.$queryRaw<Array<{ can_update_status: boolean; can_insert: boolean }>>`SELECT has_column_privilege(current_user, '"RatePlan"', 'status', 'UPDATE') AS can_update_status, has_table_privilege(current_user, '"RatePlan"', 'INSERT') AS can_insert`
+    return deriveRatePlanCapabilities({ opsRoleConfigured: this.ratePlanOps?.configured() === true, runtimeCanUpdateStatus: grants?.can_update_status === true, runtimeCanInsert: grants?.can_insert === true })
   }
   /** Activate or suspend. Activation is refused unless the readiness checklist is fully green; both transitions are version-checked and audited with before/after status. */
   async transitionRatePlan(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, input: any, requestId?: string) {
