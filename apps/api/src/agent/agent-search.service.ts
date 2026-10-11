@@ -85,6 +85,9 @@ export class AgentSearchService {
     try {
       raw = await this.supplier.search(request, { tenantId, requestId, userId: identity.user.id })
     } catch {
+      // Best-effort: a monitoring write must never fail or delay the search answer. The caller still receives provider_unavailable.
+      await this.audit.record({ tenantId, user: identity, action: 'hotel.search', entityType: 'search', entityId: searchId,
+        payload: { destination: request.destination, supplier: this.supplier.name, resultCount: 0, matchedTotal: 0, requestId, status: 'provider_unavailable' } }).catch(() => undefined)
       return { version: 1, searchId, requestId, generatedAt, request, status: 'provider_unavailable', hotels: [], total: 0,
         pagination: this.pagination(request, 0, 0),
         providerSummary: { queried: 1, succeeded: 0, failed: 1 } }

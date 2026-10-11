@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
-  type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
+  type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type SearchMonitorView, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
   type InventoryMode, type HotelCompleteness, type HotelContacts, type HotelReadinessAssessment,
@@ -28,8 +28,10 @@ import { assessReadiness, type AgencyEvidence } from '../supply/hotel-readiness'
 import { normalizeCountry } from '../supply/market-rules'
 import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from '../agent/currency'
 import { auditView } from './operations-transactions.service'
+import { HOTEL_EXPORT_MAX_ROWS, hotelCsv } from './hotel-export'
+import { SEARCH_MONITOR_ACTIONS, SEARCH_MONITOR_READ_CAP, buildSearchMonitor } from './search-monitor'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
-import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
+import { MAX_PAGE_SIZE, dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 const stringList = (value: Prisma.JsonValue): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 40).slice(0, 100) : [])
 
@@ -217,6 +219,38 @@ export class OperationsHotelsService {
     })
   }
 
+  // ---- Agent Search Monitor (ADR 0053): derived from the existing audit record of executed searches; no new storage ----------
+  async searchMonitor(tenantId: string, query: Record<string, unknown>): Promise<SearchMonitorView> {
+    const days = intParam('days', query.days, 1, 30) ?? 7
+    const to = this.today()
+    const since = new Date(`${to}T00:00:00.000Z`); since.setUTCDate(since.getUTCDate() - (days - 1))
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.findMany({
+      where: { tenantId, action: { in: [...SEARCH_MONITOR_ACTIONS] }, createdAt: { gte: since } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: SEARCH_MONITOR_READ_CAP + 1, select: { action: true, createdAt: true, payload: true },
+    }))
+    return buildSearchMonitor(rows, { from: since.toISOString().slice(0, 10), to, days })
+  }
+
+  // ---- export (ADR 0051) ---------------------------------------------------------------------------------------------------
+  /**
+   * CSV of the same filtered directory the caller can already read, capped at HOTEL_EXPORT_MAX_ROWS. The audit event is written before any data is
+   * returned: if it cannot be recorded, nothing is exported. The event stores the filter keys, row count and truncation flag, never the data.
+   */
+  async exportCsv(tenantId: string, userId: string, query: Record<string, unknown>, requestId: string | null): Promise<{ csv: string; rows: number; truncated: boolean }> {
+    const rows: HotelCommercialRow[] = []
+    let truncated = false
+    for (let page = 1; ; page += 1) {
+      const result = await this.list(tenantId, { ...query, page, pageSize: MAX_PAGE_SIZE })
+      rows.push(...result.items)
+      if (result.scanCapped || result.total > HOTEL_EXPORT_MAX_ROWS) truncated = true
+      if (rows.length >= HOTEL_EXPORT_MAX_ROWS || result.items.length === 0 || page * MAX_PAGE_SIZE >= result.total) break
+    }
+    const kept = rows.slice(0, HOTEL_EXPORT_MAX_ROWS)
+    const filters = Object.keys(query).filter((k) => ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars', 'from', 'days'].includes(k) && query[k] !== undefined && query[k] !== '')
+    await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.exported', entityType: 'hotel_directory', entityId: tenantId, payload: { outcome: 'allowed', requestId, rowCount: kept.length, truncated, filterKeys: filters } as Prisma.InputJsonValue } }))
+    return { csv: hotelCsv(kept), rows: kept.length, truncated }
+  }
+
   // ---- summary -------------------------------------------------------------------------------------------------------------
   /** What the active markup rules do to ACTIVE rate plans over the window: priced, unpriced and stored-sell plan-nights, per currency. Bounded by the scan cap. */
   async markupImpact(tenantId: string, query: Record<string, unknown>): Promise<MarkupImpact> {
@@ -308,8 +342,11 @@ export class OperationsHotelsService {
       const hotels = await tx.hotel.findMany({ where: { tenantId }, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: COMMERCIAL_SCAN_CAP, select: HOTEL_SELECT })
       const assessed = [...(await this.assessAll(tx, tenantId, hotels, win)).values()]
       const count = (predicate: (a: HotelAssessment) => boolean) => assessed.filter(predicate).length
+      const byStatus = await tx.hotel.groupBy({ by: ['contentStatus'], where: { tenantId }, _count: { _all: true } })
+      const statusCount = (...names: string[]) => byStatus.filter((g) => names.includes(String(g.contentStatus))).reduce((n, g) => n + g._count._all, 0)
       return {
         generatedAt: this.clock().toISOString(), window: { from: win.from, to: win.to, days: win.days }, scanCapped: total > COMMERCIAL_SCAN_CAP, totalHotels: total,
+        profileStatus: { draft: statusCount('DRAFT'), incomplete: statusCount('INCOMPLETE'), complete: statusCount('COMPLETE'), suspended: statusCount('SUSPENDED'), archived: statusCount('ARCHIVED') },
         readiness: { ready: count((a) => a.readiness === 'READY'), partial: count((a) => a.readiness === 'PARTIAL'), blocked: count((a) => a.readiness === 'BLOCKED') },
         mappingIssueHotels: count((a) => a.hotelMapping !== 'MAPPED' || a.roomCounts.mapped < a.roomCounts.active),
         rateGapHotels: count((a) => a.rates === 'GAPS'), availabilityGapHotels: count((a) => a.inventory === 'GAPS'), stopSellHotels: count((a) => a.plans.some((p) => p.counts.stopSell > 0)),
@@ -322,7 +359,8 @@ export class OperationsHotelsService {
           stopSellHotels: 'Hotels where an active rate plan has a night in the window on stop-sell.',
           contractsExpiring: `Hotels whose best contract is ACTIVE and ends within ${CONTRACT_EXPIRING_DAYS} days.`,
           contractsExpired: 'Hotels whose contracts have all ended or are marked EXPIRED.',
-          scope: `Computed over at most ${COMMERCIAL_SCAN_CAP} hotels (alphabetical); scanCapped says when the tenant has more.`,
+          profileStatus: 'Exact tenant-wide counts by profile approval state: one count per Hotel.contentStatus value. Not limited by the scan cap and not a sellability claim.',
+          scope: `Readiness, mapping, rate, availability and contract counts are computed over at most ${COMMERCIAL_SCAN_CAP} hotels (alphabetical); scanCapped says when the tenant has more.`,
         },
       }
     })

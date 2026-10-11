@@ -32,9 +32,9 @@ describe('OperationsController authorization wiring', () => {
     expect(meta(REQUIRED_SUPPLY_PERMISSION, name)).toBeUndefined()
   })
 
-  it('hotel commercial endpoints use only existing supply.* keys (no new permission names)', () => {
+  it('hotel commercial endpoints use only the documented supply.* keys (export added by ADR 0051)', () => {
     const used = new Set(handlers.map(h => meta(REQUIRED_SUPPLY_PERMISSION, h)).filter(Boolean))
-    expect([...used].sort()).toEqual(['supply.contracts.read', 'supply.hotels.read', 'supply.mappings.read', 'supply.rates.read'])
+    expect([...used].sort()).toEqual(['supply.contracts.read', 'supply.hotels.export', 'supply.hotels.read', 'supply.mappings.read', 'supply.rates.read'])
   })
 
   it('every handler sits behind session authentication and tenant context at controller level', () => {

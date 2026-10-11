@@ -34,3 +34,24 @@ export async function apiRequestWithMeta<T>(path: string, init: RequestInit = {}
     clearTimeout(timeout)
   }
 }
+
+/** Fetches a non-JSON download (CSV) through the same proxy, session and tenant headers. Errors use the normal JSON envelope. */
+export async function apiDownload(path: string): Promise<{ blob: Blob; headers: Headers; requestId: string | null }> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 60_000)
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { credentials: 'include', headers: { ...activeTenantHeaders() }, signal: controller.signal })
+    const requestId = response.headers.get('x-request-id')
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
+      throw new ApiResponseError(body?.error?.code ?? 'API_REQUEST_FAILED', body?.error?.message ?? 'The download failed.', response.status, requestId, [])
+    }
+    return { blob: await response.blob(), headers: response.headers, requestId }
+  } catch (error) {
+    if (error instanceof ApiResponseError) throw error
+    if (error instanceof DOMException && error.name === 'AbortError') throw new ApiResponseError('API_TIMEOUT', 'The Admin API request timed out.', 504)
+    throw new ApiResponseError('NETWORK_ERROR', 'The Admin API could not be reached.', 0)
+  } finally {
+    clearTimeout(timeout)
+  }
+}

@@ -127,6 +127,8 @@ export interface HotelCommercialSummary {
   window: { from: string; to: string; days: number }
   scanCapped: boolean
   totalHotels: number
+  /** Exact counts of every hotel in the tenant by `Hotel.contentStatus` (not limited by the scan cap). Profile approval, not sellability. */
+  profileStatus: { draft: number; incomplete: number; complete: number; suspended: number; archived: number }
   readiness: { ready: number; partial: number; blocked: number }
   mappingIssueHotels: number
   rateGapHotels: number
