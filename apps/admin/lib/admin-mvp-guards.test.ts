@@ -202,7 +202,7 @@ test('department navigation (ADR 0015): grouped by department, live modules only
     assert.ok(item.icon, `${item.href} needs an icon`)
     assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
   }
-  for (const planned of ['Promotions', 'Risk flags', 'Refunds', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+  for (const planned of ['Promotions', 'Risk flags', 'Credit notes', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
 })
 
 test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {

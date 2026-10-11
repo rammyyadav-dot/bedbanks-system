@@ -40,7 +40,7 @@ Legend: Implemented / Partial / Missing / Blocked. Source claims are from `docs/
 | Pricing: net / margin / sell separation, FX | Partial | Integer minor units, per-night rounding, markup rules built. Currency conversion is AED-only by ADR 0029. Promotions not built. |
 | Agent Search Monitor with no-result reasons | Partial: outcome monitor built from audit events (ADR 0053 v1); per-reason explanations still missing | Listed `planned` ("Search monitor"). Sellability blockers by date/entity exist per hotel, but no cross-search monitor. |
 | Booking ops queues, state machine, idempotency | Implemented | `/bookings/queue`, holds, cancellations, reconciliation, connectors. |
-| Finance: receivables, ledger, wallets, funding | Implemented; Payables, Refunds, Credit notes Partial: read-only supplier payables accrual built (ADR 0054 slice 1); refunds, credit notes and settlement remain unbuilt (accounting policy and restricted write role needed) | Both are `planned` in the contract. |
+| Finance: receivables, ledger, wallets, funding | Implemented; Payables, Refunds, Credit notes Partial: read-only supplier payables accrual built (ADR 0054 slice 1); read-only refund register built (ADR 0054 slice 2, the ledger filtered to REFUND); credit notes, manual refunds and settlement remain unbuilt (accounting policy and restricted write role needed) | Both are `planned` in the contract. |
 | Command Center dashboard (sales, blocked, action, revenue loss) | Partial | `/dashboard` and `/exceptions` exist. Search-to-book funnel and supplier feed health depend on data that does not exist without live suppliers. |
 | Strict runtime role, RLS, cross-tenant negative tests | Implemented (unverified here) | ADR 0003, 0008, `docs/strict-runtime-db-role.md`. Production-clone compatibility is BLOCKED per `docs/p04-postmerge-inventory-certification.md`. |
 | Persistent database migration | Blocked | Needs the ADR 0013 human decision. |
@@ -109,3 +109,7 @@ Built and verified against Postgres (`hotel-commercial.e2e-spec.ts` 28/28, inclu
 ## The six e2e suites that failed on the baseline
 
 Three were environment only: `inventory-runtime-roles` and `inventory-hold` need `DATABASE_URL` with `?schema=public` and `MAPPING_DATABASE_URL`; `hotel-search-index` needs `MAPPING_DATABASE_URL`; `sandbox-content-staging` only runs against `fbeds_ci`. With the right environment they pass (16/16, 4/4). Two were stale tests, now updated to the current, intentional API behaviour: `supply.e2e-spec.ts` (settlement currency is AED-only per ADR 0029; administrators can no longer author `sold`; audit payload is `before`/`after`) and `dubai-agent-search.e2e-spec.ts` (the API now refuses to deactivate the last room of a published hotel, so that gate is exercised by a fixture change). Both pass (19/19, 9/9). No production code changed for these.
+
+## Follow-up: refund register
+
+`/finance/refunds` (finance.read): the existing ledger endpoint filtered to REFUND entries; read-only. Browser check now 33/33 (axe and overflow included). Credit notes and manual refunds deliberately not built; ADR 0054 records why and a proposed default awaiting your approval.
