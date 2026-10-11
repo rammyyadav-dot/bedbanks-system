@@ -43,6 +43,8 @@ export class SupplyController {
   @Post('contracts/:contractId/policies/lead-time') createLeadTimeRule(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createLeadTimeRule(c.tenantId, c.userId, contractId, body, c.requestId) }
   @Get('rate-plan-portfolio') portfolio(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.ratePlanPortfolio(c.tenantId, c.userId, query) }
   @Get('rate-plans') ratePlans(@Req() req: Request) { const c = this.context(req); return this.supply.ratePlans(c.tenantId, c.userId) }
+  // Declared before ':ratePlanId' so the literal segment is never read as an id.
+  @Get('rate-plans/capabilities') ratePlanCapabilities(@Req() req: Request) { const c = this.context(req); return this.supply.ratePlanCapabilities(c.tenantId, c.userId) }
   @Get('rate-plans/:ratePlanId') ratePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.supply.ratePlan(c.tenantId, c.userId, ratePlanId) }
   @Post('rate-plans') createRatePlan(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createRatePlan(c.tenantId, c.userId, body, c.requestId) }
   @Patch('rate-plans/:ratePlanId') updateRatePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.updateRatePlan(c.tenantId, c.userId, ratePlanId, body, c.requestId) }

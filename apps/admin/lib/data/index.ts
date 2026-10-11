@@ -91,7 +91,7 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest } from '@bedbanks/contracts'
+import type { CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
 export const previewCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarApply, { method: 'POST', headers: json, body: JSON.stringify(input) })
@@ -105,6 +105,7 @@ export async function getRatePlanPortfolio(input: { search?: string; status?: st
 // Rate-plan lifecycle (activation readiness, activate/suspend, clone). The API owns every rule; the browser only displays the verdict.
 export type { RatePlanReadiness } from '@bedbanks/contracts'
 const planPath = (path: string, ratePlanId: string) => path.replace(':ratePlanId', encodeURIComponent(ratePlanId))
+export const getRatePlanCapabilities = () => apiRequest<RatePlanCapabilities>(supplyRoutes.ratePlanCapabilities)
 export const getRatePlanReadiness = (ratePlanId: string) => apiRequest<RatePlanReadiness>(planPath(supplyRoutes.ratePlanReadiness, ratePlanId))
 export const activateRatePlan = (ratePlanId: string, expectedUpdatedAt: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanActivate, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt }) })
 export const suspendRatePlan = (ratePlanId: string, expectedUpdatedAt: string, reason: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanSuspend, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt, reason }) })
