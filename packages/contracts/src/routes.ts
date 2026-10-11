@@ -69,7 +69,7 @@ export const routes = {
   adminOperations: {
     capabilities: '/admin/operations/capabilities', readiness: '/admin/operations/readiness',
     hotels: '/admin/operations/hotels', suppliers: '/admin/operations/suppliers',
-    hotelsSummary: '/admin/operations/hotels/summary', hotel: '/admin/operations/hotels/:hotelId',
+    hotelsSummary: '/admin/operations/hotels/summary', hotelsExport: '/admin/operations/hotels/export', hotel: '/admin/operations/hotels/:hotelId',
     hotelContracts: '/admin/operations/hotels/:hotelId/contracts', hotelMappings: '/admin/operations/hotels/:hotelId/mappings',
     hotelCalendar: '/admin/operations/hotels/:hotelId/calendar', hotelSellability: '/admin/operations/hotels/:hotelId/sellability',
     hotelAudit: '/admin/operations/hotels/:hotelId/audit', hotelDistribution: '/admin/operations/hotels/:hotelId/distribution', hotelReadiness: '/admin/operations/hotels/:hotelId/readiness', exceptions: '/admin/operations/exceptions',

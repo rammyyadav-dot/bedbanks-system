@@ -28,6 +28,8 @@ import { assessReadiness, type AgencyEvidence } from '../supply/hotel-readiness'
 import { normalizeCountry } from '../supply/market-rules'
 import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from '../agent/currency'
 import { auditView } from './operations-transactions.service'
+import { HOTEL_EXPORT_MAX_ROWS, hotelCsv } from './hotel-export'
+import { MAX_PAGE_SIZE } from './query-params'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
@@ -215,6 +217,26 @@ export class OperationsHotelsService {
       const extras = await this.rowExtras(tx, tenantId, slice, assessed)
       return { ...paged(slice.map((h) => this.row(h, assessed.get(h.id)!, extras.for(h.id))), page, kept.length), profilesAvailable: extras.available, window: { from: win.from, to: win.to, days: win.days }, scanCapped, destinations }
     })
+  }
+
+  // ---- export (ADR 0051) ---------------------------------------------------------------------------------------------------
+  /**
+   * CSV of the same filtered directory the caller can already read, capped at HOTEL_EXPORT_MAX_ROWS. The audit event is written before any data is
+   * returned: if it cannot be recorded, nothing is exported. The event stores the filter keys, row count and truncation flag, never the data.
+   */
+  async exportCsv(tenantId: string, userId: string, query: Record<string, unknown>, requestId: string | null): Promise<{ csv: string; rows: number; truncated: boolean }> {
+    const rows: HotelCommercialRow[] = []
+    let truncated = false
+    for (let page = 1; ; page += 1) {
+      const result = await this.list(tenantId, { ...query, page, pageSize: MAX_PAGE_SIZE })
+      rows.push(...result.items)
+      if (result.scanCapped || result.total > HOTEL_EXPORT_MAX_ROWS) truncated = true
+      if (rows.length >= HOTEL_EXPORT_MAX_ROWS || result.items.length === 0 || page * MAX_PAGE_SIZE >= result.total) break
+    }
+    const kept = rows.slice(0, HOTEL_EXPORT_MAX_ROWS)
+    const filters = Object.keys(query).filter((k) => ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars', 'from', 'days'].includes(k) && query[k] !== undefined && query[k] !== '')
+    await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.exported', entityType: 'hotel_directory', entityId: tenantId, payload: { outcome: 'allowed', requestId, rowCount: kept.length, truncated, filterKeys: filters } as Prisma.InputJsonValue } }))
+    return { csv: hotelCsv(kept), rows: kept.length, truncated }
   }
 
   // ---- summary -------------------------------------------------------------------------------------------------------------

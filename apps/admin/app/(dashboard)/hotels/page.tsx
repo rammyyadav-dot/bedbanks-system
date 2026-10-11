@@ -16,6 +16,7 @@ import { ContractChip, InventoryChip, MappingChip, RatesChip, ReadinessChip, Scr
 import { HotelsSummary } from '@/components/hotels/HotelsSummary'
 import { HotelBulkOwner } from '@/components/hotels/HotelBulkOwner'
 import { BULK_OWNER_MAX } from '@/lib/hotel-bulk-owner'
+import { HotelExportButton } from '@/components/hotels/HotelExportButton'
 import { HotelSavedViews } from '@/components/hotels/HotelSavedViews'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotelsCommercial, getHotelsSummary } from '@/lib/data/hotel-commercial'
@@ -77,6 +78,7 @@ function HotelsList() {
         </details>
       </form>
       <HotelSavedViews filters={filters} onApply={(next) => { setSearch(next.search ?? ''); go(next) }} />
+      {can('supply.hotels.export') && <div style={{ margin: '0 0 12px' }}><HotelExportButton filters={filters} /></div>}
       {canManage && Object.keys(picked).length > 0 && <HotelBulkOwner hotels={Object.entries(picked).map(([id, name]) => ({ id, name }))} onDone={list.reload} onClear={() => setPicked({})} />}
       <OpsState state={list.state} onRetry={list.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: activeFilters ? 'No hotels match these filters' : 'No hotels in this tenant', description: activeFilters ? 'The query succeeded and no hotel matches. Clear a filter to widen it.' : 'The query succeeded and this tenant has no hotels yet.' }}>
         {(data) => (

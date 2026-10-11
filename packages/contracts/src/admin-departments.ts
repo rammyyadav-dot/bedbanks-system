@@ -52,6 +52,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   // Enforced today. These are the only keys an API guard checks.
   enforced('supply.hotels.read', 'supply', 'S0', 'View hotels and the commercial 360'),
   enforced('supply.hotels.manage', 'supply', 'S1', 'Create and edit hotel master data'),
+  enforced('supply.hotels.export', 'supply', 'S2', 'Download the filtered hotel directory as CSV (audited, row-capped, ADR 0051)'),
   enforced('supply.rooms.read', 'supply', 'S0', 'View rooms'),
   enforced('supply.rooms.manage', 'supply', 'S1', 'Create and edit rooms'),
   enforced('supply.suppliers.read', 'connectivity', 'S0', 'View suppliers'),

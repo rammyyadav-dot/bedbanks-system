@@ -54,6 +54,14 @@ export class OperationsController {
   @Get('hotels') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
   hotels(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.list(tenantId, query) }
 
+  // Declared before `hotels/:hotelId` so "export" is never read as an id. Own permission (ADR 0051); S2 data egress is audited by the service.
+  @Get('hotels/export') @RequireSupplyPermission('supply.hotels.export') @UseGuards(SupplyPermissionGuard)
+  async hotelsExport(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Query() query: Q, @Res() response: Response) {
+    const out = await this.hotelOps.exportCsv(tenantId, identity.user.id, query, requestIdOf(req))
+    // Headers are set explicitly because @Res() takes over the response.
+    response.status(200).set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="hotels.csv"', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store', 'X-Export-Rows': String(out.rows), 'X-Export-Truncated': String(out.truncated) }).send(out.csv)
+  }
+
   // Declared before `hotels/:hotelId` so "summary" is never read as an id.
   @Get('hotels/summary') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
   hotelsSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.summary(tenantId, query) }
