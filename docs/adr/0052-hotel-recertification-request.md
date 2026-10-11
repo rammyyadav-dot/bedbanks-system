@@ -1,6 +1,8 @@
 # ADR 0052: "Request recertification" for hotels
 
-Status: Proposed. **Not built. Blocked on a product decision.**
+Status: Option 1 adopted as an interim measure (no schema). Option 2 (tracked request) remains **not built and blocked on a product decision**.
+
+Interim: the Hotels list shows "Re-check readiness" (permission `supply.rates.read`), which opens the hotel's Distribution & Readiness tab, where the canonical evaluator is run on demand. It records nothing and assigns nothing.
 
 ## Finding
 The existing rate-certification module (`/admin/rate-certification/*`, `/rate-certification` page) is read-only: summary, plans, hotels, markup rules, remediation, a report, and a `simulate` call. It persists no certification run and no certification status. There is therefore nothing for a "request recertification" button to re-run or re-queue; building one would invent a new entity and workflow, not reuse one.

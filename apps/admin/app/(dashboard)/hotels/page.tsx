@@ -103,7 +103,7 @@ function HotelsList() {
                       <td style={td}><ReadinessChip value={hotel.readiness} blockers={hotel.blockers} /><div style={{ color: '#3f565c', fontSize: 10 }}>{data.window.days} nights from {data.window.from}</div></td>
                       <td style={{ ...td, minWidth: 190 }}>{hotel.issues.total === 0 ? '—' : <span title={hotel.blockers.map(reasonText).join('; ')}>{hotel.issues.total} issue{hotel.issues.total === 1 ? '' : 's'} · {hotel.issues.critical} critical · {hotel.issues.high} high</span>}{hotel.blockers[0] && <div style={{ fontSize: 10, whiteSpace: 'nowrap' }}><code>{hotel.blockers[0]}</code></div>}</td>
                       <td style={td}>{new Date(hotel.updatedAt).toLocaleDateString()}{hotel.profile?.updatedBy ? <div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile.updatedBy}</div> : null}</td>
-                      <td style={td}><Link href={hotelHref(hotel.id)}>Open</Link></td>
+                      <td style={td}><Link href={hotelHref(hotel.id)}>Open</Link>{can('supply.rates.read') && <div><Link href={hotelHref(hotel.id, 'sellability')} style={{ fontSize: 11 }}>Re-check readiness</Link></div>}</td>
                     </tr>
                   ))}
                 </tbody>

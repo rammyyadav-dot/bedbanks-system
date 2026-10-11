@@ -85,3 +85,7 @@ Filter presets only: known `LIST_FILTER_KEYS`, values capped at 64 chars, 20 vie
 Built: Hotels CSV export (ADR 0051): new permission, data-only migration, audited, row-capped, formula-safe, UI button gated on the permission. Verified locally: contracts/API/admin `tsc`, jest `src/admin-operations` + agent permissions + commercial (106 pass, including new `hotel-export.spec.ts`), admin tests 83, eslint on changed admin files. **Not verified:** the migration against Postgres, the endpoint end to end, the audit row, a cross-tenant negative test, a browser download. A reviewer must run the strict-role e2e before release.
 
 Not built, with ADRs stating the decision each needs: recertification request (0052), Agent Search Monitor (0053), finance payables/refunds/credit notes (0054). They need schema, restricted roles and policy answers, and none can be tested without a database server here.
+
+## Follow-up: recertification interim
+
+ADR 0052 option 1 only: a "Re-check readiness" link per hotel row to the existing readiness tab. No tracked request exists. `tsc`, eslint and admin tests re-run; no browser check.
