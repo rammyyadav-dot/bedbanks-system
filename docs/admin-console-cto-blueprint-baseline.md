@@ -113,3 +113,7 @@ Three were environment only: `inventory-runtime-roles` and `inventory-hold` need
 ## Follow-up: refund register
 
 `/finance/refunds` (finance.read): the existing ledger endpoint filtered to REFUND entries; read-only. Browser check now 33/33 (axe and overflow included). Credit notes and manual refunds deliberately not built; ADR 0054 records why and a proposed default awaiting your approval.
+
+## Follow-up: credit notes (ADR 0054 slice 3)
+
+Credit notes already exist as frozen `CREDIT_NOTE` booking documents (issued for cancelled bookings, numbered `CN-<booking reference>`, edit-proof by trigger), so the accepted proposal for a new gapless numbering and issuing system would have created a second source of truth. Not built; ADR 0054 now records the correction and the decisions still open. Built instead: a read-only credit note register (`/finance/credit-notes`), verified by Postgres e2e `CREDIT-NOTE-REGISTER` (403/401, only CREDIT_NOTE documents, tenant isolation, unreadable amount shown as unknown) in `hotel-commercial.e2e-spec.ts` (29/29).

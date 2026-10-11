@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import type {
   AuditEventView, BookingAttention, BookingOperations, BookingRow, CancellationRow, ConnectorExecutionView, ConnectorRow,
   HoldDetail, HoldNightView, HoldRow, InventoryHoldStatus, LedgerEntryView, Paged, ReconciliationCase, ReconciliationQueue,
-  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow, SupplierPayablesView, SupplierPayableRow,
+  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow, SupplierPayablesView, SupplierPayableRow, CreditNoteRow,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
@@ -351,6 +351,29 @@ export class OperationsTransactionsService {
         items: rows, counts: { notice: rows.filter(r => r.overdue.state === 'NOTICE').length, holdsRefused: rows.filter(r => r.overdue.state === 'HOLDS_REFUSED').length },
         noticeDays: AGENCY_CREDIT_TERMS.overdueNoticeDays, refuseHoldsAfterDays: AGENCY_CREDIT_TERMS.refuseHoldsAfterDays,
       }
+    }))
+  }
+
+  /**
+   * Credit note register (ADR 0054 slice 3): the CREDIT_NOTE booking documents already issued by the booking document service. Read-only.
+   * Numbers, content and issue rules stay owned by that service; this view creates nothing and never recomputes an amount.
+   */
+  async creditNotes(tenantId: string, query: Record<string, unknown>): Promise<Paged<CreditNoteRow>> {
+    const page = pageParams(query)
+    const from = dayParam('from', query.from)
+    const to = dayParam('to', query.to)
+    const where: Prisma.BookingDocumentWhereInput = { tenantId, type: 'CREDIT_NOTE', ...((from || to) && { issuedAt: { ...(from && { gte: from }), ...(to && { lte: endOfDay(to) }) } }) }
+    const minor = (v: unknown): string | null => (typeof v === 'string' && /^-?\d+$/.test(v) ? v : null)
+    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
+      const [rows, total] = await Promise.all([
+        tx.bookingDocument.findMany({ where, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take, include: { booking: { select: { reference: true } } } }),
+        tx.bookingDocument.count({ where }),
+      ])
+      return paged(rows.map((d): CreditNoteRow => {
+        const p = (d.payload ?? {}) as Record<string, unknown>
+        return { id: d.id, number: d.number, bookingId: d.bookingId, bookingReference: d.booking.reference, issuedAt: d.issuedAt.toISOString(),
+          currency: typeof p.currency === 'string' ? p.currency : null, totalMinor: minor(p.totalMinor), penaltyMinor: minor(p.penaltyMinor), refundMinor: minor(p.refundMinor) }
+      }), page, total)
     }))
   }
 
