@@ -117,6 +117,8 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     const owner = await user('owner', tenantA, [...supplyKeys, 'agency.read'], 'owner')
     const viewer = await user('viewer', tenantA, ['supply.hotels.read'])
     const none = await user('none', tenantA, [])
+    const exporter = await user('exporter', tenantA, ['supply.hotels.export'])
+    const bexporter = await user('bexporter', tenantB, ['supply.hotels.export'])
     const bowner = await user('bowner', tenantB, supplyKeys, 'owner')
 
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
@@ -125,7 +127,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     app.useGlobalFilters(new HttpExceptionFilter()); app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
-    cookies.owner = await login(owner); cookies.viewer = await login(viewer); cookies.none = await login(none); cookies.bowner = await login(bowner)
+    cookies.owner = await login(owner); cookies.viewer = await login(viewer); cookies.none = await login(none); cookies.exporter = await login(exporter); cookies.bexporter = await login(bexporter); cookies.bowner = await login(bowner)
   })
 
   afterAll(async () => {
@@ -234,11 +236,41 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     await get('/hotels?readiness=NOT_A_STATE').expect(400)
   })
 
+  it('HOTEL-EXPORT (ADR 0051): needs its own permission, is tenant-scoped, formula-safe and audited before data leaves', async () => {
+    // read access alone is not export access
+    expect((await get('/hotels/export', 'owner')).status).toBe(403)
+    expect((await get('/hotels/export', 'viewer')).status).toBe(403)
+    expect((await get('/hotels/export', 'anon')).status).toBe(401)
+    const before = await prisma.auditEvent.count({ where: { tenantId: tenantA, action: 'hotel.exported' } })
+    const res = await get(`/hotels/export?search=${encodeURIComponent(suffix)}&${win}`, 'exporter')
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toMatch(/text\/csv/)
+    expect(res.headers['content-disposition']).toContain('attachment')
+    expect(res.headers['x-export-truncated']).toBe('false')
+    const lines = res.text.trim().split('\r\n')
+    expect(lines[0]).toContain('canonical_id,name')
+    expect(lines.length - 1).toBe(Number(res.headers['x-export-rows']))
+    expect(lines.length - 1).toBe(Object.values(hotels).filter((h) => h.name.length && !h.name.endsWith(' oscar')).length)
+    expect(res.text).not.toContain(hotels.oscar.id) // tenant B's hotel never appears
+    const audits = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'hotel.exported' } })
+    expect(audits.length).toBe(before + 1)
+    const payload = audits[audits.length - 1].payload as { rowCount: number; filterKeys: string[] }
+    expect(payload.rowCount).toBe(lines.length - 1)
+    expect(payload.filterKeys).toContain('search')
+    expect(JSON.stringify(payload)).not.toContain(hotels.alpha.name) // the audit holds counts, never the data
+    // the other tenant's exporter sees only its own hotel
+    const b = await get(`/hotels/export?${win}`, 'bexporter')
+    expect(b.status).toBe(200)
+    expect(b.text).toContain(hotels.oscar.id); expect(b.text).not.toContain(hotels.alpha.id)
+  })
+
   it('HOTEL-OPS summary: aggregates are authoritative over every hotel, not the loaded page', async () => {
     const s = (await get(`/hotels/summary?${win}`).expect(200)).body.data
     expect(s.totalHotels).toBe(14); expect(s.scanCapped).toBe(false)
     expect(s.readiness.ready + s.readiness.partial + s.readiness.blocked).toBe(14)
     expect(s.readiness.partial).toBe(1)
+    expect(Object.values(s.profileStatus as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(14) // exact, tenant-wide, every status counted once
+    expect(s.profileStatus.draft).toBeGreaterThanOrEqual(1) // kilo is DRAFT
     expect(s.mappingIssueHotels).toBeGreaterThanOrEqual(3) // charlie, delta, kilo
     expect(s.rateGapHotels).toBeGreaterThanOrEqual(1); expect(s.availabilityGapHotels).toBeGreaterThanOrEqual(1)
     expect(s.contractsExpiring).toBe(1); expect(s.contractsExpired).toBe(1); expect(s.contractExpiringDays).toBe(CONTRACT_EXPIRING_DAYS)

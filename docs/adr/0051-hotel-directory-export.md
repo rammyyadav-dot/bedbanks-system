@@ -1,6 +1,6 @@
 # ADR 0051: Hotel directory CSV export
 
-Status: Accepted and implemented on branch `claude/awesome-shannon-ds37g8`. Not exercised against Postgres or a browser; see Verification.
+Status: Accepted and implemented on branch `claude/awesome-shannon-ds37g8`. Verified against Postgres 16 with two tenants; not exercised in a browser or under the strict runtime role; see Verification.
 
 ## Decision
 - New enforced permission `supply.hotels.export` (class S2: data egress). Separate from `supply.hotels.read`, because reading a page is not the same as taking a bulk copy. Added by a data-only migration (`202611110001_hotel_export_permission`) and **granted to no role**; a tenant administrator must assign it.
@@ -17,4 +17,4 @@ Scheduled or asynchronous exports above 1000 rows, per-tenant retention of expor
 `DELETE` the `RolePermission` and `Permission` rows for the key (see the migration header); remove the route.
 
 ## Verification
-Unit: `hotel-export.spec.ts` (formula neutralization, column whitelist), controller wiring spec, permission-catalogue spec. **Not run:** Postgres e2e (no database in the authoring environment), cross-tenant negative test, browser download, strict-role grant check. These must pass before release.
+Unit: `hotel-export.spec.ts`, controller wiring spec, permission-catalogue spec. E2E (`hotel-commercial.e2e-spec.ts`, local Postgres 16 with all migrations applied, 26/26): read-only users get 403 and anonymous 401; the exporter's file lists exactly its tenant's hotels; the other tenant's hotel never appears; the audit row exists with row count and filter keys but no hotel data; the other tenant's exporter sees only its own hotels. **Not run:** browser download, the strict-role (`fbeds_api`) variant, CI.
