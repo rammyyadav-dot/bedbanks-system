@@ -31,7 +31,7 @@ Legend: Implemented / Partial / Missing / Blocked. Source claims are from `docs/
 | Hotel Profile tabs (Overview, Rooms, Contracts, Rate Plans, Quick Update, Rate Calendar, Inventory, Distribution, Bookings, Audit) | Implemented | Panels present under `components/hotels/panels`, plus Setup, Amenities, Images, Policies, Mapping. |
 | Lifecycle separate from sellability | Implemented | Publication vs transaction enablement; sellability derived by the evaluator, not a boolean. |
 | Activation-readiness gate with second approver | Implemented | 12 requirements, second approver (ADR 0022). |
-| Onboarding wizard (8 steps) | Partial | Capabilities exist as tabs, not as a guided workflow with step state. |
+| Onboarding wizard (8 steps) | Partial | Capabilities exist as tabs. The 12-requirement publication checklist (`HOTEL_PUBLICATION_REQUIREMENTS`, shown in Setup/Publication and Overview completeness) already covers the identity/content/room gates, so a second checklist would compete with it and was **not** built. A guided step flow across contracts, rates and mapping remains unbuilt. |
 | Quick Update (rates, inventory, stop sale, restrictions) | Implemented | Preview, atomic apply, stale-preview refusal, idempotency, audit, limits 5 plans / 500 plan-nights. Closed-to-departure is covered by inventory semantics. |
 | Quick Update source-authority rules for channel-manager data | Blocked | No live supplier/channel manager; rate-source ownership only meaningful once a connector writes rates. |
 | Pooled inventory Sold + Held <= Capacity under concurrency | Implemented (unverified here) | ADR 0030, pool tests claimed. Needs a re-run against Postgres. |
