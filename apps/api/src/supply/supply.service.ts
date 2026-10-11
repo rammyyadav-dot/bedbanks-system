@@ -12,6 +12,17 @@ import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type Rate
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
 const marketList = (field: string, value: unknown): string[] => { const parsed = parseMarketList(value); if (parsed === null) throw new BadRequestException(`${field} must be a list of two-letter country codes`); return parsed }
+/** Lifecycle status is written only by the activate/suspend routes, which run the readiness evaluator. Any other route naming `status` is refused, never ignored. */
+const refuseStatusField = (input: unknown) => {
+  if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'status')) throw new BadRequestException({ code: 'RATE_PLAN_STATUS_VIA_LIFECYCLE_ONLY', message: 'Rate plan status cannot be set here. Use the activate or suspend routes.' })
+}
+const RATE_PLAN_EDITABLE = new Set(['contractId', 'roomTypeId', 'boardBasisId', 'code', 'occupancy', 'currency', 'refundable', 'taxesIncluded', 'feesIncluded', 'minStay', 'maxStay', 'releaseDays'])
+/** Fields whose change can make an ACTIVE plan unsellable-by-contract; an edit to any of them is re-checked against readiness before it commits. */
+const READINESS_FIELDS = ['contractId', 'roomTypeId', 'boardBasisId', 'occupancy', 'currency', 'refundable', 'minStay', 'maxStay'] as const
+const refuseUnknownFields = (input: unknown) => {
+  const unknown = Object.keys(input && typeof input === 'object' ? input : {}).filter(key => !RATE_PLAN_EDITABLE.has(key))
+  if (unknown.length) throw new BadRequestException({ code: 'RATE_PLAN_UNKNOWN_FIELD', message: `Unsupported rate plan field(s): ${unknown.join(', ')}` })
+}
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
 
 @Injectable()
@@ -29,7 +40,7 @@ export class SupplyService {
     return { permissions: [...keys].sort() }
   }
   private async check(tenantId: string, userId: string, permission: string) { await this.permitted(tenantId, userId, permission) }
-  private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>) {
+  private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel }) {
     try {
       await this.check(tenantId, userId, permission)
     } catch (error) {
@@ -41,7 +52,7 @@ export class SupplyService {
       const result = await work(tx)
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action, entityType, entityId: result.id, payload: { outcome: 'allowed', requestId: requestId ?? null } } })
       return result.value
-    })
+    }, options)
   }
   async suppliers(tenantId: string, userId: string, query: { search?: string; status?: string; page?: number; pageSize?: number } = {}) {
     await this.check(tenantId, userId, 'supply.suppliers.read')
@@ -235,8 +246,10 @@ export class SupplyService {
 
   async ratePlans(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.ratePlan.findMany({ where: { tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: { code: 'asc' } })) }
   async ratePlan(tenantId: string, userId: string, ratePlanId: string) { await this.check(tenantId, userId, 'supply.rates.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: true } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true } })); if (!value) throw new NotFoundException('Rate plan not found'); return value }
-  async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0 } }); return { id: value.id, value } }) }
+  async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { refuseStatusField(input); refuseUnknownFields(input); if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0 } }); return { id: value.id, value } }) }
   async updateRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    // Validated before any permission lookup, transaction or write, so a mixed body is refused whole.
+    refuseStatusField(input); refuseUnknownFields(input)
     return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.updated', 'rate_plan', requestId, async tx => {
       const current = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId } }); if (!current) throw new NotFoundException('Rate plan not found')
       const contractId = input.contractId ?? current.contractId, roomTypeId = input.roomTypeId ?? current.roomTypeId, boardBasisId = input.boardBasisId ?? current.boardBasisId
@@ -249,7 +262,16 @@ export class SupplyService {
       const minStay = input.minStay ?? current.minStay, maxStay = input.maxStay === undefined ? current.maxStay : input.maxStay, releaseDays = input.releaseDays ?? current.releaseDays
       if (!Number.isInteger(minStay) || minStay < 1 || (maxStay != null && (!Number.isInteger(maxStay) || maxStay < minStay)) || !Number.isInteger(releaseDays) || releaseDays < 0) throw new BadRequestException('Invalid stay or release rule')
       const currency = input.currency === undefined ? current.currency : enabledCurrency(input.currency); if (currency.length !== 3) throw new BadRequestException('Invalid currency')
-      const value = await tx.ratePlan.update({ where: { id: ratePlanId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), ...(input.status !== undefined ? { status: input.status } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays } })
+      const before = current.status === 'ACTIVE' && READINESS_FIELDS.some(field => input[field] !== undefined) ? (await this.activationReadiness(tx, tenantId, ratePlanId)).readiness.checks : null
+      const value = await tx.ratePlan.update({ where: { id: ratePlanId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays } })
+      // An ACTIVE plan must not be edited into a state activation would refuse: any readiness check that passed before this edit and fails after it refuses the edit.
+      // Checks that were already failing are not this edit's doing and do not block it.
+      if (before) {
+        const { readiness } = await this.activationReadiness(tx, tenantId, ratePlanId)
+        const passedBefore = new Set(before.filter(item => item.ok).map(item => item.code))
+        const broken = readiness.checks.filter(item => !item.ok && item.code !== 'STATUS_ALLOWED' && passedBefore.has(item.code))
+        if (broken.length) throw new ConflictException({ code: 'RATE_PLAN_NOT_READY', message: 'This edit would leave an active rate plan not ready for sale. Suspend it first.', details: broken })
+      }
       return { id: value.id, value }
     })
   }
@@ -288,18 +310,25 @@ export class SupplyService {
     if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
     const reason = clean(input?.reason)
     if (action === 'suspend' && reason.length < 3) throw new BadRequestException('A reason is required to suspend a rate plan')
+    try { return await this.transitionRatePlanTx(tenantId, userId, ratePlanId, action, expected, reason, requestId) } catch (error) {
+      // A concurrent writer touching the same facts aborts a serializable transaction; report it as the same retryable conflict as a stale version.
+      if ((error as { code?: string }).code === 'P2034') throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan or its commercial facts changed during the update. Reload and retry.' })
+      throw error
+    }
+  }
+  private transitionRatePlanTx(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, expected: Date, reason: string, requestId?: string) {
     return this.write(tenantId, userId, 'supply.rates.manage', action === 'activate' ? 'supply.rate_plan.activated' : 'supply.rate_plan.suspended', 'rate_plan', requestId, async tx => {
       const { plan, readiness } = await this.activationReadiness(tx, tenantId, ratePlanId)
       if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
       const target = transitionTarget(action, plan.status)
       if (!target) throw new ConflictException({ code: 'RATE_PLAN_TRANSITION_NOT_ALLOWED', message: `A ${plan.status} rate plan cannot be ${action === 'activate' ? 'activated' : 'suspended'}.` })
-      if (action === 'activate' && !readiness.ready) throw new ConflictException({ code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', checks: readiness.checks.filter(item => !item.ok) })
+      if (action === 'activate' && !readiness.ready) throw new ConflictException({ code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', details: readiness.checks.filter(item => !item.ok) })
       const changed = await tx.ratePlan.updateMany({ where: { id: ratePlanId, tenantId, status: plan.status, updatedAt: plan.updatedAt }, data: { status: target } })
       if (changed.count !== 1) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed during the update. Reload and retry.' })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.status_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: { status: plan.status }, after: { status: target }, reason: reason || null } } })
       const value = await tx.ratePlan.findFirstOrThrow({ where: { id: ratePlanId, tenantId } })
       return { id: value.id, value }
-    })
+    }, { isolationLevel: 'Serializable' })
   }
   /** Copies the commercial shape into a new DRAFT. Rates, availability, pool membership and status are never copied. */
   async cloneRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {

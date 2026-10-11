@@ -54,7 +54,7 @@ describe('rate plan readiness and lifecycle', () => {
 
   it('refuses activation when a check fails and writes nothing', async () => {
     const { service, tx } = setup(planRow({ contract: { ...planRow().contract, status: 'DRAFT' } }))
-    await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toMatchObject({ response: { code: 'RATE_PLAN_NOT_READY', checks: [expect.objectContaining({ code: 'CONTRACT_ACTIVE' })] } })
+    await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toMatchObject({ response: { code: 'RATE_PLAN_NOT_READY', details: [expect.objectContaining({ code: 'CONTRACT_ACTIVE' })] } })
     expect(tx.ratePlan.updateMany).not.toHaveBeenCalled()
     expect(tx.auditEvent.create).not.toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'supply.rate_plan.status_changed' }) })
   })

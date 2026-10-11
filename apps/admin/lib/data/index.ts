@@ -86,7 +86,7 @@ export interface AdminRatePlan {
 }
 export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supply/rate-plans'); }
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
-export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; status?: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number }
+export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number }
 export async function createRatePlan(input: RatePlanInput) { return apiRequest<AdminRatePlan>('/supply/rate-plans', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }

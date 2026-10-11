@@ -9,6 +9,7 @@ import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter
 import { hashPassword } from '../src/auth/utils/password'
 import { SUPPLIER_ADAPTER } from '../src/agent/supplier.port'
 import { AGENT_PERMISSION_KEYS } from '../src/agent/agent-permissions'
+import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -219,7 +220,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
       contractId: contract.body.data.id, roomTypeId: room.body.data.id, boardBasisId: board.body.data.id, code: `${suffix}-FLEX`.slice(0, 40), occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
     ratePlanId = plan.body.data.id
-    await admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, ratePlanId, 'ACTIVE')
     await admin.post('/api/v1/supply/daily-rates/bulk').send({ rows: nights.map((stayDate) => ({ ratePlanId, stayDate, occupancy: 2, amountMinor: '25000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
     await admin.post('/api/v1/supply/availability/bulk').send({ rows: nights.map((stayDate) => ({ ratePlanId, stayDate, allotment: 4, sold: 0, stopSell: false, minStay: 1 })) }).expect(201)
   }
