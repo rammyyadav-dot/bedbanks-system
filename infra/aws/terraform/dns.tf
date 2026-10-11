@@ -11,12 +11,18 @@ resource "aws_acm_certificate" "api" {
   validation_method = "DNS"
   lifecycle { create_before_destroy = true }
 }
+# for_each keys are the (statically known) certificate names; the validation record details are apply-time values looked up per name.
+# Keying on resource_record_name instead makes a first plan fail with "Invalid for_each argument".
+locals {
+  acm_names      = toset(concat([for p in values(local.portals) : p.host], [local.api_host]))
+  acm_validation = { for o in concat(tolist(aws_acm_certificate.portals.domain_validation_options), tolist(aws_acm_certificate.api.domain_validation_options)) : o.domain_name => o }
+}
 resource "aws_route53_record" "validation" {
-  for_each = { for o in concat(tolist(aws_acm_certificate.portals.domain_validation_options), tolist(aws_acm_certificate.api.domain_validation_options)) : o.resource_record_name => o... }
+  for_each        = local.acm_names
   zone_id         = var.hosted_zone_id
-  name            = each.key
-  type            = each.value[0].resource_record_type
-  records         = [each.value[0].resource_record_value]
+  name            = local.acm_validation[each.key].resource_record_name
+  type            = local.acm_validation[each.key].resource_record_type
+  records         = [local.acm_validation[each.key].resource_record_value]
   ttl             = 60
   allow_overwrite = true
 }
@@ -42,6 +48,12 @@ resource "aws_route53_record" "portal" {
   zone_id  = var.hosted_zone_id
   name     = each.value.host
   type     = "A"
+  lifecycle {
+    precondition {
+      condition     = var.environment != "production" || trimspace(var.dns_cutover_authorization_ref) != ""
+      error_message = "Production DNS records need dns_cutover_authorization_ref (the recorded CTO GO). Do not cut over without authorization."
+    }
+  }
   alias {
     name                   = aws_lb.public.dns_name
     zone_id                = aws_lb.public.zone_id

@@ -1,6 +1,6 @@
 # ADR 0040: Host on AWS ECS Fargate instead of Vercel
 
-Status: proposed (nothing has been deployed or cut over by this change). Owner approval needed before any AWS resource is created and before any DNS or data move.
+Status: proposed (amended by ADR 0055: region, edge, exposure, digest promotion) (nothing has been deployed or cut over by this change). Owner approval needed before any AWS resource is created and before any DNS or data move.
 
 ## Context
 Today the four Next.js apps (website, agent, admin, supplier) run on Vercel, the API is meant for a container host (Render blueprint, Neon), and `docs/runbooks/vercel-deployment-topology.md` records that the Vercel path is unproven (failed preview, project not discoverable, no branch protection). The API is a long-running NestJS process with a PostgreSQL 16 database (pgvector, pg_trgm, forced row-level security, three database roles) and Redis. We want one provider, one network, and no public database path.

@@ -83,106 +83,75 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 # ---- security groups: each hop only from the one before it ----
-resource "aws_security_group" "alb_public" {
-  name_prefix = "${local.name}-alb-public-"
+# Groups are empty and every rule is a standalone resource: inline rules that reference each other create dependency cycles
+# (alb_public <-> portal, alb_internal <-> api <-> data), which terraform validate rejects.
+locals {
+  security_groups = {
+    alb_public   = "alb-public"
+    portal       = "portal"
+    alb_internal = "alb-internal"
+    api          = "api"
+    data         = "data"
+  }
+  # Rules between two groups: from -> to on a TCP port.
+  sg_links = {
+    alb_public_to_portal   = { from = "alb_public", to = "portal", port = 3000 }
+    portal_to_alb_internal = { from = "portal", to = "alb_internal", port = 443 }
+    alb_internal_to_api    = { from = "alb_internal", to = "api", port = 3002 }
+    api_to_data_postgres   = { from = "api", to = "data", port = 5432 }
+    api_to_data_redis      = { from = "api", to = "data", port = 6379 }
+  }
+  # Ingress to the public ALB: one rule per (CIDR, port). Staging must not be 0.0.0.0/0 (ADR 0055; enforced by a precondition below).
+  public_ingress = { for pair in setproduct(var.public_ingress_cidrs, [443, 80]) : "${pair[0]}-${pair[1]}" => { cidr = pair[0], port = pair[1] } }
+}
+resource "aws_security_group" "this" {
+  for_each    = local.security_groups
+  name_prefix = "${local.name}-${each.value}-"
+  description = "${local.name} ${each.value}"
   vpc_id      = aws_vpc.this.id
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # only redirects to 443
-  }
-  egress {
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.portal.id]
-  }
+  tags        = { Name = "${local.name}-${each.value}" }
   lifecycle { create_before_destroy = true }
 }
-resource "aws_security_group" "portal" {
-  name_prefix = "${local.name}-portal-"
-  vpc_id      = aws_vpc.this.id
-  ingress {
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_public.id]
-  }
-  egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # ECR, CloudWatch, Secrets Manager (via NAT) and the internal API ALB
-  }
-  lifecycle { create_before_destroy = true }
+resource "aws_vpc_security_group_ingress_rule" "link" {
+  for_each                     = local.sg_links
+  security_group_id            = aws_security_group.this[each.value.to].id
+  referenced_security_group_id = aws_security_group.this[each.value.from].id
+  ip_protocol                  = "tcp"
+  from_port                    = each.value.port
+  to_port                      = each.value.port
+  description                  = "${each.value.from} to ${each.value.to}"
 }
-resource "aws_security_group" "alb_internal" {
-  name_prefix = "${local.name}-alb-internal-"
-  vpc_id      = aws_vpc.this.id
-  ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.portal.id]
-  }
-  egress {
-    from_port       = 3002
-    to_port         = 3002
-    protocol        = "tcp"
-    security_groups = [aws_security_group.api.id]
-  }
-  lifecycle { create_before_destroy = true }
+resource "aws_vpc_security_group_egress_rule" "link" {
+  for_each                     = local.sg_links
+  security_group_id            = aws_security_group.this[each.value.from].id
+  referenced_security_group_id = aws_security_group.this[each.value.to].id
+  ip_protocol                  = "tcp"
+  from_port                    = each.value.port
+  to_port                      = each.value.port
+  description                  = "${each.value.from} to ${each.value.to}"
 }
-resource "aws_security_group" "api" {
-  name_prefix = "${local.name}-api-"
-  vpc_id      = aws_vpc.this.id
-  ingress {
-    from_port       = 3002
-    to_port         = 3002
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_internal.id]
-  }
-  egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # suppliers, ECR, Secrets Manager, CloudWatch
-  }
-  egress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.data.id]
-  }
-  egress {
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [aws_security_group.data.id]
-  }
-  lifecycle { create_before_destroy = true }
+resource "aws_vpc_security_group_ingress_rule" "public" {
+  for_each          = local.public_ingress
+  security_group_id = aws_security_group.this["alb_public"].id
+  cidr_ipv4         = each.value.cidr
+  ip_protocol       = "tcp"
+  from_port         = each.value.port
+  to_port           = each.value.port
+  description       = each.value.port == 80 ? "redirect to 443 only" : "HTTPS"
 }
-resource "aws_security_group" "data" {
-  name_prefix = "${local.name}-data-"
-  vpc_id      = aws_vpc.this.id
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.api.id]
-  }
-  ingress {
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [aws_security_group.api.id]
-  }
-  lifecycle { create_before_destroy = true }
+# Tasks reach ECR, CloudWatch, Secrets Manager (via NAT), the internal API ALB (portal) and suppliers (api) over HTTPS only.
+resource "aws_vpc_security_group_egress_rule" "https_out" {
+  for_each          = toset(["portal", "api"])
+  security_group_id = aws_security_group.this[each.key].id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  description       = "HTTPS to AWS APIs and, for the api, suppliers"
+}
+
+# The VPC's default security group admits all traffic from its own members. Strip it so nothing can be attached to it by accident.
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+  tags   = { Name = "${local.name}-default-deny" }
 }

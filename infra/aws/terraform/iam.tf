@@ -122,13 +122,21 @@ data "aws_iam_policy_document" "github_deploy" {
     actions   = ["ecs:UpdateService"]
     resources = [for s in aws_ecs_service.this : s.id]
   }
+  # Read-only image lookup so a deploy fails early (and can pin the digest) when a commit was never built. No push, no registry login.
   statement {
-    actions   = ["ecs:RunTask"]
-    resources = ["arn:aws:ecs:${var.region}:${data.aws_caller_identity.this.account_id}:task-definition/${local.name}-migrate:*"]
+    actions   = ["ecr:DescribeImages"]
+    resources = [for r in aws_ecr_repository.this : r.arn]
   }
+  # No ecs:RunTask and no PassRole for the migrate role: migrations use the owner database credential and are an owner action,
+  # never reachable from the CI deploy role (ADR 0040, ADR 0055).
   statement {
     actions   = ["iam:PassRole"]
-    resources = concat([aws_iam_role.execution.arn, aws_iam_role.migrate_execution.arn], [for r in aws_iam_role.task : r.arn])
+    resources = concat([aws_iam_role.execution.arn], [for r in aws_iam_role.task : r.arn])
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
   }
 }
 resource "aws_iam_role_policy" "github_deploy" {

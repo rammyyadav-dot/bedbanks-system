@@ -96,11 +96,19 @@ variable "cost_owner" {
   type        = string
   default     = "platform"
   description = "Value of the Owner cost-allocation tag."
+  validation {
+    condition     = trimspace(var.cost_owner) != ""
+    error_message = "cost_owner must not be empty (mandatory tag)."
+  }
 }
 variable "cost_center" {
   type        = string
   default     = "fbeds-platform"
   description = "Value of the CostCenter cost-allocation tag."
+  validation {
+    condition     = trimspace(var.cost_center) != ""
+    error_message = "cost_center must not be empty (mandatory tag)."
+  }
 }
 variable "monthly_budget_usd" {
   type        = number
@@ -115,4 +123,41 @@ variable "budget_emails" {
   type        = list(string)
   default     = []
   description = "Recipients of budget alerts. Required when monthly_budget_usd > 0."
+}
+variable "budget_alert_thresholds" {
+  type = list(object({
+    percent = number
+    type    = string
+  }))
+  default = [
+    { percent = 80, type = "ACTUAL" },
+    { percent = 100, type = "ACTUAL" },
+    { percent = 100, type = "FORECASTED" },
+  ]
+  description = "Budget alert points. Parameters awaiting owner approval, not business decisions."
+  validation {
+    condition     = alltrue([for t in var.budget_alert_thresholds : t.percent > 0 && contains(["ACTUAL", "FORECASTED"], t.type)])
+    error_message = "Each threshold needs percent > 0 and type ACTUAL or FORECASTED."
+  }
+}
+
+# ---- exposure controls (ADR 0055) ----
+variable "public_ingress_cidrs" {
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+  description = "CIDRs allowed to reach the public ALB. Staging MUST list only trusted egress ranges (office/VPN); 0.0.0.0/0 is refused for staging."
+  validation {
+    condition     = length(var.public_ingress_cidrs) > 0 && alltrue([for c in var.public_ingress_cidrs : can(cidrnetmask(c))])
+    error_message = "public_ingress_cidrs must be a non-empty list of valid IPv4 CIDRs."
+  }
+}
+variable "production_edge_exception_ref" {
+  type        = string
+  default     = ""
+  description = "Production requires CloudFront (ADR 0055), which this stack does not implement yet. Until it does, a production apply is refused unless this names the approved exception (ADR or ticket reference)."
+}
+variable "dns_cutover_authorization_ref" {
+  type        = string
+  default     = ""
+  description = "Reference to the recorded CTO GO decision. Required to create production public DNS records (create_portal_records)."
 }

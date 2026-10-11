@@ -35,21 +35,23 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
       - name: Roll services one at a time and wait for stability
         env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
           CLUSTER: fbeds-${{ inputs.environment }}
           SHA: ${{ inputs.sha }}
           SERVICES: ${{ inputs.services }}
         run: |
           set -euo pipefail
+          REGISTRY_HOST="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com"
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA" >&2; exit 1; }
           for svc in $SERVICES; do
             case "$svc" in api|admin|agent|supplier|website) ;; *) echo "unknown service $svc" >&2; exit 1 ;; esac
-            image="$REGISTRY/fbeds/$svc:$SHA"
-            aws ecr describe-images --repository-name "fbeds/$svc" --image-ids imageTag="$SHA" >/dev/null   # fail early if it was never built
+            # Resolve the commit tag to its immutable digest and deploy THAT: the task definition pins repo@sha256:..., never a tag.
+            digest=$(aws ecr describe-images --repository-name "fbeds/$svc" --image-ids imageTag="$SHA" --query 'imageDetails[0].imageDigest' --output text) \
+              || { echo "no image fbeds/$svc:$SHA in ECR (never built?)" >&2; exit 1; }
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected digest '$digest' for $svc" >&2; exit 1; }
+            image="$REGISTRY_HOST/fbeds/$svc@$digest"
             family="$CLUSTER-$svc"
             aws ecs describe-task-definition --task-definition "$family" --query taskDefinition > td.json
             jq --arg img "$image" --arg name "$svc" \
@@ -60,5 +62,5 @@ jobs:
             # A circuit-breaker rollback leaves the service "stable" on the OLD revision: verify we are really serving the new one.
             now=$(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" --query 'services[0].taskDefinition' --output text)
             [ "$now" = "$arn" ] || { echo "$svc did not stay on $arn (rolled back to $now)" >&2; exit 1; }
-            echo "$svc -> $image" >> "$GITHUB_STEP_SUMMARY"
+            echo "$svc -> $image (commit $SHA)" >> "$GITHUB_STEP_SUMMARY"
           done

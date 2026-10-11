@@ -1,17 +1,43 @@
 name: Terraform check
 
+# Static and offline only: no AWS credentials, no apply. Runs the same checks documented in docs/aws-verification-evidence.md.
 on:
   pull_request:
-    paths: ['infra/aws/terraform/**', '.github/workflows/terraform-check.yml']
+    paths:
+      - 'infra/aws/**'
+      - 'tools/aws-governance-check*'
+      - 'docs/adr/0055-*'
+      - '.github/workflows/**'
+      - 'package.json'
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.8
       - run: terraform -chdir=infra/aws/terraform fmt -check -recursive
       - run: terraform -chdir=infra/aws/terraform init -backend=false
       - run: terraform -chdir=infra/aws/terraform validate
+      # Mock-provider plan tests: staging exposure, production edge, DNS authorization and budget guards.
+      - run: terraform -chdir=infra/aws/terraform test
+      - name: Governance guard (region, tags, OIDC trust, no apply in CI, booking off)
+        run: |
+          node tools/aws-governance-check.mjs
+          node --test tools/aws-governance-check.test.mjs
+      - name: Static security analysis (checkov, baseline in infra/aws/terraform/.checkov.yaml)
+        run: |
+          python3 -m pip install --quiet checkov==3.2.0
+          checkov --config-file infra/aws/terraform/.checkov.yaml -d infra/aws/terraform
+      - name: Workflow lint
+        run: |
+          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint

@@ -1,4 +1,4 @@
-region         = "eu-central-1"
+region         = "ap-south-1" # ADR 0055
 environment    = "production"
 domain_name    = "fbeds.com"
 hosted_zone_id = "ZXXXXXXXXXXXXX"
@@ -10,3 +10,8 @@ create_portal_records = false
 # Cost guardrails: set the owner-approved ceiling before the first chargeable apply (budgets.tf).
 # monthly_budget_usd = 0
 # budget_emails      = ["finops@example.com"]
+
+# ADR 0055: production requires CloudFront in front of the ALB, which this stack does not implement yet.
+# A production apply is refused until that exists or the exception is approved and referenced here.
+# production_edge_exception_ref = "ADR-0055-exception-<ticket>"
+# dns_cutover_authorization_ref = "<recorded CTO GO>"   # required before create_portal_records = true

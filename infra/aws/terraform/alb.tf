@@ -2,11 +2,21 @@
 resource "aws_lb" "public" {
   name                       = "${local.name}-public"
   load_balancer_type         = "application"
-  security_groups            = [aws_security_group.alb_public.id]
+  security_groups            = [aws_security_group.this["alb_public"].id]
   subnets                    = aws_subnet.public[*].id
   drop_invalid_header_fields = true
   enable_deletion_protection = var.environment == "production"
   idle_timeout               = 60
+  lifecycle {
+    precondition {
+      condition     = var.environment != "staging" || !contains(var.public_ingress_cidrs, "0.0.0.0/0")
+      error_message = "Staging must stay access-restricted: set public_ingress_cidrs to trusted ranges, not 0.0.0.0/0 (ADR 0055)."
+    }
+    precondition {
+      condition     = var.environment != "production" || trimspace(var.production_edge_exception_ref) != ""
+      error_message = "Production requires CloudFront in front of the ALB (ADR 0055); it is not implemented in this stack. Set production_edge_exception_ref to the approved exception, or implement the edge first."
+    }
+  }
 }
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.public.arn
@@ -44,6 +54,7 @@ resource "aws_lb_target_group" "portal" {
   target_type          = "ip"
   vpc_id               = aws_vpc.this.id
   deregistration_delay = 30
+  tags                 = { Service = each.key }
   health_check {
     path                = each.value.check
     matcher             = "200"
@@ -71,7 +82,7 @@ resource "aws_lb" "internal" {
   name                       = "${local.name}-internal"
   internal                   = true
   load_balancer_type         = "application"
-  security_groups            = [aws_security_group.alb_internal.id]
+  security_groups            = [aws_security_group.this["alb_internal"].id]
   subnets                    = aws_subnet.private[*].id
   drop_invalid_header_fields = true
   enable_deletion_protection = var.environment == "production"
@@ -95,6 +106,7 @@ resource "aws_lb_target_group" "api" {
   target_type          = "ip"
   vpc_id               = aws_vpc.this.id
   deregistration_delay = 60
+  tags                 = { Service = "api" }
   health_check {
     path                = "/api/v1/health/ready" # 503 when the database or a required dependency is down, so such a task is taken out of rotation
     matcher             = "200"
