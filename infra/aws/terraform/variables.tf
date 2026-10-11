@@ -90,3 +90,29 @@ variable "booking_ops_enabled" {
   default     = false
   description = "Inject BOOKING_OPS_DATABASE_URL (the booking module's limited role). Set the secret value first; ECS refuses to start a task whose secret is empty."
 }
+
+# ---- cost governance (blueprint section 7) ----
+variable "cost_owner" {
+  type        = string
+  default     = "platform"
+  description = "Value of the Owner cost-allocation tag."
+}
+variable "cost_center" {
+  type        = string
+  default     = "fbeds-platform"
+  description = "Value of the CostCenter cost-allocation tag."
+}
+variable "monthly_budget_usd" {
+  type        = number
+  default     = 0
+  description = "Approved monthly ceiling for this environment in USD. 0 creates no budget; set it BEFORE the first chargeable apply (the owner approves the number)."
+  validation {
+    condition     = var.monthly_budget_usd >= 0
+    error_message = "monthly_budget_usd must not be negative."
+  }
+}
+variable "budget_emails" {
+  type        = list(string)
+  default     = []
+  description = "Recipients of budget alerts. Required when monthly_budget_usd > 0."
+}
