@@ -7,7 +7,7 @@ const availability = (extra = {}) => ({ ratePlanId: 'plan', stayDate: '2030-01-0
 function setup() {
   const tx = {
     userRole: { findMany: jest.fn().mockResolvedValue([{ role: { permissions: ['supply.rates.manage', 'supply.availability.manage', 'supply.rates.read'].map(key => ({ permission: { key } })) } }]) },
-    ratePlan: { findMany: jest.fn().mockResolvedValue([{ id: 'plan', occupancy: 2, currency: 'AED', inventoryPoolId: null, contract: { settlementCurrency: 'AED', validFrom: at, validTo: new Date('2030-12-31') } }]), count: jest.fn().mockResolvedValue(51) },
+    ratePlan: { groupBy: jest.fn().mockResolvedValue([{ status: 'DRAFT', _count: { _all: 51 } }, { status: 'ACTIVE', _count: { _all: 4 } }]), findMany: jest.fn().mockResolvedValue([{ id: 'plan', occupancy: 2, currency: 'AED', inventoryPoolId: null, contract: { settlementCurrency: 'AED', validFrom: at, validTo: new Date('2030-12-31') } }]), count: jest.fn().mockResolvedValue(51) },
     dailyRate: { findUnique: jest.fn().mockResolvedValue({ id: 'rate', amountMinor: 12000n, amountBasis: 'SELL', currency: 'AED', updatedAt: at }), upsert: jest.fn().mockResolvedValue({ id: 'rate', amountMinor: 15000n }) },
     dailyAvailability: { findUnique: jest.fn().mockResolvedValue({ id: 'availability', allotment: 10, sold: 2, held: 1, stopSell: true, minStay: 3, updatedAt: at }), upsert: jest.fn().mockResolvedValue({ id: 'availability' }) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
@@ -74,7 +74,8 @@ describe('portfolio paging', () => {
   it('bounds and sorts the database query with a tenant-scoped total', async () => {
     const { service, tx } = setup()
     const result = await service.ratePlanPortfolio('tenant', 'user', { page: '2', pageSize: '25', status: 'DRAFT', search: 'Dubai' })
-    expect(result).toMatchObject({ total: 51, page: 2, pageSize: 25, hasMore: true })
+    expect(result).toMatchObject({ total: 51, page: 2, pageSize: 25, hasMore: true, statusCounts: { DRAFT: 51, ACTIVE: 4, SUSPENDED: 0, EXPIRED: 0 } })
+    expect(tx.ratePlan.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.not.objectContaining({ status: expect.anything() }) }))
     expect(tx.ratePlan.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 25, take: 25, orderBy: [{ code: 'asc' }, { id: 'asc' }], where: expect.objectContaining({ tenantId: 'tenant', status: 'DRAFT' }) }))
   })
   it.each([{ page: '-1' }, { pageSize: '101' }, { page: '1.2' }, { search: ['a', 'b'] }, { status: 'PUBLISHED' }])('rejects malformed filters %p', async query => {

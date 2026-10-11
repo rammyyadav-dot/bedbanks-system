@@ -19,6 +19,7 @@ import { QuickUpdatePanel } from '@/components/hotels/panels/QuickUpdatePanel'
 import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
 import { InventoryPanel } from '@/components/hotels/panels/InventoryPanel'
+import { RatePlansPanel } from '@/components/hotels/panels/RatePlansPanel'
 import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
 import { DistributionPanel } from '@/components/hotels/panels/DistributionPanel'
 import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
@@ -28,7 +29,7 @@ import { getHotel360 } from '@/lib/data/hotel-commercial'
 import { HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/lib/hotel-ui'
 
 const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'supply.availability.read' | 'supply.rooms.read' | 'booking.read' | 'audit.read'>> = {
-  rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', inventory: 'supply.availability.read', bookings: 'booking.read', audit: 'audit.read',
+  rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rateplans: 'supply.rates.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', inventory: 'supply.availability.read', bookings: 'booking.read', audit: 'audit.read',
 }
 const entityStatus = (value: string) => (value === 'COMPLETE' ? 'active' : value === 'SUSPENDED' ? 'suspended' : 'pending') as 'active' | 'suspended' | 'pending'
 
@@ -73,6 +74,7 @@ function Hotel360() {
               {tab === 'policies' && <PoliciesPanel hotelId={id} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
+              {tab === 'rateplans' && <RatePlansPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'rates' && <RatesInventoryPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'inventory' && <InventoryPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'quick' && <QuickUpdatePanel hotelId={id} data={data} />}

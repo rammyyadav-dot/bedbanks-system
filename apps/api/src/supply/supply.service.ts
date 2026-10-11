@@ -7,6 +7,7 @@ import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
 import { evaluateNightSellability } from './contracted-sellability'
 import { parseMarketList } from './market-rules'
+import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type RatePlanAction } from './rate-plan-activation'
 
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
@@ -223,7 +224,12 @@ export class SupplyService {
     return this.prisma.withTenant(tenantId, async tx => {
       const total = await tx.ratePlan.count({ where })
       const items = await tx.ratePlan.findMany({ where, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: [{ code: 'asc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize })
-      return { items, total, page, pageSize, hasMore: page * pageSize < total }
+      // Counts ignore the status filter so the toolbar can show the whole split for the current hotel/search scope.
+      const { status: _status, ...scope } = where
+      const grouped = await tx.ratePlan.groupBy({ by: ['status'], where: scope, _count: { _all: true } })
+      const statusCounts = { DRAFT: 0, ACTIVE: 0, SUSPENDED: 0, EXPIRED: 0 }
+      for (const row of grouped) statusCounts[row.status] = row._count._all
+      return { items, total, page, pageSize, hasMore: page * pageSize < total, statusCounts }
     }, { isolationLevel: 'RepeatableRead' })
   }
 
@@ -244,6 +250,75 @@ export class SupplyService {
       if (!Number.isInteger(minStay) || minStay < 1 || (maxStay != null && (!Number.isInteger(maxStay) || maxStay < minStay)) || !Number.isInteger(releaseDays) || releaseDays < 0) throw new BadRequestException('Invalid stay or release rule')
       const currency = input.currency === undefined ? current.currency : enabledCurrency(input.currency); if (currency.length !== 3) throw new BadRequestException('Invalid currency')
       const value = await tx.ratePlan.update({ where: { id: ratePlanId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), ...(input.status !== undefined ? { status: input.status } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays } })
+      return { id: value.id, value }
+    })
+  }
+
+  /** Loads plain facts for the activation evaluator inside the caller's tenant transaction. Nothing is inferred: a missing relation is reported by the checklist. */
+  private async activationReadiness(tx: Prisma.TransactionClient, tenantId: string, ratePlanId: string) {
+    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, _count: { select: { cancellationPolicies: true } } } } } })
+    if (!plan) throw new NotFoundException('Rate plan not found')
+    const timeZone = plan.roomType.hotel.timeZone
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+    const todayDate = new Date(`${today}T00:00:00Z`)
+    const [rates, availability] = await Promise.all([
+      tx.dailyRate.findMany({ where: { tenantId, ratePlanId, occupancy: plan.occupancy, stayDate: { gte: todayDate } }, select: { stayDate: true, amountBasis: true, currency: true, amountMinor: true }, orderBy: { stayDate: 'asc' }, take: 1500 }),
+      tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId, stayDate: { gte: todayDate } }, select: { stayDate: true }, orderBy: { stayDate: 'asc' }, take: 1500 }),
+    ])
+    const day = (value: Date) => value.toISOString().slice(0, 10)
+    const readiness = assessRatePlanActivation({
+      today,
+      plan: { status: plan.status, currency: plan.currency, occupancy: plan.occupancy, refundable: plan.refundable, minStay: plan.minStay, maxStay: plan.maxStay, inventoryPoolId: plan.inventoryPoolId },
+      room: { hotelId: plan.roomType.hotelId, maxOccupancy: plan.roomType.maxOccupancy, isActive: plan.roomType.isActive },
+      board: { isActive: plan.boardBasis.isActive },
+      contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: plan.contract._count.cancellationPolicies },
+      rates: rates.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
+      availabilityDates: availability.map(row => day(row.stayDate)),
+    })
+    return { plan, readiness }
+  }
+  async ratePlanReadiness(tenantId: string, userId: string, ratePlanId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    return this.prisma.withTenant(tenantId, async tx => { const { plan, readiness } = await this.activationReadiness(tx, tenantId, ratePlanId); return { ratePlanId, status: plan.status, updatedAt: plan.updatedAt.toISOString(), ...readiness } })
+  }
+  /** Activate or suspend. Activation is refused unless the readiness checklist is fully green; both transitions are version-checked and audited with before/after status. */
+  async transitionRatePlan(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, input: any, requestId?: string) {
+    if (action !== 'activate' && action !== 'suspend') throw new BadRequestException('Unknown rate plan action')
+    const expected = typeof input?.expectedUpdatedAt === 'string' ? new Date(input.expectedUpdatedAt) : null
+    if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
+    const reason = clean(input?.reason)
+    if (action === 'suspend' && reason.length < 3) throw new BadRequestException('A reason is required to suspend a rate plan')
+    return this.write(tenantId, userId, 'supply.rates.manage', action === 'activate' ? 'supply.rate_plan.activated' : 'supply.rate_plan.suspended', 'rate_plan', requestId, async tx => {
+      const { plan, readiness } = await this.activationReadiness(tx, tenantId, ratePlanId)
+      if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
+      const target = transitionTarget(action, plan.status)
+      if (!target) throw new ConflictException({ code: 'RATE_PLAN_TRANSITION_NOT_ALLOWED', message: `A ${plan.status} rate plan cannot be ${action === 'activate' ? 'activated' : 'suspended'}.` })
+      if (action === 'activate' && !readiness.ready) throw new ConflictException({ code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', checks: readiness.checks.filter(item => !item.ok) })
+      const changed = await tx.ratePlan.updateMany({ where: { id: ratePlanId, tenantId, status: plan.status, updatedAt: plan.updatedAt }, data: { status: target } })
+      if (changed.count !== 1) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed during the update. Reload and retry.' })
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.status_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: { status: plan.status }, after: { status: target }, reason: reason || null } } })
+      const value = await tx.ratePlan.findFirstOrThrow({ where: { id: ratePlanId, tenantId } })
+      return { id: value.id, value }
+    })
+  }
+  /** Copies the commercial shape into a new DRAFT. Rates, availability, pool membership and status are never copied. */
+  async cloneRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    const code = clean(input?.code)
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{1,39}$/.test(code)) throw new BadRequestException('Rate plan code must be 2-40 letters, digits, dot, dash or underscore')
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.cloned', 'rate_plan', requestId, async tx => {
+      const source = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId } })
+      if (!source) throw new NotFoundException('Rate plan not found')
+      const roomTypeId = typeof input?.roomTypeId === 'string' && input.roomTypeId ? input.roomTypeId : source.roomTypeId
+      const [sourceRoom, targetRoom, contract] = await Promise.all([
+        tx.roomType.findFirst({ where: { id: source.roomTypeId, hotel: { tenantId } } }),
+        tx.roomType.findFirst({ where: { id: roomTypeId, hotel: { tenantId } } }),
+        tx.contract.findFirst({ where: { id: source.contractId, tenantId }, include: { supplierHotelMapping: true } }),
+      ])
+      if (!sourceRoom || !targetRoom || !contract) throw new BadRequestException('Invalid rate plan relationship')
+      if (targetRoom.hotelId !== sourceRoom.hotelId) throw new BadRequestException('A clone must stay within the same hotel')
+      if (source.occupancy > targetRoom.maxOccupancy) throw new BadRequestException('Occupancy exceeds the target room capacity')
+      if (await tx.ratePlan.findFirst({ where: { contractId: source.contractId, code }, select: { id: true } })) throw new ConflictException({ code: 'RATE_PLAN_CODE_EXISTS', message: 'That rate plan code already exists on this contract.' })
+      const value = await tx.ratePlan.create({ data: { tenantId, ...cloneDraftFields(source, { code, roomTypeId }) } })
       return { id: value.id, value }
     })
   }
