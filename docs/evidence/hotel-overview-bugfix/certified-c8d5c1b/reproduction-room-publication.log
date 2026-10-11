@@ -1,0 +1,34 @@
+Pre-fix regression failure excerpts (synthetic disposable data):
+  ● hotel setup (PostgreSQL, HTTP, two tenants) › enterprise legacy room edits cannot archive the last active room of a published hotel
+
+    expected 422 "Unprocessable Entity", got 200 "OK"
+
+      856 |     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+      857 |     await publish(id)
+    > 858 |     const blocked = await api('patch', `/supply/hotels/${id}/rooms/${room.id}`, 'manager', { isActive: false }).expect(422)
+          |                                                                                                                 ^
+      859 |     expect(blocked.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENT_LOST')
+      860 |     expect((await prisma.roomType.findUniqueOrThrow({ where: { id: room.id } })).isActive).toBe(true)
+      861 |   })
+
+  ● hotel setup (PostgreSQL, HTTP, two tenants) › enterprise parallel room archives preserve the last active room of a published hotel
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Array [
+        200,
+    -   422,
+    +   200,
+      ]
+
+      867 |     await publish(id)
+      868 |     const responses = await Promise.all(rooms.map(r => api('post', `/admin/hotels/${id}/rooms/${r.id}/archive`, 'manager', { idempotencyKey: key(), expectedToken: String(r.updatedAt.getTime()), reason: 'Close for renovation' })))
+    > 869 |     expect(responses.map(r => r.status).sort()).toEqual([200, 422])
+          |                                                 ^
+      870 |     expect(await prisma.roomType.count({ where: { hotelId: id, isActive: true } })).toBe(1)
+      871 |   })
+      872 |
+

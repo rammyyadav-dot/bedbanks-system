@@ -26,7 +26,8 @@ async function main() {
   }
   const keys = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.rates.read', 'supply.availability.read', 'supply.contracts.read', 'supply.mappings.read', 'supply.suppliers.read', 'audit.read']
   const maker = await user('maker', keys); const checker = await user('checker', keys)
-  const out = { password, makerEmail: maker.email, checkerEmail: checker.email, tenantA: A, tag }
+  const viewer = await user('viewer', ['supply.hotels.read'])
+  const out = { viewerEmail: viewer.email, password, makerEmail: maker.email, checkerEmail: checker.email, tenantA: A, tag }
   require('fs').writeFileSync(process.env.SEED_OUT ?? __dirname + '/.seed-hotel-journey.json', JSON.stringify(out, null, 2))
   console.log('seeded tenant', tag)
   await prisma.$disconnect()

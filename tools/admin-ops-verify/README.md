@@ -194,3 +194,7 @@ node tools/admin-ops-verify/verify-rate-plans.cjs
 ## Agent search only offers ACTIVE rate plans (ADR 0041)
 
 `verify-agent-suspended-plan.cjs` runs after `seed-agent-mvp.ts` against the strict-role API (:3002): it suspends, drafts and expires one hotel's plans through the owner connection, searches as an Agent over HTTP, checks the hotel disappears (and the others stay), restores ACTIVE and checks the count returns to baseline and that searching created no hold, booking or ledger row. `OWNER_DATABASE_URL` must be a disposable local database.
+
+## Enterprise Hotel Overview (ADR 0050)
+
+`seed-hotel-journey.ts` now supplies a read-only account as well as maker/checker. `verify-hotel-journey.cjs` adds real persisted overview reads, linked operational summaries, publication-versus-sellability, property archive, private-contact/RBAC checks, 320/390/768/1280/1440px bounds and axe. Set `PLAYWRIGHT_EXECUTABLE_PATH` for system Chromium and `SHOT_DIR` for screenshots. Use a fresh seed for each run and an API authenticated as the verified strict runtime login. No production endpoint or fixture data is required.

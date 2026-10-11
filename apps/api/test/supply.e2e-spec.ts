@@ -158,12 +158,14 @@ describe('Supply HTTP authorization boundaries', () => {
     await request(app.getHttpServer()).get('/api/v1/supply/hotels').set('Cookie', cookie).set('x-fbeds-tenant-id', tenantBId).expect(403)
   })
 
-  it('isolates tenant lists and ignores forged body/query/header tenant claims', async () => {
+  it('isolates tenant lists, rejects forged body fields and ignores query/header tenant claims', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const list = await supply(cookie, tenantAId).get('/api/v1/supply/hotels').expect(200)
     expect(list.body.data.map((hotel: { id: string }) => hotel.id)).toEqual([hotelAId])
     await supply(cookie, tenantBId).get('/api/v1/supply/hotels').expect(403)
-    const created = await supply(cookie, tenantAId).post('/api/v1/supply/hotels?tenantId=' + tenantBId).set('x-tenant-id', tenantBId).send({ tenantId: tenantBId, name: `${suffix} Forged`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/hotels').send({ tenantId: tenantBId, name: `${suffix} Forged`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(400)
+    await expect(prisma.hotel.count({ where: { name: `${suffix} Forged` } })).resolves.toBe(0)
+    const created = await supply(cookie, tenantAId).post('/api/v1/supply/hotels?tenantId=' + tenantBId).set('x-tenant-id', tenantBId).send({ name: `${suffix} Forged`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
     const createdHotelId = created.body.data.id
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantAId } })).resolves.not.toBeNull()
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantBId } })).resolves.toBeNull()

@@ -6,6 +6,7 @@ import { ApprovalService, type ApprovalView } from '../approvals/approval.servic
 import { textParam } from '../admin-operations/query-params'
 import { HotelSetupService } from './hotel-setup.service'
 import { assessCompleteness } from './hotel-setup-rules'
+import { lockHotelSetup } from './hotel-setup-shared'
 
 export const HOTEL_PUBLISH_APPROVAL_ACTION = 'hotel.activate'
 export const HOTEL_ENTITY_TYPE = 'hotel'
@@ -60,6 +61,7 @@ export class HotelPublicationService {
     if (typeof body?.expectedToken !== 'string' || !body.expectedToken) throw new BadRequestException('expectedToken is required')
     const { data, version } = await this.state(tenantId, hotelId)
     if (body.expectedToken !== version) this.setup.stale()
+    if (data.hotel.contentStatus === 'ARCHIVED') throw new ConflictException({ code: 'HOTEL_ARCHIVED', message: 'Restore the archived hotel to DRAFT before requesting publication.' })
     if (data.hotel.contentStatus === 'COMPLETE') throw new ConflictException('The hotel is already published')
     this.unmet(data)
     const open = await this.openRequest(tenantId, data.hotel.id, version)
@@ -104,6 +106,9 @@ export class HotelPublicationService {
     const out = await this.approvals.execute({ tenantId, executorId: userId, approvalId, expectedAction: HOTEL_PUBLISH_APPROVAL_ACTION }, async (approval) => {
       const bound = this.boundVersion(approval)
       return this.prisma.withTenant(tenantId, async (tx) => {
+        // Share Setup's lock before loading: an edit reviewed while still DRAFT must
+        // finish before publication rechecks its version and completeness.
+        await lockHotelSetup(tx, tenantId, own.hotelId)
         const before = await this.setup.load(tx, tenantId, own.hotelId)
         if (this.setup.token(before.hotel, before.profile) !== bound) throw new ConflictException({ message: 'The hotel changed after this request was approved. Make a new publication request.', code: 'HOTEL_CHANGED_AFTER_APPROVAL' })
         if (before.hotel.contentStatus === 'COMPLETE') throw new ConflictException('The hotel is already published')

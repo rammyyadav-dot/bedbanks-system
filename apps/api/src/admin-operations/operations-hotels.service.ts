@@ -41,7 +41,7 @@ const provenanceOf = (metadata: Prisma.JsonValue): string | null => {
 
 /** The most hotels a computed filter, summary or exception scan will assess in one request. Responses say when it was reached. */
 export const COMMERCIAL_SCAN_CAP = 500
-const CONTENT_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED'] as const
+const CONTENT_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED', 'ARCHIVED'] as const
 const STARS = ['1', '2', '3', '4', '5', 'UNRATED'] as const
 const READINESS = ['READY', 'PARTIAL', 'BLOCKED'] as const
 const MAPPING = ['MAPPED', 'PENDING', 'REJECTED', 'NONE'] as const
