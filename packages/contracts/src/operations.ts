@@ -327,3 +327,10 @@ export interface SupplierPayableRow {
   accruedNetMinor: MinorString
 }
 export interface SupplierPayablesView { items: SupplierPayableRow[]; definitions: Record<string, string> }
+
+// ---- Credit note register (read-only, ADR 0054 slice 3) --------------------------------------------------------------------
+/** An issued CREDIT_NOTE booking document. The document itself is frozen at issue; this is a view of it. Amounts are integer minor units, null when the frozen payload lacks them. */
+export interface CreditNoteRow {
+  id: string; number: string; bookingId: string; bookingReference: string; issuedAt: string
+  currency: string | null; totalMinor: MinorString | null; penaltyMinor: MinorString | null; refundMinor: MinorString | null
+}

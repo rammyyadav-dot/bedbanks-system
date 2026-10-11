@@ -302,6 +302,23 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     await prisma.booking.deleteMany({ where: { reference: { startsWith: suffix } } })
   })
 
+  it('CREDIT-NOTE-REGISTER (ADR 0054 slice 3): read-only view of issued credit notes; tenant scoped; finance.read required', async () => {
+    const mkBooking = (tenantId: string, hotelId: string, tag: string) => prisma.booking.create({ data: { tenantId, hotelId, reference: `${suffix}-${tag}`, supplier: 'x', status: 'CANCELLED', currency: 'AED', totalMinor: 10000n, idempotencyKey: `${suffix}-${tag}`, searchSnapshot: {} } })
+    const a = await mkBooking(tenantA, hotels.alpha.id, 'cn-a'); const b = await mkBooking(tenantB, hotels.oscar.id, 'cn-b')
+    await prisma.bookingDocument.create({ data: { tenantId: tenantA, bookingId: a.id, type: 'CREDIT_NOTE', number: `CN-${suffix}-cn-a`, payload: { currency: 'AED', totalMinor: '10000', penaltyMinor: '2500', refundMinor: '7500' } } })
+    await prisma.bookingDocument.create({ data: { tenantId: tenantA, bookingId: a.id, type: 'INVOICE', number: `INV-${suffix}-cn-a`, payload: {} } })
+    await prisma.bookingDocument.create({ data: { tenantId: tenantB, bookingId: b.id, type: 'CREDIT_NOTE', number: `CN-${suffix}-cn-b`, payload: { refundMinor: 'not-a-number' } } })
+    expect((await get('/credit-notes', 'none')).status).toBe(403)
+    expect((await get('/credit-notes', 'anon')).status).toBe(401)
+    const v = (await get('/credit-notes').expect(200)).body.data
+    const mine = v.items.filter((r: { number: string }) => r.number.includes(suffix))
+    expect(mine).toHaveLength(1) // the INVOICE is not a credit note; tenant B's credit note is invisible
+    expect(mine[0]).toMatchObject({ number: `CN-${suffix}-cn-a`, bookingReference: `${suffix}-cn-a`, currency: 'AED', totalMinor: '10000', penaltyMinor: '2500', refundMinor: '7500' })
+    const w = (await get('/credit-notes', 'bowner').expect(200)).body.data.items.find((r: { number: string }) => r.number === `CN-${suffix}-cn-b`)
+    expect(w).toMatchObject({ refundMinor: null, currency: null }) // an unreadable amount is unknown, never zero
+    await prisma.bookingDocument.deleteMany({ where: { number: { contains: suffix } } }); await prisma.booking.deleteMany({ where: { reference: { startsWith: suffix } } })
+  })
+
   it('HOTEL-OPS summary: aggregates are authoritative over every hotel, not the loaded page', async () => {
     const s = (await get(`/hotels/summary?${win}`).expect(200)).body.data
     expect(s.totalHotels).toBe(14); expect(s.scanCapped).toBe(false)

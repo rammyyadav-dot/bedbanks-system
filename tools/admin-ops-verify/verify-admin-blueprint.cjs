@@ -81,7 +81,7 @@ async function login(browser, email) {
   const ref = (await page.locator('main, .admin-page').first().innerText()).replace(/\s+/g, ' ')
   check('refund register renders as a read-only ledger view with an honest empty state', /Refund register/.test(ref) && /No refunds posted|Refunded/.test(ref) && !/issue refund/i.test(ref), ref.slice(0, 160))
   // accessibility (WCAG A/AA) and horizontal overflow on the new pages and the Hotels list with its new controls
-  for (const [label, url, ready] of [['hotels list', '/hotels', '[data-testid=hotels-table]'], ['search monitor', '/distribution/search-monitor', '[data-testid=search-monitor]'], ['payables', '/finance/payables', '[data-testid=supplier-payables]'], ['refund register', '/finance/refunds', '[data-state]']]) {
+  for (const [label, url, ready] of [['hotels list', '/hotels', '[data-testid=hotels-table]'], ['search monitor', '/distribution/search-monitor', '[data-testid=search-monitor]'], ['payables', '/finance/payables', '[data-testid=supplier-payables]'], ['refund register', '/finance/refunds', '[data-state]'], ['credit note register', '/finance/credit-notes', '[data-state]']]) {
     await page.goto(`${BASE}${url}`); await page.waitForSelector(ready, { timeout: 20000 })
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
     check(`axe WCAG A/AA: ${label}`, axe.violations.length === 0, axe.violations.map((x) => `${x.id}(${x.nodes.length})`).join(','))
