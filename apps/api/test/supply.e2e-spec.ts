@@ -91,8 +91,8 @@ describe('Supply HTTP authorization boundaries', () => {
     boardAId = boardA.id
     boardBId = boardB.id
     const [contractA, contractB] = await Promise.all([
-      prisma.contract.create({ data: { tenantId: tenantAId, supplierId: supplierAId, code: `${suffix}-CA`, validFrom: new Date('2026-01-01'), validTo: new Date('2027-12-31'), settlementCurrency: 'AED' } }),
-      prisma.contract.create({ data: { tenantId: tenantBId, supplierId: supplierBId, code: `${suffix}-CB`, validFrom: new Date('2026-01-01'), validTo: new Date('2027-12-31'), settlementCurrency: 'AED' } }),
+      prisma.contract.create({ data: { tenantId: tenantAId, supplierId: supplierAId, code: `${suffix}-CA`, validFrom: new Date(`${day(-30)}T00:00:00.000Z`), validTo: new Date(`${day(400)}T00:00:00.000Z`), settlementCurrency: 'AED' } }),
+      prisma.contract.create({ data: { tenantId: tenantBId, supplierId: supplierBId, code: `${suffix}-CB`, validFrom: new Date(`${day(-30)}T00:00:00.000Z`), validTo: new Date(`${day(400)}T00:00:00.000Z`), settlementCurrency: 'AED' } }),
     ])
     contractAId = contractA.id
     contractBId = contractB.id

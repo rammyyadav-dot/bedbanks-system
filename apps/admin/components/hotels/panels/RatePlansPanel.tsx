@@ -2,12 +2,12 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import type { HotelCommercial360, RatePlanReadiness } from '@bedbanks/contracts'
+import type { HotelCommercial360, RatePlanReadiness, RatePlanReadinessCheck } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { useCan } from '@/lib/auth/capabilities'
-import { ApiResponseError } from '@/lib/api/errors'
-import { activateRatePlan, cloneRatePlan, getHotelRatePlans, getRatePlanReadiness, suspendRatePlan, type AdminRatePlan } from '@/lib/data'
+import { capabilityBlockedReason, describeRatePlanActionError, readinessFailuresFromError, type RatePlanAction } from '@/lib/rate-plan-errors'
+import { activateRatePlan, cloneRatePlan, getHotelRatePlans, getRatePlanCapabilities, getRatePlanReadiness, suspendRatePlan, type AdminRatePlan } from '@/lib/data'
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
@@ -20,7 +20,6 @@ const actionsTd: React.CSSProperties = { ...td, whiteSpace: 'nowrap', position: 
 const statusTone = (status: string) => (status === 'ACTIVE' ? 'ok' : status === 'DRAFT' ? 'neutral' : 'warn') as 'ok' | 'neutral' | 'warn'
 const OCCUPANCY_LABEL: Record<number, string> = { 1: 'SGL', 2: 'DBL', 3: 'TPL', 4: 'QUAD' }
 const markets = (value: unknown): string => (Array.isArray(value) && value.length ? value.join(', ') : 'All markets')
-const messageOf = (error: unknown) => (error instanceof ApiResponseError ? `${error.message}${error.requestId ? ` (request ${error.requestId})` : ''}` : 'The request failed.')
 
 type Pending = { plan: AdminRatePlan; action: 'activate' | 'suspend' | 'clone' }
 
@@ -34,6 +33,11 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
   const [search, setSearch] = useState(''); const [status, setStatus] = useState(''); const [page, setPage] = useState(1)
   const [pending, setPending] = useState<Pending | null>(null)
   const { state, reload } = useOpsQuery(() => getHotelRatePlans(hotelId, { search: search.trim() || undefined, status: status || undefined, page, pageSize: PAGE_SIZE }), [hotelId, search, status, page])
+  // The server states which actions this environment can perform (ADR 0041 Amendment 3). A failed or pending lookup fails closed: controls stay disabled.
+  const caps = useOpsQuery(() => getRatePlanCapabilities(), [])
+  const capabilities = caps.state.status === 'ready' ? caps.state.data : undefined
+  const blocked = (action: RatePlanAction) => (caps.state.status === 'loading' ? 'Checking availability for this environment…' : capabilityBlockedReason(capabilities, action))
+  const blockedNotices = canManage && caps.state.status !== 'loading' ? [...new Set((['activate', 'suspend', 'clone'] as const).map(blocked).filter((reason): reason is string => reason !== null))] : []
   const roomName = (id: string) => rooms.find((room) => room.id === id)?.name ?? '—'
 
   return (
@@ -54,6 +58,11 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
                 <Link href={hotelHref(hotelId, 'rates')} className="admin-btn">View Rate Calendar</Link>
               </span>
             </div>
+            {blockedNotices.length ? (
+              <div role="note" data-testid="capability-notice" style={{ border: '1px solid #e5d9a8', background: '#fffbe6', padding: '8px 12px', fontSize: 12, display: 'grid', gap: 2 }}>
+                {blockedNotices.map((notice) => <span key={notice}>{notice}</span>)}
+              </div>
+            ) : null}
             {pending ? <ActionPanel key={`${pending.plan.id}:${pending.action}`} pending={pending} rooms={rooms} onClose={() => setPending(null)} onDone={() => { setPending(null); reload() }} /> : null}
             <ScrollRegion label="Rate plans" maxHeight={560}>
               <table style={tableStyle} aria-label="Rate plans">
@@ -75,9 +84,9 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
                       <td style={actionsTd}>
                         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <Link href={`/rates/plans/${plan.id}`}>{canManage ? 'View / edit' : 'View'}</Link>
-                          {canManage ? <button type="button" className="admin-btn" onClick={() => setPending({ plan, action: 'clone' })}>Clone</button> : null}
-                          {canManage && (plan.status === 'DRAFT' || plan.status === 'SUSPENDED') ? <button type="button" className="admin-btn" onClick={() => setPending({ plan, action: 'activate' })}>Activate</button> : null}
-                          {canManage && plan.status === 'ACTIVE' ? <button type="button" className="admin-btn" onClick={() => setPending({ plan, action: 'suspend' })}>Suspend</button> : null}
+                          {canManage ? <ActionButton label="Clone" reason={blocked('clone')} onClick={() => setPending({ plan, action: 'clone' })} /> : null}
+                          {canManage && (plan.status === 'DRAFT' || plan.status === 'SUSPENDED') ? <ActionButton label="Activate" reason={blocked('activate')} onClick={() => setPending({ plan, action: 'activate' })} /> : null}
+                          {canManage && plan.status === 'ACTIVE' ? <ActionButton label="Suspend" reason={blocked('suspend')} onClick={() => setPending({ plan, action: 'suspend' })} /> : null}
                         </span>
                       </td>
                     </tr>
@@ -98,23 +107,28 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
   )
 }
 
+/** A lifecycle control that is disabled, with the reason as its tooltip and accessible description, when the environment cannot perform the action. */
+function ActionButton({ label, reason, onClick }: { label: string; reason: string | null; onClick: () => void }) {
+  return <button type="button" className="admin-btn" disabled={reason !== null} title={reason ?? undefined} aria-label={reason ? `${label} (unavailable: ${reason})` : undefined} data-unavailable={reason !== null} onClick={onClick}>{label}</button>
+}
+
 function ActionPanel({ pending, rooms, onClose, onDone }: { pending: Pending; rooms: HotelCommercial360['rooms']; onClose: () => void; onDone: () => void }) {
   const { plan, action } = pending
   const [reason, setReason] = useState(''); const [code, setCode] = useState(''); const [roomTypeId, setRoomTypeId] = useState(plan.roomTypeId)
-  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [failedChecks, setFailedChecks] = useState<RatePlanReadinessCheck[]>([])
   const readiness = useOpsQuery<RatePlanReadiness>(() => getRatePlanReadiness(plan.id), [plan.id])
 
   const run = async (version: string) => {
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setFailedChecks([])
     try {
       if (action === 'activate') await activateRatePlan(plan.id, version)
       else if (action === 'suspend') await suspendRatePlan(plan.id, version, reason.trim())
       onDone()
-    } catch (e) { setError(messageOf(e)); readiness.reload() } finally { setBusy(false) }
+    } catch (e) { setError(describeRatePlanActionError(e, action as RatePlanAction)); setFailedChecks(readinessFailuresFromError(e)); readiness.reload() } finally { setBusy(false) }
   }
   const clone = async () => {
     setBusy(true); setError(null)
-    try { await cloneRatePlan(plan.id, { code: code.trim(), ...(roomTypeId !== plan.roomTypeId ? { roomTypeId } : {}) }); onDone() } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+    try { await cloneRatePlan(plan.id, { code: code.trim(), ...(roomTypeId !== plan.roomTypeId ? { roomTypeId } : {}) }); onDone() } catch (e) { setError(describeRatePlanActionError(e, 'clone')) } finally { setBusy(false) }
   }
 
   return (
@@ -139,6 +153,11 @@ function ActionPanel({ pending, rooms, onClose, onDone }: { pending: Pending; ro
                 <label style={{ fontSize: 11 }}>Reason (recorded in the audit history) <input value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Suspension reason" style={{ width: '100%' }} /></label>
               )}
               {error ? <p role="alert" style={{ color: '#a11d1d', fontSize: 12, margin: 0 }}>{error}</p> : null}
+              {failedChecks.length ? (
+                <ul data-testid="server-failed-checks" aria-label="Checks the server rejected" style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 12 }}>
+                  {failedChecks.map((c) => <li key={c.code} data-check={c.code}><Chip tone="bad">FAIL</Chip> <strong>{c.label}</strong>: {c.message}</li>)}
+                </ul>
+              ) : null}
               <span style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="admin-btn admin-btn-primary" disabled={busy || (action === 'activate' ? !r.ready : reason.trim().length < 3)} onClick={() => run(r.updatedAt)}>{busy ? 'Saving…' : action === 'activate' ? 'Confirm activation' : 'Confirm suspension'}</button>
                 <button type="button" className="admin-btn" onClick={onClose}>Cancel</button>
