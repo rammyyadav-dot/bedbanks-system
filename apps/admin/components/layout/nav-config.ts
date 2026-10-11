@@ -50,3 +50,13 @@ export function isActiveRoute(pathname: string | null, href: string): boolean {
   if (!matches(href)) return false;
   return !flatNav.some((other) => other.href.length > href.length && other.href.startsWith(href) && matches(other.href));
 }
+
+/** Breadcrumb for a path: the longest matching navigation entry, plus the remaining segment only when the path goes deeper than that entry. */
+export function breadcrumbTrail(pathname: string | null): { label: string; detail: string | null } {
+  const path = pathname ?? '/dashboard';
+  const match = flatNav
+    .filter((item) => path === item.href || path.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const rest = match ? path.slice(match.href.length).split('/').filter(Boolean) : [];
+  return { label: match?.label ?? 'Dashboard', detail: rest.length ? rest[rest.length - 1]! : null };
+}

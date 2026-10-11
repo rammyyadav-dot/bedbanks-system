@@ -97,3 +97,7 @@ Earlier entries said no database server existed here. That was wrong: Postgres 1
 ## Follow-up: Search Monitor v1 and payables slice 1
 
 Built and verified against Postgres (`hotel-commercial.e2e-spec.ts` 28/28, including the non-bypass runtime-role test, which now also runs export, the monitor and payables; `strict-runtime-role-commercial` 22/22): Search Monitor v1 (ADR 0053), supplier payables accrual (ADR 0054 slice 1). Admin tests 83, `tsc` for API and admin, `next build`, `pnpm check:architecture`, `src/admin-operations` jest 98. Not run: browser, full API e2e suite, CI.
+
+## Browser evidence
+
+`tools/admin-ops-verify/verify-admin-blueprint.cjs` against a real API process (local disposable Postgres, owner connection with the test-only role-guard override), the production Admin build and headless Chromium: 16/16 checks pass (Business nav group, saved views save/apply/delete, profile-status tiles, CSV download with tenant-only rows, bulk owner assign and idempotent re-apply, Search Monitor and Payables render, breadcrumb, read-only viewer sees no export or selection controls, no page errors). Screenshots were captured locally (not committed). Found and fixed on the way: the breadcrumb showed a duplicate trailing segment ("Search monitor / search-monitor") for routes that are themselves navigation entries, a pre-existing bug for several routes. Not covered: axe accessibility on the new pages, narrow-viewport layout, the strict-role API variant, CI.

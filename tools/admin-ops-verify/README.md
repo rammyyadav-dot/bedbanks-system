@@ -198,3 +198,7 @@ node tools/admin-ops-verify/verify-rate-plans.cjs
 ## Enterprise Hotel Overview (ADR 0050)
 
 `seed-hotel-journey.ts` now supplies a read-only account as well as maker/checker. `verify-hotel-journey.cjs` adds real persisted overview reads, linked operational summaries, publication-versus-sellability, property archive, private-contact/RBAC checks, 320/390/768/1280/1440px bounds and axe. Set `PLAYWRIGHT_EXECUTABLE_PATH` for system Chromium and `SHOT_DIR` for screenshots. Use a fresh seed for each run and an API authenticated as the verified strict runtime login. No production endpoint or fixture data is required.
+
+## Admin blueprint features (ADR 0051, 0053, 0054 slice 1)
+
+`verify-admin-blueprint.cjs` checks the Business navigation group, Hotels saved views, summary profile-status tiles, CSV export, bulk owner assignment, the Search Monitor, Payables, breadcrumbs, and a read-only viewer who sees none of the new controls. After `seed-hotels.ts`, run `su postgres -c "bash tools/admin-ops-verify/grant-blueprint-perms.sh fbeds_ci"` (grants the seeded owner role `supply.hotels.export`, `audit.read`, `finance.read`; adds sample search events and a net amount), then the script. Re-seed before every run: bulk owner assignment changes the seeded hotels. The API in this check needs `NODE_ENV=test DB_RUNTIME_ROLE_GUARD=off` only because the local database user is the owner; never use that outside a disposable database.

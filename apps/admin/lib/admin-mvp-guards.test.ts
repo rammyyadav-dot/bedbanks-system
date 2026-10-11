@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { navSections, flatNav, isActiveRoute } from '../components/layout/nav-config'
+import { navSections, flatNav, isActiveRoute, breadcrumbTrail } from '../components/layout/nav-config'
 import { userInitials } from './auth/identity'
 import { summarizeSellability, SELLABILITY_CHECKS, WARNING_TEXT } from './sellability'
 import { parseMajorToMinor, minorToMajorInput, formatMinorUnits } from './minor-units'
@@ -305,4 +305,13 @@ test('navigation has one source of truth: nav-config adds no hardcoded sections 
   assert.match(src, /navSections: NavSection\[\] = departmentNav/)
   assert.doesNotMatch(src, /label: 'Business', items:/)
   assert.ok(navSections.flatMap((s) => s.items).some((i) => i.href === '/tenants'), 'Tenants stays reachable from the catalogue')
+})
+
+test('breadcrumbs: a route that is itself a navigation entry has no duplicate trailing segment; deeper routes keep their detail', () => {
+  assert.deepEqual(breadcrumbTrail('/distribution/search-monitor'), { label: 'Search monitor', detail: null })
+  assert.deepEqual(breadcrumbTrail('/finance/payables'), { label: 'Payables', detail: null })
+  assert.deepEqual(breadcrumbTrail('/rates/plans'), { label: 'Rate Plans', detail: null })
+  assert.deepEqual(breadcrumbTrail('/hotels/abc123'), { label: 'Hotels', detail: 'abc123' })
+  assert.deepEqual(breadcrumbTrail('/hotels/new'), { label: 'Hotels', detail: 'new' })
+  assert.deepEqual(breadcrumbTrail(null), { label: 'Dashboard', detail: null })
 })
