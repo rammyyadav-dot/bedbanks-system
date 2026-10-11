@@ -54,6 +54,9 @@ export class OperationsController {
   @Get('hotels') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
   hotels(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.list(tenantId, query) }
 
+  @Get('search-monitor') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  searchMonitor(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.hotelOps.searchMonitor(tenantId, query) }
+
   // Declared before `hotels/:hotelId` so "export" is never read as an id. Own permission (ADR 0051); S2 data egress is audited by the service.
   @Get('hotels/export') @RequireSupplyPermission('supply.hotels.export') @UseGuards(SupplyPermissionGuard)
   async hotelsExport(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Query() query: Q, @Res() response: Response) {

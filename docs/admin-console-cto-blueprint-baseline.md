@@ -38,7 +38,7 @@ Legend: Implemented / Partial / Missing / Blocked. Source claims are from `docs/
 | Tenant lifecycle (verification, credit, suspension enforced by API) | Partial | Tenant control center merged (PR #300); see `docs/tenant-control-gap-matrix.md`. Markets, credit terms, sales ownership not confirmed. |
 | Supplier/contract rights, amendment history | Partial | Contracts exist; market restrictions and amendment history not confirmed. Market/nationality enforcement is blocked on a market policy decision. |
 | Pricing: net / margin / sell separation, FX | Partial | Integer minor units, per-night rounding, markup rules built. Currency conversion is AED-only by ADR 0029. Promotions not built. |
-| Agent Search Monitor with no-result reasons | Missing (design: ADR 0053, blocked on retention/PII decisions) | Listed `planned` ("Search monitor"). Sellability blockers by date/entity exist per hotel, but no cross-search monitor. |
+| Agent Search Monitor with no-result reasons | Partial: outcome monitor built from audit events (ADR 0053 v1); per-reason explanations still missing | Listed `planned` ("Search monitor"). Sellability blockers by date/entity exist per hotel, but no cross-search monitor. |
 | Booking ops queues, state machine, idempotency | Implemented | `/bookings/queue`, holds, cancellations, reconciliation, connectors. |
 | Finance: receivables, ledger, wallets, funding | Implemented; Payables, Refunds, Credit notes Missing (design: ADR 0054, blocked on accounting policy and a restricted write role) | Both are `planned` in the contract. |
 | Command Center dashboard (sales, blocked, action, revenue loss) | Partial | `/dashboard` and `/exceptions` exist. Search-to-book funnel and supplier feed health depend on data that does not exist without live suppliers. |
@@ -89,3 +89,7 @@ Not built, with ADRs stating the decision each needs: recertification request (0
 ## Follow-up: recertification interim
 
 ADR 0052 option 1 only: a "Re-check readiness" link per hotel row to the existing readiness tab. No tracked request exists. `tsc`, eslint and admin tests re-run; no browser check.
+
+## Correction and follow-up: Postgres was available
+
+Earlier entries said no database server existed here. That was wrong: Postgres 16 is installed; it needed `apt-get install postgresql-16-pgvector` to apply the migrations. With it, all migrations (including `202611110001`) apply cleanly and `hotel-commercial.e2e-spec.ts` passes 27/27, covering export (permission, tenant isolation, audit), summary profile status and the search monitor. Still not run: browser, the strict-role (`fbeds_api`) e2e variants, the full API suite, CI.

@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
   type AuditEventView, type CalendarCell, type CalendarRow, type CommercialIssue, type ExceptionsPage,
-  type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type HotelContractRow,
+  type DistributionBlocker, type DistributionCoverageRow, type HotelCalendar, type HotelCommercial360, type HotelDistribution, type HotelCommercialPage, type HotelRowProfile, type HotelCommercialRow, type HotelCommercialSummary, type SearchMonitorView, type HotelContractRow,
   type HotelContractsView, type HotelMappingsView, type HotelRatePlanRow, type IssueSeverity, type NightVerdict, type Paged,
   type MarkupImpact, type MarketDestinationRow, type MarketsSummary, type RoomCommercialRow, type SellabilityInspection, type SellabilityPlanResult,
   type InventoryMode, type HotelCompleteness, type HotelContacts, type HotelReadinessAssessment,
@@ -29,6 +29,7 @@ import { normalizeCountry } from '../supply/market-rules'
 import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from '../agent/currency'
 import { auditView } from './operations-transactions.service'
 import { HOTEL_EXPORT_MAX_ROWS, hotelCsv } from './hotel-export'
+import { SEARCH_MONITOR_ACTIONS, SEARCH_MONITOR_READ_CAP, buildSearchMonitor } from './search-monitor'
 import { MAX_PAGE_SIZE } from './query-params'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
@@ -217,6 +218,18 @@ export class OperationsHotelsService {
       const extras = await this.rowExtras(tx, tenantId, slice, assessed)
       return { ...paged(slice.map((h) => this.row(h, assessed.get(h.id)!, extras.for(h.id))), page, kept.length), profilesAvailable: extras.available, window: { from: win.from, to: win.to, days: win.days }, scanCapped, destinations }
     })
+  }
+
+  // ---- Agent Search Monitor (ADR 0053): derived from the existing audit record of executed searches; no new storage ----------
+  async searchMonitor(tenantId: string, query: Record<string, unknown>): Promise<SearchMonitorView> {
+    const days = intParam('days', query.days, 1, 30) ?? 7
+    const to = this.today()
+    const since = new Date(`${to}T00:00:00.000Z`); since.setUTCDate(since.getUTCDate() - (days - 1))
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.findMany({
+      where: { tenantId, action: { in: [...SEARCH_MONITOR_ACTIONS] }, createdAt: { gte: since } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: SEARCH_MONITOR_READ_CAP + 1, select: { action: true, createdAt: true, payload: true },
+    }))
+    return buildSearchMonitor(rows, { from: since.toISOString().slice(0, 10), to, days })
   }
 
   // ---- export (ADR 0051) ---------------------------------------------------------------------------------------------------

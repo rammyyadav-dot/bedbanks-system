@@ -264,6 +264,24 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     expect(b.text).toContain(hotels.oscar.id); expect(b.text).not.toContain(hotels.alpha.id)
   })
 
+  it('SEARCH-MONITOR (ADR 0053): audit-derived outcomes, failures never counted as empty, tenant scoped, audit.read required', async () => {
+    const mk = (tenantId: string, status: string, destination: string) => prisma.auditEvent.create({ data: { tenantId, actorType: 'SYSTEM', action: 'hotel.search', entityType: 'search', entityId: `${suffix}-${status}`, payload: { status, destination, requestId: `${suffix}-${status}` } } })
+    await mk(tenantA, 'available', 'Dubai'); await mk(tenantA, 'no_availability', 'Dubai'); await mk(tenantA, 'provider_unavailable', 'Abu Dhabi')
+    await prisma.auditEvent.create({ data: { tenantId: tenantA, actorType: 'SYSTEM', action: 'hotel.search.mapping_unavailable', entityType: 'search', entityId: `${suffix}-map`, payload: { destination: 'Dubai', requestId: `${suffix}-map` } } })
+    await mk(tenantB, 'no_availability', 'OtherTenantCity')
+    expect((await get('/search-monitor', 'none')).status).toBe(403)
+    expect((await get('/search-monitor', 'anon')).status).toBe(401)
+    const v = (await get('/search-monitor?days=7').expect(200)).body.data
+    expect(v.byStatus.available).toBeGreaterThanOrEqual(1)
+    expect(v.byStatus.provider_unavailable).toBeGreaterThanOrEqual(1)
+    expect(v.byStatus.mapping_unavailable).toBeGreaterThanOrEqual(1)
+    expect(JSON.stringify(v)).not.toContain('OtherTenantCity') // tenant B's search is invisible to tenant A
+    expect(v.recent.some((r: { requestId: string; status: string }) => r.requestId === `${suffix}-provider_unavailable` && r.status === 'provider_unavailable')).toBe(true)
+    expect((await get('/search-monitor?days=0').catch(() => ({ status: 0 }))).status).not.toBe(200)
+    const b = (await get('/search-monitor?days=7', 'bowner').expect(200)).body.data
+    expect(JSON.stringify(b)).toContain('OtherTenantCity'); expect(JSON.stringify(b)).not.toContain('Abu Dhabi')
+  })
+
   it('HOTEL-OPS summary: aggregates are authoritative over every hotel, not the loaded page', async () => {
     const s = (await get(`/hotels/summary?${win}`).expect(200)).body.data
     expect(s.totalHotels).toBe(14); expect(s.scanCapped).toBe(false)

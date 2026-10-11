@@ -296,3 +296,21 @@ export interface AccessReviewUserRow {
   roles: string[]; sensitivePermissions: string[]; lastLoginAt: string | null; flags: AccessFlag[]
 }
 export interface AccessReviewPage { items: AccessReviewUserRow[]; page: number; pageSize: number; total: number }
+
+// ---- Agent Search Monitor (ADR 0053) -------------------------------------------------------------------------------------
+export const SEARCH_MONITOR_STATUSES = ['available', 'partial', 'no_availability', 'provider_unavailable', 'mapping_unavailable'] as const
+export type SearchMonitorStatus = (typeof SEARCH_MONITOR_STATUSES)[number]
+export type SearchMonitorCounts = Record<SearchMonitorStatus, number>
+export interface SearchMonitorView {
+  window: { from: string; to: string; days: number }
+  /** True when more events existed than the read cap; every figure then covers only the most recent events. */
+  truncated: boolean
+  total: number
+  byStatus: SearchMonitorCounts
+  byDay: Array<{ date: string; total: number; counts: SearchMonitorCounts }>
+  /** Destinations with at least one search that did not return a clean result, worst first (max 10). */
+  problemDestinations: Array<{ destination: string; total: number; counts: SearchMonitorCounts }>
+  /** Most recent searches that did not return a clean result (max 25). */
+  recent: Array<{ at: string; destination: string; status: SearchMonitorStatus; requestId: string | null }>
+  definitions: Record<string, string>
+}
