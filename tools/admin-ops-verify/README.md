@@ -181,3 +181,12 @@ OWNER_DATABASE_URL=<disposable owner> CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ```
 
 The executable override is optional; without it Playwright uses its installed Chromium. Destination delay/failure interception is marked `[stub]` or `[injected]` and establishes UI presentation only. Home checks cover 1280/768/390px, popup bounds and Escape focus, canonical destination keyboard selection/free text refusal, date draft cancellation and invalid ranges, child ages, honest mixed-occupancy rejection, canonical nationality search/AED, real search/recheck context, stale result invalidation, fresh history replay/removal, real two-room/child-age recheck, same-account tenant switching, injected pagination/recheck/missing-mapping failures with real retry, and axe on the home and open calendar. Mixed occupancy remains an adapter gap: the domain accepts separate rooms, but contracted inventory currently prices only identical room occupancies. Area resolution remains unsupported.
+
+## Hotel Rate Plans tab (ADR 0041)
+
+`verify-rate-plans.cjs` drives the Rate Plans tab after `seed-hotels.ts` (owner-connected API, `NODE_ENV=test`, disposable `p0N_*` database; re-seed before every run). It arranges three extra plans on a ready hotel, then checks through the UI: tab and counts against the API, status filter and code search, the readiness checklist against `GET .../readiness` check by check, a refused activation, a successful activation (row, counts, one audit event), suspension with a required reason, a stale-version error, clone as DRAFT, the Rates & Inventory and Quick Update tabs, read-only status on the rate plan form, keyboard, overflow at 1280 / 768 / 390 px, axe, a viewer without `supply.rates.read`, and tenant B.
+
+```bash
+(cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-hotels.ts)
+node tools/admin-ops-verify/verify-rate-plans.cjs
+```

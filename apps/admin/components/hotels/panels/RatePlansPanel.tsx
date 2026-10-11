@@ -13,6 +13,10 @@ import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
 const STATUSES = ['DRAFT', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const
 const PAGE_SIZE = 25
+// The Actions column stays visible while the table scrolls sideways, so Activate/Suspend/Clone are never clipped off-screen.
+const nowrap: React.CSSProperties = { ...td, whiteSpace: 'nowrap' }
+const actionsTh: React.CSSProperties = { ...th, position: 'sticky', right: 0, zIndex: 1, borderLeft: '1px solid #e6eef0' }
+const actionsTd: React.CSSProperties = { ...td, whiteSpace: 'nowrap', position: 'sticky', right: 0, background: '#fff', borderLeft: '1px solid #e6eef0' }
 const statusTone = (status: string) => (status === 'ACTIVE' ? 'ok' : status === 'DRAFT' ? 'neutral' : 'warn') as 'ok' | 'neutral' | 'warn'
 const OCCUPANCY_LABEL: Record<number, string> = { 1: 'SGL', 2: 'DBL', 3: 'TPL', 4: 'QUAD' }
 const markets = (value: unknown): string => (Array.isArray(value) && value.length ? value.join(', ') : 'All markets')
@@ -53,23 +57,23 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
             {pending ? <ActionPanel key={`${pending.plan.id}:${pending.action}`} pending={pending} rooms={rooms} onClose={() => setPending(null)} onDone={() => { setPending(null); reload() }} /> : null}
             <ScrollRegion label="Rate plans" maxHeight={560}>
               <table style={tableStyle} aria-label="Rate plans">
-                <thead><tr>{['Code', 'Room type', 'Board', 'Contract', 'Currency', 'Occupancy', 'Validity', 'Cancellation', 'Distribution', 'Status', 'Actions'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{['Code', 'Status', 'Room type', 'Board', 'Contract', 'Currency', 'Occupancy', 'Validity', 'Cancellation', 'Distribution', 'Actions'].map((h) => <th key={h} scope="col" style={h === 'Actions' ? actionsTh : th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {data.items.length === 0 ? <tr><td style={td} colSpan={11}>No rate plan matches these filters.</td></tr> : null}
                   {data.items.map((plan) => (
                     <tr key={plan.id} data-plan-id={plan.id} data-status={plan.status}>
-                      <td style={td}><code>{plan.code}</code></td>
+                      <td style={nowrap}><code>{plan.code}</code></td>
+                      <td style={td}><Chip tone={statusTone(plan.status)}>{plan.status}</Chip></td>
                       <td style={td}>{roomName(plan.roomTypeId)}</td>
                       <td style={td} title={plan.boardBasis.name}>{plan.boardBasis.code}</td>
-                      <td style={td}><Link href={`/contracts/${plan.contract.id}`}>{plan.contract.code}</Link><div style={{ fontSize: 10, color: '#3f565c' }}>{plan.contract.supplier.displayName}{plan.contract.status ? ` · ${plan.contract.status}` : ''}</div></td>
+                      <td style={nowrap}><Link href={`/contracts/${plan.contract.id}`}>{plan.contract.code}</Link><div style={{ fontSize: 10, color: '#3f565c' }}>{plan.contract.supplier.displayName}{plan.contract.status ? ` · ${plan.contract.status}` : ''}</div></td>
                       <td style={td}>{plan.currency}</td>
-                      <td style={td}>{OCCUPANCY_LABEL[plan.occupancy] ?? `${plan.occupancy} pax`} · stay {plan.minStay}{plan.maxStay ? `–${plan.maxStay}` : '+'}</td>
-                      <td style={td}>{plan.contract.validFrom && plan.contract.validTo ? `${plan.contract.validFrom.slice(0, 10)} → ${plan.contract.validTo.slice(0, 10)}` : '—'}<div style={{ fontSize: 10, color: '#3f565c' }}>contract term</div></td>
+                      <td style={nowrap}>{OCCUPANCY_LABEL[plan.occupancy] ?? `${plan.occupancy} pax`} · stay {plan.minStay}{plan.maxStay ? `–${plan.maxStay}` : '+'}</td>
+                      <td style={nowrap}>{plan.contract.validFrom && plan.contract.validTo ? `${plan.contract.validFrom.slice(0, 10)} → ${plan.contract.validTo.slice(0, 10)}` : '—'}<div style={{ fontSize: 10, color: '#3f565c' }}>contract term</div></td>
                       <td style={td}>{plan.refundable ? <Chip tone="neutral" title="Uses the contract's cancellation schedule">Contract schedule</Chip> : <Chip tone="warn">Non-refundable</Chip>}</td>
                       <td style={td}>{markets(plan.contract.salesMarkets)}</td>
-                      <td style={td}><Chip tone={statusTone(plan.status)}>{plan.status}</Chip></td>
-                      <td style={td}>
-                        <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <td style={actionsTd}>
+                        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <Link href={`/rates/plans/${plan.id}`}>{canManage ? 'View / edit' : 'View'}</Link>
                           {canManage ? <button type="button" className="admin-btn" onClick={() => setPending({ plan, action: 'clone' })}>Clone</button> : null}
                           {canManage && (plan.status === 'DRAFT' || plan.status === 'SUSPENDED') ? <button type="button" className="admin-btn" onClick={() => setPending({ plan, action: 'activate' })}>Activate</button> : null}
