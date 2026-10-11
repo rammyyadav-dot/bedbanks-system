@@ -9,6 +9,9 @@ import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter
 import { hashPassword } from '../src/auth/utils/password'
 
 const prisma = new PrismaClient()
+const DAY_MS = 86_400_000
+/** A calendar day relative to today (UTC), so fixtures never age into the past. */
+const day = (offset: number): string => new Date(Math.floor(Date.now() / DAY_MS) * DAY_MS + offset * DAY_MS).toISOString().slice(0, 10)
 
 describe('Supply HTTP authorization boundaries', () => {
   const suffix = `supply-${Date.now()}-${Math.random().toString(36).slice(2)}`
