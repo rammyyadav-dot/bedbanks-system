@@ -32,12 +32,11 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
     this.client ??= new PrismaService({ datasourceUrl: this.env.RATE_PLAN_OPS_DATABASE_URL as string })
     if (!this.verified) {
       try { await this.client.assertRestrictedRuntimeRole('Rate plan lifecycle'); this.verified = true } catch (error) {
+        // Any failure of the first connection (violated invariant, rejected credential, unreachable host) is the same sanitized, retryable 503; never a 500, never a fallback.
+        const failed = this.client
         this.client = null
-        // The identity check connects first, so a rejected credential, an unreachable server or a missing role surfaces here as a connection
-        // error, not only as a guard violation. All of them are the same sanitized "unavailable"; nothing from the URL or the error is returned.
-        if (error instanceof RuntimeRoleViolation) this.logger.error(error.message)
-        else if (isAccessFailure(error)) this.logger.error(`Rate plan lifecycle connection refused or lacks a grant (${databaseErrorCode(error)})`)
-        else throw error
+        await failed.$disconnect().catch(() => undefined)
+        this.logger.error(error instanceof RuntimeRoleViolation ? error.message : `Rate plan lifecycle connection failed (${databaseErrorCode(error)})`)
         throw new ServiceUnavailableException({ message: UNAVAILABLE, code: 'RATE_PLAN_OPS_UNAVAILABLE' })
       }
     }
