@@ -1,5 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
+import { PrismaService } from '../database/prisma.service'
 import { RATE_PLAN_OPS_FORBIDDEN_TABLES, RATE_PLAN_OPS_UPDATE_COLUMNS, ratePlanOpsGrantStatements, assertRatePlanOpsInput } from '../database/rate-plan-ops-role'
 
 describe('RatePlanOpsDatabase', () => {
@@ -17,6 +18,22 @@ describe('RatePlanOpsDatabase', () => {
     const body = JSON.stringify((error as ServiceUnavailableException).getResponse())
     expect(body).toContain('RATE_PLAN_OPS_UNAVAILABLE')
     expect(body).not.toMatch(/secretsecret|127\.0\.0\.1|postgresql:/)
+  })
+
+  it('a rejected credential on first use (any error, not only a role violation) is the same sanitized 503, is retried, and never falls back', async () => {
+    const spy = jest.spyOn(PrismaService.prototype, 'assertRestrictedRuntimeRole').mockRejectedValue(new Error('password authentication failed for user "fbeds_rateplan_ops" secretsecretsecret'))
+    try {
+      const db = new RatePlanOpsDatabase({ RATE_PLAN_OPS_DATABASE_URL: 'postgresql://ops:secretsecretsecretsecretsecret123@127.0.0.1:1/db', DATABASE_URL: 'postgresql://api@h/db' })
+      for (const attempt of [1, 2]) {
+        const error = await db.withTenant('tenant', async () => 'must not run').catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(ServiceUnavailableException)
+        const body = JSON.stringify((error as ServiceUnavailableException).getResponse())
+        expect(body).toContain('RATE_PLAN_OPS_UNAVAILABLE')
+        expect(body).not.toMatch(/secretsecret|fbeds_rateplan_ops|127\.0\.0\.1|postgresql:|password/)
+        expect(spy).toHaveBeenCalledTimes(attempt)
+      }
+      await db.onModuleDestroy()
+    } finally { spy.mockRestore() }
   })
 })
 

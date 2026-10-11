@@ -235,7 +235,7 @@ async function main() {
     await boot('C (lifecycle credential rejected)', { RATE_PLAN_OPS_DATABASE_URL: badUrl.toString() })
     const eventsBefore = await statusEvents(plan.id)
     const actC = await http('POST', `/supply/rate-plans/${plan.id}/activate`, adminCookie, { expectedUpdatedAt: (await planState(plan.id)).updatedAt.toISOString() })
-    check('a rejected lifecycle credential is a sanitized 503 RATE_PLAN_OPS_UNAVAILABLE, never a fallback write', actC.status === 503 && actC.json.error?.code === 'RATE_PLAN_OPS_UNAVAILABLE' && safe(actC) && (await planState(plan.id)).status === 'SUSPENDED' && (await statusEvents(plan.id)) === eventsBefore)
+    check('a rejected lifecycle credential is a sanitized 503 RATE_PLAN_OPS_UNAVAILABLE, never a fallback write', actC.status === 503 && actC.json.error?.code === 'RATE_PLAN_OPS_UNAVAILABLE' && safe(actC) && (await planState(plan.id)).status === 'SUSPENDED' && (await statusEvents(plan.id)) === eventsBefore, `status=${actC.status} code=${actC.json.error?.code}`)
   } finally {
     await stop()
     await deprovisionRatePlanOpsRole(owner).catch(() => undefined)
