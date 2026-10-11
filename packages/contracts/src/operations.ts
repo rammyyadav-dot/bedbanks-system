@@ -296,3 +296,34 @@ export interface AccessReviewUserRow {
   roles: string[]; sensitivePermissions: string[]; lastLoginAt: string | null; flags: AccessFlag[]
 }
 export interface AccessReviewPage { items: AccessReviewUserRow[]; page: number; pageSize: number; total: number }
+
+// ---- Agent Search Monitor (ADR 0053) -------------------------------------------------------------------------------------
+export const SEARCH_MONITOR_STATUSES = ['available', 'partial', 'no_availability', 'provider_unavailable', 'mapping_unavailable'] as const
+export type SearchMonitorStatus = (typeof SEARCH_MONITOR_STATUSES)[number]
+export type SearchMonitorCounts = Record<SearchMonitorStatus, number>
+export interface SearchMonitorView {
+  window: { from: string; to: string; days: number }
+  /** True when more events existed than the read cap; every figure then covers only the most recent events. */
+  truncated: boolean
+  total: number
+  byStatus: SearchMonitorCounts
+  byDay: Array<{ date: string; total: number; counts: SearchMonitorCounts }>
+  /** Destinations with at least one search that did not return a clean result, worst first (max 10). */
+  problemDestinations: Array<{ destination: string; total: number; counts: SearchMonitorCounts }>
+  /** Most recent searches that did not return a clean result (max 25). */
+  recent: Array<{ at: string; destination: string; status: SearchMonitorStatus; requestId: string | null }>
+  definitions: Record<string, string>
+}
+
+// ---- Supplier payables (read-only accrual view, ADR 0054 slice 1) --------------------------------------------------------
+export interface SupplierPayableRow {
+  supplier: string; currency: string
+  /** Bookings in a payable state (CONFIRMED, CHECKED_OUT). */
+  bookings: number
+  /** Bookings whose supplier net amount is recorded. */
+  bookingsWithNet: number
+  /** Bookings whose net amount is unknown. They are NOT counted as zero; the accrued figure excludes them. */
+  bookingsNetUnknown: number
+  accruedNetMinor: MinorString
+}
+export interface SupplierPayablesView { items: SupplierPayableRow[]; definitions: Record<string, string> }
