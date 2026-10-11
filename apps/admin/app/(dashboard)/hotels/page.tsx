@@ -14,6 +14,8 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { ContractChip, InventoryChip, MappingChip, RatesChip, ReadinessChip, ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { HotelsSummary } from '@/components/hotels/HotelsSummary'
+import { HotelBulkOwner } from '@/components/hotels/HotelBulkOwner'
+import { BULK_OWNER_MAX } from '@/lib/hotel-bulk-owner'
 import { HotelSavedViews } from '@/components/hotels/HotelSavedViews'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotelsCommercial, getHotelsSummary } from '@/lib/data/hotel-commercial'
@@ -39,6 +41,9 @@ function HotelsList() {
   const supplierOptions = suppliers.state.status === 'ready' ? suppliers.state.data.items : []
   const destinations = list.state.status === 'ready' ? list.state.data.destinations : []
   const activeFilters = Object.keys(filters).length
+  const canManage = can('supply.hotels.manage')
+  const [picked, setPicked] = useState<Record<string, string>>({})
+  const toggle = (id: string, name: string) => setPicked((p) => { const n = { ...p }; if (n[id]) delete n[id]; else if (Object.keys(n).length < BULK_OWNER_MAX) n[id] = name; return n })
 
   return (
     <div className="admin-page">
@@ -72,15 +77,17 @@ function HotelsList() {
         </details>
       </form>
       <HotelSavedViews filters={filters} onApply={(next) => { setSearch(next.search ?? ''); go(next) }} />
+      {canManage && Object.keys(picked).length > 0 && <HotelBulkOwner hotels={Object.entries(picked).map(([id, name]) => ({ id, name }))} onDone={list.reload} onClear={() => setPicked({})} />}
       <OpsState state={list.state} onRetry={list.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: activeFilters ? 'No hotels match these filters' : 'No hotels in this tenant', description: activeFilters ? 'The query succeeded and no hotel matches. Clear a filter to widen it.' : 'The query succeeded and this tenant has no hotels yet.' }}>
         {(data) => (
           <div className="workspace-panel" data-testid="hotels-table">
             <ScrollRegion label="Hotels">
               <table style={tableStyle} aria-label="Hotels and commercial readiness">
-                <thead><tr>{['Hotel', 'Canonical ID', 'Location', 'Stars', 'Supplier mappings', 'Rooms', 'Profile', 'Contract', 'Rates', 'Inventory', 'Sellability', 'Issues', 'Updated', 'Action'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{canManage && <th scope="col" style={th}><span className="sr-only">Select</span></th>}{['Hotel', 'Canonical ID', 'Location', 'Stars', 'Supplier mappings', 'Rooms', 'Profile', 'Contract', 'Rates', 'Inventory', 'Sellability', 'Issues', 'Updated', 'Action'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {data.items.map((hotel) => (
                     <tr key={hotel.id} data-hotel-id={hotel.id}>
+                      {canManage && <td style={td}><input type="checkbox" aria-label={`Select ${hotel.name}`} checked={Boolean(picked[hotel.id])} onChange={() => toggle(hotel.id, hotel.name)} /></td>}
                       <td style={{ ...td, minWidth: 190 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><HotelThumb hotel={hotel} /><div><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.propertyType}{hotel.code ? ` · ${hotel.code}` : ''}{hotel.profile?.externalIdentifiers.length ? ` · ${hotel.profile.externalIdentifiers.map((i) => `${i.scheme} ${i.value}`).join(', ')}` : ''}</div></div></div></td>
                       <td style={td}><code data-testid="hotel-canonical-id" style={{ fontSize: 10 }}>{hotel.id}</code></td>
                       <td style={td}>{hotel.countryCode} · {hotel.city}{hotel.profile?.area ? <div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile.area}</div> : null}</td>
