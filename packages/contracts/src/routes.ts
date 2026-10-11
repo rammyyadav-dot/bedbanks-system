@@ -92,7 +92,7 @@ export const routes = {
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },
   platform: {
-    tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
+    tenantCreate: '/platform/tenants', tenantProfile: '/platform/tenants/:tenantId/profile', tenantMemberships: '/platform/tenants/:tenantId/memberships', tenantLifecycle: '/platform/tenants/:tenantId/lifecycle', tenantCompliance: '/platform/tenants/:tenantId/compliance', tenantAudit: '/platform/tenants/:tenantId/audit', tenantApproval: '/platform/tenants/:tenantId/approvals/:approvalId', tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
   },
   supplier: {

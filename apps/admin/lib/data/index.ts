@@ -8,9 +8,9 @@ export async function getDashboard({ range }: DashboardQuery): Promise<AdminDash
   return apiRequest<AdminDashboardView>(`/admin/dashboard?range=${encodeURIComponent(range)}`)
 }
 
-export async function getTenantSettings() { return apiRequest<TenantSettingsView>(routes.admin.settings) }
-export async function updateTenantSettings(input: UpdateTenantSettingsRequest, idempotencyKey: string) {
-  return apiRequest<TenantSettingsView>(routes.admin.settings, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input) })
+export async function getTenantSettings(tenantId?: string) { return apiRequest<TenantSettingsView>(routes.admin.settings, tenantId ? { headers: { 'x-fbeds-tenant-id': tenantId } } : {}) }
+export async function updateTenantSettings(input: UpdateTenantSettingsRequest, idempotencyKey: string, tenantId?: string) {
+  return apiRequest<TenantSettingsView>(routes.admin.settings, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, ...(tenantId ? { 'x-fbeds-tenant-id': tenantId } : {}) }, body: JSON.stringify(input) })
 }
 
 export async function createPlatformRole(input: { id: string; name: string; description?: string }) { return apiRequest('/platform/access/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }

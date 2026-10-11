@@ -3,7 +3,7 @@ import { Reflector } from '@nestjs/core'
 import type { Request } from 'express'
 import type { BookingAccessView } from '@bedbanks/contracts'
 import { membershipGrantsPermission } from '../agent/agent-permissions'
-import { activeTenantId, sessionTenantId } from '../agent/tenant-context.guard'
+import { activeTenantId, servicingIdentity, sessionTenantId } from '../agent/tenant-context.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { PrismaService } from '../database/prisma.service'
 
@@ -31,13 +31,15 @@ export class BookingAccessGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>()
-    const identity = (request as unknown as { user?: AuthenticatedUser }).user
-    if (!identity) throw new ForbiddenException('Access denied')
+    const original = (request as unknown as { user?: AuthenticatedUser }).user
+    if (!original) throw new ForbiddenException('Access denied')
+    const serving = (request as unknown as { suspendedServicingAllowed?: boolean }).suspendedServicingAllowed === true
+    const identity = servicingIdentity(original, serving)
     const tenantId = activeTenantId(request)
     if (sessionTenantId(identity, tenantId) !== tenantId) throw new ForbiddenException('Access denied')
     const userId = identity.user.id
     const membership = await this.prisma.withTenant(tenantId, (tx) => tx.membership.findUnique({ where: { userId_tenantId: { userId, tenantId } }, include: { tenant: true } }))
-    if (!membership || membership.tenantId !== tenantId || membership.tenant.status !== 'ACTIVE') throw new ForbiddenException('Insufficient permission')
+    if (!membership || membership.revokedAt || membership.tenantId !== tenantId || (membership.tenant.status !== 'ACTIVE' && !(serving && membership.tenant.status === 'SUSPENDED'))) throw new ForbiddenException('Insufficient permission')
     const roles = await this.prisma.withTenant(tenantId, (tx) => tx.userRole.findMany({
       where: { userId, tenantId, role: { tenantId } },
       include: { role: { include: { permissions: { include: { permission: true } } } } },

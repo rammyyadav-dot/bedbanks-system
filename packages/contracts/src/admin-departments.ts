@@ -47,6 +47,8 @@ const planned = (key: string, department: DepartmentId, actionClass: ActionClass
   ({ key, department, actionClass, scope, status: 'planned', description, ...(refines ? { refines } : {}) })
 
 export const permissionCatalogue: readonly PermissionDef[] = [
+  { key: 'platform.tenants.lifecycle.request', department: 'platform', actionClass: 'S3', scope: 'PLATFORM', status: 'enforced', description: 'Request an independently approved tenant lifecycle change' },
+  { key: 'tenant.lifecycle.manage', department: 'platform', actionClass: 'S3', scope: 'PLATFORM', status: 'enforced', approvalOnly: true, refines: 'platform.tenants.lifecycle.request', description: 'Independent approval of tenant activation and suspension' },
   // Enforced today. These are the only keys an API guard checks.
   enforced('supply.hotels.read', 'supply', 'S0', 'View hotels and the commercial 360'),
   enforced('supply.hotels.manage', 'supply', 'S1', 'Create and edit hotel master data'),

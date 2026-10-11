@@ -21,4 +21,6 @@ export interface MembershipSummary {
 export interface AuthenticatedUser {
   user: SafeUser;
   memberships: MembershipSummary[];
+  /** Suspended tenants: usable only on explicitly marked existing-booking servicing routes. */
+  servicingMemberships?: MembershipSummary[];
 }

@@ -65,7 +65,7 @@ describe('opaque session lifecycle', () => {
     db.session.findUnique.mockResolvedValue({ id: 's1', user, revokedAt: null, expiresAt: new Date(Date.now() + 60000) });
     const result = await service.validateSession(generateSessionToken());
     expect(result?.user.id).toBe(user.id);
-    expect(db.membership.findMany).toHaveBeenCalledWith({ where: { userId: user.id, tenant: { status: 'ACTIVE' } }, include: { tenant: true } });
+    expect(db.membership.findMany).toHaveBeenCalledWith({ where: { userId: user.id, revokedAt: null, tenant: { status: 'ACTIVE' } }, include: { tenant: true } });
   });
   it('revokes by hash and tolerates repeated or absent cookies', async () => {
     const raw = generateSessionToken();

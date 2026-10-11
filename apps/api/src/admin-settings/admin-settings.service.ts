@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
 import { defaultSettlementCurrency, enabledSettlementCurrencies } from '../agent/currency'
 import { createHash } from 'node:crypto'
 import type { TenantSettingsView } from '@bedbanks/contracts'
@@ -9,7 +9,8 @@ import {
 } from '@bedbanks/contracts'
 import type { Prisma } from '@prisma/client'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
-import { PrismaService } from '../database/prisma.service'
+import { TenantControlDatabase } from '../platform-admin/tenant-control.database'
+import { sessionTenantId } from '../agent/tenant-context.guard'
 import type { UpdateTenantSettingsDto } from './dto/update-tenant-settings.dto'
 
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
@@ -30,15 +31,15 @@ type SettingsRow = {
 
 @Injectable()
 export class AdminSettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly controlDb: TenantControlDatabase) {}
 
-  async getSettings(identity: AuthenticatedUser): Promise<TenantSettingsView> {
-    const tenantId = this.activeTenantId(identity)
-    return this.prisma.withTenant(tenantId, async (tx) => this.toView(await this.ensureRow(tx, tenantId)))
+  async getSettings(identity: AuthenticatedUser, selectedTenantId?: string): Promise<TenantSettingsView> {
+    const tenantId = sessionTenantId(identity, selectedTenantId)
+    return this.controlDb.withTenant(tenantId, async (tx) => this.toView(await this.ensureRow(tx, tenantId)))
   }
 
-  async updateSettings(identity: AuthenticatedUser, body: UpdateTenantSettingsDto, idempotencyKey: string | undefined, requestId: string | undefined): Promise<TenantSettingsView> {
-    const tenantId = this.activeTenantId(identity)
+  async updateSettings(identity: AuthenticatedUser, body: UpdateTenantSettingsDto, idempotencyKey: string | undefined, requestId: string | undefined, selectedTenantId?: string): Promise<TenantSettingsView> {
+    const tenantId = sessionTenantId(identity, selectedTenantId)
     const key = idempotencyKey?.trim() ?? ''
     if (!IDEMPOTENCY_KEY.test(key)) throw new BadRequestException('Idempotency-Key is required')
 
@@ -56,12 +57,20 @@ export class AdminSettingsService {
     if (!/^\d+$/.test(body.lowBalanceThreshold.amountMinor)) throw new BadRequestException('Low-balance threshold must be a non-negative integer string')
     const lowBalanceThresholdMinor = BigInt(body.lowBalanceThreshold.amountMinor)
 
+    if (lowBalanceThresholdMinor > 9223372036854775807n) throw new BadRequestException('Low-balance threshold exceeds the supported range')
+
     const fingerprint = createHash('sha256').update(JSON.stringify({
       name, supportEmail, defaultLanguage, timeZone, defaultCurrency, lowBalanceThresholdMinor: lowBalanceThresholdMinor.toString(), lowBalanceCurrency,
     })).digest('hex')
 
-    return this.prisma.withTenant(tenantId, async (tx) => {
+    return this.controlDb.withTenant(tenantId, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${tenantId} FOR UPDATE`
       const current = await this.ensureRow(tx, tenantId)
+      const previous = await tx.auditEvent.findFirst({ where: { tenantId, action: 'settings.updated', payload: { path: ['idempotencyKey'], equals: key } } })
+      if (previous) {
+        if ((previous.payload as Prisma.JsonObject).fingerprint !== fingerprint) throw new ConflictException('Idempotency key was reused with different settings')
+        return this.toView(current)
+      }
       if (current.lastIdempotencyKey === key) {
         if (current.lastMutationFingerprint === fingerprint) return this.toView(current)
         throw new ConflictException('Idempotency key was reused with different settings')
@@ -92,17 +101,11 @@ export class AdminSettingsService {
           action: 'settings.updated',
           entityType: 'tenant_settings',
           entityId: updated.id,
-          payload: { outcome: 'allowed', requestId: requestId ?? null, before, after },
+          payload: { outcome: 'allowed', idempotencyKey: key, fingerprint, requestId: requestId ?? null, before, after },
         },
       })
       return this.toView({ ...updated, tenant })
     })
-  }
-
-  private activeTenantId(identity: AuthenticatedUser): string {
-    const membership = identity.memberships.find((entry) => entry.role === 'owner') ?? identity.memberships[0]
-    if (!membership) throw new ForbiddenException('No active tenant membership')
-    return membership.tenantId
   }
 
   private async ensureRow(tx: Prisma.TransactionClient, tenantId: string): Promise<SettingsRow> {
