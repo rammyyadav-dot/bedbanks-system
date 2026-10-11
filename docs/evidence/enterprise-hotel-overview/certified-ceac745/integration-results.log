@@ -1,0 +1,20 @@
+> @bedbanks/api@0.1.0 test:e2e /workspace/bedbanks-system/apps/api
+> jest --config ./test/jest-e2e.json --runInBand -- api-runtime-role.e2e-spec.ts supply.e2e-spec.ts hotel-commercial.e2e-spec.ts hotel-setup.e2e-spec.ts strict-runtime-role-hotel-setup.e2e-spec.ts strict-runtime-role-commercial.e2e-spec.ts strict-runtime-role-workflows.e2e-spec.ts strict-runtime-role-replay.e2e-spec.ts inventory-search-recheck.e2e-spec.ts inventory-pool-lifecycle.e2e-spec.ts hotel-images.e2e-spec.ts hotel-readiness.e2e-spec.ts dubai-agent-search-hundred.e2e-spec.ts agent-transaction-gates.e2e-spec.ts
+PASS test/supply.e2e-spec.ts (41.996 s)
+PASS test/strict-runtime-role-workflows.e2e-spec.ts (57.793 s)
+PASS test/hotel-commercial.e2e-spec.ts (8.063 s)
+PASS test/dubai-agent-search-hundred.e2e-spec.ts (12.209 s)
+PASS test/hotel-setup.e2e-spec.ts (10.595 s)
+PASS test/agent-transaction-gates.e2e-spec.ts
+PASS test/strict-runtime-role-commercial.e2e-spec.ts (5.956 s)
+PASS test/strict-runtime-role-hotel-setup.e2e-spec.ts (5.296 s)
+PASS test/api-runtime-role.e2e-spec.ts
+PASS test/strict-runtime-role-replay.e2e-spec.ts
+PASS test/hotel-readiness.e2e-spec.ts
+PASS test/hotel-images.e2e-spec.ts
+PASS test/agent-hotel-images.e2e-spec.ts
+PASS test/inventory-pool-lifecycle.e2e-spec.ts
+PASS test/inventory-search-recheck.e2e-spec.ts
+Test Suites: 15 passed, 15 total
+Tests:       208 passed, 208 total
+Time:        165.388 s, estimated 171 s

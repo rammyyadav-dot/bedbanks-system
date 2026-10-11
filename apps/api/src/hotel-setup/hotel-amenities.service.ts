@@ -5,7 +5,7 @@ import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
 import { idParam } from '../admin-operations/query-params'
 import { normaliseAmenities } from './hotel-room-rules'
-import { setupToken, touchSetup } from './hotel-setup-shared'
+import { lockHotelSetup, setupToken, touchSetup } from './hotel-setup-shared'
 
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/
 type Tx = Prisma.TransactionClient
@@ -39,6 +39,7 @@ export class HotelAmenitiesService {
     if (!wanted && errors.length === 0) errors.push('amenities: is required')
     if (errors.length) throw new BadRequestException({ message: errors, error: 'Bad Request' })
     return this.prisma.withTenant(tenantId, async (tx) => {
+      await lockHotelSetup(tx, tenantId, hotelId)
       const before = await this.load(tx, tenantId, hotelId)
       const prior = await tx.auditEvent.findFirst({ where: { tenantId, entityType: 'hotel', entityId: before.hotelId, action: 'hotel.amenities.updated', payload: { path: ['idempotencyKey'], equals: body.idempotencyKey } }, select: { payload: true } })
       if (prior) return { amenities: before, auditRequestId: String((prior.payload as { requestId?: string } | null)?.requestId ?? ''), replayed: true }

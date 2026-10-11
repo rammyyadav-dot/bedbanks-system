@@ -19,3 +19,5 @@ export const approveHotelPublication = (hotelId: string, approvalId: string, bod
 export const rejectHotelPublication = (hotelId: string, approvalId: string, body: HotelPublicationDecision) => post<HotelPublicationResult>(fillApproval(r.publicationReject, hotelId, approvalId), body)
 export const cancelHotelPublication = (hotelId: string, approvalId: string) => post<HotelPublicationResult>(fillApproval(r.publicationCancel, hotelId, approvalId), {})
 export const executeHotelPublication = (hotelId: string, approvalId: string) => post<HotelPublicationResult>(fillApproval(r.publicationExecute, hotelId, approvalId), {})
+
+export const getHotelLocationOptions = (countryCode: string) => apiRequest<import('@bedbanks/contracts').HotelLocationOptions>(`${r.locationOptions}${/^[A-Z]{2}$/.test(countryCode) ? `?countryCode=${encodeURIComponent(countryCode)}` : ''}`)

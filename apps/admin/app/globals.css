@@ -299,3 +299,8 @@ dl code { overflow-wrap: anywhere; font-size: 11px; }
 .status-pill.warning { color: #7a4f08; background: #fff5dc; }
 .status-pill.danger { color: #a6342f; background: #fdf0ef; }
 .status-pill.neutral { color: #4a6268; background: #eef3f4; }
+
+/* Keep canonical record breadcrumbs and account controls within narrow screens. */
+.enterprise-topbar .breadcrumb { min-width: 0; flex-shrink: 1; overflow: hidden; }
+.enterprise-topbar .breadcrumb strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.enterprise-topbar .topbar-actions { flex-shrink: 0; }

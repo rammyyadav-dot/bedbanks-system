@@ -300,4 +300,21 @@ describe('hotel setup on the strict runtime role: negative authorization, tenant
     expect((await call('post', `/admin/hotels/${id}/images?altText=Lobby`, 'badmin').set('Content-Type', 'image/png').send(png())).status).toBe(404)
     expect(await owner.hotelImage.count({ where: { hotelId: id } })).toBe(1)
   })
+  it('enterprise duplicate and archive controls execute under the strict login and do not grant cross-tenant access', async () => {
+    const body = { name: `${suffix} duplicate`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', timeZone: 'Asia/Dubai', address: '10 Shared Road' }
+    const made = await call('post', '/supply/hotels', 'maker', body).expect(201)
+    const duplicate = await call('post', '/supply/hotels', 'maker', { ...body, name: body.name.toUpperCase() }).expect(409)
+    expect(duplicate.body.error.code).toBe('HOTEL_IDENTITY_CONFLICT')
+    const id = made.body.data.id
+    const view = (await call('get', `/admin/hotels/${id}/setup`, 'maker').expect(200)).body.data
+    await call('post', `/admin/hotels/${id}/setup/status`, 'maker', { idempotencyKey: key(), expectedToken: view.concurrencyToken, to: 'ARCHIVED', reason: 'Retire duplicate candidate' }).expect(200)
+    const row = await owner.hotel.findUniqueOrThrow({ where: { id } })
+    expect(row.contentStatus).toBe('ARCHIVED')
+    const foreign = await as(tenantB, tx => tx.hotel.findMany({ where: { id } }))
+    expect(foreign).toEqual([])
+    const noTenant = await as(null, tx => tx.hotel.findMany({ where: { id } }))
+    expect(noTenant).toEqual([])
+    await call('get', '/admin/hotels/location-options?countryCode=AE', 'maker').expect(200)
+  })
+
 })

@@ -1,0 +1,5 @@
+
+> @bedbanks/api@0.1.0 prisma:migrate:drift /workspace/bedbanks-system/apps/api
+> node scripts/check-migration-drift.mjs
+
+No schema drift.

@@ -1,0 +1,13 @@
+> @bedbanks/admin-console@0.1.0 type-check /workspace/bedbanks-system/apps/admin
+> tsc --noEmit
+> @bedbanks/admin-console@0.1.0 lint /workspace/bedbanks-system/apps/admin
+> eslint .
+> @bedbanks/admin-console@0.1.0 test /workspace/bedbanks-system/apps/admin
+> node --import tsx --test lib/*.test.ts
+ℹ tests 74
+ℹ pass 74
+ℹ fail 0
+ℹ skipped 0
+✓ Running next.config.mjs took 12ms
+✓ Compiled successfully in 11.0s
+✓ Generating static pages using 2 workers (55/55) in 1285ms
