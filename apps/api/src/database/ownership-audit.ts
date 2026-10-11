@@ -10,7 +10,7 @@ type Reader = { $queryRawUnsafe<T = unknown>(query: string): Promise<T> }
  * and the runtime group holds NO privilege on them (asserted below); the four others are the identity/catalog tables the contract already declares `rls: 'none'`.
  */
 export const RLS_EXEMPT_TABLES: Readonly<Record<string, { reason: string; runtimePrivileges: 'none' | 'per-contract'; allowForced?: boolean }>> = {
-  tenants: { reason: 'global tenant root readable before tenant selection; ordinary API never writes it. Optional tenant-control provisioning forces RLS with global auth reads and scoped restricted-authoring writes (ADR 0041)', runtimePrivileges: 'per-contract', allowForced: true },
+  tenants: { reason: 'global tenant root readable before tenant selection; ordinary API never writes it. Optional tenant-control provisioning forces RLS with global auth reads and scoped restricted-authoring writes (ADR 0042)', runtimePrivileges: 'per-contract', allowForced: true },
   Permission: { reason: 'global catalogue of permission keys, not tenant data; read-only for the runtime', runtimePrivileges: 'per-contract' },
   users: { reason: 'global identity; a person belongs to tenants through memberships. Looked up before a tenant is known (login); writes limited by column in the contract', runtimePrivileges: 'per-contract' },
   sessions: { reason: 'authentication sessions are found by token hash before any tenant context exists; writes limited by column in the contract', runtimePrivileges: 'per-contract' },

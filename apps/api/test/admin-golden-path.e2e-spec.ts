@@ -142,10 +142,14 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
     const plan = await api(operator).post('/supply/rate-plans', { contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, code: 'DLX-BB-2A', occupancy: 2, currency: 'AED', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: 1, releaseDays: 0 }).expect(201)
     ids.ratePlan = plan.body.data.id
     expect(plan.body.data).toMatchObject({ contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, status: 'DRAFT', currency: 'AED' })
-    await api(operator).patch(`/supply/rate-plans/${ids.ratePlan}`, { status: 'ACTIVE' }).expect(200)
 
     await api(operator).post('/supply/daily-rates/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: ids.ratePlan, stayDate, occupancy: 2, amountMinor: '45000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
     await api(operator).post('/supply/availability/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: ids.ratePlan, stayDate, allotment: 5, sold: 0, stopSell: false, minStay: 1 })) }).expect(201)
+    // Activation goes through the readiness-gated route, after the rates and inventory it depends on exist.
+    const readiness = await api(operator).get(`/supply/rate-plans/${ids.ratePlan}/readiness`).expect(200)
+    expect(readiness.body.data).toMatchObject({ ready: true, status: 'DRAFT' })
+    const activated = await api(operator).post(`/supply/rate-plans/${ids.ratePlan}/activate`, { expectedUpdatedAt: readiness.body.data.updatedAt }).expect(201)
+    expect(activated.body.data.status).toBe('ACTIVE')
   })
 
   it('links every identifier correctly in the database', async () => {
@@ -194,7 +198,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       const fresh = await login(`${suffix}-readonly@example.test`)
       await api(fresh).get('/supply/contracts').expect(200)
       await api(fresh).post('/supply/contracts', { supplierId: ids.supplier, code: 'DENIED', validFrom: iso(0), validTo: iso(10), settlementCurrency: 'AED' }).expect(403)
-      await api(fresh).patch(`/supply/rate-plans/${ids.ratePlan}`, { status: 'SUSPENDED' }).expect(403)
+      await api(fresh).post(`/supply/rate-plans/${ids.ratePlan}/suspend`, { expectedUpdatedAt: new Date().toISOString(), reason: 'denied' }).expect(403)
       await api(outsider, otherTenantId).get(`/supply/contracts/${ids.contract}`).expect(404)
       await api(outsider, otherTenantId).get(`/supply/rate-plans/${ids.ratePlan}`).expect(404)
       await api(outsider, tenantId).get('/supply/contracts').expect(403)

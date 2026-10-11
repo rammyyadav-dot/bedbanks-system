@@ -1,3 +1,4 @@
+import { HotelLocationsController } from './hotel-locations.controller'
 import { Module } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { ApprovalsModule } from '../approvals/approvals.module'
@@ -18,5 +19,5 @@ import { PoolCapacityService } from '../inventory/pool-capacity.service'
 import { PoolNightRequestService } from '../inventory/pool-night-request.service'
 
 /** Hotel Setup (ADR 0021) and Inventory & Allotment administration (ADR 0030). */
-@Module({ imports: [AuthModule, ApprovalsModule], controllers: [HotelSetupController, HotelRoomsController, HotelQuickUpdateController, HotelImagesController, InventoryAdminController, PoolCapacityController], providers: [InventoryAdminService, PoolCapacityService, PoolNightRequestService, HotelSetupService, HotelPublicationService, HotelRoomsService, HotelAmenitiesService, HotelQuickUpdateService, HotelImagesService] })
+@Module({ imports: [AuthModule, ApprovalsModule], controllers: [HotelLocationsController, HotelSetupController, HotelRoomsController, HotelQuickUpdateController, HotelImagesController, InventoryAdminController, PoolCapacityController], providers: [InventoryAdminService, PoolCapacityService, PoolNightRequestService, HotelSetupService, HotelPublicationService, HotelRoomsService, HotelAmenitiesService, HotelQuickUpdateService, HotelImagesService] })
 export class HotelSetupModule {}

@@ -22,7 +22,7 @@ test('every canonical reason code the Admin can receive has plain wording, and u
 test('tabs: every issue section is a real tab, unknown tab values fall back to overview, and links are stable', () => {
   const ids = HOTEL_TABS.map((t) => t.id) as string[]
   for (const section of ['overview', 'rooms', 'mappings', 'contracts', 'rates', 'inventory', 'sellability'] as const) assert.ok(ids.includes(sectionTab(section)), section)
-  assert.equal(parseTab('rates'), 'rates'); assert.equal(parseTab('nonsense'), 'overview'); assert.equal(parseTab(null), 'overview'); assert.equal(parseTab('__proto__'), 'overview')
+  assert.equal(parseTab('rates'), 'rates'); assert.equal(parseTab('rateplans'), 'rateplans'); assert.equal(parseTab('nonsense'), 'overview'); assert.equal(parseTab(null), 'overview'); assert.equal(parseTab('__proto__'), 'overview')
   assert.equal(hotelHref('h1'), '/hotels/h1'); assert.equal(hotelHref('h1', 'rates'), '/hotels/h1?tab=rates'); assert.equal(hotelHref('a b/c', 'rooms'), '/hotels/a b/c?tab=rooms')
   assert.equal(hotelHref('h1', 'rates', { from: '2030-06-15', roomTypeId: 'room-9' }), '/hotels/h1?tab=rates&from=2030-06-15&roomTypeId=room-9')
   assert.equal(hotelHref('h1', 'rates', { from: 'not-a-date' }), '/hotels/h1?tab=rates') // only a real calendar day is carried

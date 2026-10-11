@@ -109,7 +109,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // is { message: string[], error: 'Bad Request', statusCode: 400 }.
       if (typeof body === 'object' && body !== null && 'message' in body) {
         const rawMessage = (body as { message: unknown }).message;
-        const details = Array.isArray(rawMessage) ? rawMessage : [];
+        // A domain exception may attach structured `details` (e.g. readiness checks); validation arrays still win.
+        const explicitDetails = (body as { details?: unknown }).details;
+        const details = Array.isArray(rawMessage) ? rawMessage : Array.isArray(explicitDetails) ? explicitDetails : [];
         const message = Array.isArray(rawMessage)
           ? 'Request validation failed'
           : String(rawMessage);

@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
 
 const prisma = new PrismaClient()
 jest.setTimeout(180000)
@@ -283,7 +284,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       contractId: otherContract.body.data.id, roomTypeId: otherRoom.body.data.id, boardBasisId: otherBoard.body.data.id,
       code: `${suffix}-other-FLEX`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
-    await otherAdmin.patch(`/api/v1/supply/rate-plans/${otherPlan.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, otherPlan.body.data.id, 'ACTIVE')
     await otherAdmin.post('/api/v1/supply/daily-rates/bulk').send({ rows: nights.map((stayDate) => ({
       ratePlanId: otherPlan.body.data.id, stayDate, occupancy: 2, amountMinor: '19900', amountBasis: 'SELL', currency: 'AED',
     })) }).expect(201)
@@ -333,7 +334,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       contractId: contract.body.data.id, roomTypeId: room.body.data.id, boardBasisId: input.boardId, code: `${suffix}-${input.key}-FLEX`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: input.minStay ?? 1, releaseDays: input.releaseDays ?? 0,
     }).expect(201)
-    await admin.patch(`/api/v1/supply/rate-plans/${plan.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, plan.body.data.id, 'ACTIVE')
     await writeInventory(admin, plan.body.data.id, input.nightMinor, input.allotment ?? 4, false)
     const row = {
       hotelId: hotel.body.data.id, mappingId: mapping.body.data.id, roomId: room.body.data.id, roomMappingId: roomMapping.body.data.id,
@@ -359,7 +360,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       contractId: contract.body.data.id, roomTypeId: chain.roomId, boardBasisId: bbId, code: `${suffix}-${code}-P`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
-    await admin.patch(`/api/v1/supply/rate-plans/${plan.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, plan.body.data.id, 'ACTIVE')
     await writeInventory(admin, plan.body.data.id, nightMinor, 4, false)
     await admin.patch(`/api/v1/supply/contracts/${contract.body.data.id}`).send({ status }).expect(200)
     hiddenPlanIds.add(plan.body.data.id)
@@ -376,7 +377,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       contractId: chain.contractId, roomTypeId: chain.roomId, boardBasisId: boardId, code: `${suffix}-${code}`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: options.minStay ?? 1, releaseDays: 0,
     }).expect(201)
-    await admin.patch(`/api/v1/supply/rate-plans/${plan.body.data.id}`).send({ status: options.planStatus ?? 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, plan.body.data.id, options.planStatus ?? 'ACTIVE')
     await writeInventory(admin, plan.body.data.id, nightMinor, options.allotment ?? 4, false)
     if (options.record) {
       expected.push({
@@ -401,7 +402,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       contractId: chain.contractId, roomTypeId: room.body.data.id, boardBasisId: boardId, code: `${suffix}-${code}-P`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
-    await admin.patch(`/api/v1/supply/rate-plans/${plan.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, plan.body.data.id, 'ACTIVE')
     await writeInventory(admin, plan.body.data.id, nightMinor, 4, options.stopSell ?? false)
     if (options.record) {
       expected.push({
@@ -609,11 +610,11 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     await prisma.supplierHotelMapping.update({ where: { id: chains.h2.mappingId }, data: { status: 'MAPPED' } })
     await prisma.supplierRoomMapping.update({ where: { id: chains.h2.roomMappingId }, data: { status: 'MAPPED' } })
 
-    await admin.patch(`/api/v1/supply/rate-plans/${chains.h4.ratePlanId}`).send({ status: 'SUSPENDED' }).expect(200)
+    await setRatePlanStatusFixture(prisma, chains.h4.ratePlanId, 'SUSPENDED')
     const inactivePlan = await search().expect(201)
     expect(inactivePlan.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === chains.h4.hotelId)).toBe(false)
     expect(inactivePlan.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === chains.h1.hotelId)).toBe(true)
-    await admin.patch(`/api/v1/supply/rate-plans/${chains.h4.ratePlanId}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, chains.h4.ratePlanId, 'ACTIVE')
     expect((await search()).body.data.hotels).toHaveLength(new Set(expected.map((row) => row.hotelId)).size)
   })
 

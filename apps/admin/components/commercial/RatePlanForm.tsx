@@ -14,7 +14,6 @@ import {
   type AdminContract, type AdminRatePlan, type BoardBasisRecord, type HotelRecord, type RoomTypeRecord,
 } from '@/lib/data'
 
-const PLAN_STATUSES = ['DRAFT', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const
 interface FormState { contractId: string; hotelId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; currency: string; occupancy: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: string; maxStay: string; releaseDays: string }
 const blank: FormState = { contractId: '', hotelId: '', roomTypeId: '', boardBasisId: '', code: '', status: 'DRAFT', currency: 'AED', occupancy: '2', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: '1', maxStay: '', releaseDays: '0' }
 const wholeNumber = (value: string) => /^\d+$/.test(value.trim()) ? Number(value) : null
@@ -82,7 +81,7 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
     const body = { contractId: form.contractId, roomTypeId: form.roomTypeId, boardBasisId: form.boardBasisId, code: form.code.trim(), occupancy, currency: form.currency.toUpperCase(), refundable: form.refundable, taxesIncluded: form.taxesIncluded, feesIncluded: form.feesIncluded, minStay, maxStay, releaseDays }
     setSaving(true)
     try {
-      if (ratePlanId) { const saved = await updateRatePlan(ratePlanId, { ...body, status: form.status }); setForm((current) => ({ ...current, status: saved.status })); setMessage({ kind: 'ok', text: 'Rate plan saved.' }) }
+      if (ratePlanId) { const saved = await updateRatePlan(ratePlanId, body); setForm((current) => ({ ...current, status: saved.status })); setMessage({ kind: 'ok', text: 'Rate plan saved.' }) }
       else { const created = await createRatePlan(body); router.push(`/rates/plans/${created.id}`) }
     } catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the rate plan') }) } finally { setSaving(false) }
   }
@@ -97,7 +96,7 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
           <FormField label="Room type"><select value={form.roomTypeId} onChange={(e) => set('roomTypeId', e.target.value)} disabled={!canManage || !form.hotelId} required><option value="">Select room</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name} ({room.code}, max {room.maxOccupancy})</option>)}</select></FormField>
           <FormField label="Board basis"><select value={form.boardBasisId} onChange={(e) => set('boardBasisId', e.target.value)} disabled={!canManage} required><option value="">Select board basis</option>{boards.map((board) => <option key={board.id} value={board.id}>{board.code.trim()} · {board.name}</option>)}</select></FormField>
           <FormField label="Rate plan code"><input value={form.code} onChange={(e) => set('code', e.target.value)} disabled={!canManage} required maxLength={80} /></FormField>
-          {editing ? <FormField label="Status"><select value={form.status} onChange={(e) => set('status', e.target.value)} disabled={!canManage}>{PLAN_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></FormField> : null}
+          {editing ? <FormField label="Status"><span data-testid="plan-status">{form.status} — change status from the hotel's Rate Plans tab, where activation is checked against readiness.</span></FormField> : null}
           <FormField label="Currency (ISO-4217)"><input value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} disabled={!canManage} required maxLength={3} /></FormField>
           <FormField label="Occupancy (adults)"><input inputMode="numeric" value={form.occupancy} onChange={(e) => set('occupancy', e.target.value)} disabled={!canManage} required /></FormField>
           <FormField label="Minimum stay (nights)"><input inputMode="numeric" value={form.minStay} onChange={(e) => set('minStay', e.target.value)} disabled={!canManage} required /></FormField>

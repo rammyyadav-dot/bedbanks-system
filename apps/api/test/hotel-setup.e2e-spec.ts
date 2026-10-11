@@ -827,4 +827,139 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     // eligible is false in both unpublished cases, so the page never presents an unpublished hotel as ready for Agents
     expect([suspended.catalogue.eligible, draft.catalogue.eligible]).toEqual([false, false])
   })
+  it('enterprise identity: parallel normalized duplicate creates are refused and external references conflict', async () => {
+    const body = { name: `${suffix} Identity Race`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', address: '1 Same Road', timeZone: 'Asia/Dubai' }
+    const responses = await Promise.all([api('post', '/supply/hotels', 'manager', body), api('post', '/supply/hotels', 'manager', { ...body, name: body.name.toUpperCase(), address: ' 1 Same Road ' })])
+    expect(responses.map(r => r.status).sort()).toEqual([201, 409])
+    expect(responses.find(r => r.status === 409)!.body.error.code).toBe('HOTEL_IDENTITY_CONFLICT')
+    await api('post', '/supply/hotels', 'manager', { ...body, name: `${suffix} Reference A`, externalRef: `${suffix}-REF` }).expect(201)
+    const conflict = await api('post', '/supply/hotels', 'manager', { ...body, name: `${suffix} Reference B`, externalRef: `${suffix}-REF` }).expect(409)
+    expect(conflict.body.error.code).toBe('HOTEL_EXTERNAL_REF_CONFLICT')
+    await api('post', '/supply/hotels', 'manager', { ...body, name: `${suffix} Bad Zone`, timeZone: 'Imaginary/City' }).expect(400)
+    await api('post', '/supply/hotels', 'manager', { ...body, id: 'forged-id' }).expect(400)
+  })
+
+  it('enterprise identity: edits cannot collide and concurrent setup writes accept one reviewed token', async () => {
+    const a = await newDraft('Identity A'), b = await newDraft('Identity B')
+    const aView = await load(a)
+    const collision = await save(b, (await load(b)).concurrencyToken, { name: aView.identity.name }).expect(409)
+    expect(collision.body.error.code).toBe('HOTEL_IDENTITY_CONFLICT')
+    const token = (await load(a)).concurrencyToken
+    const responses = await Promise.all([save(a, token, { area: 'First' }), save(a, token, { area: 'Second' })])
+    expect(responses.map(r => r.status).sort()).toEqual([200, 409])
+    expect(responses.find(r => r.status === 409)!.body.error.code).toBe('HOTEL_SETUP_STALE')
+  })
+
+  it('enterprise legacy room edits cannot archive the last active room of a published hotel', async () => {
+    const id = await newDraft('Legacy room publication')
+    const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Only room', code: 'ONLY', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    await publish(id)
+    const blocked = await api('patch', `/supply/hotels/${id}/rooms/${room.id}`, 'manager', { isActive: false }).expect(422)
+    expect(blocked.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENT_LOST')
+    expect((await prisma.roomType.findUniqueOrThrow({ where: { id: room.id } })).isActive).toBe(true)
+  })
+
+  it('enterprise parallel room archives preserve the last active room of a published hotel', async () => {
+    const id = await newDraft('Parallel room publication')
+    const rooms = await Promise.all(['A', 'B'].map(code => prisma.roomType.create({ data: { hotelId: id, name: `Room ${code}`, code, maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })))
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    await publish(id)
+    const responses = await Promise.all(rooms.map(r => api('post', `/admin/hotels/${id}/rooms/${r.id}/archive`, 'manager', { idempotencyKey: key(), expectedToken: String(r.updatedAt.getTime()), reason: 'Close for renovation' })))
+    expect(responses.map(r => r.status).sort()).toEqual([200, 422])
+    expect(await prisma.roomType.count({ where: { hotelId: id, isActive: true } })).toBe(1)
+  })
+
+  it.each(['canonical', 'legacy'])('enterprise %s room changes invalidate an already approved profile version', async route => {
+    const id = await newDraft(`${route} room review`)
+    const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Reviewed room', code: 'REVIEW', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    const token = (await load(id)).concurrencyToken
+    const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed property and room' }).expect(200)).body.data
+    await api('post', `${pubPath(id)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked room details' }).expect(200)
+    if (route === 'canonical') await api('patch', `/admin/hotels/${id}/rooms/${room.id}`, 'manager', { idempotencyKey: key(), expectedToken: String(room.updatedAt.getTime()), name: 'Changed room' }).expect(200)
+    else await api('patch', `/supply/hotels/${id}/rooms/${room.id}`, 'manager', { name: 'Changed room' }).expect(200)
+    expect((await load(id)).concurrencyToken).not.toBe(token)
+    const blocked = await api('post', `${pubPath(id)}/${made.approval.id}/execute`, 'manager', {}).expect(409)
+    expect(blocked.body.error.code).toBe('HOTEL_CHANGED_AFTER_APPROVAL')
+  })
+
+  it('enterprise amenities serialize two writes against the same reviewed setup token', async () => {
+    const id = await newDraft('Concurrent amenities')
+    const token = (await load(id)).concurrencyToken
+    const responses = await Promise.all(['POOL', 'SPA'].map(code => api('put', `/admin/hotels/${id}/amenities`, 'manager', { idempotencyKey: key(), expectedToken: token, amenities: [{ code, feeType: 'FREE' }] })))
+    expect(responses.map(r => r.status).sort()).toEqual([200, 409])
+    expect(responses.find(r => r.status === 409)!.body.error.code).toBe('HOTEL_SETUP_STALE')
+  })
+
+  it('enterprise publication serializes with a reviewed setup edit before checking approval freshness', async () => {
+    const id = await newDraft('Publication edit race')
+    await prisma.roomType.create({ data: { hotelId: id, name: 'Race room', code: 'RACE', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    const token = (await load(id)).concurrencyToken
+    const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed complete content' }).expect(200)).body.data
+    await api('post', `${pubPath(id)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked content' }).expect(200)
+    const service = app.get(HotelSetupService)
+    const original = service.load.bind(service)
+    let release!: () => void, entered!: () => void
+    const paused = new Promise<void>(resolve => { entered = resolve })
+    const resume = new Promise<void>(resolve => { release = resolve })
+    let held = false
+    const spy = jest.spyOn(service, 'load').mockImplementation(async (...args) => {
+      const state = await original(...args)
+      if (args[2] === id && !held) { held = true; entered(); await resume }
+      return state
+    })
+    const edit = save(id, token, { address: null }).then(response => response)
+    try {
+      await paused // Setup holds its transaction lock with the reviewed DRAFT snapshot.
+      const execution = api('post', `${pubPath(id)}/${made.approval.id}/execute`, 'manager', {}).then(response => response)
+      // Give publication time to reach its lock (or finish on the unsafe implementation).
+      await Promise.race([execution, new Promise(resolve => setTimeout(resolve, 250))])
+      release()
+      const [saved, published] = await Promise.all([edit, execution])
+      expect(saved.status).toBe(200)
+      expect(published.status).toBe(409)
+      expect(published.body.error.code).toBe('HOTEL_CHANGED_AFTER_APPROVAL')
+      const current = await load(id)
+      expect(current.governance.status).toBe('DRAFT')
+      expect(current.completeness.publishable).toBe(false)
+    } finally { release(); await edit; spy.mockRestore() }
+  })
+
+  it('enterprise archive: preserves identifiers and linked rooms, refuses publication and supports reviewed restoration', async () => {
+    const id = await newDraft('Archive lifecycle')
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    const room = await prisma.roomType.create({ data: { hotelId: id, code: `${suffix}-ARC`, name: 'Archive room', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    const token = (await load(id)).concurrencyToken
+    const archived = await api('post', `${setupPath(id)}/status`, 'manager', { idempotencyKey: key(), expectedToken: token, to: 'ARCHIVED', reason: 'Retire this property' }).expect(200)
+    expect(archived.body.data.setup.governance.status).toBe('ARCHIVED')
+    expect(await prisma.roomType.findUnique({ where: { id: room.id } })).not.toBeNull()
+    const blocked = await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: archived.body.data.setup.concurrencyToken, reason: 'Cannot publish archived hotel' }).expect(409)
+    expect(blocked.body.error.code).toBe('HOTEL_ARCHIVED')
+    await api('patch', `/supply/hotels/${id}`, 'manager', { contentStatus: 'DRAFT' }).expect(409)
+    await api('post', `${setupPath(id)}/status`, 'manager', { idempotencyKey: key(), expectedToken: archived.body.data.setup.concurrencyToken, to: 'DRAFT', reason: 'Restore for review' }).expect(200)
+    expect((await load(id)).hotelId).toBe(id)
+  })
+
+  it('enterprise locations: suggestions are tenant-scoped, permission-guarded and validated', async () => {
+    const own = await api('get', '/admin/hotels/location-options?countryCode=AE', 'manager').expect(200)
+    expect(own.body.data.countries).toContain('AE')
+    expect(own.body.data.cities).toContain('Dubai')
+    await api('get', '/admin/hotels/location-options?countryCode=WRONG', 'manager').expect(400)
+    await api('get', '/admin/hotels/location-options', 'agent').expect(403)
+  })
+
+  it('enterprise legacy edits cannot regress an approved profile while preserving publication', async () => {
+    const id = await newDraft('Legacy preservation')
+    await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
+    await prisma.roomType.create({ data: { hotelId: id, code: `${suffix}-LEG`, name: 'Legacy room', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await publish(id)
+    const refusal = await api('patch', `/supply/hotels/${id}`, 'manager', { address: null }).expect(409)
+    expect(refusal.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENT_LOST')
+    const kept = await load(id)
+    expect(kept.location.address).toBe(FULL.address)
+    expect(kept.governance.status).toBe('COMPLETE')
+  })
+
 })

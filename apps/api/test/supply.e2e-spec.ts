@@ -158,12 +158,14 @@ describe('Supply HTTP authorization boundaries', () => {
     await request(app.getHttpServer()).get('/api/v1/supply/hotels').set('Cookie', cookie).set('x-fbeds-tenant-id', tenantBId).expect(403)
   })
 
-  it('isolates tenant lists and ignores forged body/query/header tenant claims', async () => {
+  it('isolates tenant lists, rejects forged body fields and ignores query/header tenant claims', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const list = await supply(cookie, tenantAId).get('/api/v1/supply/hotels').expect(200)
     expect(list.body.data.map((hotel: { id: string }) => hotel.id)).toEqual([hotelAId])
     await supply(cookie, tenantBId).get('/api/v1/supply/hotels').expect(403)
-    const created = await supply(cookie, tenantAId).post('/api/v1/supply/hotels?tenantId=' + tenantBId).set('x-tenant-id', tenantBId).send({ tenantId: tenantBId, name: `${suffix} Forged`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/hotels').send({ tenantId: tenantBId, name: `${suffix} Forged`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(400)
+    await expect(prisma.hotel.count({ where: { name: `${suffix} Forged` } })).resolves.toBe(0)
+    const created = await supply(cookie, tenantAId).post('/api/v1/supply/hotels?tenantId=' + tenantBId).set('x-tenant-id', tenantBId).send({ name: `${suffix} Forged`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
     const createdHotelId = created.body.data.id
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantAId } })).resolves.not.toBeNull()
     await expect(prisma.hotel.findFirst({ where: { id: createdHotelId, tenantId: tenantBId } })).resolves.toBeNull()
@@ -281,15 +283,20 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).get(`/api/v1/supply/rate-plans/${ratePlanBId}`).expect(404)
 
     const ratePlanRequestId = `${suffix}-rate-plan-audit`
+    // A mixed body naming status is refused whole (ADR 0041): nothing, including the valid fields, is written.
+    const before = await prisma.ratePlan.findUniqueOrThrow({ where: { id: ratePlanAId } })
+    const mixed = await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ status: 'ACTIVE', occupancy: 1, minStay: 2 }).expect(400)
+    expect(mixed.body.error.code).toBe('RATE_PLAN_STATUS_VIA_LIFECYCLE_ONLY')
+    await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: ratePlanAId } })).resolves.toMatchObject({ status: before.status, occupancy: before.occupancy, minStay: before.minStay, updatedAt: before.updatedAt })
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).set('x-request-id', ratePlanRequestId)
-      .send({ status: 'ACTIVE', occupancy: 1, currency: 'AED', refundable: false, minStay: 2, maxStay: 7, releaseDays: 1 }).expect(200)
-    await expect(prisma.ratePlan.findUnique({ where: { id: ratePlanAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', occupancy: 1, currency: 'AED', refundable: false, minStay: 2, maxStay: 7, releaseDays: 1 })
+      .send({ occupancy: 1, currency: 'AED', refundable: false, minStay: 2, maxStay: 7, releaseDays: 1 }).expect(200)
+    await expect(prisma.ratePlan.findUnique({ where: { id: ratePlanAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: before.status, occupancy: 1, currency: 'AED', refundable: false, minStay: 2, maxStay: 7, releaseDays: 1 })
     await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: ratePlanAId, action: 'supply.rate_plan.updated' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId: ratePlanRequestId } })
 
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ occupancy: 3 }).expect(400)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ minStay: 5, maxStay: 2 }).expect(400)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ boardBasisId: boardBId }).expect(400)
-    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanBId}`).send({ status: 'SUSPENDED' }).expect(404)
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanBId}`).send({ minStay: 2 }).expect(404)
 
     await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT', occupancy: 2, currency: 'USD', refundable: true, minStay: 1, maxStay: null, releaseDays: 0 } })
   })

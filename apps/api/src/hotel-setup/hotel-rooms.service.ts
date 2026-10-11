@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { HotelChildPolicyRow, HotelRoomView, HotelRoomsView, RoomArchive, RoomSave, RoomSaved } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { idParam } from '../admin-operations/query-params'
 import { mergedOccupancyProblems, mergeBedding, normaliseRoomSave, parseBedding } from './hotel-room-rules'
+import { assertRoomActivationAllowed, lockHotelSetup, touchSetup } from './hotel-setup-shared'
 
 const KEY = /^[A-Za-z0-9_.:-]{8,80}$/
 type Tx = Prisma.TransactionClient
@@ -120,12 +121,14 @@ export class HotelRoomsService {
     if (errors.length) throw new BadRequestException({ message: errors, error: 'Bad Request' })
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
+        await lockHotelSetup(tx, tenantId, hotelIdRaw)
         const hotel = await this.hotel(tx, tenantId, hotelIdRaw)
         const prior = await tx.auditEvent.findFirst({ where: { tenantId, entityType: 'room_type', action: 'hotel.room.created', payload: { path: ['idempotencyKey'], equals: key } }, select: { entityId: true, payload: true } })
         if (prior) return { room: await this.one(tx, tenantId, hotel.id, prior.entityId), auditRequestId: String((prior.payload as { requestId?: string } | null)?.requestId ?? ''), replayed: true }
         const f = data.fields
         const room = await tx.roomType.create({ data: { hotelId: hotel.id, name: f.name!, code: f.code!, maxAdults: f.maxAdults!, maxChildren: f.maxChildren ?? 0, maxOccupancy: f.maxOccupancy!, beddingMetadata: mergeBedding({}, data.bedding ?? {}) as Prisma.InputJsonValue, isActive: true } })
         if (data.amenities) await this.setAmenities(tx, tenantId, hotel.id, room.id, userId, data.amenities)
+        await touchSetup(tx, tenantId, hotel.id, userId, new Date())
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.room.created', entityType: 'room_type', entityId: room.id, payload: { outcome: 'allowed', requestId, idempotencyKey: key, hotelId: hotel.id, reason: typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : null, fields: data.changed, code: room.code } as Prisma.InputJsonValue } })
         return { room: await this.one(tx, tenantId, hotel.id, room.id), auditRequestId: requestId ?? '', replayed: false }
       })
@@ -145,6 +148,7 @@ export class HotelRoomsService {
     if (data.changed.length === 0 && errors.length === 0) throw new BadRequestException('Nothing to save: no field was supplied')
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
+        await lockHotelSetup(tx, tenantId, hotelIdRaw)
         const hotel = await this.hotel(tx, tenantId, hotelIdRaw)
         const current = await tx.roomType.findFirst({ where: { id: roomId, hotelId: hotel.id } })
         if (!current) throw new NotFoundException('Room not found')
@@ -157,6 +161,7 @@ export class HotelRoomsService {
         const bedding = data.bedding ? mergeBedding(current.beddingMetadata, data.bedding) : undefined
         await tx.roomType.update({ where: { id: current.id }, data: { ...f, ...(bedding ? { beddingMetadata: bedding as Prisma.InputJsonValue } : {}), updatedAt: new Date() } })
         if (data.amenities) await this.setAmenities(tx, tenantId, hotel.id, current.id, userId, data.amenities)
+        await touchSetup(tx, tenantId, hotel.id, userId, new Date())
         const SAFE = ['name', 'code', 'maxAdults', 'maxChildren', 'maxOccupancy'] as const
         const changes = Object.fromEntries(SAFE.filter((k) => f[k] !== undefined && f[k] !== current[k]).map((k) => [k, { from: current[k], to: f[k] }]))
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.room.updated', entityType: 'room_type', entityId: current.id, payload: { outcome: 'allowed', requestId, idempotencyKey: key, hotelId: hotel.id, reason: typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : null, fields: data.changed, changes } as Prisma.InputJsonValue } })
@@ -175,6 +180,7 @@ export class HotelRoomsService {
     if (!roomId) throw new BadRequestException('Invalid roomId')
     const action = active ? 'hotel.room.restored' : 'hotel.room.archived'
     return this.prisma.withTenant(tenantId, async (tx) => {
+      await lockHotelSetup(tx, tenantId, hotelIdRaw)
       const hotel = await this.hotel(tx, tenantId, hotelIdRaw)
       const current = await tx.roomType.findFirst({ where: { id: roomId, hotelId: hotel.id } })
       if (!current) throw new NotFoundException('Room not found')
@@ -182,11 +188,10 @@ export class HotelRoomsService {
       if (again) return { room: await this.one(tx, tenantId, hotel.id, current.id), auditRequestId: again.requestId, replayed: true }
       if (body.expectedToken !== this.token(current)) this.stale()
       if (current.isActive === active) throw new ConflictException(active ? 'The room is already active' : 'The room is already archived')
-      if (!active && hotel.contentStatus === 'COMPLETE' && (await tx.roomType.count({ where: { hotelId: hotel.id, isActive: true, id: { not: current.id } } })) === 0) {
-        throw new UnprocessableEntityException({ message: 'A published hotel needs at least one active room. Change the hotel status first.', code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST' })
-      }
+      await assertRoomActivationAllowed(tx, hotel, current.id, active)
       const usage = (await this.usage(tx, tenantId, [current.id])).get(current.id)!
       await tx.roomType.update({ where: { id: current.id }, data: { isActive: active, updatedAt: new Date() } })
+      await touchSetup(tx, tenantId, hotel.id, userId, new Date())
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action, entityType: 'room_type', entityId: current.id, payload: { outcome: 'allowed', requestId, idempotencyKey: key, hotelId: hotel.id, reason, activeRatePlans: usage.activeRatePlans, ratePlans: usage.ratePlans, mappings: usage.mappings } as Prisma.InputJsonValue } })
       return { room: await this.one(tx, tenantId, hotel.id, current.id), auditRequestId: requestId ?? '', replayed: false }
     })

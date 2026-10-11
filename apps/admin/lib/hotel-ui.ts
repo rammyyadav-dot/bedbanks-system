@@ -24,6 +24,7 @@ export const HOTEL_TABS = [
   { id: 'policies', label: 'Policies' },
   { id: 'mappings', label: 'Supplier Mapping' },
   { id: 'contracts', label: 'Contracts & Rate Plans' },
+  { id: 'rateplans', label: 'Rate Plans' },
   { id: 'rates', label: 'Rates & Inventory' },
   { id: 'inventory', label: 'Inventory & Allotment' },
   { id: 'quick', label: 'Quick Update' },

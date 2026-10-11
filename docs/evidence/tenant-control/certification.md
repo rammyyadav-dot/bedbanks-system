@@ -4,6 +4,16 @@ Executed 2026-10-11 on feature branch `feat/tenant-control-center`, based on
 `5e145867c5daaad02b83475c832a78ab72e172ae`. This is a draft implementation with
 explicit release gates, not production readiness certification.
 
+Before final delivery, `main` advanced to
+`0fe05d7eb2813e4294d1a463399de778833556fe`. It was integrated into the feature
+branch; both sets of shared CSS and contract exports were preserved. The tenant
+ADR is now 0042 and its migration is `202611100002_tenant_control_center`, after
+the new hotel archive migration. Fresh migration replay, drift, restricted-role
+certification, related regressions, builds and workspace checks were repeated
+against the integrated result. The broader full-run results below apply to the
+implementation before this integration, rather than claiming a green full run
+of the final merged tree.
+
 ## Executed checks
 
 | Check | Result |
@@ -11,12 +21,12 @@ explicit release gates, not production readiness certification.
 | Disposable PostgreSQL 16 migration replay | Passed from an empty `fbeds_ci` database |
 | Prisma migration drift | Only the existing unsupported `HotelSearchIndex_embedding_hnsw` index difference; no new schema drift |
 | Strict-role tenant HTTP certification | 18/18 passed using `fbeds_api_login` and a separate restricted `fbeds_tenant_control_login`; owner connection used only by isolated fixtures |
-| API unit tests | 93 suites passed, one skipped; 1,021 tests passed, three skipped |
+| API unit tests | 96 suites passed, one skipped; 1,054 tests passed, three skipped |
 | Admin tests | 74/74 passed |
 | Related HTTP regressions | Five suites, 32/32 tests passed: Settings, platform admin, tenant finance, auth, supplier extranet |
 | Workspace type checks | 14/14 tasks passed |
 | Workspace lint | 14/14 tasks passed; existing unused-disable warning in inventory-admin remains |
-| Architecture checks | Contracts, no-float, no-silent-fallback, public environment and runtime-role checks passed; 710 files, 13 audited client sites |
+| Architecture checks | Contracts, no-float, no-silent-fallback, public environment and runtime-role checks passed; 718 files, 13 audited client sites |
 | Affected production builds | Admin Next build and API Nest build passed |
 | Live Chromium browser flow | Directory/search, all five create steps, actual inactive creation, profile save, memberships, detail tabs, keyboard navigation, 390px layout and cross-origin mutation rejection passed |
 
@@ -89,7 +99,7 @@ tests pass.
 ## Release gates
 
 See [requirement matrix](../../tenant-control-gap-matrix.md) and
-[ADR 0041](../../adr/0041-tenant-control-center.md). Secure invitation delivery,
+[ADR 0042](../../adr/0042-tenant-control-center.md). Secure invitation delivery,
 private verified document storage, canonical formal role mutations, member
 pagination/search beyond the bounded view, last-activity filtering, supplier
 and hybrid entitlements, approved finance reads, complete suspended refund and

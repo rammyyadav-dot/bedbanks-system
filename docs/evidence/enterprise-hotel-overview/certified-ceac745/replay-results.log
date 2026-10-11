@@ -1,0 +1,13 @@
+> @bedbanks/api@0.1.0 prisma:migrate:deploy /workspace/bedbanks-system/apps/api
+> prisma migrate deploy --schema=prisma/schema.prisma
+64 migrations found in prisma/migrations
+All migrations have been successfully applied.
+> @bedbanks/api@0.1.0 prisma:migrate:drift /workspace/bedbanks-system/apps/api
+> node scripts/check-migration-drift.mjs
+No schema drift.
+> @bedbanks/api@0.1.0 prisma:validate /workspace/bedbanks-system/apps/api
+> prisma validate --schema=prisma/schema.prisma
+> @bedbanks/api@0.1.0 prisma:migrate:status /workspace/bedbanks-system/apps/api
+> prisma migrate status --schema=prisma/schema.prisma
+64 migrations found in prisma/migrations
+Database schema is up to date!

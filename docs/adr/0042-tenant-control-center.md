@@ -1,4 +1,4 @@
-# ADR 0041: Tenant Control Center and restricted authoring
+# ADR 0042: Tenant Control Center and restricted authoring
 
 Status: Proposed for review; implemented in a draft PR. No deployment authorized.
 
@@ -24,7 +24,7 @@ API `/platform/tenants`: GET directory and POST onboarding; `/:tenantId/summary`
 
 ## Migration, indexes and rollback
 
-Forward migration `202611100001_tenant_control_center` follows the repository's already dated migration history. It adds a nullable membership revocation timestamp and a new profile table with classification/country and review-stage indexes, a tenant primary key, and a unique registration key. It retains all existing data. RLS and exact grants on the dedicated role are installed only by owner provisioning. Review role provisioning and tenant policies before rollout. Application rollback disables the dedicated URL and removes new controls; retain profile and audit data and do not roll back migrations destructively. Settings then reports explicit unavailable authoring rather than silently changing credentials.
+Forward migration `202611100002_tenant_control_center` follows the repository's already dated migration history. It adds a nullable membership revocation timestamp and a new profile table with classification/country and review-stage indexes, a tenant primary key, and a unique registration key. It retains all existing data. RLS and exact grants on the dedicated role are installed only by owner provisioning. Review role provisioning and tenant policies before rollout. Application rollback disables the dedicated URL and removes new controls; retain profile and audit data and do not roll back migrations destructively. Settings then reports explicit unavailable authoring rather than silently changing credentials.
 
 ## Consequences and limits
 
