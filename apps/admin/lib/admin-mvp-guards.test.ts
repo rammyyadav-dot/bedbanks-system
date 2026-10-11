@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { navSections, flatNav, isActiveRoute } from '../components/layout/nav-config'
+import { navSections, flatNav, isActiveRoute, breadcrumbTrail } from '../components/layout/nav-config'
 import { userInitials } from './auth/identity'
 import { summarizeSellability, SELLABILITY_CHECKS, WARNING_TEXT } from './sellability'
 import { parseMajorToMinor, minorToMajorInput, formatMinorUnits } from './minor-units'
@@ -202,7 +202,7 @@ test('department navigation (ADR 0015): grouped by department, live modules only
     assert.ok(item.icon, `${item.href} needs an icon`)
     assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
   }
-  for (const planned of ['Promotions', 'Risk flags', 'Refunds', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+  for (const planned of ['Promotions', 'Risk flags', 'Credit notes', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
 })
 
 test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {
@@ -305,4 +305,13 @@ test('navigation has one source of truth: nav-config adds no hardcoded sections 
   assert.match(src, /navSections: NavSection\[\] = departmentNav/)
   assert.doesNotMatch(src, /label: 'Business', items:/)
   assert.ok(navSections.flatMap((s) => s.items).some((i) => i.href === '/tenants'), 'Tenants stays reachable from the catalogue')
+})
+
+test('breadcrumbs: a route that is itself a navigation entry has no duplicate trailing segment; deeper routes keep their detail', () => {
+  assert.deepEqual(breadcrumbTrail('/distribution/search-monitor'), { label: 'Search monitor', detail: null })
+  assert.deepEqual(breadcrumbTrail('/finance/payables'), { label: 'Payables', detail: null })
+  assert.deepEqual(breadcrumbTrail('/rates/plans'), { label: 'Rate Plans', detail: null })
+  assert.deepEqual(breadcrumbTrail('/hotels/abc123'), { label: 'Hotels', detail: 'abc123' })
+  assert.deepEqual(breadcrumbTrail('/hotels/new'), { label: 'Hotels', detail: 'new' })
+  assert.deepEqual(breadcrumbTrail(null), { label: 'Dashboard', detail: null })
 })

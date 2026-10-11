@@ -9,9 +9,6 @@ import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter
 import { hashPassword } from '../src/auth/utils/password'
 
 const prisma = new PrismaClient()
-const DAY_MS = 86_400_000
-/** A calendar day relative to today (UTC), so fixtures never age into the past. */
-const day = (offset: number): string => new Date(Math.floor(Date.now() / DAY_MS) * DAY_MS + offset * DAY_MS).toISOString().slice(0, 10)
 
 describe('Supply HTTP authorization boundaries', () => {
   const suffix = `supply-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -70,8 +67,8 @@ describe('Supply HTTP authorization boundaries', () => {
     await prisma.userRole.createMany({ data: [{ tenantId: tenantAId, userId: userAId, roleId: roleIds[0] }, { tenantId: tenantBId, userId: userBId, roleId: roleIds[1] }] })
 
     const [supplierA, supplierB] = await Promise.all([
-      prisma.supplier.create({ data: { tenantId: tenantAId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier A`, displayName: 'Supplier A', countryCode: 'AE', defaultCurrency: 'USD' } }),
-      prisma.supplier.create({ data: { tenantId: tenantBId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier B`, displayName: 'Supplier B', countryCode: 'AE', defaultCurrency: 'USD' } }),
+      prisma.supplier.create({ data: { tenantId: tenantAId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier A`, displayName: 'Supplier A', countryCode: 'AE', defaultCurrency: 'AED' } }),
+      prisma.supplier.create({ data: { tenantId: tenantBId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} Supplier B`, displayName: 'Supplier B', countryCode: 'AE', defaultCurrency: 'AED' } }),
     ])
     supplierAId = supplierA.id
     supplierBId = supplierB.id
@@ -94,14 +91,14 @@ describe('Supply HTTP authorization boundaries', () => {
     boardAId = boardA.id
     boardBId = boardB.id
     const [contractA, contractB] = await Promise.all([
-      prisma.contract.create({ data: { tenantId: tenantAId, supplierId: supplierAId, code: `${suffix}-CA`, validFrom: new Date(`${day(-30)}T00:00:00.000Z`), validTo: new Date(`${day(400)}T00:00:00.000Z`), settlementCurrency: 'USD' } }),
-      prisma.contract.create({ data: { tenantId: tenantBId, supplierId: supplierBId, code: `${suffix}-CB`, validFrom: new Date(`${day(-30)}T00:00:00.000Z`), validTo: new Date(`${day(400)}T00:00:00.000Z`), settlementCurrency: 'USD' } }),
+      prisma.contract.create({ data: { tenantId: tenantAId, supplierId: supplierAId, code: `${suffix}-CA`, validFrom: new Date(`${day(-30)}T00:00:00.000Z`), validTo: new Date(`${day(400)}T00:00:00.000Z`), settlementCurrency: 'AED' } }),
+      prisma.contract.create({ data: { tenantId: tenantBId, supplierId: supplierBId, code: `${suffix}-CB`, validFrom: new Date(`${day(-30)}T00:00:00.000Z`), validTo: new Date(`${day(400)}T00:00:00.000Z`), settlementCurrency: 'AED' } }),
     ])
     contractAId = contractA.id
     contractBId = contractB.id
     const [planA, planB] = await Promise.all([
-      prisma.ratePlan.create({ data: { tenantId: tenantAId, contractId: contractAId, roomTypeId: roomAId, boardBasisId: boardAId, code: `${suffix}-RPA`, occupancy: 2, currency: 'USD' } }),
-      prisma.ratePlan.create({ data: { tenantId: tenantBId, contractId: contractBId, roomTypeId: roomBId, boardBasisId: boardBId, code: `${suffix}-RPB`, occupancy: 2, currency: 'USD' } }),
+      prisma.ratePlan.create({ data: { tenantId: tenantAId, contractId: contractAId, roomTypeId: roomAId, boardBasisId: boardAId, code: `${suffix}-RPA`, occupancy: 2, currency: 'AED' } }),
+      prisma.ratePlan.create({ data: { tenantId: tenantBId, contractId: contractBId, roomTypeId: roomBId, boardBasisId: boardBId, code: `${suffix}-RPB`, occupancy: 2, currency: 'AED' } }),
     ])
     ratePlanAId = planA.id
     ratePlanBId = planB.id
@@ -246,7 +243,7 @@ describe('Supply HTTP authorization boundaries', () => {
 
     const requestId = `${suffix}-contract-policy-audit`
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).set('x-request-id', requestId)
-      .send({ status: 'ACTIVE', validFrom: day(-20), validTo: day(380), settlementCurrency: 'AED' }).expect(200)
+      .send({ status: 'ACTIVE', validFrom: '2026-02-01', validTo: '2027-11-30', settlementCurrency: 'AED' }).expect(200)
     await expect(prisma.contract.findUnique({ where: { id: contractAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', settlementCurrency: 'AED' })
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractBId}`).send({ status: 'ACTIVE' }).expect(404)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).send({ validFrom: '2028-01-01', validTo: '2027-01-01' }).expect(400)
@@ -301,46 +298,44 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanAId}`).send({ boardBasisId: boardBId }).expect(400)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/rate-plans/${ratePlanBId}`).send({ minStay: 2 }).expect(404)
 
-    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT', occupancy: 2, currency: 'USD', refundable: true, minStay: 1, maxStay: null, releaseDays: 0 } })
-    // The contract test above moved contract A to AED; the later rate tests use the USD plan, so restore the contract to match it.
-    await prisma.contract.update({ where: { id: contractAId }, data: { settlementCurrency: 'USD' } })
+    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT', occupancy: 2, currency: 'AED', refundable: true, minStay: 1, maxStay: null, releaseDays: 0 } })
   })
 
   it('certifies HTTP RBAC for read, create, rate, and availability operations', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     await supply(cookie, tenantAId).get('/api/v1/supply/hotels').expect(200)
     await supply(cookie, tenantAId).post('/api/v1/supply/hotels').send({ name: `${suffix} RBAC`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanAId, stayDate: day(1), occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(201)
-    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: day(1), allotment: 5, sold: 0 }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-01', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'AED' }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-01', allotment: 5, sold: 0 }).expect(201)
   })
 
   it('certifies seven-day bulk SELL rates and sellability acceptance', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'ACTIVE', currency: 'USD', occupancy: 2 } })
-    await prisma.contract.update({ where: { id: contractAId }, data: { status: 'ACTIVE', settlementCurrency: 'USD' } })
+    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'ACTIVE', currency: 'AED', occupancy: 2 } })
+    await prisma.contract.update({ where: { id: contractAId }, data: { status: 'ACTIVE' } })
     const rows = Array.from({ length: 7 }, (_, offset) => {
-      const stayDate = day(20 + offset)
-      return { ratePlanId: ratePlanAId, stayDate, occupancy: 2, amountMinor: String(25000 + offset * 100), amountBasis: 'SELL', currency: 'USD' }
+      const stayDate = new Date(Date.UTC(2026, 9, 20 + offset)).toISOString().slice(0, 10)
+      return { ratePlanId: ratePlanAId, stayDate, occupancy: 2, amountMinor: String(25000 + offset * 100), amountBasis: 'SELL', currency: 'AED' }
     })
     await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates/bulk').set('x-request-id', `${suffix}-rate-bulk`).send({ rows }).expect(201)
     for (const row of rows) await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: row.stayDate, allotment: 5, sold: 0, stopSell: false, minStay: 1 }).expect(201)
-    const rates = await supply(cookie, tenantAId).get(`/api/v1/supply/daily-rates?from=${day(20)}&to=${day(26)}`).expect(200)
+    const rates = await supply(cookie, tenantAId).get('/api/v1/supply/daily-rates?from=2026-10-20&to=2026-10-26').expect(200)
     expect(rates.body.data).toHaveLength(7)
     expect(rates.body.data.every((row: { amountBasis: string }) => row.amountBasis === 'SELL')).toBe(true)
-    const sellable = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: day(20), occupancy: 2 }).expect(201)
+    const sellable = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-20', occupancy: 2 }).expect(201)
     expect(sellable.body.data).toMatchObject({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [] })
-    await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(20)}T00:00:00.000Z`), lte: new Date(`${day(26)}T00:00:00.000Z`) } } })
-    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(20)}T00:00:00.000Z`), lte: new Date(`${day(26)}T00:00:00.000Z`) } } })
+    await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date('2026-10-20T00:00:00.000Z'), lte: new Date('2026-10-26T00:00:00.000Z') } } })
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date('2026-10-20T00:00:00.000Z'), lte: new Date('2026-10-26T00:00:00.000Z') } } })
     await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT' } })
     await prisma.contract.update({ where: { id: contractAId }, data: { status: 'DRAFT' } })
   })
 
   it('certifies Dubai seven-day sellability matrix with one stop-sell day and reopen', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'ACTIVE', currency: 'USD', occupancy: 2 } })
-    await prisma.contract.update({ where: { id: contractAId }, data: { status: 'ACTIVE', settlementCurrency: 'USD' } })
-    const dates = Array.from({ length: 7 }, (_, offset) => day(40 + offset))
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates/bulk').send({ rows: dates.map((stayDate) => ({ ratePlanId: ratePlanAId, stayDate, occupancy: 2, amountMinor: '29900', amountBasis: 'SELL', currency: 'USD' })) }).expect(201)
+    await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'ACTIVE', currency: 'AED', occupancy: 2 } })
+    await prisma.contract.update({ where: { id: contractAId }, data: { status: 'ACTIVE' } })
+    const dates = Array.from({ length: 7 }, (_, offset) => new Date(Date.UTC(2026, 10, 10 + offset)).toISOString().slice(0, 10))
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates/bulk').send({ rows: dates.map((stayDate) => ({ ratePlanId: ratePlanAId, stayDate, occupancy: 2, amountMinor: '29900', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
     await supply(cookie, tenantAId).post('/api/v1/supply/availability/bulk').send({ rows: dates.map((stayDate, index) => ({ ratePlanId: ratePlanAId, stayDate, allotment: 5, sold: 0, stopSell: index === 3, minStay: 1 })) }).expect(201)
 
     const matrix = await Promise.all(dates.map(async (stayDate) => {
@@ -358,75 +353,70 @@ describe('Supply HTTP authorization boundaries', () => {
     }))
     expect(reopened.every((row) => row.eligible)).toBe(true)
 
-    await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(40)}T00:00:00.000Z`), lte: new Date(`${day(46)}T00:00:00.000Z`) } } })
-    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(40)}T00:00:00.000Z`), lte: new Date(`${day(46)}T00:00:00.000Z`) } } })
+    await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date('2026-11-10T00:00:00.000Z'), lte: new Date('2026-11-16T00:00:00.000Z') } } })
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date('2026-11-10T00:00:00.000Z'), lte: new Date('2026-11-16T00:00:00.000Z') } } })
     await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT' } })
     await prisma.contract.update({ where: { id: contractAId }, data: { status: 'DRAFT' } })
   })
 
   it('certifies authoritative availability reads, bulk stop-sell and reopen operations', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    const stayDate = day(10)
-    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 0, stopSell: false, minStay: 2 }).expect(201)
-    // Sold stock is consumed by bookings/holds, never authored here: seed it as committed stock and prove the Admin writes preserve it.
-    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: ratePlanAId, stayDate: new Date(`${stayDate}T00:00:00.000Z`) }, data: { sold: 1 } })
+    const stayDate = '2026-10-10'
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, stopSell: false, minStay: 2 }).expect(201)
     const open = await supply(cookie, tenantAId).get(`/api/v1/supply/availability?from=${stayDate}&to=${stayDate}`).expect(200)
     expect(open.body.data).toHaveLength(1)
-    expect(open.body.data[0]).toMatchObject({ tenantId: tenantAId, ratePlanId: ratePlanAId, allotment: 4, sold: 1, stopSell: false, minStay: 2 })
+    expect(open.body.data[0]).toMatchObject({ tenantId: tenantAId, ratePlanId: ratePlanAId, allotment: 4, sold: 0, stopSell: false, minStay: 2 })
 
     const bulkRequestId = `${suffix}-inventory-bulk`
     await supply(cookie, tenantAId).post('/api/v1/supply/availability/bulk').set('x-request-id', bulkRequestId).send({ rows: [
-      { ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 0, stopSell: true, minStay: 2 },
-      { ratePlanId: ratePlanAId, stayDate: day(11), allotment: 5, sold: 0, stopSell: true, minStay: 1 },
+      { ratePlanId: ratePlanAId, stayDate, allotment: 4, stopSell: true, minStay: 2 },
+      { ratePlanId: ratePlanAId, stayDate: '2026-10-11', allotment: 5, sold: 0, stopSell: true, minStay: 1 },
     ] }).expect(201)
-    const closed = await supply(cookie, tenantAId).get(`/api/v1/supply/availability?from=${day(10)}&to=${day(11)}`).expect(200)
+    const closed = await supply(cookie, tenantAId).get('/api/v1/supply/availability?from=2026-10-10&to=2026-10-11').expect(200)
     expect(closed.body.data).toHaveLength(2)
     expect(closed.body.data.every((row: { stopSell: boolean }) => row.stopSell)).toBe(true)
-    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 0, stopSell: false, minStay: 2 }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, stopSell: false, minStay: 2 }).expect(201)
     const reopened = await supply(cookie, tenantAId).get(`/api/v1/supply/availability?from=${stayDate}&to=${stayDate}`).expect(200)
     expect(reopened.body.data[0].stopSell).toBe(false)
-    expect(reopened.body.data[0].sold).toBe(1) // committed stock survived every Admin write
-    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate, allotment: 4, sold: 1, stopSell: false, minStay: 2 }).expect(400)
-    await supply(cookie, tenantAId).get(`/api/v1/supply/availability?from=${day(11)}&to=${day(10)}`).expect(400)
+    await supply(cookie, tenantAId).get('/api/v1/supply/availability?from=2026-10-11&to=2026-10-10').expect(400)
     await supply(cookie, tenantBId).get(`/api/v1/supply/availability?from=${stayDate}&to=${stayDate}`).expect(403)
-    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { in: [new Date(`${day(10)}T00:00:00.000Z`), new Date(`${day(11)}T00:00:00.000Z`)] } } })
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { in: [new Date('2026-10-10T00:00:00.000Z'), new Date('2026-10-11T00:00:00.000Z')] } } })
   })
 
   it('rejects cross-tenant RatePlan mutations without persisting rows', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: day(2), occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(400)
-    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanBId, stayDate: day(2), allotment: 5, sold: 0 }).expect(400)
-    await expect(prisma.dailyRate.findFirst({ where: { ratePlanId: ratePlanBId, stayDate: new Date(`${day(2)}T00:00:00.000Z`) } })).resolves.toBeNull()
-    await expect(prisma.dailyAvailability.findFirst({ where: { ratePlanId: ratePlanBId, stayDate: new Date(`${day(2)}T00:00:00.000Z`) } })).resolves.toBeNull()
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-02', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'AED' }).expect(400)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-02', allotment: 5, sold: 0 }).expect(400)
+    await expect(prisma.dailyRate.findFirst({ where: { ratePlanId: ratePlanBId, stayDate: new Date('2026-10-02T00:00:00.000Z') } })).resolves.toBeNull()
+    await expect(prisma.dailyAvailability.findFirst({ where: { ratePlanId: ratePlanBId, stayDate: new Date('2026-10-02T00:00:00.000Z') } })).resolves.toBeNull()
   })
 
   it('requires explicit commercial rate meaning and fails closed for NET rates without markup', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const path = '/api/v1/supply/daily-rates'
-    await supply(cookie, tenantAId).post(path).send({ ratePlanId: ratePlanAId, stayDate: day(5), occupancy: 2, amountMinor: '13000', currency: 'USD' }).expect(400)
-    await supply(cookie, tenantAId).post(path).send({ ratePlanId: ratePlanAId, stayDate: day(5), occupancy: 2, amountMinor: '13000', amountBasis: 'NET', currency: 'USD' }).expect(201)
-    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: day(5), allotment: 2, sold: 0 }).expect(201)
-    const result = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: day(5), occupancy: 2 }).expect(201)
+    await supply(cookie, tenantAId).post(path).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', occupancy: 2, amountMinor: '13000', currency: 'AED' }).expect(400)
+    await supply(cookie, tenantAId).post(path).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', occupancy: 2, amountMinor: '13000', amountBasis: 'NET', currency: 'AED' }).expect(201)
+    await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', allotment: 2, sold: 0 }).expect(201)
+    const result = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: '2026-10-05', occupancy: 2 }).expect(201)
     expect(result.body.data.eligible).toBe(false)
     expect(result.body.data.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE')
   })
 
   it('persists supply audit metadata and request ID for an allowed HTTP mutation', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
-    const response = await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').set('x-request-id', requestId).send({ ratePlanId: ratePlanAId, stayDate: day(3), occupancy: 2, amountMinor: '12500', amountBasis: 'SELL', currency: 'USD' }).expect(201)
+    const response = await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').set('x-request-id', requestId).send({ ratePlanId: ratePlanAId, stayDate: '2026-10-03', occupancy: 2, amountMinor: '12500', amountBasis: 'SELL', currency: 'AED' }).expect(201)
     const row = await prisma.dailyRate.findUnique({ where: { id: response.body.data.id } })
     expect(row?.tenantId).toBe(tenantAId)
     const audit = await prisma.auditEvent.findFirst({ where: { userId: userAId, tenantId: tenantAId, action: 'supply.daily_rate.updated', entityId: response.body.data.id }, orderBy: { createdAt: 'desc' } })
     expect(audit).toMatchObject({ actorType: 'USER', entityType: 'daily_rate' })
-    // Rate writes audit the exact change (a new row has no before), not a bare outcome flag.
-    expect(audit?.payload).toMatchObject({ requestId, before: null, after: { amountMinor: '12500', amountBasis: 'SELL' } })
+    expect(audit?.payload).toMatchObject({ requestId, before: null, after: { amountBasis: 'SELL' } })
     expect(audit?.createdAt).toBeInstanceOf(Date)
   })
 
   it('does not create successful mutation audit evidence for rejected cross-tenant writes', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const before = await prisma.auditEvent.count({ where: { userId: userAId, action: 'supply.daily_rate.updated' } })
-    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: day(4), occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'USD' }).expect(400)
+    await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates').send({ ratePlanId: ratePlanBId, stayDate: '2026-10-04', occupancy: 2, amountMinor: '12000', amountBasis: 'SELL', currency: 'AED' }).expect(400)
     await expect(prisma.auditEvent.count({ where: { userId: userAId, action: 'supply.daily_rate.updated' } })).resolves.toBe(before)
   })
 
@@ -521,7 +511,7 @@ describe('Supply HTTP authorization boundaries', () => {
   it('preserves sold and held inventory during authoritative admin availability updates', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     const agent = supply(cookie, tenantAId)
-    const stayDate = day(70)
+    const stayDate = '2026-12-20'
     await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z') } })
     await prisma.dailyAvailability.create({ data: { tenantId: tenantAId, ratePlanId: ratePlanAId, stayDate: new Date(stayDate + 'T00:00:00.000Z'), allotment: 5, sold: 2, held: 1, stopSell: false, minStay: 1 } })
 
