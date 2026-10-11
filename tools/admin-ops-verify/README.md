@@ -190,3 +190,7 @@ The executable override is optional; without it Playwright uses its installed Ch
 (cd apps/api && NODE_ENV=test node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-hotels.ts)
 node tools/admin-ops-verify/verify-rate-plans.cjs
 ```
+
+## Agent search only offers ACTIVE rate plans (ADR 0041)
+
+`verify-agent-suspended-plan.cjs` runs after `seed-agent-mvp.ts` against the strict-role API (:3002): it suspends, drafts and expires one hotel's plans through the owner connection, searches as an Agent over HTTP, checks the hotel disappears (and the others stay), restores ACTIVE and checks the count returns to baseline and that searching created no hold, booking or ledger row. `OWNER_DATABASE_URL` must be a disposable local database.
