@@ -1,7 +1,7 @@
 # ADR 0041: Rate plan activation readiness and lifecycle routes
 
 ## Status
-Accepted for API and Admin code. Amendment 1 (bypass closure) implemented and certified on disposable PostgreSQL only; **release remains blocked** on blocker 1 below. No schema, migration, grant, permission-catalogue or runtime-role change. ADR 0032 (privileged rate writes) and ADR 0014 (one sellability evaluator) are unchanged.
+Accepted for API and Admin code. Amendment 1 (bypass closure) implemented and certified on disposable PostgreSQL only; blocker 1 is resolved in code by Amendment 2 (operator provisioning and hosted certification remain). No schema, migration, grant, permission-catalogue or runtime-role change. ADR 0032 (privileged rate writes) and ADR 0014 (one sellability evaluator) are unchanged.
 
 ## Context
 `PATCH /supply/rate-plans/:id` accepted any `status`, so a plan with no rates, an expired contract or no inventory could be made ACTIVE by one request, and the Admin form offered the same dropdown. There was no clone, no readiness checklist, and status changes left no before/after audit.
@@ -59,11 +59,43 @@ Facts are read and the conditional write is made in one Serializable transaction
 - Baseline before the change (same database, same date): `supply.e2e-spec` already fails 6 tests (fixtures dated 2026-10-03/05 now return 400). After the change the same 6 fail and nothing else; the other migrated suites pass.
 
 ### Remaining release blockers
-1. **No privileged writer for rate-plan status.** Under the strict runtime role (ADR 0032) activation, suspension and clone cannot succeed; they work only on a connection with write privilege. A decision is needed: a dedicated narrow role (like hold-expiry) limited to `RatePlan.status`, or an explicit change to ADR 0032. No grant was changed here.
+1. ~~No privileged writer for rate-plan status.~~ Resolved in code by Amendment 2 (narrow `fbeds_rateplan_ops` role). Clone still needs a privileged writer.
 2. Pre-existing: `supply.e2e-spec` date-stale fixtures (6 tests).
 3. Not run: browser automation of the Rate Plans tab, Quick Update and Calendar journeys; Agent exclusion of suspended plans is covered by the migrated search suite (`rate plan inactive`) and not by a browser.
 4. Four-eye approval, promotions, derived rates and plan-level market overrides remain unbuilt.
 5. Hosted/persistent databases were not touched; no production certification.
+
+## Amendment 2: narrow lifecycle role (blocker 1 resolved in code)
+
+### Decision
+Activation and suspension run as a dedicated login, `fbeds_rateplan_ops` (member of the NOLOGIN group `fbeds_rateplan_status`), not as the strict API runtime role. ADR 0032 and the runtime role's grants are unchanged. The pattern is the booking-ops role (ADR 0039): a separate credential, `RATE_PLAN_OPS_DATABASE_URL`, used by one code path only.
+
+### Exact privileges (`database/rate-plan-ops-role.ts`, the single statement of them)
+| Object | Privilege |
+|---|---|
+| `RatePlan` | `UPDATE (status, updated_at)` and `SELECT` |
+| `RoomType`, `BoardBasis`, `Contract`, `SupplierHotelMapping`, `CancellationPolicy`, `DailyRate`, `DailyAvailability` | `SELECT` (readiness inputs; the ORM reads whole rows) |
+| `Hotel` | `SELECT (id, tenant_id, time_zone)` only |
+| `AuditEvent` | `INSERT` only (not readable; written with `createMany`, so no row is read back) |
+| everything else | nothing: no INSERT/DELETE of a rate plan, no write to rates, availability, contracts, inventory, bookings, users |
+
+Role attributes: NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB, NOREPLICATION, owns no table. Forced RLS still applies; every use sets `app.current_tenant_id` in its transaction.
+
+### Behaviour
+- `RATE_PLAN_OPS_DATABASE_URL` set and different from `DATABASE_URL`: activate and suspend run on it, Serializable, after the application permission check on the HTTP client. The readiness evaluator and the conditional write are unchanged, so the gate cannot be skipped on this path.
+- Not set: unchanged behaviour (HTTP client). Under a strict runtime login the database refuses with 403 `RUNTIME_ROLE_OPERATION_PROHIBITED`; in a disposable owner environment it works.
+- Set but unreachable, refused or missing a grant, or failing the restricted-identity check: sanitized 503 `RATE_PLAN_OPS_UNAVAILABLE`. It never falls back to the HTTP client and returns nothing from the URL or the database error.
+- **Clone stays on the HTTP client.** It inserts a row, which this role must not do, so under the strict login it remains refused. Moving clone onto a separate narrow grant is a separate decision.
+- Provisioning is owner-run and idempotent: `pnpm --filter @bedbanks/api ops:provision-rate-plan-ops-role` (same remote-target confirmation as the other roles). No migration was needed. Rollback: `deprovisionRatePlanOpsRole`, unset the URL.
+
+### Evidence (disposable PostgreSQL 16)
+- `verifyRatePlanOpsRole` reports ok: not superuser, no BYPASSRLS, owns 0 tables, no table-wide write anywhere, INSERT only on `AuditEvent`, UPDATE only on `status`/`updated_at`, no column write outside `RatePlan`/`AuditEvent`, audit log unreadable, `Hotel` limited to three columns. Provisioning twice converges.
+- Probes as the role, each refused by the database: update `RatePlan.code` and `currency`, delete a `RatePlan`, update `DailyRate`, `DailyAvailability` and `Contract`, read `AuditEvent` and `users`, read `Hotel.name`. With another tenant's context a status update matches 0 rows; without tenant context 0 rows are visible.
+- Strict API (`fbeds_api_login`) with the role configured: activate 201 (audit row has the actor, request id and before/after), suspend 201, stale version 409 `RATE_PLAN_CHANGED`, a plan without rates 409 `RATE_PLAN_NOT_READY` and stays DRAFT, clone refused. Without the URL, activate is still 403.
+- Unit: `rate-plan-ops-database.spec.ts` (configuration, sanitized 503 on an unreachable credential, grant list has exactly one UPDATE and one INSERT).
+
+### Remaining
+Operator action to enable it in an environment: provision the role, store `RATE_PLAN_OPS_DATABASE_URL`, deploy. Not exercised here: hosted or persistent databases, production-clone compatibility, browser journeys. The `PATCH` bypass remains closed independently of this role.
 
 ## Not decided here
 Four-eye approval for activation (the existing approvals module has not been reviewed for this entity), promotions, derived rates and per-plan market overrides are not built.

@@ -11,9 +11,10 @@ export const OWNER_ONLY_VARS = ['MIGRATION_DATABASE_URL', 'PROVISION_DATABASE_UR
 
 /** Every place a PrismaClient may be constructed in application source (under apps and packages source, plus apps/api/prisma). Anything else is a violation. */
 export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; url: string; runtime: boolean }> = [
-  { file: 'apps/api/src/database/prisma.service.ts', purpose: 'HTTP runtime client (also used for the booking and hold-expiry connections); identity-checked at startup', url: 'DATABASE_URL / BOOKING_OPS_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL', runtime: true },
+  { file: 'apps/api/src/database/prisma.service.ts', purpose: 'HTTP runtime client (also used for the booking, hold-expiry and rate plan lifecycle connections); identity-checked at startup', url: 'DATABASE_URL / BOOKING_OPS_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL / RATE_PLAN_OPS_DATABASE_URL', runtime: true },
   { file: 'apps/api/src/database/provision-api-runtime-role.cli.ts', purpose: 'operator: provisions the API login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-booking-ops-role.cli.ts', purpose: 'operator: provisions the booking login', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/provision-rate-plan-ops-role.cli.ts', purpose: 'operator: provisions the rate plan lifecycle login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-hold-expiry-role.cli.ts', purpose: 'operator: provisions the hold-expiry login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-preview-fixtures.cli.ts', purpose: 'operator: preview fixtures (refuses non-preview targets)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/bootstrap-first-admin.cli.ts', purpose: 'operator: first admin bootstrap', url: 'PROVISION_DATABASE_URL', runtime: false },

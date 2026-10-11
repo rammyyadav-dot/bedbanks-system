@@ -1,12 +1,13 @@
 import { calendarDate, rateInput, availabilityInput, inputRows, uniqueRows } from './rate-input'
 import { occupancyProblems } from './room-rules'
 import { enabledCurrency } from '../agent/currency'
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
 import { evaluateNightSellability } from './contracted-sellability'
 import { parseMarketList } from './market-rules'
+import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type RatePlanAction } from './rate-plan-activation'
 
 const date = calendarDate
@@ -27,7 +28,7 @@ const clean = (value: unknown): string => typeof value === 'string' ? value.trim
 
 @Injectable()
 export class SupplyService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService, @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase) {}
   private async permitted(tenantId: string, userId: string, permission: string) {
     const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
     const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
@@ -40,7 +41,7 @@ export class SupplyService {
     return { permissions: [...keys].sort() }
   }
   private async check(tenantId: string, userId: string, permission: string) { await this.permitted(tenantId, userId, permission) }
-  private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel }) {
+  private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; lifecycleRole?: boolean }) {
     try {
       await this.check(tenantId, userId, permission)
     } catch (error) {
@@ -48,11 +49,15 @@ export class SupplyService {
       if (error instanceof ForbiddenException) await this.audit.record({ tenantId, userId, action: 'permission.denied', entityType: 'permission', entityId: permission, payload: { tenantId, requestId: requestId ?? null } }).catch(() => undefined)
       throw error
     }
-    return this.prisma.withTenant(tenantId, async tx => {
+    // Lifecycle transitions use the narrow role when one is configured (ADR 0041 Amendment 2); its audit grant is INSERT-only, so no row is read back.
+    const viaRole = options?.lifecycleRole === true && this.ratePlanOps?.configured() === true
+    const run = async (tx: Prisma.TransactionClient) => {
       const result = await work(tx)
-      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action, entityType, entityId: result.id, payload: { outcome: 'allowed', requestId: requestId ?? null } } })
+      const data = { tenantId, userId, actorType: 'USER' as const, action, entityType, entityId: result.id, payload: { outcome: 'allowed', requestId: requestId ?? null } }
+      if (viaRole) await tx.auditEvent.createMany({ data: [data] }); else await tx.auditEvent.create({ data })
       return result.value
-    }, options)
+    }
+    return viaRole ? this.ratePlanOps!.withTenant(tenantId, run) : this.prisma.withTenant(tenantId, run, options && { isolationLevel: options.isolationLevel })
   }
   async suppliers(tenantId: string, userId: string, query: { search?: string; status?: string; page?: number; pageSize?: number } = {}) {
     await this.check(tenantId, userId, 'supply.suppliers.read')
@@ -325,10 +330,10 @@ export class SupplyService {
       if (action === 'activate' && !readiness.ready) throw new ConflictException({ code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', details: readiness.checks.filter(item => !item.ok) })
       const changed = await tx.ratePlan.updateMany({ where: { id: ratePlanId, tenantId, status: plan.status, updatedAt: plan.updatedAt }, data: { status: target } })
       if (changed.count !== 1) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed during the update. Reload and retry.' })
-      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.status_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: { status: plan.status }, after: { status: target }, reason: reason || null } } })
+      await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.status_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: { status: plan.status }, after: { status: target }, reason: reason || null } }] })
       const value = await tx.ratePlan.findFirstOrThrow({ where: { id: ratePlanId, tenantId } })
       return { id: value.id, value }
-    }, { isolationLevel: 'Serializable' })
+    }, { isolationLevel: 'Serializable', lifecycleRole: true })
   }
   /** Copies the commercial shape into a new DRAFT. Rates, availability, pool membership and status are never copied. */
   async cloneRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
