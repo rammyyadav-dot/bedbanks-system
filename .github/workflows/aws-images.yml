@@ -1,8 +1,9 @@
 name: AWS images
 
 # Builds one image per app and pushes it to ECR tagged with the commit SHA. It never deploys. Manual only, until the AWS foundation exists
-# (docs/runbooks/aws-ecs-deployment.md). Portal images bake the public, non-secret build settings of ONE environment (the /api/v1 rewrite is
-# generated at build time), so choose the environment and promote that same image only inside it.
+# (docs/runbooks/aws-ecs-deployment.md). ADR 0055: agent, admin, supplier and api images are environment-neutral (the portals resolve the API origin at
+# request time), so the same digest is promoted between environments. Only the website bakes public, non-secret URLs (canonical/SEO) at build time and
+# is therefore built per environment.
 on:
   workflow_dispatch:
     inputs:
@@ -79,10 +80,6 @@ jobs:
           else
             docker buildx build --file Dockerfile.web --tag "$image" --push \
               --build-arg APP="$APP" --build-arg PACKAGE="$PACKAGE" \
-              --build-arg API_INTERNAL_URL="${{ vars.API_INTERNAL_URL }}" \
-              --build-arg AUTH_API_ORIGIN="${{ vars.AUTH_API_ORIGIN }}" \
-              --build-arg AUTH_COOKIE_NAME="${{ vars.AUTH_COOKIE_NAME }}" \
-              --build-arg SUPPLIER_ORIGIN="${{ vars.SUPPLIER_ORIGIN }}" \
               --build-arg NEXT_PUBLIC_SITE_URL="${{ vars.NEXT_PUBLIC_SITE_URL }}" \
               --build-arg NEXT_PUBLIC_AGENT_URL="${{ vars.NEXT_PUBLIC_AGENT_URL }}" \
               --build-arg NEXT_PUBLIC_ADMIN_URL="${{ vars.NEXT_PUBLIC_ADMIN_URL }}" \

@@ -1,12 +1,9 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { portalApiUrl } from '../../tools/deployment/api-url.mjs'
 
 const isDev = process.env.NODE_ENV !== 'production'
 
-// Vercel deployments must point the same-origin API proxy at a real API; local
-// and CI builds fall back to the documented development port.
-const apiInternalUrl = portalApiUrl()
+// The /api/v1 proxy lives in proxy.ts and reads API_INTERNAL_URL per request (ADR 0055), so nothing about the API origin is baked at build time.
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -42,11 +39,6 @@ const nextConfig = {
   },
   transpilePackages: ['@bedbanks/ui', '@bedbanks/contracts'],
   poweredByHeader: false,
-  async rewrites() {
-    // The session cookie is host-only on the Admin origin, so browser API calls
-    // must stay same-origin and be proxied to the API.
-    return [{ source: '/api/v1/:path*', destination: `${apiInternalUrl}/:path*` }]
-  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },

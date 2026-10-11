@@ -1,7 +1,7 @@
 import { ApiResponseError } from './errors'
 import { activeTenantHeaders } from './tenant-context'
 
-// Same-origin path proxied to the API by next.config rewrites; the session cookie is host-only.
+// Same-origin path proxied to the API by the portal proxy.ts at request time; the session cookie is host-only.
 const API_BASE = '/api/v1'
 const REQUEST_TIMEOUT_MS = 10_000
 

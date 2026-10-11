@@ -17,8 +17,15 @@ const cases = [
   ['@bedbanks/website', 'NEXT_PUBLIC_ADMIN_URL'],
   ['@bedbanks/website', 'NEXT_PUBLIC_SUPPLIER_URL'],
   ['@bedbanks/website', 'NEXT_PUBLIC_CONTACT_EMAIL'],
+]
+
+// ADR 0055: these are RUNTIME settings of the portals. They must not influence the build, otherwise an image would be tied to one environment.
+const runtimeOnly = [
   ['@bedbanks/agent-portal', 'API_INTERNAL_URL'],
+  ['@bedbanks/admin-console', 'API_INTERNAL_URL'],
+  ['@bedbanks/supplier-portal', 'API_INTERNAL_URL'],
   ['@bedbanks/admin-console', 'AUTH_API_ORIGIN'],
+  ['@bedbanks/admin-console', 'AUTH_COOKIE_NAME'],
   ['@bedbanks/supplier-portal', 'SUPPLIER_ORIGIN'],
 ]
 
@@ -27,4 +34,11 @@ for (const [packageName, key] of cases) {
   const second = buildHash(packageName, { [key]: 'https://second.example/api/v1' })
   assert.notEqual(first, second, `${key} must invalidate ${packageName}'s build cache`)
   console.log(`PASS: ${packageName} build hash changes with ${key}`)
+}
+
+for (const [packageName, key] of runtimeOnly) {
+  const first = buildHash(packageName, { [key]: 'https://first.example/api/v1' })
+  const second = buildHash(packageName, { [key]: 'https://second.example/api/v1' })
+  assert.equal(first, second, `${key} must NOT invalidate ${packageName}'s build: it is a runtime setting (ADR 0055)`)
+  console.log(`PASS: ${packageName} build hash is independent of ${key}`)
 }
