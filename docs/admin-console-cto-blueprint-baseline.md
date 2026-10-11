@@ -105,3 +105,7 @@ Built and verified against Postgres (`hotel-commercial.e2e-spec.ts` 28/28, inclu
 ## Browser evidence update: accessibility and layout
 
 `verify-admin-blueprint.cjs` now also runs axe (WCAG A/AA) on the Hotels list, Search Monitor and Payables, and checks for horizontal page overflow at 1280, 768 and 390 px: 28/28 pass. axe found real colour-contrast failures in the new saved-views and period controls (labels and inputs inherited grey #7b7b76 at 3.94:1); fixed by setting explicit text colours. Not run: the strict-role API variant, CI.
+
+## The six e2e suites that failed on the baseline
+
+Three were environment only: `inventory-runtime-roles` and `inventory-hold` need `DATABASE_URL` with `?schema=public` and `MAPPING_DATABASE_URL`; `hotel-search-index` needs `MAPPING_DATABASE_URL`; `sandbox-content-staging` only runs against `fbeds_ci`. With the right environment they pass (16/16, 4/4). Two were stale tests, now updated to the current, intentional API behaviour: `supply.e2e-spec.ts` (settlement currency is AED-only per ADR 0029; administrators can no longer author `sold`; audit payload is `before`/`after`) and `dubai-agent-search.e2e-spec.ts` (the API now refuses to deactivate the last room of a published hotel, so that gate is exercised by a fixture change). Both pass (19/19, 9/9). No production code changed for these.
