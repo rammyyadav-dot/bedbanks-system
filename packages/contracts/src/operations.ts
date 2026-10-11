@@ -314,3 +314,16 @@ export interface SearchMonitorView {
   recent: Array<{ at: string; destination: string; status: SearchMonitorStatus; requestId: string | null }>
   definitions: Record<string, string>
 }
+
+// ---- Supplier payables (read-only accrual view, ADR 0054 slice 1) --------------------------------------------------------
+export interface SupplierPayableRow {
+  supplier: string; currency: string
+  /** Bookings in a payable state (CONFIRMED, CHECKED_OUT). */
+  bookings: number
+  /** Bookings whose supplier net amount is recorded. */
+  bookingsWithNet: number
+  /** Bookings whose net amount is unknown. They are NOT counted as zero; the accrued figure excludes them. */
+  bookingsNetUnknown: number
+  accruedNetMinor: MinorString
+}
+export interface SupplierPayablesView { items: SupplierPayableRow[]; definitions: Record<string, string> }

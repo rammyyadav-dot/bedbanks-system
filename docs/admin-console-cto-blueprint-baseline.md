@@ -40,7 +40,7 @@ Legend: Implemented / Partial / Missing / Blocked. Source claims are from `docs/
 | Pricing: net / margin / sell separation, FX | Partial | Integer minor units, per-night rounding, markup rules built. Currency conversion is AED-only by ADR 0029. Promotions not built. |
 | Agent Search Monitor with no-result reasons | Partial: outcome monitor built from audit events (ADR 0053 v1); per-reason explanations still missing | Listed `planned` ("Search monitor"). Sellability blockers by date/entity exist per hotel, but no cross-search monitor. |
 | Booking ops queues, state machine, idempotency | Implemented | `/bookings/queue`, holds, cancellations, reconciliation, connectors. |
-| Finance: receivables, ledger, wallets, funding | Implemented; Payables, Refunds, Credit notes Missing (design: ADR 0054, blocked on accounting policy and a restricted write role) | Both are `planned` in the contract. |
+| Finance: receivables, ledger, wallets, funding | Implemented; Payables, Refunds, Credit notes Partial: read-only supplier payables accrual built (ADR 0054 slice 1); refunds, credit notes and settlement remain unbuilt (accounting policy and restricted write role needed) | Both are `planned` in the contract. |
 | Command Center dashboard (sales, blocked, action, revenue loss) | Partial | `/dashboard` and `/exceptions` exist. Search-to-book funnel and supplier feed health depend on data that does not exist without live suppliers. |
 | Strict runtime role, RLS, cross-tenant negative tests | Implemented (unverified here) | ADR 0003, 0008, `docs/strict-runtime-db-role.md`. Production-clone compatibility is BLOCKED per `docs/p04-postmerge-inventory-certification.md`. |
 | Persistent database migration | Blocked | Needs the ADR 0013 human decision. |
@@ -93,3 +93,7 @@ ADR 0052 option 1 only: a "Re-check readiness" link per hotel row to the existin
 ## Correction and follow-up: Postgres was available
 
 Earlier entries said no database server existed here. That was wrong: Postgres 16 is installed; it needed `apt-get install postgresql-16-pgvector` to apply the migrations. With it, all migrations (including `202611110001`) apply cleanly and `hotel-commercial.e2e-spec.ts` passes 27/27, covering export (permission, tenant isolation, audit), summary profile status and the search monitor. Still not run: browser, the strict-role (`fbeds_api`) e2e variants, the full API suite, CI.
+
+## Follow-up: Search Monitor v1 and payables slice 1
+
+Built and verified against Postgres (`hotel-commercial.e2e-spec.ts` 28/28, including the non-bypass runtime-role test, which now also runs export, the monitor and payables; `strict-runtime-role-commercial` 22/22): Search Monitor v1 (ADR 0053), supplier payables accrual (ADR 0054 slice 1). Admin tests 83, `tsc` for API and admin, `next build`, `pnpm check:architecture`, `src/admin-operations` jest 98. Not run: browser, full API e2e suite, CI.

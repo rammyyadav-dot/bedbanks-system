@@ -14,7 +14,7 @@ const icons: Record<string, LucideIcon> = {
   '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/hotels': Hotel, '/mappings': Link2,
   '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
   '/sellability': ClipboardCheck, '/rate-certification': BadgeCheck, '/operations': Gauge, '/bookings': BookOpen, '/bookings/queue': ListChecks, '/holds': Lock, '/cancellations': Undo2,
-  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/finance/funding': BanknoteArrowDown, '/finance/receivables': Hourglass, '/commercial/markups': Percent, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/distribution/search-monitor': Activity, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
+  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/finance/funding': BanknoteArrowDown, '/finance/receivables': Hourglass, '/finance/payables': Truck, '/commercial/markups': Percent, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/distribution/search-monitor': Activity, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
 };
 
 /**

@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import type {
   AuditEventView, BookingAttention, BookingOperations, BookingRow, CancellationRow, ConnectorExecutionView, ConnectorRow,
   HoldDetail, HoldNightView, HoldRow, InventoryHoldStatus, LedgerEntryView, Paged, ReconciliationCase, ReconciliationQueue,
-  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow,
+  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow, SupplierPayablesView, SupplierPayableRow,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
@@ -350,6 +350,34 @@ export class OperationsTransactionsService {
       return {
         items: rows, counts: { notice: rows.filter(r => r.overdue.state === 'NOTICE').length, holdsRefused: rows.filter(r => r.overdue.state === 'HOLDS_REFUSED').length },
         noticeDays: AGENCY_CREDIT_TERMS.overdueNoticeDays, refuseHoldsAfterDays: AGENCY_CREDIT_TERMS.refuseHoldsAfterDays,
+      }
+    }))
+  }
+
+  /**
+   * Supplier payables, slice 1 of ADR 0054: a READ-ONLY accrual view of what confirmed stays cost, per supplier and currency.
+   * There is no supplier settlement record, so nothing here is "outstanding": it is the recorded net cost of payable bookings.
+   * Unknown net amounts are counted separately and never as zero. Currencies are never added together. Nothing is posted.
+   */
+  async supplierPayables(tenantId: string): Promise<SupplierPayablesView> {
+    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
+      const where = { tenantId, status: { in: ['CONFIRMED', 'CHECKED_OUT'] as Array<'CONFIRMED' | 'CHECKED_OUT'> } }
+      const [all, withNet] = await Promise.all([
+        tx.booking.groupBy({ by: ['supplier', 'currency'], where, _count: { _all: true } }),
+        tx.booking.groupBy({ by: ['supplier', 'currency'], where: { ...where, netMinor: { not: null } }, _count: { _all: true }, _sum: { netMinor: true } }),
+      ])
+      const net = new Map(withNet.map(r => [`${r.supplier}\u0000${r.currency}`, r]))
+      const items: SupplierPayableRow[] = all.map(r => {
+        const n = net.get(`${r.supplier}\u0000${r.currency}`)
+        return { supplier: r.supplier, currency: r.currency, bookings: r._count._all, bookingsWithNet: n?._count._all ?? 0, bookingsNetUnknown: r._count._all - (n?._count._all ?? 0), accruedNetMinor: (n?._sum.netMinor ?? 0n).toString() }
+      }).sort((a, b) => a.supplier.localeCompare(b.supplier) || a.currency.localeCompare(b.currency))
+      return {
+        items,
+        definitions: {
+          scope: 'Sum of the recorded supplier net cost of CONFIRMED and CHECKED_OUT bookings. It is an accrual, not an amount owed: no supplier invoice, payment or settlement is recorded anywhere, and cancellation penalties are not included.',
+          bookingsNetUnknown: 'Payable-state bookings with no recorded net amount. They are excluded from the accrued figure and are never treated as zero.',
+          currency: 'Amounts are integer minor units in the booking currency. Currencies are never converted or added together.',
+        },
       }
     }))
   }

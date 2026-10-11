@@ -154,6 +154,9 @@ export class OperationsController {
   ledger(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.tx.ledger(tenantId, query) }
 
   /** Agency accounts with unpaid charges and their overdue state (ADR 0028 slice 4). Read-only. */
+  @Get('supplier-payables') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  supplierPayables(@ActiveTenant() tenantId: string) { return this.tx.supplierPayables(tenantId) }
+
   @Get('receivables') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   receivables(@ActiveTenant() tenantId: string) { return this.tx.receivables(tenantId) }
 

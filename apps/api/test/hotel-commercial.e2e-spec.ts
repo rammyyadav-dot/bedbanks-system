@@ -282,6 +282,26 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     expect(JSON.stringify(b)).toContain('OtherTenantCity'); expect(JSON.stringify(b)).not.toContain('Abu Dhabi')
   })
 
+  it('SUPPLIER-PAYABLES (ADR 0054 slice 1): read-only accrual by supplier and currency; unknown net is not zero; cancelled excluded; tenant scoped', async () => {
+    const mk = (tenantId: string, hotelId: string, tag: string, status: 'CONFIRMED' | 'CANCELLED', currency: string, netMinor: bigint | null) =>
+      prisma.booking.create({ data: { tenantId, hotelId, reference: `${suffix}-${tag}`, supplier: `${suffix}-sup`, status, currency, totalMinor: 5000n, netMinor, idempotencyKey: `${suffix}-${tag}`, searchSnapshot: {} } })
+    await mk(tenantA, hotels.alpha.id, 'p1', 'CONFIRMED', 'AED', 1000n); await mk(tenantA, hotels.alpha.id, 'p2', 'CONFIRMED', 'AED', 2500n)
+    await mk(tenantA, hotels.alpha.id, 'p3', 'CONFIRMED', 'AED', null); await mk(tenantA, hotels.alpha.id, 'p4', 'CANCELLED', 'AED', 9000n)
+    await mk(tenantA, hotels.alpha.id, 'p5', 'CONFIRMED', 'USD', 700n)
+    await mk(tenantB, hotels.oscar.id, 'p6', 'CONFIRMED', 'AED', 123456n)
+    expect((await get('/supplier-payables', 'none')).status).toBe(403)
+    expect((await get('/supplier-payables', 'anon')).status).toBe(401)
+    const v = (await get('/supplier-payables').expect(200)).body.data
+    const mine = v.items.filter((r: { supplier: string }) => r.supplier === `${suffix}-sup`)
+    expect(mine).toEqual([
+      { supplier: `${suffix}-sup`, currency: 'AED', bookings: 3, bookingsWithNet: 2, bookingsNetUnknown: 1, accruedNetMinor: '3500' },
+      { supplier: `${suffix}-sup`, currency: 'USD', bookings: 1, bookingsWithNet: 1, bookingsNetUnknown: 0, accruedNetMinor: '700' },
+    ])
+    const b = (await get('/supplier-payables', 'bowner').expect(200)).body.data.items.find((r: { supplier: string }) => r.supplier === `${suffix}-sup`)
+    expect(b).toMatchObject({ bookings: 1, accruedNetMinor: '123456' }) // tenant A's bookings never leak into B
+    await prisma.booking.deleteMany({ where: { reference: { startsWith: suffix } } })
+  })
+
   it('HOTEL-OPS summary: aggregates are authoritative over every hotel, not the loaded page', async () => {
     const s = (await get(`/hotels/summary?${win}`).expect(200)).body.data
     expect(s.totalHotels).toBe(14); expect(s.scanCapped).toBe(false)
@@ -617,6 +637,14 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
       expect(a.items.find((h) => h.id === hotels.alpha.id)).toMatchObject({ readiness: 'READY', contractState: 'ACTIVE', hotelMapping: 'MAPPED' })
       expect((await service.list(tenantB, q)).items.map((h) => h.id)).toEqual([hotels.oscar.id])
       expect((await service.summary(tenantA, q)).totalHotels).toBe(14)
+      // ADR 0051/0053 under the non-bypass role: export writes its audit row and returns only this tenant's hotels; the monitor reads audit events
+      const exported = await service.exportCsv(tenantA, userIds[0], q, 'req-runtime')
+      expect(exported.rows).toBe(14); expect(exported.csv).not.toContain(hotels.oscar.id)
+      expect((await service.searchMonitor(tenantA, { days: '7' })).window.days).toBe(7)
+      // booking rows are outside this role's grants: payables must say so, never return an empty list as if there were none
+      const { OperationsTransactionsService } = await import('../src/admin-operations/operations-transactions.service')
+      const payables = await new OperationsTransactionsService(runtime, {} as never).supplierPayables(tenantA).then(() => 'ok', (e) => (e as { getResponse: () => unknown }).getResponse())
+      if (payables !== 'ok') expect(payables).toMatchObject({ code: OPERATIONS_READ_DENIED })
       const d = await service.detail(tenantA, hotels.alpha.id, q)
       expect(d.readiness).toBe('READY'); expect(d.counts).toEqual({ bookings: null, activeHolds: null }) // not readable by this role: unavailable, not 0
       const contracts = (await service.contracts(tenantA, hotels.alpha.id, q)).contracts
