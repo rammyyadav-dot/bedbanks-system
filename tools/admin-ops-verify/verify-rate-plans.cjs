@@ -119,6 +119,8 @@ const status = async (page, code) => row(page, code).getAttribute('data-status')
   await row(page, susp.code).getByRole('button', { name: 'Activate' }).click(); await page.waitForSelector('[data-testid=readiness-checklist]')
   await page.route('**/supply/rate-plans/*/activate', (route) => route.fulfill({ status: 409, contentType: 'application/json', headers: { 'x-request-id': 'req-structured-1' }, body: JSON.stringify({ success: false, error: { code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', details: [{ code: 'RATES_PRESENT', label: 'Future rates', ok: false, message: 'Injected structured failure.' }, { code: 'NOT_A_CHECK', nope: true }] } }) }))
   await page.getByRole('button', { name: 'Confirm activation' }).click(); await page.locator('[data-testid=server-failed-checks]').waitFor({ timeout: 10000 })
+  // The panel re-fetches readiness after a failure, which briefly swaps the list out and back; wait for the entries before reading them.
+  await page.locator('[data-testid=server-failed-checks] li').first().waitFor({ timeout: 10000 })
   const structured = await page.locator('[data-testid=server-failed-checks] li').allInnerTexts()
   check('structured readiness failures from the 409 are listed in the dialog (malformed entries ignored)', structured.length === 1 && /Future rates/.test(structured[0]) && /Injected structured failure/.test(structured[0]), structured.join(' | '))
   check('the dialog error names the request id for tracing', /req-structured-1/.test(await page.locator('section[aria-label^="activate"] [role=alert]').innerText()))

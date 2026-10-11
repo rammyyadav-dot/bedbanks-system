@@ -49,8 +49,7 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
     try {
       return await client.withTenant(tenantId, work, { isolationLevel: 'Serializable' })
     } catch (error) {
-      const e = error as { name?: string; code?: string }
-      if (isDatabasePermissionDenied(error) || e?.name === 'PrismaClientInitializationError' || ['P1000', 'P1001', 'P1002', 'P1010', 'P1017'].includes(e?.code ?? '')) {
+      if (isAccessFailure(error)) {
         this.logger.error(`Rate plan lifecycle connection refused or lacks a grant (${databaseErrorCode(error)})`)
         throw new ServiceUnavailableException({ message: UNAVAILABLE, code: 'RATE_PLAN_OPS_UNAVAILABLE' })
       }
@@ -59,4 +58,11 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> { await this.client?.$disconnect(); this.client = null }
+}
+
+/** A refused connection, bad credential, missing role or missing grant. Anything else (a bug, a constraint) is not an access failure and propagates. */
+function isAccessFailure(error: unknown): boolean {
+  if (isDatabasePermissionDenied(error)) return true
+  const e = error as { name?: string; code?: string }
+  return e?.name === 'PrismaClientInitializationError' || ['P1000', 'P1001', 'P1002', 'P1010', 'P1017'].includes(e?.code ?? '')
 }
