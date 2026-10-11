@@ -117,3 +117,7 @@ Three were environment only: `inventory-runtime-roles` and `inventory-hold` need
 ## Follow-up: credit notes (ADR 0054 slice 3)
 
 Credit notes already exist as frozen `CREDIT_NOTE` booking documents (issued for cancelled bookings, numbered `CN-<booking reference>`, edit-proof by trigger), so the accepted proposal for a new gapless numbering and issuing system would have created a second source of truth. Not built; ADR 0054 now records the correction and the decisions still open. Built instead: a read-only credit note register (`/finance/credit-notes`), verified by Postgres e2e `CREDIT-NOTE-REGISTER` (403/401, only CREDIT_NOTE documents, tenant isolation, unreadable amount shown as unknown) in `hotel-commercial.e2e-spec.ts` (29/29).
+
+## Merge note
+
+Another author pushed to this branch (merges of main and a relative-date rewrite of `supply.e2e-spec.ts`). The automatic merge combined that rewrite with my earlier edits of the same file and left it uncompilable (`day` undefined). I restored the other author's self-consistent version of the file (`32dc3be`), which passes 19/19; my edits to that file are dropped as redundant.
