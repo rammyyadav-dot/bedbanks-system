@@ -8,6 +8,9 @@ import { listHref } from '@/lib/hotel-ui'
 export function HotelsSummary({ summary }: { summary: HotelCommercialSummary }) {
   const tiles = [
     { label: 'Total hotels', value: summary.totalHotels, href: listHref({}) },
+    { label: 'Draft profiles', value: summary.profileStatus.draft, href: listHref({ contentStatus: 'DRAFT' }) },
+    { label: 'Incomplete profiles', value: summary.profileStatus.incomplete, href: listHref({ contentStatus: 'INCOMPLETE' }) },
+    { label: 'Suspended', value: summary.profileStatus.suspended, href: listHref({ contentStatus: 'SUSPENDED' }) },
     { label: 'Ready', value: summary.readiness.ready, href: listHref({ readiness: 'READY' }) },
     { label: 'Partial', value: summary.readiness.partial, href: listHref({ readiness: 'PARTIAL' }) },
     { label: 'Blocked', value: summary.readiness.blocked, href: listHref({ readiness: 'BLOCKED' }) },

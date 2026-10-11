@@ -308,8 +308,11 @@ export class OperationsHotelsService {
       const hotels = await tx.hotel.findMany({ where: { tenantId }, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: COMMERCIAL_SCAN_CAP, select: HOTEL_SELECT })
       const assessed = [...(await this.assessAll(tx, tenantId, hotels, win)).values()]
       const count = (predicate: (a: HotelAssessment) => boolean) => assessed.filter(predicate).length
+      const byStatus = await tx.hotel.groupBy({ by: ['contentStatus'], where: { tenantId }, _count: { _all: true } })
+      const statusCount = (...names: string[]) => byStatus.filter((g) => names.includes(String(g.contentStatus))).reduce((n, g) => n + g._count._all, 0)
       return {
         generatedAt: this.clock().toISOString(), window: { from: win.from, to: win.to, days: win.days }, scanCapped: total > COMMERCIAL_SCAN_CAP, totalHotels: total,
+        profileStatus: { draft: statusCount('DRAFT'), incomplete: statusCount('INCOMPLETE'), complete: statusCount('COMPLETE'), suspended: statusCount('SUSPENDED'), archived: statusCount('ARCHIVED') },
         readiness: { ready: count((a) => a.readiness === 'READY'), partial: count((a) => a.readiness === 'PARTIAL'), blocked: count((a) => a.readiness === 'BLOCKED') },
         mappingIssueHotels: count((a) => a.hotelMapping !== 'MAPPED' || a.roomCounts.mapped < a.roomCounts.active),
         rateGapHotels: count((a) => a.rates === 'GAPS'), availabilityGapHotels: count((a) => a.inventory === 'GAPS'), stopSellHotels: count((a) => a.plans.some((p) => p.counts.stopSell > 0)),
@@ -322,7 +325,8 @@ export class OperationsHotelsService {
           stopSellHotels: 'Hotels where an active rate plan has a night in the window on stop-sell.',
           contractsExpiring: `Hotels whose best contract is ACTIVE and ends within ${CONTRACT_EXPIRING_DAYS} days.`,
           contractsExpired: 'Hotels whose contracts have all ended or are marked EXPIRED.',
-          scope: `Computed over at most ${COMMERCIAL_SCAN_CAP} hotels (alphabetical); scanCapped says when the tenant has more.`,
+          profileStatus: 'Exact tenant-wide counts by profile approval state: one count per Hotel.contentStatus value. Not limited by the scan cap and not a sellability claim.',
+          scope: `Readiness, mapping, rate, availability and contract counts are computed over at most ${COMMERCIAL_SCAN_CAP} hotels (alphabetical); scanCapped says when the tenant has more.`,
         },
       }
     })
