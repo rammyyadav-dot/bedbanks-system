@@ -20,7 +20,7 @@ function setup(plan: Record<string, unknown> = planRow(), perms = ['supply.rates
     dailyAvailability: { findMany: jest.fn().mockResolvedValue([{ stayDate: future(1) }]) },
     roomType: { findFirst: jest.fn().mockResolvedValue({ id: 'room', hotelId: 'h1', maxOccupancy: 3 }) },
     contract: { findFirst: jest.fn().mockResolvedValue({ id: 'contract' }) },
-    auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    auditEvent: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new SupplyService({ withTenant: jest.fn(async (_t, work) => work(tx)) } as never, audit as never)
@@ -49,14 +49,14 @@ describe('rate plan readiness and lifecycle', () => {
     const { service, tx } = setup()
     await service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() }, 'req-1')
     expect(tx.ratePlan.updateMany).toHaveBeenCalledWith({ where: { id: 'plan', tenantId: 'tenant', status: 'DRAFT', updatedAt: at }, data: { status: 'ACTIVE' } })
-    expect(tx.auditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'supply.rate_plan.status_changed', payload: expect.objectContaining({ requestId: 'req-1', before: { status: 'DRAFT' }, after: { status: 'ACTIVE' } }) }) })
+    expect(tx.auditEvent.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ action: 'supply.rate_plan.status_changed', payload: expect.objectContaining({ requestId: 'req-1', before: { status: 'DRAFT' }, after: { status: 'ACTIVE' } }) })] })
   })
 
   it('refuses activation when a check fails and writes nothing', async () => {
     const { service, tx } = setup(planRow({ contract: { ...planRow().contract, status: 'DRAFT' } }))
     await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toMatchObject({ response: { code: 'RATE_PLAN_NOT_READY', details: [expect.objectContaining({ code: 'CONTRACT_ACTIVE' })] } })
     expect(tx.ratePlan.updateMany).not.toHaveBeenCalled()
-    expect(tx.auditEvent.create).not.toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'supply.rate_plan.status_changed' }) })
+    expect(tx.auditEvent.createMany).not.toHaveBeenCalled()
   })
 
   it('rejects a stale version without writing', async () => {
@@ -68,7 +68,7 @@ describe('rate plan readiness and lifecycle', () => {
   it('maps a lost race on the conditional update to a conflict', async () => {
     const { service, tx } = setup(); tx.ratePlan.updateMany.mockResolvedValue({ count: 0 })
     await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toBeInstanceOf(ConflictException)
-    expect(tx.auditEvent.create).not.toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'supply.rate_plan.status_changed' }) })
+    expect(tx.auditEvent.createMany).not.toHaveBeenCalled()
   })
 
   it('requires a version and, for suspension, a reason', async () => {
@@ -81,7 +81,7 @@ describe('rate plan readiness and lifecycle', () => {
     const { service, tx } = setup(planRow({ status: 'ACTIVE' }))
     await service.transitionRatePlan('tenant', 'user', 'plan', 'suspend', { expectedUpdatedAt: at.toISOString(), reason: 'Contract renegotiation' })
     expect(tx.ratePlan.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUSPENDED' } }))
-    expect(tx.auditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ payload: expect.objectContaining({ reason: 'Contract renegotiation', after: { status: 'SUSPENDED' } }) }) })
+    expect(tx.auditEvent.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ payload: expect.objectContaining({ reason: 'Contract renegotiation', after: { status: 'SUSPENDED' } }) })] })
   })
 
   it('never reactivates an expired plan', async () => {
