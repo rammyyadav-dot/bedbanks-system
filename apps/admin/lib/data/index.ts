@@ -78,18 +78,20 @@ export interface AdminRatePlan {
   refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number;
   /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
   inventoryPoolId?: string | null;
-  contract: { id: string; code: string; supplier: { id: string; displayName: string } };
+  /** Row version: activate and suspend must echo it so a stale view cannot overwrite a concurrent change. */
+  updatedAt?: string;
+  contract: { id: string; code: string; supplier: { id: string; displayName: string }; status?: string; validFrom?: string; validTo?: string; salesMarkets?: unknown };
   roomType: { id: string; name: string; hotel: { id: string; name: string } };
   boardBasis: { id: string; code: string; name: string };
 }
 export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supply/rate-plans'); }
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
-export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; status?: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number }
+export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number }
 export async function createRatePlan(input: RatePlanInput) { return apiRequest<AdminRatePlan>('/supply/rate-plans', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
+import type { CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
 export const previewCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarApply, { method: 'POST', headers: json, body: JSON.stringify(input) })
@@ -97,5 +99,18 @@ export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview
 export async function getRatePlanPortfolio(input: { search?: string; status?: string; page: number; pageSize: number }) {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== '') query.set(key, String(value))
-  return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
+  return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean; statusCounts?: Record<'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED', number> }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
+}
+
+// Rate-plan lifecycle (activation readiness, activate/suspend, clone). The API owns every rule; the browser only displays the verdict.
+export type { RatePlanReadiness } from '@bedbanks/contracts'
+const planPath = (path: string, ratePlanId: string) => path.replace(':ratePlanId', encodeURIComponent(ratePlanId))
+export const getRatePlanReadiness = (ratePlanId: string) => apiRequest<RatePlanReadiness>(planPath(supplyRoutes.ratePlanReadiness, ratePlanId))
+export const activateRatePlan = (ratePlanId: string, expectedUpdatedAt: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanActivate, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt }) })
+export const suspendRatePlan = (ratePlanId: string, expectedUpdatedAt: string, reason: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanSuspend, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt, reason }) })
+export const cloneRatePlan = (ratePlanId: string, input: RatePlanCloneRequest) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanClone, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify(input) })
+export async function getHotelRatePlans(hotelId: string, input: { search?: string; status?: string; page: number; pageSize: number }) {
+  const query = new URLSearchParams({ hotelId })
+  for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== '') query.set(key, String(value))
+  return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean; statusCounts?: Record<'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED', number> }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
 }

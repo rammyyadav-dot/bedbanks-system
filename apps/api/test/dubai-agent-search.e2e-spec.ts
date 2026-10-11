@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -218,7 +219,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
     ratePlanId = plan.body.data.id
-    await admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ status: 'ACTIVE' }).expect(200)
+    await setRatePlanStatusFixture(prisma, ratePlanId, 'ACTIVE')
     await admin.post('/api/v1/supply/daily-rates/bulk').send({ rows: nights.map((stayDate) => ({
       ratePlanId, stayDate, occupancy: 2, amountMinor: String(nightMinor), amountBasis: 'SELL', currency: 'AED',
     })) }).expect(201)
@@ -240,7 +241,8 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     await admin.patch(`/api/v1/supply/hotels/${hotelId}/rooms/${roomId}`).send({ isActive: true }).expect(200)
     await admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: true }).expect(200)
     await admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'ACTIVE', validFrom: day(0), validTo: day(60) }).expect(200)
-    await admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ status: 'ACTIVE', minStay: 1, releaseDays: 0 }).expect(200)
+    await setRatePlanStatusFixture(prisma, ratePlanId, 'ACTIVE')
+    await admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 1, releaseDays: 0 }).expect(200)
     await admin.post('/api/v1/supply/daily-rates/bulk').send({ rows: nights.map((stayDate) => ({
       ratePlanId, stayDate, occupancy: 2, amountMinor: String(nightMinor), amountBasis: 'SELL', currency: 'AED',
     })) })
@@ -334,7 +336,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       ['board inactive', () => admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: false }).expect(200)],
       ['contract inactive', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'SUSPENDED' }).expect(200)],
       ['contract expired', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'EXPIRED' }).expect(200)],
-      ['rate plan inactive', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ status: 'SUSPENDED' }).expect(200)],
+      ['rate plan inactive', () => setRatePlanStatusFixture(prisma, ratePlanId, 'SUSPENDED')],
       ['minimum stay', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 5 }).expect(200)],
       ['release days', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ releaseDays: 40 }).expect(200)],
     ]
