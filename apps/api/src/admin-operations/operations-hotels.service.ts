@@ -30,9 +30,8 @@ import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from '..
 import { auditView } from './operations-transactions.service'
 import { HOTEL_EXPORT_MAX_ROWS, hotelCsv } from './hotel-export'
 import { SEARCH_MONITOR_ACTIONS, SEARCH_MONITOR_READ_CAP, buildSearchMonitor } from './search-monitor'
-import { MAX_PAGE_SIZE } from './query-params'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
-import { dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
+import { MAX_PAGE_SIZE, dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 const stringList = (value: Prisma.JsonValue): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 40).slice(0, 100) : [])
 
