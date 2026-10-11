@@ -166,7 +166,7 @@ jobs:
       - name: Start the production build
         run: |
           pnpm --filter @bedbanks/website exec next start -p 4710 > website-server.log 2>&1 &
-          for i in $(seq 1 40); do curl -sf -o /dev/null "$CHECK_BASE_URL/" && exit 0; sleep 1; done
+          for _ in $(seq 1 40); do curl -sf -o /dev/null "$CHECK_BASE_URL/" && exit 0; sleep 1; done
           cat website-server.log; exit 1
       - name: Links, anchors, redirects, sitemap and canonicals (built site)
         run: pnpm --filter @bedbanks/website check:site
