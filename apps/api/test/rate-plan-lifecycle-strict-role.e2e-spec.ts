@@ -8,6 +8,7 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
 import { provisionApiRuntimeRole, verifyApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
+import { provisionRatePlanOpsRole, verifyRatePlanOpsRole, RATE_PLAN_OPS_LOGIN_ROLE } from '../src/database/rate-plan-ops-role'
 
 /**
  * ADR 0041: rate plan lifecycle status is written only by the readiness-gated activate/suspend routes. Everything here runs
@@ -16,6 +17,7 @@ import { provisionApiRuntimeRole, verifyApiRuntimeRole, API_RUNTIME_LOGIN_ROLE }
 const prisma = new PrismaClient()
 const ownerUrl = process.env.DATABASE_URL
 if (!ownerUrl) throw new Error('DATABASE_URL is required')
+const loginUrl = (user: string, password: string) => { const url = new URL(ownerUrl); url.username = user; url.password = password; return url.toString() }
 const runtimeUrl = (password: string) => { const url = new URL(ownerUrl); url.username = API_RUNTIME_LOGIN_ROLE; url.password = password; return url.toString() }
 const DAY = 86_400_000
 const iso = (offsetDays: number) => new Date(Math.floor(Date.now() / DAY) * DAY + offsetDays * DAY).toISOString().slice(0, 10)
@@ -152,6 +154,7 @@ describe('Rate plan lifecycle on the strict runtime login (fbeds_api_login)', ()
   let planId: string
   const loginPassword = process.env.API_RUNTIME_LOGIN_PASSWORD ?? require('crypto').randomBytes(24).toString('hex')
   let previousUrl: string | undefined
+  let previousOps: string | undefined
 
   it('runs the lifecycle routes on the restricted login without any widened privilege', async () => {
     // 1. The identity: not superuser, no BYPASSRLS, owns no table, and the live grants match the contract.
@@ -183,4 +186,69 @@ describe('Rate plan lifecycle on the strict runtime login (fbeds_api_login)', ()
     await api(operator).post(`/supply/rate-plans/${planId}/suspend`, { expectedUpdatedAt: version, reason: 'strict role probe' }).then((r) => expect([403, 409, 503]).toContain(r.status))
     await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: planId } })).resolves.toMatchObject({ status: 'DRAFT' })
   })
+
+  it('with the narrow lifecycle role configured, the strict API can activate and suspend and nothing else widens', async () => {
+    const opsPassword = require('crypto').randomBytes(24).toString('hex')
+    await provisionRatePlanOpsRole(prisma, { password: opsPassword })
+    await provisionRatePlanOpsRole(prisma, { password: opsPassword }) // idempotent
+    const ops = new PrismaClient({ datasourceUrl: loginUrl(RATE_PLAN_OPS_LOGIN_ROLE, opsPassword) })
+    const probe = <T,>(work: (tx: import('@prisma/client').Prisma.TransactionClient) => Promise<T>, tenant: string | null = tenantId) => ops.$transaction(async (tx) => {
+      if (tenant) await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenant}, true)`
+      return work(tx)
+    })
+    try {
+      // 1. The identity and its exact privileges.
+      expect(await verifyRatePlanOpsRole(ops)).toEqual({ ok: true, failures: [] })
+
+      // 2. Probes the role must lose (each is refused by the database, not by application code).
+      await expect(probe((tx) => tx.$executeRaw`UPDATE "RatePlan" SET code = 'hijack' WHERE id = ${planId}`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$executeRaw`UPDATE "RatePlan" SET currency = 'USD' WHERE id = ${planId}`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$executeRaw`DELETE FROM "RatePlan" WHERE id = ${planId}`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$executeRaw`UPDATE "DailyRate" SET amount_minor = 1 WHERE rate_plan_id = ${planId}`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$executeRaw`UPDATE "DailyAvailability" SET allotment = 99 WHERE rate_plan_id = ${planId}`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$executeRaw`UPDATE "Contract" SET status = 'ACTIVE' WHERE id = ${contractId}`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$queryRaw`SELECT 1 FROM "AuditEvent" LIMIT 1`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$queryRaw`SELECT 1 FROM users LIMIT 1`)).rejects.toThrow()
+      await expect(probe((tx) => tx.$queryRaw`SELECT name FROM "Hotel" LIMIT 1`)).rejects.toThrow()
+      // Row-level security still applies: with another tenant's context the status column matches no row, and without context nothing is visible.
+      expect(await probe((tx) => tx.$executeRaw`UPDATE "RatePlan" SET status = 'SUSPENDED' WHERE id = ${planId}`, otherTenantId)).toBe(0)
+      expect(await probe((tx) => tx.ratePlan.count({ where: { id: planId } }), null)).toBe(0)
+      await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: planId } })).resolves.toMatchObject({ status: 'DRAFT', code: expect.not.stringMatching(/hijack/), currency: 'AED' })
+
+      // 3. Configured: the strict API now activates and suspends through the narrow role only.
+      previousOps = process.env.RATE_PLAN_OPS_DATABASE_URL
+      process.env.RATE_PLAN_OPS_DATABASE_URL = loginUrl(RATE_PLAN_OPS_LOGIN_ROLE, opsPassword)
+      const ready = await api(operator).get(`/supply/rate-plans/${planId}/readiness`).expect(200)
+      const refusedEmpty = await api(operator).post(`/supply/rate-plans/${planId}/activate`, { expectedUpdatedAt: '2020-01-01T00:00:00.000Z' })
+      expect(refusedEmpty.status).toBe(409) // stale version is still a typed conflict on the new path
+      expect(refusedEmpty.body.error.code).toBe('RATE_PLAN_CHANGED')
+      const activated = await api(operator).post(`/supply/rate-plans/${planId}/activate`, { expectedUpdatedAt: ready.body.data.updatedAt }).set('x-request-id', `${suffix}-ops-act`)
+      console.info('STRICT_ROLE_ACTIVATE_WITH_OPS_ROLE', activated.status)
+      expect(activated.status).toBe(201)
+      await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: planId } })).resolves.toMatchObject({ status: 'ACTIVE' })
+      const audit = await prisma.auditEvent.findMany({ where: { tenantId, entityId: planId, action: 'supply.rate_plan.status_changed' } })
+      expect(audit).toHaveLength(1)
+      expect(audit[0]!.payload).toMatchObject({ requestId: `${suffix}-ops-act`, before: { status: 'DRAFT' }, after: { status: 'ACTIVE' } })
+      expect(audit[0]!.userId).toBe(userIds[0])
+
+      const version = (await api(operator).get(`/supply/rate-plans/${planId}/readiness`).expect(200)).body.data.updatedAt
+      await api(operator).post(`/supply/rate-plans/${planId}/suspend`, { expectedUpdatedAt: version, reason: 'ops role probe' }).expect(201)
+      await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: planId } })).resolves.toMatchObject({ status: 'SUSPENDED' })
+
+      // 4. The readiness gate still applies on this path: a plan without rates cannot be activated by the role.
+      const bare = await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-BARE`, occupancy: 2, currency: 'AED' } })
+      const bareVersion = bare.updatedAt.toISOString()
+      const gate = await api(operator).post(`/supply/rate-plans/${bare.id}/activate`, { expectedUpdatedAt: bareVersion })
+      expect(gate.status).toBe(409)
+      expect(gate.body.error.code).toBe('RATE_PLAN_NOT_READY')
+      await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: bare.id } })).resolves.toMatchObject({ status: 'DRAFT' })
+
+      // 5. Clone creates a row, which the narrow role may not do, so it stays on the privileged path and is refused under the strict login.
+      const clone = await api(operator).post(`/supply/rate-plans/${planId}/clone`, { code: `${suffix}-CL` })
+      expect([403, 503]).toContain(clone.status)
+    } finally {
+      if (previousOps === undefined) delete process.env.RATE_PLAN_OPS_DATABASE_URL; else process.env.RATE_PLAN_OPS_DATABASE_URL = previousOps
+      await ops.$disconnect()
+    }
+  }, 60000)
 })
