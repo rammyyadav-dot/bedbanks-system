@@ -11,24 +11,25 @@ resource "aws_cloudwatch_log_group" "this" {
   name              = "/fbeds/${var.environment}/${each.key}"
   retention_in_days = var.environment == "production" ? 90 : 30
   kms_key_id        = aws_kms_key.data.arn
+  tags              = { Service = each.key }
 }
 
 locals {
   api_origin = "https://${local.api_host}/api/v1"
   portal_env = {
-    website = [{ name = "TRUSTED_PROXY", value = "aws-alb" }] # lead rate limiter: trust only the ALB-appended X-Forwarded-For entry
-    agent   = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "PORTAL_HOSTED", value = "1" }]
-    admin   = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "AUTH_API_ORIGIN", value = "https://${local.portals.admin.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
+    website  = [{ name = "TRUSTED_PROXY", value = "aws-alb" }] # lead rate limiter: trust only the ALB-appended X-Forwarded-For entry
+    agent    = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "PORTAL_HOSTED", value = "1" }]
+    admin    = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "AUTH_API_ORIGIN", value = "https://${local.portals.admin.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
     supplier = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "SUPPLIER_ORIGIN", value = "https://${local.portals.supplier.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
   }
   api_environment = concat([for k, v in merge({
-    NODE_ENV            = "production"
-    API_HOST            = "0.0.0.0"
-    API_PORT            = "3002"
-    API_PREFIX          = "api/v1"
-    AUTH_COOKIE_SECURE  = "true"
-    ADMIN_ORIGIN        = "https://${local.portals.admin.host}"
-    TRUSTED_ORIGINS     = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
+    NODE_ENV           = "production"
+    API_HOST           = "0.0.0.0"
+    API_PORT           = "3002"
+    API_PREFIX         = "api/v1"
+    AUTH_COOKIE_SECURE = "true"
+    ADMIN_ORIGIN       = "https://${local.portals.admin.host}"
+    TRUSTED_ORIGINS    = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
   }, var.api_env) : { name = k, value = v }])
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },
@@ -39,6 +40,7 @@ locals {
 resource "aws_ecs_task_definition" "this" {
   for_each                 = local.services
   family                   = "${local.name}-${each.key}"
+  tags                     = { Service = each.key }
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = each.key == "api" ? var.api_cpu : var.portal_cpu
@@ -50,13 +52,13 @@ resource "aws_ecs_task_definition" "this" {
     cpu_architecture        = "X86_64"
   }
   container_definitions = jsonencode([{
-    name         = each.key
-    image        = "${aws_ecr_repository.this[each.key].repository_url}:${var.initial_image_tag}"
-    essential    = true
-    portMappings = [{ containerPort = each.value.port, protocol = "tcp" }]
-    environment  = each.key == "api" ? tolist(local.api_environment) : tolist(lookup(local.portal_env, each.key, []))
-    secrets      = each.key == "api" ? tolist(local.api_secrets) : []
-    stopTimeout  = 30
+    name            = each.key
+    image           = "${aws_ecr_repository.this[each.key].repository_url}:${var.initial_image_tag}"
+    essential       = true
+    portMappings    = [{ containerPort = each.value.port, protocol = "tcp" }]
+    environment     = each.key == "api" ? tolist(local.api_environment) : tolist(lookup(local.portal_env, each.key, []))
+    secrets         = each.key == "api" ? tolist(local.api_secrets) : []
+    stopTimeout     = 30
     linuxParameters = { initProcessEnabled = true }
     logConfiguration = {
       logDriver = "awslogs"
@@ -80,13 +82,14 @@ resource "aws_ecs_service" "this" {
   health_check_grace_period_seconds  = each.key == "api" ? 120 : 60
   enable_execute_command             = false
   propagate_tags                     = "SERVICE"
+  tags                               = { Service = each.key }
   deployment_circuit_breaker {
     enable   = true
     rollback = true # a deployment whose tasks never become healthy rolls back by itself
   }
   network_configuration {
     subnets          = aws_subnet.private[*].id
-    security_groups  = [each.key == "api" ? aws_security_group.api.id : aws_security_group.portal.id]
+    security_groups  = [each.key == "api" ? aws_security_group.this["api"].id : aws_security_group.this["portal"].id]
     assign_public_ip = false
   }
   load_balancer {

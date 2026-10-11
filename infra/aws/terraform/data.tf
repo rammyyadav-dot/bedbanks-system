@@ -42,7 +42,7 @@ resource "aws_db_instance" "this" {
   master_user_secret_kms_key_id       = aws_kms_key.data.arn
   multi_az                            = var.db_multi_az
   db_subnet_group_name                = aws_db_subnet_group.this.name
-  vpc_security_group_ids              = [aws_security_group.data.id]
+  vpc_security_group_ids              = [aws_security_group.this["data"].id]
   parameter_group_name                = aws_db_parameter_group.this.name
   publicly_accessible                 = false
   backup_retention_period             = 14
@@ -71,7 +71,7 @@ resource "aws_elasticache_replication_group" "this" {
   automatic_failover_enabled = var.environment == "production"
   multi_az_enabled           = var.environment == "production"
   subnet_group_name          = aws_elasticache_subnet_group.this.name
-  security_group_ids         = [aws_security_group.data.id]
+  security_group_ids         = [aws_security_group.this["data"].id]
   at_rest_encryption_enabled = true
   kms_key_id                 = aws_kms_key.data.arn
   transit_encryption_enabled = true

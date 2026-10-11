@@ -14,14 +14,10 @@ resource "aws_budgets_budget" "monthly" {
   }
 
   dynamic "notification" {
-    for_each = [
-      { threshold = 80, type = "ACTUAL" },
-      { threshold = 100, type = "ACTUAL" },
-      { threshold = 100, type = "FORECASTED" },
-    ]
+    for_each = var.budget_alert_thresholds
     content {
       comparison_operator        = "GREATER_THAN"
-      threshold                  = notification.value.threshold
+      threshold                  = notification.value.percent
       threshold_type             = "PERCENTAGE"
       notification_type          = notification.value.type
       subscriber_email_addresses = var.budget_emails

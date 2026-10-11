@@ -30,7 +30,7 @@ Compares the CTO "Vercel to AWS" blueprint of 11 October 2026 with what is commi
 3. **Cost governance** (partly addressed on this branch: `budgets.tf`, `Owner`/`CostCenter` tags). Still **D:** the approved monthly ceiling per environment, and activating the cost-allocation tags in Billing.
 4. **Account-level controls are out of band.** Organizations, IAM Identity Center, CloudTrail and the Terraform state bucket are not in this stack. **D:** confirm they exist or add a separate bootstrap stack.
 5. **NAT cost.** Only the S3 endpoint exists; ECR, Logs and Secrets Manager traffic crosses NAT. The runbook already flags interface endpoints; price them against NAT with the calculator before adding.
-6. **Region.** Example tfvars use `eu-central-1` (inherited from the Render blueprint); the blueprint suggests `ap-south-1`. **D:** decide on supplier connectivity, UAE/India latency, data residency and price. It changes the CloudFront/WAF/ACM layout and tfvars only.
+6. **Region.** Decided in ADR 0055: `ap-south-1`; example tfvars updated. Still to confirm against supplier connectivity, latency, residency and price (`docs/aws-cost-model.md`).
 7. **Redis hardening.** TLS and at-rest encryption are set; I found no `auth_token` or RBAC user group, and snapshot retention is 1 day. Redis holds search cache only (not the booking ledger), so this is a hardening item, not a blocker.
 8. **Certification gates not started.** Nothing yet proves: migration replay on RDS with pgvector/pg_trgm, strict-role grants, RLS bypass tests, inventory concurrency and idempotency tests against the AWS database, browser tests against ECS staging, restore drill, rollback drill. These are the checklist items that matter and need real staging infrastructure.
 9. **API starts from TypeScript source** via `@swc-node/register` (larger image, 120 s health grace). Acceptable for staging; revisit before production.
@@ -46,3 +46,6 @@ Compares the CTO "Vercel to AWS" blueprint of 11 October 2026 with what is commi
 6. Production DNS cutover stays a separate, explicitly approved step.
 
 Nothing here changes application behaviour or enables booking, payment or supplier workflows.
+
+## WP2 update (2026-10-11)
+ADR 0055 records the decisions; see `docs/aws-verification-evidence.md` for what ran. WP2 also found and fixed four defects in the committed stack (format, security-group cycles, first-plan `for_each`, CI deploy-role permissions) that the earlier "covered" table could not have shown, because nothing had been validated. Treat the "Already covered" rows as "written", not "working", until a real staging plan and apply.

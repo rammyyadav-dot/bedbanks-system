@@ -54,3 +54,10 @@ tools/admin-ops-verify/.seed-agent-images.json
 tools/admin-ops-verify/.seed-*.json
 tools/admin-ops-verify/.scale-*.json
 tools/admin-ops-verify/.seed-hotel-journey.json
+
+# Terraform (state and real variable files must never be committed; *.tfvars.example is the template)
+infra/aws/terraform/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+infra/aws/terraform/envs/*.tfvars
+**/crash.log

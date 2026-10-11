@@ -15,7 +15,7 @@ Internet -> WAF -> public ALB (443; host rules) -> portal tasks (website, agent,
 Egress: tasks use NAT (suppliers, ECR, Secrets Manager); S3 is a gateway endpoint. Only the database and Redis live in subnets with no internet route.
 
 ## Decisions the owner must make first
-1. AWS account(s) and region (the Render blueprint used Frankfurt: `eu-central-1` is the default in the example tfvars). Separate accounts for staging and production are recommended.
+1. AWS account(s) and region. **Region is `ap-south-1` (ADR 0055).** Separate accounts for staging and production are recommended. Staging must be access-restricted (`public_ingress_cidrs`); production needs CloudFront or an approved exception (`production_edge_exception_ref`) and `dns_cutover_authorization_ref` before any public record. Audit the account first (`docs/aws-account-security-checklist.md`) and work through `docs/aws-staging-readiness-checklist.md`.
 2. Where the production database comes from today (Neon or other) and the cutover window. Acceptable downtime: a dump and restore needs a write freeze; logical replication or AWS DMS shortens it.
 3. Domain: the public hosted zone must exist in Route 53 (or a delegation to it). Names: `www|agent|admin|supplier.<domain>` in production, `<name>.staging.<domain>` in staging.
 4. Notifications, webhooks and email are not part of this change (ADR 0039).
