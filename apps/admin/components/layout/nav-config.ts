@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import { departments, sidebarGroups, type DepartmentPermission, type OperationsPermission, type SupplyPermission } from '@bedbanks/contracts';
 import {
-  LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
+  Building2, LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
   BookOpen, Lock, Wrench, Globe, Activity, UserCheck, Percent, Users, LifeBuoy, EyeOff, Landmark, Receipt, BanknoteArrowDown, Hourglass, History, Cable, Gauge, Undo2, TriangleAlert, BadgeCheck,
   ListChecks,
 } from 'lucide-react';
@@ -22,7 +22,7 @@ const icons: Record<string, LucideIcon> = {
  * presents a placeholder as a capability. A department with no live module does not appear at all.
  * `requires` hides an item the caller cannot use; it is a UX hint, the API is the authorizer.
  */
-export const navSections: NavSection[] = sidebarGroups
+const departmentNav: NavSection[] = sidebarGroups
   .map((group) => ({
     label: group.label,
     items: group.departments
@@ -31,6 +31,11 @@ export const navSections: NavSection[] = sidebarGroups
       .map((m): NavItem => ({ href: m.href, label: m.label, icon: icons[m.href]!, requires: m.requires as NavItem['requires'] })),
   }))
   .filter((section) => section.items.length > 0);
+
+export const navSections: NavSection[] = [
+  { label: 'Business', items: [{ href: '/tenants', label: 'Tenants', icon: Building2 }, { href: '/clients/agencies', label: 'Agencies', icon: Users, requires: 'agency.read' }, { href: '/suppliers', label: 'Suppliers', icon: Truck }, { href: '/access-review', label: 'Business users', icon: UserCheck, requires: 'audit.read' }, { href: '/reconciliation', label: 'Approvals', icon: ClipboardCheck, requires: 'booking.reconcile' }] },
+  ...departmentNav.map(section => ({ ...section, items: section.items.filter(item => !['/tenants','/clients/agencies','/suppliers','/access-review','/reconciliation'].includes(item.href)) })).filter(section => section.items.length),
+];
 
 /** Routes that stay reachable (and breadcrumbed) without a sidebar entry. */
 const hiddenRoutes: NavItem[] = [

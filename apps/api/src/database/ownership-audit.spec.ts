@@ -6,6 +6,10 @@ const fake = (rows: Row[], caps = { schema_create: false, db_create: false }) =>
 const forced = (tbl: string, privs: Array<string | null> = ['SELECT'], owner = 'migrator'): Row => ({ schema: 'public', tbl, owner, rls: true, forced: true, privs })
 
 describe('runtime ownership audit (P0-01)', () => {
+  it('accepts the optional forced tenant-root authoring policies without exempting other identity tables', async () => {
+    const a = await runtimeOwnershipAudit(fake([forced('tenants'), forced('users')]))
+    expect(a.failures).toEqual(['users is listed as RLS-exempt but has forced RLS: update the exemption list'])
+  })
   it('OA-01: a clean database passes and counts forced and exempt tables', async () => {
     const a = await runtimeOwnershipAudit(fake([forced('Hotel'), { schema: 'public', tbl: 'PlatformRole', owner: 'migrator', rls: false, forced: false, privs: [] }]), { migrationOwner: 'migrator' })
     expect(a.failures).toEqual([]); expect(a).toMatchObject({ tables: 2, forcedTables: 1, exemptTables: 1, owners: ['migrator'] })

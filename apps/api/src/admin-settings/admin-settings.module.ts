@@ -1,3 +1,4 @@
+import { TenantContextGuard } from '../agent/tenant-context.guard'
 import { Module } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { AdminRbacGuard } from '../auth/admin-rbac.guard'
@@ -7,6 +8,6 @@ import { AdminSettingsService } from './admin-settings.service'
 @Module({
   imports: [AuthModule],
   controllers: [AdminSettingsController],
-  providers: [AdminSettingsService, AdminRbacGuard],
+  providers: [TenantContextGuard, AdminSettingsService, AdminRbacGuard],
 })
 export class AdminSettingsModule {}

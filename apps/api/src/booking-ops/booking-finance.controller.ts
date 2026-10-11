@@ -6,7 +6,7 @@ import { bookingDocumentTypeFromRoute, type BookingAccessView, type BookingPenal
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
-import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
+import { ActiveTenant, AllowSuspendedServicing, TenantContextGuard } from '../agent/tenant-context.guard'
 import { BookingAccess, BookingAccessGuard, RequireBookingAction } from './booking-access.guard'
 import { BookingFinanceService } from './booking-finance.service'
 
@@ -19,6 +19,7 @@ const typeOf = (value: string) => { const t = bookingDocumentTypeFromRoute(value
  */
 @ApiTags('admin-booking-finance')
 @Controller('admin/operations/booking-finance')
+@AllowSuspendedServicing()
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class BookingFinanceController {
   constructor(private readonly finance: BookingFinanceService) {}

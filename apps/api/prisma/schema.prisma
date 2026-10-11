@@ -612,6 +612,7 @@ model Tenant {
   supplierMutations SupplierMutation[]
   approvalRequests ApprovalRequest[]
   settings    TenantSettings?
+  controlProfile TenantControlProfile?
   supplierMemberships SupplierMembership[]
   supplierRoomDrafts SupplierRoomDraft[]
 
@@ -682,6 +683,7 @@ model User {
 model Membership {
   id        String   @id @default(cuid())
   role      String   @default("member")
+  revokedAt DateTime? @map("revoked_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -697,6 +699,27 @@ model Membership {
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("memberships")
+}
+
+/// Business governance only. Does not author pricing, balances or distribution entitlements.
+model TenantControlProfile {
+  tenantId String @id @map("tenant_id")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  business Json
+  registrationKey String @unique @map("registration_key")
+  classification String @default("BUYER")
+  country String @db.Char(2)
+  stage String @default("DRAFT")
+  complianceStatus String @default("PENDING") @map("compliance_status")
+  complianceApprovedBy String? @map("compliance_approved_by")
+  updatedBy String @map("updated_by")
+  version Int @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([classification, country])
+  @@index([stage])
+  @@map("tenant_control_profiles")
 }
 
 /// Opaque, database-backed session (P0-D). The raw session token is

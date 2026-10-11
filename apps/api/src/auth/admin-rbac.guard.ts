@@ -33,7 +33,8 @@ export class AdminRbacGuard implements CanActivate {
     const required = this.reflector.getAllAndOverride<AdminPermission>(REQUIRED_ADMIN_PERMISSION, [context.getHandler(), context.getClass()])
     if (!identity || !required) throw new ForbiddenException('Access denied')
 
-    const membership = identity.memberships.find((entry) => entry.role === 'owner') ?? identity.memberships[0]
+    const selected = (request as unknown as { activeTenantId?: string }).activeTenantId
+    const membership = selected ? identity.memberships.find(entry => entry.tenantId === selected) : identity.memberships.find((entry) => entry.role === 'owner') ?? identity.memberships[0]
     if (!membership) throw new ForbiddenException('No active tenant membership')
 
     const roles = await this.prisma.withTenant(membership.tenantId, (tx) => tx.userRole.findMany({

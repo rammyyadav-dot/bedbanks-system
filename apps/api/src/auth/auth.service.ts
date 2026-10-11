@@ -52,7 +52,7 @@ export class AuthService {
     const memberships = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`
       return tx.membership.findMany({
-        where: { userId, tenant: { status: 'ACTIVE' } },
+        where: { userId, revokedAt: null, tenant: { status: 'ACTIVE' } },
         include: { tenant: true },
       })
     })
@@ -61,6 +61,14 @@ export class AuthService {
       tenantName: m.tenant.name,
       role: m.role,
     }));
+  }
+
+  private async loadServicingMemberships(userId: string): Promise<MembershipSummary[]> {
+    return this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`
+      const rows = await tx.membership.findMany({ where: { userId, revokedAt: null, tenant: { status: 'SUSPENDED' } }, include: { tenant: true } })
+      return rows.filter(row => row.tenant.status === 'SUSPENDED').map(row => ({ tenantId: row.tenantId, tenantName: row.tenant.name, role: row.role }))
+    })
   }
 
   /**
@@ -100,7 +108,7 @@ export class AuthService {
     const memberships = await this.loadActiveMemberships(user.id);
     await this.recordAudit('auth.login.success', { membershipCount: memberships.length }, user.id)
 
-    return { rawToken, identity: { user: toSafeUser(user), memberships } };
+    return { rawToken, identity: { user: toSafeUser(user), memberships, servicingMemberships: await this.loadServicingMemberships(user.id) } };
   }
 
   /**
@@ -133,7 +141,7 @@ export class AuthService {
       .catch(() => undefined);
 
     const memberships = await this.loadActiveMemberships(session.user.id);
-    return { user: toSafeUser(session.user), memberships };
+    return { user: toSafeUser(session.user), memberships, servicingMemberships: await this.loadServicingMemberships(session.user.id) };
   }
 
   /**

@@ -6,7 +6,7 @@ import type { BookingAccessView, BookingOpsAcknowledgeRequest, BookingOpsAnswerR
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
-import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
+import { ActiveTenant, AllowSuspendedServicing, TenantContextGuard } from '../agent/tenant-context.guard'
 import { BookingAccess, BookingAccessGuard, RequireBookingAction } from './booking-access.guard'
 import { BookingOpsQueueService } from './booking-ops-queue.service'
 import { BookingOpsService } from './booking-ops.service'
@@ -19,6 +19,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
  */
 @ApiTags('admin-booking-queue')
 @Controller('admin/operations/booking-queue')
+@AllowSuspendedServicing()
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class BookingOpsController {
   constructor(private readonly queue: BookingOpsQueueService, private readonly ops: BookingOpsService) {}
