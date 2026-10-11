@@ -332,7 +332,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     const cases: Array<[string, () => Promise<unknown>]> = [
       ['supplier suspended', () => admin.patch(`/api/v1/supply/suppliers/${supplierId}`).send({ status: 'SUSPENDED' }).expect(200)],
       ['hotel suspended', () => admin.patch(`/api/v1/supply/hotels/${hotelId}`).send({ contentStatus: 'SUSPENDED' }).expect(200)],
-      // The API now refuses to deactivate the last room of a published hotel (HOTEL_PUBLICATION_REQUIREMENT_LOST), so this gate is exercised by a fixture change.
+      // The room API refuses to archive a room a published hotel still requires (hotel-setup rule), so the archived-room state is seeded directly.
       ['room inactive', () => prisma.roomType.update({ where: { id: roomId }, data: { isActive: false } })],
       ['board inactive', () => admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: false }).expect(200)],
       ['contract inactive', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'SUSPENDED' }).expect(200)],

@@ -57,6 +57,10 @@ const status = async (page, code) => row(page, code).getAttribute('data-status')
   const toolbar = async () => (await page.locator('[data-testid=plan-counts]').innerText()).replace(/\s+/g, ' ')
   const parse = (t) => ({ total: Number((t.match(/(\d+) rate plans/) ?? [])[1]), active: Number((t.match(/(\d+) active/) ?? [])[1]), draft: Number((t.match(/(\d+) draft/) ?? [])[1]), suspended: Number((t.match(/(\d+) suspended/) ?? [])[1]) })
   let t0 = parse(await toolbar())
+  const caps = (await planApi('/api/v1/supply/rate-plans/capabilities')).data
+  check('capabilities API: every lifecycle action is available on this owner-connected API', caps.activate.available && caps.suspend.available && caps.clone.available, JSON.stringify(caps))
+  check('no unavailable-capability notice is shown when every action is available', (await page.locator('[data-testid=capability-notice]').count()) === 0)
+  check('Activate, Suspend and Clone are enabled when available', (await page.locator('tr[data-plan-id] button[data-unavailable=true]').count()) === 0 && (await page.getByRole('button', { name: 'Clone' }).first().isEnabled()))
   check('toolbar counts equal the API status counts', t0.total === Object.values(counts).reduce((a, b) => a + b, 0) && t0.active === counts.ACTIVE && t0.draft === counts.DRAFT && t0.suspended === counts.SUSPENDED, JSON.stringify({ t0, counts }))
   check('grid lists the three new plans with the right status', (await status(page, ready.code)) === 'DRAFT' && (await status(page, bare.code)) === 'DRAFT' && (await status(page, susp.code)) === 'SUSPENDED')
   await page.screenshot({ path: `${SHOTS}/rate-plans-tab.png`, fullPage: true })
@@ -109,6 +113,17 @@ const status = async (page, code) => row(page, code).getAttribute('data-status')
   const alert = await dialogAlert.innerText()
   check('a stale activation shows an actionable error and changes nothing', /changed|reload/i.test(alert) && (await prisma.ratePlan.findUniqueOrThrow({ where: { id: susp.id } })).status === 'SUSPENDED', alert)
   await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // 6b. structured readiness failure: the server's object-valued error.details reach the dialog without a second request (issue 304 item B3).
+  //     The response is injected in the test only; the app has no mock path.
+  await row(page, susp.code).getByRole('button', { name: 'Activate' }).click(); await page.waitForSelector('[data-testid=readiness-checklist]')
+  await page.route('**/supply/rate-plans/*/activate', (route) => route.fulfill({ status: 409, contentType: 'application/json', headers: { 'x-request-id': 'req-structured-1' }, body: JSON.stringify({ success: false, error: { code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', details: [{ code: 'RATES_PRESENT', label: 'Future rates', ok: false, message: 'Injected structured failure.' }, { code: 'NOT_A_CHECK', nope: true }] } }) }))
+  await page.getByRole('button', { name: 'Confirm activation' }).click(); await page.locator('[data-testid=server-failed-checks]').waitFor({ timeout: 10000 })
+  const structured = await page.locator('[data-testid=server-failed-checks] li').allInnerTexts()
+  check('structured readiness failures from the 409 are listed in the dialog (malformed entries ignored)', structured.length === 1 && /Future rates/.test(structured[0]) && /Injected structured failure/.test(structured[0]), structured.join(' | '))
+  check('the dialog error names the request id for tracing', /req-structured-1/.test(await page.locator('section[aria-label^="activate"] [role=alert]').innerText()))
+  await page.unroute('**/supply/rate-plans/*/activate'); await page.getByRole('button', { name: 'Cancel' }).click()
+  check('the injected refusal changed nothing', (await prisma.ratePlan.findUniqueOrThrow({ where: { id: susp.id } })).status === 'SUSPENDED')
 
   // 7. clone is a draft and never active
   await row(page, bare.code).getByRole('button', { name: 'Clone' }).click()
