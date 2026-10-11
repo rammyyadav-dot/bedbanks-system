@@ -14,6 +14,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { ContractChip, InventoryChip, MappingChip, RatesChip, ReadinessChip, ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { HotelsSummary } from '@/components/hotels/HotelsSummary'
+import { HotelSavedViews } from '@/components/hotels/HotelSavedViews'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotelsCommercial, getHotelsSummary } from '@/lib/data/hotel-commercial'
 import { getOpsSuppliers } from '@/lib/data/operations'
@@ -70,6 +71,7 @@ function HotelsList() {
           </TableToolbar>
         </details>
       </form>
+      <HotelSavedViews filters={filters} onApply={(next) => { setSearch(next.search ?? ''); go(next) }} />
       <OpsState state={list.state} onRetry={list.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: activeFilters ? 'No hotels match these filters' : 'No hotels in this tenant', description: activeFilters ? 'The query succeeded and no hotel matches. Clear a filter to widen it.' : 'The query succeeded and this tenant has no hotels yet.' }}>
         {(data) => (
           <div className="workspace-panel" data-testid="hotels-table">

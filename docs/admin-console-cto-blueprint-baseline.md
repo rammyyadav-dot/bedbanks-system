@@ -25,7 +25,7 @@ Legend: Implemented / Partial / Missing / Blocked. Source claims are from `docs/
 | Breadcrumbs | Implemented (unverified) | `components/layout/Breadcrumbs.tsx` and `flatNav`. |
 | Hotels KPI strip | Partial | `HotelsSummary` shows total, ready/partial/blocked, mapping, rate and availability gaps, expiring contracts. Blueprint also asks for inactive/onboarding counts and stale-feed counts. Summary is capped by a scan limit and says so. |
 | Hotels search, filters, server pagination | Implemented | Name, canonical id, external ids; URL-persisted filters. Source-type and tenant-scope filters are not evident. |
-| Saved views on Hotels | Missing | Saved views exist only for Bookings (`SavedViews.tsx`, `booking-saved-views.ts`). |
+| Saved views on Hotels | Partial | Personal filter presets stored in this browser only (`lib/hotel-views.ts`, `HotelSavedViews.tsx`). Not shared across devices or people, no default view, no column memory. Server-side views (as Bookings has) still need a contract and API route. |
 | Hotels bulk tools (assign owner, export, recertify) | Missing | No bulk action on the hotel directory found. Export of authorized data needs its own permission and audit design. |
 | Configurable columns on Hotels | Missing | Column picker exists for Bookings only. |
 | Hotel Profile tabs (Overview, Rooms, Contracts, Rate Plans, Quick Update, Rate Calendar, Inventory, Distribution, Bookings, Audit) | Implemented | Panels present under `components/hotels/panels`, plus Setup, Amenities, Images, Policies, Mapping. |
@@ -67,3 +67,7 @@ No code was changed. No test, build, browser screenshot, CI result or restricted
 ## Follow-up: navigation single source of truth
 
 `business` department (Tenants, live) added to `admin-departments.ts` with a leading "Business" sidebar group; the hardcoded section in `nav-config.ts` is removed and the planned "Tenants" placeholder dropped. Side effect: the old hardcoded entries "Business users" and "Approvals" no longer appear under Business; their routes (`/access-review`, `/reconciliation`) remain in Platform and Reservations under catalogue labels. Verified locally: admin tests 75 pass, contracts and admin `tsc --noEmit` clean, `permission-catalogue.spec` 10/10, `pnpm check:architecture` passes. Not run: lint, full API suite, browser, CI.
+
+## Follow-up: Hotels saved views (browser-local)
+
+Filter presets only: known `LIST_FILTER_KEYS`, values capped at 64 chars, 20 views, held in `localStorage` with every read and write guarded. Choosing a view only rewrites URL filters, so the API authorizes the query as before. Verified locally: admin tests 79 pass (4 new), `tsc --noEmit` clean, eslint clean on changed files, `pnpm check:architecture` passes, `next build` for the admin app succeeds. Not run: browser interaction, full API suite, CI.
