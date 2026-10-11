@@ -8,7 +8,7 @@ Baseline: branch `claude/fervent-archimedes-9ugbfp`, HEAD `5e145867c5daaad02b834
 | Hotel-scoped Rate Plans listing, counts, filters, paging | IMPLEMENTED (this change) | `RatePlansPanel`, portfolio `statusCounts` |
 | Create/edit plan | IMPLEMENTED (existing, single form, not a wizard) | `RatePlanForm` |
 | Clone | IMPLEMENTED (this change) | `cloneRatePlan`, spec |
-| Activate/suspend with readiness checklist and concurrency | IMPLEMENTED (this change); API PATCH bypass remains | ADR 0041 |
+| Activate/suspend with readiness checklist and concurrency | IMPLEMENTED; PATCH bypass closed (ADR 0041 Amendment 1); strict-role writer still missing | ADR 0041 |
 | Calendar read, preview/apply with stale-cell checks | IMPLEMENTED (existing); inline grid editor MISSING | ADR/doc `enriched-rate-plan-workflow.md` |
 | Quick Update, restrictions (min stay, CTA, CTD, stop sell) | IMPLEMENTED (existing) | `QuickUpdatePanel` |
 | Occupancy codes SGL/DBL/TPL | PARTIAL: one plan per occupancy integer; no CNB/extra-bed pricing schema | schema |
