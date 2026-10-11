@@ -10,6 +10,7 @@ export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hi
 export interface NavSection { label?: string; items: NavItem[]; }
 
 const icons: Record<string, LucideIcon> = {
+  '/tenants': Building2,
   '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/hotels': Hotel, '/mappings': Link2,
   '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
   '/sellability': ClipboardCheck, '/rate-certification': BadgeCheck, '/operations': Gauge, '/bookings': BookOpen, '/bookings/queue': ListChecks, '/holds': Lock, '/cancellations': Undo2,
@@ -32,10 +33,7 @@ const departmentNav: NavSection[] = sidebarGroups
   }))
   .filter((section) => section.items.length > 0);
 
-export const navSections: NavSection[] = [
-  { label: 'Business', items: [{ href: '/tenants', label: 'Tenants', icon: Building2 }, { href: '/clients/agencies', label: 'Agencies', icon: Users, requires: 'agency.read' }, { href: '/suppliers', label: 'Suppliers', icon: Truck }, { href: '/access-review', label: 'Business users', icon: UserCheck, requires: 'audit.read' }, { href: '/reconciliation', label: 'Approvals', icon: ClipboardCheck, requires: 'booking.reconcile' }] },
-  ...departmentNav.map(section => ({ ...section, items: section.items.filter(item => !['/tenants','/clients/agencies','/suppliers','/access-review','/reconciliation'].includes(item.href)) })).filter(section => section.items.length),
-];
+export const navSections: NavSection[] = departmentNav;
 
 /** Routes that stay reachable (and breadcrumbed) without a sidebar entry. */
 const hiddenRoutes: NavItem[] = [

@@ -48,7 +48,7 @@ Legend: Implemented / Partial / Missing / Blocked. Source claims are from `docs/
 ## Finding 3: real gaps worth building, in order
 
 P0 (small, contained, no schema change):
-1. Single source of truth for navigation: move Tenants, Users and the "Business" grouping into `admin-departments.ts` and delete the hardcoded section in `nav-config.ts`. Today `planned: Tenants/Users` and a live Tenants menu entry contradict each other.
+1. **Done in the follow-up commit:** single source of truth for navigation: move Tenants, Users and the "Business" grouping into `admin-departments.ts` and delete the hardcoded section in `nav-config.ts`. Today `planned: Tenants/Users` and a live Tenants menu entry contradict each other.
 2. Hotels saved views and configurable columns, reusing the Bookings pattern. Server-side persistence needs a per-user view store and an API route in `@bedbanks/contracts` first (invariant 4); URL-only views would be a lower-risk first step.
 3. Hotels summary: add inactive/onboarding counts to the contract and API, removing the scan cap or paginating the aggregate.
 
@@ -63,3 +63,7 @@ P2: reporting and commercial intelligence, promotions, market policy, channel-ma
 ## What this change does not claim
 
 No code was changed. No test, build, browser screenshot, CI result or restricted-role/cross-tenant certification was produced for this task, so deliverables 5 to 8 of the mission are not met. Before any of the items above ship, run `pnpm check:architecture`, `pnpm type-check`, `pnpm lint`, `pnpm test`, the strict-role e2e suite and the browser harness at the delivered commit, per CLAUDE.md.
+
+## Follow-up: navigation single source of truth
+
+`business` department (Tenants, live) added to `admin-departments.ts` with a leading "Business" sidebar group; the hardcoded section in `nav-config.ts` is removed and the planned "Tenants" placeholder dropped. Side effect: the old hardcoded entries "Business users" and "Approvals" no longer appear under Business; their routes (`/access-review`, `/reconciliation`) remain in Platform and Reservations under catalogue labels. Verified locally: admin tests 75 pass, contracts and admin `tsc --noEmit` clean, `permission-catalogue.spec` 10/10, `pnpm check:architecture` passes. Not run: lint, full API suite, browser, CI.

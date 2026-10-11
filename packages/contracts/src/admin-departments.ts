@@ -12,7 +12,7 @@
  */
 
 export const DEPARTMENT_IDS = [
-  'executive', 'contracting', 'supply', 'mapping', 'rates', 'commercial', 'distribution', 'connectivity', 'reservations',
+  'executive', 'business', 'contracting', 'supply', 'mapping', 'rates', 'commercial', 'distribution', 'connectivity', 'reservations',
   'reconciliation', 'clients', 'finance', 'service', 'risk', 'markets', 'platform', 'reliability', 'audit',
 ] as const
 export type DepartmentId = (typeof DEPARTMENT_IDS)[number]
@@ -178,6 +178,7 @@ const todo = (label: string): DepartmentModule => ({ label, readiness: 'planned'
 
 export const departments: readonly DepartmentDef[] = [
   { id: 'executive', label: 'Control Tower', summary: 'Business-wide health and exceptions', modules: [live('/dashboard', 'Dashboard'), live('/exceptions', 'Exceptions', 'supply.hotels.read'), todo('Market performance')] },
+  { id: 'business', label: 'Business & Tenancy', summary: 'Tenant accounts and their lifecycle', modules: [live('/tenants', 'Tenants')] },
   { id: 'contracting', label: 'Contracting & Sourcing', summary: 'Acquire hotel supply', modules: [live('/contracts', 'Contracts', 'supply.contracts.read'), todo('Contracting pipeline'), todo('Renewals'), todo('Commercial terms')] },
   { id: 'supply', label: 'Supply Operations', summary: 'Maintain hotel master data', modules: [live('/hotels', 'Hotels', 'supply.hotels.read'), todo('Hotel content and documents')] },
   { id: 'mapping', label: 'Mapping', summary: 'Normalize supplier inventory', modules: [live('/mappings', 'Mappings', 'supply.mappings.read'), todo('Duplicate candidates')] },
@@ -192,13 +193,14 @@ export const departments: readonly DepartmentDef[] = [
   { id: 'service', label: 'Service Operations', summary: 'Cases and escalations', modules: [live('/service/cases', 'Cases', 'case.read'), todo('Escalation policies')] },
   { id: 'risk', label: 'Risk & Compliance', summary: 'Verification and governance', modules: [live('/access-review', 'Access reviews', 'audit.read'), todo('Verification'), todo('Risk flags')] },
   { id: 'markets', label: 'Market Operations', summary: 'Regions, countries and destinations', modules: [live('/markets', 'Destinations', 'supply.hotels.read'), todo('Market bookings and revenue')] },
-  { id: 'platform', label: 'Platform Administration', summary: 'Tenants, users, roles and configuration', modules: [live('/access', 'Roles & Permissions'), live('/settings', 'Settings'), todo('Tenants'), todo('Users')] },
+  { id: 'platform', label: 'Platform Administration', summary: 'Tenants, users, roles and configuration', modules: [live('/access', 'Roles & Permissions'), live('/settings', 'Settings'), todo('Users')] },
   { id: 'reliability', label: 'System & Reliability', summary: 'Platform health', modules: [live('/reliability', 'System health', 'booking.read'), todo('Incidents')] },
   { id: 'audit', label: 'Audit & Security', summary: 'Evidence and investigation', modules: [live('/audit', 'Audit explorer', 'audit.read')] },
 ]
 
 /** Sidebar groups: departments folded into the sections an operator works in. Only live modules render. */
 export const sidebarGroups: ReadonlyArray<{ label: string; departments: readonly DepartmentId[] }> = [
+  { label: 'Business', departments: ['business'] },
   { label: 'Control tower', departments: ['executive', 'markets'] },
   { label: 'Supply & contracting', departments: ['contracting', 'supply', 'mapping', 'connectivity'] },
   { label: 'Rates & inventory', departments: ['rates', 'commercial', 'distribution'] },

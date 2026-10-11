@@ -299,3 +299,10 @@ test('the pool workspace holds no stock or reconciliation arithmetic: counters, 
   const data = readFileSync(join(root, 'lib', 'data', 'hotel-inventory.ts'), 'utf8')
   assert.match(data, /poolCapacityPreview/); assert.match(data, /poolCapacityApply/)
 })
+
+test('navigation has one source of truth: nav-config adds no hardcoded sections beyond the contracts catalogue', () => {
+  const src = readFileSync(join(root, 'components', 'layout', 'nav-config.ts'), 'utf8')
+  assert.match(src, /navSections: NavSection\[\] = departmentNav/)
+  assert.doesNotMatch(src, /label: 'Business', items:/)
+  assert.ok(navSections.flatMap((s) => s.items).some((i) => i.href === '/tenants'), 'Tenants stays reachable from the catalogue')
+})
