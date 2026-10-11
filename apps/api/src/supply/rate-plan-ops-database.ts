@@ -33,8 +33,11 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
     if (!this.verified) {
       try { await this.client.assertRestrictedRuntimeRole('Rate plan lifecycle'); this.verified = true } catch (error) {
         this.client = null
-        if (!(error instanceof RuntimeRoleViolation)) throw error
-        this.logger.error(error.message)
+        // The identity check connects first, so a rejected credential, an unreachable server or a missing role surfaces here as a connection
+        // error, not only as a guard violation. All of them are the same sanitized "unavailable"; nothing from the URL or the error is returned.
+        if (error instanceof RuntimeRoleViolation) this.logger.error(error.message)
+        else if (isAccessFailure(error)) this.logger.error(`Rate plan lifecycle connection refused or lacks a grant (${databaseErrorCode(error)})`)
+        else throw error
         throw new ServiceUnavailableException({ message: UNAVAILABLE, code: 'RATE_PLAN_OPS_UNAVAILABLE' })
       }
     }
@@ -47,8 +50,7 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
     try {
       return await client.withTenant(tenantId, work, { isolationLevel: 'Serializable' })
     } catch (error) {
-      const e = error as { name?: string; code?: string }
-      if (isDatabasePermissionDenied(error) || e?.name === 'PrismaClientInitializationError' || ['P1000', 'P1001', 'P1002', 'P1010', 'P1017'].includes(e?.code ?? '')) {
+      if (isAccessFailure(error)) {
         this.logger.error(`Rate plan lifecycle connection refused or lacks a grant (${databaseErrorCode(error)})`)
         throw new ServiceUnavailableException({ message: UNAVAILABLE, code: 'RATE_PLAN_OPS_UNAVAILABLE' })
       }
@@ -57,4 +59,11 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> { await this.client?.$disconnect(); this.client = null }
+}
+
+/** A refused connection, bad credential, missing role or missing grant. Anything else (a bug, a constraint) is not an access failure and propagates. */
+function isAccessFailure(error: unknown): boolean {
+  if (isDatabasePermissionDenied(error)) return true
+  const e = error as { name?: string; code?: string }
+  return e?.name === 'PrismaClientInitializationError' || ['P1000', 'P1001', 'P1002', 'P1010', 'P1017'].includes(e?.code ?? '')
 }
