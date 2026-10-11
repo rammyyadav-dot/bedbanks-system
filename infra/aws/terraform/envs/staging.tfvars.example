@@ -7,3 +7,7 @@ db_multi_az    = false
 db_instance_class = "db.t4g.medium"
 api_desired_count    = 1
 portal_desired_count = 1
+
+# Cost guardrails: set the owner-approved ceiling before the first chargeable apply (budgets.tf).
+# monthly_budget_usd = 0
+# budget_emails      = ["finops@example.com"]

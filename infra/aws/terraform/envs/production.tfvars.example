@@ -6,3 +6,7 @@ nat_per_az     = true
 db_multi_az    = true
 # create_portal_records stays false until the cutover step in docs/runbooks/aws-ecs-deployment.md
 create_portal_records = false
+
+# Cost guardrails: set the owner-approved ceiling before the first chargeable apply (budgets.tf).
+# monthly_budget_usd = 0
+# budget_emails      = ["finops@example.com"]

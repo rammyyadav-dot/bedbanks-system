@@ -9,5 +9,5 @@ terraform {
 
 provider "aws" {
   region = var.region
-  default_tags { tags = { Project = "fbeds", Environment = var.environment, ManagedBy = "terraform" } }
+  default_tags { tags = { Project = "fbeds", Environment = var.environment, ManagedBy = "terraform", Owner = var.cost_owner, CostCenter = var.cost_center } }
 }

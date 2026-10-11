@@ -59,6 +59,7 @@ Egress: tasks use NAT (suppliers, ECR, Secrets Manager); S3 is a gateway endpoin
 - Alarms: unhealthy targets (each service), API 5xx, database CPU and free storage; add RDS connections and ECS memory once baselines exist.
 - Rebuild and redeploy base images on a schedule (Node security updates). ECR scans on push.
 - Autoscaling: CPU target tracking, minimum = desired count, maximum = 4x. Revisit after load tests.
+- Budget: `monthly_budget_usd` + `budget_emails` create an AWS Budget (alerts at 80% and 100% actual, 100% forecast). Activate the `Environment`, `Owner` and `CostCenter` cost-allocation tags once in Billing first, or the tag filter reports nothing.
 - Costs to watch: NAT data processing (consider interface endpoints for ECR, Logs and Secrets Manager), ALBs, Multi-AZ RDS.
 - Swagger is served at `/api/docs` by the API; it is reachable only from inside the VPC here. Disable it before ever exposing the API publicly.
 
