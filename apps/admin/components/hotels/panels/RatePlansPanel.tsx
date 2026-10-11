@@ -6,7 +6,7 @@ import type { HotelCommercial360, RatePlanReadiness } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { useCan } from '@/lib/auth/capabilities'
-import { ApiResponseError } from '@/lib/api/errors'
+import { describeRatePlanActionError, type RatePlanAction } from '@/lib/rate-plan-errors'
 import { activateRatePlan, cloneRatePlan, getHotelRatePlans, getRatePlanReadiness, suspendRatePlan, type AdminRatePlan } from '@/lib/data'
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
@@ -20,7 +20,6 @@ const actionsTd: React.CSSProperties = { ...td, whiteSpace: 'nowrap', position: 
 const statusTone = (status: string) => (status === 'ACTIVE' ? 'ok' : status === 'DRAFT' ? 'neutral' : 'warn') as 'ok' | 'neutral' | 'warn'
 const OCCUPANCY_LABEL: Record<number, string> = { 1: 'SGL', 2: 'DBL', 3: 'TPL', 4: 'QUAD' }
 const markets = (value: unknown): string => (Array.isArray(value) && value.length ? value.join(', ') : 'All markets')
-const messageOf = (error: unknown) => (error instanceof ApiResponseError ? `${error.message}${error.requestId ? ` (request ${error.requestId})` : ''}` : 'The request failed.')
 
 type Pending = { plan: AdminRatePlan; action: 'activate' | 'suspend' | 'clone' }
 
@@ -110,11 +109,11 @@ function ActionPanel({ pending, rooms, onClose, onDone }: { pending: Pending; ro
       if (action === 'activate') await activateRatePlan(plan.id, version)
       else if (action === 'suspend') await suspendRatePlan(plan.id, version, reason.trim())
       onDone()
-    } catch (e) { setError(messageOf(e)); readiness.reload() } finally { setBusy(false) }
+    } catch (e) { setError(describeRatePlanActionError(e, action as RatePlanAction)); readiness.reload() } finally { setBusy(false) }
   }
   const clone = async () => {
     setBusy(true); setError(null)
-    try { await cloneRatePlan(plan.id, { code: code.trim(), ...(roomTypeId !== plan.roomTypeId ? { roomTypeId } : {}) }); onDone() } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+    try { await cloneRatePlan(plan.id, { code: code.trim(), ...(roomTypeId !== plan.roomTypeId ? { roomTypeId } : {}) }); onDone() } catch (e) { setError(describeRatePlanActionError(e, 'clone')) } finally { setBusy(false) }
   }
 
   return (
