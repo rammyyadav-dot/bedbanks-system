@@ -20,6 +20,23 @@ describe('RatePlanOpsDatabase', () => {
   })
 })
 
+describe('RatePlanOpsDatabase with the runtime identity guard enforced', () => {
+  // The identity check connects before any query, so a rejected credential fails there (not in withTenant). Jest runs with the guard off, which hid this.
+  const previous = process.env.DB_RUNTIME_ROLE_GUARD
+  beforeAll(() => { process.env.DB_RUNTIME_ROLE_GUARD = 'enforce' })
+  afterAll(() => { if (previous === undefined) delete process.env.DB_RUNTIME_ROLE_GUARD; else process.env.DB_RUNTIME_ROLE_GUARD = previous })
+
+  it('answers a credential the server cannot accept with the sanitized 503, from the identity check', async () => {
+    const db = new RatePlanOpsDatabase({ NODE_ENV: 'development', RATE_PLAN_OPS_DATABASE_URL: 'postgresql://ops:secretsecretsecretsecretsecret123@127.0.0.1:1/db', DATABASE_URL: 'postgresql://api@h/db' })
+    const error = await db.withTenant('tenant', async () => 'must not run').catch((e: unknown) => e)
+    await db.onModuleDestroy()
+    expect(error).toBeInstanceOf(ServiceUnavailableException)
+    const body = JSON.stringify((error as ServiceUnavailableException).getResponse())
+    expect(body).toContain('RATE_PLAN_OPS_UNAVAILABLE')
+    expect(body).not.toMatch(/secretsecret|127\.0\.0\.1|postgresql:|Authentication|invocation/i)
+  })
+})
+
 describe('rate plan ops role contract', () => {
   const grants = ratePlanOpsGrantStatements().join('\n')
   it('writes exactly RatePlan.status and updated_at, appends audit, and grants no table-wide write', () => {
