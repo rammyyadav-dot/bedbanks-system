@@ -7,14 +7,20 @@ resource "aws_lb" "public" {
   drop_invalid_header_fields = true
   enable_deletion_protection = var.environment == "production"
   idle_timeout               = 60
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    prefix  = "alb/public"
+    enabled = true
+  }
+  depends_on = [aws_s3_bucket_policy.alb_logs]
   lifecycle {
     precondition {
       condition     = var.environment != "staging" || !contains(var.public_ingress_cidrs, "0.0.0.0/0")
       error_message = "Staging must stay access-restricted: set public_ingress_cidrs to trusted ranges, not 0.0.0.0/0 (ADR 0055)."
     }
     precondition {
-      condition     = var.environment != "production" || trimspace(var.production_edge_exception_ref) != ""
-      error_message = "Production requires CloudFront in front of the ALB (ADR 0055); it is not implemented in this stack. Set production_edge_exception_ref to the approved exception, or implement the edge first."
+      condition     = var.environment != "production" || var.cloudfront_enabled || trimspace(var.production_edge_exception_ref) != ""
+      error_message = "Production requires CloudFront in front of the ALB (ADR 0055): set cloudfront_enabled = true, or set production_edge_exception_ref to the approved written exception."
     }
   }
 }
@@ -75,6 +81,16 @@ resource "aws_lb_listener_rule" "portal" {
   condition {
     host_header { values = [each.value.host] }
   }
+  # With CloudFront in front, only requests carrying one of the two origin-verification secrets are routed; everything else hits the 404 default.
+  dynamic "condition" {
+    for_each = var.cloudfront_enabled ? [1] : []
+    content {
+      http_header {
+        http_header_name = "X-Origin-Verify"
+        values           = [for s in values(random_password.origin_verify) : s.result]
+      }
+    }
+  }
 }
 
 # ---- internal ALB: the API, reachable only from the portals (server-side /api/v1 proxy). Browsers never reach it. ----
@@ -87,6 +103,12 @@ resource "aws_lb" "internal" {
   drop_invalid_header_fields = true
   enable_deletion_protection = var.environment == "production"
   idle_timeout               = 120 # supplier-backed searches can be slow
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    prefix  = "alb/internal"
+    enabled = true
+  }
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 }
 resource "aws_lb_listener" "internal_https" {
   load_balancer_arn = aws_lb.internal.arn

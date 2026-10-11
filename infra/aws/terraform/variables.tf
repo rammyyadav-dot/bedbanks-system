@@ -161,3 +161,58 @@ variable "dns_cutover_authorization_ref" {
   default     = ""
   description = "Reference to the recorded CTO GO decision. Required to create production public DNS records (create_portal_records)."
 }
+
+# ---- logging, retention and edge (WP3) ----
+variable "log_retention" {
+  type = object({
+    app    = number # ECS application logs
+    flow   = number # VPC flow logs
+    waf    = number # WAF logs (only BLOCK and COUNT are kept)
+    rds    = number # RDS postgresql/upgrade logs
+    alb_s3 = number # ALB access logs in S3 (days)
+  })
+  default     = null
+  description = "Per-class retention in days, awaiting owner/compliance approval. null selects the interim defaults in locals.tf (staging short, production longer). CloudWatch classes must be a value CloudWatch accepts."
+  validation {
+    condition     = var.log_retention == null ? true : alltrue([for k in ["app", "flow", "waf", "rds"] : contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.log_retention[k])]) && var.log_retention.alb_s3 >= 1
+    error_message = "CloudWatch retention values must be one of the values CloudWatch accepts; alb_s3 must be at least 1 day."
+  }
+}
+variable "enable_flow_logs" {
+  type        = bool
+  default     = true
+  description = "VPC flow logs to CloudWatch Logs (metadata only, no payload). Costs ingestion; see docs/aws-cost-model.md."
+}
+variable "redis_auth_rotation_id" {
+  type        = string
+  default     = "1"
+  description = "Change this value to rotate the Redis AUTH token (see docs/aws-secret-rotation-runbook.md)."
+}
+variable "cloudfront_enabled" {
+  type        = bool
+  default     = false
+  description = "Front the public ALB with CloudFront + CLOUDFRONT-scope WAF (ADR 0055). Required for production unless production_edge_exception_ref is set. Needs the us_east_1 provider."
+}
+variable "cloudfront_price_class" {
+  type        = string
+  default     = "PriceClass_200"
+  description = "PriceClass_200 includes the India edge locations; PriceClass_100 does not."
+  validation {
+    condition     = contains(["PriceClass_100", "PriceClass_200", "PriceClass_All"], var.cloudfront_price_class)
+    error_message = "Use PriceClass_100, PriceClass_200 or PriceClass_All."
+  }
+}
+variable "origin_verify_active_slot" {
+  type        = string
+  default     = "a"
+  description = "Which of the two origin-verification secrets CloudFront sends. The ALB accepts both, so rotation is: switch slot, apply, then change origin_verify_rotation_id."
+  validation {
+    condition     = contains(["a", "b"], var.origin_verify_active_slot)
+    error_message = "origin_verify_active_slot must be a or b."
+  }
+}
+variable "origin_verify_rotation_id" {
+  type        = map(string)
+  default     = { a = "1", b = "1" }
+  description = "Per-slot rotation counter; changing a slot's value regenerates that slot's secret."
+}
