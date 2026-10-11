@@ -101,3 +101,7 @@ Built and verified against Postgres (`hotel-commercial.e2e-spec.ts` 28/28, inclu
 ## Browser evidence
 
 `tools/admin-ops-verify/verify-admin-blueprint.cjs` against a real API process (local disposable Postgres, owner connection with the test-only role-guard override), the production Admin build and headless Chromium: 16/16 checks pass (Business nav group, saved views save/apply/delete, profile-status tiles, CSV download with tenant-only rows, bulk owner assign and idempotent re-apply, Search Monitor and Payables render, breadcrumb, read-only viewer sees no export or selection controls, no page errors). Screenshots were captured locally (not committed). Found and fixed on the way: the breadcrumb showed a duplicate trailing segment ("Search monitor / search-monitor") for routes that are themselves navigation entries, a pre-existing bug for several routes. Not covered: axe accessibility on the new pages, narrow-viewport layout, the strict-role API variant, CI.
+
+## Browser evidence update: accessibility and layout
+
+`verify-admin-blueprint.cjs` now also runs axe (WCAG A/AA) on the Hotels list, Search Monitor and Payables, and checks for horizontal page overflow at 1280, 768 and 390 px: 28/28 pass. axe found real colour-contrast failures in the new saved-views and period controls (labels and inputs inherited grey #7b7b76 at 3.94:1); fixed by setting explicit text colours. Not run: the strict-role API variant, CI.

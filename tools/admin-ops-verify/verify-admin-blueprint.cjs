@@ -4,6 +4,7 @@ const path = require('path')
 const { createRequire } = require('module')
 const req = createRequire(path.join(__dirname, '../../apps/website/package.json'))
 const { chromium } = req('@playwright/test')
+const AxeBuilder = req('@axe-core/playwright').default || req('@axe-core/playwright')
 const seed = require(process.env.SEED_JSON ?? path.join(__dirname, '.seed-hotels.json'))
 const BASE = process.env.ADMIN_URL ?? 'http://localhost:3000'
 const SHOTS = process.env.SHOT_DIR ?? require('os').tmpdir()
@@ -74,6 +75,20 @@ async function login(browser, email) {
   const pay = (await page.locator('main, .admin-page').first().innerText()).replace(/\s+/g, ' ')
   check('payables shows the accrual and its not-an-amount-owed definition', /Supplier payables/.test(pay) && /accrual/i.test(pay), pay.slice(0, 200))
   await page.screenshot({ path: `${SHOTS}/payables.png`, fullPage: true })
+
+
+  // accessibility (WCAG A/AA) and horizontal overflow on the new pages and the Hotels list with its new controls
+  for (const [label, url, ready] of [['hotels list', '/hotels', '[data-testid=hotels-table]'], ['search monitor', '/distribution/search-monitor', '[data-testid=search-monitor]'], ['payables', '/finance/payables', '[data-testid=supplier-payables]']]) {
+    await page.goto(`${BASE}${url}`); await page.waitForSelector(ready, { timeout: 20000 })
+    const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+    check(`axe WCAG A/AA: ${label}`, axe.violations.length === 0, axe.violations.map((x) => `${x.id}(${x.nodes.length})`).join(','))
+    for (const w of [1280, 768, 390]) {
+      await page.setViewportSize({ width: w, height: 900 }); await page.waitForTimeout(200)
+      const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      check(`no horizontal page overflow at ${w}px: ${label}`, over <= 1, `${over}px`)
+    }
+    await page.setViewportSize({ width: 1280, height: 900 })
+  }
 
   // a viewer holds none of the new permissions
   const v = await login(browser, seed.viewerEmail)

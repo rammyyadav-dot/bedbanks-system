@@ -19,8 +19,8 @@ export default function SearchMonitorPage() {
   return (
     <div className="admin-page">
       <PageHeader eyebrow="DISTRIBUTION · SEARCH MONITOR" title="Agent Search Monitor" description="Outcomes of Agent searches that were executed. A source failure is shown as a failure, never as an empty market." />
-      <label style={{ display: 'inline-grid', gap: 2, fontSize: 11, marginBottom: 12 }}><span>Period</span>
-        <select value={days} onChange={(e) => setDays(e.target.value)}>{[['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+      <label style={{ display: 'inline-grid', gap: 2, fontSize: 11, marginBottom: 12, color: '#17333e' }}><span style={{ color: '#3f565c' }}>Period</span>
+        <select style={{ color: '#17333e' }} value={days} onChange={(e) => setDays(e.target.value)}>{[['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       <OpsState state={q.state} onRetry={q.reload} isEmpty={(d) => d.total === 0} empty={{ title: 'No searches recorded in this period', description: 'The query succeeded and no executed search was recorded. Cached answers are not recorded.' }}>
         {(d) => (
           <div style={{ display: 'grid', gap: 12 }} data-testid="search-monitor">
