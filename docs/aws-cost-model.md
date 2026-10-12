@@ -81,3 +81,20 @@ Scenario A mirrors `envs/staging.tfvars.example` (1 NAT, single-AZ database, one
 3. Whether staging may be scheduled off-hours.
 4. Reserved Instances / Savings Plans, only after a baseline exists.
 5. Log retention policy and flow-log/WAF-log/ALB-log enablement (each adds cost).
+
+## WP3 cost impact (added with the logging and edge work)
+Same caveat as above: unverified placeholder prices (us-east-1 list, not `ap-south-1`), and the volumes are **assumptions**, not measurements. Every item has a control that lowers it; none was weakened to save money.
+
+| Item | Driver | Assumption (staging / production) | Rough USD per month | Control |
+|---|---|---|---|---|
+| VPC flow logs to CloudWatch | GB ingested + storage | 20 GB / 100 GB, 10-minute aggregation | 10 / 50 | `enable_flow_logs`, retention 14 d / 90 d, aggregation interval |
+| ALB access logs (S3) | GB stored | 5 GB / 50 GB | under 2 / 3 to 5 | lifecycle expiry 30 d / 180 d |
+| WAF logs (regional + edge) | GB ingested | BLOCK/COUNT only: 1 GB / 5 GB | under 2 / 3 | the logging filter |
+| RDS `postgresql`/`upgrade` logs | GB ingested | 2 GB / 10 GB | 1 / 6 | `log_min_duration_statement`, `log_statement = ddl` (never `all`) |
+| RDS Enhanced Monitoring (60 s) | OS metrics as logs | small | under 2 | interval |
+| CLOUDFRONT-scope WAF | 1 ACL + 4 rules + requests | edge off in staging by default / 20 M requests | 0 / 12 to 14 | rule count |
+| CloudFront | egress + requests | see scenario B/C above; partly offsets ALB data processing | in scenario | `cloudfront_price_class` (`PriceClass_200` includes India) |
+| Extra KMS key (edge logs, us-east-1) | key + requests | 1 key | 1 | n/a |
+| Redis AUTH, response-headers policy, prefix list | no charge | n/a | 0 | n/a |
+
+Order of magnitude: **staging +$15 to +$20 a month, production +$70 to +$90 a month before CloudFront egress** (which is already in scenario B). Owner decisions that move these numbers: retention (`docs/aws-log-retention-policy.md`), whether to keep flow logs ALL-traffic in staging, and the CloudFront price class. The AWS Budget created by `budgets.tf` (once a ceiling is approved) would show the real figure; a second pair of eyes should compare the first month's actuals against this table.

@@ -188,6 +188,15 @@ variable "redis_auth_rotation_id" {
   default     = "1"
   description = "Change this value to rotate the Redis AUTH token (see docs/aws-secret-rotation-runbook.md)."
 }
+variable "redis_auth_update_strategy" {
+  type        = string
+  default     = "ROTATE"
+  description = "ROTATE adds a new token while the previous one stays valid (rolling rotation); SET then purges the previous token. See docs/aws-secret-rotation-runbook.md."
+  validation {
+    condition     = contains(["ROTATE", "SET"], var.redis_auth_update_strategy)
+    error_message = "redis_auth_update_strategy must be ROTATE or SET."
+  }
+}
 variable "cloudfront_enabled" {
   type        = bool
   default     = false
