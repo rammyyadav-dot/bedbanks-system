@@ -61,3 +61,8 @@ infra/aws/terraform/.terraform/
 **/*.tfstate.*
 infra/aws/terraform/envs/*.tfvars
 **/crash.log
+
+# Local plan output (sensitive)
+plan-out/
+**/plan.bin
+**/plan.json

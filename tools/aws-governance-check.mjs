@@ -155,6 +155,15 @@ export function checkGovernance(root = process.cwd()) {
     if (proxy !== null && !/resolveApiDestination/.test(proxy)) fail(`apps/${app}/proxy.ts: must resolve the API origin per request`)
   }
 
+  // 6f2. Operator scripts under infra/aws are read-only: none may invoke terraform apply/destroy (a human applies, with approval).
+  for (const dir of ['infra/aws', 'infra/aws/audit', 'infra/aws/express']) {
+    const abs = join(root, dir)
+    for (const f of existsSync(abs) ? readdirSync(abs).filter((n) => n.endsWith('.sh')) : []) {
+      const body = readFileSync(join(abs, f), 'utf8').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').replace(/"[^"\n]*"/g, '""').replace(/'[^'\n]*'/g, "''")
+      if (/terraform[^\n]*\b(apply|destroy)\b|\btf\s+(apply|destroy)\b/.test(body)) fail(`${dir}/${f}: operator script runs terraform apply/destroy (apply is a human action with approval)`)
+    }
+  }
+
   // 6g. WP3: every checkov skip is a registered, reasoned exception.
   const ck = read(root, `${TF}/.checkov.yaml`)
   const register = read(root, 'docs/aws-checkov-exception-register.md')
