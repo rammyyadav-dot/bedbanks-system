@@ -2,7 +2,7 @@ import 'server-only'
 
 import { cache } from 'react'
 import { cookies } from 'next/headers'
-import { routes } from '@bedbanks/contracts'
+import { routes, type ExtranetContractList, type ExtranetContractSummary } from '@bedbanks/contracts'
 import { apiInternalUrl, SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE, supplierOrigin } from './server-env'
 
 export class SupplierApiError extends Error {
@@ -204,6 +204,12 @@ export async function listRooms(hotelId: string): Promise<{ hotelId: string; hot
       }]
     }),
   }
+}
+
+export async function listContracts(): Promise<ExtranetContractSummary[]> {
+  const data = await authorizedRequest(routes.supplier.contracts)
+  if (!isRecord(data) || !Array.isArray(data.contracts)) throw new SupplierApiError(502)
+  return (data as unknown as ExtranetContractList).contracts
 }
 
 export async function saveRoomDraft(hotelId: string, roomId: string, supplierNotes: string, requestId: string): Promise<void> {

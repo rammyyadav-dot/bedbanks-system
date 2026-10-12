@@ -42,6 +42,12 @@ export class SupplierExtranetController {
     return this.extranet.rooms(tenantId, identity.user.id, supplierId, hotelId)
   }
 
+  @Get('contracts')
+  @UseGuards(SupplierOrganizationGuard)
+  contracts(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser) {
+    return this.extranet.contracts(tenantId, identity.user.id, supplierId)
+  }
+
   @Patch('hotels/:hotelId/rooms/:roomId/draft')
   @UseGuards(SupplierOrganizationGuard)
   saveDraft(

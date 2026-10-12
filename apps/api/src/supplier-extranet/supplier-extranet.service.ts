@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import type { ExtranetContractList } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 
 const VISIBLE_MAPPING = ['PENDING', 'MAPPED'] as const
@@ -6,6 +7,7 @@ const EXTRANET_PERMISSIONS = [
   'supplier.extranet.hotels.read',
   'supplier.extranet.rooms.read',
   'supplier.extranet.drafts.manage',
+  'supplier.extranet.contracts.read',
 ] as const
 
 const hotelFields = {
@@ -140,6 +142,62 @@ export class SupplierExtranetService {
         }),
       }
     })
+  }
+
+  /**
+   * Read-only contract and rate-plan summaries for the caller's organization. Scope is the contract's own supplier id plus the
+   * tenant; a contract linked to a mapping that is REJECTED is hidden. Amounts are never returned in this slice.
+   */
+  async contracts(tenantId: string, userId: string, supplierId: string): Promise<ExtranetContractList> {
+    await this.requirePermission(tenantId, userId, 'supplier.extranet.contracts.read')
+    const rows = await this.prisma.withSupplier(tenantId, supplierId, (tx) => tx.contract.findMany({
+      where: {
+        tenantId,
+        supplierId,
+        OR: [{ supplierHotelMappingId: null }, { supplierHotelMapping: { status: { in: [...VISIBLE_MAPPING] } } }],
+      },
+      orderBy: [{ validFrom: 'desc' }, { code: 'asc' }],
+      take: 200,
+      select: {
+        id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true,
+        supplierHotelMapping: { select: { hotel: { select: { id: true, name: true } } } },
+        ratePlans: {
+          where: { tenantId },
+          orderBy: { code: 'asc' },
+          take: 200,
+          select: {
+            id: true, code: true, status: true, refundable: true, occupancy: true, currency: true, validFrom: true, validTo: true,
+            roomType: { select: { name: true } },
+            boardBasis: { select: { name: true } },
+          },
+        },
+      },
+    }))
+    const day = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : null)
+    return {
+      contracts: rows.map((contract) => ({
+        id: contract.id,
+        code: contract.code,
+        status: contract.status,
+        hotelId: contract.supplierHotelMapping?.hotel.id ?? null,
+        hotelName: contract.supplierHotelMapping?.hotel.name ?? null,
+        validFrom: day(contract.validFrom) as string,
+        validTo: day(contract.validTo) as string,
+        settlementCurrency: contract.settlementCurrency.trim(),
+        ratePlans: contract.ratePlans.map((plan) => ({
+          id: plan.id,
+          code: plan.code,
+          status: plan.status,
+          roomTypeName: plan.roomType.name,
+          boardBasis: plan.boardBasis.name,
+          refundable: plan.refundable,
+          occupancy: plan.occupancy,
+          currency: plan.currency.trim(),
+          validFrom: day(plan.validFrom),
+          validTo: day(plan.validTo),
+        })),
+      })),
+    }
   }
 
   async saveRoomDraft(tenantId: string, userId: string, supplierId: string, hotelId: string, roomTypeId: string, supplierNotes: string, requestId?: string) {
