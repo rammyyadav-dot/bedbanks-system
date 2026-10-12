@@ -1743,6 +1743,9 @@ model RatePlan {
   validTo           DateTime?      @map("valid_to") @db.Date
   /// How the buyer pays. Null means not recorded; it is never defaulted.
   paymentType       RatePaymentType? @map("payment_type")
+  /// Buyer markets (agency country) and guest nationalities this plan is sold to (ADR 0057, slice S3). ISO-3166 alpha-2 allow-lists. Empty means no extra restriction beyond the contract; a non-empty list can only narrow the contract's own list.
+  salesMarkets      Json           @default("[]") @map("sales_markets")
+  nationalities     Json           @default("[]")
   /// Name of a cancellation rule set on this plan's contract (ADR 0057). Null uses the contract default rules.
   cancellationPolicySet String?    @map("cancellation_policy_set") @db.VarChar(80)
   /// The shared physical stock this plan draws from, if any. Pools never mix tenants, hotels or suppliers (database trigger).

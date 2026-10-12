@@ -15,7 +15,7 @@ interface PlanOpts {
 function plan(o: PlanOpts = {}): AuditPlan {
   const id = o.id ?? 'plan-1'
   return {
-    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, releaseDays: 0, refundable: o.refundable ?? true,
+    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, salesMarkets: [], nationalities: [], releaseDays: 0, refundable: o.refundable ?? true,
     contractId: o.contractId ?? 'c1', roomTypeId: 'room-1', boardBasisId: o.boardId ?? 'b1',
     boardBasis: { code: 'BB', isActive: true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: o.maxOccupancy ?? 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
@@ -229,6 +229,15 @@ describe('price simulator (RC)', () => {
     expect(r.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE')
     expect(r).toMatchObject({ totalMinor: null, recomputedTotalMinor: null, reconciles: true })
     expect(r.nights.every((n) => n.sellMinor === null)).toBe(true)
+  })
+
+  it('RC-ADR0057-S3: plan market lists are audited against the contract', () => {
+    const withLists = (salesMarkets: unknown, contractMarkets: unknown) => { const p = plan({ salesMarkets: contractMarkets }); return { ...p, salesMarkets, nationalities: [] } as AuditPlan }
+    const found = (p: AuditPlan) => auditHotel(input([p])).plans[0].findings.find((f) => f.code.startsWith('PLAN_MARKET'))
+    expect(found(withLists([], []))).toBeUndefined()
+    expect(found(withLists(['AE'], []))).toMatchObject({ code: 'PLAN_MARKET_RESTRICTED', severity: 'INFO' })
+    expect(found(withLists(['AE', 'US'], ['AE']))).toMatchObject({ code: 'PLAN_MARKET_OUTSIDE_CONTRACT', severity: 'FAIL', count: 1 })
+    expect(found(withLists('junk', []))).toMatchObject({ code: 'PLAN_MARKET_RULE_INVALID', severity: 'FAIL' })
   })
 
   it('RC-ADR0057: the simulator applies the plan sale window and cancellation set exactly as Agent search does', () => {

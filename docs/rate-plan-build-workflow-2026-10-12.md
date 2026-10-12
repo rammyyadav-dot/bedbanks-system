@@ -151,10 +151,11 @@ Booking, payment, wallet, supplier confirmation and any live connector. No merge
 | S2a plan sale window + payment type | **BUILT**, certified on disposable PostgreSQL 16 + pgvector | ADR 0057; migration `202611120001`; `rate-plan-terms.ts`; evaluator, activation, hold path, Admin form |
 | S2b plan-attached cancellation (named rule sets) | **BUILT**, certified on disposable PostgreSQL; strict-role boot smoke 42/42 | ADR 0057; migration `202611120002`; `cancellation-rules.ts` |
 | Payment type on Agent offers | **BUILT** (`unspecified` replaces the hardcoded `prepaid`) | ADR 0057 |
-| S3 plan-level market/channel | NOT BUILT | next |
+| S3 plan-level buyer market + nationality | **BUILT** (narrow-only, enforced in the shared evaluator); channel NOT modelled | ADR 0057; migration `202611130001` |
 | S0 operator provisioning / hosted certification | OPEN (people) | runbook |
 | S4-S10 | NOT BUILT | - |
 
+| F4 | closed for plan-level market and nationality lists | S3 |
 | F13 (new) | Cancellation penalties and vouchers read live contract rules, not a copy frozen at booking | open, needs a booking decision |
 
 Finding status: F1 closed by S2b for offers, penalties and vouchers (via one resolver). F2 (plan validity) closed for the sale window; the booking window stays contract-level. Payment type is recorded but not yet shown to Agents. F1, F3-F10 remain open.

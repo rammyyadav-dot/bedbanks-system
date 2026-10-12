@@ -12,7 +12,7 @@ function row(date: string, patch: Partial<Row> = {}): Row {
 }
 function plan(o: { rows?: Row[]; pool?: StayPlanInput['inventoryPool']; poolId?: string | null; releaseDays?: number; releaseTime?: string } = {}): StayPlanInput {
   return {
-    status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, releaseDays: o.releaseDays ?? 0, releaseTimeLocal: o.releaseTime ?? '00:00',
+    status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, salesMarkets: [], nationalities: [], releaseDays: o.releaseDays ?? 0, releaseTimeLocal: o.releaseTime ?? '00:00',
     inventoryPoolId: o.poolId ?? null, inventoryPool: o.pool ?? null,
     roomType: { hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
     boardBasis: { isActive: true },

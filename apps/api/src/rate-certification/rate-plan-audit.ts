@@ -6,7 +6,7 @@ import { markupMinor } from '@bedbanks/pricing'
 import { assessHotel, contractStateOf, type AssessHotelInput, type AssessPlan, type HotelAssessment, type PlanAssessment } from '../supply/commercial-assessment'
 import { evaluateContractedStay } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
-import { parseMarketRules } from '../supply/market-rules'
+import { codesOutsideContract, parseMarketRules } from '../supply/market-rules'
 import { markupResolverFor, resolveMarkupBasisPoints, type MarkupRuleRow } from '../supply/markup-rules'
 
 /**
@@ -133,6 +133,13 @@ function auditPlan(plan: AuditPlan, ctx: PlanContext): { row: RatePlanAuditRow; 
     const marketRules = parseMarketRules(plan.contract)
     if (marketRules.salesMarkets === null || marketRules.nationalities === null) f.add('CONTRACT_MARKET_RULE_INVALID', 'FAIL', 'The contract sales-market or nationality list is malformed, so Agent search does not sell it to anyone.', 1)
     else if (marketRules.salesMarkets.length + marketRules.nationalities.length > 0) f.add('CONTRACT_MARKET_RESTRICTED', 'INFO', 'Sold only to the listed buyer markets and guest nationalities. Agent search enforces this; this audit is buyer-independent.', marketRules.salesMarkets.length + marketRules.nationalities.length, [...marketRules.salesMarkets, ...marketRules.nationalities])
+    const planRules = parseMarketRules(plan)
+    if (planRules.salesMarkets === null || planRules.nationalities === null) f.add('PLAN_MARKET_RULE_INVALID', 'FAIL', 'The rate plan sales-market or nationality list is malformed, so Agent search refuses every buyer for this plan.', 1)
+    else {
+      const outside = [...codesOutsideContract(planRules.salesMarkets, marketRules.salesMarkets ?? []), ...codesOutsideContract(planRules.nationalities, marketRules.nationalities ?? [])]
+      if (outside.length) f.add('PLAN_MARKET_OUTSIDE_CONTRACT', 'FAIL', `The plan lists ${outside.join(', ')} which the contract does not allow, so those buyers can never be sold this plan.`, outside.length)
+      else if (planRules.salesMarkets.length + planRules.nationalities.length > 0) f.add('PLAN_MARKET_RESTRICTED', 'INFO', 'Sold only to the plan\'s listed buyer markets and guest nationalities, on top of the contract rules. Agent search applies both.', 1)
+    }
     const dupCode = ctx.duplicateCodes.get(plan.id)
     if (dupCode) f.add('DUPLICATE_PLAN_CODE', 'FAIL', `The code ${plan.code} is used by another live plan of this hotel (different contract).`, dupCode.length + 1, dupCode)
     const dupLogical = ctx.duplicateLogical.get(plan.id)
@@ -221,9 +228,9 @@ export function auditMarkupRules(rules: readonly MarkupRuleInput[]): MarkupRuleA
 // ---- remediation -------------------------------------------------------------------------------------------------------------
 const PRIORITY: Record<RateFindingCode, RemediationPriority | null> = {
   RATE_AMOUNT_ZERO: 'P0', RATE_CURRENCY_MISMATCH: 'P0', RATE_BASIS_UNVERIFIED: 'P0', NET_MARKUP_MISSING: 'P0', PLAN_CURRENCY_NOT_ENABLED: 'P0', PLAN_CONTRACT_CURRENCY_MISMATCH: 'P0', OCCUPANCY_EXCEEDS_ROOM: 'P0', PLAN_CONTRACT_NOT_ACTIVE: 'P0',
-  NO_PRICED_NIGHTS: 'P1', CONTRACT_MARKET_RULE_INVALID: 'P1', DUPLICATE_PLAN_CODE: 'P1', DUPLICATE_LOGICAL_PLAN: 'P1', RATE_GAPS: 'P1', NO_SELLABLE_NIGHTS: 'P1', CONTRACT_EXPIRING: 'P1',
+  NO_PRICED_NIGHTS: 'P1', CONTRACT_MARKET_RULE_INVALID: 'P1', PLAN_MARKET_RULE_INVALID: 'P1', PLAN_MARKET_OUTSIDE_CONTRACT: 'P1', DUPLICATE_PLAN_CODE: 'P1', DUPLICATE_LOGICAL_PLAN: 'P1', RATE_GAPS: 'P1', NO_SELLABLE_NIGHTS: 'P1', CONTRACT_EXPIRING: 'P1',
   RATE_MIXED_BASIS: 'P2', RATE_OUTSIDE_CONTRACT: 'P2', RATE_OTHER_OCCUPANCY: 'P2', AVAILABILITY_GAPS: 'P2', PLAN_CODE_FORMAT: 'P2', MARKUP_ZERO_PERCENT: 'P2', MARKUP_VERY_HIGH: 'P2',
-  PLAN_NOT_LIVE: null, CONTRACT_MARKET_RESTRICTED: null,
+  PLAN_NOT_LIVE: null, CONTRACT_MARKET_RESTRICTED: null, PLAN_MARKET_RESTRICTED: null,
 }
 const ACTION: Record<RateFindingCode, string> = {
   RATE_AMOUNT_ZERO: 'Confirm the contracted price with the supplier and correct the rate in Quick Update, or close the night.',
@@ -240,6 +247,8 @@ const ACTION: Record<RateFindingCode, string> = {
   RATE_GAPS: 'Load the missing nights or close them with stop-sell.',
   NO_SELLABLE_NIGHTS: 'Resolve the listed blockers (inventory, mapping, stop-sell) in the hotel workspace.',
   CONTRACT_MARKET_RULE_INVALID: 'Correct the contract sales-market and nationality lists to two-letter country codes (or clear them); nothing is rewritten automatically.',
+  PLAN_MARKET_RULE_INVALID: 'Correct the rate plan sales-market and nationality lists to two-letter country codes (or clear them); nothing is rewritten automatically.',
+  PLAN_MARKET_OUTSIDE_CONTRACT: 'Remove the listed codes from the plan, or add them to the contract if the supplier agreed; a plan can only narrow its contract.',
   CONTRACT_EXPIRING: 'Renew the contract before it expires.',
   RATE_MIXED_BASIS: 'Confirm the NET/SELL mix with the contract.',
   RATE_OUTSIDE_CONTRACT: 'Review the dates; the rows are never sold and can be corrected or left.',
@@ -247,7 +256,7 @@ const ACTION: Record<RateFindingCode, string> = {
   AVAILABILITY_GAPS: 'Load availability for the listed nights or set stop-sell.',
   PLAN_CODE_FORMAT: 'Rename the plan to the governed pattern, if an administrator agrees; suggestion only.',
   MARKUP_ZERO_PERCENT: 'Confirm that selling at cost is intended.', MARKUP_VERY_HIGH: 'Confirm the percentage.',
-  PLAN_NOT_LIVE: '', CONTRACT_MARKET_RESTRICTED: '',
+  PLAN_NOT_LIVE: '', CONTRACT_MARKET_RESTRICTED: '', PLAN_MARKET_RESTRICTED: '',
 }
 
 export function remediationItems(plans: readonly RatePlanAuditRow[]): RemediationItem[] {

@@ -43,3 +43,15 @@ export function marketReasons(rules: ContractMarketRules, buyer: BuyerContext): 
   if (rules.nationalities.length > 0 && (nationality === null || !rules.nationalities.includes(nationality))) reasons.push('NATIONALITY_NOT_ALLOWED')
   return reasons
 }
+
+/**
+ * Plan-level rules (ADR 0057, S3). Same allow-list semantics as the contract, with plan-specific codes so a refusal names its source.
+ * The buyer must pass BOTH the contract rules and these; a plan can narrow the contract but never widen it.
+ */
+export function planMarketReasons(rules: ContractMarketRules, buyer: BuyerContext): string[] {
+  return marketReasons(rules, buyer).map((reason) => reason === 'SOURCE_MARKET_NOT_ALLOWED' ? 'RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED'
+    : reason === 'NATIONALITY_NOT_ALLOWED' ? 'RATE_PLAN_NATIONALITY_NOT_ALLOWED' : reason === 'CONTRACT_MARKET_RULE_INVALID' ? 'RATE_PLAN_MARKET_RULE_INVALID' : reason)
+}
+
+/** Codes in a plan list that the contract's non-empty list does not include. An empty contract list allows anything. Null (malformed) lists are reported by the caller. */
+export const codesOutsideContract = (plan: readonly string[], contract: readonly string[]): string[] => contract.length === 0 ? [] : plan.filter((code) => !contract.includes(code))

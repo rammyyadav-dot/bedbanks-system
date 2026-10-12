@@ -1,7 +1,7 @@
 # ADR 0057: Rate plan terms and activation approval
 
 ## Status
-Accepted as direction (owner instructed "go ahead with your recommendation", 2026-10-12). **Slices S2a (sale window, payment type, payment type on Agent offers) and S2b (plan-attached cancellation rule sets) are implemented.** Every other slice is **not built**. Nothing here enables booking, payment or a supplier connection. ADR 0032 (privileged rate writes), ADR 0041 (activation lifecycle) and ADR 0014 (one sellability evaluator) are unchanged.
+Accepted as direction (owner instructed "go ahead with your recommendation", 2026-10-12). **Slices S2a (sale window, payment type, payment type on Agent offers) and S2b (plan-attached cancellation rule sets) and S3 (plan-level buyer markets and nationalities) are implemented.** Every other slice is **not built**. Nothing here enables booking, payment or a supplier connection. ADR 0032 (privileged rate writes), ADR 0041 (activation lifecycle) and ADR 0014 (one sellability evaluator) are unchanged.
 
 Companion: `docs/rate-plan-build-workflow-2026-10-12.md` (audit, benchmark, workflow, slice plan).
 
@@ -40,11 +40,19 @@ A rate plan is a flat row: contract, room, board, adults-only occupancy and a `r
 - Admin: rule sets shown grouped on the contract, a set name on new rules, and a rule-set picker on the plan form (refundable plans only; an unreadable contract is reported, not shown as "no sets").
 - **Compared against the simulator:** the simulator and Agent search call the same evaluator; a unit test and SR-14 (search e2e) assert that a named-but-empty set removes the offer and that a named set yields its own deadline (11 days earlier than the default in the test).
 
+## Slice S3 (implemented): plan-level buyer markets and nationalities
+- `RatePlan.sales_markets` and `RatePlan.nationalities` (JSONB, default `[]`, `CHECK jsonb_typeof = 'array'`), ISO-3166 alpha-2 allow-lists with the same semantics as the contract's (ADR 0035): empty restricts nothing, non-empty is an allow-list, an unknown buyer never satisfies it, a malformed list refuses everyone. Migration `202611130001_rate_plan_markets`: additive, existing plans get `[]`, rollback notes in the header.
+- **Narrow only.** A buyer must pass the contract rules **and** the plan rules (`planMarketReasons`, with plan-specific codes `RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED`, `RATE_PLAN_NATIONALITY_NOT_ALLOWED`, `RATE_PLAN_MARKET_RULE_INVALID` so a refusal names its source). The API refuses codes outside a restricted contract's own list (`RATE_PLAN_MARKET_OUTSIDE_CONTRACT`), because they could never sell. Narrowing the contract afterwards is caught by the new activation check `PLAN_MARKETS` and by audit findings `PLAN_MARKET_OUTSIDE_CONTRACT` and `PLAN_MARKET_RULE_INVALID` (FAIL) and `PLAN_MARKET_RESTRICTED` (INFO).
+- Enforced where the contract rules are: one evaluator for Agent search, recheck, hold and the simulator. Admin diagnostics without a buyer stay buyer-independent, as for the contract. The adapter reads the buyer's agency market whenever the contract **or the plan** restricts markets.
+- Same fail-closed loading: `buildStaySnapshot` throws `RATE_PLAN_MARKETS_NOT_LOADED` if a loader omitted the lists (an undefined list would otherwise read as unrestricted).
+- Edits: key left out keeps, `[]` or `null` clears; clone copies the lists; Admin plan form has both lists and shows the contract's own.
+- **Channel** (a distribution channel as distinct from buyer market) is not modelled anywhere in the schema and is not part of S3. It needs its own decision.
+
 ### Known limitation, not changed here (finding F13)
 Cancellation penalties (`booking-cancellation.service`) and voucher text read the contract's **live** rules, not a copy frozen at booking. Editing a rule after a booking changes that booking's penalty. S2b routes these through the same resolver so they match the offer, but freezing the policy at booking is a booking-mutation change and needs its own decision.
 
 ### Not built
-Plan-level market eligibility (S3), four-eye activation (S5), child and extra-bed lines (S6), grid/CSV (S7), clone writer (S8), expiry sweeper (S9), promotions and derived rates (S10).
+Four-eye activation (S5), child and extra-bed lines (S6), grid/CSV (S7), clone writer (S8), expiry sweeper (S9), promotions and derived rates (S10).
 
 ## Consequences
 - The booking window (distinct from the stay window) is still contract-level.

@@ -3,10 +3,10 @@ import { assessRatePlanActivation, cloneDraftFields, rateGaps, transitionTarget,
 const rate = (stayDate: string, over: Partial<ActivationFacts['rates'][number]> = {}) => ({ stayDate, amountBasis: 'NET', currency: 'AED', amountMinor: 45000n, ...over })
 const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
   today: '2026-10-11',
-  plan: { status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, validFrom: null, validTo: null, cancellationPolicySet: null },
+  plan: { status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, validFrom: null, validTo: null, cancellationPolicySet: null, markets: { salesMarkets: [], nationalities: [] } },
   room: { hotelId: 'h1', maxOccupancy: 3, isActive: true },
   board: { isActive: true },
-  contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1 },
+  contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1, markets: { salesMarkets: [], nationalities: [] } },
   rates: [rate('2026-10-11'), rate('2026-10-12'), rate('2026-10-13')],
   availabilityDates: ['2026-10-11'],
   ...over,
@@ -103,7 +103,7 @@ describe('rate plan transitions', () => {
 
 describe('rate plan clone', () => {
   it('copies commercial shape into a draft with the new code and nothing else', () => {
-    const source = { contractId: 'c', roomTypeId: 'r1', boardBasisId: 'b', occupancy: 2, currency: 'AED', refundable: false, taxesIncluded: true, feesIncluded: false, minStay: 2, maxStay: 7, releaseDays: 3, releaseTimeLocal: '12:00', validFrom: new Date('2026-11-01T00:00:00Z'), validTo: null, paymentType: 'PREPAID' as const, cancellationPolicySet: 'FLEX', status: 'ACTIVE', id: 'x', inventoryPoolId: 'pool' }
+    const source = { contractId: 'c', roomTypeId: 'r1', boardBasisId: 'b', occupancy: 2, currency: 'AED', refundable: false, taxesIncluded: true, feesIncluded: false, minStay: 2, maxStay: 7, releaseDays: 3, releaseTimeLocal: '12:00', validFrom: new Date('2026-11-01T00:00:00Z'), validTo: null, paymentType: 'PREPAID' as const, cancellationPolicySet: 'FLEX', salesMarkets: ['AE'], nationalities: [], status: 'ACTIVE', id: 'x', inventoryPoolId: 'pool' }
     const copy = cloneDraftFields(source, { code: 'NEW', roomTypeId: 'r2' })
     expect(copy).toMatchObject({ code: 'NEW', roomTypeId: 'r2', status: 'DRAFT', refundable: false, minStay: 2, maxStay: 7, releaseTimeLocal: '12:00', paymentType: 'PREPAID' })
     expect(copy.validFrom?.toISOString()).toBe('2026-11-01T00:00:00.000Z')
@@ -130,4 +130,22 @@ describe('rate plan cancellation set (ADR 0057)', () => {
     expect(assessRatePlanActivation(refundable('FLEX', 0)).checks.find((c) => c.code === 'CANCELLATION_POLICY')?.message).toContain('"FLEX"')
   })
   it('still fails a refundable plan on the contract default with no rules', () => { expect(failed(refundable(null, 0))).toEqual(['CANCELLATION_POLICY']) })
+})
+
+describe('rate plan buyer markets (ADR 0057, S3)', () => {
+  const lists = (plan: [string[] | null, string[] | null], contract: [string[] | null, string[] | null]) => base({
+    plan: { ...base().plan, markets: { salesMarkets: plan[0], nationalities: plan[1] } },
+    contract: { ...base().contract, markets: { salesMarkets: contract[0], nationalities: contract[1] } },
+  })
+  it('passes with no plan restriction, and with a plan list inside the contract list', () => {
+    expect(failed(lists([[], []], [['AE'], []]))).toEqual([])
+    expect(failed(lists([['AE'], ['IN']], [['AE', 'SA'], []]))).toEqual([])
+  })
+  it('fails a plan list the restricted contract does not allow, naming the code', () => {
+    const facts = lists([['US'], []], [['AE'], []])
+    expect(failed(facts)).toEqual(['PLAN_MARKETS'])
+    expect(assessRatePlanActivation(facts).checks.find((c) => c.code === 'PLAN_MARKETS')?.message).toContain('US')
+  })
+  it('allows any plan list under an unrestricted contract', () => { expect(failed(lists([['US'], ['IN']], [[], []]))).toEqual([]) })
+  it('fails a malformed plan list', () => { expect(failed(lists([null, []], [[], []]))).toEqual(['PLAN_MARKETS']) })
 })

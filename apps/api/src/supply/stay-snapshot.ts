@@ -18,6 +18,9 @@ export interface StayPlanInput {
   validTo: Date | null
   /** ADR 0057. Required (nullable) for the same reason as the sale window. */
   cancellationPolicySet: string | null
+  /** ADR 0057 S3 allow-lists. Required (any JSON) so a loader that forgot them fails loudly rather than reading as unrestricted. */
+  salesMarkets: unknown
+  nationalities: unknown
   inventoryPoolId?: string | null
   /** The plan's pool with the stock days of the window. Absent when the plan has no pool. */
   inventoryPool?: { name?: string; days: PoolDayInput[] } | null
@@ -50,6 +53,7 @@ export function buildStaySnapshot(
   // A loader that forgot the plan window would silently skip the rule (fail open). Refuse loudly instead.
   if (plan.validFrom === undefined || plan.validTo === undefined) throw new Error('RATE_PLAN_WINDOW_NOT_LOADED')
   if (plan.cancellationPolicySet === undefined || plan.contract.cancellationPolicies === undefined) throw new Error('RATE_PLAN_CANCELLATION_NOT_LOADED')
+  if (plan.salesMarkets === undefined || plan.nationalities === undefined) throw new Error('RATE_PLAN_MARKETS_NOT_LOADED')
   const rates = new Map(plan.dailyRates.map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
@@ -90,6 +94,7 @@ export function buildStaySnapshot(
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),
+    planMarketRules: parseMarketRules(plan),
     ratePlanStatus: plan.status,
     ratePlanOccupancy: plan.occupancy,
     ratePlanCurrency: plan.currency,

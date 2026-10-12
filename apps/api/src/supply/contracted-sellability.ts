@@ -1,6 +1,6 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 import { releaseAllows } from './zoned-time'
-import { marketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
+import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
  * Shared commercial gates for contracted inventory.
  * The single-night helper preserves the existing admin sellability reasons.
@@ -91,6 +91,8 @@ export type AvailabilityStatus = 'available' | 'on_request' | 'unavailable'
 export interface ContractedStaySnapshot {
   /** Parsed contract sales markets and nationalities (ADR 0035). Absent means the caller does not model them; they are only enforced when the request names a buyer. */
   marketRules?: ContractMarketRules
+  /** The plan's own allow-lists (ADR 0057, S3). Required so a caller cannot omit them and skip the rule. */
+  planMarketRules: ContractMarketRules
   hotelContentStatus: string
   roomActive: boolean
   boardActive: boolean
@@ -198,7 +200,10 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
   if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
-  if (request.buyer) reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
+  if (request.buyer) {
+    reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
+    reasons.push(...planMarketReasons(snapshot.planMarketRules, request.buyer))
+  }
 
   let perRoom = 0n
   let perRoomNet = 0n

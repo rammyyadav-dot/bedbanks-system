@@ -80,6 +80,8 @@ export interface AdminRatePlan {
   validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null;
   /** Name of the contract's cancellation rule set this plan uses; null = the contract default rules. */
   cancellationPolicySet?: string | null;
+  /** Buyer markets and guest nationalities this plan is sold to, on top of the contract's own lists. Empty = no extra restriction. */
+  salesMarkets?: string[]; nationalities?: string[];
   /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
   inventoryPoolId?: string | null;
   /** Row version: activate and suspend must echo it so a stale view cannot overwrite a concurrent change. */
@@ -90,7 +92,7 @@ export interface AdminRatePlan {
 }
 export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supply/rate-plans'); }
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
-export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number; validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet?: string | null }
+export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number; validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet?: string | null; salesMarkets?: string[]; nationalities?: string[] }
 export async function createRatePlan(input: RatePlanInput) { return apiRequest<AdminRatePlan>('/supply/rate-plans', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }

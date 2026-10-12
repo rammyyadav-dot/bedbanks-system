@@ -28,6 +28,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     contractValidTo: '2026-12-31',
     contractCurrency: 'AED',
     cancellationPolicyMissing: false,
+    planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
     ratePlanStatus: 'ACTIVE',

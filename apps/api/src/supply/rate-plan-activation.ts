@@ -25,18 +25,20 @@ export interface ActivationReadiness {
 export interface ActivationFacts {
   /** Today in the hotel's calendar, YYYY-MM-DD. The caller supplies it so the evaluator stays deterministic. */
   today: string
-  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null; cancellationPolicySet: string | null }
+  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null; cancellationPolicySet: string | null; markets: { salesMarkets: string[] | null; nationalities: string[] | null } }
   room: { hotelId: string; maxOccupancy: number; isActive: boolean }
   board: { isActive: boolean }
   contract: {
     status: string; validFrom: string; validTo: string; settlementCurrency: string
-    mappedHotelId: string | null; cancellationPolicyCount: number
+    mappedHotelId: string | null; cancellationPolicyCount: number; markets: { salesMarkets: string[] | null; nationalities: string[] | null }
   }
   /** Daily rows for the plan's own occupancy from `today` onward. */
   rates: Array<{ stayDate: string; amountBasis: string | null; currency: string; amountMinor: bigint }>
   /** Future availability rows for the plan. */
   availabilityDates: string[]
 }
+
+import { codesOutsideContract } from './market-rules'
 
 const DAY_MS = 86_400_000
 const addDay = (day: string): string => new Date(Date.parse(`${day}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10)
@@ -73,6 +75,13 @@ export function assessRatePlanActivation(facts: ActivationFacts): ActivationRead
   checks.push(check('PLAN_VALIDITY', 'Plan sale window', windowInside && windowOrdered && windowOpen,
     plan.validFrom === null && plan.validTo === null ? 'Plan inherits the contract term.' : `Plan is on sale ${plan.validFrom ?? contract.validFrom} to ${plan.validTo ?? contract.validTo}.`,
     !windowOrdered ? 'The plan sale window is inverted.' : !windowInside ? 'The plan sale window extends outside the contract term.' : `The plan sale window ended on ${plan.validTo}.`))
+  // ADR 0057 S3: plan buyer lists must be well formed and can only narrow the contract's own lists.
+  const pm = plan.markets, cm = contract.markets
+  const marketsMalformed = pm.salesMarkets === null || pm.nationalities === null
+  const marketsOutside = marketsMalformed ? [] : [...codesOutsideContract(pm.salesMarkets!, cm.salesMarkets ?? []), ...codesOutsideContract(pm.nationalities!, cm.nationalities ?? [])]
+  checks.push(check('PLAN_MARKETS', 'Plan buyer markets', !marketsMalformed && marketsOutside.length === 0,
+    pm.salesMarkets && pm.nationalities && pm.salesMarkets.length + pm.nationalities.length > 0 ? 'Plan is restricted to its listed buyer markets and nationalities, inside the contract.' : 'Plan adds no buyer restriction beyond the contract.',
+    marketsMalformed ? 'The plan sales-market or nationality list is malformed.' : `The plan lists ${marketsOutside.join(', ')} which the contract does not allow, so it could never sell to them.`))
   checks.push(check('CURRENCY_MATCH', 'Currency', plan.currency === contract.settlementCurrency, `Plan and contract both use ${plan.currency}.`,
     `Plan currency ${plan.currency} differs from contract settlement currency ${contract.settlementCurrency}.`))
 
@@ -114,13 +123,13 @@ export function transitionTarget(action: RatePlanAction, from: RatePlanStatusVal
 
 /** Clone keeps the commercial shape but never identity, status, rates or stock. */
 export function cloneDraftFields(
-  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet: string | null },
+  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet: string | null; salesMarkets: unknown; nationalities: unknown },
   overrides: { code: string; roomTypeId?: string },
 ) {
   return {
     contractId: source.contractId, roomTypeId: overrides.roomTypeId ?? source.roomTypeId, boardBasisId: source.boardBasisId, code: overrides.code,
     status: 'DRAFT' as const, occupancy: source.occupancy, currency: source.currency, refundable: source.refundable, taxesIncluded: source.taxesIncluded,
     feesIncluded: source.feesIncluded, minStay: source.minStay, maxStay: source.maxStay, releaseDays: source.releaseDays, releaseTimeLocal: source.releaseTimeLocal,
-    validFrom: source.validFrom, validTo: source.validTo, paymentType: source.paymentType, cancellationPolicySet: source.cancellationPolicySet,
+    validFrom: source.validFrom, validTo: source.validTo, paymentType: source.paymentType, cancellationPolicySet: source.cancellationPolicySet, salesMarkets: source.salesMarkets, nationalities: source.nationalities,
   }
 }

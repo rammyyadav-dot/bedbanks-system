@@ -1,4 +1,4 @@
-import { marketReasons, normalizeCountry, parseMarketList, parseMarketRules } from './market-rules'
+import { codesOutsideContract, marketReasons, planMarketReasons, normalizeCountry, parseMarketList, parseMarketRules } from './market-rules'
 import { evaluateContractedStay, type ContractedStaySnapshot } from './contracted-sellability'
 
 describe('contract market rules (ADR 0035)', () => {
@@ -46,9 +46,9 @@ describe('contract market rules (ADR 0035)', () => {
   })
 
   describe('evaluator', () => {
-    const snapshot = (marketRules?: ContractedStaySnapshot['marketRules']): ContractedStaySnapshot => ({
+    const snapshot = (marketRules?: ContractedStaySnapshot['marketRules'], planMarketRules: ContractedStaySnapshot['planMarketRules'] = { salesMarkets: [], nationalities: [] }): ContractedStaySnapshot => ({
       hotelContentStatus: 'COMPLETE', roomActive: true, boardActive: true, supplierStatus: 'ACTIVE', hotelMappingStatus: 'MAPPED', hotelMappingHotelId: 'h', canonicalHotelId: 'h', roomMappingStatus: 'MAPPED',
-      contractStatus: 'ACTIVE', contractValidFrom: '2026-01-01', contractValidTo: '2026-12-31', contractCurrency: 'AED', cancellationPolicyMissing: false, ratePlanValidFrom: null, ratePlanValidTo: null, ratePlanStatus: 'ACTIVE', ratePlanOccupancy: 2, ratePlanCurrency: 'AED', ratePlanMinStay: 1, ratePlanMaxStay: null,
+      contractStatus: 'ACTIVE', contractValidFrom: '2026-01-01', contractValidTo: '2026-12-31', contractCurrency: 'AED', cancellationPolicyMissing: false, planMarketRules, ratePlanValidFrom: null, ratePlanValidTo: null, ratePlanStatus: 'ACTIVE', ratePlanOccupancy: 2, ratePlanCurrency: 'AED', ratePlanMinStay: 1, ratePlanMaxStay: null,
       ratePlanReleaseDays: 0, hotelTimeZone: 'Asia/Dubai', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, ...(marketRules ? { marketRules } : {}),
       nights: [{ date: '2026-10-15', rateAmountMinor: 10_000n, rateCurrency: 'AED', amountBasis: 'SELL', availability: { allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false } }],
     })
@@ -69,5 +69,43 @@ describe('contract market rules (ADR 0035)', () => {
       expect(evaluateContractedStay(snapshot(), { ...request, buyer: { nationality: null, market: null } }).eligible).toBe(true)
       expect(evaluateContractedStay(snapshot(parseMarketRules({ nationalities: 'x' })), { ...request, buyer: { nationality: 'IN', market: 'GB' } }).reasons).toEqual(['CONTRACT_MARKET_RULE_INVALID'])
     })
+
+  describe('plan-level rules (ADR 0057, S3)', () => {
+    const buyer = (market: string | null, nationality: string | null) => ({ market, nationality })
+    it('uses plan-specific codes so a refusal names its source', () => {
+      expect(planMarketReasons({ salesMarkets: ['GB'], nationalities: ['IN'] }, buyer('AE', 'PK'))).toEqual(['RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED', 'RATE_PLAN_NATIONALITY_NOT_ALLOWED'])
+      expect(planMarketReasons({ salesMarkets: null, nationalities: [] }, buyer('AE', 'IN'))).toEqual(['RATE_PLAN_MARKET_RULE_INVALID'])
+      expect(planMarketReasons({ salesMarkets: [], nationalities: [] }, buyer(null, null))).toEqual([])
+    })
+    it('lists codes a plan names outside a restricted contract; an unrestricted contract allows anything', () => {
+      expect(codesOutsideContract(['AE', 'US'], ['AE', 'IN'])).toEqual(['US'])
+      expect(codesOutsideContract(['US'], [])).toEqual([])
+    })
+    const request = { checkIn: '2026-10-15', checkOut: '2026-10-16', rooms: 1, adults: 2, children: 0, currency: 'AED', now: new Date('2026-10-05T00:00:00.000Z') }
+    it('a plan can narrow the contract: the buyer must pass both', () => {
+      const contract = parseMarketRules({ salesMarkets: ['AE', 'IN'] })
+      const narrowed = snapshot(contract, { salesMarkets: ['AE'], nationalities: [] })
+      expect(evaluateContractedStay(narrowed, { ...request, buyer: buyer('AE', 'IN') }).eligible).toBe(true)
+      const refused = evaluateContractedStay(narrowed, { ...request, buyer: buyer('IN', 'IN') })
+      expect(refused.eligible).toBe(false)
+      expect(refused.reasons).toEqual(['RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED']) // the contract allows IN; the plan does not
+      expect(refused.totalMinor).toBeNull()
+    })
+    it('a plan can never widen the contract', () => {
+      const contract = parseMarketRules({ salesMarkets: ['AE'] })
+      const widened = snapshot(contract, { salesMarkets: ['AE', 'US'], nationalities: [] })
+      const refused = evaluateContractedStay(widened, { ...request, buyer: buyer('US', 'US') })
+      expect(refused.reasons).toEqual(['SOURCE_MARKET_NOT_ALLOWED'])
+    })
+    it('an unknown buyer market never satisfies a plan restriction; a malformed plan list refuses everyone', () => {
+      const restricted = snapshot(undefined, { salesMarkets: ['AE'], nationalities: [] })
+      expect(evaluateContractedStay(restricted, { ...request, buyer: buyer(null, 'IN') }).reasons).toContain('RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED')
+      const malformed = snapshot(undefined, parseMarketRules({ salesMarkets: 'junk' }))
+      expect(evaluateContractedStay(malformed, { ...request, buyer: buyer('AE', 'IN') }).reasons).toContain('RATE_PLAN_MARKET_RULE_INVALID')
+    })
+    it('is buyer-independent for Admin diagnostics: a plan restriction never blocks without a buyer', () => {
+      expect(evaluateContractedStay(snapshot(undefined, { salesMarkets: ['GB'], nationalities: [] }), request).eligible).toBe(true)
+    })
+  })
   })
 })

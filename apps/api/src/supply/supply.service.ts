@@ -9,7 +9,7 @@ import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
 import { evaluateNightSellability } from './contracted-sellability'
-import { parseMarketList } from './market-rules'
+import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { isValidPolicySetName, rulesForPlan } from './cancellation-rules'
 import { resolvePlanTerms, type PlanTerms } from './rate-plan-terms'
@@ -23,9 +23,9 @@ const marketList = (field: string, value: unknown): string[] => { const parsed =
 const refuseStatusField = (input: unknown) => {
   if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'status')) throw new BadRequestException({ code: 'RATE_PLAN_STATUS_VIA_LIFECYCLE_ONLY', message: 'Rate plan status cannot be set here. Use the activate or suspend routes.' })
 }
-const RATE_PLAN_EDITABLE = new Set(['contractId', 'roomTypeId', 'boardBasisId', 'code', 'occupancy', 'currency', 'refundable', 'taxesIncluded', 'feesIncluded', 'minStay', 'maxStay', 'releaseDays', 'validFrom', 'validTo', 'paymentType', 'cancellationPolicySet'])
+const RATE_PLAN_EDITABLE = new Set(['contractId', 'roomTypeId', 'boardBasisId', 'code', 'occupancy', 'currency', 'refundable', 'taxesIncluded', 'feesIncluded', 'minStay', 'maxStay', 'releaseDays', 'validFrom', 'validTo', 'paymentType', 'cancellationPolicySet', 'salesMarkets', 'nationalities'])
 /** Fields whose change can make an ACTIVE plan unsellable-by-contract; an edit to any of them is re-checked against readiness before it commits. */
-const READINESS_FIELDS = ['contractId', 'roomTypeId', 'boardBasisId', 'occupancy', 'currency', 'refundable', 'minStay', 'maxStay', 'validFrom', 'validTo', 'cancellationPolicySet'] as const
+const READINESS_FIELDS = ['contractId', 'roomTypeId', 'boardBasisId', 'occupancy', 'currency', 'refundable', 'minStay', 'maxStay', 'validFrom', 'validTo', 'cancellationPolicySet', 'salesMarkets', 'nationalities'] as const
 const refuseUnknownFields = (input: unknown) => {
   const unknown = Object.keys(input && typeof input === 'object' ? input : {}).filter(key => !RATE_PLAN_EDITABLE.has(key))
   if (unknown.length) throw new BadRequestException({ code: 'RATE_PLAN_UNKNOWN_FIELD', message: `Unsupported rate plan field(s): ${unknown.join(', ')}` })
@@ -45,6 +45,21 @@ const cancellationSetOrThrow = async (tx: Prisma.TransactionClient, contractId: 
   const rules = await tx.cancellationPolicy.findMany({ where: { contractId }, select: { policySet: true } })
   if (rulesForPlan({ cancellationPolicySet: requested }, rules).missing) throw new BadRequestException({ code: 'RATE_PLAN_CANCELLATION_SET_UNKNOWN', message: `The contract has no cancellation rules in a set named "${requested}". Add them first.` })
   return requested
+}
+/**
+ * Plan-level buyer markets and nationalities (ADR 0057, S3). A key left out keeps the stored list; an explicit null or [] clears it.
+ * A plan list can only narrow a restricted contract: any code outside the contract's own non-empty list is refused, because it could never sell.
+ */
+const planMarketsOrThrow = (input: Record<string, unknown>, current: { salesMarkets: unknown; nationalities: unknown }, contract: { salesMarkets?: unknown; nationalities?: unknown }): { salesMarkets: string[]; nationalities: string[] } => {
+  const contractRules = parseMarketRules(contract)
+  const resolve = (key: 'salesMarkets' | 'nationalities'): string[] => {
+    const parsed = parseMarketList(Object.prototype.hasOwnProperty.call(input, key) ? input[key] : current[key])
+    if (parsed === null) throw new BadRequestException({ code: 'RATE_PLAN_MARKET_LIST_INVALID', message: `${key} must be a list of two-letter country codes.` })
+    const outside = codesOutsideContract(parsed, contractRules[key] ?? [])
+    if (outside.length) throw new BadRequestException({ code: 'RATE_PLAN_MARKET_OUTSIDE_CONTRACT', message: `${key} ${outside.join(', ')} is not in the contract's own list, so the plan could never sell to it. A plan can only narrow its contract.` })
+    return parsed
+  }
+  return { salesMarkets: resolve('salesMarkets'), nationalities: resolve('nationalities') }
 }
 const dateOrNull = (value: string | null): Date | null => (value ? new Date(`${value}T00:00:00.000Z`) : null)
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
@@ -339,7 +354,7 @@ export class SupplyService {
 
   async ratePlans(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.ratePlan.findMany({ where: { tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: { code: 'asc' } })) }
   async ratePlan(tenantId: string, userId: string, ratePlanId: string) { await this.check(tenantId, userId, 'supply.rates.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: true } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true } })); if (!value) throw new NotFoundException('Rate plan not found'); return value }
-  async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { refuseStatusField(input); refuseUnknownFields(input); if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const terms = planTermsOrThrow(input, { validFrom: null, validTo: null, paymentType: null }, contract); const cancellationPolicySet = await cancellationSetOrThrow(tx, input.contractId, input.refundable ?? true, input.cancellationPolicySet); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet } }); return { id: value.id, value } }) }
+  async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { refuseStatusField(input); refuseUnknownFields(input); if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const terms = planTermsOrThrow(input, { validFrom: null, validTo: null, paymentType: null }, contract); const cancellationPolicySet = await cancellationSetOrThrow(tx, input.contractId, input.refundable ?? true, input.cancellationPolicySet); const markets = planMarketsOrThrow(input, { salesMarkets: [], nationalities: [] }, contract); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet, salesMarkets: markets.salesMarkets, nationalities: markets.nationalities } }); return { id: value.id, value } }) }
   async updateRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
     // Validated before any permission lookup, transaction or write, so a mixed body is refused whole.
     refuseStatusField(input); refuseUnknownFields(input)
@@ -356,10 +371,11 @@ export class SupplyService {
       if (!Number.isInteger(minStay) || minStay < 1 || (maxStay != null && (!Number.isInteger(maxStay) || maxStay < minStay)) || !Number.isInteger(releaseDays) || releaseDays < 0) throw new BadRequestException('Invalid stay or release rule')
       const currency = input.currency === undefined ? current.currency : enabledCurrency(input.currency); if (currency.length !== 3) throw new BadRequestException('Invalid currency')
       const terms = planTermsOrThrow(input, { validFrom: dayOf(current.validFrom), validTo: dayOf(current.validTo), paymentType: current.paymentType }, contract)
+      const markets = planMarketsOrThrow(input, current, contract)
       const refundableNext = input.refundable ?? current.refundable
       const cancellationPolicySet = await cancellationSetOrThrow(tx, contractId, refundableNext, input.cancellationPolicySet === undefined ? current.cancellationPolicySet : input.cancellationPolicySet)
       const before = current.status === 'ACTIVE' && READINESS_FIELDS.some(field => input[field] !== undefined) ? (await this.activationReadiness(tx, tenantId, ratePlanId)).readiness.checks : null
-      const value = await tx.ratePlan.update({ where: { id: ratePlanId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet } })
+      const value = await tx.ratePlan.update({ where: { id: ratePlanId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet, salesMarkets: markets.salesMarkets, nationalities: markets.nationalities } })
       // An ACTIVE plan must not be edited into a state activation would refuse: any readiness check that passed before this edit and fails after it refuses the edit.
       // Checks that were already failing are not this edit's doing and do not block it.
       if (before) {
@@ -386,10 +402,10 @@ export class SupplyService {
     const day = (value: Date) => value.toISOString().slice(0, 10)
     const readiness = assessRatePlanActivation({
       today,
-      plan: { status: plan.status, currency: plan.currency, occupancy: plan.occupancy, refundable: plan.refundable, minStay: plan.minStay, maxStay: plan.maxStay, inventoryPoolId: plan.inventoryPoolId, validFrom: dayOf(plan.validFrom), validTo: dayOf(plan.validTo), cancellationPolicySet: plan.cancellationPolicySet },
+      plan: { status: plan.status, currency: plan.currency, occupancy: plan.occupancy, refundable: plan.refundable, minStay: plan.minStay, maxStay: plan.maxStay, inventoryPoolId: plan.inventoryPoolId, validFrom: dayOf(plan.validFrom), validTo: dayOf(plan.validTo), cancellationPolicySet: plan.cancellationPolicySet, markets: parseMarketRules(plan) },
       room: { hotelId: plan.roomType.hotelId, maxOccupancy: plan.roomType.maxOccupancy, isActive: plan.roomType.isActive },
       board: { isActive: plan.boardBasis.isActive },
-      contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: rulesForPlan(plan, plan.contract.cancellationPolicies).rules.length },
+      contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: rulesForPlan(plan, plan.contract.cancellationPolicies).rules.length, markets: parseMarketRules(plan.contract) },
       rates: rates.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
       availabilityDates: availability.map(row => day(row.stayDate)),
     })
@@ -452,7 +468,7 @@ export class SupplyService {
       if (targetRoom.hotelId !== sourceRoom.hotelId) throw new BadRequestException('A clone must stay within the same hotel')
       if (source.occupancy > targetRoom.maxOccupancy) throw new BadRequestException('Occupancy exceeds the target room capacity')
       if (await tx.ratePlan.findFirst({ where: { contractId: source.contractId, code }, select: { id: true } })) throw new ConflictException({ code: 'RATE_PLAN_CODE_EXISTS', message: 'That rate plan code already exists on this contract.' })
-      const value = await tx.ratePlan.create({ data: { tenantId, ...cloneDraftFields(source, { code, roomTypeId }) } })
+      const value = await tx.ratePlan.create({ data: { tenantId, ...cloneDraftFields(source, { code, roomTypeId }), salesMarkets: source.salesMarkets as Prisma.InputJsonValue, nationalities: source.nationalities as Prisma.InputJsonValue } })
       return { id: value.id, value }
     })
   }

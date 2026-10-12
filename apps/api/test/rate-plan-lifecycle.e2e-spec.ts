@@ -477,4 +477,63 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
       await activate(id).then((r) => expectStatus(r, 201))
     })
   })
+  describe('plan buyer markets (ADR 0057, S3)', () => {
+    const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
+    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-M${++n}`, occupancy: 2, currency: 'AED', ...body })
+    const restrictContract = (salesMarkets: string[], nationalities: string[] = []) => prisma.contract.update({ where: { id: contractId }, data: { salesMarkets, nationalities } })
+
+    afterEach(async () => { await restrictContract(['AE']) })
+
+    it('defaults to no extra restriction and stores normalised lists', async () => {
+      await restrictContract([])
+      expect(await planRow((await createWith({}).then((r) => expectStatus(r, 201))).body.data.id)).toMatchObject({ salesMarkets: [], nationalities: [] })
+      const id = (await createWith({ salesMarkets: ['ae', 'in'], nationalities: ['IN'] }).then((r) => expectStatus(r, 201))).body.data.id
+      expect(await planRow(id)).toMatchObject({ salesMarkets: ['AE', 'IN'], nationalities: ['IN'] })
+    })
+
+    it('a plan list can narrow a restricted contract but never widen it, writing nothing when refused', async () => {
+      await restrictContract(['AE', 'IN'])
+      await createWith({ salesMarkets: ['AE'] }).then((r) => expectStatus(r, 201))
+      const before = await prisma.ratePlan.count({ where: { tenantId } })
+      const refused = await createWith({ salesMarkets: ['AE', 'US'] }).then((r) => expectStatus(r, 400))
+      expect(refused.body.error.code).toBe('RATE_PLAN_MARKET_OUTSIDE_CONTRACT')
+      expect(refused.body.error.message).toContain('US')
+      expect(await prisma.ratePlan.count({ where: { tenantId } })).toBe(before)
+    })
+
+    it('refuses malformed lists', async () => {
+      for (const bad of [{ salesMarkets: 'AE' }, { nationalities: ['ARE'] }, { salesMarkets: [5] }]) {
+        expect((await createWith(bad).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_MARKET_LIST_INVALID')
+      }
+    })
+
+    it('editing: a key left out keeps the list, [] and null clear it; a read-only user cannot change it', async () => {
+      await restrictContract([])
+      const id = (await createWith({ salesMarkets: ['AE'] }).then((r) => expectStatus(r, 201))).body.data.id
+      await api(operator).patch(`/supply/rate-plans/${id}`, { minStay: 2 }).then((r) => expectStatus(r, 200))
+      expect((await planRow(id)).salesMarkets).toEqual(['AE'])
+      await api(readOnly).patch(`/supply/rate-plans/${id}`, { salesMarkets: [] }).then((r) => expectStatus(r, 403))
+      expect((await planRow(id)).salesMarkets).toEqual(['AE'])
+      await api(operator).patch(`/supply/rate-plans/${id}`, { salesMarkets: null }).then((r) => expectStatus(r, 200))
+      expect((await planRow(id)).salesMarkets).toEqual([])
+    })
+
+    it('narrowing the contract later makes the plan fail readiness naming the code', async () => {
+      await restrictContract([])
+      const id = await newPlan(true, { salesMarkets: ['US'] })
+      expect((await readiness(id)).checks.find((c) => c.code === 'PLAN_MARKETS')?.ok).toBe(true)
+      await restrictContract(['AE'])
+      const refused = await activate(id).then((r) => expectStatus(r, 409))
+      expect(JSON.stringify(refused.body.error.details)).toContain('US')
+      expect((await planRow(id)).status).toBe('DRAFT')
+    })
+
+    it('clone keeps the lists', async () => {
+      await restrictContract([])
+      const id = (await createWith({ salesMarkets: ['AE'], nationalities: ['IN'] }).then((r) => expectStatus(r, 201))).body.data.id
+      const cloned = await api(operator).post(`/supply/rate-plans/${id}/clone`, { code: `${suffix}-mclone-${++n}` })
+      if (cloned.status === 201) expect(await planRow(cloned.body.data.id)).toMatchObject({ status: 'DRAFT', salesMarkets: ['AE'], nationalities: ['IN'] })
+      else expect(cloned.status).toBe(403)
+    })
+  })
 })

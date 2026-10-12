@@ -280,8 +280,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
    * Who is buying, for contract sales-market and nationality rules (ADR 0035). The agency country is read only when a candidate contract restricts
    * sales markets, so a tenant with no market rule pays no extra read; an unreadable agency throws CommercialControlUnavailableError.
    */
-  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ contract: { salesMarkets?: unknown } }>): Promise<BuyerContext> {
-    const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0)
+  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ salesMarkets?: unknown; contract: { salesMarkets?: unknown } }>): Promise<BuyerContext> {
+    const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0 || (parseMarketRules(plan).salesMarkets ?? ['?']).length > 0)
     return { nationality: normalizeCountry(nationality), market: needsMarket ? await loadBuyerMarket(this.prisma, tenantId, userId) : null }
   }
 

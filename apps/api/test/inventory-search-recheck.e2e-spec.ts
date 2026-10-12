@@ -15,8 +15,8 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
 
   const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED', ...patch })
 
-  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
-    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null } })).id
+  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; salesMarkets?: string[]; nationalities?: string[]; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
+    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [] } })).id
     await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: 2, amountMinor: opts.amount ?? 50000n, amountBasis: 'SELL' as const, currency: 'AED' })) })
     if (opts.rows !== false) {
       await prisma.dailyAvailability.createMany({ data: [...nights, checkOut].map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), allotment: opts.allotment ?? 5, inventoryMode: opts.mode ?? 'ALLOTMENT' })) })
@@ -157,6 +157,26 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
       expect(Date.parse(d(plain)!) - Date.parse(d(strict)!)).toBe(11 * 86_400_000)
       expect(forPlan(list, gone)).toBeUndefined() // never silently falls back to the default
     } finally { await prisma.cancellationPolicy.deleteMany({ where: { contractId } }) }
+  })
+
+  it('SR-15 a plan nationality list narrows the contract and applies to the searching guest (ADR 0057, S3)', async () => {
+    const open = await newPlan('open')
+    const accepts = await newPlan('accepts-ae', { nationalities: ['AE', 'IN'] })
+    const refuses = await newPlan('refuses-ae', { nationalities: ['IN'] })
+    const list = await rates() // the guest nationality is AE
+    expect(forPlan(list, open)).toBeDefined()
+    expect(forPlan(list, accepts)).toBeDefined()
+    expect(forPlan(list, refuses)).toBeUndefined()
+    expect(forPlan(await rates(criteria({ nationality: 'IN' })), refuses)).toBeDefined()
+  })
+
+  it('SR-16 a plan sales-market list needs a known buyer market; a malformed list refuses everyone (ADR 0057, S3)', async () => {
+    const restricted = await newPlan('mkt', { salesMarkets: ['AE'] })
+    expect(forPlan(await rates(), restricted)).toBeUndefined() // no agency, so no known market: never satisfies a restriction
+    const broken = await newPlan('broken')
+    await expect(prisma.$executeRawUnsafe(`UPDATE "RatePlan" SET sales_markets = '"junk"'::jsonb WHERE id = '${broken}'`)).rejects.toThrow(/RatePlan_sales_markets_array_chk/) // the database refuses a non-array
+    await prisma.$executeRawUnsafe(`UPDATE "RatePlan" SET sales_markets = '["ARE"]'::jsonb WHERE id = '${broken}'`) // an array with a bad code passes the CHECK; the evaluator fails closed
+    expect(forPlan(await rates(), broken)).toBeUndefined()
   })
 
   it('SR-07 recheck never allocates and reflects inventory changes: rechecked while stock lasts, unavailable once gone', async () => {
