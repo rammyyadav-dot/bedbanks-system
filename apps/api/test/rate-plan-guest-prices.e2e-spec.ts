@@ -122,6 +122,7 @@ describe('Rate plan guest prices (ADR 0057, S6)', () => {
     await prisma.role.deleteMany({ where: { id: { in: roleIds } } })
     await prisma.membership.deleteMany({ where: { userId: { in: userIds } } })
     await prisma.session.deleteMany({ where: { userId: { in: userIds } } })
+    await prisma.approvalRequest.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } })
     await prisma.user.deleteMany({ where: { id: { in: userIds } } })
     await prisma.tenant.deleteMany({ where: { id: tenants } })
     await prisma.$disconnect()
