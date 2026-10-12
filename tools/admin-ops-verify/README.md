@@ -28,6 +28,16 @@ It checks: every operations view shows API data; Booking 360 links; reconcile ne
 401/403/503-denied/500/network/empty render distinct states (responses are intercepted in the test only, the app has no mock path);
 axe WCAG A/AA on four pages; a viewer without `booking.read` sees FORBIDDEN and no operations navigation; tenant B cannot see tenant A.
 
+## Running it on a disposable local stack
+
+`verify-hotels.cjs` needs an owner-connected API plus the booking principal for its Bookings tab:
+
+1. Create the `fbeds_ci` database on `localhost:5432`, run `prisma:migrate:deploy`, then provision the booking role with `ops:provision-booking-ops-role` (a 32+ character `[A-Za-z0-9_-]` password) and build `BOOKING_OPS_DATABASE_URL` for `fbeds_booking_ops` from it. Without it the Bookings tab correctly shows `OPERATIONS_READ_DENIED`.
+2. Start the API with `NODE_ENV=test DB_RUNTIME_ROLE_GUARD=off` (the guard refuses a superuser otherwise; `off` is only honoured under `NODE_ENV=test`) and `BOOKING_OPS_DATABASE_URL` set. `pgvector` must be installed in PostgreSQL.
+3. Re-create the database and re-run `seed-hotels.ts` before **every** run: the verify script creates and publishes hotels and the seed fails on leftovers.
+
+Last full run (this branch, after ADRs 0057 to 0059): 167 of 167 checks passed, including publication with the new primary-image requirement. Four checks had drifted from the UI and were corrected: the table column positions (now found by header text), the Add Hotel city, country and time zone fields, the Bookings list hotel filter (asserted from the URL), and tab keyboard use (roving tabindex: arrow keys move between tabs).
+
 ## Hotel commercial workspace
 
 `seed-hotels.ts` creates tenant A with 34 hotels (ready, partial and blocked scenarios, enough to paginate), a viewer holding only `supply.hotels.read`,

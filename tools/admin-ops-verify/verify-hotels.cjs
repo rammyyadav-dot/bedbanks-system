@@ -77,7 +77,9 @@ async function openHotel(page, key, tab) {
     check(`filter ${label} (server-side)`, body.includes(expectName) && (expectCount === null || n === expectCount), `${n} rows`)
   }
   await page.goto(`${BASE}/hotels?readiness=BLOCKED`); await page.waitForSelector('[data-testid=hotels-table]')
-  const chips = await page.locator('[data-testid=hotels-table] tbody tr td:nth-child(11)').allInnerTexts()
+  const headers = await page.locator('[data-testid=hotels-table] thead th').allInnerTexts()
+  const sellabilityColumn = headers.findIndex((h) => h.trim() === 'Sellability') + 1 // located by header, so a new or removed column cannot shift it
+  const chips = sellabilityColumn > 0 ? await page.locator(`[data-testid=hotels-table] tbody tr td:nth-child(${sellabilityColumn})`).allInnerTexts() : []
   check('every row of the BLOCKED filter shows a BLOCKED chip', chips.length > 0 && chips.every((c) => /BLOCKED/.test(c)), chips.join(','))
   await page.goto(`${BASE}/hotels?search=zzzzzzzz`); await page.waitForSelector('[data-state=empty]')
   check('no match is the EMPTY state with a successful message, not an error', /No hotels match these filters/.test(await text(page)) && (await page.locator('[role=alert]:not(#__next-route-announcer__)').count()) === 0)
@@ -161,7 +163,7 @@ async function openHotel(page, key, tab) {
   await openHotel(page, 'alpha', 'bookings'); await page.waitForSelector('table')
   check('bookings tab lists the hotel booking with a link into Booking 360', (await page.locator('a[href^="/bookings/"]').count()) >= 1 && /BK1/.test(await text(page)))
   await page.getByRole('link', { name: 'All bookings for this hotel' }).click(); await page.waitForURL(/\/bookings\?hotelId=/); await page.waitForSelector('table')
-  check('"All bookings" opens the booking list already filtered by this hotel (server-side)', /1 result/.test(await text(page)) && (await page.getByLabel('Hotel id').inputValue()) === H.alpha)
+  check('"All bookings" opens the booking list already filtered by this hotel (server-side)', /1 result/.test(await text(page)) && new URL(page.url()).searchParams.get('hotelId') === H.alpha)
   await openHotel(page, 'alpha', 'audit'); await page.waitForSelector('table')
   check('audit tab shows the event with action and request id', /supply\.hotel\.updated/.test(await text(page)) && /req-verify-1/.test(await text(page)))
 
@@ -238,7 +240,7 @@ async function openHotel(page, key, tab) {
 
   // ---- Add Hotel never implies "ready": a hotel created through the real form is BLOCKED until downstream authority exists -------------
   await page.goto(`${BASE}/hotels/new`); await page.waitForSelector('form')
-  await page.getByLabel(/^name$/i).fill('Brand New Verification Hotel'); await page.getByLabel(/^city$/i).fill('Dubai'); await page.getByLabel(/^country code$/i).fill('AE'); await page.getByLabel(/^external ref$/i).fill('NEW-VERIFY-1')
+  await page.getByLabel(/^name$/i).fill('Brand New Verification Hotel'); await page.getByLabel(/^city/i).fill('Dubai'); await page.getByLabel(/^country/i).fill('AE'); await page.getByLabel(/IANA time zone/).fill('Asia/Dubai'); await page.getByLabel(/^external ref$/i).fill('NEW-VERIFY-1')
   await page.getByRole('button', { name: 'Create hotel' }).click(); await page.waitForURL(/\/hotels\/[^/?]+\?tab=setup$/, { timeout: 20000 }); await page.waitForSelector('[data-testid=setup-form]')
   check('Add hotel hands off to the Hotel Setup tab', /tab=setup/.test(page.url()))
   await page.goto(page.url().replace(/\?tab=setup$/, '')); await page.waitForSelector('[data-testid=hotel-header]')
@@ -398,7 +400,7 @@ async function openHotel(page, key, tab) {
   await page.goto(`${BASE}/hotels?search=${H.alpha}`); await page.waitForSelector('[data-testid=hotels-table]')
   check('searching a canonical id finds that hotel', (await rows(page)) === 1 && (await page.locator('[data-testid=hotel-canonical-id]').first().innerText()).trim() === H.alpha)
   await page.goto(`${BASE}/hotels?stars=UNRATED`); await page.waitForSelector('[data-testid=hotels-table], [data-state]')
-  check('the unrated star filter is URL-persisted and applied by the server', /stars=UNRATED/.test(page.url()) && (await page.locator('[data-testid=hotels-table] tbody tr td:nth-child(4)').allInnerTexts()).every((t) => /Unrated/.test(t)))
+  check('the unrated star filter is URL-persisted and applied by the server', /stars=UNRATED/.test(page.url()) && (await page.locator(`[data-testid=hotels-table] tbody tr td:nth-child(${(await page.locator('[data-testid=hotels-table] thead th').allInnerTexts()).findIndex((h) => h.trim() === 'Stars') + 1})`).allInnerTexts()).every((t) => /Unrated/.test(t)))
 
   // ---- read-only people and other tenants ----
   const { ctx: vctx, page: vpage } = await login(browser, seed.viewerEmail)
@@ -410,10 +412,10 @@ async function openHotel(page, key, tab) {
   check("another tenant's hotel setup is not readable", crossTenant === 404, `status=${crossTenant}`)
 
   // ---- keyboard, responsive, accessibility ----------------------------------------------------------------------------------------
-  await openHotel(page, 'alpha'); await page.locator('[role=tab]').first().focus(); await page.keyboard.press('Tab')
+  await openHotel(page, 'alpha'); await page.locator('[role=tab]').first().focus(); await page.keyboard.press('ArrowRight') // roving tabindex: arrows move between tabs, Tab leaves the tablist
   const focusedRole = await page.evaluate(() => document.activeElement?.getAttribute('role'))
   await page.getByRole('tab', { name: 'Rooms' }).focus(); await page.keyboard.press('Enter'); await page.waitForURL(/tab=rooms/)
-  check('tabs are keyboard reachable and activate with Enter', focusedRole === 'tab' && /tab=rooms/.test(page.url()))
+  check('tabs are keyboard reachable (arrow keys) and activate with Enter', focusedRole === 'tab' && /tab=rooms/.test(page.url()))
   for (const [w, h] of [[1280, 900], [768, 900], [390, 800]]) {
     await page.setViewportSize({ width: w, height: h })
     for (const url of [`${BASE}/hotels`, `${BASE}/hotels/${H.alpha}?tab=rates`, `${BASE}/hotels/${H.alpha}?tab=setup`, `${BASE}/hotels/${H.alpha}?tab=rooms`, `${BASE}/hotels/${H.alpha}?tab=policies`, `${BASE}/exceptions`]) {
