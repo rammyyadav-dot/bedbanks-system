@@ -1,3 +1,4 @@
+import type { PromotionRule } from './promotions'
 import { evaluateContractedStay, evaluateNightSellability, type ContractedStaySnapshot, type NightSellabilityPlan } from './contracted-sellability'
 
 const request = { checkIn: '2026-10-15', checkOut: '2026-10-18', rooms: 1, adults: 2, children: 0, currency: 'AED', now: new Date('2026-10-05T00:00:00.000Z') }
@@ -27,7 +28,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     contractValidFrom: '2026-10-01',
     contractValidTo: '2026-12-31',
     contractCurrency: 'AED',
-    guestPrices: [],
+    guestPrices: [], promotions: [],
     cancellationPolicyMissing: false,
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
@@ -50,7 +51,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
 
 describe('contracted stay sellability', () => {
   it('prices three AED nights in integer minor units', () => {
-    expect(evaluateContractedStay(snapshot(), request)).toEqual({ eligible: true, reasons: [], totalMinor: 89700n, netMinor: 89700n, markupMinor: 0n, availabilityStatus: 'available', minRemaining: 4 })
+    expect(evaluateContractedStay(snapshot(), request)).toEqual({ eligible: true, reasons: [], totalMinor: 89700n, netMinor: 89700n, markupMinor: 0n, availabilityStatus: 'available', minRemaining: 4, promotion: null })
   })
 
   it.each([
@@ -151,7 +152,7 @@ describe('contracted stay sellability', () => {
 
     it('a NET night with a markup rule sells at net plus markup, and reports both parts', () => {
       const d = stay([net(1_000)])
-      expect(d).toEqual({ eligible: true, reasons: [], totalMinor: 11_000n, netMinor: 10_000n, markupMinor: 1_000n, availabilityStatus: 'available', minRemaining: 4 })
+      expect(d).toEqual({ eligible: true, reasons: [], totalMinor: 11_000n, netMinor: 10_000n, markupMinor: 1_000n, availabilityStatus: 'available', minRemaining: 4, promotion: null })
     })
 
     it('rounds each night half up in integer minor units, then sums', () => {
@@ -231,3 +232,46 @@ describe('child and extra-adult pricing in the stay evaluator (ADR 0057, S6)', (
   })
 })
 
+describe('promotions in the stay price (ADR 0058, S10a)', () => {
+  // Check-in is 10 days after `request.now` in Dubai.
+  const promo = (over: Partial<PromotionRule> = {}): PromotionRule => ({ id: 'p1', kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1000, minLeadDays: 7, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null, ...over })
+  const netNight = (date: string) => night(date, { amountBasis: 'NET', rateAmountMinor: 10_000n, markupBasisPoints: 1_000 })
+
+  it('takes the percentage off each night of a SELL plan', () => {
+    const d = evaluateContractedStay(snapshot({ promotions: [promo()] }), request)
+    expect(d.totalMinor).toBe(3n * (29_900n - 2_990n))
+    expect(d.promotion).toMatchObject({ id: 'p1', kind: 'EARLY_BIRD', savingMinor: 3n * 2_990n })
+  })
+
+  it('discounts the net first and then marks that net up', () => {
+    const d = evaluateContractedStay(snapshot({ promotions: [promo({ percentBp: 2000 })], nights: ['2026-10-15', '2026-10-16', '2026-10-17'].map(netNight) }), request)
+    expect(d.netMinor).toBe(3n * 8_000n)
+    expect(d.markupMinor).toBe(3n * 800n)
+    expect(d.totalMinor).toBe(3n * 8_800n)
+  })
+
+  it('does not apply when the booking lead is short, the zone is unknown, or the stay is outside the window', () => {
+    expect(evaluateContractedStay(snapshot({ promotions: [promo({ minLeadDays: 11 })] }), request).totalMinor).toBe(89_700n)
+    expect(evaluateContractedStay(snapshot({ promotions: [promo()], hotelTimeZone: 'Mars/Base' }), request).promotion).toBeNull()
+    expect(evaluateContractedStay(snapshot({ promotions: [promo({ stayTo: '2026-10-16' })] }), request).promotion).toBeNull()
+  })
+
+  it('makes the cheapest night free and multiplies by rooms', () => {
+    const free = promo({ id: 'p2', kind: 'FREE_NIGHTS', percentBp: null, minLeadDays: null, minNights: 3, freeNights: 1 })
+    const d = evaluateContractedStay(snapshot({ promotions: [free], maxAdults: 2 }), { ...request, rooms: 2 })
+    expect(d.totalMinor).toBe(2n * 2n * 29_900n)
+    expect(d.promotion).toMatchObject({ kind: 'FREE_NIGHTS', savingMinor: 29_900n, rooms: 2 })
+  })
+
+  it('applies only the best of several promotions and never stacks them', () => {
+    const d = evaluateContractedStay(snapshot({ promotions: [promo({ id: 'a', percentBp: 1000 }), promo({ id: 'b', percentBp: 1500 })] }), request)
+    expect(d.promotion?.id).toBe('b')
+    expect(d.totalMinor).toBe(3n * (29_900n - 4_485n))
+  })
+
+  it('never discounts a stay that is not sellable', () => {
+    const d = evaluateContractedStay(snapshot({ promotions: [promo()], ratePlanStatus: 'SUSPENDED' }), request)
+    expect(d.eligible).toBe(false)
+    expect(d.totalMinor).toBeNull()
+  })
+})

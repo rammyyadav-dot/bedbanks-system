@@ -9,7 +9,7 @@ const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
   contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1, markets: { salesMarkets: [], nationalities: [] } },
   rates: [rate('2026-10-11'), rate('2026-10-12'), rate('2026-10-13')],
   availabilityDates: ['2026-10-11'],
-  guestPrices: [],
+  guestPrices: [], promotions: [],
   ...over,
 })
 const failed = (facts: ActivationFacts) => assessRatePlanActivation(facts).checks.filter((c) => !c.ok).map((c) => c.code)
@@ -168,3 +168,15 @@ describe('rate plan guest prices (ADR 0057, S6)', () => {
   })
 })
 
+
+describe('rate plan promotions (ADR 0058, S10a)', () => {
+  const promo = (over: Record<string, unknown> = {}): ActivationFacts['promotions'][number] => ({ id: 'p1', kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1000, minLeadDays: 7, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null, ...over } as ActivationFacts['promotions'][number])
+  it('passes with none and with a valid set', () => {
+    expect(failed(base({ promotions: [] }))).toEqual([])
+    expect(failed(base({ promotions: [promo(), promo({ id: 'p2', name: 'Late', kind: 'LAST_MINUTE', percentBp: 500, minLeadDays: null, maxLeadDays: 3 })] }))).toEqual([])
+  })
+  it('fails a promotion the validator would refuse, so a hand-edited row cannot sell a surprise discount', () => {
+    expect(failed(base({ promotions: [promo({ percentBp: 9500 })] }))).toEqual(['PROMOTIONS_VALID'])
+    expect(failed(base({ promotions: [promo(), promo({ id: 'p2' })] }))).toEqual(['PROMOTIONS_VALID'])
+  })
+})

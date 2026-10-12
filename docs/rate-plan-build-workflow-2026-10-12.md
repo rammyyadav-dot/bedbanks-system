@@ -158,7 +158,8 @@ Booking, payment, wallet, supplier confirmation and any live connector. No merge
 | S8 clone writer | **BUILT**, strict-role smoke 66/66 | ADR 0057; `docs/runbooks/rate-plan-clone-role.md` |
 | S9 expiry sweeper | **BUILT** (disabled by default) | ADR 0057 |
 | S6 child + extra-adult lines; F12 resolved | **BUILT**, strict-role smoke 66/66 | ADR 0057 |
-| S4, S10 | NOT BUILT | - |
+| S10a promotions (policy ADR 0058) | **BUILT** (S10b derived rates: see below) | ADR 0057, 0058 |
+| S4 | NOT BUILT | - |
 
 | F5 | closed in application code (D3: the lifecycle credential can still write status) | S5 |
 | F4 | closed for plan-level market and nationality lists | S3 |

@@ -98,6 +98,18 @@ Cancellation penalties (`booking-cancellation.service`) and voucher text read th
 ### Not built
 Child and extra-bed lines (S6), grid/CSV (S7), clone writer (S8), expiry sweeper (S9), promotions and derived rates (S10).
 
+## Slice S10a (implemented): promotions
+
+The policy is ADR 0058. Built:
+
+- **Table** `RatePlanPromotion` (migration `202611170001_rate_plan_promotions`): forced RLS on `tenant_id`, `CHECK`s that mirror the service validator (percent 1 to 9000 basis points, free nights below minimum nights, fields that belong to one kind only, no inverted windows), unique `(rate_plan_id, name_key)`. Runtime role reads it; authoring is a privileged supply path (ADR 0032). The lifecycle role gets read-only access for readiness and the approval fingerprint.
+- **Evaluator.** `evaluateContractedStay` collects each night's net (rate plus guest lines), applies the one promotion (`selectPromotion`: largest saving for the stay, ties to the lowest id, never stacked) using the hotel-local day, then applies the markup to the discounted net. `StayDecision.promotion` names it. A snapshot built without `promotions` throws `RATE_PLAN_PROMOTIONS_NOT_LOADED`, as for the other required plan facts.
+- **Authoring.** `GET` and `PUT /supply/rate-plans/:id/promotions` (`supply.rates.read` / `.manage`). `PUT` replaces the set atomically, is version-checked (`RATE_PLAN_CHANGED`), validated as a whole, audited (`supply.rate_plan.promotions_changed`, before and after) and moves the plan version, so an activation approval filed on other terms is void. The approval fingerprint includes promotions only when the plan has any, so existing approvals on plans without them stay valid.
+- **Readiness.** `PROMOTIONS_VALID` runs the same validation, so a hand-edited row cannot sell a surprise discount.
+- **Simulator.** Applies the same selection, reports `promotionMinor` per night and the applied promotion, and reconciles its own per-night markup and sum with the evaluator. The selection arithmetic is the shared pure module, so only the markup and totals are recomputed independently.
+- **Admin.** A Promotions panel on the rate plan page.
+- **Not built:** offers do not yet carry the promotion's name to Agents (the price already includes it); a clone does not copy promotions (they are prices).
+
 ## Consequences
 - The booking window (distinct from the stay window) is still contract-level.
 - Mandatory approval (D1), when built, blocks a tenant with one rate manager. Staff first.

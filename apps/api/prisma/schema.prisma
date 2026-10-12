@@ -564,6 +564,40 @@ model RatePlanGuestPrice {
   @@index([tenantId, ratePlanId])
 }
 
+/// Promotion kinds (ADR 0058). At most one applies to a stay; they never stack.
+enum PromotionKind {
+  EARLY_BIRD
+  LAST_MINUTE
+  LONG_STAY
+  FREE_NIGHTS
+}
+
+/// A promotion on one rate plan (ADR 0058, S10a): a percentage off every night (EARLY_BIRD, LAST_MINUTE, LONG_STAY) or the cheapest nights free
+/// (FREE_NIGHTS), under booking-lead, length-of-stay and date-window conditions. Applied by the one stay evaluator to the nightly net before the markup.
+model RatePlanPromotion {
+  id          String        @id @default(cuid())
+  tenantId    String        @map("tenant_id")
+  ratePlanId  String        @map("rate_plan_id")
+  ratePlan    RatePlan      @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  kind        PromotionKind
+  name        String        @db.VarChar(80)
+  nameKey     String        @map("name_key") @db.VarChar(80)
+  percentBp   Int?          @map("percent_bp")
+  minLeadDays Int?          @map("min_lead_days")
+  maxLeadDays Int?          @map("max_lead_days")
+  minNights   Int?          @map("min_nights")
+  freeNights  Int?          @map("free_nights")
+  bookFrom    DateTime?     @map("book_from") @db.Date
+  bookTo      DateTime?     @map("book_to") @db.Date
+  stayFrom    DateTime?     @map("stay_from") @db.Date
+  stayTo      DateTime?     @map("stay_to") @db.Date
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@unique([ratePlanId, nameKey])
+  @@index([tenantId, ratePlanId])
+}
+
 /// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
 /// intentionally nullable and therefore not sellable until explicitly classified.
 enum RateAmountBasis {
@@ -1784,6 +1818,7 @@ model RatePlan {
   availability DailyAvailability[]
   dailyRates   DailyRate[]
   guestPrices  RatePlanGuestPrice[]
+  promotions   RatePlanPromotion[]
 
   @@unique([contractId, code])
   @@index([tenantId, status])

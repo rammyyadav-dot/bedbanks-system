@@ -265,6 +265,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         },
         dailyRates: { where: { tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } } },
         guestPrices: true,
+        promotions: true,
         // The departure date row is read only for closedToDeparture; its stock is never counted.
         availability: { where: { tenantId, stayDate: { in: [...nightDates, checkOut] } } },
         inventoryPool: { include: { days: { where: { tenantId, stayDate: { in: nightDates } } } } },

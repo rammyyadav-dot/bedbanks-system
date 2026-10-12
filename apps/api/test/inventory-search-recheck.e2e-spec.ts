@@ -207,6 +207,30 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     } finally { await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } }) }
   })
 
+  it('SR-19 a promotion prices the stay on the net before the markup, only one applies, and recheck agrees (ADR 0058, S10a)', async () => {
+    const promo = (planId: string, over: Record<string, unknown>) => prisma.ratePlanPromotion.create({ data: { tenantId, ratePlanId: planId, kind: 'EARLY_BIRD', name: 'P', nameKey: String(over.name ?? 'P').toLowerCase(), percentBp: 1000, minLeadDays: 14, ...over } })
+    const sell = await newPlan('promo-sell', { amount: 50_000n })
+    const unaffected = await newPlan('promo-none', { amount: 50_000n })
+    // check-in is 20 days out in the hotel's calendar: a 14-day early bird applies, a 30-day one does not
+    await promo(sell, { name: 'Early' })
+    await promo(sell, { name: 'Too early', percentBp: 5000, minLeadDays: 30 })
+    const first = await rates()
+    expect(forPlan(first, sell)).toMatchObject({ sellAmountMinor: nights.length * 45_000 })
+    expect(forPlan(first, unaffected)).toMatchObject({ sellAmountMinor: nights.length * 50_000 })
+    // the larger saving wins and nothing stacks: one free night (50,000) beats 10% (10,000)
+    await promo(sell, { name: 'Stay 2 pay 1', kind: 'FREE_NIGHTS', percentBp: null, minLeadDays: null, minNights: 2, freeNights: 1 })
+    const offer = forPlan(await rates(), sell)!
+    expect(offer.sellAmountMinor).toBe(50_000)
+    expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toMatchObject({ status: 'available', offer: { sellAmountMinor: 50_000 } })
+    // a NET plan: the markup follows the discounted net. 10,001 less 20% (2,000.7 -> 2,000) = 8,001; markup 10% = 800.1 -> 800; sell 8,801 per night
+    await prisma.commercialMarkupRule.create({ data: { tenantId, scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: new Date('2026-01-01'), status: 'ACTIVE', activatedAt: new Date(), reason: 'test', createdById: userId } })
+    try {
+      const net = await newPlan('promo-net', { amount: 10_001n, basis: 'NET' })
+      await promo(net, { name: 'Twenty', percentBp: 2000 })
+      expect(forPlan(await rates(), net)).toMatchObject({ netAmountMinor: nights.length * 8_001, markupAmountMinor: nights.length * 800, sellAmountMinor: nights.length * 8_801 })
+    } finally { await prisma.commercialMarkupRule.deleteMany({ where: { tenantId } }) }
+  })
+
   it('SR-18 a NET plan applies the markup to the base plus the child lines, per night (ADR 0057, S6)', async () => {
     await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 2, maxChildren: 1, maxOccupancy: 3 } })
     await prisma.commercialMarkupRule.create({ data: { tenantId, scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: new Date('2026-01-01'), status: 'ACTIVE', activatedAt: new Date(), reason: 'test', createdById: userId } })

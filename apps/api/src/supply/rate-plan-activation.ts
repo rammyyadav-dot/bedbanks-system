@@ -36,12 +36,15 @@ export interface ActivationFacts {
   rates: Array<{ stayDate: string; amountBasis: string | null; currency: string; amountMinor: bigint }>
   /** Child and extra-adult lines (ADR 0057, S6). Empty means the plan keeps the flat-occupancy rule. */
   guestPrices: GuestPriceLine[]
+  /** Promotions (ADR 0058, S10a). Empty means none. Required so a caller cannot skip the check. */
+  promotions: PromotionRule[]
   /** Future availability rows for the plan. */
   availabilityDates: string[]
 }
 
 import { codesOutsideContract } from './market-rules'
 import { validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
+import { validatePromotions, type PromotionRule } from './promotions'
 
 const DAY_MS = 86_400_000
 const addDay = (day: string): string => new Date(Date.parse(`${day}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10)
@@ -117,6 +120,12 @@ export function assessRatePlanActivation(facts: ActivationFacts): ActivationRead
   checks.push(check('GUEST_PRICES_VALID', 'Child and extra-adult prices', lineIssues.length === 0 && !basisMismatch,
     facts.guestPrices.length === 0 ? 'No guest price lines: the plan sells its flat occupancy.' : `${facts.guestPrices.length} guest price line(s), consistent with the rates.`,
     lineIssues.length ? `${lineIssues[0]!.message}${lineIssues.length > 1 ? ` (${lineIssues.length} problems)` : ''}` : 'A guest price line has a different basis (NET or SELL) than the rates it is added to.'))
+
+  // ADR 0058: promotions must pass the same validation as on write, so a hand-edited row cannot sell a surprise discount.
+  const promoIssues = validatePromotions(facts.promotions)
+  checks.push(check('PROMOTIONS_VALID', 'Promotions', promoIssues.length === 0,
+    facts.promotions.length === 0 ? 'No promotions: the plan sells at its rate.' : `${facts.promotions.length} promotion(s), valid.`,
+    `${promoIssues[0]?.message ?? 'A promotion is invalid.'}${promoIssues.length > 1 ? ` (${promoIssues.length} problems)` : ''}`))
 
   const futureAvailability = facts.availabilityDates.filter((day) => day >= today)
   checks.push(check('INVENTORY_LINKED', 'Inventory linkage', plan.inventoryPoolId !== null || futureAvailability.length > 0,

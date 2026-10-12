@@ -19,6 +19,7 @@ import { deriveRatePlanCapabilities } from './rate-plan-capabilities'
 import { activationApprovalMode } from './rate-plan-approval-mode'
 import { planFingerprint } from './rate-plan-fingerprint'
 import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
+import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
@@ -38,6 +39,8 @@ const refuseUnknownFields = (input: unknown) => {
   const unknown = Object.keys(input && typeof input === 'object' ? input : {}).filter(key => !RATE_PLAN_EDITABLE.has(key))
   if (unknown.length) throw new BadRequestException({ code: 'RATE_PLAN_UNKNOWN_FIELD', message: `Unsupported rate plan field(s): ${unknown.join(', ')}` })
 }
+type PromotionRow = { id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null }
+const promotionRule = (row: PromotionRow, day: (value: Date) => string): PromotionRule => ({ id: row.id, kind: row.kind as PromotionKind, name: row.name, percentBp: row.percentBp, minLeadDays: row.minLeadDays, maxLeadDays: row.maxLeadDays, minNights: row.minNights, freeNights: row.freeNights, bookFrom: row.bookFrom ? day(row.bookFrom) : null, bookTo: row.bookTo ? day(row.bookTo) : null, stayFrom: row.stayFrom ? day(row.stayFrom) : null, stayTo: row.stayTo ? day(row.stayTo) : null })
 const dayOf = (value: Date | null | undefined): string | null => (value ? value.toISOString().slice(0, 10) : null)
 /** Validated sale window and payment type of a plan, resolved against the contract term. A refusal is a typed 400 and nothing is written. */
 const planTermsOrThrow = (input: Record<string, unknown>, current: PlanTerms, contract: { validFrom: Date; validTo: Date }): PlanTerms => {
@@ -401,7 +404,7 @@ export class SupplyService {
 
   /** Loads plain facts for the activation evaluator inside the caller's tenant transaction. Nothing is inferred: a missing relation is reported by the checklist. */
   private async activationReadiness(tx: Prisma.TransactionClient, tenantId: string, ratePlanId: string) {
-    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, cancellationPolicies: { select: { policySet: true } } } }, guestPrices: true } })
+    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, cancellationPolicies: { select: { policySet: true } } } }, guestPrices: true, promotions: true } })
     if (!plan) throw new NotFoundException('Rate plan not found')
     const timeZone = plan.roomType.hotel.timeZone
     const today = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
@@ -419,6 +422,7 @@ export class SupplyService {
       contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: rulesForPlan(plan, plan.contract.cancellationPolicies).rules.length, markets: parseMarketRules(plan.contract) },
       rates: rates.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
       guestPrices: plan.guestPrices.map(line => ({ kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis, currency: line.currency })),
+      promotions: plan.promotions.map(promo => promotionRule(promo, day)),
       availabilityDates: availability.map(row => day(row.stayDate)),
     })
     return { plan, readiness, today }
@@ -472,7 +476,8 @@ export class SupplyService {
     const rows = await tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.id, occupancy: plan.occupancy, stayDate: { gte: new Date(`${asOf}T00:00:00Z`) } }, select: { stayDate: true, occupancy: true, amountMinor: true, amountBasis: true, currency: true }, orderBy: { stayDate: 'asc' }, take: MAX_APPROVAL_RATE_ROWS + 1 })
     if (rows.length > MAX_APPROVAL_RATE_ROWS) throw new BadRequestException({ code: 'RATE_PLAN_TOO_MANY_RATES', message: `Approval covers at most ${MAX_APPROVAL_RATE_ROWS} dated rates; split the plan or end its sale window.` })
     const guestLines = await tx.ratePlanGuestPrice.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true, currency: true } })
-    return planFingerprint(plan, rows, asOf, guestLines)
+    const promotions = await tx.ratePlanPromotion.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } })
+    return planFingerprint(plan, rows, asOf, guestLines, promotions)
   }
 
   /** Read-only: readiness plus the content fingerprint, for requesting an approval. */
@@ -537,6 +542,41 @@ export class SupplyService {
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.guest_prices_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.guestPrices), after: shape(lines) } } })
       return { id: ratePlanId, value: { ratePlanId } }
     }).then(() => this.guestPrices(tenantId, userId, ratePlanId))
+  }
+
+  /** Promotions of a plan (ADR 0058, S10a). `supply.rates.read`; 404 for another tenant's plan. */
+  async promotions(tenantId: string, userId: string, ratePlanId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { orderBy: [{ nameKey: 'asc' }] } } }))
+    if (!plan) throw new NotFoundException('Rate plan not found')
+    return { ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), promotions: plan.promotions.map(row => ({ id: row.id, kind: row.kind, name: row.name, percentBp: row.percentBp, minLeadDays: row.minLeadDays, maxLeadDays: row.maxLeadDays, minNights: row.minNights, freeNights: row.freeNights, bookFrom: dayOf(row.bookFrom), bookTo: dayOf(row.bookTo), stayFrom: dayOf(row.stayFrom), stayTo: dayOf(row.stayTo) })) }
+  }
+
+  /**
+   * Replaces all of a plan's promotions atomically (ADR 0058, S10a). Version-checked, validated as a whole, audited with before and after; the plan version moves,
+   * so an activation approval filed on the old terms is voided.
+   */
+  async replacePromotions(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid promotions request')
+    const expected = typeof input.expectedUpdatedAt === 'string' ? new Date(input.expectedUpdatedAt) : null
+    if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
+    if (!Array.isArray(input.promotions) || input.promotions.length > 40) throw new BadRequestException('Provide at most 40 promotions')
+    const num = (v: unknown) => (v === null || v === undefined ? null : v)
+    const rules = input.promotions.map((raw: any) => ({ kind: raw?.kind, name: typeof raw?.name === 'string' ? raw.name.trim() : raw?.name, percentBp: num(raw?.percentBp), minLeadDays: num(raw?.minLeadDays), maxLeadDays: num(raw?.maxLeadDays), minNights: num(raw?.minNights), freeNights: num(raw?.freeNights), bookFrom: num(raw?.bookFrom), bookTo: num(raw?.bookTo), stayFrom: num(raw?.stayFrom), stayTo: num(raw?.stayTo) }))
+    const issues = validatePromotions(rules)
+    if (issues.length) throw new BadRequestException({ code: issues[0]!.code, message: issues[0]!.message, details: issues })
+    const date = (v: unknown) => (typeof v === 'string' ? new Date(`${v}T00:00:00Z`) : null)
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.promotions_replaced', 'rate_plan', requestId, async tx => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } } } })
+      if (!plan) throw new NotFoundException('Rate plan not found')
+      if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
+      await tx.ratePlanPromotion.deleteMany({ where: { tenantId, ratePlanId } })
+      if (rules.length) await tx.ratePlanPromotion.createMany({ data: rules.map((rule: any) => ({ tenantId, ratePlanId, kind: rule.kind, name: rule.name, nameKey: rule.name.toLowerCase(), percentBp: rule.percentBp, minLeadDays: rule.minLeadDays, maxLeadDays: rule.maxLeadDays, minNights: rule.minNights, freeNights: rule.freeNights, bookFrom: date(rule.bookFrom), bookTo: date(rule.bookTo), stayFrom: date(rule.stayFrom), stayTo: date(rule.stayTo) })) })
+      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      const shape = (rows: Array<Record<string, unknown>>) => rows.map(r => ({ kind: r.kind as string, name: r.name, percentBp: r.percentBp ?? null, minLeadDays: r.minLeadDays ?? null, maxLeadDays: r.maxLeadDays ?? null, minNights: r.minNights ?? null, freeNights: r.freeNights ?? null, bookFrom: r.bookFrom instanceof Date ? dayOf(r.bookFrom) : r.bookFrom ?? null, bookTo: r.bookTo instanceof Date ? dayOf(r.bookTo) : r.bookTo ?? null, stayFrom: r.stayFrom instanceof Date ? dayOf(r.stayFrom) : r.stayFrom ?? null, stayTo: r.stayTo instanceof Date ? dayOf(r.stayTo) : r.stayTo ?? null })) as Prisma.InputJsonValue
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.promotions_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.promotions), after: shape(rules) } } })
+      return { id: ratePlanId, value: { ratePlanId } }
+    }).then(() => this.promotions(tenantId, userId, ratePlanId))
   }
 
   /** Copies the commercial shape into a new DRAFT. Rates, availability, pool membership and status are never copied. */

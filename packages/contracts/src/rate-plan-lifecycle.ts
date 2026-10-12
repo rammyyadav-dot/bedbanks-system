@@ -66,6 +66,30 @@ export interface RatePlanGuestPriceLine {
   currency: string
 }
 export interface RatePlanGuestPrices { ratePlanId: string; updatedAt: string; currency: string; occupancy: number; lines: RatePlanGuestPriceLine[] }
+/**
+ * Promotions on a rate plan (ADR 0058, S10a). At most one applies to a stay (the largest saving; they never stack) and it is taken off the nightly net
+ * before the markup. `GET` returns the promotions and the plan version; `PUT` replaces them all atomically.
+ */
+export type PromotionKind = 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS'
+export interface RatePlanPromotion {
+  id?: string
+  kind: PromotionKind
+  /** 1 to 80 characters; agents see it. Unique per plan ignoring case. */
+  name: string
+  /** Basis points off every night, 1 to 9000. Percent kinds only. */
+  percentBp: number | null
+  /** EARLY_BIRD: whole days of notice required. LAST_MINUTE: whole days of notice allowed at most. Hotel-local calendar. */
+  minLeadDays: number | null
+  maxLeadDays: number | null
+  /** LONG_STAY and FREE_NIGHTS: the stay must have at least this many nights. */
+  minNights: number | null
+  /** FREE_NIGHTS: how many of the cheapest nights are free; below minNights. */
+  freeNights: number | null
+  /** Optional windows, YYYY-MM-DD inclusive: when the booking is made (hotel-local today) and the nights that must all fall inside. */
+  bookFrom: string | null; bookTo: string | null; stayFrom: string | null; stayTo: string | null
+}
+export interface RatePlanPromotions { ratePlanId: string; updatedAt: string; promotions: RatePlanPromotion[] }
+export interface RatePlanPromotionsInput { expectedUpdatedAt: string; promotions: RatePlanPromotion[]; reason?: string }
 export interface RatePlanGuestPricesInput {
   expectedUpdatedAt: string
   /** Each line: `minAge`/`maxAge` are required for CHILD and ignored for EXTRA_ADULT. */
