@@ -11,6 +11,7 @@ import type { Prisma } from '@prisma/client'
 import { evaluateNightSellability } from './contracted-sellability'
 import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
+import { RatePlanCloneDatabase } from './rate-plan-clone-database'
 import { isValidPolicySetName, rulesForPlan } from './cancellation-rules'
 import { resolvePlanTerms, type PlanTerms } from './rate-plan-terms'
 import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type RatePlanAction } from './rate-plan-activation'
@@ -71,7 +72,7 @@ const clean = (value: unknown): string => typeof value === 'string' ? value.trim
 
 @Injectable()
 export class SupplyService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService, @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService, @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase, @Optional() private readonly ratePlanClone?: RatePlanCloneDatabase) {}
   private async permitted(tenantId: string, userId: string, permission: string) {
     const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
     const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
@@ -84,7 +85,7 @@ export class SupplyService {
     return { permissions: [...keys].sort() }
   }
   private async check(tenantId: string, userId: string, permission: string) { await this.permitted(tenantId, userId, permission) }
-  private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; lifecycleRole?: boolean }) {
+  private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; lifecycleRole?: boolean; cloneRole?: boolean }) {
     try {
       await this.check(tenantId, userId, permission)
     } catch (error) {
@@ -93,14 +94,17 @@ export class SupplyService {
       throw error
     }
     // Lifecycle transitions use the narrow role when one is configured (ADR 0041 Amendment 2); its audit grant is INSERT-only, so no row is read back.
-    const viaRole = options?.lifecycleRole === true && this.ratePlanOps?.configured() === true
+    const viaOps = options?.lifecycleRole === true && this.ratePlanOps?.configured() === true
+    // Cloning inserts a row, which the lifecycle role must not do; it uses its own DRAFT-only role (ADR 0057, S8). Same audit rule: INSERT-only, no row read back.
+    const viaClone = options?.cloneRole === true && this.ratePlanClone?.configured() === true
+    const viaRole = viaOps || viaClone
     const run = async (tx: Prisma.TransactionClient) => {
       const result = await work(tx)
       const data = { tenantId, userId, actorType: 'USER' as const, action, entityType, entityId: result.id, payload: { outcome: 'allowed', requestId: requestId ?? null } }
       if (viaRole) await tx.auditEvent.createMany({ data: [data] }); else await tx.auditEvent.create({ data })
       return result.value
     }
-    return viaRole ? this.ratePlanOps!.withTenant(tenantId, run) : this.prisma.withTenant(tenantId, run, options && { isolationLevel: options.isolationLevel })
+    return viaOps ? this.ratePlanOps!.withTenant(tenantId, run) : viaClone ? this.ratePlanClone!.withTenant(tenantId, run) : this.prisma.withTenant(tenantId, run, options && { isolationLevel: options.isolationLevel })
   }
   async suppliers(tenantId: string, userId: string, query: { search?: string; status?: string; page?: number; pageSize?: number } = {}) {
     await this.check(tenantId, userId, 'supply.suppliers.read')
@@ -427,7 +431,7 @@ export class SupplyService {
   async ratePlanCapabilities(tenantId: string, userId: string) {
     await this.check(tenantId, userId, 'supply.rates.read')
     const [grants] = await this.prisma.$queryRaw<Array<{ can_update_status: boolean; can_insert: boolean }>>`SELECT has_column_privilege(current_user, '"RatePlan"', 'status', 'UPDATE') AS can_update_status, has_table_privilege(current_user, '"RatePlan"', 'INSERT') AS can_insert`
-    return deriveRatePlanCapabilities({ opsRoleConfigured: this.ratePlanOps?.configured() === true, runtimeCanUpdateStatus: grants?.can_update_status === true, runtimeCanInsert: grants?.can_insert === true, activationApproval: activationApprovalMode() })
+    return deriveRatePlanCapabilities({ opsRoleConfigured: this.ratePlanOps?.configured() === true, runtimeCanUpdateStatus: grants?.can_update_status === true, runtimeCanInsert: grants?.can_insert === true, cloneRoleConfigured: this.ratePlanClone?.configured() === true, activationApproval: activationApprovalMode() })
   }
   /** Activate or suspend. Activation is refused unless the readiness checklist is fully green; both transitions are version-checked and audited with before/after status. */
   async transitionRatePlan(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, input: any, requestId?: string) {
@@ -512,6 +516,10 @@ export class SupplyService {
       if (await tx.ratePlan.findFirst({ where: { contractId: source.contractId, code }, select: { id: true } })) throw new ConflictException({ code: 'RATE_PLAN_CODE_EXISTS', message: 'That rate plan code already exists on this contract.' })
       const value = await tx.ratePlan.create({ data: { tenantId, ...cloneDraftFields(source, { code, roomTypeId }), salesMarkets: source.salesMarkets as Prisma.InputJsonValue, nationalities: source.nationalities as Prisma.InputJsonValue } })
       return { id: value.id, value }
+    }, { cloneRole: true }).catch((error: { code?: string }) => {
+      // Two clones racing for the same code: the unique key decides, and the loser gets the same typed answer as the pre-check.
+      if (error?.code === 'P2002') throw new ConflictException({ code: 'RATE_PLAN_CODE_EXISTS', message: 'That rate plan code already exists on this contract.' })
+      throw error
     })
   }
 

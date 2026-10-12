@@ -20,6 +20,7 @@ export function describeRatePlanActionError(error: unknown, action: RatePlanActi
       : 'Status changes are not enabled in this environment: the rate plan lifecycle database role has not been provisioned. Ask an operator to set it up (ADR 0041). Nothing was changed.') + ref
   }
   if (error.code === 'RATE_PLAN_OPS_UNAVAILABLE') return `The rate plan lifecycle database role is configured but unavailable right now. Nothing was changed. Try again, or ask an operator to check it.${ref}`
+  if (error.code === 'RATE_PLAN_CLONE_UNAVAILABLE') return `The rate plan clone database role is configured but unavailable right now. Nothing was changed. Try again, or ask an operator to check it.${ref}`
   if (error.code === 'RATE_PLAN_CHANGED') return `This rate plan changed since you opened it. Close this panel and reopen it to review its current state.${ref}`
   if (error.code === 'RATE_PLAN_APPROVAL_REQUIRED') return `Activating a rate plan needs a second person. Use the activation request below; nothing was changed.${ref}`
   if (error.code === 'RATE_PLAN_APPROVAL_OPEN') return `This rate plan already has an open activation request. Reload to see it.${ref}`
@@ -50,7 +51,7 @@ const CAPABILITY_REASON: Record<RatePlanCapabilityReason, Record<RatePlanAction,
   STRICT_ROLE_NO_WRITER: {
     activate: 'Not available in this environment.',
     suspend: 'Not available in this environment.',
-    clone: 'Clone is not available in this environment: it needs a database writer the strict runtime role does not have. Use "Create Rate Plan" instead.',
+    clone: 'Clone is not available in this environment: it needs a database writer the strict runtime role does not have. Use "Create Rate Plan" instead, or ask an operator to provision the clone role (ADR 0057).',
   },
 }
 

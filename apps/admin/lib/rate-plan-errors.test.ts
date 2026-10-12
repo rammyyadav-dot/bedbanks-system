@@ -60,3 +60,9 @@ test('approval-flow failures are explained as policy, not as a fault', () => {
   assert.match(describeRatePlanActionError(err('RATE_PLAN_APPROVAL_OPEN'), 'activate'), /open activation request/)
   assert.match(describeRatePlanActionError(err('RATE_PLAN_CHANGED_SINCE_APPROVAL'), 'activate'), /req-9/)
 })
+
+test('an unavailable clone role is a retryable environment problem, not a permission problem', () => {
+  const text = describeRatePlanActionError(new ApiResponseError('RATE_PLAN_CLONE_UNAVAILABLE', 'server', 503, 'req-3'), 'clone')
+  assert.match(text, /clone database role is configured but unavailable/)
+  assert.doesNotMatch(text, /do not have permission/)
+})

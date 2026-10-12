@@ -7,6 +7,8 @@ export interface RatePlanCapabilityFacts {
   runtimeCanUpdateStatus: boolean
   /** The runtime identity may INSERT into `RatePlan` (clone is the only lifecycle action that inserts). */
   runtimeCanInsert: boolean
+  /** `RATE_PLAN_CLONE_DATABASE_URL` is set and differs from `DATABASE_URL` (ADR 0057, S8). Configured is not proof it is reachable. */
+  cloneRoleConfigured: boolean
   /** Whether activation needs a second person (ADR 0057, S5). Reported so the Admin shows the right control; the API enforces it. */
   activationApproval: 'required' | 'off'
 }
@@ -23,7 +25,7 @@ export function deriveRatePlanCapabilities(facts: RatePlanCapabilityFacts): Rate
   return {
     activate: transition,
     suspend: transition,
-    clone: facts.runtimeCanInsert ? { available: true, reason: null } : { available: false, reason: 'STRICT_ROLE_NO_WRITER' },
+    clone: facts.runtimeCanInsert || facts.cloneRoleConfigured ? { available: true, reason: null } : { available: false, reason: 'STRICT_ROLE_NO_WRITER' },
     activationApproval: facts.activationApproval,
   }
 }
