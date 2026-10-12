@@ -19,3 +19,5 @@ export { SupplierCallError, supplierAmountMinor, validateSearchQuery, isIsoDate,
 export type * from './xml/supplier-types.js';
 export { evaluateReadiness, ProviderProfileRegistry, PROVIDER_ONBOARDING } from './xml/readiness.js';
 export type { ConnectorRuntimeState, ReadinessReport, ReadinessGate, ProviderOnboarding } from './xml/readiness.js';
+export { SharedConnectorGate } from './xml/shared-gate.js';
+export type { GateCoordination, GateCache, SharedGateOptions } from './xml/shared-gate.js';
