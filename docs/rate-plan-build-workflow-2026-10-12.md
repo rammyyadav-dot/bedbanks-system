@@ -1,7 +1,7 @@
 # Hotel Admin: Rate Plan build workflow, audit and delivery plan (CTO draft)
 
 Date: 2026-10-12. Baseline: `origin/main` `5e25807` (PR #315 merge), branch `claude/ecstatic-dijkstra-oo1zfd`.
-Status: **DRAFT for owner decision.** This document changes no code, schema, grant or flag. Booking, payment and live supplier connections stay disabled.
+Status: **Direction adopted 2026-10-12 (owner: "go ahead with your recommendation"); decisions recorded in ADR 0057.** Slice S2a is built (see section 10); all other slices are not. Booking, payment and live supplier connections stay disabled.
 
 Method: read `CLAUDE.md`, ADR 0041 (+ amendments), the two 2026-10-11 rate plan audits, `enriched-rate-plan-workflow.md`, `admin-hotel-module-blueprint.md`, the Prisma models (`RatePlan`, `DailyRate`, `DailyAvailability`, `Contract`, `CancellationPolicy`, `ChildPolicy`, `BookingLeadTimeRule`, `RoomType`, `BoardBasis`, `InventoryPool`), `@bedbanks/contracts` routes, and the Admin rate components. **Not done in this pass:** no test, build, migration replay or browser run (no PostgreSQL here); statements about test results are quoted from the 2026-10-11 evidence, not re-verified.
 
@@ -142,3 +142,16 @@ Recommended order: **S0 and S1 in parallel, then S2, S3, S4, S5, S6, S7, S9; S8 
 ## 9. Not in scope
 
 Booking, payment, wallet, supplier confirmation and any live connector. No merge, deploy, flag, RLS or financial privilege change is proposed or made by this document.
+
+## 10. Progress
+
+| Slice | State | Where |
+|---|---|---|
+| S1 decisions D1-D7 | DONE (adopted as recommended) | ADR 0057 |
+| S2a plan sale window + payment type | **BUILT**, certified on disposable PostgreSQL 16 + pgvector | ADR 0057; migration `202611120001`; `rate-plan-terms.ts`; evaluator, activation, hold path, Admin form |
+| S2b plan-attached cancellation (reusable policy sets) | NOT BUILT | next |
+| S3 plan-level market/channel | NOT BUILT | after S2b |
+| S0 operator provisioning / hosted certification | OPEN (people) | runbook |
+| S4-S10 | NOT BUILT | - |
+
+Finding status: F2 (plan validity) closed for the sale window; the booking window stays contract-level. Payment type is recorded but not yet shown to Agents. F1, F3-F10 remain open.

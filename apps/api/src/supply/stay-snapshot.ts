@@ -12,6 +12,9 @@ export interface StayPlanInput {
   maxStay: number | null
   releaseDays: number
   releaseTimeLocal?: string
+  /** ADR 0057 sale window. Required (nullable) so a narrow `select` that forgets it fails type-check instead of skipping the rule. */
+  validFrom: Date | null
+  validTo: Date | null
   inventoryPoolId?: string | null
   /** The plan's pool with the stock days of the window. Absent when the plan has no pool. */
   inventoryPool?: { name?: string; days: PoolDayInput[] } | null
@@ -41,6 +44,8 @@ export function buildStaySnapshot(
   /** Markup basis points in force for a night, or null. Omitted means no markup rule (NET rates stay unsellable). */
   markupFor?: (date: string) => number | null,
 ): ContractedStaySnapshot {
+  // A loader that forgot the plan window would silently skip the rule (fail open). Refuse loudly instead.
+  if (plan.validFrom === undefined || plan.validTo === undefined) throw new Error('RATE_PLAN_WINDOW_NOT_LOADED')
   const rates = new Map(plan.dailyRates.map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
@@ -77,6 +82,8 @@ export function buildStaySnapshot(
     contractValidFrom: dayKey(plan.contract.validFrom),
     contractValidTo: dayKey(plan.contract.validTo),
     contractCurrency: plan.contract.settlementCurrency,
+    ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
+    ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),
     ratePlanStatus: plan.status,
     ratePlanOccupancy: plan.occupancy,

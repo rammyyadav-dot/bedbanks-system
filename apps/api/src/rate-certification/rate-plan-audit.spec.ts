@@ -15,7 +15,7 @@ interface PlanOpts {
 function plan(o: PlanOpts = {}): AuditPlan {
   const id = o.id ?? 'plan-1'
   return {
-    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, releaseDays: 0, refundable: o.refundable ?? true,
+    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, releaseDays: 0, refundable: o.refundable ?? true,
     contractId: o.contractId ?? 'c1', roomTypeId: 'room-1', boardBasisId: o.boardId ?? 'b1',
     boardBasis: { code: 'BB', isActive: true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: o.maxOccupancy ?? 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },

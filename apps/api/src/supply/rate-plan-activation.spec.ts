@@ -3,7 +3,7 @@ import { assessRatePlanActivation, cloneDraftFields, rateGaps, transitionTarget,
 const rate = (stayDate: string, over: Partial<ActivationFacts['rates'][number]> = {}) => ({ stayDate, amountBasis: 'NET', currency: 'AED', amountMinor: 45000n, ...over })
 const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
   today: '2026-10-11',
-  plan: { status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null },
+  plan: { status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, validFrom: null, validTo: null },
   room: { hotelId: 'h1', maxOccupancy: 3, isActive: true },
   board: { isActive: true },
   contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1 },
@@ -103,10 +103,21 @@ describe('rate plan transitions', () => {
 
 describe('rate plan clone', () => {
   it('copies commercial shape into a draft with the new code and nothing else', () => {
-    const source = { contractId: 'c', roomTypeId: 'r1', boardBasisId: 'b', occupancy: 2, currency: 'AED', refundable: false, taxesIncluded: true, feesIncluded: false, minStay: 2, maxStay: 7, releaseDays: 3, releaseTimeLocal: '12:00', status: 'ACTIVE', id: 'x', inventoryPoolId: 'pool' }
+    const source = { contractId: 'c', roomTypeId: 'r1', boardBasisId: 'b', occupancy: 2, currency: 'AED', refundable: false, taxesIncluded: true, feesIncluded: false, minStay: 2, maxStay: 7, releaseDays: 3, releaseTimeLocal: '12:00', validFrom: new Date('2026-11-01T00:00:00Z'), validTo: null, paymentType: 'PREPAID' as const, status: 'ACTIVE', id: 'x', inventoryPoolId: 'pool' }
     const copy = cloneDraftFields(source, { code: 'NEW', roomTypeId: 'r2' })
-    expect(copy).toMatchObject({ code: 'NEW', roomTypeId: 'r2', status: 'DRAFT', refundable: false, minStay: 2, maxStay: 7, releaseTimeLocal: '12:00' })
+    expect(copy).toMatchObject({ code: 'NEW', roomTypeId: 'r2', status: 'DRAFT', refundable: false, minStay: 2, maxStay: 7, releaseTimeLocal: '12:00', paymentType: 'PREPAID' })
+    expect(copy.validFrom?.toISOString()).toBe('2026-11-01T00:00:00.000Z')
     expect(copy).not.toHaveProperty('id')
     expect(copy).not.toHaveProperty('inventoryPoolId')
   })
+})
+
+describe('rate plan sale window (ADR 0057)', () => {
+  const withWindow = (validFrom: string | null, validTo: string | null) => base({ plan: { ...base().plan, validFrom, validTo } })
+  it('passes when the plan inherits the contract term', () => { expect(failed(withWindow(null, null))).toEqual([]) })
+  it('passes for a window inside the contract term', () => { expect(failed(withWindow('2026-10-01', '2026-12-31'))).toEqual([]) })
+  it('fails a window that starts before the contract', () => { expect(failed(withWindow('2025-12-01', null))).toEqual(['PLAN_VALIDITY']) })
+  it('fails a window that ends after the contract', () => { expect(failed(withWindow(null, '2028-01-01'))).toEqual(['PLAN_VALIDITY']) })
+  it('fails an inverted window', () => { expect(failed(withWindow('2026-12-01', '2026-11-01'))).toEqual(['PLAN_VALIDITY']) })
+  it('fails a window that is already over', () => { expect(failed(withWindow('2026-01-01', '2026-10-10'))).toEqual(['PLAN_VALIDITY']) })
 })

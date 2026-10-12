@@ -331,4 +331,88 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
       expect(await prisma.auditEvent.count({ where: { tenantId, entityId: id, action: { startsWith: 'supply.rate_plan.' } } })).toBe(1) // only .created
     })
   })
+  describe('plan sale window and payment type (ADR 0057)', () => {
+    const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
+    const planCount = () => prisma.ratePlan.count({ where: { tenantId } })
+
+    it('stores an in-term window and payment type, and returns them', async () => {
+      const id = await newPlan(false, { validFrom: iso(10), validTo: iso(100), paymentType: 'PREPAID' })
+      const stored = await planRow(id)
+      expect(stored.validFrom?.toISOString().slice(0, 10)).toBe(iso(10))
+      expect(stored.validTo?.toISOString().slice(0, 10)).toBe(iso(100))
+      expect(stored.paymentType).toBe('PREPAID')
+      const read = await api(operator).get(`/supply/rate-plans/${id}`).expect(200)
+      expect(read.body.data.paymentType).toBe('PREPAID')
+    })
+
+    it('records nothing by default: no window, no invented payment type', async () => {
+      const stored = await planRow(await newPlan(false))
+      expect(stored).toMatchObject({ validFrom: null, validTo: null, paymentType: null })
+    })
+
+    it('refuses a window that extends the contract, an inverted window, a bad day and an unknown payment type, writing nothing', async () => {
+      const before = await planCount()
+      const attempt = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-X${++n}`, occupancy: 2, currency: 'AED', ...body })
+      expect((await attempt({ validTo: iso(400) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_OUTSIDE_CONTRACT')
+      expect((await attempt({ validFrom: iso(-60) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_OUTSIDE_CONTRACT')
+      expect((await attempt({ validFrom: iso(50), validTo: iso(40) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_INVALID')
+      expect((await attempt({ validFrom: '2026-02-30' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_INVALID')
+      expect((await attempt({ paymentType: 'DEPOSIT' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_PAYMENT_TYPE_INVALID')
+      expect(await planCount()).toBe(before)
+    })
+
+    it('edits keep a stored value when the key is absent and clear it on an explicit null', async () => {
+      const id = await newPlan(false, { validFrom: iso(10), validTo: iso(100), paymentType: 'PAY_AT_HOTEL' })
+      await api(operator).patch(`/supply/rate-plans/${id}`, { code: `${suffix}-renamed-${++n}` }).then((r) => expectStatus(r, 200))
+      expect(await planRow(id)).toMatchObject({ paymentType: 'PAY_AT_HOTEL' })
+      await api(operator).patch(`/supply/rate-plans/${id}`, { validTo: null, paymentType: null }).then((r) => expectStatus(r, 200))
+      const cleared = await planRow(id)
+      expect(cleared.validTo).toBeNull()
+      expect(cleared.paymentType).toBeNull()
+      expect(cleared.validFrom?.toISOString().slice(0, 10)).toBe(iso(10))
+    })
+
+    it('a read-only user cannot change the window', async () => {
+      const id = await newPlan(false)
+      await api(readOnly).patch(`/supply/rate-plans/${id}`, { validTo: iso(50) }).then((r) => expectStatus(r, 403))
+      expect((await planRow(id)).validTo).toBeNull()
+    })
+
+    it('a window that is already over fails readiness and blocks activation', async () => {
+      const id = await newPlan(true, { validFrom: iso(-20), validTo: iso(-1) })
+      const result = await readiness(id)
+      expect(result.checks.filter((c) => !c.ok).map((c) => c.code)).toContain('PLAN_VALIDITY')
+      const refused = await activate(id).then((r) => expectStatus(r, 409))
+      expect(refused.body.error.code).toBe('RATE_PLAN_NOT_READY')
+      expect(failedCodes(refused.body)).toContain('PLAN_VALIDITY')
+      expect((await planRow(id)).status).toBe('DRAFT')
+    })
+
+    it('an active plan cannot be edited into an expired window', async () => {
+      const id = await newPlan(true, { validFrom: iso(-10), validTo: iso(60) })
+      await activate(id).then((r) => expectStatus(r, 201))
+      const refused = await api(operator).patch(`/supply/rate-plans/${id}`, { validTo: iso(-1) }).then((r) => expectStatus(r, 409))
+      expect(refused.body.error.code).toBe('RATE_PLAN_NOT_READY')
+      expect((await planRow(id)).validTo?.toISOString().slice(0, 10)).toBe(iso(60))
+    })
+
+    it('Admin diagnostics honour the window per night', async () => {
+      const id = await newPlan(true, { validFrom: iso(16), validTo: iso(30) })
+      const verdict = (stayDate: string) => api(operator).post('/supply/sellability', { ratePlanId: id, stayDate, occupancy: 2 }).expect(201).then((r) => r.body.data)
+      const outside = await verdict(nights[0])
+      expect(JSON.stringify(outside)).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    })
+
+    it('clone keeps the window and payment type but never the status', async () => {
+      const id = await newPlan(false, { validFrom: iso(10), validTo: iso(100), paymentType: 'PREPAID' })
+      const cloned = await api(operator).post(`/supply/rate-plans/${id}/clone`, { code: `${suffix}-clone-${++n}` })
+      if (cloned.status === 201) {
+        const copy = await planRow(cloned.body.data.id)
+        expect(copy).toMatchObject({ status: 'DRAFT', paymentType: 'PREPAID' })
+        expect(copy.validFrom?.toISOString().slice(0, 10)).toBe(iso(10))
+      } else {
+        expect([403]).toContain(cloned.status) // strict runtime login: clone has no writer (ADR 0041 Amendment 3)
+      }
+    })
+  })
 })

@@ -25,7 +25,7 @@ export interface ActivationReadiness {
 export interface ActivationFacts {
   /** Today in the hotel's calendar, YYYY-MM-DD. The caller supplies it so the evaluator stays deterministic. */
   today: string
-  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null }
+  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null }
   room: { hotelId: string; maxOccupancy: number; isActive: boolean }
   board: { isActive: boolean }
   contract: {
@@ -66,6 +66,13 @@ export function assessRatePlanActivation(facts: ActivationFacts): ActivationRead
   checks.push(check('CONTRACT_ACTIVE', 'Contract status', contract.status === 'ACTIVE', 'Contract is active.', `Contract is ${contract.status}; only an active contract can back a sellable plan.`))
   checks.push(check('CONTRACT_VALID', 'Contract validity', contract.validFrom <= contract.validTo && contract.validTo >= today, `Contract is valid ${contract.validFrom} to ${contract.validTo}.`,
     contract.validTo < today ? `Contract ended on ${contract.validTo}.` : 'Contract validity dates are inverted.'))
+  // ADR 0057: the plan's own sale window must sit inside the contract term and not already be over. A null side inherits the contract.
+  const windowInside = (plan.validFrom === null || plan.validFrom >= contract.validFrom) && (plan.validTo === null || plan.validTo <= contract.validTo)
+  const windowOrdered = plan.validFrom === null || plan.validTo === null || plan.validFrom <= plan.validTo
+  const windowOpen = plan.validTo === null || plan.validTo >= today
+  checks.push(check('PLAN_VALIDITY', 'Plan sale window', windowInside && windowOrdered && windowOpen,
+    plan.validFrom === null && plan.validTo === null ? 'Plan inherits the contract term.' : `Plan is on sale ${plan.validFrom ?? contract.validFrom} to ${plan.validTo ?? contract.validTo}.`,
+    !windowOrdered ? 'The plan sale window is inverted.' : !windowInside ? 'The plan sale window extends outside the contract term.' : `The plan sale window ended on ${plan.validTo}.`))
   checks.push(check('CURRENCY_MATCH', 'Currency', plan.currency === contract.settlementCurrency, `Plan and contract both use ${plan.currency}.`,
     `Plan currency ${plan.currency} differs from contract settlement currency ${contract.settlementCurrency}.`))
 
@@ -107,12 +114,13 @@ export function transitionTarget(action: RatePlanAction, from: RatePlanStatusVal
 
 /** Clone keeps the commercial shape but never identity, status, rates or stock. */
 export function cloneDraftFields(
-  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string },
+  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null },
   overrides: { code: string; roomTypeId?: string },
 ) {
   return {
     contractId: source.contractId, roomTypeId: overrides.roomTypeId ?? source.roomTypeId, boardBasisId: source.boardBasisId, code: overrides.code,
     status: 'DRAFT' as const, occupancy: source.occupancy, currency: source.currency, refundable: source.refundable, taxesIncluded: source.taxesIncluded,
     feesIncluded: source.feesIncluded, minStay: source.minStay, maxStay: source.maxStay, releaseDays: source.releaseDays, releaseTimeLocal: source.releaseTimeLocal,
+    validFrom: source.validFrom, validTo: source.validTo, paymentType: source.paymentType,
   }
 }

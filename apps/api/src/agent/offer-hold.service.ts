@@ -109,10 +109,12 @@ export class OfferHoldService {
         contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: checkOut }, settlementCurrency: offer.currency,
           supplier: { tenantId, status: 'ACTIVE' }, supplierHotelMapping: { tenantId, hotelId: offer.canonicalHotelId, supplierHotelId: offer.supplierHotelId, status: 'MAPPED',
             roomMappings: { some: { tenantId, supplierRoomId: offer.supplierRoomId, roomTypeId: offer.canonicalRoomTypeId, status: 'MAPPED' } } } },
-      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, roomType: { select: { hotel: { select: { timeZone: true } } } } } })
+      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, roomType: { select: { hotel: { select: { timeZone: true } } } } } })
       if (!plan) return false
       const nights = stayNightCount(offer.checkIn, offer.checkOut)
       // Hotel-local release deadline, the same rule the canonical evaluator applies.
+      // ADR 0057: the plan's own sale window, the same rule the canonical evaluator applies. A null side inherits the contract term checked above.
+      if ((plan.validFrom && checkIn < plan.validFrom) || (plan.validTo && checkOut > plan.validTo)) return false
       return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && releaseAllows(today, offer.checkIn, plan.releaseDays, plan.releaseTimeLocal, plan.roomType.hotel.timeZone)
     })
   }

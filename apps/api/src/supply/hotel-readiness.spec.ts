@@ -12,7 +12,7 @@ interface PlanOpts { id?: string; supplierId?: string; occupancy?: number; rate?
 function plan(o: PlanOpts = {}): AssessPlan {
   const id = o.id ?? 'plan-1'; const supplierId = o.supplierId ?? 's1'
   return {
-    id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: 'AED', minStay: 1, maxStay: null, releaseDays: 0, refundable: true, contractId: `c-${id}`, roomTypeId: 'room-1', boardBasisId: 'b1',
+    id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, releaseDays: 0, refundable: true, contractId: `c-${id}`, roomTypeId: 'room-1', boardBasisId: 'b1',
     boardBasis: { code: 'BB', isActive: true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
     contract: { id: `c-${id}`, code: `C-${id}`, status: 'ACTIVE', validFrom: at('2030-01-01'), validTo: at('2031-01-01'), settlementCurrency: 'AED', supplierId, supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: 'ACTIVE', displayName: `Supplier ${supplierId}` }, nationalities: o.nationalities, salesMarkets: o.salesMarkets },

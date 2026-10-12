@@ -531,6 +531,12 @@ enum RatePlanStatus {
   EXPIRED
 }
 
+/// Payment model of a rate plan (ADR 0057). Deposit is not modelled: it needs money semantics that are not decided.
+enum RatePaymentType {
+  PREPAID
+  PAY_AT_HOTEL
+}
+
 /// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
 /// intentionally nullable and therefore not sellable until explicitly classified.
 enum RateAmountBasis {
@@ -1732,6 +1738,11 @@ model RatePlan {
   releaseDays       Int            @default(0) @map("release_days")
   /// Hotel-local time of day (HH:MM) at which the release deadline falls, `releaseDays` before the check-in date (ADR 0030).
   releaseTimeLocal  String         @default("00:00") @map("release_time_local") @db.Char(5)
+  /// Optional sale window of this plan (ADR 0057). Null inherits the contract term on that side. A stay must fit inside both; the window never extends the contract.
+  validFrom         DateTime?      @map("valid_from") @db.Date
+  validTo           DateTime?      @map("valid_to") @db.Date
+  /// How the buyer pays. Null means not recorded; it is never defaulted.
+  paymentType       RatePaymentType? @map("payment_type")
   /// The shared physical stock this plan draws from, if any. Pools never mix tenants, hotels or suppliers (database trigger).
   inventoryPoolId   String?        @map("inventory_pool_id")
   inventoryPool     InventoryPool? @relation(fields: [tenantId, inventoryPoolId], references: [tenantId, id], onDelete: Restrict)

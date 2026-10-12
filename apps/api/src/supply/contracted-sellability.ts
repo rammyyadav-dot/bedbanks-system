@@ -13,6 +13,9 @@ export interface NightSellabilityPlan {
   status: string
   occupancy: number
   currency: string
+  /** ADR 0057 sale window; null inherits the contract term. Required so a caller cannot omit it. */
+  validFrom: Date | null
+  validTo: Date | null
   roomType: { isActive: boolean; maxOccupancy: number; hotelId: string; hotel: { contentStatus: string } }
   boardBasis: { isActive: boolean }
   contract: {
@@ -39,6 +42,7 @@ export function evaluateNightSellability(plan: NightSellabilityPlan | null, inpu
   if (input.occupancy !== plan.occupancy || input.occupancy > plan.roomType.maxOccupancy) reasons.push('OCCUPANCY_UNSUPPORTED')
   if (plan.contract.status !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (input.stayDate < plan.contract.validFrom || input.stayDate > plan.contract.validTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+  if ((plan.validFrom && input.stayDate < plan.validFrom) || (plan.validTo && input.stayDate > plan.validTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (plan.contract.supplierHotelMapping && (plan.contract.supplierHotelMapping.hotelId !== plan.roomType.hotelId || plan.contract.supplierHotelMapping.status !== 'MAPPED')) {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }
@@ -99,6 +103,9 @@ export interface ContractedStaySnapshot {
   contractValidFrom: string
   contractValidTo: string
   contractCurrency: string
+  /** The plan's own sale window (ADR 0057), YYYY-MM-DD, or null when it inherits the contract term on that side. Required so a caller cannot omit it and skip the rule. */
+  ratePlanValidFrom: string | null
+  ratePlanValidTo: string | null
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -178,6 +185,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   }
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+  if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }
