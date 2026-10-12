@@ -62,7 +62,7 @@ describe('API runtime role contract (the single definition)', () => {
       const writes = byTable.get(table)!.writes
       expect({ table, delete: writes.some((w) => w.op === 'DELETE'), tableLevelUpdate: writes.some((w) => w.op === 'UPDATE' && !w.columns) }).toEqual({ table, delete: false, tableLevelUpdate: false })
     }
-    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'SupplierMutation', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
+    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'SupplierMutation']) expect(byTable.has(table)).toBe(false)
     // The hold tables are readable only through named columns (no guest, contact, financial or raw payload column) and are never written by the API role.
     for (const table of ['InventoryHold', 'InventoryHoldNight']) {
       const g = byTable.get(table)!

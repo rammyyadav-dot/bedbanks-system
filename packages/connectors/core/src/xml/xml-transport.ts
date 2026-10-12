@@ -1,7 +1,7 @@
 import { isIP } from 'node:net'
 import { lookup as dnsLookup } from 'node:dns/promises'
-import { DEFAULT_XML_LIMITS, parseXml, XmlParseError, type XmlLimits, type XmlNode } from './xml-parser.js'
-import { SupplierCallError, type SupplierCallContext, type SupplierErrorCode, type SupplierScope } from './supplier-types.js'
+import { DEFAULT_XML_LIMITS, parseXml, XmlParseError, type XmlLimits, type XmlNode } from './xml-parser'
+import { SupplierCallError, type SupplierCallContext, type SupplierErrorCode, type SupplierScope } from './supplier-types'
 
 /**
  * Hardened HTTPS transport for supplier XML/SOAP endpoints (WebBeds, TBO, Darina and later suppliers share it; only the

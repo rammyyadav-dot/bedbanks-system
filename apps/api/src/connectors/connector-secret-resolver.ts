@@ -29,6 +29,22 @@ export class UnconfiguredConnectorSecretResolver implements ConnectorSecretResol
   async resolve(): Promise<ConnectorSecretMaterial> { throw new ConnectorSecretError('unconfigured') }
 }
 
+/**
+ * Pure check that a reference points at exactly this connector's own secret under the deployment prefix. Used when a reference is
+ * STORED (connector admin API) and again when it is RESOLVED, so a bad reference cannot be saved and cannot be used.
+ */
+export function validateConnectorSecretReference(prefix: string, reference: string, scope: Pick<ConnectorSecretScope, 'tenantId' | 'connectorId'>): string {
+  const match = REFERENCE.exec(reference)
+  if (!PREFIX.test(prefix) || !match || !SEGMENT.test(scope.tenantId) || !SEGMENT.test(scope.connectorId)) throw new ConnectorSecretError('invalid_reference')
+  const id = match[1]
+  const rest = id.startsWith(prefix) ? id.slice(prefix.length) : null
+  if (rest === null) throw new ConnectorSecretError('invalid_reference')
+  const [tenant, connector, purpose, ...extra] = rest.split('/')
+  if (!tenant || !connector || !purpose || extra.length || !SEGMENT.test(purpose)) throw new ConnectorSecretError('invalid_reference')
+  if (tenant !== scope.tenantId || connector !== scope.connectorId) throw new ConnectorSecretError('scope_mismatch')
+  return id
+}
+
 export interface AwsConnectorSecretOptions { prefix: string; ttlMs?: number; now?: () => number }
 type SendClient = Pick<SecretsManagerClient, 'send'>
 
@@ -39,17 +55,7 @@ export class AwsConnectorSecretResolver implements ConnectorSecretResolver {
   }
 
   /** Validates the reference against the prefix and scope WITHOUT contacting AWS. Returns the secret id. */
-  secretId(reference: string, scope: ConnectorSecretScope): string {
-    const match = REFERENCE.exec(reference)
-    if (!match || !SEGMENT.test(scope.tenantId) || !SEGMENT.test(scope.connectorId)) throw new ConnectorSecretError('invalid_reference')
-    const id = match[1]
-    const rest = id.startsWith(this.options.prefix) ? id.slice(this.options.prefix.length) : null
-    if (rest === null) throw new ConnectorSecretError('invalid_reference')
-    const [tenant, connector, purpose, ...extra] = rest.split('/')
-    if (!tenant || !connector || !purpose || extra.length || !SEGMENT.test(purpose)) throw new ConnectorSecretError('invalid_reference')
-    if (tenant !== scope.tenantId || connector !== scope.connectorId) throw new ConnectorSecretError('scope_mismatch')
-    return id
-  }
+  secretId(reference: string, scope: ConnectorSecretScope): string { return validateConnectorSecretReference(this.options.prefix, reference, scope) }
 
   async resolve(reference: string, scope: ConnectorSecretScope): Promise<ConnectorSecretMaterial> {
     const id = this.secretId(reference, scope)

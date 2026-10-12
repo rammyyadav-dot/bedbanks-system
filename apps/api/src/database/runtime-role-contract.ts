@@ -60,6 +60,12 @@ export const HOLD_ATTRIBUTION_COLUMNS = ['id', 'tenant_id', 'rate_plan_id', 'sta
 /** InventoryHoldNight columns the report reads: the hold, the recorded counter reference (kind and pool night) and the quantity. Nothing else. */
 export const HOLD_NIGHT_ATTRIBUTION_COLUMNS = ['tenant_id', 'hold_id', 'pool_day_id', 'counter_kind', 'quantity'] as const
 
+/** ConnectorDefinition columns the Admin connector API edits. `status`, `capabilities` and `health_state` stay privileged: the API can never make a supplier live (ADR 0062). */
+export const CONNECTOR_WRITE_COLUMNS = ['name', 'version', 'transport_metadata', 'updated_at'] as const
+
+/** ConnectorCredentialReference columns the Admin API edits: the reference only (never secret material). The connector and purpose a row belongs to are immutable. */
+export const CONNECTOR_CREDENTIAL_WRITE_COLUMNS = ['secret_ref', 'updated_at'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -139,6 +145,16 @@ const READ_WRITE: readonly RuntimeGrant[] = [
   ] },
   { table: 'ServiceCaseNote', model: 'ServiceCaseNote', read: true, rls: 'forced-tenant', writes: [
     { op: 'INSERT', service: 'ServiceCasesService.addNote/transition/assign', endpoints: ['POST /admin/service/cases/:caseId/notes'], reason: 'append a note (notes are immutable)' },
+  ] },
+
+  { table: 'ConnectorDefinition', model: 'ConnectorDefinition', read: true, rls: 'forced-tenant', note: 'INSERT creates DRAFT connectors only (status defaults to DRAFT); the name/version/transport columns are editable; status, capabilities and health stay privileged (ADR 0062)', writes: [
+    { op: 'INSERT', service: 'ConnectorAdminService.create', endpoints: ['POST /supply/connectors'], reason: 'register a supplier connector as DRAFT (it cannot be activated through the API)' },
+    { op: 'UPDATE', columns: CONNECTOR_WRITE_COLUMNS, service: 'ConnectorAdminService.update', endpoints: ['PATCH /supply/connectors/:connectorId'], reason: 'edit name, version and non-secret transport metadata' },
+  ] },
+  { table: 'ConnectorCredentialReference', model: 'ConnectorCredentialReference', read: true, rls: 'forced-tenant', note: 'a secret-manager reference only, validated to be the connector\'s own scoped path; no secret material (ADR 0061, 0062)', writes: [
+    { op: 'INSERT', service: 'ConnectorAdminService.setCredential', endpoints: ['PUT /supply/connectors/:connectorId/credentials/:purpose'], reason: 'attach a credential reference' },
+    { op: 'UPDATE', columns: CONNECTOR_CREDENTIAL_WRITE_COLUMNS, service: 'ConnectorAdminService.setCredential', endpoints: ['PUT /supply/connectors/:connectorId/credentials/:purpose'], reason: 'repoint a credential reference; the connector and purpose are immutable' },
+    { op: 'DELETE', service: 'ConnectorAdminService.removeCredential', endpoints: ['DELETE /supply/connectors/:connectorId/credentials/:purpose'], reason: 'detach a credential reference' },
   ] },
 
   { table: 'Hotel', model: 'Hotel', read: true, rls: 'forced-tenant', note: 'INSERT, plus column-level UPDATE only; DELETE and every other column stay with the privileged supply-authoring path', writes: [

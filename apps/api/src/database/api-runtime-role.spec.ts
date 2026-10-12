@@ -24,7 +24,7 @@ describe('api runtime role grants', () => {
     expect(sql).not.toContain('Wallet')
     expect(sql).not.toContain('LedgerEntry')
     expect(sql).not.toContain('Booking')
-    expect(sql).not.toContain('ConnectorCredentialReference')
+    // ConnectorCredentialReference is an explicit, audited reference-only write since ADR 0062; secret material is never stored.
     expect(sql).not.toContain('BYPASSRLS')
     expect(sql).not.toMatch(/GRANT UPDATE ON "Hotel"/)
     expect(sql).not.toMatch(/GRANT DELETE/)

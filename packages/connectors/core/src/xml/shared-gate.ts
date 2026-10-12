@@ -1,5 +1,5 @@
-import type { ConnectorGate, XmlOperation } from './xml-transport.js'
-import { SupplierCallError } from './supplier-types.js'
+import type { ConnectorGate, XmlOperation } from './xml-transport'
+import { SupplierCallError } from './supplier-types'
 
 /**
  * Credential-wide gate built on the platform's best-effort coordination (Redis locks) and cache ports, so several API
