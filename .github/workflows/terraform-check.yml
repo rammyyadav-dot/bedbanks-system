@@ -5,7 +5,7 @@ on:
   pull_request:
     paths:
       - 'infra/aws/**'
-      - 'tools/aws-governance-check*'
+      - 'tools/aws-*'
       - 'tools/workflow-lint*'
       - 'docs/adr/0055-*'
       - '.github/workflows/**'
@@ -34,6 +34,10 @@ jobs:
         run: |
           node tools/aws-governance-check.mjs
           node --test tools/aws-governance-check.test.mjs
+      - name: Operator scripts and plan reviewer (ShellCheck, stubbed script tests, plan reviewer tests)
+        run: |
+          shellcheck infra/aws/plan-staging.sh infra/aws/audit/account-audit.sh
+          node --test tools/aws-plan-review.test.mjs tools/aws-plan-staging.test.mjs tools/aws-account-audit.test.mjs
       - name: Static security analysis (checkov, baseline in infra/aws/terraform/.checkov.yaml)
         run: |
           python3 -m pip install --quiet checkov==3.2.0
