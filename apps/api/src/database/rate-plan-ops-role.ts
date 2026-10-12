@@ -22,6 +22,8 @@ const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 export const RATE_PLAN_OPS_READ_TABLES = ['RatePlan', 'RoomType', 'BoardBasis', 'Contract', 'SupplierHotelMapping', 'CancellationPolicy', 'DailyRate', 'DailyAvailability'] as const
 /** Hotel is read by column only (identity and time zone). `tenant_id` must be readable for its row-level policy. */
 export const RATE_PLAN_OPS_HOTEL_COLUMNS = ['id', 'tenant_id', 'time_zone'] as const
+/** Tenants are listed by id and status only, so the expiry sweeper (ADR 0057, S9) can find the tenants to visit. The table has no row-level security; the name and slug stay unreadable. */
+export const RATE_PLAN_OPS_TENANT_COLUMNS = ['id', 'status'] as const
 /** The only columns the role may write, and only on RatePlan. */
 export const RATE_PLAN_OPS_UPDATE_COLUMNS = { RatePlan: ['status', 'updated_at'] } as const
 /** INSERT-only: the audit trail. Not readable by the role. */
@@ -41,6 +43,7 @@ export function ratePlanOpsGrantStatements(group = RATE_PLAN_OPS_GROUP_ROLE): st
     `GRANT USAGE ON SCHEMA public TO "${group}"`,
     ...RATE_PLAN_OPS_READ_TABLES.map((table) => `GRANT SELECT ON "${table}" TO "${group}"`),
     `GRANT SELECT (${RATE_PLAN_OPS_HOTEL_COLUMNS.map((c) => `"${c}"`).join(', ')}) ON "Hotel" TO "${group}"`,
+    `GRANT SELECT (${RATE_PLAN_OPS_TENANT_COLUMNS.map((c) => `"${c}"`).join(', ')}) ON "tenants" TO "${group}"`,
     ...RATE_PLAN_OPS_INSERT_TABLES.map((table) => `GRANT INSERT ON "${table}" TO "${group}"`),
     ...Object.entries(RATE_PLAN_OPS_UPDATE_COLUMNS).map(([table, columns]) => `GRANT UPDATE (${columns.map((c) => `"${c}"`).join(', ')}) ON "${table}" TO "${group}"`),
   ]
@@ -57,6 +60,7 @@ export async function provisionRatePlanOpsRole(db: Executor, input: { loginRole?
   await db.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "${RATE_PLAN_OPS_GROUP_ROLE}"`)
   await db.$executeRawUnsafe(`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM "${RATE_PLAN_OPS_GROUP_ROLE}"`)
   // Column ACLs survive a table-level REVOKE, so clear them on the two column-granted tables explicitly (ADR 0037).
+  await db.$executeRawUnsafe(`REVOKE ALL (${RATE_PLAN_OPS_TENANT_COLUMNS.map((c) => `"${c}"`).join(', ')}) ON "tenants" FROM "${RATE_PLAN_OPS_GROUP_ROLE}"`)
   await db.$executeRawUnsafe(`REVOKE ALL (${RATE_PLAN_OPS_HOTEL_COLUMNS.map((c) => `"${c}"`).join(', ')}) ON "Hotel" FROM "${RATE_PLAN_OPS_GROUP_ROLE}"`)
   await db.$executeRawUnsafe(`REVOKE ALL ("status", "updated_at") ON "RatePlan" FROM "${RATE_PLAN_OPS_GROUP_ROLE}"`)
   for (const statement of ratePlanOpsGrantStatements()) await db.$executeRawUnsafe(statement)
@@ -110,5 +114,7 @@ export async function verifyRatePlanOpsRole(db: Pick<Executor, '$queryRawUnsafe'
   if (await count(`SELECT count(*) AS n FROM unnest(ARRAY[${list(RATE_PLAN_OPS_FORBIDDEN_TABLES)}]) t WHERE has_table_privilege(current_user, format('%I', t), 'SELECT')`) > 0) failures.push('role can read a table outside the transition scope (including the audit log)')
   const hotelExtra = await count(`SELECT count(*) AS n FROM pg_attribute a WHERE a.attrelid = '"Hotel"'::regclass AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(current_user, '"Hotel"', a.attname, 'SELECT') AND a.attname <> ALL(ARRAY[${list(RATE_PLAN_OPS_HOTEL_COLUMNS)}])`)
   if (hotelExtra > 0 || (await count(`SELECT CASE WHEN has_table_privilege(current_user, '"Hotel"', 'SELECT') THEN 1 ELSE 0 END AS n`)) > 0) failures.push('role can read hotel columns beyond identity and time zone')
+  const tenantExtra = await count(`SELECT count(*) AS n FROM pg_attribute a WHERE a.attrelid = '"tenants"'::regclass AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(current_user, '"tenants"', a.attname, 'SELECT') AND a.attname <> ALL(ARRAY[${list(RATE_PLAN_OPS_TENANT_COLUMNS)}])`)
+  if (tenantExtra > 0 || (await count(`SELECT CASE WHEN has_table_privilege(current_user, '"tenants"', 'SELECT') THEN 1 ELSE 0 END AS n`)) > 0) failures.push('role can read tenant columns beyond id and status')
   return { ok: failures.length === 0, failures }
 }

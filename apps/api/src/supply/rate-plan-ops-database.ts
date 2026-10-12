@@ -43,6 +43,18 @@ export class RatePlanOpsDatabase implements OnModuleDestroy {
     return this.client
   }
 
+  /** Active tenant ids, for the expiry sweeper (ADR 0057, S9). Reads `tenants.id` and `status` only, which is all the role may read. */
+  async listActiveTenantIds(): Promise<string[]> {
+    const client = await this.connection()
+    try { return (await client.tenant.findMany({ where: { status: 'ACTIVE' }, select: { id: true }, orderBy: { id: 'asc' } })).map((tenant) => tenant.id) } catch (error) {
+      if (isAccessFailure(error)) {
+        this.logger.error(`Rate plan lifecycle connection refused or lacks a grant (${databaseErrorCode(error)})`)
+        throw new ServiceUnavailableException({ message: UNAVAILABLE, code: 'RATE_PLAN_OPS_UNAVAILABLE' })
+      }
+      throw error
+    }
+  }
+
   /** Serializable, tenant-scoped. Caller must have authenticated the user and checked `supply.rates.manage` before calling. */
   async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const client = await this.connection()
