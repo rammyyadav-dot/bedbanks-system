@@ -1,7 +1,7 @@
 # ADR 0057: Rate plan terms and activation approval
 
 ## Status
-Accepted as direction (owner instructed "go ahead with your recommendation", 2026-10-12). **Slice S2a is implemented** (sale window, payment type). Every other slice below is **not built**. Nothing here enables booking, payment or a supplier connection. ADR 0032 (privileged rate writes), ADR 0041 (activation lifecycle) and ADR 0014 (one sellability evaluator) are unchanged.
+Accepted as direction (owner instructed "go ahead with your recommendation", 2026-10-12). **Slices S2a (sale window, payment type, payment type on Agent offers) and S2b (plan-attached cancellation rule sets) are implemented.** Every other slice is **not built**. Nothing here enables booking, payment or a supplier connection. ADR 0032 (privileged rate writes), ADR 0041 (activation lifecycle) and ADR 0014 (one sellability evaluator) are unchanged.
 
 Companion: `docs/rate-plan-build-workflow-2026-10-12.md` (audit, benchmark, workflow, slice plan).
 
@@ -29,9 +29,22 @@ A rate plan is a flat row: contract, room, board, adults-only occupancy and a `r
 - Clone copies the window and payment type; it still creates a DRAFT only.
 - **Fail-closed loading.** The narrow `select` lists in the loaders are loosely typed, so the compiler cannot force them to load the new columns. A missing column would silently skip the rule. `buildStaySnapshot` therefore throws `RATE_PLAN_WINDOW_NOT_LOADED` when the plan window was not loaded, and the two `select` loaders and the hold query were updated.
 
-### Not done in S2a (stated so it is not mistaken for capability)
-- Payment type is stored and editable in Admin, labelled "not yet shown to Agents". Agent offers do not carry it yet; that needs a domain-package contract change.
-- Plan-attached cancellation (D6), plan-level market eligibility, child and extra-bed lines, four-eye activation, clone writer, grid/CSV, expiry sweeper, promotions and derived rates: slices S2b to S10 of the workflow document.
+- **Payment type reaches Agents.** `SearchRateOffer.paymentType` gained `unspecified`. Contracted offers previously carried a hardcoded `prepaid` for every plan, which was an invented fact. They now carry the recorded value, and `unspecified` ("Payment terms not stated") when nothing is recorded. This is a visible change for every existing plan.
+
+## Slice S2b (implemented): plan-attached cancellation rule sets (D6)
+- `CancellationPolicy.policy_set` (nullable, up to 80 chars) names a set of rules within a contract; `RatePlan.cancellation_policy_set` (nullable) selects one. Migration `202611120002_cancellation_policy_sets`: additive, nullable, new `(contract_id, policy_set)` index, rollback notes in the header. `CancellationPolicy` has no tenant column; its forced RLS joins `Contract`, unchanged.
+- Resolution is one pure function, `rulesForPlan` (`supply/cancellation-rules.ts`): no set = the contract default rules (rows with `policy_set` NULL), exactly today's behaviour; a named set = only that set; a named set with no rules is `missing` and **never falls back** to the default. Names are case-sensitive.
+- Used by every reader of the rules so the buyer sees what is applied: Agent search offers, cancellation penalty quotes, voucher text, activation readiness, the shared stay evaluator (new reason `CANCELLATION_POLICY_MISSING`, so search, recheck, hold, the Admin simulator and Distribution & Readiness all agree).
+- Write validation: set names validated; a plan can name only a set that exists on its contract, and only while refundable (typed 400 `RATE_PLAN_CANCELLATION_SET_INVALID|UNKNOWN|ON_NON_REFUNDABLE`). Absent key keeps, explicit null clears. Clone copies the set. An ACTIVE plan cannot be edited into a state activation would refuse.
+- Fail-closed loading as in S2a: `buildStaySnapshot` throws `RATE_PLAN_CANCELLATION_NOT_LOADED` if a loader omitted the fields.
+- Admin: rule sets shown grouped on the contract, a set name on new rules, and a rule-set picker on the plan form (refundable plans only; an unreadable contract is reported, not shown as "no sets").
+- **Compared against the simulator:** the simulator and Agent search call the same evaluator; a unit test and SR-14 (search e2e) assert that a named-but-empty set removes the offer and that a named set yields its own deadline (11 days earlier than the default in the test).
+
+### Known limitation, not changed here (finding F13)
+Cancellation penalties (`booking-cancellation.service`) and voucher text read the contract's **live** rules, not a copy frozen at booking. Editing a rule after a booking changes that booking's penalty. S2b routes these through the same resolver so they match the offer, but freezing the policy at booking is a booking-mutation change and needs its own decision.
+
+### Not built
+Plan-level market eligibility (S3), four-eye activation (S5), child and extra-bed lines (S6), grid/CSV (S7), clone writer (S8), expiry sweeper (S9), promotions and derived rates (S10).
 
 ## Consequences
 - The booking window (distinct from the stay window) is still contract-level.

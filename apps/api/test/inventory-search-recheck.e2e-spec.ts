@@ -15,8 +15,8 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
 
   const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED', ...patch })
 
-  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL'; amount?: bigint; rows?: boolean; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
-    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null } })).id
+  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
+    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null } })).id
     await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: 2, amountMinor: opts.amount ?? 50000n, amountBasis: 'SELL' as const, currency: 'AED' })) })
     if (opts.rows !== false) {
       await prisma.dailyAvailability.createMany({ data: [...nights, checkOut].map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), allotment: opts.allotment ?? 5, inventoryMode: opts.mode ?? 'ALLOTMENT' })) })
@@ -121,6 +121,42 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     const ok = await newPlan('ok', { releaseDays: 19 })
     const list = await rates()
     expect(forPlan(list, hidden)).toBeUndefined(); expect(forPlan(list, ok)).toBeDefined()
+  })
+
+  it('SR-12 the plan sale window removes the offer outside it and keeps it inside (ADR 0057)', async () => {
+    const inside = await newPlan('in', { validFrom: checkIn, validTo: checkOut })
+    const late = await newPlan('late-start', { validFrom: mid })
+    const early = await newPlan('early-end', { validTo: mid })
+    const list = await rates()
+    expect(forPlan(list, inside)).toBeDefined()
+    expect(forPlan(list, late)).toBeUndefined()
+    expect(forPlan(list, early)).toBeUndefined()
+  })
+
+  it('SR-13 the offer carries the recorded payment type and never invents prepaid (ADR 0057)', async () => {
+    const prepaid = await newPlan('pp', { paymentType: 'PREPAID' })
+    const hotelPay = await newPlan('ph', { paymentType: 'PAY_AT_HOTEL' })
+    const none = await newPlan('np')
+    const list = await rates()
+    expect(forPlan(list, prepaid)?.paymentType).toBe('prepaid')
+    expect(forPlan(list, hotelPay)?.paymentType).toBe('pay_at_hotel')
+    expect(forPlan(list, none)?.paymentType).toBe('unspecified')
+  })
+
+  it('SR-14 a plan names its own cancellation set; no set uses the contract default; a named set with no rules is not sellable (ADR 0057)', async () => {
+    const rule = (policySet: string | null, daysBeforeCheckin: number) => prisma.cancellationPolicy.create({ data: { contractId, policySet, daysBeforeCheckin, penaltyPercent: 100 } })
+    await rule(null, 3); await rule('STRICT', 14)
+    try {
+      const plain = await newPlan('plain')
+      const strict = await newPlan('strict', { cancellationPolicySet: 'STRICT' })
+      const gone = await newPlan('gone', { cancellationPolicySet: 'NOT-DEFINED' })
+      const list = await rates()
+      const d = (planId: string) => forPlan(list, planId)?.cancellation.deadline
+      expect(d(plain)).toBeDefined(); expect(d(strict)).toBeDefined()
+      expect(Date.parse(d(strict)!)).toBeLessThan(Date.parse(d(plain)!)) // 14 days before is earlier than 3 days before
+      expect(Date.parse(d(plain)!) - Date.parse(d(strict)!)).toBe(11 * 86_400_000)
+      expect(forPlan(list, gone)).toBeUndefined() // never silently falls back to the default
+    } finally { await prisma.cancellationPolicy.deleteMany({ where: { contractId } }) }
   })
 
   it('SR-07 recheck never allocates and reflects inventory changes: rechecked while stock lasts, unavailable once gone', async () => {

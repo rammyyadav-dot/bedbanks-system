@@ -40,7 +40,7 @@ export interface AdminContract {
   supplier: { id: string; displayName: string };
   supplierHotelMapping?: { id: string; hotelId: string; status: string } | null;
 }
-export interface CancellationPolicyRecord { id: string; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
+export interface CancellationPolicyRecord { id: string; policySet?: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null }
@@ -49,7 +49,7 @@ export async function getContracts() { return apiRequest<AdminContract[]>('/supp
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
-export async function createCancellationPolicy(contractId: string, input: { daysBeforeCheckin: number; penaltyPercent: number; currency?: string }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function createCancellationPolicy(contractId: string, input: { daysBeforeCheckin: number; penaltyPercent: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export interface HotelMappingRecord { id: string; supplierId: string; hotelId: string; supplierHotelId: string; status: string }
@@ -78,6 +78,8 @@ export interface AdminRatePlan {
   refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number;
   /** Optional sale window (ISO instants at midnight UTC) and payment type; null means inherit the contract term / not recorded. */
   validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null;
+  /** Name of the contract's cancellation rule set this plan uses; null = the contract default rules. */
+  cancellationPolicySet?: string | null;
   /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
   inventoryPoolId?: string | null;
   /** Row version: activate and suspend must echo it so a stale view cannot overwrite a concurrent change. */
@@ -88,7 +90,7 @@ export interface AdminRatePlan {
 }
 export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supply/rate-plans'); }
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
-export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number; validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null }
+export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number; validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet?: string | null }
 export async function createRatePlan(input: RatePlanInput) { return apiRequest<AdminRatePlan>('/supply/rate-plans', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }

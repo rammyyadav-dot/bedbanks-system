@@ -44,7 +44,7 @@ export const COMMERCIAL_REASON_TEXT: Record<string, string> = {
   ROOM_TYPE_INACTIVE: 'Room type is inactive', BOARD_BASIS_INACTIVE: 'Board basis is inactive', SUPPLIER_INACTIVE: 'Supplier is not ACTIVE', RATE_PLAN_INACTIVE: 'Rate plan is not ACTIVE',
   AGENCY_SUSPENDED: 'The selected agency is suspended', DISTRIBUTION_RESTRICTED: 'The hotel or supplier is restricted for the selected agency',
   NATIONALITY_NOT_ALLOWED: 'The contract does not accept this guest nationality', SOURCE_MARKET_NOT_ALLOWED: 'The contract is not sold to this buyer market', CONTRACT_MARKET_RULE_INVALID: 'The contract sales-market or nationality list is malformed, so it is not sold',
-  RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity', OUTSIDE_RATE_PLAN_VALIDITY: 'Date is outside the rate plan sale window',
+  RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity', OUTSIDE_RATE_PLAN_VALIDITY: 'Date is outside the rate plan sale window', CANCELLATION_POLICY_MISSING: 'The rate plan names a cancellation rule set that has no rules',
   SUPPLIER_MAPPING_INVALID: 'Supplier mapping is missing or not approved', OCCUPANCY_UNSUPPORTED: 'Rate plan occupancy exceeds what the room supports',
   DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency',
   RATE_AMOUNT_BASIS_UNVERIFIED: 'Rate amount basis is not verified', NET_RATE_MARKUP_UNAVAILABLE: 'Net rate has no markup rule, so no sell price exists',

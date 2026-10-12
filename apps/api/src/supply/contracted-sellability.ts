@@ -106,6 +106,8 @@ export interface ContractedStaySnapshot {
   /** The plan's own sale window (ADR 0057), YYYY-MM-DD, or null when it inherits the contract term on that side. Required so a caller cannot omit it and skip the rule. */
   ratePlanValidFrom: string | null
   ratePlanValidTo: string | null
+  /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
+  cancellationPolicyMissing: boolean
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -186,6 +188,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
   if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
+  if (snapshot.cancellationPolicyMissing) reasons.push('CANCELLATION_POLICY_MISSING')
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }

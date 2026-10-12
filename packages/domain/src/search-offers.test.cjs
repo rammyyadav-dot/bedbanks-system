@@ -324,3 +324,14 @@ test('an on-request rate stays in results as not available, and a contradictory 
   lying.rooms[0].rates[0] = { ...lying.rooms[0].rates[0], availability: 'on_request', available: true }
   assert.equal(validateSearchHotels([lying], criteria).ok, false)
 })
+
+test('an unspecified payment type is a valid offer value; an unknown one is still rejected (ADR 0057)', () => {
+  const unspecified = hotel()
+  unspecified.rooms[0].rates[0].paymentType = 'unspecified'
+  const ok = validateSearchHotels([unspecified], criteria)
+  assert.equal(ok.ok, true)
+  assert.equal(ok.hotels[0].rooms[0].rates[0].paymentType, 'unspecified')
+  const bogus = hotel()
+  bogus.rooms[0].rates[0].paymentType = 'deposit'
+  assert.equal(validateSearchHotels([bogus], criteria).ok, false)
+})

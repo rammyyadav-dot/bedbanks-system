@@ -1,3 +1,4 @@
+import { rulesForPlan } from '../supply/cancellation-rules'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
@@ -80,7 +81,7 @@ export class BookingDocumentService {
       leadGuest: s.leadGuest,
     }
     if (type === 'VOUCHER') {
-      return { ...base, cancellationPolicy: (plan?.contract.cancellationPolicies ?? []).map(rule => ({
+      return { ...base, cancellationPolicy: (plan ? rulesForPlan(plan, plan.contract.cancellationPolicies).rules : []).map(rule => ({
         daysBeforeCheckin: rule.daysBeforeCheckin,
         penalty: rule.penaltyPercent !== null ? `${rule.penaltyPercent}% of the booking total` : `${rule.currency ?? booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)`,
       })) }

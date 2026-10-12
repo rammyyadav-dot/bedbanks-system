@@ -27,6 +27,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     contractValidFrom: '2026-10-01',
     contractValidTo: '2026-12-31',
     contractCurrency: 'AED',
+    cancellationPolicyMissing: false,
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
     ratePlanStatus: 'ACTIVE',
@@ -75,6 +76,12 @@ describe('contracted stay sellability', () => {
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-17' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).eligible).toBe(false)
+  })
+  it('a plan naming a cancellation set with no rules is not sellable (ADR 0057)', () => {
+    const decision = evaluateContractedStay(snapshot({ cancellationPolicyMissing: true }), request)
+    expect(decision.reasons).toContain('CANCELLATION_POLICY_MISSING')
+    expect(decision.eligible).toBe(false)
+    expect(evaluateContractedStay(snapshot({ cancellationPolicyMissing: false }), request).reasons).not.toContain('CANCELLATION_POLICY_MISSING')
   })
   it('fails when one night has no rate', () => {
     const decision = evaluateContractedStay(snapshot({ nights: [night('2026-10-15'), night('2026-10-16', { rateAmountMinor: null }), night('2026-10-17')] }), request)

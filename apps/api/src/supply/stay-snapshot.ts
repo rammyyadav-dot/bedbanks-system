@@ -1,4 +1,5 @@
 import { parseMarketRules } from './market-rules'
+import { rulesForPlan } from './cancellation-rules'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
@@ -15,12 +16,14 @@ export interface StayPlanInput {
   /** ADR 0057 sale window. Required (nullable) so a narrow `select` that forgets it fails type-check instead of skipping the rule. */
   validFrom: Date | null
   validTo: Date | null
+  /** ADR 0057. Required (nullable) for the same reason as the sale window. */
+  cancellationPolicySet: string | null
   inventoryPoolId?: string | null
   /** The plan's pool with the stock days of the window. Absent when the plan has no pool. */
   inventoryPool?: { name?: string; days: PoolDayInput[] } | null
   roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; hotel: { contentStatus: string; timeZone?: string } }
   boardBasis: { isActive: boolean }
-  contract: { status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
+  contract: { cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
   dailyRates: Array<{ stayDate: Date; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
@@ -46,6 +49,7 @@ export function buildStaySnapshot(
 ): ContractedStaySnapshot {
   // A loader that forgot the plan window would silently skip the rule (fail open). Refuse loudly instead.
   if (plan.validFrom === undefined || plan.validTo === undefined) throw new Error('RATE_PLAN_WINDOW_NOT_LOADED')
+  if (plan.cancellationPolicySet === undefined || plan.contract.cancellationPolicies === undefined) throw new Error('RATE_PLAN_CANCELLATION_NOT_LOADED')
   const rates = new Map(plan.dailyRates.map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
@@ -82,6 +86,7 @@ export function buildStaySnapshot(
     contractValidFrom: dayKey(plan.contract.validFrom),
     contractValidTo: dayKey(plan.contract.validTo),
     contractCurrency: plan.contract.settlementCurrency,
+    cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),

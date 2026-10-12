@@ -415,4 +415,66 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
       }
     })
   })
+  describe('plan cancellation rule sets (ADR 0057)', () => {
+    const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
+    const addRule = (policySet: string | null, daysBeforeCheckin: number) => api(operator).post(`/supply/contracts/${contractId}/policies/cancellation`, { daysBeforeCheckin, penaltyPercent: 100, ...(policySet === null ? {} : { policySet }) })
+    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-S${++n}`, occupancy: 2, currency: 'AED', ...body })
+
+    it('stores rules in a named set, leaving the contract default untouched', async () => {
+      await addRule('FLEX-7', 7).then((r) => expectStatus(r, 201))
+      await addRule('FLEX-7', 2).then((r) => expectStatus(r, 201))
+      const rows = await prisma.cancellationPolicy.findMany({ where: { contractId, policySet: 'FLEX-7' } })
+      expect(rows).toHaveLength(2)
+      expect(await prisma.cancellationPolicy.count({ where: { contractId, policySet: null } })).toBeGreaterThanOrEqual(1)
+      const listed = await api(operator).get(`/supply/contracts/${contractId}/policies`).expect(200)
+      expect(JSON.stringify(listed.body.data)).toContain('FLEX-7')
+    })
+
+    it('refuses a bad set name on a rule', async () => {
+      await addRule('bad/name', 3).then((r) => expectStatus(r, 400))
+      await addRule(' lead', 3).then((r) => expectStatus(r, 400))
+    })
+
+    it('attaches an existing set to a refundable plan and reads it back', async () => {
+      const id = (await createWith({ cancellationPolicySet: 'FLEX-7' }).then((r) => expectStatus(r, 201))).body.data.id
+      expect((await planRow(id)).cancellationPolicySet).toBe('FLEX-7')
+    })
+
+    it('refuses an unknown set, a bad name, and a set on a non-refundable plan, writing nothing', async () => {
+      const before = await prisma.ratePlan.count({ where: { tenantId } })
+      expect((await createWith({ cancellationPolicySet: 'NOPE' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_UNKNOWN')
+      expect((await createWith({ cancellationPolicySet: 'flex-7' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_UNKNOWN') // case-sensitive
+      expect((await createWith({ cancellationPolicySet: '../x' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_INVALID')
+      expect((await createWith({ cancellationPolicySet: 'FLEX-7', refundable: false }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_ON_NON_REFUNDABLE')
+      expect(await prisma.ratePlan.count({ where: { tenantId } })).toBe(before)
+    })
+
+    it('editing: absent keeps, null clears, and making a plan non-refundable while it names a set is refused', async () => {
+      const id = (await createWith({ cancellationPolicySet: 'FLEX-7' }).then((r) => expectStatus(r, 201))).body.data.id
+      await api(operator).patch(`/supply/rate-plans/${id}`, { minStay: 2 }).then((r) => expectStatus(r, 200))
+      expect((await planRow(id)).cancellationPolicySet).toBe('FLEX-7')
+      expect((await api(operator).patch(`/supply/rate-plans/${id}`, { refundable: false }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_ON_NON_REFUNDABLE')
+      await api(operator).patch(`/supply/rate-plans/${id}`, { cancellationPolicySet: null, refundable: false }).then((r) => expectStatus(r, 200))
+      expect(await planRow(id)).toMatchObject({ cancellationPolicySet: null, refundable: false })
+    })
+
+    it('a read-only user cannot attach a set', async () => {
+      const id = await newPlan(false)
+      await api(readOnly).patch(`/supply/rate-plans/${id}`, { cancellationPolicySet: 'FLEX-7' }).then((r) => expectStatus(r, 403))
+      expect((await planRow(id)).cancellationPolicySet).toBeNull()
+    })
+
+    it('readiness counts the plan set, not the contract default; an emptied set blocks activation naming the set', async () => {
+      const id = await newPlan(true, { cancellationPolicySet: 'FLEX-7' })
+      expect((await readiness(id)).checks.find((c) => c.code === 'CANCELLATION_POLICY')?.ok).toBe(true)
+      await prisma.cancellationPolicy.updateMany({ where: { contractId, policySet: 'FLEX-7' }, data: { policySet: 'RENAMED' } })
+      try {
+        const refused = await activate(id).then((r) => expectStatus(r, 409))
+        expect(refused.body.error.code).toBe('RATE_PLAN_NOT_READY')
+        expect(JSON.stringify(refused.body.error.details)).toContain('FLEX-7')
+        expect((await planRow(id)).status).toBe('DRAFT')
+      } finally { await prisma.cancellationPolicy.updateMany({ where: { contractId, policySet: 'RENAMED' }, data: { policySet: 'FLEX-7' } }) }
+      await activate(id).then((r) => expectStatus(r, 201))
+    })
+  })
 })

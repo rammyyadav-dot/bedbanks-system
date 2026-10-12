@@ -198,7 +198,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               rate.totalAmountMinor !== rate.netAmountMinor + rate.taxAmountMinor + rate.feeAmountMinor ||
               rate.sellAmountMinor !== rate.totalAmountMinor + rate.markupAmountMinor ||
               rate.total.amountMinor !== rate.sellAmountMinor ||
-              !['prepaid', 'pay_at_hotel', 'credit'].includes(rate.paymentType) ||
+              !['prepaid', 'pay_at_hotel', 'credit', 'unspecified'].includes(rate.paymentType) ||
               !['hotel_direct', 'dmc', 'bedbank', 'channel_manager', 'gds'].includes(rate.source)) throw Error('rate')
           offerIds.add(rate.offerId)
           return {

@@ -9,14 +9,15 @@ import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
 import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
+import { setNames } from '@/lib/cancellation-sets'
 import { PAYMENT_TYPE_OPTIONS, dayFromApi, termsFromForm } from '@/lib/rate-plan-terms'
 import {
-  createRatePlan, getBoardBases, getContracts, getHotels, getRatePlan, getRoomsByHotel, updateRatePlan,
+  createRatePlan, getBoardBases, getContract, getContracts, getHotels, getRatePlan, getRoomsByHotel, updateRatePlan,
   type AdminContract, type AdminRatePlan, type BoardBasisRecord, type HotelRecord, type RoomTypeRecord,
 } from '@/lib/data'
 
-interface FormState { contractId: string; hotelId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; currency: string; occupancy: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: string; maxStay: string; releaseDays: string; validFrom: string; validTo: string; paymentType: string }
-const blank: FormState = { contractId: '', hotelId: '', roomTypeId: '', boardBasisId: '', code: '', status: 'DRAFT', currency: 'AED', occupancy: '2', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: '1', maxStay: '', releaseDays: '0', validFrom: '', validTo: '', paymentType: '' }
+interface FormState { contractId: string; hotelId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; currency: string; occupancy: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: string; maxStay: string; releaseDays: string; validFrom: string; validTo: string; paymentType: string; cancellationPolicySet: string }
+const blank: FormState = { contractId: '', hotelId: '', roomTypeId: '', boardBasisId: '', code: '', status: 'DRAFT', currency: 'AED', occupancy: '2', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: '1', maxStay: '', releaseDays: '0', validFrom: '', validTo: '', paymentType: '', cancellationPolicySet: '' }
 const wholeNumber = (value: string) => /^\d+$/.test(value.trim()) ? Number(value) : null
 
 export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
@@ -29,6 +30,8 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
   const [hotels, setHotels] = useState<HotelRecord[]>([])
   const [rooms, setRooms] = useState<RoomTypeRecord[]>([])
   const [boards, setBoards] = useState<BoardBasisRecord[]>([])
+  const [ruleSets, setRuleSets] = useState<string[]>([])
+  const [ruleSetsError, setRuleSetsError] = useState(false)
   const [plan, setPlan] = useState<AdminRatePlan | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -46,13 +49,21 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
           const roomList = await getRoomsByHotel(existing.roomType.hotel.id) as RoomTypeRecord[]
           if (!active) return
           setRooms(roomList)
-          setForm({ contractId: existing.contractId, hotelId: existing.roomType.hotel.id, roomTypeId: existing.roomTypeId, boardBasisId: existing.boardBasisId, code: existing.code, status: existing.status, currency: existing.currency, occupancy: String(existing.occupancy), refundable: existing.refundable, taxesIncluded: existing.taxesIncluded, feesIncluded: existing.feesIncluded, minStay: String(existing.minStay), maxStay: existing.maxStay == null ? '' : String(existing.maxStay), releaseDays: String(existing.releaseDays), validFrom: dayFromApi(existing.validFrom), validTo: dayFromApi(existing.validTo), paymentType: existing.paymentType ?? '' })
+          setForm({ contractId: existing.contractId, hotelId: existing.roomType.hotel.id, roomTypeId: existing.roomTypeId, boardBasisId: existing.boardBasisId, code: existing.code, status: existing.status, currency: existing.currency, occupancy: String(existing.occupancy), refundable: existing.refundable, taxesIncluded: existing.taxesIncluded, feesIncluded: existing.feesIncluded, minStay: String(existing.minStay), maxStay: existing.maxStay == null ? '' : String(existing.maxStay), releaseDays: String(existing.releaseDays), validFrom: dayFromApi(existing.validFrom), validTo: dayFromApi(existing.validTo), paymentType: existing.paymentType ?? '', cancellationPolicySet: existing.cancellationPolicySet ?? '' })
         }
       })
       .catch((error) => { if (active) setLoadError(describeApiError(error, 'load rate plan data')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [ratePlanId])
+
+  // The rule sets are read from the contract itself; an unreadable contract is reported, never shown as "no sets".
+  useEffect(() => {
+    if (!form.contractId) { setRuleSets([]); setRuleSetsError(false); return }
+    let active = true
+    getContract(form.contractId).then((detail) => { if (active) { setRuleSets(setNames(detail.cancellationPolicies)); setRuleSetsError(false) } }).catch(() => { if (active) { setRuleSets([]); setRuleSetsError(true) } })
+    return () => { active = false }
+  }, [form.contractId])
 
   // A contract bound to a hotel mapping fixes the hotel; otherwise the operator chooses it.
   const selectedContract = contracts.find((contract) => contract.id === form.contractId)
@@ -81,7 +92,7 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
     if (!/^[A-Za-z]{3}$/.test(form.currency)) return setMessage({ kind: 'error', text: 'Currency must be a 3-letter ISO-4217 code.' })
     const parsedTerms = termsFromForm(form)
     if (!parsedTerms.ok) return setMessage({ kind: 'error', text: parsedTerms.message })
-    const body = { ...parsedTerms.terms, contractId: form.contractId, roomTypeId: form.roomTypeId, boardBasisId: form.boardBasisId, code: form.code.trim(), occupancy, currency: form.currency.toUpperCase(), refundable: form.refundable, taxesIncluded: form.taxesIncluded, feesIncluded: form.feesIncluded, minStay, maxStay, releaseDays }
+    const body = { ...parsedTerms.terms, cancellationPolicySet: form.refundable && form.cancellationPolicySet !== '' ? form.cancellationPolicySet : null, contractId: form.contractId, roomTypeId: form.roomTypeId, boardBasisId: form.boardBasisId, code: form.code.trim(), occupancy, currency: form.currency.toUpperCase(), refundable: form.refundable, taxesIncluded: form.taxesIncluded, feesIncluded: form.feesIncluded, minStay, maxStay, releaseDays }
     setSaving(true)
     try {
       if (ratePlanId) { const saved = await updateRatePlan(ratePlanId, body); setForm((current) => ({ ...current, status: saved.status })); setMessage({ kind: 'ok', text: 'Rate plan saved.' }) }
@@ -107,7 +118,8 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
           <FormField label="Release days"><input inputMode="numeric" value={form.releaseDays} onChange={(e) => set('releaseDays', e.target.value)} disabled={!canManage} required /></FormField>
           <FormField label="On sale from (optional, inside the contract term)"><input type="date" value={form.validFrom} onChange={(e) => set('validFrom', e.target.value)} disabled={!canManage} /></FormField>
           <FormField label="On sale until (optional, inside the contract term)"><input type="date" value={form.validTo} onChange={(e) => set('validTo', e.target.value)} disabled={!canManage} /></FormField>
-          <FormField label="Payment type (recorded; not yet shown to Agents)"><select value={form.paymentType} onChange={(e) => set('paymentType', e.target.value)} disabled={!canManage}><option value="">Not recorded</option>{PAYMENT_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FormField>
+          <FormField label="Cancellation rules (refundable plans only)"><select value={form.cancellationPolicySet} onChange={(e) => set('cancellationPolicySet', e.target.value)} disabled={!canManage || !form.refundable || !form.contractId}><option value="">Contract default rules</option>{ruleSets.map((name) => <option key={name} value={name}>Set "{name}"</option>)}</select>{ruleSetsError ? <span role="alert" style={{ fontSize: 12, color: '#bc5652' }}> The contract's rule sets could not be loaded.</span> : null}</FormField>
+          <FormField label="Payment type (shown to Agents on the offer; blank shows Payment terms not stated)"><select value={form.paymentType} onChange={(e) => set('paymentType', e.target.value)} disabled={!canManage}><option value="">Not recorded</option>{PAYMENT_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></FormField>
           <div style={{ display: 'flex', gap: 18, fontSize: 12, margin: '6px 0 14px' }}>
             <label><input type="checkbox" checked={form.refundable} onChange={(e) => set('refundable', e.target.checked)} disabled={!canManage} /> Refundable</label>
             <label><input type="checkbox" checked={form.taxesIncluded} onChange={(e) => set('taxesIncluded', e.target.checked)} disabled={!canManage} /> Taxes included</label>

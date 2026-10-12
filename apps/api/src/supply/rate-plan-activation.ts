@@ -25,7 +25,7 @@ export interface ActivationReadiness {
 export interface ActivationFacts {
   /** Today in the hotel's calendar, YYYY-MM-DD. The caller supplies it so the evaluator stays deterministic. */
   today: string
-  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null }
+  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null; cancellationPolicySet: string | null }
   room: { hotelId: string; maxOccupancy: number; isActive: boolean }
   board: { isActive: boolean }
   contract: {
@@ -84,8 +84,8 @@ export function assessRatePlanActivation(facts: ActivationFacts): ActivationRead
 
   // A refundable plan must point at a real cancellation schedule; a non-refundable plan carries none by design. Never substitute a default.
   checks.push(check('CANCELLATION_POLICY', 'Cancellation policy', !plan.refundable || contract.cancellationPolicyCount > 0,
-    plan.refundable ? `${contract.cancellationPolicyCount} cancellation rule(s) on the contract.` : 'Non-refundable plan.',
-    'A refundable plan needs at least one cancellation rule on its contract. Add one, or mark the plan non-refundable.'))
+    plan.refundable ? `${contract.cancellationPolicyCount} cancellation rule(s) in ${plan.cancellationPolicySet ? `set "${plan.cancellationPolicySet}"` : 'the contract default'}.` : 'Non-refundable plan.',
+    plan.cancellationPolicySet ? `The plan names cancellation set "${plan.cancellationPolicySet}" but the contract has no rules in it.` : 'A refundable plan needs at least one cancellation rule on its contract. Add one, or mark the plan non-refundable.'))
 
   const future = rates.filter((row) => row.stayDate >= today)
   const unclassified = future.filter((row) => row.amountBasis === null)
@@ -114,13 +114,13 @@ export function transitionTarget(action: RatePlanAction, from: RatePlanStatusVal
 
 /** Clone keeps the commercial shape but never identity, status, rates or stock. */
 export function cloneDraftFields(
-  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null },
+  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet: string | null },
   overrides: { code: string; roomTypeId?: string },
 ) {
   return {
     contractId: source.contractId, roomTypeId: overrides.roomTypeId ?? source.roomTypeId, boardBasisId: source.boardBasisId, code: overrides.code,
     status: 'DRAFT' as const, occupancy: source.occupancy, currency: source.currency, refundable: source.refundable, taxesIncluded: source.taxesIncluded,
     feesIncluded: source.feesIncluded, minStay: source.minStay, maxStay: source.maxStay, releaseDays: source.releaseDays, releaseTimeLocal: source.releaseTimeLocal,
-    validFrom: source.validFrom, validTo: source.validTo, paymentType: source.paymentType,
+    validFrom: source.validFrom, validTo: source.validTo, paymentType: source.paymentType, cancellationPolicySet: source.cancellationPolicySet,
   }
 }
