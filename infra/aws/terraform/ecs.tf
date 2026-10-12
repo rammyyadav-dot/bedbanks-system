@@ -23,13 +23,14 @@ locals {
     supplier = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "SUPPLIER_ORIGIN", value = "https://${local.portals.supplier.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
   }
   api_environment = concat([for k, v in merge({
-    NODE_ENV           = "production"
-    API_HOST           = "0.0.0.0"
-    API_PORT           = "3002"
-    API_PREFIX         = "api/v1"
-    AUTH_COOKIE_SECURE = "true"
-    ADMIN_ORIGIN       = "https://${local.portals.admin.host}"
-    TRUSTED_ORIGINS    = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
+    NODE_ENV                = "production"
+    API_HOST                = "0.0.0.0"
+    API_PORT                = "3002"
+    API_PREFIX              = "api/v1"
+    AUTH_COOKIE_SECURE      = "true"
+    CONNECTOR_SECRET_PREFIX = "${local.name}/connectors/"
+    ADMIN_ORIGIN            = "https://${local.portals.admin.host}"
+    TRUSTED_ORIGINS         = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
   }, var.api_env) : { name = k, value = v }])
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },

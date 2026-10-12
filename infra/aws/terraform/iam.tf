@@ -32,11 +32,33 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = data.aws_iam_policy_document.execution_secrets.json
 }
 
-# Task roles carry no AWS permissions: the apps call no AWS API. Separate roles so a grant can be added per service later.
+# Task roles carry no AWS permissions except the API's read of supplier connector credentials (ADR 0061). Separate roles so a grant can be added per service.
 resource "aws_iam_role" "task" {
   for_each           = local.services
   name               = "${local.name}-${each.key}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+}
+
+# ADR 0061: the API reads ONLY supplier-connector credentials, under this environment's connectors/ prefix. It cannot read the database,
+# Redis or any other platform secret, and it cannot write or list secrets. Operators create the secrets out of band (never in Terraform state).
+data "aws_iam_policy_document" "api_connector_secrets" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.this.account_id}:secret:${local.name}/connectors/*"]
+  }
+  statement {
+    actions   = ["kms:Decrypt"]
+    resources = [aws_kms_key.data.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${var.region}.amazonaws.com"]
+    }
+  }
+}
+resource "aws_iam_role_policy" "api_connector_secrets" {
+  role   = aws_iam_role.task["api"].id
+  policy = data.aws_iam_policy_document.api_connector_secrets.json
 }
 
 # One-off migration task: the only principal that may read the database OWNER secret.
