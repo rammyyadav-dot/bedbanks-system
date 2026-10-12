@@ -102,7 +102,8 @@ locals {
     api_to_data_redis      = { from = "api", to = "data", port = 6379 }
   }
   # Ingress to the public ALB: one rule per (CIDR, port). Staging must not be 0.0.0.0/0 (ADR 0055; enforced by a precondition below).
-  public_ingress = { for pair in setproduct(var.public_ingress_cidrs, [443, 80]) : "${pair[0]}-${pair[1]}" => { cidr = pair[0], port = pair[1] } }
+  # With CloudFront the world-facing rules disappear: the ALB admits only the CloudFront origin-facing prefix list on 443 (edge.tf).
+  public_ingress = var.cloudfront_enabled ? {} : { for pair in setproduct(var.public_ingress_cidrs, [443, 80]) : "${pair[0]}-${pair[1]}" => { cidr = pair[0], port = pair[1] } }
 }
 resource "aws_security_group" "this" {
   for_each    = local.security_groups
@@ -154,4 +155,16 @@ resource "aws_vpc_security_group_egress_rule" "https_out" {
 resource "aws_default_security_group" "this" {
   vpc_id = aws_vpc.this.id
   tags   = { Name = "${local.name}-default-deny" }
+}
+
+# CloudFront -> ALB: HTTPS only, from the CloudFront origin-facing prefix list (shared by all CloudFront customers: the X-Origin-Verify listener
+# condition is what distinguishes our distributions). Note the prefix list consumes ~55 rules of the security group quota (default 60 per direction).
+resource "aws_vpc_security_group_ingress_rule" "cloudfront_origin" {
+  count             = var.cloudfront_enabled ? 1 : 0
+  security_group_id = aws_security_group.this["alb_public"].id
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront[0].id
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  description       = "HTTPS from CloudFront origin-facing addresses"
 }

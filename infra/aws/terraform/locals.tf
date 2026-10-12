@@ -14,4 +14,15 @@ locals {
 }
 
 data "aws_availability_zones" "this" { state = "available" }
-data "aws_caller_identity" "this" {}
+data "aws_caller_identity" "this" {
+}
+
+locals {
+  # Interim retention (days) until the owner approves a policy; classes are NOT identical on purpose:
+  #  app/rds logs support incident analysis; flow/ALB logs are high-volume network metadata; WAF keeps only BLOCK/COUNT events.
+  retention = coalesce(var.log_retention, var.environment == "production" ? {
+    app = 90, flow = 90, waf = 90, rds = 90, alb_s3 = 180
+    } : {
+    app = 30, flow = 14, waf = 30, rds = 30, alb_s3 = 30
+  })
+}

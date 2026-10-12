@@ -15,18 +15,13 @@ async function load(env) {
   }
 }
 
-test('proxies /api/v1 to API_INTERNAL_URL without a trailing slash', async () => {
+test('the API origin is no longer baked into the build: no next.config rewrites (proxy.ts resolves it per request, ADR 0055)', async () => {
   const config = await load({ API_INTERNAL_URL: 'https://api.example/api/v1/' })
-  assert.deepEqual(await config.rewrites(), [{ source: '/api/v1/:path*', destination: 'https://api.example/api/v1/:path*' }])
+  assert.equal(config.rewrites, undefined)
 })
 
-test('falls back to the local API outside Vercel', async () => {
-  const config = await load({})
-  assert.equal((await config.rewrites())[0].destination, 'http://localhost:3002/api/v1/:path*')
-})
-
-test('fails a Vercel build that has no API_INTERNAL_URL', async () => {
-  await assert.rejects(load({ VERCEL: '1' }), /API_INTERNAL_URL is required/)
+test('building does not need API_INTERNAL_URL, even on a hosted build (a misconfigured runtime fails closed with 503 instead)', async () => {
+  await assert.doesNotReject(load({ VERCEL: '1' }))
 })
 
 test('browser calls default to the same-origin proxy', async () => {

@@ -1,6 +1,6 @@
 resource "aws_sns_topic" "alarms" {
   name              = "${local.name}-alarms"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.data.arn # not alias/aws/sns: CloudWatch alarms cannot publish to a topic encrypted with the AWS-managed key
 }
 resource "aws_sns_topic_subscription" "email" {
   count     = var.alarm_email == "" ? 0 : 1

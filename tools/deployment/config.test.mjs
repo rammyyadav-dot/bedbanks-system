@@ -18,20 +18,15 @@ test('container images are hosted too: PORTAL_HOSTED=1 enforces the same rules a
   assert.equal(portalApiUrl({ PORTAL_HOSTED: '1', API_INTERNAL_URL: 'https://api.example.com/api/v1' }), 'https://api.example.com/api/v1')
 })
 
-test('each portal uses the validated destination and preserves the API path', async () => {
-  const saved = { VERCEL: process.env.VERCEL, API_INTERNAL_URL: process.env.API_INTERNAL_URL }
-  process.env.VERCEL = '1'
-  process.env.API_INTERNAL_URL = 'https://api.example/api/v1/'
-  try {
-    for (const app of ['agent', 'admin', 'supplier']) {
-      const config = (await import(`../../apps/${app}/next.config.mjs?deployment-test`)).default
-      assert.deepEqual(await config.rewrites(), [{ source: '/api/v1/:path*', destination: 'https://api.example/api/v1/:path*' }])
-      assert.notEqual(config.typescript?.ignoreBuildErrors, true)
-    }
-  } finally {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
+test('portals resolve the API origin per request: no build-time rewrites, and each proxy.ts uses the shared resolver and an explicit /api/v1 matcher', async () => {
+  const { readFileSync } = await import('node:fs')
+  for (const app of ['agent', 'admin', 'supplier']) {
+    const config = (await import(`../../apps/${app}/next.config.mjs?deployment-test`)).default
+    assert.equal(config.rewrites, undefined, `${app}: a next.config rewrite would freeze the API origin at build time`)
+    assert.notEqual(config.typescript?.ignoreBuildErrors, true)
+    const proxy = readFileSync(new URL(`../../apps/${app}/proxy.ts`, import.meta.url), 'utf8')
+    assert.match(proxy, /resolveApiDestination/, `${app}: proxy.ts must use the shared resolver`)
+    assert.match(proxy, /'\/api\/v1\/:path\*'/, `${app}: proxy.ts must match /api/v1 explicitly (dotted paths)`)
+    assert.doesNotMatch(proxy, /process\.env\.NEXT_PUBLIC/, `${app}: proxy.ts must not read build-time public variables`)
   }
 })

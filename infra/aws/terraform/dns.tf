@@ -55,9 +55,9 @@ resource "aws_route53_record" "portal" {
     }
   }
   alias {
-    name                   = aws_lb.public.dns_name
-    zone_id                = aws_lb.public.zone_id
-    evaluate_target_health = true
+    name                   = var.cloudfront_enabled ? aws_cloudfront_distribution.portal[each.key].domain_name : aws_lb.public.dns_name
+    zone_id                = var.cloudfront_enabled ? aws_cloudfront_distribution.portal[each.key].hosted_zone_id : aws_lb.public.zone_id
+    evaluate_target_health = !var.cloudfront_enabled # CloudFront aliases must not evaluate target health
   }
 }
 

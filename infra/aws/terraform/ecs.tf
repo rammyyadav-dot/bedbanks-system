@@ -9,7 +9,7 @@ resource "aws_ecs_cluster" "this" {
 resource "aws_cloudwatch_log_group" "this" {
   for_each          = merge(local.services, { migrate = { port = 0 } })
   name              = "/fbeds/${var.environment}/${each.key}"
-  retention_in_days = var.environment == "production" ? 90 : 30
+  retention_in_days = local.retention.app
   kms_key_id        = aws_kms_key.data.arn
   tags              = { Service = each.key }
 }
@@ -17,7 +17,7 @@ resource "aws_cloudwatch_log_group" "this" {
 locals {
   api_origin = "https://${local.api_host}/api/v1"
   portal_env = {
-    website  = [{ name = "TRUSTED_PROXY", value = "aws-alb" }] # lead rate limiter: trust only the ALB-appended X-Forwarded-For entry
+    website  = [{ name = "TRUSTED_PROXY", value = var.cloudfront_enabled ? "aws-cloudfront-alb" : "aws-alb" }] # lead rate limiter: which X-Forwarded-For entry is the client depends on the proxy chain
     agent    = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "PORTAL_HOSTED", value = "1" }]
     admin    = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "AUTH_API_ORIGIN", value = "https://${local.portals.admin.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
     supplier = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "SUPPLIER_ORIGIN", value = "https://${local.portals.supplier.host}" }, { name = "PORTAL_HOSTED", value = "1" }]

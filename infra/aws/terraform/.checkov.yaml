@@ -1,28 +1,34 @@
-# Baseline for `checkov -d infra/aws/terraform` (run in terraform-check.yml). Every skip has a reason and a class:
-#   ACCEPTED = deliberate or a tool false positive; OPEN = a real gap tracked in docs/aws-verification-evidence.md (not "passed").
-# A NEW finding fails CI. Remove an OPEN line when its gap is closed.
+# Baseline for `checkov -d infra/aws/terraform` (run in terraform-check.yml). The full register with owner, review date and status is
+# docs/aws-checkov-exception-register.md; keep the two in step (tools/aws-governance-check.mjs fails when a skipped id is not registered).
+#   ACCEPTED = deliberate, or a tool limitation, with a stated reason. Status in the register: PROPOSED until the owner approves it.
+#   OPEN     = a real gap that is NOT remediated. It is listed, not hidden.
+# A NEW finding fails CI.
 framework:
   - terraform
 quiet: true
 compact: true
 skip-check:
-  # ACCEPTED
-  - CKV2_AWS_5    # security groups are attached through for_each resources (ECS services, ALBs, RDS, Redis); checkov cannot follow for_each
+  # ACCEPTED (existing)
+  - CKV2_AWS_5    # security groups attach through for_each resources (ECS services, ALBs, RDS, Redis); checkov cannot follow for_each
   - CKV2_AWS_19   # the EIPs are attached to NAT gateways
   - CKV2_AWS_38   # DNSSEC does not apply to a private (VPC-only) hosted zone
-  - CKV2_AWS_39   # query logging is not supported for private hosted zones in this configuration; resolver query logs are a separate decision
+  - CKV2_AWS_39   # Route 53 query logging is not available for this private zone; Resolver query logging is a separate decision
   - CKV2_AWS_50   # Redis Multi-AZ/failover is production-only by design (staging is one node to control cost)
-  - CKV2_AWS_64   # the KMS key uses the default key policy (account root); least privilege is enforced by IAM and key grants
   - CKV_AWS_150   # ALB deletion protection is production-only by design so staging can be torn down
   - CKV_AWS_293   # RDS deletion protection is production-only by design so staging can be torn down
   - CKV_AWS_161   # IAM database authentication is intentionally off: the strict runtime login model (ADR 0040/0008) uses Secrets Manager credentials
-  - CKV_AWS_356   # the remaining "*" resources are ecs:Describe*/ListTasks and ecr:GetAuthorizationToken, which do not support resource-level permissions
-  # OPEN (see docs/aws-verification-evidence.md)
-  - CKV2_AWS_11   # OPEN: VPC flow logs not enabled (cost decision; recommended before production)
-  - CKV2_AWS_31   # OPEN: WAF logging not enabled
-  - CKV2_AWS_57   # OPEN: Secrets Manager rotation for runtime database/Redis URLs (set out of band today)
-  - CKV_AWS_31    # OPEN: Redis has TLS and at-rest encryption but no AUTH token / RBAC user group
-  - CKV_AWS_91    # OPEN: ALB access logging needs a log bucket (not in this stack)
-  - CKV_AWS_118   # OPEN: RDS enhanced monitoring off (Performance Insights is on)
-  - CKV_AWS_129   # OPEN: RDS log exports to CloudWatch not enabled
-  - CKV_AWS_338   # OPEN: log retention is 30/90 days; the 1-year standard needs an owner/compliance decision and a cost estimate
+  - CKV_AWS_356   # remaining "*" resources are ecs:Describe*/ListTasks and ecr:GetAuthorizationToken, which have no resource-level permissions
+  # ACCEPTED (WP3)
+  - CKV_AWS_109   # kms_data / kms_edge_logs: the root-account "kms:*" statement is the standard key-policy statement that delegates control to IAM
+  - CKV_AWS_111   # same statement (resources "*" in a key policy means this key)
+  - CKV_AWS_145   # ALB access-log delivery supports only SSE-S3 (AES256); SSE-KMS makes delivery fail
+  - CKV_AWS_18    # the ALB log bucket is itself the log sink; logging it to itself or to a further bucket adds recursion, not assurance
+  - CKV_AWS_144   # cross-region replication of access logs is not required (retention-limited operational logs, single region by ADR 0055)
+  - CKV2_AWS_62   # event notifications on a log sink have no consumer
+  - CKV2_AWS_47   # checkov cannot follow the count-indexed web ACL; AWSManagedRulesKnownBadInputsRuleSet (includes Log4j) is present without overrides on both ACLs
+  - CKV_AWS_305   # default root object is for S3 origins; the origin is an application load balancer that serves "/"
+  - CKV_AWS_310   # one origin (a multi-AZ ALB); origin failover needs a second origin that does not exist
+  # OPEN (not remediated)
+  - CKV2_AWS_57   # OPEN: automatic rotation of the runtime database/Redis URLs; rotation is a documented manual procedure (docs/aws-secret-rotation-runbook.md)
+  - CKV_AWS_338   # OPEN: log retention is 14-180 days by class; the 1-year standard needs a compliance decision and a cost estimate
+  - CKV_AWS_86    # OPEN: CloudFront standard (v2) access logging; ALB access logs and edge WAF logs cover the same traffic for now

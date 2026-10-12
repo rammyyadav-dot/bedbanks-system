@@ -22,7 +22,7 @@ Status key: **PASS** = executed here with the output described. **FAIL** = execu
 | `node tools/aws-governance-check.mjs` | **PASS** | region, six mandatory tags, staging exposure, budget default 0, DNS default off, booking off, OIDC trust pins, no wildcard IAM, no apply/keys in workflows, ADR 0055 present |
 | `node --test tools/aws-governance-check.test.mjs` | **PASS** 14/14 | each rule is proven to fail when broken (mutation tests on a temp copy) |
 | `pnpm check:architecture` | **PASS** | exit 0, includes `check:aws-governance` and the runtime database role check (736 files, 16 audited client sites) |
-| actionlint on all workflows | **PASS** | no findings |
+| actionlint on all workflows | ~~PASS~~ **INCOMPLETE (corrected in WP3)** | it reported no findings, but ShellCheck was not installed, so actionlint skipped the analysis of every `run:` script. With ShellCheck it reports SC2034 at `.github/workflows/ci.yml:167` (fixed in WP3; `tools/workflow-lint.sh` now fails when ShellCheck is missing) |
 | Budget configuration validation | **PASS** (static, offline) | mock-plan tests above; the real `aws_budgets_budget` API call is **BLOCKER** below |
 | Resource-tagging check | **PASS** (static) | provider `default_tags` carry the six keys; per-service overrides on ECR, ECS service/task definition, log groups, target groups. Actual tags on deployed resources: **BLOCKER** |
 | IAM / OIDC trust-policy check | **PASS** (static) | `StringEquals` on `aud` and exact `sub`; build role main-only, deploy role environment-bound; deployed trust: **BLOCKER** |
