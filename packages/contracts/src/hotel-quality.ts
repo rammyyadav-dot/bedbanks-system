@@ -32,7 +32,8 @@ export interface HotelContentQuality {
   signals: HotelQualitySignalResult[]
 }
 
-export type HotelDuplicateBasis = 'SAME_EXTERNAL_ID' | 'NEAR_LOCATION_SIMILAR_NAME' | 'SAME_POSTAL_SIMILAR_NAME'
+/** External identifiers are unique per tenant, scheme and value, so a shared identifier cannot occur inside one tenant and is not a signal. */
+export type HotelDuplicateBasis = 'NEAR_LOCATION_SIMILAR_NAME' | 'SAME_POSTAL_SIMILAR_NAME'
 /** A possible duplicate inside the same tenant. A hint for a human, never an automatic merge or block. */
 export interface HotelDuplicateCandidate { hotelId: string; name: string; city: string; countryCode: string; status: string; basis: HotelDuplicateBasis[]; distanceMetres: number | null }
 

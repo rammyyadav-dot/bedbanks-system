@@ -1,6 +1,6 @@
 import { distanceMetres, findPossibleDuplicates, nameSimilarity, nameTokens, type DuplicateSubject } from './hotel-duplicates'
 
-const base: DuplicateSubject = { id: 'h1', name: 'Palm View Hotel', city: 'Dubai', countryCode: 'AE', postalCode: null, latitude: 25.1, longitude: 55.2, status: 'DRAFT', externalIds: [] }
+const base: DuplicateSubject = { id: 'h1', name: 'Palm View Hotel', city: 'Dubai', countryCode: 'AE', postalCode: null, latitude: 25.1, longitude: 55.2, status: 'DRAFT' }
 const other = (p: Partial<DuplicateSubject>): DuplicateSubject => ({ ...base, id: 'h2', ...p })
 
 describe('name matching', () => {
@@ -30,9 +30,12 @@ describe('findPossibleDuplicates', () => {
       other({ id: 'cc', name: 'Palm View', countryCode: 'OM' }), { ...base },
     ])).toEqual([])
   })
-  it('flags a shared external identifier even with a different name and no coordinates, ranked first', () => {
-    const r = findPossibleDuplicates({ ...base, externalIds: ['GIATA:1'] }, [other({ id: 'near', name: 'Palm View', latitude: 25.1 }), other({ id: 'gi', name: 'Completely Different', latitude: null, longitude: null, externalIds: ['GIATA:1'] })])
-    expect(r.map((x) => x.hotelId)).toEqual(['gi', 'near']); expect(r[0].basis).toEqual(['SAME_EXTERNAL_ID']); expect(r[0].distanceMetres).toBeNull()
+  it('ranks a near-location match ahead of a postal-code match, then by distance', () => {
+    const r = findPossibleDuplicates({ ...base, postalCode: '12345' }, [
+      other({ id: 'postal', name: 'Palm View', latitude: null, longitude: null, postalCode: '12345' }),
+      other({ id: 'near', name: 'Palm View', latitude: 25.1004 }),
+    ])
+    expect(r.map((x) => x.hotelId)).toEqual(['near', 'postal'])
   })
   it('falls back to the same postal code and city when coordinates are missing', () => {
     const s = { ...base, latitude: null, longitude: null, postalCode: ' 12345 ' }

@@ -3,7 +3,6 @@ import Link from 'next/link'
 import { hotelHref } from '@/lib/hotel-ui'
 
 const BASIS: Record<HotelDuplicateCandidate['basis'][number], string> = {
-  SAME_EXTERNAL_ID: 'shares an external identifier',
   NEAR_LOCATION_SIMILAR_NAME: 'similar name within 150 m',
   SAME_POSTAL_SIMILAR_NAME: 'similar name, same postal code',
 }

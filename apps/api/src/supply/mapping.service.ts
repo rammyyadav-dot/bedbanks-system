@@ -194,8 +194,8 @@ export class MappingService {
       let acknowledgedDuplicates: string[] = []
       if (kind === 'hotel' && decision === 'approve') {
         const hotel = await tx.hotel.findFirstOrThrow({ where: { id: prior.hotelId, tenantId } })
-        const [profile, identifiers] = await Promise.all([tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId }, select: { postalCode: true } }), tx.hotelExternalIdentifier.findMany({ where: { hotelId: hotel.id, tenantId }, select: { scheme: true, value: true } })])
-        const duplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null, identifiers)
+        const profile = await tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId }, select: { postalCode: true } })
+        const duplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null)
         const conflicts = duplicates.length ? await tx.supplierHotelMapping.findMany({ where: { tenantId, supplierId: (prior as { supplierId: string }).supplierId, status: 'MAPPED', hotelId: { in: duplicates.map((d) => d.hotelId) } }, select: { hotelId: true, supplierHotelId: true } }) : []
         if (conflicts.length) {
           const missing = conflicts.filter((c) => !acknowledged.has(c.hotelId))

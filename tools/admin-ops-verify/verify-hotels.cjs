@@ -212,8 +212,8 @@ async function openHotel(page, key, tab) {
   check('after a reload the saved draft is read back from the server', (await page.getByLabel('Street address').inputValue()) === '1 Verification Road' && (await page.getByLabel('Area').inputValue()) === 'Business Bay' && (await page.getByLabel('Star category').inputValue()) === '4')
   check('the audit trail records the same server request id', await (async () => { await page.goto(`${BASE}/hotels/${H.kilo}?tab=audit`); await page.waitForSelector('table[aria-label="Hotel audit events"]'); return (await text(page)).includes(saveRequestId) && /hotel\.setup\.updated/.test(await text(page)) })())
   // a primary image is a publication requirement (ADR 0058): the request is refused until one is uploaded
-  await page.goto(`${BASE}/hotels/${H.kilo}?tab=images`); await page.waitForSelector('[data-testid=image-card]', { timeout: 15000 })
-  check('the uploaded image persists on the Images tab with the real limits and an upload control', (await page.getByTestId('image-card').count()) === 1 && /5 MB/.test(await text(page)) && (await page.locator('input[type=file]').count()) === 1)
+  await page.goto(`${BASE}/hotels/${H.kilo}?tab=images`); await page.waitForSelector('[data-testid=images-empty]', { timeout: 15000 })
+  check('Images shows an honest empty state with the real limits and an upload control (see verify-images.cjs for the full flow)', (await page.getByTestId('images-empty').count()) === 1 && /5 MB/.test(await text(page)) && (await page.locator('input[type=file]').count()) === 1)
   await page.getByTestId('image-file').setInputFiles({ name: 'lobby.png', mimeType: 'image/png', buffer: png(800, 600, [20, 90, 160]) }); await page.getByLabel('Alt text (required)').fill('Lobby')
   await page.getByTestId('image-upload-submit').click(); await page.waitForSelector('[data-testid=image-card]', { timeout: 15000 })
   // publication is gated, then allowed once the requirements are met
@@ -286,8 +286,8 @@ async function openHotel(page, key, tab) {
   await page.getByTestId('policies-save').click(); await page.waitForSelector('[data-testid=policies-flash]:has-text("Hotel policies saved")', { timeout: 15000 })
   await page.reload(); await page.waitForSelector('[data-testid=policies-form]')
   check('hotel policies persist and are kept apart from rate-specific cancellation terms', (await page.getByLabel(/^Children/).inputValue()).startsWith('Children under 12') && (await page.getByTestId('contract-terms').count()) === 1 && /never replaces them/.test(await page.getByTestId('contract-terms').innerText()))
-  await openHotel(page, 'kilo', 'images'); await page.waitForSelector('[data-testid=hotel-images]'); await page.waitForSelector('[data-testid=images-empty]', { timeout: 15000 })
-  check('Images shows an honest empty state with the real limits and an upload control (see verify-images.cjs for the full flow)', (await page.getByTestId('images-empty').count()) === 1 && /5 MB/.test(await text(page)) && (await page.locator('input[type=file]').count()) === 1)
+  await openHotel(page, 'kilo', 'images'); await page.waitForSelector('[data-testid=hotel-images]'); await page.waitForSelector('[data-testid=image-card]', { timeout: 15000 })
+  check('the image uploaded before publication persists on the Images tab, with the real limits and an upload control', (await page.getByTestId('image-card').count()) === 1 && /5 MB/.test(await text(page)) && (await page.locator('input[type=file]').count()) === 1)
   await page.goto(`${BASE}/hotels/${H.kilo}/rooms/new`); await page.waitForURL(/tab=rooms&room=new/, { timeout: 15000 }); await page.waitForSelector('[data-testid=room-editor]')
   check('the old Add room route forwards to the Rooms tab editor', /tab=rooms/.test(page.url()))
 

@@ -86,7 +86,7 @@ function Decision({ row, noun, busy, onDecide }: { row: { status: string }; noun
 }
 
 interface DuplicateConflict { hotelId: string; name: string; city: string; supplierHotelId: string; basis: string[] }
-const BASIS_TEXT: Record<string, string> = { SAME_EXTERNAL_ID: 'shares an external identifier', NEAR_LOCATION_SIMILAR_NAME: 'similar name within 150 m', SAME_POSTAL_SIMILAR_NAME: 'similar name, same postal code' }
+const BASIS_TEXT: Record<string, string> = { NEAR_LOCATION_SIMILAR_NAME: 'similar name within 150 m', SAME_POSTAL_SIMILAR_NAME: 'similar name, same postal code' }
 const asConflicts = (items: unknown[]): DuplicateConflict[] => items.filter((i): i is DuplicateConflict => typeof i === 'object' && i !== null && typeof (i as DuplicateConflict).hotelId === 'string' && typeof (i as DuplicateConflict).name === 'string').map((i) => ({ ...i, basis: Array.isArray(i.basis) ? i.basis : [] }))
 
 function HotelMappings({ hotelId, data, canManage, busy, act }: { hotelId: string; data: HotelMappingsView; canManage: boolean; busy: boolean; act: Act }) {

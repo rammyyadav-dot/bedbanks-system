@@ -53,7 +53,7 @@ export class HotelSetupService {
     // Resolved only while the owner is still a member of this tenant; a stale id shows as "not set" rather than leaking a foreign user.
     const ownerRow = profile?.ownerUserId ? await tx.membership.findUnique({ where: { userId_tenantId: { userId: profile.ownerUserId, tenantId } }, select: { user: { select: { id: true, name: true, email: true } } } }) : null
     const owner = ownerRow ? { userId: ownerRow.user.id, name: ownerRow.user.name, email: ownerRow.user.email } : null
-    const possibleDuplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null, identifiers)
+    const possibleDuplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null)
     return { hotel, profile, identifiers, activeRooms, totalRooms, owner, imageCount, hasPrimaryImage: primaryImages > 0, amenityCount, possibleDuplicates }
   }
 

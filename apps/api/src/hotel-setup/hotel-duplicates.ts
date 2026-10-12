@@ -3,9 +3,9 @@ import type { HotelDuplicateBasis, HotelDuplicateCandidate } from '@bedbanks/con
 /**
  * Near-duplicate detection inside one tenant (ADR 0057). Pure. Exact name+city+address collisions are already refused by
  * `assertHotelIdentityAvailable`; this finds the cases global bedbanks de-duplicate by hand: the same property entered with a
- * different spelling, or by two suppliers. It only ever produces a hint and never blocks, merges or deletes.
+ * different spelling, or by two suppliers. (A shared external identifier is not a signal: the database already makes identifiers unique per tenant.) It only ever produces a hint and never blocks, merges or deletes.
  */
-export interface DuplicateSubject { id: string; name: string; city: string; countryCode: string; postalCode: string | null; latitude: number | null; longitude: number | null; status: string; externalIds: string[] }
+export interface DuplicateSubject { id: string; name: string; city: string; countryCode: string; postalCode: string | null; latitude: number | null; longitude: number | null; status: string }
 
 const NOISE = new Set(['hotel', 'hotels', 'resort', 'resorts', 'the', 'and', 'by', 'spa', 'suites', 'suite', 'apartments', 'apartment', 'residence', 'residences', 'inn', 'at', 'of', 'a'])
 
@@ -44,10 +44,9 @@ export function findPossibleDuplicates(subject: DuplicateSubject, candidates: Du
     const similar = nameSimilarity(subject.name, c.name) >= DUPLICATE_NAME_THRESHOLD
     let distance: number | null = null
     if (subject.latitude !== null && subject.longitude !== null && c.latitude !== null && c.longitude !== null) distance = Math.round(distanceMetres(subject.latitude, subject.longitude, c.latitude, c.longitude))
-    if (subject.externalIds.some((id) => c.externalIds.includes(id))) basis.push('SAME_EXTERNAL_ID')
     if (similar && distance !== null && distance <= DUPLICATE_RADIUS_METRES) basis.push('NEAR_LOCATION_SIMILAR_NAME')
     if (similar && subject.postalCode && c.postalCode && subject.postalCode.trim().toLowerCase() === c.postalCode.trim().toLowerCase() && subject.city.trim().toLowerCase() === c.city.trim().toLowerCase()) basis.push('SAME_POSTAL_SIMILAR_NAME')
-    if (basis.length) out.push({ hotelId: c.id, name: c.name, city: c.city, countryCode: c.countryCode, status: c.status, basis, distanceMetres: distance, rank: basis.includes('SAME_EXTERNAL_ID') ? 0 : basis.includes('NEAR_LOCATION_SIMILAR_NAME') ? 1 : 2 })
+    if (basis.length) out.push({ hotelId: c.id, name: c.name, city: c.city, countryCode: c.countryCode, status: c.status, basis, distanceMetres: distance, rank: basis.includes('NEAR_LOCATION_SIMILAR_NAME') ? 0 : 1 })
   }
   return out.sort((a, b) => a.rank - b.rank || (a.distanceMetres ?? Infinity) - (b.distanceMetres ?? Infinity) || a.hotelId.localeCompare(b.hotelId)).slice(0, limit).map(({ rank: _rank, ...rest }) => rest)
 }
