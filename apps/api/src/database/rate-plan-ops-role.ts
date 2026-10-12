@@ -19,7 +19,7 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Read-only inputs of the readiness evaluator. Whole-table SELECT is needed because the ORM reads every column of these models. */
-export const RATE_PLAN_OPS_READ_TABLES = ['RatePlan', 'RoomType', 'BoardBasis', 'Contract', 'SupplierHotelMapping', 'CancellationPolicy', 'DailyRate', 'DailyAvailability'] as const
+export const RATE_PLAN_OPS_READ_TABLES = ['RatePlan', 'RoomType', 'BoardBasis', 'Contract', 'SupplierHotelMapping', 'CancellationPolicy', 'DailyRate', 'DailyAvailability', 'RatePlanGuestPrice'] as const
 /** Hotel is read by column only (identity and time zone). `tenant_id` must be readable for its row-level policy. */
 export const RATE_PLAN_OPS_HOTEL_COLUMNS = ['id', 'tenant_id', 'time_zone'] as const
 /** Tenants are listed by id and status only, so the expiry sweeper (ADR 0057, S9) can find the tenants to visit. The table has no row-level security; the name and slug stay unreadable. */

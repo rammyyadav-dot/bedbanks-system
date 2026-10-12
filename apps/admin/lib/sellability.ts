@@ -22,7 +22,7 @@ export const SELLABILITY_CHECKS: ReadonlyArray<{ label: string; codes: readonly 
   { label: 'Daily Rates', codes: ['DAILY_RATE_MISSING_OR_INVALID', 'RATE_CURRENCY_MISMATCH', 'RATE_AMOUNT_BASIS_UNVERIFIED', 'NET_RATE_MARKUP_UNAVAILABLE'] },
   { label: 'Availability', codes: ['AVAILABILITY_MISSING', 'NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'ON_REQUEST_ONLY', 'INVENTORY_STALE', 'CLOSED_TO_ARRIVAL', 'CLOSED_TO_DEPARTURE'] },
   { label: 'Stop Sell', codes: ['STOP_SELL'] },
-  { label: 'Occupancy', codes: ['OCCUPANCY_UNSUPPORTED'] },
+  { label: 'Occupancy', codes: ['OCCUPANCY_UNSUPPORTED', 'CHILD_AGES_REQUIRED', 'CHILD_AGE_NOT_COVERED', 'CHILD_PRICE_AMBIGUOUS', 'EXTRA_ADULT_PRICE_MISSING', 'GUEST_PRICE_BASIS_MIXED', 'GUEST_PRICE_BASIS_MISMATCH', 'GUEST_PRICE_CURRENCY_MISMATCH'] },
   { label: 'Minimum / Maximum Stay', codes: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED'] },
   { label: 'Release Days', codes: ['RELEASE_DAYS_NOT_MET'] },
 ]

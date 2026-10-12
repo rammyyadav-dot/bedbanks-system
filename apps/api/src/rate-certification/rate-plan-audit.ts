@@ -1,3 +1,4 @@
+import { resolveGuestPricing, type GuestPriceLine } from '../supply/guest-pricing'
 import type {
   CertificationStatus, HotelCertification, HotelDistributionStatus, MarkupRuleAuditRow, RateFinding, RateFindingCode, RateFindingSeverity, RatePlanAuditDetail, RatePlanAuditRow,
   RateRowClass, RateRowClassCounts, RemediationItem, RemediationPriority, SimulatedNight, SimulationResult,
@@ -292,6 +293,8 @@ export interface SimulateInput {
   checkIn: string
   checkOut: string
   adults: number
+  /** Ages of the children per room, needed to price a plan that has child lines (ADR 0057, S6). */
+  childAges?: number[]
   children: number
   rooms: number
   now: Date
@@ -305,19 +308,24 @@ export function simulateStay(input: SimulateInput): Omit<SimulationResult, 'gene
   const { plan } = input
   const own = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
   const resolver = markupResolverFor(input.rules, plan.contract.supplierId, plan.roomType.hotelId)
-  const decision = evaluateContractedStay(buildStaySnapshot(own, input.mapping, input.roomMapping, input.dates, resolver), { checkIn: input.checkIn, checkOut: input.checkOut, rooms: input.rooms, adults: input.adults, children: input.children, currency: plan.currency, now: input.now })
+  const decision = evaluateContractedStay(buildStaySnapshot(own, input.mapping, input.roomMapping, input.dates, resolver), { checkIn: input.checkIn, checkOut: input.checkOut, rooms: input.rooms, adults: input.adults, children: input.children, childAges: input.childAges, currency: plan.currency, now: input.now })
   const rates = new Map(own.dailyRates.map((r) => [dayOf(r.stayDate), r]))
+  // Child and extra-adult lines (ADR 0057, S6) are added to each night's net before the markup, exactly as the evaluator does; the per-night arithmetic below stays independent.
+  const guest = resolveGuestPricing({ planOccupancy: plan.occupancy, currency: plan.currency, adults: input.adults, children: input.children, childAges: input.childAges, lines: plan.guestPrices.map((l) => ({ kind: l.kind as GuestPriceLine['kind'], minAge: l.minAge, maxAge: l.maxAge, amountMinor: l.amountMinor, basis: l.amountBasis as GuestPriceLine['basis'], currency: l.currency })), limits: { maxAdults: plan.roomType.maxAdults, maxChildren: plan.roomType.maxChildren, maxOccupancy: plan.roomType.maxOccupancy } })
+  const extra = guest.mode === 'LINES' && guest.reasons.length === 0 ? guest.extraMinorPerNight : 0n
   let recomputed: bigint | null = 0n
   const nights: SimulatedNight[] = input.dates.map((date) => {
     const rate = rates.get(date)
     const basis = rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null
     if (!rate || !basis || rate.amountMinor < 0n) { recomputed = null; return { date, rateMinor: rate ? rate.amountMinor.toString() : null, basis, markupBasisPoints: null, markupMinor: null, sellMinor: null } }
-    if (basis === 'SELL') { if (recomputed !== null) recomputed += rate.amountMinor; return { date, rateMinor: rate.amountMinor.toString(), basis, markupBasisPoints: null, markupMinor: '0', sellMinor: rate.amountMinor.toString() } }
+    const gross = rate.amountMinor + extra
+    const guestMinor = extra > 0n ? extra.toString() : null
+    if (basis === 'SELL') { if (recomputed !== null) recomputed += gross; return { date, rateMinor: rate.amountMinor.toString(), guestMinor, basis, markupBasisPoints: null, markupMinor: '0', sellMinor: gross.toString() } }
     const bp = resolveMarkupBasisPoints(input.rules, { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date)
     if (bp === null) { recomputed = null; return { date, rateMinor: rate.amountMinor.toString(), basis, markupBasisPoints: null, markupMinor: null, sellMinor: null } }
-    const markup = markupMinor(rate.amountMinor, bp)
-    if (recomputed !== null) recomputed += rate.amountMinor + markup
-    return { date, rateMinor: rate.amountMinor.toString(), basis, markupBasisPoints: bp, markupMinor: markup.toString(), sellMinor: (rate.amountMinor + markup).toString() }
+    const markup = markupMinor(gross, bp)
+    if (recomputed !== null) recomputed += gross + markup
+    return { date, rateMinor: rate.amountMinor.toString(), guestMinor, basis, markupBasisPoints: bp, markupMinor: markup.toString(), sellMinor: (gross + markup).toString() }
   })
   const recomputedTotal = recomputed === null ? null : (recomputed as bigint) * BigInt(input.rooms)
   const eligible = decision.eligible

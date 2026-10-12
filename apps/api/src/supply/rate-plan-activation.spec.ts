@@ -9,6 +9,7 @@ const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
   contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1, markets: { salesMarkets: [], nationalities: [] } },
   rates: [rate('2026-10-11'), rate('2026-10-12'), rate('2026-10-13')],
   availabilityDates: ['2026-10-11'],
+  guestPrices: [],
   ...over,
 })
 const failed = (facts: ActivationFacts) => assessRatePlanActivation(facts).checks.filter((c) => !c.ok).map((c) => c.code)
@@ -149,3 +150,21 @@ describe('rate plan buyer markets (ADR 0057, S3)', () => {
   it('allows any plan list under an unrestricted contract', () => { expect(failed(lists([['US'], ['IN']], [[], []]))).toEqual([]) })
   it('fails a malformed plan list', () => { expect(failed(lists([null, []], [[], []]))).toEqual(['PLAN_MARKETS']) })
 })
+
+describe('rate plan guest prices (ADR 0057, S6)', () => {
+  const line = (over: Partial<ActivationFacts['guestPrices'][number]> = {}): ActivationFacts['guestPrices'][number] => ({ kind: 'CHILD', minAge: 3, maxAge: 11, amountMinor: 15_000n, basis: 'NET', currency: 'AED', ...over })
+  const withLines = (guestPrices: ActivationFacts['guestPrices']) => base({ guestPrices })
+  it('passes with no lines (the plan sells its flat occupancy) and with a coherent set on the rates\' basis', () => {
+    expect(failed(withLines([]))).toEqual([])
+    expect(failed(withLines([line(), line({ minAge: 0, maxAge: 2, amountMinor: 0n }), { ...line({ kind: 'EXTRA_ADULT', minAge: 18, maxAge: 99 }) }]))).toEqual([])
+  })
+  it('fails overlapping bands, a wrong currency, and a duplicate extra-adult line, and says which', () => {
+    expect(failed(withLines([line(), line({ minAge: 8, maxAge: 14 })]))).toEqual(['GUEST_PRICES_VALID'])
+    expect(assessRatePlanActivation(withLines([line({ currency: 'USD' })])).checks.find((c) => c.code === 'GUEST_PRICES_VALID')?.message).toMatch(/currency/)
+    expect(failed(withLines([line({ kind: 'EXTRA_ADULT', minAge: 18, maxAge: 99 }), line({ kind: 'EXTRA_ADULT', minAge: 18, maxAge: 99 })]))).toEqual(['GUEST_PRICES_VALID'])
+  })
+  it('fails a line whose basis differs from the rates it is added to', () => {
+    expect(failed(withLines([line({ basis: 'SELL' })]))).toEqual(['GUEST_PRICES_VALID']) // the fixture rates are NET
+  })
+})
+

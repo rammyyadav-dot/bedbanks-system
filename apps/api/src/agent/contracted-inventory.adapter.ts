@@ -228,7 +228,12 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         tenantId,
         status: 'ACTIVE',
         currency: criteria.currency,
-        occupancy,
+        // ADR 0057, S6: a plan without guest price lines sells to exactly the searched party size (as before); a plan with lines is for a base party of
+        // adults, so it is a candidate whenever its base occupancy is within the adults searched. The evaluator decides the rest, per child age.
+        OR: [
+          { occupancy, guestPrices: { none: {} } },
+          { occupancy: { lte: criteria.adults }, guestPrices: { some: {} } },
+        ],
         boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
         roomType: {
           isActive: true,
@@ -258,7 +263,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },
-        dailyRates: { where: { tenantId, occupancy, stayDate: { in: nightDates } } },
+        dailyRates: { where: { tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } } },
+        guestPrices: true,
         // The departure date row is read only for closedToDeparture; its stock is never counted.
         availability: { where: { tenantId, stayDate: { in: [...nightDates, checkOut] } } },
         inventoryPool: { include: { days: { where: { tenantId, stayDate: { in: nightDates } } } } },
@@ -403,6 +409,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       rooms: criteria.rooms,
       adults: criteria.adults,
       children: criteria.children,
+      childAges: criteria.childAges,
       currency: criteria.currency,
       now,
       buyer,

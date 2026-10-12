@@ -191,7 +191,7 @@ export function categoryOfReason(reason: string, context: ReasonContext): Commer
     case 'CONTRACT_INACTIVE': return context.contractStatus === 'EXPIRED' ? 'CONTRACT_EXPIRED' : 'ENTITY_INACTIVE'
     case 'OUTSIDE_CONTRACT_VALIDITY': return 'CONTRACT_EXPIRED'
     case 'SUPPLIER_MAPPING_INVALID': return context.hotelMappingOk ? 'UNMAPPED_ROOM' : 'UNMAPPED_HOTEL'
-    case 'OCCUPANCY_UNSUPPORTED': return 'OCCUPANCY_UNSUPPORTED'
+    case 'OCCUPANCY_UNSUPPORTED': case 'CHILD_AGES_REQUIRED': case 'CHILD_AGE_NOT_COVERED': case 'CHILD_PRICE_AMBIGUOUS': case 'EXTRA_ADULT_PRICE_MISSING': case 'GUEST_PRICE_BASIS_MIXED': case 'GUEST_PRICE_BASIS_MISMATCH': case 'GUEST_PRICE_CURRENCY_MISMATCH': return 'OCCUPANCY_UNSUPPORTED'
     case 'DAILY_RATE_MISSING_OR_INVALID': return context.hasRate ? 'RATE_INVALID' : 'RATE_MISSING'
     case 'RATE_CURRENCY_MISMATCH': case 'RATE_AMOUNT_BASIS_UNVERIFIED': case 'NET_RATE_MARKUP_UNAVAILABLE': return 'CURRENCY_OR_BASIS'
     case 'AVAILABILITY_MISSING': return 'AVAILABILITY_MISSING'
@@ -221,7 +221,7 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'availability', label: 'Availability', reasons: ['AVAILABILITY_MISSING'] },
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
   { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },
-  { key: 'occupancy', label: 'Occupancy', reasons: ['OCCUPANCY_UNSUPPORTED'] },
+  { key: 'occupancy', label: 'Occupancy and guest prices', reasons: ['OCCUPANCY_UNSUPPORTED', 'CHILD_AGES_REQUIRED', 'CHILD_AGE_NOT_COVERED', 'CHILD_PRICE_AMBIGUOUS', 'EXTRA_ADULT_PRICE_MISSING', 'GUEST_PRICE_BASIS_MIXED', 'GUEST_PRICE_BASIS_MISMATCH', 'GUEST_PRICE_CURRENCY_MISMATCH'] },
   { key: 'buyer', label: 'Buyer eligibility', reasons: ['AGENCY_SUSPENDED', 'DISTRIBUTION_RESTRICTED', 'CONTRACT_MARKET_RULE_INVALID', 'NATIONALITY_NOT_ALLOWED', 'SOURCE_MARKET_NOT_ALLOWED', 'RATE_PLAN_MARKET_RULE_INVALID', 'RATE_PLAN_NATIONALITY_NOT_ALLOWED', 'RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED'] },
   { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE'] },
 ]

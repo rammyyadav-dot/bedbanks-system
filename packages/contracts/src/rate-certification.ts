@@ -180,6 +180,8 @@ export interface SimulateRequest {
   checkOut: string;
   adults: number;
   children?: number;
+  /** One age (0-17) per child; needed to price a rate plan that has child price lines. */
+  childAges?: number[];
   rooms?: number;
 }
 
@@ -187,6 +189,8 @@ export interface SimulatedNight {
   date: string;
   /** Stored amount in minor units, and what it means. */
   rateMinor: string | null;
+  /** Child and extra-adult lines for this night, added to the net before the markup (ADR 0057, S6). Null when the plan has none or the party adds nothing. */
+  guestMinor?: string | null;
   basis: 'NET' | 'SELL' | null;
   markupBasisPoints: number | null;
   markupMinor: string | null;

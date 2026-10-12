@@ -71,7 +71,7 @@ export class RateCertificationService {
       tx.ratePlan.findMany({
         where: { tenantId, roomType: { hotelId: { in: ids }, hotel: { tenantId } } },
         select: {
-          id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, cancellationPolicySet: true, salesMarkets: true, nationalities: true, inventoryPoolId: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
+          id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, cancellationPolicySet: true, salesMarkets: true, nationalities: true, guestPrices: { select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true, currency: true } }, inventoryPoolId: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
           boardBasis: { select: { code: true, isActive: true } },
           roomType: { select: { id: true, name: true, code: true, hotelId: true, isActive: true, maxAdults: true, maxChildren: true, maxOccupancy: true, hotel: { select: { contentStatus: true, timeZone: true } } } },
           contract: { select: { cancellationPolicies: { select: { policySet: true } }, id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } } } },
@@ -241,6 +241,13 @@ export class RateCertificationService {
     if (nights < 1 || nights > L.maxSimulateNights) throw new BadRequestException(`The stay must be 1-${L.maxSimulateNights} nights`)
     const adults = intParam('adults', input.adults, 1, 9); const children = intParam('children', input.children, 0, 9) ?? 0; const rooms = intParam('rooms', input.rooms, 1, 9) ?? 1
     if (adults === undefined) throw new BadRequestException('adults is required')
+    // Child ages price a plan that has child lines (ADR 0057, S6). When given they must be whole ages 0-17, one per child.
+    let childAges: number[] | undefined
+    if (input.childAges !== undefined) {
+      if (!Array.isArray(input.childAges) || input.childAges.length > 9 || input.childAges.some((age: unknown) => !Number.isInteger(age) || (age as number) < 0 || (age as number) > 17)) throw new BadRequestException('childAges must be whole ages from 0 to 17, at most 9')
+      if (input.childAges.length !== children) throw new BadRequestException('childAges must list one age per child')
+      childAges = input.childAges as number[]
+    }
     const dates = stayDates(checkIn, checkOut)
     const win: Win = { from: checkIn, days: nights, to: dates[dates.length - 1], dates }
     return this.prisma.withTenant(tenantId, async (tx) => {
@@ -253,7 +260,7 @@ export class RateCertificationService {
       const plan = loaded.plans.find((p) => p.id === ratePlanId)
       if (!plan) throw new NotFoundException('Rate plan not found')
       const { mapping, roomMapping } = mappingFor(plan, loaded)
-      const result = simulateStay({ plan, mapping, roomMapping, rules, dates, checkIn, checkOut, adults, children, rooms, now: this.clock() })
+      const result = simulateStay({ plan, mapping, roomMapping, rules, dates, checkIn, checkOut, adults, children, childAges, rooms, now: this.clock() })
       return { ...result, generatedAt: this.clock().toISOString() }
     })
   }

@@ -50,3 +50,26 @@ export interface RatePlanActivationApproval {
   isRequester: boolean; canDecide: boolean; canCancel: boolean; canExecute: boolean
 }
 export interface RatePlanApprovalExecuteResult { approval: RatePlanActivationApproval; ratePlanId: string; status: 'ACTIVE' }
+
+/**
+ * Child and extra-adult price lines of a rate plan (ADR 0057, S6). Per night, per guest, on top of the plan's base nightly rate (which is for
+ * `occupancy` adults). A plan with no lines keeps the flat rule. `GET` returns the lines and the plan version; `PUT` replaces them all atomically.
+ */
+export type GuestPriceKind = 'CHILD' | 'EXTRA_ADULT'
+export interface RatePlanGuestPriceLine {
+  kind: GuestPriceKind
+  /** Child band, inclusive, 0 to 17. For EXTRA_ADULT the server stores and returns the sentinel band 18 to 99. */
+  minAge: number; maxAge: number
+  /** Integer minor units per night per guest, as a decimal string. Zero is an explicit free guest. */
+  amountMinor: string
+  amountBasis: 'NET' | 'SELL'
+  currency: string
+}
+export interface RatePlanGuestPrices { ratePlanId: string; updatedAt: string; currency: string; occupancy: number; lines: RatePlanGuestPriceLine[] }
+export interface RatePlanGuestPricesInput {
+  expectedUpdatedAt: string
+  /** Each line: `minAge`/`maxAge` are required for CHILD and ignored for EXTRA_ADULT. */
+  lines: Array<{ kind: GuestPriceKind; minAge?: number; maxAge?: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string }>
+  reason?: string
+}
+

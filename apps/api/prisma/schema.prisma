@@ -537,6 +537,33 @@ enum RatePaymentType {
   PAY_AT_HOTEL
 }
 
+/// What a guest line prices (ADR 0057, S6). CHILD is a per-night amount for a child whose age falls in the band; EXTRA_ADULT is per-night for each adult
+/// beyond the plan's base occupancy and always stores the sentinel band 18-99 so one unique key keeps a single such line per plan.
+enum GuestPriceKind {
+  CHILD
+  EXTRA_ADULT
+}
+
+/// Per-night price of an additional guest on a rate plan, on top of the plan's base nightly rate (ADR 0057, S6). Zero is an explicit free guest.
+/// A plan with no rows here keeps the original flat-occupancy rule. NET or SELL must match the basis of the nightly rate it is added to.
+model RatePlanGuestPrice {
+  id          String          @id @default(cuid())
+  tenantId    String          @map("tenant_id")
+  ratePlanId  String          @map("rate_plan_id")
+  ratePlan    RatePlan        @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  kind        GuestPriceKind
+  minAge      Int             @map("min_age")
+  maxAge      Int             @map("max_age")
+  amountMinor BigInt          @map("amount_minor")
+  amountBasis RateAmountBasis @map("amount_basis")
+  currency    String          @db.Char(3)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@unique([ratePlanId, kind, minAge, maxAge])
+  @@index([tenantId, ratePlanId])
+}
+
 /// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
 /// intentionally nullable and therefore not sellable until explicitly classified.
 enum RateAmountBasis {
@@ -1756,6 +1783,7 @@ model RatePlan {
 
   availability DailyAvailability[]
   dailyRates   DailyRate[]
+  guestPrices  RatePlanGuestPrice[]
 
   @@unique([contractId, code])
   @@index([tenantId, status])

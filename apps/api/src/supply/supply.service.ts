@@ -18,6 +18,7 @@ import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type Rate
 import { deriveRatePlanCapabilities } from './rate-plan-capabilities'
 import { activationApprovalMode } from './rate-plan-approval-mode'
 import { planFingerprint } from './rate-plan-fingerprint'
+import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
@@ -400,7 +401,7 @@ export class SupplyService {
 
   /** Loads plain facts for the activation evaluator inside the caller's tenant transaction. Nothing is inferred: a missing relation is reported by the checklist. */
   private async activationReadiness(tx: Prisma.TransactionClient, tenantId: string, ratePlanId: string) {
-    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, cancellationPolicies: { select: { policySet: true } } } } } })
+    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, cancellationPolicies: { select: { policySet: true } } } }, guestPrices: true } })
     if (!plan) throw new NotFoundException('Rate plan not found')
     const timeZone = plan.roomType.hotel.timeZone
     const today = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
@@ -417,6 +418,7 @@ export class SupplyService {
       board: { isActive: plan.boardBasis.isActive },
       contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: rulesForPlan(plan, plan.contract.cancellationPolicies).rules.length, markets: parseMarketRules(plan.contract) },
       rates: rates.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
+      guestPrices: plan.guestPrices.map(line => ({ kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis, currency: line.currency })),
       availabilityDates: availability.map(row => day(row.stayDate)),
     })
     return { plan, readiness, today }
@@ -469,7 +471,8 @@ export class SupplyService {
   private async contentFingerprint(tx: Prisma.TransactionClient, tenantId: string, plan: Awaited<ReturnType<SupplyService['activationReadiness']>>['plan'], asOf: string): Promise<string> {
     const rows = await tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.id, occupancy: plan.occupancy, stayDate: { gte: new Date(`${asOf}T00:00:00Z`) } }, select: { stayDate: true, occupancy: true, amountMinor: true, amountBasis: true, currency: true }, orderBy: { stayDate: 'asc' }, take: MAX_APPROVAL_RATE_ROWS + 1 })
     if (rows.length > MAX_APPROVAL_RATE_ROWS) throw new BadRequestException({ code: 'RATE_PLAN_TOO_MANY_RATES', message: `Approval covers at most ${MAX_APPROVAL_RATE_ROWS} dated rates; split the plan or end its sale window.` })
-    return planFingerprint(plan, rows, asOf)
+    const guestLines = await tx.ratePlanGuestPrice.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true, currency: true } })
+    return planFingerprint(plan, rows, asOf, guestLines)
   }
 
   /** Read-only: readiness plus the content fingerprint, for requesting an approval. */
@@ -498,6 +501,44 @@ export class SupplyService {
       return { id: value.id, value }
     }, { isolationLevel: 'Serializable', lifecycleRole: true })
   }
+  /** Child and extra-adult lines of a plan (ADR 0057, S6). `supply.rates.read`; 404 for another tenant's plan. */
+  async guestPrices(tenantId: string, userId: string, ratePlanId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, currency: true, occupancy: true, guestPrices: { orderBy: [{ kind: 'asc' }, { minAge: 'asc' }] } } }))
+    if (!plan) throw new NotFoundException('Rate plan not found')
+    return { ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), currency: plan.currency, occupancy: plan.occupancy, lines: plan.guestPrices.map(line => ({ kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor.toString(), amountBasis: line.amountBasis, currency: line.currency })) }
+  }
+
+  /**
+   * Replaces all of a plan's guest price lines atomically (ADR 0057, S6). Version-checked against the plan, validated as a whole (every problem reported),
+   * audited with the amounts before and after. The plan version moves, so an activation approval filed on the old prices is voided.
+   */
+  async replaceGuestPrices(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid guest price request')
+    const expected = typeof input.expectedUpdatedAt === 'string' ? new Date(input.expectedUpdatedAt) : null
+    if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
+    if (!Array.isArray(input.lines) || input.lines.length > 40) throw new BadRequestException('Provide at most 40 guest price lines')
+    const lines = input.lines.map((raw: any) => {
+      const kind = raw?.kind
+      const amount = typeof raw?.amountMinor === 'string' && /^[0-9]{1,19}$/.test(raw.amountMinor) ? BigInt(raw.amountMinor) : null
+      return { kind, ...(kind === 'EXTRA_ADULT' ? EXTRA_ADULT_BAND : { minAge: raw?.minAge, maxAge: raw?.maxAge }), amountMinor: amount, basis: raw?.amountBasis, currency: typeof raw?.currency === 'string' ? raw.currency.toUpperCase() : undefined }
+    })
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.guest_prices_replaced', 'rate_plan', requestId, async tx => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, currency: true, guestPrices: { select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true } } } })
+      if (!plan) throw new NotFoundException('Rate plan not found')
+      if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
+      const issues = validateGuestPriceLines(lines, plan.currency)
+      if (issues.length) throw new BadRequestException({ code: issues[0]!.code, message: issues[0]!.message, details: issues })
+      await tx.ratePlanGuestPrice.deleteMany({ where: { tenantId, ratePlanId } })
+      if (lines.length) await tx.ratePlanGuestPrice.createMany({ data: lines.map((line: any) => ({ tenantId, ratePlanId, kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, amountBasis: line.basis, currency: line.currency })) })
+      // The plan version moves with its prices: an approval or a stale editor bound to the old version is refused.
+      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      const shape = (rows: Array<{ kind: string; minAge: number; maxAge: number; amountMinor: bigint | null; amountBasis?: string | null; basis?: string }>) => rows.map(r => ({ kind: r.kind, minAge: r.minAge, maxAge: r.maxAge, amountMinor: r.amountMinor?.toString() ?? null, basis: r.amountBasis ?? r.basis ?? null }))
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.guest_prices_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.guestPrices), after: shape(lines) } } })
+      return { id: ratePlanId, value: { ratePlanId } }
+    }).then(() => this.guestPrices(tenantId, userId, ratePlanId))
+  }
+
   /** Copies the commercial shape into a new DRAFT. Rates, availability, pool membership and status are never copied. */
   async cloneRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
     const code = clean(input?.code)

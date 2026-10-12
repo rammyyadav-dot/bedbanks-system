@@ -15,9 +15,10 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
 
   const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED', ...patch })
 
-  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; salesMarkets?: string[]; nationalities?: string[]; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
-    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [] } })).id
-    await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: 2, amountMinor: opts.amount ?? 50000n, amountBasis: 'SELL' as const, currency: 'AED' })) })
+  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL' | 'NET'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; occupancy?: number; guestPrices?: Array<{ kind: 'CHILD' | 'EXTRA_ADULT'; minAge: number; maxAge: number; amountMinor: bigint; basis: 'NET' | 'SELL' }>; salesMarkets?: string[]; nationalities?: string[]; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
+    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: opts.occupancy ?? 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [] } })).id
+    await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: opts.occupancy ?? 2, amountMinor: opts.amount ?? 50000n, amountBasis: opts.basis ?? ('SELL' as const), currency: 'AED' })) })
+    if (opts.guestPrices?.length) await prisma.ratePlanGuestPrice.createMany({ data: opts.guestPrices.map((g) => ({ tenantId, ratePlanId: id, kind: g.kind, minAge: g.minAge, maxAge: g.maxAge, amountMinor: g.amountMinor, amountBasis: g.basis, currency: 'AED' })) })
     if (opts.rows !== false) {
       await prisma.dailyAvailability.createMany({ data: [...nights, checkOut].map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), allotment: opts.allotment ?? 5, inventoryMode: opts.mode ?? 'ALLOTMENT' })) })
     }
@@ -177,6 +178,49 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     await expect(prisma.$executeRawUnsafe(`UPDATE "RatePlan" SET sales_markets = '"junk"'::jsonb WHERE id = '${broken}'`)).rejects.toThrow(/RatePlan_sales_markets_array_chk/) // the database refuses a non-array
     await prisma.$executeRawUnsafe(`UPDATE "RatePlan" SET sales_markets = '["ARE"]'::jsonb WHERE id = '${broken}'`) // an array with a bad code passes the CHECK; the evaluator fails closed
     expect(forPlan(await rates(), broken)).toBeUndefined()
+  })
+
+  it('SR-17 child and extra-adult lines: a family is priced per night by age band, flat plans are untouched, and recheck agrees (ADR 0057, S6)', async () => {
+    await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 3, maxChildren: 2, maxOccupancy: 4 } })
+    try {
+      const lines = [{ kind: 'CHILD' as const, minAge: 0, maxAge: 2, amountMinor: 0n, basis: 'SELL' as const }, { kind: 'CHILD' as const, minAge: 3, maxAge: 11, amountMinor: 10_000n, basis: 'SELL' as const }, { kind: 'EXTRA_ADULT' as const, minAge: 18, maxAge: 99, amountMinor: 20_000n, basis: 'SELL' as const }]
+      const withLines = await newPlan('lines', { guestPrices: lines, amount: 50_000n })
+      const flat3 = await newPlan('flat3', { occupancy: 3, amount: 70_000n })
+      const nightsCount = BigInt(nights.length)
+      // 2 adults + 1 child aged 8: base 500.00 + child 100.00 per night.
+      const one = await rates(criteria({ adults: 2, children: 1, childAges: [8] }))
+      expect(forPlan(one, withLines)).toMatchObject({ sellAmountMinor: Number(nightsCount * 60_000n), occupancy: { adults: 2, children: 1, childAges: [8] } })
+      expect(forPlan(one, flat3)).toMatchObject({ sellAmountMinor: Number(nightsCount * 70_000n) }) // the original rule: 3 guests = occupancy 3, flat
+      // a free infant and a paid child
+      expect(forPlan(await rates(criteria({ adults: 2, children: 2, childAges: [1, 8] })), withLines)).toMatchObject({ sellAmountMinor: Number(nightsCount * 60_000n) })
+      // 3 adults: one extra adult at 200.00
+      expect(forPlan(await rates(criteria({ adults: 3 })), withLines)).toMatchObject({ sellAmountMinor: Number(nightsCount * 70_000n) })
+      // exactly the base party: just the base rate; and the lines plan does not appear for the flat 3 rule
+      expect(forPlan(await rates(), withLines)).toMatchObject({ sellAmountMinor: Number(nightsCount * 50_000n) })
+      // a child the bands do not cover is not sold, never priced as free
+      await prisma.ratePlanGuestPrice.deleteMany({ where: { ratePlanId: withLines, minAge: 3 } })
+      expect(forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [8] })), withLines)).toBeUndefined()
+      expect(forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [1] })), withLines)).toBeDefined()
+      // recheck reproduces the same price from the stored child ages
+      const offer = forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [1] })), withLines)!
+      expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toMatchObject({ status: 'available', offer: { sellAmountMinor: offer.sellAmountMinor } })
+    } finally { await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } }) }
+  })
+
+  it('SR-18 a NET plan applies the markup to the base plus the child lines, per night (ADR 0057, S6)', async () => {
+    await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 2, maxChildren: 1, maxOccupancy: 3 } })
+    await prisma.commercialMarkupRule.create({ data: { tenantId, scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: new Date('2026-01-01'), status: 'ACTIVE', activatedAt: new Date(), reason: 'test', createdById: userId } })
+    try {
+      const plan = await newPlan('net', { amount: 10_001n, basis: 'NET', guestPrices: [{ kind: 'CHILD', minAge: 3, maxAge: 11, amountMinor: 5_005n, basis: 'NET' }] })
+      const offer = forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [5] })), plan)!
+      // per night: net 15,006; markup 10% = 1,500.6 -> 1,501 half up; sell 16,507
+      expect(offer).toMatchObject({ netAmountMinor: nights.length * 15_006, markupAmountMinor: nights.length * 1_501, sellAmountMinor: nights.length * 16_507 })
+      await prisma.ratePlanGuestPrice.updateMany({ where: { ratePlanId: plan }, data: { amountBasis: 'SELL' } })
+      expect(forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [5] })), plan)).toBeUndefined() // basis mismatch fails closed
+    } finally {
+      await prisma.commercialMarkupRule.deleteMany({ where: { tenantId } })
+      await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    }
   })
 
   it('SR-07 recheck never allocates and reflects inventory changes: rechecked while stock lasts, unavailable once gone', async () => {

@@ -33,4 +33,13 @@ describe('rate plan fingerprint (ADR 0057, S5)', () => {
     expect(json).toContain('"9007199254740993"')
     expect(json).not.toMatch(/user|email|reason/i)
   })
+  it('covers the child and extra-adult lines: any change to a line changes it (ADR 0057, S6)', () => {
+    const line = { kind: 'CHILD', minAge: 3, maxAge: 11, amountMinor: 15_000n, amountBasis: 'SELL', currency: 'AED' }
+    const base = planFingerprint(plan, rates, '2026-10-12', [line])
+    expect(base).not.toBe(planFingerprint(plan, rates, '2026-10-12', []))
+    for (const change of [{ amountMinor: 15_001n }, { minAge: 4 }, { maxAge: 10 }, { amountBasis: 'NET' }, { kind: 'EXTRA_ADULT' }, { currency: 'USD' }]) {
+      expect(planFingerprint(plan, rates, '2026-10-12', [{ ...line, ...change }])).not.toBe(base)
+    }
+    expect(planFingerprint(plan, rates, '2026-10-12', [line, { ...line, minAge: 0, maxAge: 2 }])).toBe(planFingerprint(plan, rates, '2026-10-12', [{ ...line, minAge: 0, maxAge: 2 }, line])) // order is irrelevant
+  })
 })

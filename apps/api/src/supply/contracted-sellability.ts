@@ -1,5 +1,6 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 import { releaseAllows } from './zoned-time'
+import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
  * Shared commercial gates for contracted inventory.
@@ -108,6 +109,8 @@ export interface ContractedStaySnapshot {
   /** The plan's own sale window (ADR 0057), YYYY-MM-DD, or null when it inherits the contract term on that side. Required so a caller cannot omit it and skip the rule. */
   ratePlanValidFrom: string | null
   ratePlanValidTo: string | null
+  /** The plan's child and extra-adult lines (ADR 0057, S6). Empty keeps the flat-occupancy rule. Required so a caller cannot omit it and price a child as free. */
+  guestPrices: GuestPriceLine[]
   /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
   cancellationPolicyMissing: boolean
   ratePlanStatus: string
@@ -134,6 +137,8 @@ export interface StayRequest {
   rooms: number
   adults: number
   children: number
+  /** Ages of the children in each room, needed to price a plan that has child lines. Ignored by a plan without them. */
+  childAges?: number[]
   currency: string
   /** The instant of evaluation. Freshness and the hotel-local release deadline are judged against it. */
   now: Date
@@ -178,15 +183,17 @@ export function stayDates(checkIn: string, checkOut: string): string[] {
 
 export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request: StayRequest): StayDecision {
   const reasons: string[] = []
-  const guests = request.adults + request.children
   const nightCount = stayNightCount(request.checkIn, request.checkOut)
   if (snapshot.hotelContentStatus !== 'COMPLETE') reasons.push('HOTEL_INACTIVE')
   if (!snapshot.roomActive) reasons.push('ROOM_TYPE_INACTIVE')
   if (!snapshot.boardActive) reasons.push('BOARD_BASIS_INACTIVE')
   if (snapshot.supplierStatus !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE')
-  if (request.rooms < 1 || guests !== snapshot.ratePlanOccupancy || request.adults > snapshot.maxAdults || request.children > snapshot.maxChildren || guests > snapshot.maxOccupancy) {
-    reasons.push('OCCUPANCY_UNSUPPORTED')
-  }
+  // ADR 0057, S6: a plan without guest price lines keeps the flat rule exactly; a plan with lines prices the party per night.
+  const guestPricing = resolveGuestPricing({ planOccupancy: snapshot.ratePlanOccupancy, currency: snapshot.ratePlanCurrency, adults: request.adults, children: request.children, childAges: request.childAges, lines: snapshot.guestPrices, limits: { maxAdults: snapshot.maxAdults, maxChildren: snapshot.maxChildren, maxOccupancy: snapshot.maxOccupancy } })
+  if (request.rooms < 1) reasons.push('OCCUPANCY_UNSUPPORTED')
+  reasons.push(...guestPricing.reasons)
+  const extraPerNight = guestPricing.mode === 'LINES' ? guestPricing.extraMinorPerNight : 0n
+  const guestBasis = guestPricing.mode === 'LINES' ? guestPricing.basis : null
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
   if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
@@ -211,6 +218,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let sawInvalidRate = false
   let sawCurrencyMismatch = false
   let sawUnverified = false
+  let sawGuestBasisMismatch = false
   let sawNet = false
   let sawMissingAvailability = false
   let sawStopSell = false
@@ -227,12 +235,14 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
       sawRate = true
       if (night.rateCurrency !== snapshot.ratePlanCurrency || night.rateCurrency !== request.currency) sawCurrencyMismatch = true
       else if (night.amountBasis === null) sawUnverified = true
+      else if (guestBasis !== null && guestBasis !== night.amountBasis) sawGuestBasisMismatch = true
       else if (night.amountBasis === 'NET') {
-        // NET sells only under a valid markup rule; anything else stays unsellable (fail closed).
+        // NET sells only under a valid markup rule; anything else stays unsellable (fail closed). Guest lines are added to the nightly net BEFORE the markup.
         const bp = night.markupBasisPoints
+        const net = night.rateAmountMinor + extraPerNight
         if (bp === null || bp === undefined || !Number.isSafeInteger(bp) || bp < 0 || bp > MAX_MARKUP_BASIS_POINTS) sawNet = true
-        else { perRoomNet += night.rateAmountMinor; perRoom += night.rateAmountMinor + markupMinor(night.rateAmountMinor, bp) }
-      } else { perRoomNet += night.rateAmountMinor; perRoom += night.rateAmountMinor }
+        else { perRoomNet += net; perRoom += net + markupMinor(net, bp) }
+      } else { perRoomNet += night.rateAmountMinor + extraPerNight; perRoom += night.rateAmountMinor + extraPerNight }
     }
     if (!night.availability) sawMissingAvailability = true
     else {
@@ -262,6 +272,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (!sawRate || sawInvalidRate || snapshot.nights.length !== nightCount) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
   if (sawCurrencyMismatch) reasons.push('RATE_CURRENCY_MISMATCH')
   if (sawUnverified) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
+  if (sawGuestBasisMismatch) reasons.push('GUEST_PRICE_BASIS_MISMATCH')
   if (sawNet) reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
   if (sawMissingAvailability) reasons.push('AVAILABILITY_MISSING')
   if (sawStopSell) reasons.push('STOP_SELL')

@@ -1,5 +1,6 @@
 import { parseMarketRules } from './market-rules'
 import { rulesForPlan } from './cancellation-rules'
+import type { GuestPriceLine } from './guest-pricing'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
@@ -18,6 +19,8 @@ export interface StayPlanInput {
   validTo: Date | null
   /** ADR 0057. Required (nullable) for the same reason as the sale window. */
   cancellationPolicySet: string | null
+  /** ADR 0057 S6 child and extra-adult lines. Required: a loader that forgot them would otherwise price every child as free. */
+  guestPrices: Array<{ kind: string; minAge: number; maxAge: number; amountMinor: bigint; amountBasis: string; currency: string }>
   /** ADR 0057 S3 allow-lists. Required (any JSON) so a loader that forgot them fails loudly rather than reading as unrestricted. */
   salesMarkets: unknown
   nationalities: unknown
@@ -27,7 +30,7 @@ export interface StayPlanInput {
   roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; hotel: { contentStatus: string; timeZone?: string } }
   boardBasis: { isActive: boolean }
   contract: { cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
-  dailyRates: Array<{ stayDate: Date; amountMinor: bigint; currency: string; amountBasis: string | null }>
+  dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
 
@@ -54,7 +57,9 @@ export function buildStaySnapshot(
   if (plan.validFrom === undefined || plan.validTo === undefined) throw new Error('RATE_PLAN_WINDOW_NOT_LOADED')
   if (plan.cancellationPolicySet === undefined || plan.contract.cancellationPolicies === undefined) throw new Error('RATE_PLAN_CANCELLATION_NOT_LOADED')
   if (plan.salesMarkets === undefined || plan.nationalities === undefined) throw new Error('RATE_PLAN_MARKETS_NOT_LOADED')
-  const rates = new Map(plan.dailyRates.map((rate) => [dayKey(rate.stayDate), rate]))
+  if (plan.guestPrices === undefined) throw new Error('RATE_PLAN_GUEST_PRICES_NOT_LOADED')
+  // A loader may bring several occupancies (ADR 0057, S6); only the plan's own occupancy prices a night (finding F12).
+  const rates = new Map(plan.dailyRates.filter((rate) => rate.occupancy === undefined || rate.occupancy === plan.occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
   const pools = new Map((plan.inventoryPool?.days ?? []).map((day) => [dayKey(day.stayDate), day]))
@@ -90,6 +95,7 @@ export function buildStaySnapshot(
     contractValidFrom: dayKey(plan.contract.validFrom),
     contractValidTo: dayKey(plan.contract.validTo),
     contractCurrency: plan.contract.settlementCurrency,
+    guestPrices: plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })),
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,

@@ -34,11 +34,14 @@ export interface ActivationFacts {
   }
   /** Daily rows for the plan's own occupancy from `today` onward. */
   rates: Array<{ stayDate: string; amountBasis: string | null; currency: string; amountMinor: bigint }>
+  /** Child and extra-adult lines (ADR 0057, S6). Empty means the plan keeps the flat-occupancy rule. */
+  guestPrices: GuestPriceLine[]
   /** Future availability rows for the plan. */
   availabilityDates: string[]
 }
 
 import { codesOutsideContract } from './market-rules'
+import { validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
 
 const DAY_MS = 86_400_000
 const addDay = (day: string): string => new Date(Date.parse(`${day}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10)
@@ -106,6 +109,14 @@ export function assessRatePlanActivation(facts: ActivationFacts): ActivationRead
   checks.push(check('RATES_CLASSIFIED', 'Rate basis', unclassified.length === 0, 'Every rate is classified as NET or SELL.', `${unclassified.length} rate(s) have no NET/SELL classification, first ${unclassified[0]?.stayDate}.`))
   checks.push(check('RATES_CURRENCY', 'Rate currency', wrongCurrency.length === 0, 'Every rate is in the plan currency.', `${wrongCurrency.length} rate(s) are not in ${plan.currency}, first ${wrongCurrency[0]?.stayDate}.`))
   checks.push(check('RATES_POSITIVE', 'Rate amounts', nonPositive.length === 0, 'Every rate is a positive amount.', `${nonPositive.length} rate(s) are zero or negative, first ${nonPositive[0]?.stayDate}.`))
+
+  // ADR 0057, S6: the lines must be a coherent price list and share the basis of the rates they are added to, or every night they touch would be refused.
+  const lineIssues = validateGuestPriceLines(facts.guestPrices, plan.currency)
+  const rateBases = new Set(future.map((row) => row.amountBasis).filter((basis): basis is string => basis !== null))
+  const basisMismatch = facts.guestPrices.length > 0 && facts.guestPrices.some((line) => [...rateBases].some((basis) => basis !== line.basis))
+  checks.push(check('GUEST_PRICES_VALID', 'Child and extra-adult prices', lineIssues.length === 0 && !basisMismatch,
+    facts.guestPrices.length === 0 ? 'No guest price lines: the plan sells its flat occupancy.' : `${facts.guestPrices.length} guest price line(s), consistent with the rates.`,
+    lineIssues.length ? `${lineIssues[0]!.message}${lineIssues.length > 1 ? ` (${lineIssues.length} problems)` : ''}` : 'A guest price line has a different basis (NET or SELL) than the rates it is added to.'))
 
   const futureAvailability = facts.availabilityDates.filter((day) => day >= today)
   checks.push(check('INVENTORY_LINKED', 'Inventory linkage', plan.inventoryPoolId !== null || futureAvailability.length > 0,
