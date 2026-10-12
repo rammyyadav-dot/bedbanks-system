@@ -15,11 +15,11 @@ interface PlanOpts {
 function plan(o: PlanOpts = {}): AuditPlan {
   const id = o.id ?? 'plan-1'
   return {
-    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, releaseDays: 0, refundable: o.refundable ?? true,
+    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, salesMarkets: [], nationalities: [], releaseDays: 0, refundable: o.refundable ?? true,
     contractId: o.contractId ?? 'c1', roomTypeId: 'room-1', boardBasisId: o.boardId ?? 'b1',
     boardBasis: { code: 'BB', isActive: true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: o.maxOccupancy ?? 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
-    contract: { id: o.contractId ?? 'c1', code: `C-${o.contractId ?? 'c1'}`, status: o.contractStatus ?? 'ACTIVE', validFrom: at(o.validFrom ?? '2030-01-01'), validTo: at(o.validTo ?? '2031-01-01'), settlementCurrency: o.contractCurrency ?? 'AED', supplierId: 's1', supplierHotelMappingId: 'm1', supplier: { status: 'ACTIVE', displayName: 'Supplier One' }, salesMarkets: o.salesMarkets ?? [], nationalities: o.nationalities ?? [] },
+    contract: { cancellationPolicies: [], id: o.contractId ?? 'c1', code: `C-${o.contractId ?? 'c1'}`, status: o.contractStatus ?? 'ACTIVE', validFrom: at(o.validFrom ?? '2030-01-01'), validTo: at(o.validTo ?? '2031-01-01'), settlementCurrency: o.contractCurrency ?? 'AED', supplierId: 's1', supplierHotelMappingId: 'm1', supplier: { status: 'ACTIVE', displayName: 'Supplier One' }, salesMarkets: o.salesMarkets ?? [], nationalities: o.nationalities ?? [] },
     dailyRates: (o.rateDates ?? dates).map((d) => ({ stayDate: at(d), amountMinor: o.amount ?? 30_000n, currency: o.rateCurrency ?? 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis, occupancy: o.rateOccupancy ?? o.occupancy ?? 2 })),
     availability: dates.map((d) => ({ stayDate: at(d), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false })),
   }
@@ -229,6 +229,26 @@ describe('price simulator (RC)', () => {
     expect(r.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE')
     expect(r).toMatchObject({ totalMinor: null, recomputedTotalMinor: null, reconciles: true })
     expect(r.nights.every((n) => n.sellMinor === null)).toBe(true)
+  })
+
+  it('RC-ADR0057-S3: plan market lists are audited against the contract', () => {
+    const withLists = (salesMarkets: unknown, contractMarkets: unknown) => { const p = plan({ salesMarkets: contractMarkets }); return { ...p, salesMarkets, nationalities: [] } as AuditPlan }
+    const found = (p: AuditPlan) => auditHotel(input([p])).plans[0].findings.find((f) => f.code.startsWith('PLAN_MARKET'))
+    expect(found(withLists([], []))).toBeUndefined()
+    expect(found(withLists(['AE'], []))).toMatchObject({ code: 'PLAN_MARKET_RESTRICTED', severity: 'INFO' })
+    expect(found(withLists(['AE', 'US'], ['AE']))).toMatchObject({ code: 'PLAN_MARKET_OUTSIDE_CONTRACT', severity: 'FAIL', count: 1 })
+    expect(found(withLists('junk', []))).toMatchObject({ code: 'PLAN_MARKET_RULE_INVALID', severity: 'FAIL' })
+  })
+
+  it('RC-ADR0057: the simulator applies the plan sale window and cancellation set exactly as Agent search does', () => {
+    const win = { ...plan(), validFrom: new Date('2031-06-01T00:00:00Z') }
+    expect(base(win).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    const missingSet = { ...plan(), cancellationPolicySet: 'GONE' }
+    const refused = base(missingSet)
+    expect(refused.reasons).toContain('CANCELLATION_POLICY_MISSING')
+    expect(refused.eligible).toBe(false)
+    const ruled = { ...plan(), cancellationPolicySet: 'FLEX', contract: { ...plan().contract, cancellationPolicies: [{ policySet: 'FLEX' }] } }
+    expect(base(ruled).reasons).not.toContain('CANCELLATION_POLICY_MISSING')
   })
 
   it('RC-21: a missing night, a closed night and a wrong party size refuse with the evaluator reasons and no total', () => {

@@ -43,11 +43,26 @@ test('structured readiness failures survive the client and are read back, malfor
 })
 
 test('capability reasons explain the environment and fail closed when unknown', () => {
-  const strict = { activate: { available: false, reason: 'LIFECYCLE_ROLE_NOT_PROVISIONED' }, suspend: { available: false, reason: 'LIFECYCLE_ROLE_NOT_PROVISIONED' }, clone: { available: false, reason: 'STRICT_ROLE_NO_WRITER' } } as const
+  const strict = { activate: { available: false, reason: 'LIFECYCLE_ROLE_NOT_PROVISIONED' }, suspend: { available: false, reason: 'LIFECYCLE_ROLE_NOT_PROVISIONED' }, clone: { available: false, reason: 'STRICT_ROLE_NO_WRITER' }, activationApproval: 'required' } as const
   assert.match(capabilityBlockedReason(strict, 'clone') ?? '', /Create Rate Plan/)
   assert.match(capabilityBlockedReason(strict, 'activate') ?? '', /lifecycle database role is not provisioned/)
-  const ok = { activate: { available: true, reason: null }, suspend: { available: true, reason: null }, clone: { available: false, reason: 'STRICT_ROLE_NO_WRITER' } } as const
+  const ok = { activate: { available: true, reason: null }, suspend: { available: true, reason: null }, clone: { available: false, reason: 'STRICT_ROLE_NO_WRITER' }, activationApproval: 'required' } as const
   assert.equal(capabilityBlockedReason(ok, 'activate'), null)
   assert.match(capabilityBlockedReason(ok, 'clone') ?? '', /not available/i)
   assert.match(capabilityBlockedReason(undefined, 'activate') ?? '', /could not be confirmed/)
+})
+
+test('approval-flow failures are explained as policy, not as a fault', () => {
+  const err = (code: string) => new ApiResponseError(code, 'server', 409, 'req-9')
+  assert.match(describeRatePlanActionError(err('RATE_PLAN_APPROVAL_REQUIRED'), 'activate'), /second person/)
+  assert.match(describeRatePlanActionError(err('RATE_PLAN_CHANGED_SINCE_APPROVAL'), 'activate'), /new request/)
+  assert.match(describeRatePlanActionError(err('RATE_PLAN_CHANGED_SINCE_REQUEST'), 'activate'), /cannot be approved/)
+  assert.match(describeRatePlanActionError(err('RATE_PLAN_APPROVAL_OPEN'), 'activate'), /open activation request/)
+  assert.match(describeRatePlanActionError(err('RATE_PLAN_CHANGED_SINCE_APPROVAL'), 'activate'), /req-9/)
+})
+
+test('an unavailable clone role is a retryable environment problem, not a permission problem', () => {
+  const text = describeRatePlanActionError(new ApiResponseError('RATE_PLAN_CLONE_UNAVAILABLE', 'server', 503, 'req-3'), 'clone')
+  assert.match(text, /clone database role is configured but unavailable/)
+  assert.doesNotMatch(text, /do not have permission/)
 })

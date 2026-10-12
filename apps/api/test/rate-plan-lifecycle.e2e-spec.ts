@@ -331,4 +331,209 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
       expect(await prisma.auditEvent.count({ where: { tenantId, entityId: id, action: { startsWith: 'supply.rate_plan.' } } })).toBe(1) // only .created
     })
   })
+  describe('plan sale window and payment type (ADR 0057)', () => {
+    const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
+    const planCount = () => prisma.ratePlan.count({ where: { tenantId } })
+
+    it('stores an in-term window and payment type, and returns them', async () => {
+      const id = await newPlan(false, { validFrom: iso(10), validTo: iso(100), paymentType: 'PREPAID' })
+      const stored = await planRow(id)
+      expect(stored.validFrom?.toISOString().slice(0, 10)).toBe(iso(10))
+      expect(stored.validTo?.toISOString().slice(0, 10)).toBe(iso(100))
+      expect(stored.paymentType).toBe('PREPAID')
+      const read = await api(operator).get(`/supply/rate-plans/${id}`).expect(200)
+      expect(read.body.data.paymentType).toBe('PREPAID')
+    })
+
+    it('records nothing by default: no window, no invented payment type', async () => {
+      const stored = await planRow(await newPlan(false))
+      expect(stored).toMatchObject({ validFrom: null, validTo: null, paymentType: null })
+    })
+
+    it('refuses a window that extends the contract, an inverted window, a bad day and an unknown payment type, writing nothing', async () => {
+      const before = await planCount()
+      const attempt = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-X${++n}`, occupancy: 2, currency: 'AED', ...body })
+      expect((await attempt({ validTo: iso(400) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_OUTSIDE_CONTRACT')
+      expect((await attempt({ validFrom: iso(-60) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_OUTSIDE_CONTRACT')
+      expect((await attempt({ validFrom: iso(50), validTo: iso(40) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_INVALID')
+      expect((await attempt({ validFrom: '2026-02-30' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_INVALID')
+      expect((await attempt({ paymentType: 'DEPOSIT' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_PAYMENT_TYPE_INVALID')
+      expect(await planCount()).toBe(before)
+    })
+
+    it('edits keep a stored value when the key is absent and clear it on an explicit null', async () => {
+      const id = await newPlan(false, { validFrom: iso(10), validTo: iso(100), paymentType: 'PAY_AT_HOTEL' })
+      await api(operator).patch(`/supply/rate-plans/${id}`, { code: `${suffix}-renamed-${++n}` }).then((r) => expectStatus(r, 200))
+      expect(await planRow(id)).toMatchObject({ paymentType: 'PAY_AT_HOTEL' })
+      await api(operator).patch(`/supply/rate-plans/${id}`, { validTo: null, paymentType: null }).then((r) => expectStatus(r, 200))
+      const cleared = await planRow(id)
+      expect(cleared.validTo).toBeNull()
+      expect(cleared.paymentType).toBeNull()
+      expect(cleared.validFrom?.toISOString().slice(0, 10)).toBe(iso(10))
+    })
+
+    it('a read-only user cannot change the window', async () => {
+      const id = await newPlan(false)
+      await api(readOnly).patch(`/supply/rate-plans/${id}`, { validTo: iso(50) }).then((r) => expectStatus(r, 403))
+      expect((await planRow(id)).validTo).toBeNull()
+    })
+
+    it('a window that is already over fails readiness and blocks activation', async () => {
+      const id = await newPlan(true, { validFrom: iso(-20), validTo: iso(-1) })
+      const result = await readiness(id)
+      expect(result.checks.filter((c) => !c.ok).map((c) => c.code)).toContain('PLAN_VALIDITY')
+      const refused = await activate(id).then((r) => expectStatus(r, 409))
+      expect(refused.body.error.code).toBe('RATE_PLAN_NOT_READY')
+      expect(failedCodes(refused.body)).toContain('PLAN_VALIDITY')
+      expect((await planRow(id)).status).toBe('DRAFT')
+    })
+
+    it('an active plan cannot be edited into an expired window', async () => {
+      const id = await newPlan(true, { validFrom: iso(-10), validTo: iso(60) })
+      await activate(id).then((r) => expectStatus(r, 201))
+      const refused = await api(operator).patch(`/supply/rate-plans/${id}`, { validTo: iso(-1) }).then((r) => expectStatus(r, 409))
+      expect(refused.body.error.code).toBe('RATE_PLAN_NOT_READY')
+      expect((await planRow(id)).validTo?.toISOString().slice(0, 10)).toBe(iso(60))
+    })
+
+    it('Admin diagnostics honour the window per night', async () => {
+      const id = await newPlan(true, { validFrom: iso(16), validTo: iso(30) })
+      const verdict = (stayDate: string) => api(operator).post('/supply/sellability', { ratePlanId: id, stayDate, occupancy: 2 }).expect(201).then((r) => r.body.data)
+      const outside = await verdict(nights[0])
+      expect(JSON.stringify(outside)).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    })
+
+    it('clone keeps the window and payment type but never the status', async () => {
+      const id = await newPlan(false, { validFrom: iso(10), validTo: iso(100), paymentType: 'PREPAID' })
+      const cloned = await api(operator).post(`/supply/rate-plans/${id}/clone`, { code: `${suffix}-clone-${++n}` })
+      if (cloned.status === 201) {
+        const copy = await planRow(cloned.body.data.id)
+        expect(copy).toMatchObject({ status: 'DRAFT', paymentType: 'PREPAID' })
+        expect(copy.validFrom?.toISOString().slice(0, 10)).toBe(iso(10))
+      } else {
+        expect([403]).toContain(cloned.status) // strict runtime login: clone has no writer (ADR 0041 Amendment 3)
+      }
+    })
+  })
+  describe('plan cancellation rule sets (ADR 0057)', () => {
+    const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
+    const addRule = (policySet: string | null, daysBeforeCheckin: number) => api(operator).post(`/supply/contracts/${contractId}/policies/cancellation`, { daysBeforeCheckin, penaltyPercent: 100, ...(policySet === null ? {} : { policySet }) })
+    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-S${++n}`, occupancy: 2, currency: 'AED', ...body })
+
+    it('stores rules in a named set, leaving the contract default untouched', async () => {
+      await addRule('FLEX-7', 7).then((r) => expectStatus(r, 201))
+      await addRule('FLEX-7', 2).then((r) => expectStatus(r, 201))
+      const rows = await prisma.cancellationPolicy.findMany({ where: { contractId, policySet: 'FLEX-7' } })
+      expect(rows).toHaveLength(2)
+      expect(await prisma.cancellationPolicy.count({ where: { contractId, policySet: null } })).toBeGreaterThanOrEqual(1)
+      const listed = await api(operator).get(`/supply/contracts/${contractId}/policies`).expect(200)
+      expect(JSON.stringify(listed.body.data)).toContain('FLEX-7')
+    })
+
+    it('refuses a bad set name on a rule', async () => {
+      await addRule('bad/name', 3).then((r) => expectStatus(r, 400))
+      await addRule(' lead', 3).then((r) => expectStatus(r, 400))
+    })
+
+    it('attaches an existing set to a refundable plan and reads it back', async () => {
+      const id = (await createWith({ cancellationPolicySet: 'FLEX-7' }).then((r) => expectStatus(r, 201))).body.data.id
+      expect((await planRow(id)).cancellationPolicySet).toBe('FLEX-7')
+    })
+
+    it('refuses an unknown set, a bad name, and a set on a non-refundable plan, writing nothing', async () => {
+      const before = await prisma.ratePlan.count({ where: { tenantId } })
+      expect((await createWith({ cancellationPolicySet: 'NOPE' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_UNKNOWN')
+      expect((await createWith({ cancellationPolicySet: 'flex-7' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_UNKNOWN') // case-sensitive
+      expect((await createWith({ cancellationPolicySet: '../x' }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_INVALID')
+      expect((await createWith({ cancellationPolicySet: 'FLEX-7', refundable: false }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_ON_NON_REFUNDABLE')
+      expect(await prisma.ratePlan.count({ where: { tenantId } })).toBe(before)
+    })
+
+    it('editing: absent keeps, null clears, and making a plan non-refundable while it names a set is refused', async () => {
+      const id = (await createWith({ cancellationPolicySet: 'FLEX-7' }).then((r) => expectStatus(r, 201))).body.data.id
+      await api(operator).patch(`/supply/rate-plans/${id}`, { minStay: 2 }).then((r) => expectStatus(r, 200))
+      expect((await planRow(id)).cancellationPolicySet).toBe('FLEX-7')
+      expect((await api(operator).patch(`/supply/rate-plans/${id}`, { refundable: false }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_CANCELLATION_SET_ON_NON_REFUNDABLE')
+      await api(operator).patch(`/supply/rate-plans/${id}`, { cancellationPolicySet: null, refundable: false }).then((r) => expectStatus(r, 200))
+      expect(await planRow(id)).toMatchObject({ cancellationPolicySet: null, refundable: false })
+    })
+
+    it('a read-only user cannot attach a set', async () => {
+      const id = await newPlan(false)
+      await api(readOnly).patch(`/supply/rate-plans/${id}`, { cancellationPolicySet: 'FLEX-7' }).then((r) => expectStatus(r, 403))
+      expect((await planRow(id)).cancellationPolicySet).toBeNull()
+    })
+
+    it('readiness counts the plan set, not the contract default; an emptied set blocks activation naming the set', async () => {
+      const id = await newPlan(true, { cancellationPolicySet: 'FLEX-7' })
+      expect((await readiness(id)).checks.find((c) => c.code === 'CANCELLATION_POLICY')?.ok).toBe(true)
+      await prisma.cancellationPolicy.updateMany({ where: { contractId, policySet: 'FLEX-7' }, data: { policySet: 'RENAMED' } })
+      try {
+        const refused = await activate(id).then((r) => expectStatus(r, 409))
+        expect(refused.body.error.code).toBe('RATE_PLAN_NOT_READY')
+        expect(JSON.stringify(refused.body.error.details)).toContain('FLEX-7')
+        expect((await planRow(id)).status).toBe('DRAFT')
+      } finally { await prisma.cancellationPolicy.updateMany({ where: { contractId, policySet: 'RENAMED' }, data: { policySet: 'FLEX-7' } }) }
+      await activate(id).then((r) => expectStatus(r, 201))
+    })
+  })
+  describe('plan buyer markets (ADR 0057, S3)', () => {
+    const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
+    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-M${++n}`, occupancy: 2, currency: 'AED', ...body })
+    const restrictContract = (salesMarkets: string[], nationalities: string[] = []) => prisma.contract.update({ where: { id: contractId }, data: { salesMarkets, nationalities } })
+
+    afterEach(async () => { await restrictContract(['AE']) })
+
+    it('defaults to no extra restriction and stores normalised lists', async () => {
+      await restrictContract([])
+      expect(await planRow((await createWith({}).then((r) => expectStatus(r, 201))).body.data.id)).toMatchObject({ salesMarkets: [], nationalities: [] })
+      const id = (await createWith({ salesMarkets: ['ae', 'in'], nationalities: ['IN'] }).then((r) => expectStatus(r, 201))).body.data.id
+      expect(await planRow(id)).toMatchObject({ salesMarkets: ['AE', 'IN'], nationalities: ['IN'] })
+    })
+
+    it('a plan list can narrow a restricted contract but never widen it, writing nothing when refused', async () => {
+      await restrictContract(['AE', 'IN'])
+      await createWith({ salesMarkets: ['AE'] }).then((r) => expectStatus(r, 201))
+      const before = await prisma.ratePlan.count({ where: { tenantId } })
+      const refused = await createWith({ salesMarkets: ['AE', 'US'] }).then((r) => expectStatus(r, 400))
+      expect(refused.body.error.code).toBe('RATE_PLAN_MARKET_OUTSIDE_CONTRACT')
+      expect(refused.body.error.message).toContain('US')
+      expect(await prisma.ratePlan.count({ where: { tenantId } })).toBe(before)
+    })
+
+    it('refuses malformed lists', async () => {
+      for (const bad of [{ salesMarkets: 'AE' }, { nationalities: ['ARE'] }, { salesMarkets: [5] }]) {
+        expect((await createWith(bad).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_MARKET_LIST_INVALID')
+      }
+    })
+
+    it('editing: a key left out keeps the list, [] and null clear it; a read-only user cannot change it', async () => {
+      await restrictContract([])
+      const id = (await createWith({ salesMarkets: ['AE'] }).then((r) => expectStatus(r, 201))).body.data.id
+      await api(operator).patch(`/supply/rate-plans/${id}`, { minStay: 2 }).then((r) => expectStatus(r, 200))
+      expect((await planRow(id)).salesMarkets).toEqual(['AE'])
+      await api(readOnly).patch(`/supply/rate-plans/${id}`, { salesMarkets: [] }).then((r) => expectStatus(r, 403))
+      expect((await planRow(id)).salesMarkets).toEqual(['AE'])
+      await api(operator).patch(`/supply/rate-plans/${id}`, { salesMarkets: null }).then((r) => expectStatus(r, 200))
+      expect((await planRow(id)).salesMarkets).toEqual([])
+    })
+
+    it('narrowing the contract later makes the plan fail readiness naming the code', async () => {
+      await restrictContract([])
+      const id = await newPlan(true, { salesMarkets: ['US'] })
+      expect((await readiness(id)).checks.find((c) => c.code === 'PLAN_MARKETS')?.ok).toBe(true)
+      await restrictContract(['AE'])
+      const refused = await activate(id).then((r) => expectStatus(r, 409))
+      expect(JSON.stringify(refused.body.error.details)).toContain('US')
+      expect((await planRow(id)).status).toBe('DRAFT')
+    })
+
+    it('clone keeps the lists', async () => {
+      await restrictContract([])
+      const id = (await createWith({ salesMarkets: ['AE'], nationalities: ['IN'] }).then((r) => expectStatus(r, 201))).body.data.id
+      const cloned = await api(operator).post(`/supply/rate-plans/${id}/clone`, { code: `${suffix}-mclone-${++n}` })
+      if (cloned.status === 201) expect(await planRow(cloned.body.data.id)).toMatchObject({ status: 'DRAFT', salesMarkets: ['AE'], nationalities: ['IN'] })
+      else expect(cloned.status).toBe(403)
+    })
+  })
 })

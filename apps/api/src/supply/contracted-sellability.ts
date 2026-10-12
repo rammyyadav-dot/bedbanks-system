@@ -1,6 +1,6 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 import { releaseAllows } from './zoned-time'
-import { marketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
+import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
  * Shared commercial gates for contracted inventory.
  * The single-night helper preserves the existing admin sellability reasons.
@@ -13,6 +13,9 @@ export interface NightSellabilityPlan {
   status: string
   occupancy: number
   currency: string
+  /** ADR 0057 sale window; null inherits the contract term. Required so a caller cannot omit it. */
+  validFrom: Date | null
+  validTo: Date | null
   roomType: { isActive: boolean; maxOccupancy: number; hotelId: string; hotel: { contentStatus: string } }
   boardBasis: { isActive: boolean }
   contract: {
@@ -39,6 +42,7 @@ export function evaluateNightSellability(plan: NightSellabilityPlan | null, inpu
   if (input.occupancy !== plan.occupancy || input.occupancy > plan.roomType.maxOccupancy) reasons.push('OCCUPANCY_UNSUPPORTED')
   if (plan.contract.status !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (input.stayDate < plan.contract.validFrom || input.stayDate > plan.contract.validTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+  if ((plan.validFrom && input.stayDate < plan.validFrom) || (plan.validTo && input.stayDate > plan.validTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (plan.contract.supplierHotelMapping && (plan.contract.supplierHotelMapping.hotelId !== plan.roomType.hotelId || plan.contract.supplierHotelMapping.status !== 'MAPPED')) {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }
@@ -87,6 +91,8 @@ export type AvailabilityStatus = 'available' | 'on_request' | 'unavailable'
 export interface ContractedStaySnapshot {
   /** Parsed contract sales markets and nationalities (ADR 0035). Absent means the caller does not model them; they are only enforced when the request names a buyer. */
   marketRules?: ContractMarketRules
+  /** The plan's own allow-lists (ADR 0057, S3). Required so a caller cannot omit them and skip the rule. */
+  planMarketRules: ContractMarketRules
   hotelContentStatus: string
   roomActive: boolean
   boardActive: boolean
@@ -99,6 +105,11 @@ export interface ContractedStaySnapshot {
   contractValidFrom: string
   contractValidTo: string
   contractCurrency: string
+  /** The plan's own sale window (ADR 0057), YYYY-MM-DD, or null when it inherits the contract term on that side. Required so a caller cannot omit it and skip the rule. */
+  ratePlanValidFrom: string | null
+  ratePlanValidTo: string | null
+  /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
+  cancellationPolicyMissing: boolean
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -178,6 +189,8 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   }
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+  if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
+  if (snapshot.cancellationPolicyMissing) reasons.push('CANCELLATION_POLICY_MISSING')
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }
@@ -187,7 +200,10 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
   if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
-  if (request.buyer) reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
+  if (request.buyer) {
+    reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
+    reasons.push(...planMarketReasons(snapshot.planMarketRules, request.buyer))
+  }
 
   let perRoom = 0n
   let perRoomNet = 0n

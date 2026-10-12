@@ -127,6 +127,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   planned('rate.bulk_update', 'rates', 'S3', 'Bulk rate change', 'supply.rates.manage'),
   planned('availability.bulk_update', 'rates', 'S3', 'Bulk availability or allotment change', 'supply.availability.manage'),
   planned('stop_sell.update', 'rates', 'S2', 'Set or clear a stop-sell', 'supply.availability.manage'),
+  { key: 'rate_plan.activate', department: 'rates', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'supply.rates.manage', approvalOnly: true, description: 'Activate a rate plan after a second person approves exactly what was reviewed (maker-checker, ADR 0057)' },
   { key: 'markup.activate', department: 'commercial', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'supply.rates.manage', approvalOnly: true, description: 'Activate a NET-rate markup rule (maker-checker, ADR 0018)' },
   planned('distribution.rule.approve', 'distribution', 'S3', 'Approve a global or channel distribution rule'),
   planned('connector.credentials.manage', 'connectivity', 'S3', 'Manage connector credential references; never exposes a value'),

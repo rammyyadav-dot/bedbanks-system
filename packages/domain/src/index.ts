@@ -88,7 +88,8 @@ export interface SearchRateOffer {
   totalAmountMinor: number
   markupAmountMinor: number
   sellAmountMinor: number
-  paymentType: 'prepaid' | 'pay_at_hotel' | 'credit'
+  /** `unspecified` means the contracted plan has no recorded payment type. It is never defaulted to prepaid (ADR 0057). */
+  paymentType: 'prepaid' | 'pay_at_hotel' | 'credit' | 'unspecified'
   source: 'hotel_direct' | 'dmc' | 'bedbank' | 'channel_manager' | 'gds'
 }
 export interface SearchRoomOffer {

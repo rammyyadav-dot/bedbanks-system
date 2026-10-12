@@ -12,6 +12,8 @@ import { CommercialControlUnavailableError, logCommercialControlFailure } from '
 import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
 import { loadBuyerMarket } from '../supply/buyer-market'
 import { normalizeCountry, parseMarketRules, type BuyerContext } from '../supply/market-rules'
+import { rulesForPlan } from '../supply/cancellation-rules'
+import { offerPaymentType } from './offer-payment-type'
 import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
@@ -278,8 +280,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
    * Who is buying, for contract sales-market and nationality rules (ADR 0035). The agency country is read only when a candidate contract restricts
    * sales markets, so a tenant with no market rule pays no extra read; an unreadable agency throws CommercialControlUnavailableError.
    */
-  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ contract: { salesMarkets?: unknown } }>): Promise<BuyerContext> {
-    const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0)
+  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ salesMarkets?: unknown; contract: { salesMarkets?: unknown } }>): Promise<BuyerContext> {
+    const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0 || (parseMarketRules(plan).salesMarkets ?? ['?']).length > 0)
     return { nationality: normalizeCountry(nationality), market: needsMarket ? await loadBuyerMarket(this.prisma, tenantId, userId) : null }
   }
 
@@ -376,7 +378,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
 
   private cancellationSummary(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], checkIn: string): SearchRateOffer['cancellation'] {
     const summary = plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'
-    const rules: CancellationRule[] = plan.contract.cancellationPolicies.map((rule) => ({
+    const rules: CancellationRule[] = rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map((rule) => ({
       daysBeforeCheckin: rule.daysBeforeCheckin,
       ...(rule.penaltyPercent != null ? { penaltyPercent: rule.penaltyPercent } : {}),
       ...(rule.penaltyMinor != null ? { penaltyMinor: rule.penaltyMinor } : {}),
@@ -463,7 +465,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       totalAmountMinor: Number(decision.netMinor ?? decision.totalMinor), // supplier cost: net plus tax and fees; the offer contract adds markup to reach sell
       markupAmountMinor: Number(decision.markupMinor ?? 0n),
       sellAmountMinor,
-      paymentType: 'prepaid',
+      paymentType: offerPaymentType(plan.paymentType),
       source: sourceFor(plan.contract.supplier.type),
     }
     const latitude = decimalText(plan.roomType.hotel.latitude)

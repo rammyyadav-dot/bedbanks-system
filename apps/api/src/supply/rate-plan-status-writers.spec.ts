@@ -24,7 +24,8 @@ describe('RatePlan.status writers', () => {
         if (/\bstatus\b/.test(data) || /\.\.\.\s*cloneDraftFields/.test(data)) writers.push(`${path}: ${match[1]}`)
       }
     }
-    expect(writers).toEqual(['supply/supply.service.ts: updateMany', 'supply/supply.service.ts: create'])
+    // ADR 0057, S9: the expiry sweeper is the second reviewed writer. It only ever sets EXPIRED, on the lifecycle connection.
+    expect(writers).toEqual(['supply/rate-plan-expiry-sweeper.service.ts: updateMany', 'supply/supply.service.ts: updateMany', 'supply/supply.service.ts: create'])
   })
 
   it('the only create that carries a status is the clone, and it is forced to DRAFT', () => {

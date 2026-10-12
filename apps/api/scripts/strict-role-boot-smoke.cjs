@@ -49,6 +49,8 @@ async function main() {
   const { provisionApiRuntimeRole, verifyApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } = require(path.join(__dirname, '..', 'src', 'database', 'api-runtime-role.ts'))
   const { provisionRatePlanOpsRole, deprovisionRatePlanOpsRole, RATE_PLAN_OPS_LOGIN_ROLE } = require(path.join(__dirname, '..', 'src', 'database', 'rate-plan-ops-role.ts'))
   const { certifyRatePlanOpsRole } = require(path.join(__dirname, '..', 'src', 'database', 'rate-plan-ops-verify.ts'))
+  const { provisionRatePlanCloneRole, deprovisionRatePlanCloneRole, RATE_PLAN_CLONE_LOGIN_ROLE } = require(path.join(__dirname, '..', 'src', 'database', 'rate-plan-clone-role.ts'))
+  const { certifyRatePlanCloneRole } = require(path.join(__dirname, '..', 'src', 'database', 'rate-plan-clone-verify.ts'))
   await provisionApiRuntimeRole(owner, { password: runtimePassword })
   const runtimeUrl = new URL(ownerUrl); runtimeUrl.username = API_RUNTIME_LOGIN_ROLE; runtimeUrl.password = runtimePassword
   const probe = new PrismaClient({ datasourceUrl: runtimeUrl.toString() })
@@ -71,6 +73,7 @@ async function main() {
   }
   const ADMIN = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage']
   const admin = await mkUser('admin', tenantA, ADMIN)
+  const admin2 = await mkUser('admin2', tenantA, ADMIN)
   const agent = await mkUser('agent', tenantA, ['hotel.search'])
   const badmin = await mkUser('badmin', tenantB, ADMIN)
   const supplier = await owner.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: suffix, displayName: 'S', countryCode: 'AE', defaultCurrency: 'AED' } })
@@ -101,12 +104,15 @@ async function main() {
   }
   const draftReady = await mkDraft('P2', true)
   const draftNoRates = await mkDraft('P3', false)
+  const draftApproval = await mkDraft('P4', true)
 
   // ---- boot the real API on the strict role ------------------------------------------------------------------------------------------------
   let current = null
   const boot = async (label, extraEnv = {}) => {
     const env = { ...process.env, DATABASE_URL: runtimeUrl.toString(), MAPPING_DATABASE_URL: runtimeUrl.toString(), API_PORT: String(PORT), API_HOST: '127.0.0.1', ADMIN_ORIGIN: ORIGIN, NODE_ENV: 'development' }
-    delete env.OWNER_DATABASE_URL; delete env.RATE_PLAN_OPS_DATABASE_URL
+    delete env.OWNER_DATABASE_URL; delete env.RATE_PLAN_OPS_DATABASE_URL; delete env.RATE_PLAN_CLONE_DATABASE_URL
+    // Phases A to C exercise the single-actor lifecycle (ADR 0041), so approval is off for them; phase D proves the four-eye flow (ADR 0057, S5).
+    env.RATE_PLAN_ACTIVATION_APPROVAL = 'off'
     Object.assign(env, extraEnv)
     const child = spawn('node', ['--no-experimental-strip-types', '-r', '@swc-node/register', 'src/main.ts'], { cwd: path.join(__dirname, '..'), env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
@@ -236,9 +242,72 @@ async function main() {
     const eventsBefore = await statusEvents(plan.id)
     const actC = await http('POST', `/supply/rate-plans/${plan.id}/activate`, adminCookie, { expectedUpdatedAt: (await planState(plan.id)).updatedAt.toISOString() })
     check('a rejected lifecycle credential is a sanitized 503 RATE_PLAN_OPS_UNAVAILABLE, never a fallback write', actC.status === 503 && actC.json.error?.code === 'RATE_PLAN_OPS_UNAVAILABLE' && safe(actC) && (await planState(plan.id)).status === 'SUSPENDED' && (await statusEvents(plan.id)) === eventsBefore, `status=${actC.status} code=${actC.json.error?.code}`)
+
+    // ======== Phase D: four-eye activation on the strict runtime role with the lifecycle role (ADR 0057, S5) -------------------------------------
+    await stop()
+    await boot('D (approval required)', { RATE_PLAN_OPS_DATABASE_URL: opsUrl.toString(), RATE_PLAN_ACTIVATION_APPROVAL: 'required' })
+    const admin2Cookie = await login(admin2.email); const adminCookieD = await login(admin.email); const agentCookieD = await login(agent.email); const bCookieD = await login(badmin.email)
+    const capD = await http('GET', '/supply/rate-plans/capabilities', adminCookieD)
+    check('capabilities report activation approval as required', capD.status === 200 && capD.json.data?.activationApproval === 'required')
+    const directD = await http('POST', `/supply/rate-plans/${draftApproval.id}/activate`, adminCookieD, { expectedUpdatedAt: await version(adminCookieD, draftApproval.id) })
+    check('D: a direct activation is 409 RATE_PLAN_APPROVAL_REQUIRED and the plan stays DRAFT', directD.status === 409 && directD.json.error?.code === 'RATE_PLAN_APPROVAL_REQUIRED' && (await planState(draftApproval.id)).status === 'DRAFT' && safe(directD))
+    const reqD = await http('POST', `/supply/rate-plans/${draftApproval.id}/activation-request`, adminCookieD, { requestId: `${suffix}-d1`, reason: 'Boot smoke four-eye request', expectedUpdatedAt: await version(adminCookieD, draftApproval.id) })
+    const approvalId = reqD.json.data?.id
+    check('D: a request is filed (201) as PENDING on the strict runtime role', reqD.status === 201 && reqD.json.data?.status === 'PENDING' && Boolean(approvalId))
+    const selfD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, adminCookieD, { reason: 'self' })
+    check('D: the requester cannot approve their own request (403)', selfD.status === 403 && (await owner.approvalRequest.findUniqueOrThrow({ where: { id: approvalId } })).status === 'PENDING')
+    const noPermD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, agentCookieD, { reason: 'no permission' })
+    check('D: a user without supply.rates.manage cannot approve (403)', noPermD.status === 403)
+    const crossD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, bCookieD, { reason: 'other tenant' })
+    check('D: another tenant gets 404 on the approval', crossD.status === 404)
+    const okD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, admin2Cookie, { reason: 'Reviewed' })
+    check('D: a different manager approves (201) and the plan is still DRAFT', okD.status === 201 && okD.json.data?.status === 'APPROVED' && (await planState(draftApproval.id)).status === 'DRAFT')
+    const execD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/execute`, admin2Cookie)
+    check('D: execute activates through the lifecycle role (201) and the plan is ACTIVE', execD.status === 201 && execD.json.data?.status === 'ACTIVE' && (await planState(draftApproval.id)).status === 'ACTIVE' && safe(execD))
+    const evD = await owner.auditEvent.findMany({ where: { tenantId: tenantA, action: 'supply.rate_plan.status_changed', entityId: draftApproval.id } })
+    check('D: exactly one status audit event records requester, approver and executor', evD.length === 1 && evD[0].userId === admin2.id && evD[0].payload?.activation?.mode === 'approved' && evD[0].payload?.activation?.requestedById === admin.id && evD[0].payload?.activation?.approvedById === admin2.id)
+    const replayD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/execute`, admin2Cookie)
+    check('D: an approval cannot be used twice (409) and no second audit event is written', replayD.status === 409 && (await statusEvents(draftApproval.id)) === 1)
+
+    // ======== Phase E: clone through its own DRAFT-only role on the strict runtime login (ADR 0057, S8) --------------------------------------------
+    await stop()
+    const clonePassword = randomBytes(24).toString('hex')
+    await provisionRatePlanCloneRole(owner, { password: clonePassword })
+    const cloneUrl = new URL(ownerUrl); cloneUrl.username = RATE_PLAN_CLONE_LOGIN_ROLE; cloneUrl.password = clonePassword
+    const cloneProbe = new PrismaClient({ datasourceUrl: cloneUrl.toString() })
+    const cloneCert = await certifyRatePlanCloneRole(cloneProbe)
+    check(`clone role verifier and ${cloneCert.probes.length} privilege probes pass as the clone login`, cloneCert.ok, JSON.stringify({ role: cloneCert.role.failures, probes: cloneCert.probes.filter((p) => !p.ok).map((p) => p.name) }))
+    await cloneProbe.$disconnect()
+    check('the clone credential is a different principal from the runtime and lifecycle credentials', cloneUrl.username !== runtimeUrl.username && cloneUrl.username !== opsUrl.username && cloneUrl.password !== runtimePassword)
+    await boot('E (clone role configured)', { RATE_PLAN_OPS_DATABASE_URL: opsUrl.toString(), RATE_PLAN_CLONE_DATABASE_URL: cloneUrl.toString(), RATE_PLAN_ACTIVATION_APPROVAL: 'required' })
+    const adminCookieE = await login(admin.email); const agentCookieE = await login(agent.email); const bCookieE = await login(badmin.email)
+    const capE = await http('GET', '/supply/rate-plans/capabilities', adminCookieE)
+    check('capabilities: clone is now available', capE.status === 200 && capE.json.data?.clone?.available === true)
+    const cloneBefore = await owner.ratePlan.count({ where: { tenantId: tenantA } })
+    const cloneE = await http('POST', `/supply/rate-plans/${draftApproval.id}/clone`, adminCookieE, { code: 'CLONE-E' })
+    const cloned = await owner.ratePlan.findFirst({ where: { tenantId: tenantA, code: 'CLONE-E' } })
+    check('E: clone succeeds on the strict runtime login (201) and creates a DRAFT with no pool, rates or stock', cloneE.status === 201 && cloned?.status === 'DRAFT' && cloned?.inventoryPoolId === null && (await owner.dailyRate.count({ where: { ratePlanId: cloned.id } })) === 0 && (await owner.dailyAvailability.count({ where: { ratePlanId: cloned.id } })) === 0 && (await owner.ratePlan.count({ where: { tenantId: tenantA } })) === cloneBefore + 1 && safe(cloneE))
+    const [{ n: cloneConns }] = await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE usename = '${RATE_PLAN_CLONE_LOGIN_ROLE}' AND datname = current_database()`)
+    check('E: the insert was made over the clone login, not the runtime login', cloneConns > 0)
+    const evE = await owner.auditEvent.findMany({ where: { tenantId: tenantA, action: 'supply.rate_plan.cloned', entityId: cloned?.id } })
+    check('E: one audit event records the actor, attributed to the user', evE.length === 1 && evE[0].userId === admin.id && evE[0].actorType === 'USER')
+    const dupE = await http('POST', `/supply/rate-plans/${draftApproval.id}/clone`, adminCookieE, { code: 'CLONE-E' })
+    check('E: a duplicate code is 409 RATE_PLAN_CODE_EXISTS and nothing more is written', dupE.status === 409 && dupE.json.error?.code === 'RATE_PLAN_CODE_EXISTS' && (await owner.ratePlan.count({ where: { tenantId: tenantA } })) === cloneBefore + 1)
+    const noPermE = await http('POST', `/supply/rate-plans/${draftApproval.id}/clone`, agentCookieE, { code: 'CLONE-E2' })
+    check('E: a user without supply.rates.manage is 403 and nothing is written', noPermE.status === 403 && (await owner.ratePlan.count({ where: { code: 'CLONE-E2' } })) === 0)
+    const crossE = await http('POST', `/supply/rate-plans/${draftApproval.id}/clone`, bCookieE, { code: 'CLONE-E3' })
+    check('E: another tenant gets 404 and nothing is written', crossE.status === 404 && (await owner.ratePlan.count({ where: { code: 'CLONE-E3' } })) === 0)
+    check('E: the clone cannot be activated without approval (the only way to a sellable plan is still the approval flow)', (await http('POST', `/supply/rate-plans/${cloned.id}/activate`, adminCookieE, { expectedUpdatedAt: await version(adminCookieE, cloned.id) })).json.error?.code === 'RATE_PLAN_APPROVAL_REQUIRED')
+    await stop()
+    // Same environment WITHOUT the clone credential: clone is refused again, with nothing written.
+    await boot('F (lifecycle role only)', { RATE_PLAN_OPS_DATABASE_URL: opsUrl.toString() })
+    const adminCookieF = await login(admin.email)
+    const cloneF = await http('POST', `/supply/rate-plans/${draftApproval.id}/clone`, adminCookieF, { code: 'CLONE-F' })
+    check('F: without the clone credential clone is refused again (403) and no row is created', cloneF.status === 403 && cloneF.json.error?.code === 'RUNTIME_ROLE_OPERATION_PROHIBITED' && (await owner.ratePlan.count({ where: { code: 'CLONE-F' } })) === 0)
   } finally {
     await stop()
     await deprovisionRatePlanOpsRole(owner).catch(() => undefined)
+    await deprovisionRatePlanCloneRole(owner).catch(() => undefined)
     for (const q of [
       `DELETE FROM "AuditEvent" WHERE tenant_id IN ('${tenantA}','${tenantB}')`, `DELETE FROM "AgencyMember" WHERE tenant_id = '${tenantA}'`, `DELETE FROM "Agency" WHERE tenant_id IN ('${tenantA}','${tenantB}')`, `DELETE FROM "CommercialMarkupRule" WHERE tenant_id = '${tenantA}'`,
       `DELETE FROM "DailyAvailability" WHERE tenant_id = '${tenantA}'`, `DELETE FROM "DailyRate" WHERE tenant_id = '${tenantA}'`, `DELETE FROM "RatePlan" WHERE tenant_id = '${tenantA}'`, `DELETE FROM "Contract" WHERE tenant_id = '${tenantA}'`,

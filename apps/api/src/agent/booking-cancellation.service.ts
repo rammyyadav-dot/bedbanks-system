@@ -1,3 +1,4 @@
+import { rulesForPlan } from '../supply/cancellation-rules'
 import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
@@ -87,7 +88,7 @@ export class BookingCancellationService {
     const plan = await tx.ratePlan.findFirst({ where: { id: snapshot.ratePlanId, tenantId }, include: { contract: { include: { cancellationPolicies: true } }, roomType: { include: { hotel: true } } } })
     if (!plan) throw new ConflictException('Rate plan is unavailable')
     const timeZone = plan.roomType.hotel.timeZone || 'UTC'
-    const rules: CancellationRule[] = plan.contract.cancellationPolicies.map(rule => ({
+    const rules: CancellationRule[] = rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map(rule => ({
       daysBeforeCheckin: rule.daysBeforeCheckin, ...(rule.penaltyPercent !== null ? { penaltyPercent: rule.penaltyPercent } : {}),
       ...(rule.penaltyMinor !== null ? { penaltyMinor: rule.penaltyMinor } : {}), ...(rule.currency ? { currency: rule.currency } : {}),
     }))
