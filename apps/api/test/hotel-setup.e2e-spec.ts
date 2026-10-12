@@ -976,4 +976,30 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(kept.governance.status).toBe('COMPLETE')
   })
 
+  it('DM-01 mapping a supplier to a likely duplicate of an already-mapped hotel needs an explicit, reasoned, audited acknowledgement (ADR 0059)', async () => {
+    const mk = async (name: string) => (await prisma.hotel.create({ data: { tenantId: tenantA, name: `${suffix} ${name}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', latitude: '25.200000', longitude: '55.270000', contentStatus: 'DRAFT' } })).id
+    const first = await mk('Dup Palace Hotel'), second = await mk('The Dup Palace')
+    const other = await mk('Completely Different Tower'); await prisma.hotel.update({ where: { id: other }, data: { latitude: '25.3', longitude: '55.4' } })
+    await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier1, hotelId: first, supplierHotelId: `${suffix}-dm-a`, status: 'MAPPED' } })
+    const dup = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier1, hotelId: second, supplierHotelId: `${suffix}-dm-b` } })
+    const approve = (body: object) => api('post', `/supply/mappings/hotels/${dup.id}/approve`, 'manager', body)
+
+    const refused = await approve({ reason: 'Looks right' }).expect(409)
+    expect(refused.body.error.code).toBe('MAPPING_LIKELY_DUPLICATE_CANONICAL')
+    expect(refused.body.error.details).toEqual([expect.objectContaining({ hotelId: first, supplierHotelId: `${suffix}-dm-a` })])
+    await approve({ acknowledgeDuplicateHotelIds: [first] }).expect(409) // acknowledgement without a reason
+    await approve({ reason: 'Different property, same name', acknowledgeDuplicateHotelIds: ['someone-else'] }).expect(409) // must name the conflicting hotel
+    await approve({ reason: 'Ok', acknowledgeDuplicateHotelIds: 'nope' }).expect(400)
+    expect((await prisma.supplierHotelMapping.findUniqueOrThrow({ where: { id: dup.id } })).status).toBe('PENDING')
+
+    await approve({ reason: 'Verified as a separate building next door', acknowledgeDuplicateHotelIds: [first] }).expect(201)
+    expect((await prisma.supplierHotelMapping.findUniqueOrThrow({ where: { id: dup.id } })).status).toBe('MAPPED')
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: tenantA, entityId: dup.id, action: 'supply.hotel_mapping.approved' } })
+    expect(audit.payload).toMatchObject({ acknowledgedDuplicateHotelIds: [first], reason: 'Verified as a separate building next door' })
+
+    // an unrelated hotel is never held up by the check
+    const free = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier1, hotelId: other, supplierHotelId: `${suffix}-dm-c` } })
+    await api('post', `/supply/mappings/hotels/${free.id}/approve`, 'manager', {}).expect(201)
+  })
+
 })

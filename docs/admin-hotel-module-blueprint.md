@@ -38,7 +38,7 @@ A hotel record is the **canonical** hotel: one identity that supplier hotels are
 
 ### 3.2 Supplier mapping status
 
-`PENDING` → `MAPPED` or `REJECTED`; `MAPPED`/`REJECTED` → `PENDING` (reopen). Never auto-approved. Every decision needs a reason and is audited. A room mapping can be approved only when its hotel mapping is verified. Unique per (supplier, supplier hotel) and (supplier, canonical hotel). Conflicts return a coded 409 naming the colliding record.
+`PENDING` → `MAPPED` or `REJECTED`; `MAPPED`/`REJECTED` → `PENDING` (reopen). Never auto-approved. Every decision needs a reason and is audited. A room mapping can be approved only when its hotel mapping is verified. A hotel mapping is also refused while the same supplier is MAPPED to a likely duplicate canonical hotel, unless acknowledged with a reason (ADR 0059). Unique per (supplier, supplier hotel) and (supplier, canonical hotel). Conflicts return a coded 409 naming the colliding record.
 
 ### 3.3 Sellability (computed, never stored)
 
@@ -72,7 +72,7 @@ Approval-only keys (`hotel.activate`, `markup.activate`, `credit_limit.approve`,
 | Amenities | Controlled catalogue only, explicit fee type (free, paid, unknown); never free text. Hotel and room level. Shares the Setup concurrency token. | Built (main) |
 | Images | Upload, alt text (required), primary image, atomic reorder and delete. Bytes in PostgreSQL behind a storage port; JPEG/PNG/WebP, up to 5 MB, 800x600 to 8000x8000, 30 per hotel, duplicates refused, type read from the bytes. Agents see the primary image of **published** hotels (ADR 0027). Not built: Website display, EXIF stripping, malware scan, rights records. | Built (images, atomic reorder and Agent display on main or open PRs #238 and #239) |
 | Policies | Children, extra beds, pets, accessibility, local charges, apart from rate-specific cancellation terms (those belong to rate plans). | Built (main) |
-| Supplier Mapping | Many suppliers per hotel; create as PENDING; decide with a reason; reopen; history with who, when, status change, reason and request id. | Built (main) |
+| Supplier Mapping | Many suppliers per hotel; create as PENDING; decide with a reason; reopen; history with who, when, status change, reason and request id. Approval is refused when the same supplier is already MAPPED to a likely duplicate of the hotel, unless the approver names each duplicate and gives a reason, which is audited (ADR 0059). | Built (this branch) |
 | Contracts & Rate Plans | Read-only 360 of contracts, plans, board bases, validity and sales markets and nationalities, which Agent search enforces (ADR 0035). Editing contracts is on the Contracts module. | Built (main) |
 | Rates & Inventory | Calendar by plan and night: sell rate, allotment, sold, held, stop-sell, closed to arrival and departure, minimum stay, source and freshness. Missing values show as missing. | Built (main) |
 | Quick Update | Previewed, atomic bulk change of selected fields on selected dates and plans: preview shows exact dates, old and new values and unsupported operations and writes nothing; apply is all-or-nothing, uses a fingerprint to refuse a stale preview, takes a per-hotel advisory lock, requires an idempotency key and reason, and audits actor and request id. Limits: 5 plans and 500 plan-nights per update. Money validated server-side as integer minor units. The hotel's own calendar day decides what is "past". | Built (main) |
@@ -142,4 +142,4 @@ A capability counts as real only when it persists real data, enforces permission
 
 1. Merged so far: publication approval, closed legacy path, credit limit (#232) and images (#237); decide the database grants for their migrations. 2. Staff at least two hotel managers per tenant. 3. Import or create the Dubai hotels as drafts, complete content, request publication in batches (one approver reviews against the verification register). 4. Map and contract per supplier, then use Distribution & Readiness as the go/no-go view. 5. Decide images and locks. 6. Only then consider enabling booking, through its own gated change.
 
-Related: `docs/admin-hotel-operations.md`, ADR 0057 (content quality and duplicate hints), ADR 0021 (setup and operations), 0022 (publication approval), 0023 (legacy path), 0024 (credit limit), 0025 and 0026 (proposals).
+Related: `docs/admin-hotel-operations.md`, ADR 0057 (content quality and duplicate hints), ADR 0058 (primary image), ADR 0059 (duplicate-aware mapping), ADR 0021 (setup and operations), 0022 (publication approval), 0023 (legacy path), 0024 (credit limit), 0025 and 0026 (proposals).

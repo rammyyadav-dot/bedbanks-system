@@ -14,7 +14,7 @@ Global bedbanks do not distribute a property without imagery, because a listing 
 - No schema change and no migration.
 
 ## Not decided here
-A minimum gallery size, image quality or rights checks, and a one-off backfill report listing published hotels with no image.
+A minimum gallery size and image quality or rights checks. The backfill list of published hotels with no image is a read-only query in `docs/runbooks/hotels-published-without-image.md`.
 
 ## Rollback
 Remove the `PRIMARY_IMAGE` requirement and the last-image guard in `HotelImagesService.remove`. No data was migrated.

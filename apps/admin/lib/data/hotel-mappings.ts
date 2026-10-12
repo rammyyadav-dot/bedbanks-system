@@ -9,6 +9,6 @@ const post = (body?: unknown) => ({ method: 'POST', headers: json, body: JSON.st
 export type MappingDecision = 'approve' | 'reject' | 'reopen'
 
 export const createSupplierHotelMapping = (body: { supplierId: string; hotelId: string; supplierHotelId: string; confidence?: number; sourceMetadata?: { source: string } }) => apiRequestWithMeta<{ id: string }>(base, post(body))
-export const decideSupplierHotelMapping = (mappingId: string, decision: MappingDecision, reason: string) => apiRequestWithMeta<{ id: string; status: string }>(`${base}/${encodeURIComponent(mappingId)}/${decision}`, post({ reason }))
+export const decideSupplierHotelMapping = (mappingId: string, decision: MappingDecision, reason: string, acknowledgeDuplicateHotelIds?: string[]) => apiRequestWithMeta<{ id: string; status: string }>(`${base}/${encodeURIComponent(mappingId)}/${decision}`, post({ reason, ...(acknowledgeDuplicateHotelIds?.length ? { acknowledgeDuplicateHotelIds } : {}) }))
 export const createSupplierRoomMapping = (mappingId: string, body: { supplierRoomId: string; roomTypeId: string; confidence?: number; sourceMetadata?: { source: string } }) => apiRequestWithMeta<{ id: string }>(`${base}/${encodeURIComponent(mappingId)}/rooms`, post(body))
 export const decideSupplierRoomMapping = (mappingId: string, roomMappingId: string, decision: MappingDecision, reason: string) => apiRequestWithMeta<{ id: string; status: string }>(`${base}/${encodeURIComponent(mappingId)}/rooms/${encodeURIComponent(roomMappingId)}/${decision}`, post({ reason }))

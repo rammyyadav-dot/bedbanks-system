@@ -10,9 +10,7 @@ import { assertHotelIdentityAvailable } from './hotel-identity'
 import { lockHotelSetup, setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
 import { assessContentQuality } from './hotel-content-quality'
-import { findPossibleDuplicates, type DuplicateSubject } from './hotel-duplicates'
-
-const DUPLICATE_SCAN_CAP = 500
+import { possibleDuplicatesFor } from './hotel-duplicate-lookup'
 
 const STATUS_CHANGED = 'hotel.setup.status_changed'
 const SAVED = 'hotel.setup.updated'
@@ -43,7 +41,7 @@ export class HotelSetupService {
     if (!hotelId) throw new BadRequestException('Invalid hotelId')
     const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId } })
     if (!hotel) throw new NotFoundException('Hotel not found')
-    const [profile, identifiers, activeRooms, totalRooms, imageCount, primaryImages, amenityCount, peers] = await Promise.all([
+    const [profile, identifiers, activeRooms, totalRooms, imageCount, primaryImages, amenityCount] = await Promise.all([
       tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId } }),
       tx.hotelExternalIdentifier.findMany({ where: { hotelId: hotel.id, tenantId }, orderBy: { scheme: 'asc' } }),
       tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } }),
@@ -51,17 +49,11 @@ export class HotelSetupService {
       tx.hotelImage.count({ where: { hotelId: hotel.id, tenantId } }),
       tx.hotelImage.count({ where: { hotelId: hotel.id, tenantId, isPrimary: true } }),
       tx.hotelAmenity.count({ where: { hotelId: hotel.id, tenantId } }),
-      // Same country only, capped: a hint for a human (ADR 0057), so a very large tenant is scanned partially rather than slowly.
-      tx.hotel.findMany({
-        where: { tenantId, countryCode: hotel.countryCode, id: { not: hotel.id } }, orderBy: { id: 'asc' }, take: DUPLICATE_SCAN_CAP,
-        select: { id: true, name: true, city: true, countryCode: true, latitude: true, longitude: true, contentStatus: true, profile: { select: { postalCode: true } }, externalIdentifiers: { select: { scheme: true, value: true } } },
-      }),
     ])
     // Resolved only while the owner is still a member of this tenant; a stale id shows as "not set" rather than leaking a foreign user.
     const ownerRow = profile?.ownerUserId ? await tx.membership.findUnique({ where: { userId_tenantId: { userId: profile.ownerUserId, tenantId } }, select: { user: { select: { id: true, name: true, email: true } } } }) : null
     const owner = ownerRow ? { userId: ownerRow.user.id, name: ownerRow.user.name, email: ownerRow.user.email } : null
-    const subject: DuplicateSubject = { id: hotel.id, name: hotel.name, city: hotel.city, countryCode: hotel.countryCode, postalCode: profile?.postalCode ?? null, latitude: hotel.latitude === null ? null : hotel.latitude.toNumber(), longitude: hotel.longitude === null ? null : hotel.longitude.toNumber(), status: hotel.contentStatus, externalIds: identifiers.map((i) => `${i.scheme}:${i.value}`) }
-    const possibleDuplicates = findPossibleDuplicates(subject, peers.map((p) => ({ id: p.id, name: p.name, city: p.city, countryCode: p.countryCode, postalCode: p.profile?.postalCode ?? null, latitude: p.latitude === null ? null : p.latitude.toNumber(), longitude: p.longitude === null ? null : p.longitude.toNumber(), status: p.contentStatus, externalIds: p.externalIdentifiers.map((i) => `${i.scheme}:${i.value}`) })))
+    const possibleDuplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null, identifiers)
     return { hotel, profile, identifiers, activeRooms, totalRooms, owner, imageCount, hasPrimaryImage: primaryImages > 0, amenityCount, possibleDuplicates }
   }
 

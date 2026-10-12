@@ -35,3 +35,11 @@ export interface HotelContentQuality {
 export type HotelDuplicateBasis = 'SAME_EXTERNAL_ID' | 'NEAR_LOCATION_SIMILAR_NAME' | 'SAME_POSTAL_SIMILAR_NAME'
 /** A possible duplicate inside the same tenant. A hint for a human, never an automatic merge or block. */
 export interface HotelDuplicateCandidate { hotelId: string; name: string; city: string; countryCode: string; status: string; basis: HotelDuplicateBasis[]; distanceMetres: number | null }
+
+/**
+ * Approving a hotel mapping is refused (409) when the same supplier is already MAPPED to a likely-duplicate canonical hotel, because the
+ * supplier's inventory would then be sold under two identities (ADR 0059). The approver may proceed by naming each such hotel in
+ * `acknowledgeDuplicateHotelIds` together with a reason; the acknowledgement is audited.
+ */
+export const MAPPING_DUPLICATE_CONFLICT_CODE = 'MAPPING_LIKELY_DUPLICATE_CANONICAL'
+export interface HotelMappingApproveBody { reason?: string; acknowledgeDuplicateHotelIds?: string[] }
