@@ -167,6 +167,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@bedbanks/connectors-core':
+        specifier: workspace:*
+        version: link:../../packages/connectors/core
       '@bedbanks/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -361,6 +364,10 @@ importers:
         version: 5.7.3
 
   packages/connectors/core:
+    dependencies:
+      '@bedbanks/money':
+        specifier: workspace:*
+        version: link:../../money
     devDependencies:
       '@types/node':
         specifier: ^24

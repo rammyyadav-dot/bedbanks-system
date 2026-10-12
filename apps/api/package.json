@@ -47,6 +47,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@bedbanks/connectors-core": "workspace:*",
     "@bedbanks/contracts": "workspace:*",
     "@bedbanks/domain": "workspace:*",
     "@bedbanks/money": "workspace:*",
