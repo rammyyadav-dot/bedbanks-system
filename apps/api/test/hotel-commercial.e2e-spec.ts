@@ -663,7 +663,9 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
       const payables = await new OperationsTransactionsService(runtime, {} as never).supplierPayables(tenantA).then(() => 'ok', (e) => (e as { getResponse: () => unknown }).getResponse())
       if (payables !== 'ok') expect(payables).toMatchObject({ code: OPERATIONS_READ_DENIED })
       const d = await service.detail(tenantA, hotels.alpha.id, q)
-      expect(d.readiness).toBe('READY'); expect(d.counts).toEqual({ bookings: null, activeHolds: null }) // not readable by this role: unavailable, not 0
+      expect(d.readiness).toBe('READY'); expect(d.counts.activeHolds).toBeNull() // holds are not readable by this role: unavailable, not 0
+      // ADR 0061 Amendment 1: the role now reads the extranet columns of Booking (hotel_id is one), so the booking count is real, not unavailable.
+      expect(d.counts.bookings).toBe(await prisma.booking.count({ where: { tenantId: tenantA, hotelId: hotels.alpha.id } }))
       const contracts = (await service.contracts(tenantA, hotels.alpha.id, q)).contracts
       expect(contracts).toHaveLength(1); expect(contracts[0].policies).toBeNull() // policy tables are outside this role's grants: unavailable, not zero
       expect(contracts[0]).toMatchObject({ state: 'ACTIVE', supplierName: 'Supplier Alpha' })

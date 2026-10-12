@@ -7,7 +7,8 @@ Read-only. No supplier accept/reject, no payments, no connector calls, no deploy
 | Piece | Location |
 |---|---|
 | `Booking.supplier_id`, composite tenant FK (RESTRICT), 3 indexes, immutability trigger | `apps/api/prisma/migrations/202611170001_booking_supplier_ownership` |
-| Column-only SELECT on `Booking`, `BookingRoom`, `BookingGuest` for the API runtime role; permission `supplier.extranet.bookings.read` | `…/202611170002_strict_runtime_role_supplier_booking_reads`, `runtime-role-contract.ts` |
+| Column-only SELECT on `Booking`, `BookingRoom`, `BookingGuest` for the API runtime role | `runtime-role-contract.ts`, applied by `ops:provision-api-runtime-role` (SR-07: migrations never grant runtime privileges) |
+| Permission `supplier.extranet.bookings.read` | `…/202611170002_supplier_extranet_bookings_permission` |
 | Ownership frozen at creation | `BookingPersistenceService.persistPending` |
 | Historical backfill + reconciliation report | `src/database/booking-supplier-backfill.ts`, `pnpm --filter @bedbanks/api ops:backfill-booking-supplier` |
 | API | `GET /supplier/extranet/bookings`, `GET /supplier/extranet/bookings/:bookingId` |
@@ -22,7 +23,7 @@ Creation paths found (`grep booking.create`): `BookingPersistenceService.persist
 Conflicts with existing changes: none in the merge sense. Three earlier guard tests asserted "the API role has no booking grant at all"; they were tightened, not removed (see ADR amendment). The generated privilege matrix in `docs/strict-runtime-db-role.md` was regenerated.
 
 ## 3. Rollout order (all owner-run, none performed by this change)
-1. `prisma migrate deploy` (owner). Additive; no existing row changes. The column grants are applied by migration `…0002` if the `fbeds_api` role exists, otherwise by `ops:provision-api-runtime-role`.
+1. `prisma migrate deploy` (owner). Additive; no existing row changes. Then `ops:provision-api-runtime-role` (owner, idempotent) to apply the column grants; `ops:strict-role-rollout status|verify` reports any drift. Until it runs, the bookings routes fail closed with a database permission error.
 2. Grant `supplier.extranet.bookings.read` to the intended supplier roles through the normal role path. Nothing is granted automatically.
 3. Dry run: `MIGRATION_DATABASE_URL=… pnpm --filter @bedbanks/api ops:backfill-booking-supplier` (add `--allow-remote --confirm-database=<name>` for a remote target). Review the JSON: the counts per reason, the `samples` ids of skipped bookings, and `reconciliation`.
 4. Only after review: repeat with `--apply` (optionally `--tenant=<id>`). Each tenant is one transaction, updates only rows where `supplier_id IS NULL`, re-classifies, and rolls that tenant back if `applied` ≠ attributable or the after-counts do not add up. Exit code 2 if the report does not reconcile.
