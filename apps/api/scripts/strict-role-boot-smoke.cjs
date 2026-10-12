@@ -71,6 +71,7 @@ async function main() {
   }
   const ADMIN = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage']
   const admin = await mkUser('admin', tenantA, ADMIN)
+  const admin2 = await mkUser('admin2', tenantA, ADMIN)
   const agent = await mkUser('agent', tenantA, ['hotel.search'])
   const badmin = await mkUser('badmin', tenantB, ADMIN)
   const supplier = await owner.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: suffix, displayName: 'S', countryCode: 'AE', defaultCurrency: 'AED' } })
@@ -101,12 +102,15 @@ async function main() {
   }
   const draftReady = await mkDraft('P2', true)
   const draftNoRates = await mkDraft('P3', false)
+  const draftApproval = await mkDraft('P4', true)
 
   // ---- boot the real API on the strict role ------------------------------------------------------------------------------------------------
   let current = null
   const boot = async (label, extraEnv = {}) => {
     const env = { ...process.env, DATABASE_URL: runtimeUrl.toString(), MAPPING_DATABASE_URL: runtimeUrl.toString(), API_PORT: String(PORT), API_HOST: '127.0.0.1', ADMIN_ORIGIN: ORIGIN, NODE_ENV: 'development' }
     delete env.OWNER_DATABASE_URL; delete env.RATE_PLAN_OPS_DATABASE_URL
+    // Phases A to C exercise the single-actor lifecycle (ADR 0041), so approval is off for them; phase D proves the four-eye flow (ADR 0057, S5).
+    env.RATE_PLAN_ACTIVATION_APPROVAL = 'off'
     Object.assign(env, extraEnv)
     const child = spawn('node', ['--no-experimental-strip-types', '-r', '@swc-node/register', 'src/main.ts'], { cwd: path.join(__dirname, '..'), env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
@@ -236,6 +240,32 @@ async function main() {
     const eventsBefore = await statusEvents(plan.id)
     const actC = await http('POST', `/supply/rate-plans/${plan.id}/activate`, adminCookie, { expectedUpdatedAt: (await planState(plan.id)).updatedAt.toISOString() })
     check('a rejected lifecycle credential is a sanitized 503 RATE_PLAN_OPS_UNAVAILABLE, never a fallback write', actC.status === 503 && actC.json.error?.code === 'RATE_PLAN_OPS_UNAVAILABLE' && safe(actC) && (await planState(plan.id)).status === 'SUSPENDED' && (await statusEvents(plan.id)) === eventsBefore, `status=${actC.status} code=${actC.json.error?.code}`)
+
+    // ======== Phase D: four-eye activation on the strict runtime role with the lifecycle role (ADR 0057, S5) -------------------------------------
+    await stop()
+    await boot('D (approval required)', { RATE_PLAN_OPS_DATABASE_URL: opsUrl.toString(), RATE_PLAN_ACTIVATION_APPROVAL: 'required' })
+    const admin2Cookie = await login(admin2.email); const adminCookieD = await login(admin.email); const agentCookieD = await login(agent.email); const bCookieD = await login(badmin.email)
+    const capD = await http('GET', '/supply/rate-plans/capabilities', adminCookieD)
+    check('capabilities report activation approval as required', capD.status === 200 && capD.json.data?.activationApproval === 'required')
+    const directD = await http('POST', `/supply/rate-plans/${draftApproval.id}/activate`, adminCookieD, { expectedUpdatedAt: await version(adminCookieD, draftApproval.id) })
+    check('D: a direct activation is 409 RATE_PLAN_APPROVAL_REQUIRED and the plan stays DRAFT', directD.status === 409 && directD.json.error?.code === 'RATE_PLAN_APPROVAL_REQUIRED' && (await planState(draftApproval.id)).status === 'DRAFT' && safe(directD))
+    const reqD = await http('POST', `/supply/rate-plans/${draftApproval.id}/activation-request`, adminCookieD, { requestId: `${suffix}-d1`, reason: 'Boot smoke four-eye request', expectedUpdatedAt: await version(adminCookieD, draftApproval.id) })
+    const approvalId = reqD.json.data?.id
+    check('D: a request is filed (201) as PENDING on the strict runtime role', reqD.status === 201 && reqD.json.data?.status === 'PENDING' && Boolean(approvalId))
+    const selfD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, adminCookieD, { reason: 'self' })
+    check('D: the requester cannot approve their own request (403)', selfD.status === 403 && (await owner.approvalRequest.findUniqueOrThrow({ where: { id: approvalId } })).status === 'PENDING')
+    const noPermD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, agentCookieD, { reason: 'no permission' })
+    check('D: a user without supply.rates.manage cannot approve (403)', noPermD.status === 403)
+    const crossD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, bCookieD, { reason: 'other tenant' })
+    check('D: another tenant gets 404 on the approval', crossD.status === 404)
+    const okD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/approve`, admin2Cookie, { reason: 'Reviewed' })
+    check('D: a different manager approves (201) and the plan is still DRAFT', okD.status === 201 && okD.json.data?.status === 'APPROVED' && (await planState(draftApproval.id)).status === 'DRAFT')
+    const execD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/execute`, admin2Cookie)
+    check('D: execute activates through the lifecycle role (201) and the plan is ACTIVE', execD.status === 201 && execD.json.data?.status === 'ACTIVE' && (await planState(draftApproval.id)).status === 'ACTIVE' && safe(execD))
+    const evD = await owner.auditEvent.findMany({ where: { tenantId: tenantA, action: 'supply.rate_plan.status_changed', entityId: draftApproval.id } })
+    check('D: exactly one status audit event records requester, approver and executor', evD.length === 1 && evD[0].userId === admin2.id && evD[0].payload?.activation?.mode === 'approved' && evD[0].payload?.activation?.requestedById === admin.id && evD[0].payload?.activation?.approvedById === admin2.id)
+    const replayD = await http('POST', `/supply/rate-plan-approvals/${approvalId}/execute`, admin2Cookie)
+    check('D: an approval cannot be used twice (409) and no second audit event is written', replayD.status === 409 && (await statusEvents(draftApproval.id)) === 1)
   } finally {
     await stop()
     await deprovisionRatePlanOpsRole(owner).catch(() => undefined)

@@ -21,6 +21,10 @@ export function describeRatePlanActionError(error: unknown, action: RatePlanActi
   }
   if (error.code === 'RATE_PLAN_OPS_UNAVAILABLE') return `The rate plan lifecycle database role is configured but unavailable right now. Nothing was changed. Try again, or ask an operator to check it.${ref}`
   if (error.code === 'RATE_PLAN_CHANGED') return `This rate plan changed since you opened it. Close this panel and reopen it to review its current state.${ref}`
+  if (error.code === 'RATE_PLAN_APPROVAL_REQUIRED') return `Activating a rate plan needs a second person. Use the activation request below; nothing was changed.${ref}`
+  if (error.code === 'RATE_PLAN_APPROVAL_OPEN') return `This rate plan already has an open activation request. Reload to see it.${ref}`
+  if (error.code === 'RATE_PLAN_CHANGED_SINCE_REQUEST') return `The rate plan changed after this request was filed, so it cannot be approved. Ask the requester to file a new request.${ref}`
+  if (error.code === 'RATE_PLAN_CHANGED_SINCE_APPROVAL') return `The rate plan terms or rates changed after the approval, so it cannot be used. File a new request so the approver reviews what will go live. Nothing was changed.${ref}`
   if (error.code === 'RATE_PLAN_NOT_READY') return `Activation checks failed. The failed checks are listed below; fix them and retry.${ref}`
   return `${describeApiError(error, ACTION_LABEL[action])}${ref}`
 }

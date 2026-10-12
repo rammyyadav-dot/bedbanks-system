@@ -1,7 +1,7 @@
 # ADR 0057: Rate plan terms and activation approval
 
 ## Status
-Accepted as direction (owner instructed "go ahead with your recommendation", 2026-10-12). **Slices S2a (sale window, payment type, payment type on Agent offers) and S2b (plan-attached cancellation rule sets) and S3 (plan-level buyer markets and nationalities) are implemented.** Every other slice is **not built**. Nothing here enables booking, payment or a supplier connection. ADR 0032 (privileged rate writes), ADR 0041 (activation lifecycle) and ADR 0014 (one sellability evaluator) are unchanged.
+Accepted as direction (owner instructed "go ahead with your recommendation", 2026-10-12). **Slices S2a (sale window, payment type, payment type on Agent offers) and S2b (plan-attached cancellation rule sets) S3 (plan-level buyer markets and nationalities) and S5 (four-eye activation) are implemented.** Every other slice is **not built**. Nothing here enables booking, payment or a supplier connection. ADR 0032 (privileged rate writes), ADR 0041 (activation lifecycle) and ADR 0014 (one sellability evaluator) are unchanged.
 
 Companion: `docs/rate-plan-build-workflow-2026-10-12.md` (audit, benchmark, workflow, slice plan).
 
@@ -48,11 +48,22 @@ A rate plan is a flat row: contract, room, board, adults-only occupancy and a `r
 - Edits: key left out keeps, `[]` or `null` clears; clone copies the lists; Admin plan form has both lists and shows the contract's own.
 - **Channel** (a distribution channel as distinct from buyer market) is not modelled anywhere in the schema and is not part of S3. It needs its own decision.
 
+## Slice S5 (implemented): four-eye activation (D1 to D4)
+- **Flow.** `POST rate-plans/:id/activation-request` (version-bound, idempotent on `requestId`) -> `POST rate-plan-approvals/:id/approve|reject|cancel` by a different user -> `POST rate-plan-approvals/:id/execute` once. It reuses `ApprovalRequest` and `ApprovalService` (ADR 0016) with a new approval-only S3 catalogue key `rate_plan.activate` that refines `supply.rates.manage`. No schema change and no new grant. Routes and types are in `@bedbanks/contracts` first.
+- **D1 always, with one explicit switch.** `RATE_PLAN_ACTIVATION_APPROVAL` defaults to `required`; `off` is an operator decision recorded in the audit event of every direct activation; any other value fails closed to `required`. It is an environment switch rather than a tenant setting because `TenantSettings` is a display-preferences table behind a dedicated write role, and a security control does not belong in it. Consequence accepted in D1 and written in the runbook: a tenant with one rate manager cannot activate until it has two or the environment runs `off`.
+- **D2** the approver is a different holder of `supply.rates.manage`. **D4** requester != approver is enforced by the service and the existing database `CHECK`; the last editor is not blocked.
+- **Bound to what was reviewed.** The request stores the plan version and a SHA-256 fingerprint of the plan terms and every dated rate of the plan occupancy from the request day (`rate-plan-fingerprint.ts`; stock counters excluded). Approval is refused if either moved since the request; execute is refused if either moved since the approval (`RATE_PLAN_CHANGED_SINCE_REQUEST|APPROVAL`). Loading another night after the request also voids it, by design. A request that can no longer succeed is superseded when a new one is filed.
+- **Approval never waives a check.** Readiness is re-run inside the same Serializable lifecycle transaction, on the narrow `fbeds_rateplan_ops` connection, after the single-use claim (`ApprovalService.execute`, which releases the claim if the action throws, safe because the transition is version-checked and idempotent). The status audit event records mode, approval id, requester and approver; the executor is the event's actor.
+- **Permissions.** `ApprovalService` does not check permissions, so every method of the new service checks `supply.rates.manage` (`supply.rates.read` to view). Suspension stays single-actor (it only removes exposure). Capabilities report the mode.
+- **Not enforced by the database (D3).** A holder of the lifecycle credential can still write `status`. A trigger requiring an approved request is deferred.
+- **Admin.** The plan list shows "Activation approval" instead of "Activate" when the server says `required`; the panel walks request, decide, apply with the server's per-user flags, and explains every refusal.
+- **Tests and evidence.** 20 API e2e tests with two managers, a read-only and an other-tenant user (self-approval refused in the service and the database, edit or price change or extra night voiding approval, readiness not waived, concurrent execute, replay, tenant isolation, off and misspelt switch, suspension unaffected); unit tests for the switch, fingerprint, capabilities and the required-mode refusal; Admin tests; strict-role boot smoke phase D on the strict runtime login with the lifecycle role. Existing suites run with `RATE_PLAN_ACTIVATION_APPROVAL=off` from the shared test setup, stated there.
+
 ### Known limitation, not changed here (finding F13)
 Cancellation penalties (`booking-cancellation.service`) and voucher text read the contract's **live** rules, not a copy frozen at booking. Editing a rule after a booking changes that booking's penalty. S2b routes these through the same resolver so they match the offer, but freezing the policy at booking is a booking-mutation change and needs its own decision.
 
 ### Not built
-Four-eye activation (S5), child and extra-bed lines (S6), grid/CSV (S7), clone writer (S8), expiry sweeper (S9), promotions and derived rates (S10).
+Child and extra-bed lines (S6), grid/CSV (S7), clone writer (S8), expiry sweeper (S9), promotions and derived rates (S10).
 
 ## Consequences
 - The booking window (distinct from the stay window) is still contract-level.

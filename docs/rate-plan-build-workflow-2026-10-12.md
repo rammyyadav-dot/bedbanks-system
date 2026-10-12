@@ -153,8 +153,10 @@ Booking, payment, wallet, supplier confirmation and any live connector. No merge
 | Payment type on Agent offers | **BUILT** (`unspecified` replaces the hardcoded `prepaid`) | ADR 0057 |
 | S3 plan-level buyer market + nationality | **BUILT** (narrow-only, enforced in the shared evaluator); channel NOT modelled | ADR 0057; migration `202611130001` |
 | S0 operator provisioning / hosted certification | OPEN (people) | runbook |
-| S4-S10 | NOT BUILT | - |
+| S5 four-eye activation | **BUILT** (default required; explicit `off` switch; runbook `docs/runbooks/rate-plan-activation-approval.md`) | ADR 0057 |
+| S4, S6-S10 | NOT BUILT | - |
 
+| F5 | closed in application code (D3: the lifecycle credential can still write status) | S5 |
 | F4 | closed for plan-level market and nationality lists | S3 |
 | F13 (new) | Cancellation penalties and vouchers read live contract rules, not a copy frozen at booking | open, needs a booking decision |
 

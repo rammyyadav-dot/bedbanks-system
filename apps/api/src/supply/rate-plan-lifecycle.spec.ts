@@ -124,4 +124,46 @@ describe('rate plan clone', () => {
     await expect(service.cloneRatePlan('tenant', 'user', 'plan', { code: 'OK-2', roomTypeId: 'r3' })).rejects.toBeInstanceOf(BadRequestException)
     expect(tx.ratePlan.create).not.toHaveBeenCalled()
   })
+
+  describe('activation approval required (ADR 0057, S5)', () => {
+    const withMode = async (mode: string | undefined, run: () => Promise<void>) => {
+      const previous = process.env.RATE_PLAN_ACTIVATION_APPROVAL
+      if (mode === undefined) delete process.env.RATE_PLAN_ACTIVATION_APPROVAL; else process.env.RATE_PLAN_ACTIVATION_APPROVAL = mode
+      try { await run() } finally { if (previous === undefined) delete process.env.RATE_PLAN_ACTIVATION_APPROVAL; else process.env.RATE_PLAN_ACTIVATION_APPROVAL = previous }
+    }
+    it('refuses a direct activation with a typed 409 and writes nothing, by default', async () => {
+      await withMode(undefined, async () => {
+        const { service, tx } = setup()
+        await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toMatchObject({ response: { code: 'RATE_PLAN_APPROVAL_REQUIRED' } })
+        expect(tx.ratePlan.updateMany).not.toHaveBeenCalled()
+        expect(tx.auditEvent.createMany).not.toHaveBeenCalled()
+      })
+    })
+    it('checks permission first: an unauthorised caller gets 403, not the policy message', async () => {
+      await withMode('required', async () => {
+        const { service } = setup(planRow(), ['supply.rates.read'])
+        await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toBeInstanceOf(ForbiddenException)
+      })
+    })
+    it('a misspelt value fails closed to required', async () => {
+      await withMode('disabled', async () => {
+        const { service } = setup()
+        await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toMatchObject({ response: { code: 'RATE_PLAN_APPROVAL_REQUIRED' } })
+      })
+    })
+    it('suspension stays single-actor', async () => {
+      await withMode('required', async () => {
+        const { service, tx } = setup(planRow({ status: 'ACTIVE' }))
+        await service.transitionRatePlan('tenant', 'user', 'plan', 'suspend', { expectedUpdatedAt: at.toISOString(), reason: 'supplier request' })
+        expect(tx.ratePlan.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUSPENDED' } }))
+      })
+    })
+    it('off activates directly and the audit event records that no approval was involved', async () => {
+      await withMode('off', async () => {
+        const { service, tx } = setup()
+        await service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() }, 'req-1')
+        expect(tx.auditEvent.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ payload: expect.objectContaining({ activation: { mode: 'off' } }) })] })
+      })
+    })
+  })
 })

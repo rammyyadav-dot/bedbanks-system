@@ -15,6 +15,8 @@ import { isValidPolicySetName, rulesForPlan } from './cancellation-rules'
 import { resolvePlanTerms, type PlanTerms } from './rate-plan-terms'
 import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type RatePlanAction } from './rate-plan-activation'
 import { deriveRatePlanCapabilities } from './rate-plan-capabilities'
+import { activationApprovalMode } from './rate-plan-approval-mode'
+import { planFingerprint } from './rate-plan-fingerprint'
 
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
@@ -23,6 +25,9 @@ const marketList = (field: string, value: unknown): string[] => { const parsed =
 const refuseStatusField = (input: unknown) => {
   if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'status')) throw new BadRequestException({ code: 'RATE_PLAN_STATUS_VIA_LIFECYCLE_ONLY', message: 'Rate plan status cannot be set here. Use the activate or suspend routes.' })
 }
+/** What a second person approved, passed from the approval service into the single lifecycle transaction (ADR 0057, S5). */
+export interface ApprovedActivation { approvalId: string; requestedById: string; approvedById: string; fingerprint: string; asOf: string }
+const MAX_APPROVAL_RATE_ROWS = 5000
 const RATE_PLAN_EDITABLE = new Set(['contractId', 'roomTypeId', 'boardBasisId', 'code', 'occupancy', 'currency', 'refundable', 'taxesIncluded', 'feesIncluded', 'minStay', 'maxStay', 'releaseDays', 'validFrom', 'validTo', 'paymentType', 'cancellationPolicySet', 'salesMarkets', 'nationalities'])
 /** Fields whose change can make an ACTIVE plan unsellable-by-contract; an edit to any of them is re-checked against readiness before it commits. */
 const READINESS_FIELDS = ['contractId', 'roomTypeId', 'boardBasisId', 'occupancy', 'currency', 'refundable', 'minStay', 'maxStay', 'validFrom', 'validTo', 'cancellationPolicySet', 'salesMarkets', 'nationalities'] as const
@@ -409,7 +414,7 @@ export class SupplyService {
       rates: rates.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
       availabilityDates: availability.map(row => day(row.stayDate)),
     })
-    return { plan, readiness }
+    return { plan, readiness, today }
   }
   async ratePlanReadiness(tenantId: string, userId: string, ratePlanId: string) {
     await this.check(tenantId, userId, 'supply.rates.read')
@@ -422,7 +427,7 @@ export class SupplyService {
   async ratePlanCapabilities(tenantId: string, userId: string) {
     await this.check(tenantId, userId, 'supply.rates.read')
     const [grants] = await this.prisma.$queryRaw<Array<{ can_update_status: boolean; can_insert: boolean }>>`SELECT has_column_privilege(current_user, '"RatePlan"', 'status', 'UPDATE') AS can_update_status, has_table_privilege(current_user, '"RatePlan"', 'INSERT') AS can_insert`
-    return deriveRatePlanCapabilities({ opsRoleConfigured: this.ratePlanOps?.configured() === true, runtimeCanUpdateStatus: grants?.can_update_status === true, runtimeCanInsert: grants?.can_insert === true })
+    return deriveRatePlanCapabilities({ opsRoleConfigured: this.ratePlanOps?.configured() === true, runtimeCanUpdateStatus: grants?.can_update_status === true, runtimeCanInsert: grants?.can_insert === true, activationApproval: activationApprovalMode() })
   }
   /** Activate or suspend. Activation is refused unless the readiness checklist is fully green; both transitions are version-checked and audited with before/after status. */
   async transitionRatePlan(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, input: any, requestId?: string) {
@@ -431,22 +436,59 @@ export class SupplyService {
     if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
     const reason = clean(input?.reason)
     if (action === 'suspend' && reason.length < 3) throw new BadRequestException('A reason is required to suspend a rate plan')
-    try { return await this.transitionRatePlanTx(tenantId, userId, ratePlanId, action, expected, reason, requestId) } catch (error) {
+    if (action === 'activate' && activationApprovalMode() === 'required') {
+      // Authorization first, so an unauthorised caller learns nothing about the policy. Suspension only removes exposure and stays single-actor.
+      await this.check(tenantId, userId, 'supply.rates.manage')
+      throw new ConflictException({ code: 'RATE_PLAN_APPROVAL_REQUIRED', message: 'Activating a rate plan needs a second person. File an activation request; a different user with rate management permission approves it.' })
+    }
+    return this.runTransition(tenantId, userId, ratePlanId, action, expected, reason, requestId, undefined)
+  }
+
+  /** Activation after a second person approved exactly this content (ADR 0057, S5). Called only by the approval service, inside the single-use execute claim. */
+  activateApproved(tenantId: string, userId: string, ratePlanId: string, expected: Date, approval: ApprovedActivation, requestId?: string) {
+    return this.runTransition(tenantId, userId, ratePlanId, 'activate', expected, '', requestId, approval)
+  }
+
+  private async runTransition(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, expected: Date, reason: string, requestId: string | undefined, approval: ApprovedActivation | undefined) {
+    try { return await this.transitionRatePlanTx(tenantId, userId, ratePlanId, action, expected, reason, requestId, approval) } catch (error) {
       // A concurrent writer touching the same facts aborts a serializable transaction; report it as the same retryable conflict as a stale version.
       if ((error as { code?: string }).code === 'P2034') throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan or its commercial facts changed during the update. Reload and retry.' })
       throw error
     }
   }
-  private transitionRatePlanTx(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, expected: Date, reason: string, requestId?: string) {
+
+  /** Permission gate for the approval service: authentication is not authorization. */
+  assertPermission(tenantId: string, userId: string, permission: 'supply.rates.read' | 'supply.rates.manage') { return this.check(tenantId, userId, permission) }
+
+  /** The content an approver is shown: plan terms and every rate row of the plan occupancy from `asOf`. Capped; an oversized plan is refused rather than hashed partially. */
+  private async contentFingerprint(tx: Prisma.TransactionClient, tenantId: string, plan: Awaited<ReturnType<SupplyService['activationReadiness']>>['plan'], asOf: string): Promise<string> {
+    const rows = await tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.id, occupancy: plan.occupancy, stayDate: { gte: new Date(`${asOf}T00:00:00Z`) } }, select: { stayDate: true, occupancy: true, amountMinor: true, amountBasis: true, currency: true }, orderBy: { stayDate: 'asc' }, take: MAX_APPROVAL_RATE_ROWS + 1 })
+    if (rows.length > MAX_APPROVAL_RATE_ROWS) throw new BadRequestException({ code: 'RATE_PLAN_TOO_MANY_RATES', message: `Approval covers at most ${MAX_APPROVAL_RATE_ROWS} dated rates; split the plan or end its sale window.` })
+    return planFingerprint(plan, rows, asOf)
+  }
+
+  /** Read-only: readiness plus the content fingerprint, for requesting an approval. */
+  async approvalFacts(tenantId: string, ratePlanId: string) {
+    return this.prisma.withTenant(tenantId, async tx => {
+      const { plan, readiness, today } = await this.activationReadiness(tx, tenantId, ratePlanId)
+      return { plan, readiness, asOf: today, fingerprint: await this.contentFingerprint(tx, tenantId, plan, today) }
+    })
+  }
+
+  private transitionRatePlanTx(tenantId: string, userId: string, ratePlanId: string, action: RatePlanAction, expected: Date, reason: string, requestId?: string, approval?: ApprovedActivation) {
     return this.write(tenantId, userId, 'supply.rates.manage', action === 'activate' ? 'supply.rate_plan.activated' : 'supply.rate_plan.suspended', 'rate_plan', requestId, async tx => {
       const { plan, readiness } = await this.activationReadiness(tx, tenantId, ratePlanId)
       if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
       const target = transitionTarget(action, plan.status)
       if (!target) throw new ConflictException({ code: 'RATE_PLAN_TRANSITION_NOT_ALLOWED', message: `A ${plan.status} rate plan cannot be ${action === 'activate' ? 'activated' : 'suspended'}.` })
       if (action === 'activate' && !readiness.ready) throw new ConflictException({ code: 'RATE_PLAN_NOT_READY', message: 'Activation readiness checks failed.', details: readiness.checks.filter(item => !item.ok) })
+      // The approval covers exactly the content that was reviewed. Any price, term or night changed since then voids it, even if readiness still passes.
+      if (action === 'activate' && approval && await this.contentFingerprint(tx, tenantId, plan, approval.asOf) !== approval.fingerprint) {
+        throw new ConflictException({ code: 'RATE_PLAN_CHANGED_SINCE_APPROVAL', message: 'The rate plan terms or rates changed after the approval. File a new request so the approver reviews what will go live.' })
+      }
       const changed = await tx.ratePlan.updateMany({ where: { id: ratePlanId, tenantId, status: plan.status, updatedAt: plan.updatedAt }, data: { status: target } })
       if (changed.count !== 1) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed during the update. Reload and retry.' })
-      await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.status_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: { status: plan.status }, after: { status: target }, reason: reason || null } }] })
+      await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.status_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: { status: plan.status }, after: { status: target }, reason: reason || null, ...(action === 'activate' ? { activation: approval ? { mode: 'approved', approvalId: approval.approvalId, requestedById: approval.requestedById, approvedById: approval.approvedById } : { mode: 'off' } } : {}) } }] })
       const value = await tx.ratePlan.findFirstOrThrow({ where: { id: ratePlanId, tenantId } })
       return { id: value.id, value }
     }, { isolationLevel: 'Serializable', lifecycleRole: true })

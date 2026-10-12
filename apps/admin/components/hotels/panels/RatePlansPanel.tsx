@@ -9,6 +9,7 @@ import { useCan } from '@/lib/auth/capabilities'
 import { capabilityBlockedReason, describeRatePlanActionError, readinessFailuresFromError, type RatePlanAction } from '@/lib/rate-plan-errors'
 import { activateRatePlan, cloneRatePlan, getHotelRatePlans, getRatePlanCapabilities, getRatePlanReadiness, suspendRatePlan, type AdminRatePlan } from '@/lib/data'
 import { hotelHref } from '@/lib/hotel-ui'
+import { ActivationApprovalPanel } from './ActivationApprovalPanel'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
 const STATUSES = ['DRAFT', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const
@@ -63,7 +64,9 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
                 {blockedNotices.map((notice) => <span key={notice}>{notice}</span>)}
               </div>
             ) : null}
-            {pending ? <ActionPanel key={`${pending.plan.id}:${pending.action}`} pending={pending} rooms={rooms} onClose={() => setPending(null)} onDone={() => { setPending(null); reload() }} /> : null}
+            {pending && pending.action === 'activate' && capabilities?.activationApproval === 'required'
+              ? <ActivationApprovalPanel key={`${pending.plan.id}:approval`} plan={pending.plan} onClose={() => { setPending(null); reload() }} onDone={() => { setPending(null); reload() }} />
+              : pending ? <ActionPanel key={`${pending.plan.id}:${pending.action}`} pending={pending} rooms={rooms} onClose={() => setPending(null)} onDone={() => { setPending(null); reload() }} /> : null}
             <ScrollRegion label="Rate plans" maxHeight={560}>
               <table style={tableStyle} aria-label="Rate plans">
                 <thead><tr>{['Code', 'Status', 'Room type', 'Board', 'Contract', 'Currency', 'Occupancy', 'Validity', 'Cancellation', 'Distribution', 'Actions'].map((h) => <th key={h} scope="col" style={h === 'Actions' ? actionsTh : th}>{h}</th>)}</tr></thead>
@@ -85,7 +88,7 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
                         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <Link href={`/rates/plans/${plan.id}`}>{canManage ? 'View / edit' : 'View'}</Link>
                           {canManage ? <ActionButton label="Clone" reason={blocked('clone')} onClick={() => setPending({ plan, action: 'clone' })} /> : null}
-                          {canManage && (plan.status === 'DRAFT' || plan.status === 'SUSPENDED') ? <ActionButton label="Activate" reason={blocked('activate')} onClick={() => setPending({ plan, action: 'activate' })} /> : null}
+                          {canManage && (plan.status === 'DRAFT' || plan.status === 'SUSPENDED') ? <ActionButton label={capabilities?.activationApproval === 'required' ? 'Activation approval' : 'Activate'} reason={blocked('activate')} onClick={() => setPending({ plan, action: 'activate' })} /> : null}
                           {canManage && plan.status === 'ACTIVE' ? <ActionButton label="Suspend" reason={blocked('suspend')} onClick={() => setPending({ plan, action: 'suspend' })} /> : null}
                         </span>
                       </td>
