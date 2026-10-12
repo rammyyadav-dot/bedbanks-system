@@ -1,3 +1,5 @@
+import type { HotelContentQuality, HotelDuplicateCandidate } from './hotel-quality'
+
 /**
  * Hotel Setup contracts (ADR 0021): descriptive and operational hotel content, kept apart from commercial readiness.
  *
@@ -67,6 +69,10 @@ export interface HotelSetupView {
   governance: { status: HotelProfileStatus; sourceSystem: string | null; ownerUserId: string | null; /** Resolved for display; null when unset or the user is no longer a tenant member. */ owner: HotelOwnerCandidate | null; approvedById: string | null; approvedAt: string | null; updatedById: string | null; updatedAt: string }
   rooms: { active: number; total: number }
   completeness: HotelCompleteness
+  /** Advisory content grade (ADR 0057). Never gates publication. */
+  quality: HotelContentQuality
+  /** Possible duplicates inside this tenant (ADR 0057). A hint for a human; empty when none or when the check was not possible. */
+  possibleDuplicates: HotelDuplicateCandidate[]
   /** The open (pending or approved) publication request, if any. Present on the detail read only. */
   publication?: HotelPublicationApproval | null
 }

@@ -11,6 +11,7 @@ export * from './commercial';
 export * from './departments';
 export * from './funding';
 export * from './hotel-setup';
+export * from './hotel-quality';
 export * from './hotel-rooms';
 export * from './hotel-quick-update';
 export * from './hotel-images';

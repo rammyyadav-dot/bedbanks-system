@@ -22,6 +22,15 @@ describe('assessCompleteness', () => {
     expect(r.met).toBe(false); expect(r.detail).not.toBe('Met.')
   })
 
+  it.each([['0', '0'], ['0.0', '0.000000']])('does not accept the placeholder position %s,%s as coordinates', (latitude, longitude) => {
+    const r = assessCompleteness({ ...complete(), latitude, longitude }).requirements.find((x) => x.key === 'COORDINATES')!
+    expect(r.met).toBe(false); expect(r.detail).toContain('placeholder')
+  })
+
+  it('accepts a genuine position on the equator or prime meridian', () => {
+    expect(assessCompleteness({ ...complete(), latitude: '0', longitude: '36.8' }).requirements.find((x) => x.key === 'COORDINATES')!.met).toBe(true)
+  })
+
   it('never reports an empty draft as publishable and gives a percentage from explicit requirements', () => {
     const c = assessCompleteness({ ...complete(), name: '', propertyType: '', city: '', countryCode: '', address: null, latitude: null, longitude: null, starRating: null, starVerified: false, shortDescription: null, checkInTime: null, checkOutTime: null, contacts: {}, activeRooms: 0 })
     expect(c.publishable).toBe(false); expect(c.percent).toBeLessThan(20)
