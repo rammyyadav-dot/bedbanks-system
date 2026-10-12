@@ -51,7 +51,7 @@ export class HotelPublicationService {
   }
 
   private unmet(data: Awaited<ReturnType<HotelSetupService['load']>>): never | void {
-    const c = assessCompleteness(this.setup.current(data.hotel, data.profile, data.activeRooms))
+    const c = assessCompleteness(this.setup.current(data.hotel, data.profile, data.activeRooms, data.hasPrimaryImage))
     if (!c.publishable) throw new UnprocessableEntityException({ message: `Cannot publish: ${c.requirements.filter((r) => !r.met).map((r) => r.label).join('; ')}.`, code: 'HOTEL_PUBLICATION_REQUIREMENTS_UNMET' })
   }
 

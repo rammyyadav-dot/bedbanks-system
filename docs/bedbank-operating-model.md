@@ -55,7 +55,7 @@ Every arrow is a point where the platform must fail closed: if a fact is missing
 
 ### 4.2 Content and mapping (one canonical hotel)
 - The **canonical hotel** is the single identity (ADR 0009, 0021). Supplier hotels and rooms are mapped to it; the hotel and room mapping must both be MAPPED before anything sells. Mappings are never auto-approved, decisions need a reason, conflicts are coded 409s, and history is kept (ADR 0004).
-- A hotel is **published** (catalogue-eligible) only after the 12 requirements and a second approver (ADR 0021, 0022). Publishing does not make it sellable.
+- A hotel is **published** (catalogue-eligible) only after the 13 requirements and a second approver (ADR 0021, 0022). Publishing does not make it sellable.
 - Images, rooms, amenities, policies and private contacts are managed in the Admin hotel module; Agents see the primary image of published hotels (ADR 0027).
 - **Not built:** automatic mapping suggestions, supplier content import and enrichment, geo-clustering, duplicate detection beyond identifier uniqueness.
 

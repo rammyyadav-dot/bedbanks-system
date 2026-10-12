@@ -65,11 +65,11 @@ export class HotelSetupService {
     return { hotel, profile, identifiers, activeRooms, totalRooms, owner, imageCount, hasPrimaryImage: primaryImages > 0, amenityCount, possibleDuplicates }
   }
 
-  current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number): CurrentSetup {
+  current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number, hasPrimaryImage: boolean): CurrentSetup {
     return {
       name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
       starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
-      contacts: asContacts(profile?.contacts), activeRooms,
+      contacts: asContacts(profile?.contacts), activeRooms, hasPrimaryImage,
     }
   }
 
@@ -87,7 +87,7 @@ export class HotelSetupService {
       policies,
       governance: { status: hotel.contentStatus as HotelProfileStatus, sourceSystem: profile?.sourceSystem ?? null, ownerUserId: profile?.ownerUserId ?? null, owner, approvedById: profile?.approvedById ?? null, approvedAt: iso(profile?.approvedAt), updatedById: profile?.updatedById ?? null, updatedAt: hotel.updatedAt.toISOString() },
       rooms: { active: activeRooms, total: totalRooms },
-      completeness: assessCompleteness(this.current(hotel, profile, activeRooms)),
+      completeness: assessCompleteness(this.current(hotel, profile, activeRooms, hasPrimaryImage)),
       quality: assessContentQuality({
         shortDescription: profile?.shortDescription ?? null, fullDescription: profile?.fullDescription ?? null, languages: profile?.languages ?? [], starSource: profile?.starSource ?? null,
         postalCode: profile?.postalCode ?? null, area: profile?.area ?? null, chainName: profile?.chainName ?? null, brandName: profile?.brandName ?? null,
@@ -152,7 +152,7 @@ export class HotelSetupService {
         if (body.expectedToken !== this.token(before.hotel, before.profile)) this.stale()
 
         if (Object.keys(data.hotel).some(k => ['name', 'city', 'countryCode', 'address'].includes(k))) await assertHotelIdentityAvailable(tx, tenantId, { ...before.hotel, ...data.hotel }, before.hotel.id)
-        const beforeCurrent = this.current(before.hotel, before.profile, before.activeRooms)
+        const beforeCurrent = this.current(before.hotel, before.profile, before.activeRooms, before.hasPrimaryImage)
         const afterCurrent: CurrentSetup = {
           ...beforeCurrent, ...data.hotel,
           starVerified: data.hotel.starRating !== undefined && data.hotel.starRating !== beforeCurrent.starRating ? false : (data.starVerified ?? beforeCurrent.starVerified),

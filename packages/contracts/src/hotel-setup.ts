@@ -30,7 +30,7 @@ export const EXTERNAL_IDENTIFIER_SCHEME_PATTERN = /^[A-Z][A-Z0-9_]{1,31}$/;
 export const KNOWN_EXTERNAL_SCHEMES = ['GIATA'] as const;
 export interface HotelExternalIdentifierView { scheme: string; value: string; createdAt: string }
 
-export type HotelSetupSection = 'identity' | 'location' | 'classification' | 'content' | 'operations' | 'contacts' | 'governance' | 'rooms';
+export type HotelSetupSection = 'identity' | 'location' | 'classification' | 'content' | 'operations' | 'contacts' | 'governance' | 'rooms' | 'images';
 
 /** Fields required to publish a hotel to Agents. A profile may be saved without them. */
 export const HOTEL_PUBLICATION_REQUIREMENTS = [
@@ -46,6 +46,7 @@ export const HOTEL_PUBLICATION_REQUIREMENTS = [
   { key: 'CHECK_IN_OUT', label: 'Check-in and check-out times', section: 'operations' },
   { key: 'RESERVATIONS_CONTACT', label: 'Reservations contact (name and email or phone)', section: 'contacts' },
   { key: 'ACTIVE_ROOM', label: 'At least one active canonical room', section: 'rooms' },
+  { key: 'PRIMARY_IMAGE', label: 'Primary image with alt text', section: 'images' },
 ] as const satisfies ReadonlyArray<{ key: string; label: string; section: HotelSetupSection }>;
 export type HotelPublicationRequirementKey = (typeof HOTEL_PUBLICATION_REQUIREMENTS)[number]['key'];
 

@@ -194,6 +194,7 @@ export class SupplyService {
             checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
             contacts: (profile?.contacts ?? {}) as import('@bedbanks/contracts').HotelContacts,
             activeRooms: await tx.roomType.count({ where: { hotelId, isActive: true } }),
+            hasPrimaryImage: (await tx.hotelImage.count({ where: { hotelId, tenantId, isPrimary: true } })) > 0,
           }
           const lost = regressions(assessCompleteness(base), assessCompleteness({ ...base, ...data, starVerified: data.starRating === current.starRating && base.starVerified }))
           if (lost.length) throw new ConflictException({ code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST', message: 'A published hotel cannot lose a publication requirement. Use Hotel Setup.' })

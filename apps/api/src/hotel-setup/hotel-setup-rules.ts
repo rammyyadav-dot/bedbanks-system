@@ -34,6 +34,8 @@ export interface CurrentSetup {
   starRating: number | null; starVerified: boolean
   shortDescription: string | null; checkInTime: string | null; checkOutTime: string | null; contacts: HotelContacts
   activeRooms: number
+  /** True when the hotel has a primary image. Alt text is mandatory on upload, so any image carries it (ADR 0058). */
+  hasPrimaryImage: boolean
 }
 
 const present = (value: string | null | undefined): boolean => typeof value === 'string' && value.trim().length > 0
@@ -54,6 +56,7 @@ export function assessCompleteness(c: CurrentSetup): HotelCompleteness {
       case 'SHORT_DESCRIPTION': return [present(c.shortDescription), 'Write a short description.']
       case 'CHECK_IN_OUT': return [Boolean(c.checkInTime && c.checkOutTime), 'Enter both the check-in and the check-out time.']
       case 'RESERVATIONS_CONTACT': return [Boolean(reservations && present(reservations.name) && (present(reservations.email) || present(reservations.phone))), 'Enter a reservations contact with a name and an email or phone number.']
+      case 'PRIMARY_IMAGE': return [c.hasPrimaryImage, 'Upload at least one image with alt text on the Images tab.']
       case 'ACTIVE_ROOM': return [c.activeRooms > 0, 'Add at least one active canonical room.']
       default: return [false, 'Unknown requirement.']
     }

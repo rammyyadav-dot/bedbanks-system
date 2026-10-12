@@ -29,11 +29,11 @@ A hotel record is the **canonical** hotel: one identity that supplier hotels are
 `DRAFT` (just created) → `INCOMPLETE` (being worked) → `COMPLETE` (published) ⇄ `SUSPENDED` (withdrawn).
 
 - Create and edit never require completeness: a draft may be partial. Only the fields sent are validated.
-- **Publish (to COMPLETE)** is gated by 12 requirements: name, property type, country, city, street address, coordinates, IANA time zone, verified star category (1 to 5), short description, check-in and check-out times, a reservations contact, and at least one active room. Unmet requirements are listed by name and block the request.
+- **Publish (to COMPLETE)** is gated by 13 requirements (ADR 0058 added the primary image): name, property type, country, city, street address, coordinates, IANA time zone, verified star category (1 to 5), short description, check-in and check-out times, a reservations contact, at least one active room, and a primary image with alt text. Unmet requirements are listed by name and block the request.
 - **Publication is maker-checker** (Built, PR #232, ADR 0022): a manager requests with a reason; a *different* manager approves or rejects; the approved request is applied once. The request is bound to the exact setup version reviewed. Any later edit voids it. The requirements are re-checked at request and at apply. The approver is recorded as the checker of record. A tenant therefore needs at least two people with `supply.hotels.manage` to publish.
 - **Un-publish / suspend / back to draft** is single-actor and immediate, because it only removes exposure. It clears the recorded approver.
 - Coordinates 0,0 are a feed placeholder and do not satisfy the coordinates requirement (ADR 0057).
-- A published hotel **cannot lose a publication requirement** through an edit (for example clearing the address): the edit is refused until the status is changed first.
+- A published hotel **cannot lose a publication requirement** through an edit (for example clearing the address) or by deleting its last image: the change is refused until the status is changed first. Hotels published before ADR 0058 without an image are grandfathered: they stay published and show the image requirement as unmet.
 - The legacy `POST/PATCH /supply/hotels` endpoints can no longer set COMPLETE (Built, PR #232, ADR 0023). Until #232 is merged they still can, which bypasses the second approver.
 
 ### 3.2 Supplier mapping status
@@ -42,7 +42,7 @@ A hotel record is the **canonical** hotel: one identity that supplier hotels are
 
 ### 3.3 Sellability (computed, never stored)
 
-A stay is sellable per night only when all hold: hotel published and not suspended, valid 1 to 5 star rating, hotel and room mapping MAPPED, supplier ACTIVE, contract ACTIVE and in validity, rate plan ACTIVE, a rate for the occupancy and currency, availability with allotment remaining, no stop-sell. Enforced per night: stop-sell, allotment, minimum stay, closed to arrival, plan maximum stay, release days, contract validity. Recorded but **not yet applied by Agent search**: closed to departure, sales markets, nationalities (shown as "recorded, not applied", never as enforced).
+A stay is sellable per night only when all hold: hotel published and not suspended, valid 1 to 5 star rating, hotel and room mapping MAPPED, supplier ACTIVE, contract ACTIVE and in validity, rate plan ACTIVE, a rate for the occupancy and currency, availability with allotment remaining, no stop-sell. Enforced per night: stop-sell, allotment, minimum stay, closed to arrival, plan maximum stay, release days, contract validity. Closed to departure is enforced on the departure date, and contract sales markets and guest nationalities are enforced against the buyer's agency country and the search nationality, failing closed (ADR 0035). The evaluator is shared by Agent search, recheck, hold and the admin diagnostics, which are buyer-independent.
 
 ## 4. Roles and permissions
 
@@ -64,7 +64,7 @@ Approval-only keys (`hotel.activate`, `markup.activate`, `credit_limit.approve`,
 
 | Tab | What it does and the rules | Status |
 |---|---|---|
-| Overview | Identity, location, classification, completeness (the 12 requirements, met or not), profile approval state, room counts, last saved by and when. | Built (main) |
+| Overview | Identity, location, classification, completeness (the 13 requirements, met or not), profile approval state, room counts, last saved by and when. | Built (main) |
 | Hotel Setup | Identity (legal, chain, brand, property type, external ids such as GIATA), location (country, city, area, address, coordinates, time zone), classification (stars, source, verified flag), content (short/full description, languages), operations (check-in/out, notes), private contacts by role, hotel policies, source system, **owner** (member of the tenant, internal contact only). Saves send only changed fields, carry an idempotency key and a concurrency token; a stale token fails visibly with a reload prompt. Changing the star category clears its verification. External identifiers are unique per tenant and scheme and are not the canonical id. | Built (main) |
 | Content quality and duplicate hints (Setup tab) | Advisory 0-100 grade with BRONZE/SILVER/GOLD tiers and the exact missing signals, each linking to its tab; plus possible near-duplicates in the tenant (shared external id, similar name within 150 m, similar name with same postal code). Never blocks publication (ADR 0057). | Built (this branch) |
 | Publication (Setup tab) | Request, approve, reject, withdraw, publish now (section 3.1). | Built (PR #232) |
@@ -73,7 +73,7 @@ Approval-only keys (`hotel.activate`, `markup.activate`, `credit_limit.approve`,
 | Images | Upload, alt text (required), primary image, atomic reorder and delete. Bytes in PostgreSQL behind a storage port; JPEG/PNG/WebP, up to 5 MB, 800x600 to 8000x8000, 30 per hotel, duplicates refused, type read from the bytes. Agents see the primary image of **published** hotels (ADR 0027). Not built: Website display, EXIF stripping, malware scan, rights records. | Built (images, atomic reorder and Agent display on main or open PRs #238 and #239) |
 | Policies | Children, extra beds, pets, accessibility, local charges, apart from rate-specific cancellation terms (those belong to rate plans). | Built (main) |
 | Supplier Mapping | Many suppliers per hotel; create as PENDING; decide with a reason; reopen; history with who, when, status change, reason and request id. | Built (main) |
-| Contracts & Rate Plans | Read-only 360 of contracts, plans, board bases, validity and recorded markets, labelled "recorded, not applied" where Agent search ignores them. Editing contracts is on the Contracts module. | Built (main) |
+| Contracts & Rate Plans | Read-only 360 of contracts, plans, board bases, validity and sales markets and nationalities, which Agent search enforces (ADR 0035). Editing contracts is on the Contracts module. | Built (main) |
 | Rates & Inventory | Calendar by plan and night: sell rate, allotment, sold, held, stop-sell, closed to arrival and departure, minimum stay, source and freshness. Missing values show as missing. | Built (main) |
 | Quick Update | Previewed, atomic bulk change of selected fields on selected dates and plans: preview shows exact dates, old and new values and unsupported operations and writes nothing; apply is all-or-nothing, uses a fingerprint to refuse a stale preview, takes a per-hotel advisory lock, requires an idempotency key and reason, and audits actor and request id. Limits: 5 plans and 500 plan-nights per update. Money validated server-side as integer minor units. The hotel's own calendar day decides what is "past". | Built (main) |
 | Lock Dates / Apply & Lock | Meaning undefined by the business. Proposal: freeze supplier-synced changes for chosen dates; recommended to wait for the first live rate-writing connector (ADR 0026). | **Not built; Proposed** |
@@ -133,8 +133,7 @@ A capability counts as real only when it persists real data, enforces permission
 | Hotel images beyond the MVP | Metadata stripping, malware scan, rights records, object storage, Website display | Owner decisions (ADR 0027 "Not built") |
 | Lock Dates / Apply & Lock | Undefined meaning; no live connector writes rates | Define the lock, or defer (ADR 0026) |
 | Allotment pools, board mapping | No schema | Business rules and a design |
-| Closed-to-departure, markets, nationalities as enforced restrictions | Agent search does not apply them | Decision to implement in the evaluator, with tests |
-| Publication requirement: at least one image? | Images now exist; making one mandatory is policy | Owner decision |
+| Publication requirement: at least one image | **Decided: required** (ADR 0058) | None; existing published hotels are grandfathered |
 | Hotel-level approval of contract terms | Contract maker-checker is planned (`contract.approve`), not built | Business rule |
 | Minimum two managers per tenant to publish | Consequence of maker-checker | Staffing or a break-glass policy (not proposed; weakens the control) |
 | Migrations | Never applied to a persistent database by this work | Human decision (ADR 0013) |

@@ -67,8 +67,15 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   }
   const setupPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup`
   const pubPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup/publication`
+  /** A primary image is a publication requirement (ADR 0058). A fixture row is enough: the requirement is about presence, not bytes. */
+  const ensureImage = async (hotelId: string) => {
+    if (await prisma.hotelImage.count({ where: { hotelId } })) return
+    const { tenantId } = await prisma.hotel.findUniqueOrThrow({ where: { id: hotelId }, select: { tenantId: true } })
+    await prisma.hotelImage.create({ data: { tenantId, hotelId, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString('hex'), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: ids.manager } })
+  }
   /** Maker-checker publication: manager requests, manager2 approves, manager applies. */
   const publish = async (hotelId: string) => {
+    await ensureImage(hotelId)
     const token = (await load(hotelId)).concurrencyToken
     const made = (await api('post', `${pubPath(hotelId)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed against the register' }).expect(200)).body.data
     await api('post', `${pubPath(hotelId)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked' }).expect(200)
@@ -217,6 +224,10 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(setup.completeness.publishable).toBe(false) // still no active room
     await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     setup = await load(id)
+    expect(setup.completeness.publishable).toBe(false) // still no primary image (ADR 0058)
+    expect(setup.completeness.requirements.find((r: { key: string }) => r.key === 'PRIMARY_IMAGE').met).toBe(false)
+    await ensureImage(id)
+    setup = await load(id)
     expect(setup.completeness.publishable).toBe(true)
     await status('COMPLETE', setup.concurrencyToken).expect(409) // single-actor publication is closed: it needs a second approver (ADR 0022)
     const published = (await publish(id)).setup
@@ -358,6 +369,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   it('HS-13 publication is maker-checker: a different approver, bound to the reviewed version, single use, audited, and un-publishing stays single-actor', async () => {
     const id = await newDraft('pubmc')
     await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await ensureImage(id)
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
     const ask = (who: string, token: string, requestId = key(), reason = 'Reviewed against the register') => api('post', `${pubPath(id)}/request`, who, { requestId, expectedToken: token, reason })
     const token = (await load(id)).concurrencyToken
@@ -873,6 +885,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   it.each(['canonical', 'legacy'])('enterprise %s room changes invalidate an already approved profile version', async route => {
     const id = await newDraft(`${route} room review`)
     const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Reviewed room', code: 'REVIEW', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await ensureImage(id)
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
     const token = (await load(id)).concurrencyToken
     const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed property and room' }).expect(200)).body.data
@@ -895,6 +908,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   it('enterprise publication serializes with a reviewed setup edit before checking approval freshness', async () => {
     const id = await newDraft('Publication edit race')
     await prisma.roomType.create({ data: { hotelId: id, name: 'Race room', code: 'RACE', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await ensureImage(id)
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
     const token = (await load(id)).concurrencyToken
     const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed complete content' }).expect(200)).body.data

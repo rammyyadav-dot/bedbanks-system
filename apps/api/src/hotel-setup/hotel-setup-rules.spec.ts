@@ -2,7 +2,7 @@ import { assessCompleteness, isIanaTimeZone, normaliseSave, regressions, type Cu
 
 const complete = (): CurrentSetup => ({
   name: 'Palm View', propertyType: 'HOTEL', countryCode: 'AE', city: 'Dubai', address: '1 Palm Road', latitude: '25.1', longitude: '55.2', timeZone: 'Asia/Dubai',
-  starRating: 4, starVerified: true, shortDescription: 'A quiet hotel.', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'res@hotel.test' } }, activeRooms: 2,
+  starRating: 4, starVerified: true, shortDescription: 'A quiet hotel.', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'res@hotel.test' } }, activeRooms: 2, hasPrimaryImage: true,
 })
 
 describe('assessCompleteness', () => {
@@ -12,7 +12,7 @@ describe('assessCompleteness', () => {
   })
 
   it.each([
-    ['NAME', { name: '  ' }], ['ADDRESS', { address: null }], ['COORDINATES', { latitude: null }], ['SHORT_DESCRIPTION', { shortDescription: null }], ['ACTIVE_ROOM', { activeRooms: 0 }],
+    ['NAME', { name: '  ' }], ['ADDRESS', { address: null }], ['COORDINATES', { latitude: null }], ['SHORT_DESCRIPTION', { shortDescription: null }], ['ACTIVE_ROOM', { activeRooms: 0 }], ['PRIMARY_IMAGE', { hasPrimaryImage: false }],
     ['CHECK_IN_OUT', { checkOutTime: null }], ['TIME_ZONE', { timeZone: 'Mars/Base' }], ['COUNTRY', { countryCode: 'UAE' }],
     ['STAR_CATEGORY', { starVerified: false }], ['STAR_CATEGORY', { starRating: null }], ['RESERVATIONS_CONTACT', { contacts: { reservations: { name: 'x' } } }], ['RESERVATIONS_CONTACT', { contacts: {} }],
   ] as Array<[string, Partial<CurrentSetup>]>)('names %s when it is missing', (key, patch) => {
@@ -32,7 +32,7 @@ describe('assessCompleteness', () => {
   })
 
   it('never reports an empty draft as publishable and gives a percentage from explicit requirements', () => {
-    const c = assessCompleteness({ ...complete(), name: '', propertyType: '', city: '', countryCode: '', address: null, latitude: null, longitude: null, starRating: null, starVerified: false, shortDescription: null, checkInTime: null, checkOutTime: null, contacts: {}, activeRooms: 0 })
+    const c = assessCompleteness({ ...complete(), name: '', propertyType: '', city: '', countryCode: '', address: null, latitude: null, longitude: null, starRating: null, starVerified: false, shortDescription: null, checkInTime: null, checkOutTime: null, contacts: {}, activeRooms: 0, hasPrimaryImage: false })
     expect(c.publishable).toBe(false); expect(c.percent).toBeLessThan(20)
   })
 })

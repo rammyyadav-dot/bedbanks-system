@@ -146,7 +146,14 @@ describe('agent hotel images (PostgreSQL, HTTP, two tenants)', () => {
 
   it('AI-04 deleting the images removes the field again', async () => {
     const list = (await call('get', `/admin/hotels/${hotelId}/images`, 'manager').expect(200)).body.data.items as Array<{ id: string }>
-    for (const i of list) await call('delete', `/admin/hotels/${hotelId}/images/${i.id}`, 'manager').expect(200)
+    // A published hotel must keep an image (ADR 0058): the last one is refused until the hotel is no longer published.
+    for (const i of list.slice(0, -1)) await call('delete', `/admin/hotels/${hotelId}/images/${i.id}`, 'manager').expect(200)
+    const last = list[list.length - 1]
+    const refused = await call('delete', `/admin/hotels/${hotelId}/images/${last.id}`, 'manager').expect(409)
+    expect(refused.body.error.code).toBe('HOTEL_PUBLICATION_REQUIREMENT_LOST')
+    await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'DRAFT' } })
+    await call('delete', `/admin/hotels/${hotelId}/images/${last.id}`, 'manager').expect(200)
+    await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'COMPLETE' } }) // fixture reset: re-publishing is maker-checker
     expect((await hotelsOf('agent')).find((h) => h.hotelId === hotelId)).not.toHaveProperty('primaryImage')
   })
 })
