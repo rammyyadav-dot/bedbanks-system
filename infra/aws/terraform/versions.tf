@@ -5,7 +5,10 @@ terraform {
     random = { source = "hashicorp/random", version = "~> 3.6" }
   }
   # State is remote and locked; create the bucket and lock table out of band (docs/runbooks/aws-ecs-deployment.md, step 1).
-  backend "s3" {}
+  # Encryption is part of the code, not a flag someone must remember at init. Bucket, key, region and lock table are passed with -backend-config.
+  backend "s3" {
+    encrypt = true
+  }
 }
 
 provider "aws" {

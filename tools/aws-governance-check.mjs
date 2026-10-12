@@ -94,6 +94,8 @@ export function checkGovernance(root = process.cwd()) {
   }
   if (/auth_token\s*=\s*"/.test(all) || /redis_auth_token\s*=\s*"[^"]/.test(all)) fail(`${TF}: literal Redis auth token`)
 
+  if (!/backend\s+"s3"\s*\{[^}]*encrypt\s*=\s*true/.test(tf['versions.tf'] ?? '')) fail(`${TF}/versions.tf: the S3 backend must set encrypt = true (state holds the documented generated secrets)`)
+
   // 6c. WP3: logging, private data tier, encryption.
   const t = (f) => tf[f] ?? ''
   if (!/publicly_accessible\s*=\s*false/.test(t('data.tf'))) fail(`${TF}/data.tf: RDS must set publicly_accessible = false`)

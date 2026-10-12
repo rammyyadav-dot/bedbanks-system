@@ -74,3 +74,4 @@ test('WP3: a build-time rewrite returns', () => match([['apps/agent/next.config.
 test('WP3: portal proxy stops using the resolver', () => match([['apps/supplier/proxy.ts', 'resolveApiDestination', 'somethingElse']], /resolve the API origin per request/))
 test('WP3: checkov skip without a reason', () => match([[`${T}/.checkov.yaml`, '  - CKV2_AWS_19   # the EIPs are attached to NAT gateways', '  - CKV2_AWS_19']], /has no reason/))
 test('WP3: checkov skip missing from the register', () => match([[`${T}/.checkov.yaml`, '  - CKV2_AWS_19   # the EIPs are attached to NAT gateways', '  - CKV2_AWS_19   # the EIPs are attached to NAT gateways\n  - CKV_AWS_999   # a brand new unregistered exception with a reason']], /CKV_AWS_999 is not in/))
+test('WP3: state backend without encryption', () => match([[`${T}/versions.tf`, 'encrypt = true', 'encrypt = false']], /encrypt = true/))
