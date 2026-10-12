@@ -23,6 +23,7 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
   const [baseline, setBaseline] = useState<Record<string, Record<string, GridBaseline>>>({})
   const [edited, setEdited] = useState<Record<string, Record<string, string>>>({})
   const [basis, setBasis] = useState<Record<string, 'NET' | 'SELL' | ''>>({})
+  const [derivedHidden, setDerivedHidden] = useState(0)
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null)
   const [review, setReview] = useState<{ edit: CalendarEdit; preview: CalendarPreview } | null>(null)
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
@@ -34,7 +35,9 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
     setLoading(true); setError(null); setReview(null); setEdited({})
     try {
       const listing = await getHotelRatePlans(hotelId, { page: 1, pageSize: MAX_PLANS })
-      const shown = listing.items.filter((p) => p.status !== 'EXPIRED')
+      // A derived plan has no rates of its own (ADR 0058, S10b): its price is its parent's, so it has nothing to edit in the grid.
+      const shown = listing.items.filter((p) => p.status !== 'EXPIRED' && !p.derivedFromId)
+      setDerivedHidden(listing.items.filter((p) => p.status !== 'EXPIRED' && p.derivedFromId).length)
       const rateRows = await Promise.all(shown.map((p) => getDailyRates(dates[0]!, dates[dates.length - 1]!, p.id)))
       const nextBase: Record<string, Record<string, GridBaseline>> = {}; const nextBasis: Record<string, 'NET' | 'SELL' | ''> = {}
       shown.forEach((p, i) => {
@@ -73,6 +76,7 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Nights</span><select value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 10, 14].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
         <span style={{ fontSize: 11, color: '#3f565c' }}>Up to {MAX_PLANS} plans. Type, or paste from a spreadsheet (fills right and down). Rates are in major units of the plan currency.</span>
       </div>
+      {derivedHidden > 0 ? <p style={{ fontSize: 12, color: '#3f565c' }}>{derivedHidden} derived plan{derivedHidden === 1 ? '' : 's'} not shown: they sell at a parent plan’s rate and have no rates of their own to edit here.</p> : null}
       {loading ? <p role="status" style={{ fontSize: 12 }}>Loading rates…</p> : error ? <p role="alert" style={{ color: '#a11d1d', fontSize: 12 }}>{error} No fallback data is shown.</p> : plans.length === 0 ? <p style={{ fontSize: 12 }}>This hotel has no editable rate plan.</p> : (
         <ScrollRegion label="Price grid" maxHeight={420}>
           <table style={tableStyle} aria-label="Prices by plan and night">

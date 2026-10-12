@@ -48,7 +48,7 @@ describe('contract market rules (ADR 0035)', () => {
   describe('evaluator', () => {
     const snapshot = (marketRules?: ContractedStaySnapshot['marketRules'], planMarketRules: ContractedStaySnapshot['planMarketRules'] = { salesMarkets: [], nationalities: [] }): ContractedStaySnapshot => ({
       hotelContentStatus: 'COMPLETE', roomActive: true, boardActive: true, supplierStatus: 'ACTIVE', hotelMappingStatus: 'MAPPED', hotelMappingHotelId: 'h', canonicalHotelId: 'h', roomMappingStatus: 'MAPPED',
-      contractStatus: 'ACTIVE', contractValidFrom: '2026-01-01', contractValidTo: '2026-12-31', contractCurrency: 'AED', guestPrices: [], promotions: [], cancellationPolicyMissing: false, planMarketRules, ratePlanValidFrom: null, ratePlanValidTo: null, ratePlanStatus: 'ACTIVE', ratePlanOccupancy: 2, ratePlanCurrency: 'AED', ratePlanMinStay: 1, ratePlanMaxStay: null,
+      contractStatus: 'ACTIVE', contractValidFrom: '2026-01-01', contractValidTo: '2026-12-31', contractCurrency: 'AED', guestPrices: [], promotions: [], derivedProblem: null, cancellationPolicyMissing: false, planMarketRules, ratePlanValidFrom: null, ratePlanValidTo: null, ratePlanStatus: 'ACTIVE', ratePlanOccupancy: 2, ratePlanCurrency: 'AED', ratePlanMinStay: 1, ratePlanMaxStay: null,
       ratePlanReleaseDays: 0, hotelTimeZone: 'Asia/Dubai', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, ...(marketRules ? { marketRules } : {}),
       nights: [{ date: '2026-10-15', rateAmountMinor: 10_000n, rateCurrency: 'AED', amountBasis: 'SELL', availability: { allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false } }],
     })

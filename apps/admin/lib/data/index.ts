@@ -84,6 +84,8 @@ export interface AdminRatePlan {
   salesMarkets?: string[]; nationalities?: string[];
   /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
   inventoryPoolId?: string | null;
+  /** Set when the plan is derived from another plan (ADR 0058, S10b): it has no rates of its own. */
+  derivedFromId?: string | null;
   /** Row version: activate and suspend must echo it so a stale view cannot overwrite a concurrent change. */
   updatedAt?: string;
   contract: { id: string; code: string; supplier: { id: string; displayName: string }; status?: string; validFrom?: string; validTo?: string; salesMarkets?: unknown };
@@ -97,7 +99,7 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput } from '@bedbanks/contracts'
+import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
 export type { CalendarImportPreview } from '@bedbanks/contracts'
 export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
@@ -121,6 +123,8 @@ export const suspendRatePlan = (ratePlanId: string, expectedUpdatedAt: string, r
 const approvalPath = (path: string, approvalId: string) => path.replace(':approvalId', encodeURIComponent(approvalId))
 // Child and extra-adult price lines (ADR 0057, S6).
 export const getGuestPrices = (ratePlanId: string) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId))
+export const getDerivation = (ratePlanId: string) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId))
+export const replaceDerivation = (ratePlanId: string, input: RatePlanDerivationInput) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const getPromotions = (ratePlanId: string) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId))
 export const replacePromotions = (ratePlanId: string, input: RatePlanPromotionsInput) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const replaceGuestPrices = (ratePlanId: string, input: RatePlanGuestPricesInput) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })

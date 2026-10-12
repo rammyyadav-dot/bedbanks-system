@@ -28,7 +28,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     contractValidFrom: '2026-10-01',
     contractValidTo: '2026-12-31',
     contractCurrency: 'AED',
-    guestPrices: [], promotions: [],
+    guestPrices: [], promotions: [], derivedProblem: null,
     cancellationPolicyMissing: false,
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,

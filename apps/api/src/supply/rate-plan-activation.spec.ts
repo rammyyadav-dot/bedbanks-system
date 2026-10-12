@@ -9,7 +9,7 @@ const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
   contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1, markets: { salesMarkets: [], nationalities: [] } },
   rates: [rate('2026-10-11'), rate('2026-10-12'), rate('2026-10-13')],
   availabilityDates: ['2026-10-11'],
-  guestPrices: [], promotions: [],
+  guestPrices: [], promotions: [], derived: { derived: false, problem: null },
   ...over,
 })
 const failed = (facts: ActivationFacts) => assessRatePlanActivation(facts).checks.filter((c) => !c.ok).map((c) => c.code)

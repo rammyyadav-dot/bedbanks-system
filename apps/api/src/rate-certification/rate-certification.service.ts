@@ -1,3 +1,4 @@
+import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
@@ -66,7 +67,7 @@ export class RateCertificationService {
     const gte = new Date(`${win.from}T00:00:00.000Z`)
     const lte = new Date(`${win.to}T00:00:00.000Z`)
     const lteDeparture = new Date(lte.getTime() + 86_400_000)
-    const [rooms, plans, mappings, roomMappings, mappedContracts] = await Promise.all([
+    const [rooms, rawPlans, mappings, roomMappings, mappedContracts] = await Promise.all([
       tx.roomType.findMany({ where: { hotelId: { in: ids }, hotel: { tenantId } }, select: { id: true, hotelId: true, name: true, code: true, maxAdults: true, maxChildren: true, maxOccupancy: true, isActive: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
       tx.ratePlan.findMany({
         where: { tenantId, roomType: { hotelId: { in: ids }, hotel: { tenantId } } },
@@ -76,6 +77,9 @@ export class RateCertificationService {
           roomType: { select: { id: true, name: true, code: true, hotelId: true, isActive: true, maxAdults: true, maxChildren: true, maxOccupancy: true, hotel: { select: { contentStatus: true, timeZone: true } } } },
           contract: { select: { cancellationPolicies: { select: { policySet: true } }, id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } } } },
           dailyRates: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, amountMinor: true, currency: true, amountBasis: true, occupancy: true } },
+          // ADR 0058, S10b: a derived plan is priced from its parent's rates in the same window.
+          derivedFromId: true, derivedMode: true, derivedAdjustment: true,
+          derivedFrom: { select: derivedParentSelect({ tenantId, stayDate: { gte, lte } }) },
           availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, inventoryMode: true, source: true, freshUntil: true } },
           inventoryPool: { select: { name: true, days: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, capacity: true, sold: true, held: true, source: true, freshUntil: true } } } },
         },
@@ -85,6 +89,7 @@ export class RateCertificationService {
       tx.supplierRoomMapping.findMany({ where: { tenantId, hotelId: { in: ids } }, select: { id: true, supplierHotelMappingId: true, roomTypeId: true, supplierRoomId: true, status: true, confidence: true, updatedAt: true }, orderBy: [{ id: 'asc' }] }),
       tx.contract.findMany({ where: { tenantId, supplierHotelMapping: { is: { hotelId: { in: ids } } } }, select: { id: true, code: true, status: true, validFrom: true, validTo: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } }, supplierHotelMapping: { select: { hotelId: true } } } }),
     ])
+    const plans = rawPlans.map(withDerivedRates)
     const enabledCurrencies = enabledSettlementCurrencies()
     return hotels.map((hotel) => ({
       hotel: { id: hotel.id, name: hotel.name, contentStatus: hotel.contentStatus, starRating: hotel.starRating }, city: hotel.city, enabledCurrencies,

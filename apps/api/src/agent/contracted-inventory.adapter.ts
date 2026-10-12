@@ -1,3 +1,4 @@
+import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbanks/domain'
@@ -213,7 +214,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     })
   }
 
-  private findPlanBatch(
+  private async findPlanBatch(
     tx: Parameters<Parameters<PrismaService['withTenant']>[1]>[0],
     tenantId: string,
     criteria: SearchCriteria,
@@ -223,7 +224,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     nightDates: Date[],
     hotelIds: string[],
   ) {
-    return tx.ratePlan.findMany({
+    const plans = await tx.ratePlan.findMany({
       where: {
         tenantId,
         status: 'ACTIVE',
@@ -266,12 +267,15 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         dailyRates: { where: { tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } } },
         guestPrices: true,
         promotions: true,
+        // ADR 0058, S10b: a derived plan is priced from its parent's rates in the same window; `withDerivedRates` turns them into the plan's own rows.
+        derivedFrom: { select: derivedParentSelect({ tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } }) },
         // The departure date row is read only for closedToDeparture; its stock is never counted.
         availability: { where: { tenantId, stayDate: { in: [...nightDates, checkOut] } } },
         inventoryPool: { include: { days: { where: { tenantId, stayDate: { in: nightDates } } } } },
       },
       orderBy: { id: 'asc' },
     })
+    return plans.map(withDerivedRates)
   }
 
   /**

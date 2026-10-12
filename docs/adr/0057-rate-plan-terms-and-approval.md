@@ -110,6 +110,17 @@ The policy is ADR 0058. Built:
 - **Admin.** A Promotions panel on the rate plan page.
 - **Not built:** offers do not yet carry the promotion's name to Agents (the price already includes it); a clone does not copy promotions (they are prices).
 
+## Slice S10b (implemented): derived rates
+
+The policy is ADR 0058. Built:
+
+- **Columns and triggers** (migration `202611180001_rate_plan_derived_rates`): `RatePlan.derived_from_id`, `derived_mode` (`PERCENT_BP` | `FIXED_MINOR`) and `derived_adjustment` (`INTEGER`), all set or all null, never a plan's own parent, bounded. A trigger on `RatePlan` (insert, and update of the derived columns only, so the lifecycle role's status updates never run it) requires a parent that exists, is not itself derived and shares tenant, contract, hotel, currency and occupancy; on update it also refuses a plan that holds rates or has derived plans. A trigger on `DailyRate` refuses a rate row for a derived plan. The clone login is checked against the triggers.
+- **Pricing.** `withDerivedRates` (pure) turns the parent's rows of the plan's occupancy into the derived plan's rows (same date, parent's basis and currency, adjustment half up on integers; a night below 1 minor unit becomes an invalid zero rate). Every loader (Agent search and recheck, the Admin hotel views and calendar, the certification audit and simulator, activation readiness, the approval fingerprint) calls it, so a derived plan is priced by the one evaluator. A parent that is missing, derived, mismatched or not ACTIVE leaves no rates and a typed reason (`DERIVED_PARENT_*`); the snapshot refuses to build if a loader skipped the step.
+- **Authoring.** `GET` and `PUT /supply/rate-plans/:id/derivation` (`supply.rates.read` / `.manage`): Draft or Suspended plans only, version-checked, audited (`supply.rate_plan.derivation_changed`), moves the plan version. Rate edits on a derived plan are refused with `RATE_PLAN_IS_DERIVED` in the calendar, grid, CSV import and Quick Update; availability and restrictions stay editable.
+- **Readiness and approval.** `DERIVED_PARENT_VALID`; the rate checks run on the derived rates; the fingerprint includes the derivation only when present and the derived rates, so a parent price change after an approval voids it.
+- **Clone** keeps the link and terms. **Admin:** a Derived pricing panel; the rate grid lists only plans with their own rates and says how many derived plans it hides.
+- **Not built:** the certification audit does not report row findings for a derived plan (its parent's rows are classified under the parent); the simulator and views show the derived price.
+
 ## Consequences
 - The booking window (distinct from the stay window) is still contract-level.
 - Mandatory approval (D1), when built, blocks a tenant with one rate manager. Staff first.

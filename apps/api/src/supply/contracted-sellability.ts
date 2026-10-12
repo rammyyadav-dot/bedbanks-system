@@ -113,6 +113,8 @@ export interface ContractedStaySnapshot {
   ratePlanValidTo: string | null
   /** The plan's child and extra-adult lines (ADR 0057, S6). Empty keeps the flat-occupancy rule. Required so a caller cannot omit it and price a child as free. */
   guestPrices: GuestPriceLine[]
+  /** Why a derived plan cannot be priced (ADR 0058, S10b), or null. Required so a caller cannot omit it. */
+  derivedProblem: string | null
   /** The plan's promotions (ADR 0058, S10a). Empty means none. Required so a caller cannot omit them and skip a discount the buyer was promised. */
   promotions: PromotionRule[]
   /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
@@ -204,6 +206,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
   if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (snapshot.cancellationPolicyMissing) reasons.push('CANCELLATION_POLICY_MISSING')
+  if (snapshot.derivedProblem !== null) reasons.push(snapshot.derivedProblem)
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }

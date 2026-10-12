@@ -22,6 +22,8 @@ export interface StayPlanInput {
   cancellationPolicySet: string | null
   /** ADR 0057 S6 child and extra-adult lines. Required: a loader that forgot them would otherwise price every child as free. */
   guestPrices: Array<{ kind: string; minAge: number; maxAge: number; amountMinor: bigint; amountBasis: string; currency: string }>
+  /** ADR 0058 S10b. Null for a plan that is not derived; otherwise why the derived plan cannot be priced (see `withDerivedRates`). Required so a loader that skipped it cannot sell a derived plan from nothing. */
+  derivedProblem: string | null
   /** ADR 0058 S10a promotions. Required: a loader that forgot them would silently sell at full price a plan the hotel discounted. */
   promotions: Array<{ id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null }>
   /** ADR 0057 S3 allow-lists. Required (any JSON) so a loader that forgot them fails loudly rather than reading as unrestricted. */
@@ -61,6 +63,7 @@ export function buildStaySnapshot(
   if (plan.cancellationPolicySet === undefined || plan.contract.cancellationPolicies === undefined) throw new Error('RATE_PLAN_CANCELLATION_NOT_LOADED')
   if (plan.salesMarkets === undefined || plan.nationalities === undefined) throw new Error('RATE_PLAN_MARKETS_NOT_LOADED')
   if (plan.guestPrices === undefined) throw new Error('RATE_PLAN_GUEST_PRICES_NOT_LOADED')
+  if (plan.derivedProblem === undefined) throw new Error('RATE_PLAN_DERIVED_NOT_RESOLVED')
   if (plan.promotions === undefined) throw new Error('RATE_PLAN_PROMOTIONS_NOT_LOADED')
   // A loader may bring several occupancies (ADR 0057, S6); only the plan's own occupancy prices a night (finding F12).
   const rates = new Map(plan.dailyRates.filter((rate) => rate.occupancy === undefined || rate.occupancy === plan.occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
@@ -100,6 +103,7 @@ export function buildStaySnapshot(
     contractValidTo: dayKey(plan.contract.validTo),
     contractCurrency: plan.contract.settlementCurrency,
     guestPrices: plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })),
+    derivedProblem: plan.derivedProblem,
     promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null })),
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,

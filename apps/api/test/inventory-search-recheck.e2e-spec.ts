@@ -15,9 +15,9 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
 
   const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED', ...patch })
 
-  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL' | 'NET'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; occupancy?: number; guestPrices?: Array<{ kind: 'CHILD' | 'EXTRA_ADULT'; minAge: number; maxAge: number; amountMinor: bigint; basis: 'NET' | 'SELL' }>; salesMarkets?: string[]; nationalities?: string[]; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
-    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: opts.occupancy ?? 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [] } })).id
-    await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: opts.occupancy ?? 2, amountMinor: opts.amount ?? 50000n, amountBasis: opts.basis ?? ('SELL' as const), currency: 'AED' })) })
+  async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL' | 'NET'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; occupancy?: number; guestPrices?: Array<{ kind: 'CHILD' | 'EXTRA_ADULT'; minAge: number; maxAge: number; amountMinor: bigint; basis: 'NET' | 'SELL' }>; salesMarkets?: string[]; nationalities?: string[]; derived?: { parentId: string; mode: 'PERCENT_BP' | 'FIXED_MINOR'; adjustment: number }; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
+    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: opts.occupancy ?? 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [], ...(opts.derived ? { derivedFromId: opts.derived.parentId, derivedMode: opts.derived.mode, derivedAdjustment: opts.derived.adjustment } : {}) } })).id
+    if (!opts.derived) await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: opts.occupancy ?? 2, amountMinor: opts.amount ?? 50000n, amountBasis: opts.basis ?? ('SELL' as const), currency: 'AED' })) })
     if (opts.guestPrices?.length) await prisma.ratePlanGuestPrice.createMany({ data: opts.guestPrices.map((g) => ({ tenantId, ratePlanId: id, kind: g.kind, minAge: g.minAge, maxAge: g.maxAge, amountMinor: g.amountMinor, amountBasis: g.basis, currency: 'AED' })) })
     if (opts.rows !== false) {
       await prisma.dailyAvailability.createMany({ data: [...nights, checkOut].map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), allotment: opts.allotment ?? 5, inventoryMode: opts.mode ?? 'ALLOTMENT' })) })
@@ -228,6 +228,52 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
       const net = await newPlan('promo-net', { amount: 10_001n, basis: 'NET' })
       await promo(net, { name: 'Twenty', percentBp: 2000 })
       expect(forPlan(await rates(), net)).toMatchObject({ netAmountMinor: nights.length * 8_001, markupAmountMinor: nights.length * 800, sellAmountMinor: nights.length * 8_801 })
+    } finally { await prisma.commercialMarkupRule.deleteMany({ where: { tenantId } }) }
+  })
+
+  it('SR-20 a derived plan sells at its parent rate adjusted, in the parent basis, and stops when the parent cannot price it (ADR 0058, S10b)', async () => {
+    const parent = await newPlan('dv-parent', { amount: 50_000n })
+    const minus20 = await newPlan('dv-minus', { derived: { parentId: parent, mode: 'PERCENT_BP', adjustment: -2_000 } })
+    const plus5 = await newPlan('dv-plus', { derived: { parentId: parent, mode: 'FIXED_MINOR', adjustment: 5_000 } })
+    const offers = await rates()
+    expect(forPlan(offers, parent)).toMatchObject({ sellAmountMinor: nights.length * 50_000 })
+    expect(forPlan(offers, minus20)).toMatchObject({ sellAmountMinor: nights.length * 40_000 })
+    expect(forPlan(offers, plus5)).toMatchObject({ sellAmountMinor: nights.length * 55_000 })
+    // recheck reproduces the derived price
+    const offer = forPlan(offers, minus20)!
+    expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toMatchObject({ status: 'available', offer: { sellAmountMinor: nights.length * 40_000 } })
+    // the parent's price moves the derived price with it
+    await prisma.dailyRate.updateMany({ where: { ratePlanId: parent }, data: { amountMinor: 60_000n } })
+    expect(forPlan(await rates(), minus20)).toMatchObject({ sellAmountMinor: nights.length * 48_000 })
+    // a derived plan keeps its own availability: closing it removes only that plan
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId: plus5 }, data: { stopSell: true } })
+    const afterStop = await rates()
+    expect(forPlan(afterStop, plus5)).toBeUndefined()
+    expect(forPlan(afterStop, minus20)).toBeDefined()
+    // a parent that is not active prices nothing
+    await prisma.ratePlan.update({ where: { id: parent }, data: { status: 'SUSPENDED' } })
+    const suspended = await rates()
+    expect(forPlan(suspended, minus20)).toBeUndefined()
+    await prisma.ratePlan.update({ where: { id: parent }, data: { status: 'ACTIVE' } })
+    expect(forPlan(await rates(), minus20)).toBeDefined()
+    // an adjustment that takes a night to zero or below is not sold, never sold free
+    await prisma.ratePlan.update({ where: { id: minus20 }, data: { derivedMode: 'FIXED_MINOR', derivedAdjustment: -60_000 } })
+    expect(forPlan(await rates(), minus20)).toBeUndefined()
+    // restoring sane terms sells it again
+    await prisma.ratePlan.update({ where: { id: minus20 }, data: { derivedMode: 'PERCENT_BP', derivedAdjustment: -2_000 } })
+    expect(forPlan(await rates(), minus20)).toBeDefined()
+  })
+
+  it('SR-21 a derived NET plan applies the markup to the adjusted net, and its own promotion applies on top (ADR 0058)', async () => {
+    await prisma.commercialMarkupRule.create({ data: { tenantId, scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: new Date('2026-01-01'), status: 'ACTIVE', activatedAt: new Date(), reason: 'test', createdById: userId } })
+    try {
+      const parent = await newPlan('dvn-parent', { amount: 30_005n, basis: 'NET' })
+      const child = await newPlan('dvn-child', { derived: { parentId: parent, mode: 'PERCENT_BP', adjustment: -1_000 } })
+      // net 30,005 - 10% (3,000.5 -> 3,001) = 27,004; markup 10% = 2,700.4 -> 2,700; sell 29,704 per night
+      expect(forPlan(await rates(), child)).toMatchObject({ netAmountMinor: nights.length * 27_004, markupAmountMinor: nights.length * 2_700, sellAmountMinor: nights.length * 29_704 })
+      // the child's own promotion (20% off the derived net) comes before the markup: 27,004 - 5,401 (5,400.8) = 21,603; markup 2,160.3 -> 2,160; sell 23,763
+      await prisma.ratePlanPromotion.create({ data: { tenantId, ratePlanId: child, kind: 'EARLY_BIRD', name: 'Early', nameKey: 'early', percentBp: 2_000, minLeadDays: 14 } })
+      expect(forPlan(await rates(), child)).toMatchObject({ netAmountMinor: nights.length * 21_603, markupAmountMinor: nights.length * 2_160, sellAmountMinor: nights.length * 23_763 })
     } finally { await prisma.commercialMarkupRule.deleteMany({ where: { tenantId } }) }
   })
 

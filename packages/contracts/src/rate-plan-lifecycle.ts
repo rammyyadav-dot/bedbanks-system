@@ -90,6 +90,33 @@ export interface RatePlanPromotion {
 }
 export interface RatePlanPromotions { ratePlanId: string; updatedAt: string; promotions: RatePlanPromotion[] }
 export interface RatePlanPromotionsInput { expectedUpdatedAt: string; promotions: RatePlanPromotion[]; reason?: string }
+/**
+ * Derived rates (ADR 0058, S10b). A derived plan sells at its parent's nightly rate for the same date, adjusted, and owns no rates. The parent must be a plan
+ * of the same contract, hotel, currency and occupancy that is not itself derived. `PERCENT_BP` adjustment is signed basis points (-9000 to 100000);
+ * `FIXED_MINOR` is signed minor units (at most 2,000,000,000). Both are whole numbers.
+ */
+export type DerivedRateMode = 'PERCENT_BP' | 'FIXED_MINOR'
+export interface RatePlanDerivation {
+  ratePlanId: string
+  updatedAt: string
+  status: string
+  currency: string
+  derived: { parentId: string; parentCode: string; mode: DerivedRateMode; adjustment: number } | null
+  /** Plans this one could be derived from: same contract, hotel, currency and occupancy, not themselves derived. */
+  candidates: Array<{ id: string; code: string; roomName: string }>
+  /** True when the plan holds its own rate rows (it must be emptied before it can be derived). */
+  hasOwnRates: boolean
+  /** True when other plans derive from this one (it cannot itself be derived). */
+  hasDerivedPlans: boolean
+}
+export interface RatePlanDerivationInput {
+  expectedUpdatedAt: string
+  /** The parent plan, or null to remove the derivation. */
+  parentId: string | null
+  mode?: DerivedRateMode
+  adjustment?: number
+  reason?: string
+}
 export interface RatePlanGuestPricesInput {
   expectedUpdatedAt: string
   /** Each line: `minAge`/`maxAge` are required for CHILD and ignored for EXTRA_ADULT. */

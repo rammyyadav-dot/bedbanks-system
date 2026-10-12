@@ -4,7 +4,7 @@ import { SupplyService } from './supply.service'
 const at = new Date('2030-01-01T10:00:00.000Z')
 const future = (n: number) => new Date(Date.UTC(2099, 0, n))
 const planRow = (extra: Record<string, unknown> = {}) => ({
-  id: 'plan', tenantId: 'tenant', status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, cancellationPolicySet: null, guestPrices: [], promotions: [], updatedAt: at,
+  id: 'plan', tenantId: 'tenant', status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, cancellationPolicySet: null, guestPrices: [], promotions: [], derivedProblem: null, derivedFromId: null, derivedMode: null, derivedAdjustment: null, derivedFrom: null, updatedAt: at,
   contractId: 'contract', roomTypeId: 'room', boardBasisId: 'board', taxesIncluded: false, feesIncluded: false, releaseDays: 0, releaseTimeLocal: '00:00',
   roomType: { hotelId: 'h1', maxOccupancy: 3, isActive: true, hotel: { id: 'h1', timeZone: 'Asia/Dubai' } },
   boardBasis: { isActive: true },

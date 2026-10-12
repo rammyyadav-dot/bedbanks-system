@@ -564,6 +564,12 @@ model RatePlanGuestPrice {
   @@index([tenantId, ratePlanId])
 }
 
+/// How a derived rate plan adjusts its parent's nightly rate (ADR 0058, S10b).
+enum DerivedRateMode {
+  PERCENT_BP
+  FIXED_MINOR
+}
+
 /// Promotion kinds (ADR 0058). At most one applies to a stay; they never stack.
 enum PromotionKind {
   EARLY_BIRD
@@ -1810,6 +1816,13 @@ model RatePlan {
   /// Name of a cancellation rule set on this plan's contract (ADR 0057). Null uses the contract default rules.
   cancellationPolicySet String?    @map("cancellation_policy_set") @db.VarChar(80)
   /// The shared physical stock this plan draws from, if any. Pools never mix tenants, hotels or suppliers (database trigger).
+  /// Derived rate (ADR 0058, S10b): this plan sells at its parent's nightly rate for the same date, adjusted. A derived plan has no DailyRate rows of its own.
+  derivedFromId     String?        @map("derived_from_id")
+  derivedFrom       RatePlan?      @relation("DerivedRates", fields: [derivedFromId], references: [id], onDelete: Restrict)
+  derivedPlans      RatePlan[]     @relation("DerivedRates")
+  derivedMode       DerivedRateMode? @map("derived_mode")
+  /// Signed. PERCENT_BP: basis points of the parent rate (-9000..100000). FIXED_MINOR: minor units (at most 2,000,000,000) added to the parent rate.
+  derivedAdjustment Int?           @map("derived_adjustment")
   inventoryPoolId   String?        @map("inventory_pool_id")
   inventoryPool     InventoryPool? @relation(fields: [tenantId, inventoryPoolId], references: [tenantId, id], onDelete: Restrict)
   createdAt         DateTime       @default(now()) @map("created_at")
@@ -1822,6 +1835,7 @@ model RatePlan {
 
   @@unique([contractId, code])
   @@index([tenantId, status])
+  @@index([tenantId, derivedFromId])
   @@index([roomTypeId])
   @@index([tenantId, inventoryPoolId])
 }

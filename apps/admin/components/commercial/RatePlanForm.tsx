@@ -13,6 +13,7 @@ import { badCodes, formatCodeList, parseCodeList } from '@/lib/market-list'
 import { setNames } from '@/lib/cancellation-sets'
 import { GuestPricesPanel } from './GuestPricesPanel'
 import { PromotionsPanel } from './PromotionsPanel'
+import { DerivationPanel } from './DerivationPanel'
 import { PAYMENT_TYPE_OPTIONS, dayFromApi, termsFromForm } from '@/lib/rate-plan-terms'
 import {
   createRatePlan, getBoardBases, getContract, getContracts, getHotels, getRatePlan, getRoomsByHotel, updateRatePlan,
@@ -139,6 +140,7 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
         </form>
       )}
       {editing && ratePlanId && !loading && !loadError ? <GuestPricesPanel ratePlanId={ratePlanId} /> : null}
+      {editing && ratePlanId && !loading && !loadError ? <DerivationPanel ratePlanId={ratePlanId} /> : null}
       {editing && ratePlanId && !loading && !loadError ? <PromotionsPanel ratePlanId={ratePlanId} /> : null}
     </div>
   )

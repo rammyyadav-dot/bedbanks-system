@@ -1,7 +1,7 @@
 # ADR 0058: Promotions and derived rates, pricing policy
 
 ## Status
-Accepted as the policy for slice S10 of ADR 0057 (decision D7: "promotions and derived rates wait for a pricing-policy ADR"). The policy is deliberately conservative: where a rule could be read two ways, the stricter reading is chosen and the loosening is left to a later, explicit decision. S10a (promotions) is implemented first; S10b (derived rates) follows. Each section below states what is implemented. Nothing here enables booking or payment.
+Accepted as the policy for slice S10 of ADR 0057 (decision D7: "promotions and derived rates wait for a pricing-policy ADR"). The policy is deliberately conservative: where a rule could be read two ways, the stricter reading is chosen and the loosening is left to a later, explicit decision. S10a (promotions) and S10b (derived rates) are both implemented. Each section below states what is implemented. Nothing here enables booking or payment.
 
 ## Principles (inherited, restated because they decide edge cases)
 1. Money is integer minor units. No floating point anywhere in pricing.
@@ -41,12 +41,13 @@ A promotion belongs to one rate plan.
 - The decision records which promotion applied and the saving per room, so the simulator and the audit can explain a price. The offer's total already includes it.
 - **Authoring** needs `supply.rates.manage`, is validated as a whole, version-checked against the plan, audited with before and after, and moves the plan version (so an activation approval filed on other prices is void). Promotions are part of the approval fingerprint. A clone does not copy them (they are prices).
 
-## Derived rates (S10b)
-(Specified here so the policy is whole; implemented in the next slice and marked as such in ADR 0057.)
-- A derived plan sells at its **parent's nightly rate for the same date plus or minus** an adjustment: `PERCENT_BP` (signed basis points, half-up on the magnitude then signed) or `FIXED_MINOR` (signed minor units). It has **no rate rows of its own**; rate edits on a derived plan are refused.
+## Derived rates (S10b, implemented)
+- A derived plan sells at its **parent's nightly rate for the same date plus or minus** an adjustment: `PERCENT_BP` (signed basis points from -9000 to 100000, half-up on the magnitude then signed) or `FIXED_MINOR` (signed minor units, at most 2,000,000,000 either way). The adjustment is stored as an `INTEGER`, so a plan row always serializes as plain JSON. It has **no rate rows of its own**; rate edits on a derived plan are refused.
 - **Depth one.** A parent must not itself be derived, so cycles cannot exist by construction; the evaluator refuses a derived plan whose parent is derived.
 - **Same shape.** Parent and derived plan must share contract, hotel, currency and occupancy. The basis (NET or SELL) is the parent's night's basis.
 - The derived nightly rate must be >= 1; a night where the adjustment would make it zero or negative makes **that night** (and so the stay) unsellable.
+- **The parent must be ACTIVE** for the derived plan to sell. Suspending or expiring the parent stops its derived plans with the typed reason `DERIVED_PARENT_INACTIVE`; no price is invented. A derived plan can be authored against a Draft parent, but cannot be activated until the parent is active (readiness check `DERIVED_PARENT_VALID`).
+- **Authoring** is allowed only on a Draft or Suspended plan: a live plan keeps its price source. A plan with rate rows cannot be made derived (delete them first), and a plan that has derived plans cannot itself be derived.
 - A derived plan keeps its **own availability, restrictions and pool membership**; only the price is derived. Guest lines and promotions of the derived plan apply on top of the derived rate, exactly as for any plan.
 
 ## Not decided here
