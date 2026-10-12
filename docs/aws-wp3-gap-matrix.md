@@ -7,7 +7,7 @@ Status vocabulary: **Verified** = proved by an executed check (named in the evid
 ## A. Requirement matrix
 | # | Requirement | Existing before WP3 | Status now | Risk | Change in WP3 | Acceptance evidence |
 |---|---|---|---|---|---|---|
-| 1 | Terraform/workflow CI is green | `ci.yml:167` failed ShellCheck SC2034; actionlint had been "passing" locally only because ShellCheck was absent | Verified locally; CI run on the new head **Blocked until the push is built by GitHub** | High (red CI) | `for _` fix; `tools/workflow-lint.sh` fails without ShellCheck; regression test | `tools/workflow-lint.sh` + 3 tests |
+| 1 | Terraform/workflow CI is green | `ci.yml:167` failed ShellCheck SC2034; actionlint had been "passing" locally only because ShellCheck was absent | **Verified**: green on GitHub's runners for the final PR head `1bf2e33` (Terraform check #5 and every `ci.yml` job) and for the merge commit; one earlier red run on `5052114` was my own test bug, fixed | High (red CI) | `for _` fix; `tools/workflow-lint.sh` fails without ShellCheck; regression test | `tools/workflow-lint.sh` + 3 tests |
 | 2 | Terraform fmt/validate/test/tflint/checkov | WP2: fmt drift, SG cycles, ACM `for_each` defect (fixed in WP2) | Verified | Medium | 17 mock-provider runs, `.tflint.hcl`, checkov baseline split into ACCEPTED/OPEN | evidence §Infrastructure |
 | 3 | Redis private, TLS, at-rest encryption, AUTH, secret in Secrets Manager | TLS + at-rest + private; no AUTH | Verified offline; live ElastiCache **Blocked** | High | AUTH token → `REDIS_URL` secret; adapter handshake unit-tested | `terraform test`, governance, 6 adapter tests |
 | 4 | VPC flow logs | none | Verified offline | Medium | `aws_flow_log`, KMS log group, scoped role | `terraform test`, governance |

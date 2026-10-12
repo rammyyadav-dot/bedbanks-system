@@ -13,7 +13,7 @@ Status key: **PASS** = executed, exit 0, counts quoted. **FAIL** = executed and 
 | Fix (`for _ in $(seq 1 40)`) | **PASS**: behaviour identical, the variable was never read |
 | `tools/workflow-lint.sh` (actionlint 1.7.7 + ShellCheck 0.11.0) over all 10 workflows | **PASS**: clean |
 | Regression test: unused loop variable rejected; `_` accepted; lint refuses to pass without ShellCheck | **PASS** 3/3 |
-| GitHub Actions run on the pushed head | see §7 |
+| GitHub Actions run on the final PR head | **PASS**, see §7 (it failed once on the first head for a test-isolation bug of mine, fixed in `1bf2e33`) |
 
 ## 2. Infrastructure (at `a337df8`)
 | Check | Result |
@@ -75,8 +75,21 @@ Status key: **PASS** = executed, exit 0, counts quoted. **FAIL** = executed and 
 | RDS restore capability; CloudWatch alarm notification delivery | restore a snapshot to a new instance and record timings; induce an alarm and confirm the SNS email |
 | Real `terraform plan` / apply | reviewed by a human before any apply; this branch applied nothing |
 
-## 7. GitHub Actions on the pushed head
-Recorded after the push in the pull request (see the PR description); a local pass is not claimed as a CI pass.
+## 7. GitHub Actions results (read from GitHub, 2026-10-12)
+PR #314 was merged into `main` (merge commit `702dad8057cffe6114e5170e1cf45f6245e474a6`) about one minute after the last push, **before the long jobs had finished**; the results below were read afterwards. The merge was not made by the assistant.
+
+| Workflow / job | `5052114` (first PR head) | `1bf2e33` (final PR head) | `702dad8` (merge on `main`) |
+|---|---|---|---|
+| Terraform check (`validate`: fmt, init, validate, `terraform test`, governance, checkov, workflow lint) | **FAILED** run #4: only the *Workflow lint* step, a bug in my own regression test (it limited `PATH` to `/usr/bin:/bin`, where runners keep ShellCheck, so the lint ran and the test wrongly expected exit 2). All earlier steps passed on the runner | **PASS** run #5 | not triggered (the workflow runs on pull requests that touch `infra/aws/**`, tools or workflows) |
+| CI: Schema integrity (incl. `check:architecture`, `check:aws-governance`) | pass | **PASS** | **PASS** |
+| CI: Website production checks (incl. Playwright) | pass | **PASS** | **PASS** |
+| CI: Prisma migration certification (hotel/strict-role suites, sandbox acceptance, full API e2e, drift, re-certification) | not read (superseded) | **PASS** (about 11 minutes) | **PASS** |
+| CI: verify (tenant-control certification, DI smoke, `pnpm -r` type-check/lint/test/build with Redis) | not read (superseded) | **PASS** (about 11 minutes) | **PASS** |
+| Contract checks | pass | **PASS** | n/a |
+| Tenant isolation checks | pass | **PASS** | n/a |
+| Portal deployment configuration (incl. build-hash independence) | pass | **PASS** | **PASS** |
+
+Consequence: the Phase 2 acceptance ("Terraform CI succeeds on the exact new commit, not merely in the local environment") is **met for `1bf2e33`**, and the repository's own CI (including the database certification and the full test run on GitHub's runners with Node 24) passed on both the final PR head and the merge commit on `main`. For the jobs CI runs, these results narrow the sandbox caveats in the Environment note above: they ran on Node 24 with the CI service images (`pgvector/pgvector:pg16`, `redis:7-alpine`) and with the real `GITHUB_ACTIONS` variables. Checks CI does not run (the two-backend portal harness, the Redis `requirepass` run, the account-level items) are unchanged. Vercel preview builds of the portals (Agent previews reached DEPLOYED with the new `proxy.ts`) were observed in PR comments but are not part of this table.
 
 ## 8. Resources created in AWS
 **None.** No `terraform apply`, no AWS API call, no DNS change, no production data access, no live supplier, booking or payment activation, no Vercel or Render change.
