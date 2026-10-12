@@ -5,7 +5,7 @@ Prepared by the engineering assistant for the CTO; **the decision below is a rec
 ## Decision
 | Scope | Recommendation | Why |
 |---|---|---|
-| Merge this pull request (repository changes only, nothing applied to AWS) | **GO, after review and a green GitHub Actions run on the exact head** | All offline and local application, database and website checks pass; no schema, grant, role, pricing, supplier, booking or payment code changed |
+| Merge this pull request (repository changes only, nothing applied to AWS) | **GO.** Condition met: GitHub Actions was green on the final PR head `1bf2e33` and on the merge commit (`docs/aws-wp3-verification-evidence.md` §7). Note it was merged before those runs finished; they passed afterwards | All offline and local application, database and website checks pass; no schema, grant, role, pricing, supplier, booking or payment code changed |
 | Plan and apply **staging** in AWS | **CONDITIONAL GO**: after the owner decisions and the reviewed real `terraform plan` below | Nothing has been planned against a real account; live-account behaviour is unproven |
 | **Production** infrastructure, data move, DNS cutover | **NO-GO** | See blockers 1 to 7; none of the production gates in ADR 0055 is satisfied by offline evidence |
 | Enable booking, payments or live supplier integrations | **NO-GO / out of scope** | unchanged; `BOOKING_ENABLED=false` is guarded in CI |
