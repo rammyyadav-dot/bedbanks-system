@@ -97,8 +97,10 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult } from '@bedbanks/contracts'
+import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
+export type { CalendarImportPreview } from '@bedbanks/contracts'
+export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const previewCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarApply, { method: 'POST', headers: json, body: JSON.stringify(input) })
 

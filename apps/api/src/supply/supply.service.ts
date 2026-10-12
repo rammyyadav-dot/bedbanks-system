@@ -18,6 +18,7 @@ import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type Rate
 import { deriveRatePlanCapabilities } from './rate-plan-capabilities'
 import { activationApprovalMode } from './rate-plan-approval-mode'
 import { planFingerprint } from './rate-plan-fingerprint'
+import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
@@ -565,6 +566,46 @@ export class SupplyService {
 
   /** One transaction for the entire calendar edit. Preview performs the same validation without writes.
    * The strict runtime grant contract remains authoritative; this does not elevate the connection. */
+  /**
+   * CSV import preview (ADR 0057, S7). Read-only. Parses and validates the file per row, loads only the cells it refers to for their current versions,
+   * and runs the accepted cells through the same preview as every other calendar edit. Applying is `calendar/apply` with the returned `edit`.
+   */
+  async previewCalendarImport(tenantId: string, userId: string, input: { hotelId?: unknown; csv?: unknown }, requestId?: string) {
+    if (typeof input?.hotelId !== 'string' || !input.hotelId.trim() || input.hotelId.length > 100) throw new BadRequestException('hotelId is required')
+    if (typeof input.csv !== 'string') throw new BadRequestException('csv must be text')
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const hotelId = input.hotelId
+    const refs = scanReferences(input.csv)
+    const loaded = await this.prisma.withTenant(tenantId, async tx => {
+      const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { id: true } })
+      if (!hotel) throw new NotFoundException('Hotel not found')
+      const plans = await tx.ratePlan.findMany({ where: { tenantId, roomType: { hotelId, hotel: { tenantId } } }, select: { id: true, code: true, currency: true, occupancy: true, inventoryPoolId: true, status: true, contract: { select: { validFrom: true, validTo: true } } }, orderBy: { id: 'asc' }, take: 2001 })
+      if (plans.length > 2000) throw new BadRequestException('This hotel has too many rate plans to import against in one file; contact support.')
+      const referenced = plans.filter(plan => refs.planKeys.includes(plan.id) || refs.planKeys.includes(plan.code))
+      const planIds = referenced.map(plan => plan.id)
+      const stayDates = refs.dates.map(day => new Date(`${day}T00:00:00.000Z`))
+      const [rates, availability] = planIds.length && stayDates.length
+        ? await Promise.all([
+          tx.dailyRate.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, occupancy: true, updatedAt: true } }),
+          tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, updatedAt: true } }),
+        ])
+        : [[], []]
+      return { plans, rates, availability }
+    })
+    const day = (value: Date) => value.toISOString().slice(0, 10)
+    const importPlans: ImportPlan[] = loaded.plans.map(plan => ({ id: plan.id, code: plan.code, currency: plan.currency, occupancy: plan.occupancy, inventoryPoolId: plan.inventoryPoolId, expired: plan.status === 'EXPIRED', contractValidFrom: day(plan.contract.validFrom), contractValidTo: day(plan.contract.validTo) }))
+    const plansByCode = new Map<string, ImportPlan[]>()
+    for (const plan of importPlans) plansByCode.set(plan.code, [...(plansByCode.get(plan.code) ?? []), plan])
+    const rateIndex = new Map<string, ExistingRate>(loaded.rates.map(row => [`${row.ratePlanId}|${day(row.stayDate)}|${row.occupancy}`, { updatedAt: row.updatedAt.toISOString() }]))
+    const availabilityIndex = new Map<string, ExistingAvailability>(loaded.availability.map(row => [`${row.ratePlanId}|${day(row.stayDate)}`, { updatedAt: row.updatedAt.toISOString(), allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay }]))
+    const built = buildCalendarImport(input.csv, { plansByCode, plansById: new Map(importPlans.map(plan => [plan.id, plan])), rate: (planId, date, occupancy) => rateIndex.get(`${planId}|${date}|${occupancy}`) ?? null, availability: (planId, date) => availabilityIndex.get(`${planId}|${date}`) ?? null })
+    const cells = built.rates.length + built.availability.length
+    const edit = cells > 0 && built.fatal.length === 0 ? { ...(built.rates.length ? { rates: built.rates } : {}), ...(built.availability.length ? { availability: built.availability } : {}) } : null
+    // The authoritative preview: same validation, permissions and stale-cell rules as every other calendar edit. It writes nothing.
+    const preview = edit ? await this.editCalendar(tenantId, userId, edit, requestId, true, true) : null
+    return { ok: built.ok && built.fatal.length === 0, fatal: built.fatal, errors: built.errors, warnings: built.warnings, truncatedErrors: built.truncatedErrors, stats: built.stats, edit, preview }
+  }
+
   async editCalendar(tenantId: string, userId: string, input: { rates?: unknown; availability?: unknown }, requestId?: string, preview = false, requireVersions = false) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid calendar edit')
     const rates = input.rates === undefined ? [] : inputRows(input.rates, 'daily rate').map(rateInput)

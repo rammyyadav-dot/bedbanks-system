@@ -154,7 +154,10 @@ Booking, payment, wallet, supplier confirmation and any live connector. No merge
 | S3 plan-level buyer market + nationality | **BUILT** (narrow-only, enforced in the shared evaluator); channel NOT modelled | ADR 0057; migration `202611130001` |
 | S0 operator provisioning / hosted certification | OPEN (people) | runbook |
 | S5 four-eye activation | **BUILT** (default required; explicit `off` switch; runbook `docs/runbooks/rate-plan-activation-approval.md`) | ADR 0057 |
-| S4, S6-S10 | NOT BUILT | - |
+| S7 grid + CSV import | **BUILT** (API and Admin; not browser-tested) | ADR 0057 |
+| S8 clone writer | **BUILT**, strict-role smoke 66/66 | ADR 0057; `docs/runbooks/rate-plan-clone-role.md` |
+| S9 expiry sweeper | **BUILT** (disabled by default) | ADR 0057 |
+| S4, S6, S10 | NOT BUILT | - |
 
 | F5 | closed in application code (D3: the lifecycle credential can still write status) | S5 |
 | F4 | closed for plan-level market and nationality lists | S3 |
