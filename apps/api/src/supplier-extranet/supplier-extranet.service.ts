@@ -8,6 +8,7 @@ const EXTRANET_PERMISSIONS = [
   'supplier.extranet.rooms.read',
   'supplier.extranet.drafts.manage',
   'supplier.extranet.contracts.read',
+  'supplier.extranet.bookings.read',
 ] as const
 
 const hotelFields = {
@@ -31,7 +32,7 @@ export class SupplierExtranetService {
     return new Set(assignments.flatMap((assignment) => assignment.role.permissions.map((item) => item.permission.key)))
   }
 
-  private async requirePermission(tenantId: string, userId: string, permission: string): Promise<void> {
+  async requirePermission(tenantId: string, userId: string, permission: string): Promise<void> {
     const keys = await this.permissionKeys(tenantId, userId)
     if (!keys.has(permission)) throw new ForbiddenException('Access denied')
   }

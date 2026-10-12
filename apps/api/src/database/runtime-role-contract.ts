@@ -60,6 +60,13 @@ export const HOLD_ATTRIBUTION_COLUMNS = ['id', 'tenant_id', 'rate_plan_id', 'sta
 /** InventoryHoldNight columns the report reads: the hold, the recorded counter reference (kind and pool night) and the quantity. Nothing else. */
 export const HOLD_NIGHT_ATTRIBUTION_COLUMNS = ['tenant_id', 'hold_id', 'pool_day_id', 'counter_kind', 'quantity'] as const
 
+/** Booking columns the supplier extranet reads (ADR 0061 Amendment 1). Deliberately no sell/total, markup, FX, agency, agent, channel, payment or search snapshot. */
+export const BOOKING_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'reference', 'supplier_id', 'hotel_id', 'status', 'currency', 'net_minor', 'check_in', 'check_out', 'nights', 'supplier_ref', 'hotel_confirmation_no', 'created_at', 'updated_at'] as const
+/** BookingRoom columns the extranet reads: the room line and its supplier net. No sell amount, rate key or child ages. */
+export const BOOKING_ROOM_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'position', 'quantity', 'room_name', 'board_code', 'adults', 'children', 'net_minor'] as const
+/** BookingGuest columns the extranet reads: the lead guest's name only. No title, age, type, room link or any contact detail. */
+export const BOOKING_GUEST_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'first_name', 'last_name', 'is_lead'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -84,6 +91,9 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
 
 /** Tables the runtime reads through named columns only, and never writes. */
 const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
+  { table: 'Booking', model: 'Booking', read: false, readColumns: BOOKING_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only (ADR 0061 Amendment 1): no sell price, markup, FX, agency, channel, payment or snapshot column; never written by this role' },
+  { table: 'BookingRoom', model: 'BookingRoom', read: false, readColumns: BOOKING_ROOM_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: room line and supplier net; no sell amount or rate key' },
+  { table: 'BookingGuest', model: 'BookingGuest', read: false, readColumns: BOOKING_GUEST_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: lead guest name; no contact detail, age or room link' },
   { table: 'InventoryHold', model: 'InventoryHold', read: false, readColumns: HOLD_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column' },
   { table: 'InventoryHoldNight', model: 'InventoryHoldNight', read: false, readColumns: HOLD_NIGHT_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference' },
 ]

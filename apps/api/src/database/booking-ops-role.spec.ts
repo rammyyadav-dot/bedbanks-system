@@ -30,8 +30,10 @@ describe('booking module database role (ADR 0039)', () => {
     expect(bookingOpsGrantStatements().filter((q) => q.includes('"AuditEvent"'))).toEqual([`GRANT INSERT ON "AuditEvent" TO "${BOOKING_OPS_GROUP_ROLE}"`]) // the audit log is write-only for this role
   })
 
-  it('BO-03: the API runtime role gets no booking grant from this module or from its own statements', () => {
-    expect(apiRuntimeGrantStatements().join(' ')).not.toMatch(/"Booking(Room|Guest|Event)?"/)
+  it('BO-03: the API runtime role gets no booking write and no table-level booking read; only the extranet column reads (ADR 0061 Amendment 1)', () => {
+    const statements = apiRuntimeGrantStatements().filter((q) => /"Booking(Room|Guest|Event)?"/.test(q))
+    expect(statements.every((q) => /^GRANT SELECT \(/.test(q))).toBe(true)
+    expect(statements.map((q) => /ON "(\w+)"/.exec(q)![1]).sort()).toEqual(['Booking', 'BookingGuest', 'BookingRoom'])
   })
 
   it('BO-04: provisioning revokes first, never creates an elevated role, and is repeatable', async () => {

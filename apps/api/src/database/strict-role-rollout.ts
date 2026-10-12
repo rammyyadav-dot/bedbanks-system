@@ -108,7 +108,22 @@ export const PRIVILEGE_PROBES: ReadonlyArray<{ name: string; sql: string; expect
   { name: 'SELECT granted InventoryHoldNight columns', sql: `SELECT "tenant_id", "hold_id", "pool_day_id", "counter_kind", "quantity" FROM "InventoryHoldNight" WHERE false`, expected: 'allowed' },
   { name: 'SELECT InventoryHold.sell_amount_minor', sql: `SELECT "sell_amount_minor" FROM "InventoryHold" WHERE false`, expected: 'denied' },
   { name: 'SELECT * FROM InventoryHold', sql: `SELECT * FROM "InventoryHold" WHERE false`, expected: 'denied' },
-  { name: 'SELECT Booking', sql: `SELECT 1 FROM "Booking" WHERE false`, expected: 'denied' },
+  // Supplier extranet booking reads (ADR 0061 Amendment 1): named columns only, never a write, never money-sensitive or personal columns.
+  { name: 'SELECT granted Booking columns', sql: `SELECT "id", "tenant_id", "reference", "supplier_id", "hotel_id", "status", "currency", "net_minor", "check_in", "check_out", "nights", "supplier_ref", "hotel_confirmation_no", "created_at", "updated_at" FROM "Booking" WHERE false`, expected: 'allowed' },
+  { name: 'SELECT granted BookingRoom columns', sql: `SELECT "id", "tenant_id", "booking_id", "position", "quantity", "room_name", "board_code", "adults", "children", "net_minor" FROM "BookingRoom" WHERE false`, expected: 'allowed' },
+  { name: 'SELECT granted BookingGuest columns', sql: `SELECT "id", "tenant_id", "booking_id", "first_name", "last_name", "is_lead" FROM "BookingGuest" WHERE false`, expected: 'allowed' },
+  { name: 'SELECT Booking.total_minor', sql: `SELECT "total_minor" FROM "Booking" WHERE false`, expected: 'denied' },
+  { name: 'SELECT Booking.markup_minor', sql: `SELECT "markup_minor" FROM "Booking" WHERE false`, expected: 'denied' },
+  { name: 'SELECT Booking.fx_rate', sql: `SELECT "fx_rate" FROM "Booking" WHERE false`, expected: 'denied' },
+  { name: 'SELECT Booking.agency_id', sql: `SELECT "agency_id" FROM "Booking" WHERE false`, expected: 'denied' },
+  { name: 'SELECT Booking.search_snapshot', sql: `SELECT "search_snapshot" FROM "Booking" WHERE false`, expected: 'denied' },
+  { name: 'SELECT * FROM Booking', sql: `SELECT * FROM "Booking" WHERE false`, expected: 'denied' },
+  { name: 'SELECT BookingRoom.sell_minor', sql: `SELECT "sell_minor" FROM "BookingRoom" WHERE false`, expected: 'denied' },
+  { name: 'SELECT BookingGuest.age', sql: `SELECT "age" FROM "BookingGuest" WHERE false`, expected: 'denied' },
+  { name: 'UPDATE Booking.supplier_id', sql: `UPDATE "Booking" SET "supplier_id" = "supplier_id" WHERE false`, expected: 'denied' },
+  { name: 'INSERT Booking', sql: `INSERT INTO "Booking" ("id") SELECT 'x' WHERE false`, expected: 'denied' },
+  { name: 'DELETE BookingRoom', sql: `DELETE FROM "BookingRoom" WHERE false`, expected: 'denied' },
+  { name: 'SELECT BookingEvent', sql: `SELECT "id" FROM "BookingEvent" WHERE false`, expected: 'denied' },
 ]
 
 export async function runPrivilegeProbes(db: Transactional): Promise<ProbeResult[]> {

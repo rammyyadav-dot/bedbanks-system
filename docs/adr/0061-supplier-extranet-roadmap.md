@@ -21,7 +21,7 @@ ADR 0011 delivered organization-scoped hotels, rooms and a private note. `docs/s
 
 ## Amendment 1 (proposed): link bookings to a supplier organization (slice 2)
 
-Status: **Proposed.** No code or migration accompanies it. Decisions D1–D6 need owner sign-off first.
+Status: **Accepted for slice 2** (CTO decisions recorded below, implemented in this change). D6 (supplier answers) remains slice 3 and is not implemented.
 
 ### What the code does today (verified in source)
 - `Booking.supplier` is a plain string with no key. It is written as `'PENDING_SUPPLIER'` at creation (`booking-persistence.service.ts`) and `'contracted-inventory'` at confirmation (`booking-confirmation.service.ts`). It is neither a connector key nor a supplier id and must not be parsed as one.
@@ -48,3 +48,32 @@ Forward migration: drop the trigger, indexes, foreign key and `supplier_id` colu
 
 ### Required tests before merge
 Cross-organization booking returns 404; null-supplier booking invisible; update of a set `supplierId` is rejected; backfill leaves underivable rows null; response contains no sell price, markup or agency fields (shape assertion).
+
+### CTO decisions (resolve the open questions above)
+1. **Net is room level.** The supplier sees each room line's net. A booking-level figure is computed from the lines only when every line has a net **and** the sum equals the stored booking net where one exists; otherwise `netStatus` is `PARTIAL`, `NOT_RECORDED` or `MISMATCH` and no total is shown. The stored `Booking.net_minor` can only veto an aggregate; it is never shown on its own. A missing figure is "Not recorded", never zero.
+2. **Ownership is frozen at booking creation** and never follows a later contract move (tested).
+3. **One contracted supplier per booking** for the MVP: a booking has one hold, one rate plan, one contract. The column is on `Booking`; a future multi-supplier cart would add a per-room link and keep this column as the primary owner. Nothing here prevents that.
+4. **Never inferred** from `Booking.supplier`, names or untrusted snapshot values. The write path reads the hold row and its rate plan/contract inside the tenant. The historical backfill uses the snapshot hold id only as a lookup key and requires the real hold to agree with the booking on hotel, dates, currency and amount.
+5. **Connector, manual and ambiguous bookings stay null.**
+
+### Decisions taken during implementation (not in the original proposal)
+- **Database access.** The API runtime role previously had no `Booking` grant ("booking is disabled; finance-gated"). Slice 2 gives it **column-only SELECT** on `Booking`, `BookingRoom` and `BookingGuest` (migration `202611170002_strict_runtime_role_supplier_booking_reads`), so PostgreSQL itself refuses `total_minor`, `markup_minor`, `fx_rate`, `agency_id`, `search_snapshot`, `sell_minor`, guest contact/age columns and `SELECT *`. The alternative, reading through the booking-ops role, would have exposed the sell price to the supplier code path. The role gains **no write** on any booking table; `Booking.supplier_id` is written only by the booking creation path and the owner-run backfill. Three older guards that asserted "no booking grant at all" were tightened to "no write, no table-level read, named columns only".
+- **Immutability** is a database trigger (`Booking_supplier_id_immutable`), so it holds for every role, not only this application.
+- **Tenant consistency** is the composite foreign key `(tenant_id, supplier_id) -> Supplier(tenant_id, id)` with `ON DELETE RESTRICT`.
+- **Backfill is a CLI, not a migration**: dry run by default, owner credential, per-tenant transaction that rolls back unless the result reconciles. Hiding an unreviewed multi-row data change inside a deploy-time migration was rejected.
+- **Supplier isolation inside a tenant is an application filter** (`tenant_id` and `supplier_id` in every query, inside `withSupplier`) plus the column grants. Booking RLS remains tenant-only; a supplier-aware Booking policy is not added because the booking role shares the table. This is the same model ADR 0011 documents for hotels and rooms.
+- **Net is not captured today.** The booking creation path writes `BookingRoom.sell_minor` only. Until a later slice stores the supplier net at booking time, contracted bookings show **Not recorded**. The slice does not invent a net from rates.
+
+### Implementation matrix
+| Requirement | Where | Evidence |
+|---|---|---|
+| Nullable, tenant-consistent `Booking.supplierId`, indexes, RESTRICT | `202611170001_booking_supplier_ownership` | migration applied + `prisma migrate diff` shows no drift; e2e "PostgreSQL safeguards" |
+| Immutable once set | trigger `Booking_supplier_id_immutable` | e2e: change and clear both refused |
+| Set in the hold/booking transaction | `BookingPersistenceService.persistPending` | unit (4 cases) + e2e against real PostgreSQL (incl. contract moved afterwards, cross-tenant rate plan fails closed) |
+| Other creation paths | `BookingActionsService.createManual` (MANUAL, no hold) stays null by design; confirmation does not create bookings | grep of every `booking.create`; e2e "connector" fixture invisible |
+| Backfill + report | `booking-supplier-backfill.ts`, `ops:backfill-booking-supplier` | e2e: dry run writes nothing, apply attributes 1 of 9 candidates, second run applies 0 |
+| `GET /supplier/extranet/bookings` (+ detail) | `SupplierBookingsService`, controller | e2e: scope, pagination, filters, 404/403, no writes |
+| Bounded pagination, stable order | keyset on (created_at desc, id desc), limit 1-50 | e2e: no gaps/repeats across pages incl. equal timestamps; limit 0/51 refused |
+| Permission | `supplier.extranet.bookings.read` (granted to no role by the migration) | e2e: 403 without it |
+| DTO minimality | `@bedbanks/contracts` `ExtranetBooking*`; column grants | e2e leak assertion over list, detail and error bodies; `runtime-role-contract.spec` forbidden-column test; 26 live privilege probes |
+| Portal list, filters, detail, "Not recorded" | `apps/supplier/app/(portal)/bookings` | unit tests (format, filters), type-check, lint, `next build` |
