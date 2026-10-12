@@ -32,7 +32,7 @@ async function main() {
     update: {},
     create: { userId: user.id, tenantId: tenant.id, role: 'member' },
   })
-  const keys = ['supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.drafts.manage']
+  const keys = ['supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.drafts.manage', 'supplier.extranet.contracts.read']
   const permissions = await Promise.all(keys.map((key) => prisma.permission.upsert({ where: { key }, update: {}, create: { key, description: key } })))
   const role = await prisma.role.upsert({
     where: { tenantId_name: { tenantId: tenant.id, name: 'Supplier extranet browser' } },
