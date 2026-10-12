@@ -67,8 +67,15 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   }
   const setupPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup`
   const pubPath = (hotelId: string) => `/admin/hotels/${hotelId}/setup/publication`
+  /** A primary image is a publication requirement (ADR 0058). A fixture row is enough: the requirement is about presence, not bytes. */
+  const ensureImage = async (hotelId: string) => {
+    if (await prisma.hotelImage.count({ where: { hotelId } })) return
+    const { tenantId } = await prisma.hotel.findUniqueOrThrow({ where: { id: hotelId }, select: { tenantId: true } })
+    await prisma.hotelImage.create({ data: { tenantId, hotelId, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString('hex'), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: ids.manager } })
+  }
   /** Maker-checker publication: manager requests, manager2 approves, manager applies. */
   const publish = async (hotelId: string) => {
+    await ensureImage(hotelId)
     const token = (await load(hotelId)).concurrencyToken
     const made = (await api('post', `${pubPath(hotelId)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed against the register' }).expect(200)).body.data
     await api('post', `${pubPath(hotelId)}/${made.approval.id}/approve`, 'manager2', { reason: 'Checked' }).expect(200)
@@ -217,6 +224,10 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(setup.completeness.publishable).toBe(false) // still no active room
     await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     setup = await load(id)
+    expect(setup.completeness.publishable).toBe(false) // still no primary image (ADR 0058)
+    expect(setup.completeness.requirements.find((r: { key: string }) => r.key === 'PRIMARY_IMAGE').met).toBe(false)
+    await ensureImage(id)
+    setup = await load(id)
     expect(setup.completeness.publishable).toBe(true)
     await status('COMPLETE', setup.concurrencyToken).expect(409) // single-actor publication is closed: it needs a second approver (ADR 0022)
     const published = (await publish(id)).setup
@@ -358,6 +369,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   it('HS-13 publication is maker-checker: a different approver, bound to the reviewed version, single use, audited, and un-publishing stays single-actor', async () => {
     const id = await newDraft('pubmc')
     await prisma.roomType.create({ data: { hotelId: id, name: 'Deluxe', code: 'D1', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await ensureImage(id)
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
     const ask = (who: string, token: string, requestId = key(), reason = 'Reviewed against the register') => api('post', `${pubPath(id)}/request`, who, { requestId, expectedToken: token, reason })
     const token = (await load(id)).concurrencyToken
@@ -873,6 +885,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   it.each(['canonical', 'legacy'])('enterprise %s room changes invalidate an already approved profile version', async route => {
     const id = await newDraft(`${route} room review`)
     const room = await prisma.roomType.create({ data: { hotelId: id, name: 'Reviewed room', code: 'REVIEW', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await ensureImage(id)
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
     const token = (await load(id)).concurrencyToken
     const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed property and room' }).expect(200)).body.data
@@ -895,6 +908,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
   it('enterprise publication serializes with a reviewed setup edit before checking approval freshness', async () => {
     const id = await newDraft('Publication edit race')
     await prisma.roomType.create({ data: { hotelId: id, name: 'Race room', code: 'RACE', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
+    await ensureImage(id)
     await save(id, (await load(id)).concurrencyToken, FULL).expect(200)
     const token = (await load(id)).concurrencyToken
     const made = (await api('post', `${pubPath(id)}/request`, 'manager', { requestId: key(), expectedToken: token, reason: 'Reviewed complete content' }).expect(200)).body.data
@@ -960,6 +974,32 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const kept = await load(id)
     expect(kept.location.address).toBe(FULL.address)
     expect(kept.governance.status).toBe('COMPLETE')
+  })
+
+  it('DM-01 mapping a supplier to a likely duplicate of an already-mapped hotel needs an explicit, reasoned, audited acknowledgement (ADR 0059)', async () => {
+    const mk = async (name: string) => (await prisma.hotel.create({ data: { tenantId: tenantA, name: `${suffix} ${name}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', latitude: '25.200000', longitude: '55.270000', contentStatus: 'DRAFT' } })).id
+    const first = await mk('Dup Palace Hotel'), second = await mk('The Dup Palace')
+    const other = await mk('Completely Different Tower'); await prisma.hotel.update({ where: { id: other }, data: { latitude: '25.3', longitude: '55.4' } })
+    await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier1, hotelId: first, supplierHotelId: `${suffix}-dm-a`, status: 'MAPPED' } })
+    const dup = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier1, hotelId: second, supplierHotelId: `${suffix}-dm-b` } })
+    const approve = (body: object) => api('post', `/supply/mappings/hotels/${dup.id}/approve`, 'manager', body)
+
+    const refused = await approve({ reason: 'Looks right' }).expect(409)
+    expect(refused.body.error.code).toBe('MAPPING_LIKELY_DUPLICATE_CANONICAL')
+    expect(refused.body.error.details).toEqual([expect.objectContaining({ hotelId: first, supplierHotelId: `${suffix}-dm-a` })])
+    await approve({ acknowledgeDuplicateHotelIds: [first] }).expect(409) // acknowledgement without a reason
+    await approve({ reason: 'Different property, same name', acknowledgeDuplicateHotelIds: ['someone-else'] }).expect(409) // must name the conflicting hotel
+    await approve({ reason: 'Ok', acknowledgeDuplicateHotelIds: 'nope' }).expect(400)
+    expect((await prisma.supplierHotelMapping.findUniqueOrThrow({ where: { id: dup.id } })).status).toBe('PENDING')
+
+    await approve({ reason: 'Verified as a separate building next door', acknowledgeDuplicateHotelIds: [first] }).expect(201)
+    expect((await prisma.supplierHotelMapping.findUniqueOrThrow({ where: { id: dup.id } })).status).toBe('MAPPED')
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: tenantA, entityId: dup.id, action: 'supply.hotel_mapping.approved' } })
+    expect(audit.payload).toMatchObject({ acknowledgedDuplicateHotelIds: [first], reason: 'Verified as a separate building next door' })
+
+    // an unrelated hotel is never held up by the check
+    const free = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier1, hotelId: other, supplierHotelId: `${suffix}-dm-c` } })
+    await api('post', `/supply/mappings/hotels/${free.id}/approve`, 'manager', {}).expect(201)
   })
 
 })

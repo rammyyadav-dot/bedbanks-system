@@ -19,10 +19,12 @@ export async function loadProfileSummaries(tx: Prisma.TransactionClient, tenantI
   if (ids.length === 0) return { profiles: new Map(), verifiedMappings }
   await tx.$executeRawUnsafe('SAVEPOINT hotel_profile_read')
   try {
-    const [profiles, identifiers] = await Promise.all([
+    const [profiles, identifiers, primaries] = await Promise.all([
       tx.hotelProfile.findMany({ where: { tenantId, hotelId: { in: ids } } }),
       tx.hotelExternalIdentifier.findMany({ where: { tenantId, hotelId: { in: ids } }, orderBy: { scheme: 'asc' } }),
+      tx.hotelImage.findMany({ where: { tenantId, hotelId: { in: ids }, isPrimary: true }, select: { hotelId: true } }),
     ])
+    const withPrimary = new Set(primaries.map((r) => r.hotelId))
     await tx.$executeRawUnsafe('RELEASE SAVEPOINT hotel_profile_read')
     const actors = [...new Set(profiles.map((p) => p.updatedById))]
     const users = actors.length ? await tx.user.findMany({ where: { id: { in: actors } }, select: { id: true, name: true, email: true } }) : []
@@ -34,7 +36,7 @@ export async function loadProfileSummaries(tx: Prisma.TransactionClient, tenantI
       const c = assessCompleteness({
         name: h.name, propertyType: h.propertyType, countryCode: h.countryCode, city: h.city, address: h.address, latitude: dec(h.latitude), longitude: dec(h.longitude), timeZone: h.timeZone, starRating: h.starRating,
         starVerified: Boolean(p?.starVerifiedAt), shortDescription: p?.shortDescription ?? null, checkInTime: p?.checkInTime ?? null, checkOutTime: p?.checkOutTime ?? null,
-        contacts: (p?.contacts && typeof p.contacts === 'object' && !Array.isArray(p.contacts) ? p.contacts : {}) as HotelContacts, activeRooms: activeRooms.get(h.id) ?? 0,
+        contacts: (p?.contacts && typeof p.contacts === 'object' && !Array.isArray(p.contacts) ? p.contacts : {}) as HotelContacts, activeRooms: activeRooms.get(h.id) ?? 0, hasPrimaryImage: withPrimary.has(h.id),
       })
       out.set(h.id, { exists: p !== null, completenessPercent: c.percent, publishable: c.publishable, starVerified: Boolean(p?.starVerifiedAt), area: p?.area ?? null, updatedBy: p ? label.get(p.updatedById) ?? null : null, externalIdentifiers: identifiers.filter((i) => i.hotelId === h.id).map((i) => ({ scheme: i.scheme, value: i.value })) })
     }

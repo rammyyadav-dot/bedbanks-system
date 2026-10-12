@@ -26,11 +26,16 @@ export function isIanaTimeZone(value: string): boolean {
   try { return (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf('timeZone').includes(value) } catch { return false }
 }
 
+/** 0,0 is the default of many feeds and spreadsheets. It is never a hotel location, so it cannot satisfy the publication requirement. */
+export function isNullIsland(latitude: string, longitude: string): boolean { return Number(latitude) === 0 && Number(longitude) === 0 }
+
 export interface CurrentSetup {
   name: string; propertyType: string; countryCode: string; city: string; address: string | null; latitude: string | null; longitude: string | null; timeZone: string
   starRating: number | null; starVerified: boolean
   shortDescription: string | null; checkInTime: string | null; checkOutTime: string | null; contacts: HotelContacts
   activeRooms: number
+  /** True when the hotel has a primary image. Alt text is mandatory on upload, so any image carries it (ADR 0058). */
+  hasPrimaryImage: boolean
 }
 
 const present = (value: string | null | undefined): boolean => typeof value === 'string' && value.trim().length > 0
@@ -45,12 +50,13 @@ export function assessCompleteness(c: CurrentSetup): HotelCompleteness {
       case 'COUNTRY': return [COUNTRY.test(c.countryCode), 'Enter a two-letter ISO country code.']
       case 'CITY': return [present(c.city), 'Enter the city.']
       case 'ADDRESS': return [present(c.address), 'Enter the street address.']
-      case 'COORDINATES': return [c.latitude !== null && c.longitude !== null, 'Enter latitude and longitude together.']
+      case 'COORDINATES': return [c.latitude !== null && c.longitude !== null && !isNullIsland(c.latitude, c.longitude), c.latitude !== null && c.longitude !== null ? 'Coordinates 0,0 are a placeholder, not a location. Enter the real position.' : 'Enter latitude and longitude together.']
       case 'TIME_ZONE': return [isIanaTimeZone(c.timeZone), 'Enter a valid IANA time zone, for example Asia/Dubai.']
       case 'STAR_CATEGORY': return [c.starRating !== null && c.starRating >= 1 && c.starRating <= 5 && c.starVerified, c.starRating === null ? 'No star category is recorded.' : 'The star category has not been marked as verified.']
       case 'SHORT_DESCRIPTION': return [present(c.shortDescription), 'Write a short description.']
       case 'CHECK_IN_OUT': return [Boolean(c.checkInTime && c.checkOutTime), 'Enter both the check-in and the check-out time.']
       case 'RESERVATIONS_CONTACT': return [Boolean(reservations && present(reservations.name) && (present(reservations.email) || present(reservations.phone))), 'Enter a reservations contact with a name and an email or phone number.']
+      case 'PRIMARY_IMAGE': return [c.hasPrimaryImage, 'Upload at least one image with alt text on the Images tab.']
       case 'ACTIVE_ROOM': return [c.activeRooms > 0, 'Add at least one active canonical room.']
       default: return [false, 'Unknown requirement.']
     }
