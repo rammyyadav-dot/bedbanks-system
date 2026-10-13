@@ -1,5 +1,7 @@
 'use client'
 
+import { useUnsavedChanges } from '../useUnsavedChanges'
+
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { INVENTORY_MODES, QUICK_UPDATE_LIMITS, QUICK_UPDATE_WEEKDAYS, type InventoryMode, type HotelCommercial360, type HotelContractsView, type QuickUpdateChanges, type QuickUpdateFlag, type QuickUpdatePreview, type QuickUpdateRequest, type QuickUpdateWeekday } from '@bedbanks/contracts'
@@ -22,12 +24,12 @@ type Panels = { price: boolean; availability: boolean; restrictions: boolean }
  * Quick Update: select a scope, opt each panel in, preview, review, apply. The server validates and applies; nothing here prices,
  * rounds or decides. An untouched panel or blank field is not sent, so it stays exactly as stored.
  */
-export function QuickUpdatePanel({ hotelId, data }: { hotelId: string; data: HotelCommercial360 }) {
+export function QuickUpdatePanel({ hotelId, data, onChanged }: { hotelId: string; data: HotelCommercial360; onChanged?: () => void }) {
   const { state, reload } = useOpsQuery(() => getHotelContracts(hotelId), [hotelId])
-  return <OpsState state={state} onRetry={reload}>{(contracts) => <QuickUpdateForm hotelId={hotelId} data={data} contracts={contracts} />}</OpsState>
+  return <OpsState state={state} onRetry={reload}>{(contracts) => <QuickUpdateForm hotelId={hotelId} data={data} contracts={contracts} onChanged={onChanged} />}</OpsState>
 }
 
-function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: HotelCommercial360; contracts: HotelContractsView }) {
+function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: string; data: HotelCommercial360; contracts: HotelContractsView; onChanged?: () => void }) {
   const can = useCan()
   const canRates = can('supply.rates.manage'); const canAvail = can('supply.availability.manage')
   const [contractId, setContractId] = useState(''); const [roomId, setRoomId] = useState('')
@@ -56,6 +58,7 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
   }
   const request = build(); const requestKey = JSON.stringify(request)
   const edited = (fn: () => void) => { fn(); applyKey.current = null; setResult(null) }
+  useUnsavedChanges(result === null && (selected.length > 0 || Object.keys(request.changes).length > 0 || ranges.some(r => r.from || r.to)))
   const previewIsCurrent = preview !== null && preview.key === requestKey
 
   async function runPreview() {
@@ -70,7 +73,7 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
     inFlight.current = true; setBusy('apply'); setError(null); applyKey.current ??= crypto.randomUUID()
     try {
       const { data: r, requestId } = await applyQuickUpdate(hotelId, { ...request, idempotencyKey: applyKey.current, expectedFingerprint: preview.data.fingerprint, reason: reason.trim() })
-      applyKey.current = null; setPreview(null); setReason('')
+      applyKey.current = null; setPreview(null); setReason(''); onChanged?.()
       setResult({ text: `${r.replayed ? 'Already applied. ' : ''}Applied ${r.records} record${r.records === 1 ? '' : 's'}: ${r.changed.rates} rate${r.changed.rates === 1 ? '' : 's'} and ${r.changed.availabilityRows} inventory row${r.changed.availabilityRows === 1 ? '' : 's'} and ${r.changed.poolDays} pool night${r.changed.poolDays === 1 ? '' : 's'} written.`, requestId: r.auditRequestId || requestId })
     } catch (e) { const p = apiErrorParts(e, 'apply the update'); setError({ message: p.message, details: p.details, requestId: p.requestId }) }
     finally { inFlight.current = false; setBusy(null) }
@@ -88,6 +91,9 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
 
   return (
     <div style={{ display: 'grid', gap: 16 }} data-testid="quick-update">
+      <section className="workspace-panel" style={{ padding: 14 }} aria-label="Update capabilities">
+        <p style={note}>Rates, inventory and supported daily restrictions update the shared FBEDS records. Promotions have no bulk update API yet. Maximum stay, cancellation and payment terms are managed in <Link href={hotelHref(hotelId, 'rateplans')}>Rate Plan</Link>; check dated values in the <Link href={hotelHref(hotelId, 'rates')}>availability calendar</Link>. Supplier-owned remote values are not overridden or synchronized here.</p>
+      </section>
       <section className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 12 }} aria-label="Quick Update scope">
         <h2 style={{ fontSize: 14, margin: 0 }}>1. Select what to change</h2>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -148,7 +154,7 @@ function QuickUpdateForm({ hotelId, data, contracts }: { hotelId: string; data: 
       </section>
 
       {error && <div role="alert" className="admin-error" data-testid="qu-error" style={{ padding: 12 }}><strong>{error.message}</strong>{error.details.length > 0 && <ul>{error.details.map((d) => <li key={d}>{d}</li>)}</ul>}{error.requestId && <div style={note}>Request id: <code>{error.requestId}</code></div>}</div>}
-      {result && <div role="status" className="workspace-panel" data-testid="qu-result" style={{ padding: 12 }}><strong>{result.text}</strong>{result.requestId && <div style={note}>Audit reference (request id): <code data-testid="qu-request-id">{result.requestId}</code> · <Link href={hotelHref(hotelId, 'audit')}>Open the audit trail</Link></div>}</div>}
+      {result && <div role="status" className="workspace-panel" data-testid="qu-result" style={{ padding: 12 }}><strong>Saved. {result.text}</strong><p style={note}>Saved to FBEDS rates and inventory. Supplier synchronization is not supported by this endpoint.</p>{result.requestId && <div style={note}>Audit reference (request id): <code data-testid="qu-request-id">{result.requestId}</code> · <Link href={hotelHref(hotelId, 'audit')}>Open the audit trail</Link></div>}</div>}
 
       {preview && (
         <section className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10 }} aria-label="Preview" data-testid="qu-preview-result">

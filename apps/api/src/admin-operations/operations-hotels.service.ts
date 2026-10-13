@@ -156,6 +156,8 @@ export class OperationsHotelsService {
   private baseWhere(tenantId: string, query: Record<string, unknown>) {
     const search = textParam('search', query.search, 64)
     const destination = textParam('destination', query.destination, 64)
+    const countryCode = textParam('countryCode', query.countryCode, 2)?.toUpperCase()
+    if (countryCode && !/^[A-Z]{2}$/.test(countryCode)) throw new BadRequestException('Invalid countryCode')
     const contentStatus = enumParam('contentStatus', query.contentStatus, CONTENT_STATUSES)
     const supplierId = idParam('supplierId', query.supplierId)
     const mapping = enumParam('mapping', query.mapping, MAPPING)
@@ -164,14 +166,14 @@ export class OperationsHotelsService {
     const stars = enumParam('stars', query.stars, STARS)
     const and: Prisma.HotelWhereInput[] = []
     // Name, the legacy code, the canonical id (exact) or an external identifier such as a GIATA id.
-    if (search) and.push({ OR: [{ name: { contains: likeLiteral(search), mode: 'insensitive' } }, { externalRef: { startsWith: likeLiteral(search), mode: 'insensitive' } }, { id: search }, { externalIdentifiers: { some: { value: { startsWith: likeLiteral(search), mode: 'insensitive' } } } }] })
+    if (search) and.push({ OR: [{ name: { contains: likeLiteral(search), mode: 'insensitive' } }, { externalRef: { startsWith: likeLiteral(search), mode: 'insensitive' } }, { id: search }, { city: { contains: likeLiteral(search), mode: 'insensitive' } }, { mappings: { some: { tenantId, supplierHotelId: { startsWith: likeLiteral(search), mode: 'insensitive' } } } }, { externalIdentifiers: { some: { value: { startsWith: likeLiteral(search), mode: 'insensitive' } } } }] })
     if (propertyType) and.push({ propertyType })
     if (stars === 'UNRATED') and.push({ starRating: null })
     else if (stars) and.push({ starRating: Number(stars) })
     if (supplierId) and.push({ OR: [{ mappings: { some: { supplierId } } }, { roomTypes: { some: { ratePlans: { some: { contract: { supplierId } } } } } }] })
     if (mapping === 'NONE') and.push({ mappings: { none: {} } })
     else if (mapping) and.push({ mappings: { some: { status: mapping } } })
-    const where: Prisma.HotelWhereInput = { tenantId, ...(destination && { city: { equals: destination, mode: 'insensitive' } }), ...(contentStatus && { contentStatus }), ...(and.length && { AND: and }) }
+    const where: Prisma.HotelWhereInput = { tenantId, ...(countryCode && { countryCode }), ...(destination && { city: { equals: destination, mode: 'insensitive' } }), ...(contentStatus && { contentStatus }), ...(and.length && { AND: and }) }
     return where
   }
 

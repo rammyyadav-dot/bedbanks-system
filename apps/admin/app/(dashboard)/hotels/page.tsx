@@ -32,6 +32,8 @@ function HotelsList() {
   const can = useCan()
   const { filters, page } = useMemo(() => readListQuery(params), [params])
   const [search, setSearch] = useState(filters.search ?? '')
+  const [country, setCountry] = useState(filters.countryCode ?? '')
+  useEffect(() => setCountry(filters.countryCode ?? ''), [filters.countryCode])
   useEffect(() => setSearch(filters.search ?? ''), [filters.search])
   const go = (next: Partial<Record<ListFilterKey, string>>, nextPage = 1) => router.replace(`${pathname}${listHref(next, nextPage).slice('/hotels'.length)}`, { scroll: false })
   const setFilter = (key: ListFilterKey, value: string) => go({ ...filters, [key]: value || undefined } as never)
@@ -51,9 +53,10 @@ function HotelsList() {
       <PageHeader eyebrow="HOTEL SUPPLY · HOTELS" title="Hotels" description="Hotel master data and commercial readiness. Readiness is computed by the API with the same rules Agents are sold by." actions={can('supply.hotels.manage') ? <Link href="/hotels/new" className="button primary">+ Add hotel</Link> : undefined} />
       {summary.state.status === 'ready' && <HotelsSummary summary={summary.state.data} />}
       {summary.state.status === 'failed' && <p role="status" data-testid="summary-unavailable" style={{ color: '#8a5a00', fontSize: 12 }}>Commercial summary unavailable ({summary.state.failure}). The list below is unaffected.</p>}
-      <form onSubmit={(event) => { event.preventDefault(); setFilter('search', search.trim()) }} aria-label="Hotel filters">
+      <form onSubmit={(event) => { event.preventDefault(); go({ ...filters, search: search.trim() || undefined, countryCode: country.trim().toUpperCase() || undefined }) }} aria-label="Hotel filters">
         <TableToolbar>
-          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Search hotels (name, ID, GIATA)</span><input type="search" value={search} maxLength={64} placeholder="Name, canonical ID or external ID" onChange={(event) => setSearch(event.target.value)} style={{ minWidth: 200 }} /></label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Search hotels (ID, name, city, supplier reference)</span><input type="search" value={search} maxLength={64} placeholder="Hotel ID, name, city or supplier reference" onChange={(event) => setSearch(event.target.value)} style={{ minWidth: 200 }} /></label>
+          <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Country code</span><input value={country} maxLength={2} pattern="[A-Za-z]{2}" placeholder="All countries" title="Two-letter country code, for example AE" onChange={event => setCountry(event.target.value)} style={{ width: 110 }} /></label>
           <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Destination</span>
             <select value={filters.destination ?? ''} onChange={(event) => setFilter('destination', event.target.value)} style={selectStyle}><option value="">All destinations</option>{destinations.map((city) => <option key={city} value={city}>{city}</option>)}</select></label>
           <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Readiness</span>

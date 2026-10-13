@@ -31,6 +31,7 @@ export const HOTEL_TABS = [
   { id: 'sellability', label: 'Distribution & Readiness' },
   { id: 'bookings', label: 'Bookings' },
   { id: 'audit', label: 'Audit' },
+  { id: 'reports', label: 'Reports' },
 ] as const
 export type HotelTabId = (typeof HOTEL_TABS)[number]['id']
 
@@ -51,7 +52,7 @@ export function hotelHref(hotelId: string, tab: HotelTabId = 'overview', context
   return text ? `/hotels/${hotelId}?${text}` : `/hotels/${hotelId}`
 }
 
-export const LIST_FILTER_KEYS = ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars'] as const
+export const LIST_FILTER_KEYS = ['search', 'countryCode', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars'] as const
 export type ListFilterKey = (typeof LIST_FILTER_KEYS)[number]
 
 /** Reads only known filters from a URL, so a pasted link cannot inject unknown parameters into the API call. */
@@ -77,3 +78,20 @@ export const outcomeTone = (s: ReadinessGateOutcome): Tone => (s === 'PASS' ? 'o
 export const outcomeLabel = (s: ReadinessGateOutcome): string => (s === 'NOT_APPLICABLE' ? 'N/A' : s)
 /** Where a readiness blocker is resolved: the existing workspace tab, never a second editor. Unknown tabs fall back to Overview via parseTab. */
 export const readinessActionHref = (hotelId: string, action: ReadinessAction): string => hotelHref(hotelId, parseTab(action.tab))
+
+/** Primary workspace sections; legacy tab ids remain valid deep links into their section. */
+export const HOTEL_WORKSPACE_SECTIONS = [
+  { id: 'profile', label: '1. Profile Setup', defaultTab: 'overview', tabs: ['overview', 'setup', 'amenities', 'images', 'policies', 'mappings', 'audit'] },
+  { id: 'bookings', label: '2. Bookings – All Reservations', defaultTab: 'bookings', tabs: ['bookings'] },
+  { id: 'quick', label: '3. Quick Update', defaultTab: 'quick', tabs: ['quick', 'rates', 'inventory'] },
+  { id: 'rooms', label: '4. Room Type', defaultTab: 'rooms', tabs: ['rooms'] },
+  { id: 'rateplans', label: '5. Rate Plan', defaultTab: 'rateplans', tabs: ['rateplans', 'contracts', 'sellability'] },
+  { id: 'reports', label: '6. Reports', defaultTab: 'reports', tabs: ['reports'] },
+] as const
+export function workspaceSection(tab: HotelTabId) {
+  return HOTEL_WORKSPACE_SECTIONS.find(section => (section.tabs as readonly string[]).includes(tab))!
+}
+/** Labels describe persisted profile approval, never promise commercial sellability. */
+export function hotelLifecycleLabel(status: string): string {
+  return ({ DRAFT: 'Draft', INCOMPLETE: 'Draft (incomplete)', COMPLETE: 'Active', SUSPENDED: 'Suspended', ARCHIVED: 'Archived' } as Record<string, string>)[status] ?? status
+}
