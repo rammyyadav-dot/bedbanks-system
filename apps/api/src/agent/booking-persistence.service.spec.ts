@@ -57,6 +57,19 @@ describe('BookingPersistenceService', () => {
     expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({ supplierId: 'supplier-a', supplier: 'PENDING_SUPPLIER' })
   })
 
+  it('records supplier ownership and cancellation terms from their separate plan reads', async () => {
+    const { service, tx } = setup()
+    tx.ratePlan.findFirst
+      .mockResolvedValueOnce({ contract: { tenantId: 'tenant-a', supplierId: 'supplier-a' } })
+      .mockResolvedValueOnce({ cancellationPolicySet: null, contract: { cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 25, penaltyMinor: null, currency: null }] } })
+    await service.persistPending(command)
+    expect(tx.ratePlan.findFirst).toHaveBeenCalledTimes(2)
+    expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({
+      supplierId: 'supplier-a',
+      cancellationPolicy: { rules: [{ daysBeforeCheckin: 3, penaltyPercent: 25 }], source: 'CONTRACT_AT_BOOKING' },
+    })
+  })
+
   it('refuses a command whose rate plan differs from the hold, before any ownership lookup', async () => {
     const { service, tx } = setup()
     await expect(service.persistPending({ ...command, ratePlanId: 'plan-from-request' })).rejects.toBeInstanceOf(ConflictException)
