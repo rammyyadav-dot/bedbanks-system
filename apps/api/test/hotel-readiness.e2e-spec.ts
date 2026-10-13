@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PrismaClient } from '@prisma/client'
@@ -40,6 +40,10 @@ describe('hotel readiness (PostgreSQL, HTTP, runtime role, two tenants)', () => 
     if (o.profile !== false) {
       const admin = userIds[0]
       await owner.hotelProfile.create({ data: { tenantId, hotelId: h.id, shortDescription: 'A hotel', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'res@example.test' } }, starVerifiedAt: new Date(), starVerifiedById: admin, updatedById: admin } as never })
+      // A hotel that counts as fully configured also has a primary image with alt text: the platform requires one to publish (ADR 0058).
+      // Inserted through the owner connection like the rest of the fixture; the sha256 is unique per hotel (unique with the hotel id).
+      const imageBytes = Buffer.from(`fixture-image-${suffix}-${key}`) // the table requires bytes to equal the stored data length
+      await owner.hotelImage.create({ data: { tenantId, hotelId: h.id, contentType: 'image/png', bytes: imageBytes.length, width: 1600, height: 1200, sha256: createHash('sha256').update(imageBytes).digest('hex'), altText: 'Hotel exterior', isPrimary: true, sortOrder: 0, data: imageBytes, uploadedById: admin } })
     }
     const m = await owner.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId: h.id, supplierHotelId: `${suffix}-${key}`, status: (o.mapping ?? 'MAPPED') as never } })
     await owner.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: m.id, hotelId: h.id, supplierRoomId: `${suffix}-${key}-r`, roomTypeId: room.id, status: 'MAPPED' } })

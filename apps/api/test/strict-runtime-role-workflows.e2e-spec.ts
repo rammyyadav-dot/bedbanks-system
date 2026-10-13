@@ -223,6 +223,9 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     const id = hotel2
     const setup = `/admin/hotels/${id}/setup`
     const load = async () => (await call('get', setup, 'maker').expect(200)).body.data
+    // Publication needs a primary image with alt text (ADR 0058): upload one through the same strict-role HTTP path, then mark it primary.
+    const image = (await call('post', `/admin/hotels/${id}/images?altText=${encodeURIComponent('Palm hotel exterior')}`, 'maker').set('Content-Type', 'image/png').send(png(1600, 1200)).expect(201)).body.data
+    await call('patch', `/admin/hotels/${id}/images/${image.id}`, 'maker', { altText: 'Palm hotel exterior', isPrimary: true }).expect(200)
     await call('patch', setup, 'maker', { idempotencyKey: key(), expectedToken: (await load()).concurrencyToken, address: '1 Palm Road', latitude: '25.1234', longitude: '55.1234', starRating: 4, starVerified: true, starSource: 'Tourism authority register', shortDescription: 'A quiet hotel on the Palm.', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'private-res@hotel.test' } } }).expect(200)
     const made = (await call('post', `${setup}/publication/request`, 'maker', { requestId: key(), expectedToken: (await load()).concurrencyToken, reason: 'Reviewed against the register' }).expect(200)).body.data.approval
     await call('post', `${setup}/publication/${made.id}/approve`, 'maker', { reason: 'Self' }).expect(403)
