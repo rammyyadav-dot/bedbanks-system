@@ -1,0 +1,18 @@
+{
+  "name": "@bedbanks/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end browser and HTTP release suite: real PostgreSQL (strict runtime role + RLS), the API, and the Admin, Agent and Supplier portals. Disposable, loopback-only.",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:up": "node --import tsx scripts/up.ts",
+    "e2e:down": "node --import tsx scripts/down.ts",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^24",
+    "tsx": "^4.20.6",
+    "typescript": "5.7.3"
+  }
+}
