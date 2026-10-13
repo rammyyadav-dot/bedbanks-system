@@ -1,4 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common'
+import { availableMinor } from '@bedbanks/money'
+import { walletBalanceMinor } from '../ledger/ledger-core'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from './currency'
 import { accountAging, agencyPosition, overdueView } from './agency-account'
@@ -35,15 +37,14 @@ export class AgentFinanceService {
       const wallets = await tx.wallet.findMany({ where: { tenantId, agencyId: null }, orderBy: { currency: 'asc' } })
       const wallet = wallets.find((candidate) => candidate.currency === PREFERRED_CURRENCY) ?? wallets[0]
       if (!wallet) return { status: 'not_configured' as const, currency: PREFERRED_CURRENCY, availableCredit: null, ledger: [] }
-      const [aggregate, entries] = await Promise.all([
-        tx.ledgerEntry.aggregate({ where: { tenantId, walletId: wallet.id }, _sum: { amountMinor: true } }),
+      const [balance, entries] = await Promise.all([
+        walletBalanceMinor(tx, tenantId, wallet.id),
         tx.ledgerEntry.findMany({ where: { tenantId, walletId: wallet.id }, orderBy: { immutableAt: 'desc' }, take: 25 }),
       ])
-      const balance = aggregate._sum.amountMinor ?? 0n
       return {
         status: 'active' as const,
         currency: wallet.currency,
-        availableCredit: (wallet.creditLimit + balance).toString(),
+        availableCredit: availableMinor({ balanceMinor: balance, creditLineMinor: wallet.creditLimit }).toString(),
         balance: balance.toString(),
         creditLimit: wallet.creditLimit.toString(),
         ledger: entries.map((entry) => ({ ...entry, amountMinor: entry.amountMinor.toString() })),

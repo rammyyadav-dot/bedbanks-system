@@ -7,6 +7,8 @@ import type {
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
+import { availableMinor } from '@bedbanks/money'
+import { totalsOf, walletBalanceMinor, walletTotals } from '../ledger/ledger-core'
 import { enabledSettlementCurrencies } from '../agent/currency'
 import { accountAging, overdueView } from '../agent/agency-account'
 import { BookingReconciliationService } from '../agent/booking-reconciliation.service'
@@ -310,8 +312,7 @@ export class OperationsTransactionsService {
         tx.wallet.findMany({ where, include: { agency: { select: { id: true, code: true, name: true } } }, orderBy: [{ agencyId: { sort: 'asc', nulls: 'first' } }, { currency: 'asc' }, { id: 'asc' }], skip: page.skip, take: page.take }),
         tx.wallet.count({ where }),
       ])
-      const sums = wallets.length ? await tx.ledgerEntry.groupBy({ by: ['walletId'], where: { tenantId, walletId: { in: wallets.map(w => w.id) } }, _sum: { amountMinor: true }, _count: { _all: true } }) : []
-      const sm = new Map(sums.map(s => [s.walletId, s]))
+      const totals = await walletTotals(tx, tenantId, wallets.map(w => w.id))
       // ADR 0028 slice 3: an agency account's credit line is its agency's approved limit in the same currency (else zero).
       const agencyIds = [...new Set(wallets.flatMap(w => (w.agencyId ? [w.agencyId] : [])))]
       const limits = agencyIds.length ? await tx.agencyCreditLimit.findMany({ where: { tenantId, agencyId: { in: agencyIds } }, select: { agencyId: true, currency: true, limitMinor: true } }) : []
@@ -321,12 +322,12 @@ export class OperationsTransactionsService {
         return l && l.currency === w.currency ? l.limitMinor : 0n
       }
       return paged(wallets.map(w => {
-        const sum = sm.get(w.id)?._sum.amountMinor ?? 0n
+        const { balanceMinor: sum, entryCount } = totalsOf(totals, w.id)
         const creditLine = line(w)
-        // Same formula as the authorization: available credit = credit line + SUM(all ledger entries).
+        // Same formula as the authorization (ledger core): available credit = credit line + SUM(all ledger entries).
         return {
           id: w.id, tenantId: w.tenantId, owner: w.agencyId ? 'AGENCY' as const : 'HOUSE' as const, agency: w.agency ? { id: w.agency.id, code: w.agency.code, name: w.agency.name } : null,
-          currency: w.currency, creditLimit: creditLine.toString(), balanceMinor: sum.toString(), availableCreditMinor: (creditLine + sum).toString(), entryCount: sm.get(w.id)?._count._all ?? 0, updatedAt: w.updatedAt.toISOString(),
+          currency: w.currency, creditLimit: creditLine.toString(), balanceMinor: sum.toString(), availableCreditMinor: availableMinor({ balanceMinor: sum, creditLineMinor: creditLine }).toString(), entryCount, updatedAt: w.updatedAt.toISOString(),
         }
       }), page, total)
     }))
@@ -343,7 +344,7 @@ export class OperationsTransactionsService {
       for (const a of accounts) {
         const aging = await accountAging(tx, tenantId, a.id)
         if (aging.unpaidMinor === 0n || !a.agency) continue
-        const sum = (await tx.ledgerEntry.aggregate({ where: { tenantId, walletId: a.id }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+        const sum = await walletBalanceMinor(tx, tenantId, a.id)
         rows.push({ accountId: a.id, agency: { id: a.agency.id, code: a.agency.code, name: a.agency.name, status: a.agency.status }, currency: a.currency, balanceMinor: sum.toString(), overdue: overdueView(aging) })
       }
       rows.sort((x, y) => y.overdue.daysOverdue - x.overdue.daysOverdue || x.agency.code.localeCompare(y.agency.code))
@@ -418,16 +419,15 @@ export class OperationsTransactionsService {
       if (!agency) throw new NotFoundException('Agency not found')
       const accounts = await tx.wallet.findMany({ where: { tenantId, agencyId: agency.id }, orderBy: [{ currency: 'asc' }, { id: 'asc' }] })
       const ids = accounts.map(a => a.id)
-      const [sums, latest] = ids.length ? await Promise.all([
-        tx.ledgerEntry.groupBy({ by: ['walletId'], where: { tenantId, walletId: { in: ids } }, _sum: { amountMinor: true }, _count: { _all: true }, _max: { immutableAt: true } }),
+      const [totals, latest] = ids.length ? await Promise.all([
+        walletTotals(tx, tenantId, ids),
         Promise.all(ids.map(walletId => tx.ledgerEntry.findMany({ where: { tenantId, walletId }, orderBy: [{ immutableAt: 'desc' }, { id: 'desc' }], take: RECENT_ENTRIES }))),
-      ]) : [[], []]
-      const sm = new Map(sums.map(s => [s.walletId, s]))
+      ]) : [new Map(), []]
       const positions: AgencyAccountPosition[] = accounts.map((account, index) => {
-        const s = sm.get(account.id)
+        const s = totalsOf(totals, account.id)
         return {
           currency: account.currency, status: 'OPEN', accountId: account.id,
-          balanceMinor: (s?._sum.amountMinor ?? 0n).toString(), entryCount: s?._count._all ?? 0, lastEntryAt: s?._max.immutableAt?.toISOString() ?? null,
+          balanceMinor: s.balanceMinor.toString(), entryCount: s.entryCount, lastEntryAt: s.lastEntryAt?.toISOString() ?? null,
           recent: latest[index].map(e => this.ledgerView(e, e.reference?.startsWith('booking:') ? e.reference.slice('booking:'.length) : null)),
         }
       })
