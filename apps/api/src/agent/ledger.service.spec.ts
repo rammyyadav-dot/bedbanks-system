@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import { LedgerService } from './ledger.service'
 
 describe('LedgerService financial safety', () => {
-  const entry = { id: 'le_1', tenantId: 't1', walletId: 'w1', currency: 'AED', amountMinor: -1000n,
+  const entry = { id: 'le_1', tenantId: 't1', walletId: 'w1', currency: 'AED', amountMinor: 1000n,
     type: 'REFUND' as const, idempotencyKey: 'refund:1', reference: 'booking:1', immutableAt: new Date() }
 
   const setup = (overrides: Partial<any> = {}) => {
@@ -16,7 +16,7 @@ describe('LedgerService financial safety', () => {
     return { service: new LedgerService(prisma as any), tx, prisma }
   }
 
-  const input = { tenantId: 't1', walletId: 'w1', currency: 'AED', amountMinor: -1000n,
+  const input = { tenantId: 't1', walletId: 'w1', currency: 'AED', amountMinor: 1000n,
     type: 'REFUND' as const, idempotencyKey: 'refund:1', reference: 'booking:1' }
 
   it('returns an existing entry for a sequential retry with identical financial intent', async () => {
@@ -29,7 +29,7 @@ describe('LedgerService financial safety', () => {
   it('rejects reuse of an idempotency key with different amount or reference', async () => {
     const { service, tx } = setup()
     tx.ledgerEntry.findUnique.mockResolvedValue(entry)
-    await expect(service.post({ ...input, amountMinor: -999n })).rejects.toBeInstanceOf(ConflictException)
+    await expect(service.post({ ...input, amountMinor: 999n })).rejects.toBeInstanceOf(ConflictException)
     await expect(service.post({ ...input, reference: 'booking:other' })).rejects.toBeInstanceOf(ConflictException)
   })
 
@@ -44,7 +44,7 @@ describe('LedgerService financial safety', () => {
 
   it('rejects a concurrent winner with different financial intent', async () => {
     const { service, tx, prisma } = setup()
-    tx.ledgerEntry.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...entry, amountMinor: -500n })
+    tx.ledgerEntry.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...entry, amountMinor: 500n })
     tx.ledgerEntry.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: '6.2.1' }))
     await expect(service.post(input)).rejects.toBeInstanceOf(ConflictException)
     expect(prisma.withTenant).toHaveBeenCalledTimes(2)
@@ -72,5 +72,16 @@ describe('LedgerService financial safety', () => {
   it.each([[-1n, 100n], [101n, 100n], [1n, -1n]])('rejects refund %s against authorized %s', (refundMinor, authorizedRefundableMinor) => {
     const { service } = setup()
     expect(() => service.assertRefundWithinAuthorized({ refundMinor, authorizedRefundableMinor })).toThrow(BadRequestException)
+  })
+})
+
+describe('LedgerService sign rules (ADR 0056)', () => {
+  it('refuses a refund stored negative or a debit stored positive before any lookup', async () => {
+    const prisma = { withTenant: jest.fn() }
+    const service = new LedgerService(prisma as any)
+    const base = { tenantId: 't1', walletId: 'w1', currency: 'AED', idempotencyKey: 'k', reference: 'booking:1' }
+    await expect(service.post({ ...base, type: 'REFUND', amountMinor: -1000n })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.post({ ...base, type: 'DEBIT', amountMinor: 1000n })).rejects.toBeInstanceOf(BadRequestException)
+    expect(prisma.withTenant).not.toHaveBeenCalled()
   })
 })

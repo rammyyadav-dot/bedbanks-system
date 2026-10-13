@@ -3,6 +3,8 @@ import {
   SUMMARY_WINDOW_DEFAULT_DAYS, SUMMARY_WINDOW_MAX_DAYS,
   type AuditSummary, type FinanceCurrencySummary, type FinanceSummary, type LedgerEntryType, type LedgerWindowSummary, type SummaryWindow,
 } from '@bedbanks/contracts'
+import { positionsByCurrency } from '@bedbanks/money'
+import { ledgerWindowGroups, totalsOf, walletTotals } from '../ledger/ledger-core'
 import { PrismaService } from '../database/prisma.service'
 import { day, iso, sectionRead } from './operations-read'
 import { endOfDay, intParam } from './query-params'
@@ -48,21 +50,12 @@ export class OperationsFinanceAuditService {
 
   private walletSection(tenantId: string): Promise<FinanceSummary['wallets']> {
     return sectionRead(() => this.prisma.withTenant(tenantId, async (tx) => {
-      const [wallets, sums] = await Promise.all([
+      const [wallets, totals] = await Promise.all([
         tx.wallet.findMany({ where: { tenantId }, orderBy: [{ currency: 'asc' }, { id: 'asc' }] }),
-        tx.ledgerEntry.groupBy({ by: ['walletId'], where: { tenantId }, _sum: { amountMinor: true } }),
+        walletTotals(tx, tenantId),
       ])
-      const balance = new Map(sums.map((s) => [s.walletId, s._sum.amountMinor ?? 0n]))
-      const byCurrency = new Map<string, { wallets: number; limit: bigint; balance: bigint; overdrawn: number }>()
-      for (const w of wallets) {
-        const b = balance.get(w.id) ?? 0n
-        const row = byCurrency.get(w.currency) ?? { wallets: 0, limit: 0n, balance: 0n, overdrawn: 0 }
-        row.wallets += 1; row.limit += w.creditLimit; row.balance += b
-        if (w.creditLimit + b < 0n) row.overdrawn += 1
-        byCurrency.set(w.currency, row)
-      }
-      const currencies: FinanceCurrencySummary[] = [...byCurrency.entries()].map(([currency, r]) => ({
-        currency, wallets: r.wallets, creditLimitMinor: r.limit.toString(), balanceMinor: r.balance.toString(), availableCreditMinor: (r.limit + r.balance).toString(), overdrawnWallets: r.overdrawn,
+      const currencies: FinanceCurrencySummary[] = positionsByCurrency(wallets.map(w => ({ currency: w.currency, balanceMinor: totalsOf(totals, w.id).balanceMinor, creditLineMinor: w.creditLimit }))).map(r => ({
+        currency: r.currency, wallets: r.accounts, creditLimitMinor: r.creditLineMinor.toString(), balanceMinor: r.balanceMinor.toString(), availableCreditMinor: r.availableMinor.toString(), overdrawnWallets: r.overdrawnAccounts,
       }))
       return { total: wallets.length, currencies }
     }))
@@ -70,17 +63,15 @@ export class OperationsFinanceAuditService {
 
   private ledgerSection(tenantId: string, win: { start: Date; end: Date }): Promise<FinanceSummary['ledger']> {
     return sectionRead(() => this.prisma.withTenant(tenantId, async (tx) => {
-      const groups = await tx.ledgerEntry.groupBy({
-        by: ['currency', 'type'], where: { tenantId, immutableAt: { gte: win.start, lte: win.end } }, _sum: { amountMinor: true }, _count: { _all: true },
-      })
+      const groups = await ledgerWindowGroups(tx, tenantId, win)
       const out = new Map<string, LedgerWindowSummary['byCurrency'][number]>()
       const net = new Map<string, bigint>()
       for (const g of groups) {
         const currency = g.currency.trim()
         const row = out.get(currency) ?? { currency, entries: 0, netMinor: '0', byType: [] }
-        const sum = g._sum.amountMinor ?? 0n
-        row.entries += g._count._all
-        row.byType.push({ type: g.type as LedgerEntryType, entries: g._count._all, sumMinor: sum.toString() })
+        const sum = g.sumMinor
+        row.entries += g.entries
+        row.byType.push({ type: g.type as LedgerEntryType, entries: g.entries, sumMinor: sum.toString() })
         net.set(currency, (net.get(currency) ?? 0n) + sum)
         out.set(currency, row)
       }

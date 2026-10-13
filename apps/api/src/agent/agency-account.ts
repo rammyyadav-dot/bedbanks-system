@@ -1,6 +1,8 @@
 import { ForbiddenException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { AGENCY_CREDIT_OVERDUE_CODE, AGENCY_CREDIT_TERMS, AGENCY_REQUIRED_FOR_BOOKING_CODE, type AgencyOverdueView } from '@bedbanks/contracts'
+import { availableMinor } from '@bedbanks/money'
+import { walletBalanceMinor } from '../ledger/ledger-core'
 import { ageAccount, type Aging } from './credit-aging'
 
 /**
@@ -42,10 +44,10 @@ export interface AgencyPosition { accountId: string | null; currency: string; ba
 
 export async function agencyPosition(tx: Prisma.TransactionClient, tenantId: string, agencyId: string, currency: string): Promise<AgencyPosition> {
   const account = await tx.wallet.findFirst({ where: { tenantId, agencyId, currency }, select: { id: true } })
-  const balance = account ? (await tx.ledgerEntry.aggregate({ where: { tenantId, walletId: account.id }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n : 0n
+  const balance = account ? await walletBalanceMinor(tx, tenantId, account.id) : 0n
   const creditLine = await agencyCreditLineMinor(tx, tenantId, agencyId, currency)
   const pending = await agencyPendingMinor(tx, tenantId, agencyId, currency)
-  return { accountId: account?.id ?? null, currency, balanceMinor: balance, creditLineMinor: creditLine, pendingMinor: pending, availableMinor: balance + creditLine - pending }
+  return { accountId: account?.id ?? null, currency, balanceMinor: balance, creditLineMinor: creditLine, pendingMinor: pending, availableMinor: availableMinor({ balanceMinor: balance, creditLineMinor: creditLine, pendingMinor: pending }) }
 }
 
 /**

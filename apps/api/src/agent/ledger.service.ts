@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client'
 import type { LedgerEntryType } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
+import { refundWithin } from '@bedbanks/money'
+import { appendLedgerEntry, assertValidAppend } from '../ledger/ledger-core'
 
 @Injectable()
 export class LedgerService {
@@ -11,8 +13,7 @@ export class LedgerService {
   /** Posts one append-only minor-unit entry, idempotently, inside the tenant RLS transaction. */
   async post(input: { tenantId: string; walletId: string; currency: string; amountMinor: bigint; type: LedgerEntryType; idempotencyKey: string; reference?: string }) {
     assertSupportedSettlementCurrency(input.currency)
-    if (!input.idempotencyKey.trim()) throw new BadRequestException('Ledger idempotency key is required')
-    if (input.amountMinor === 0n) throw new BadRequestException('Ledger amount must be non-zero')
+    assertValidAppend(input)
 
     const key = { walletId_idempotencyKey: { walletId: input.walletId, idempotencyKey: input.idempotencyKey } }
 
@@ -28,17 +29,7 @@ export class LedgerService {
           return existing
         }
 
-        return tx.ledgerEntry.create({
-          data: {
-            tenantId: input.tenantId,
-            walletId: input.walletId,
-            currency: input.currency,
-            amountMinor: input.amountMinor,
-            type: input.type,
-            idempotencyKey: input.idempotencyKey,
-            reference: input.reference,
-          },
-        })
+        return appendLedgerEntry(tx, input)
       })
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
@@ -53,7 +44,7 @@ export class LedgerService {
   }
 
   assertRefundWithinAuthorized(input: { refundMinor: bigint; authorizedRefundableMinor: bigint }) {
-    if (input.refundMinor < 0n || input.authorizedRefundableMinor < 0n || input.refundMinor > input.authorizedRefundableMinor) {
+    if (!refundWithin(input)) {
       throw new BadRequestException('Refund exceeds authorized refundable amount')
     }
   }

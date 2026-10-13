@@ -2,6 +2,7 @@ import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { readSupplierPrebook } from './supplier-prebook-record'
 import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
@@ -62,8 +63,8 @@ export class BookingConfirmationService {
 
       // The reservation becomes a final charge: reverse the HOLD, then DEBIT the same amount (net balance unchanged).
       const reference = `booking:${bookingId}`
-      await tx.ledgerEntry.create({ data: { tenantId, walletId: reservation.walletId, type: 'RELEASE', amountMinor, currency: booking.currency, reference, idempotencyKey: `${authorizationKey}:settle-release` } })
-      await tx.ledgerEntry.create({ data: { tenantId, walletId: reservation.walletId, type: 'DEBIT', amountMinor: -amountMinor, currency: booking.currency, reference, idempotencyKey: `${authorizationKey}:settle-debit` } })
+      await appendLedgerEntry(tx, { tenantId, walletId: reservation.walletId, type: 'RELEASE', amountMinor, currency: booking.currency, reference, idempotencyKey: `${authorizationKey}:settle-release` })
+      await appendLedgerEntry(tx, { tenantId, walletId: reservation.walletId, type: 'DEBIT', amountMinor: -amountMinor, currency: booking.currency, reference, idempotencyKey: `${authorizationKey}:settle-debit` })
 
       // The one writer of Booking.status (ADR 0039): records the move and its immutable event. `supplier` is not part of the lifecycle.
       await transitionBooking(tx, { tenantId, bookingId, action: 'systemConfirm', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'USER', id: userId }, level: 'SYSTEM', idempotencyKey: `confirm:${bookingId}`, now: new Date() })

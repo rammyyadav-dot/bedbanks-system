@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { canSpend } from '@bedbanks/money'
 import { accountCreditLineMinor } from './agency-account'
+import { appendLedgerEntry, walletBalanceMinor } from '../ledger/ledger-core'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 
@@ -44,25 +46,13 @@ export class BookingFinancialAuthorizationService {
           return existing
         }
 
-        const aggregate = await tx.ledgerEntry.aggregate({
-          where: { tenantId: command.tenantId, walletId: command.walletId, currency: command.currency },
-          _sum: { amountMinor: true },
-        })
-        const durableBalance = aggregate._sum.amountMinor ?? 0n
+        const durableBalance = await walletBalanceMinor(tx, command.tenantId, command.walletId, command.currency)
         // ADR 0028 slice 3: an agency account spends its balance plus the agency's credit line (none = prepaid).
-        const availableCredit = durableBalance + await accountCreditLineMinor(tx, wallet)
-        if (availableCredit < command.amountMinor) throw new ConflictException('Insufficient wallet credit')
+        if (!canSpend({ balanceMinor: durableBalance, creditLineMinor: await accountCreditLineMinor(tx, wallet) }, command.amountMinor)) throw new ConflictException('Insufficient wallet credit')
 
-        const entry = await tx.ledgerEntry.create({
-          data: {
-            tenantId: command.tenantId,
-            walletId: command.walletId,
-            type: 'HOLD',
-            amountMinor: -command.amountMinor,
-            currency: command.currency,
-            reference: `booking:${command.bookingId}`,
-            idempotencyKey: command.idempotencyKey,
-          },
+        const entry = await appendLedgerEntry(tx, {
+          tenantId: command.tenantId, walletId: command.walletId, type: 'HOLD', amountMinor: -command.amountMinor,
+          currency: command.currency, reference: `booking:${command.bookingId}`, idempotencyKey: command.idempotencyKey,
         })
 
         await tx.auditEvent.create({
@@ -115,11 +105,11 @@ export class BookingFinancialAuthorizationService {
           return existing
         }
 
-        const entry = await tx.ledgerEntry.create({ data: {
+        const entry = await appendLedgerEntry(tx, {
           tenantId: command.tenantId, walletId: command.walletId, type: 'RELEASE',
           amountMinor: command.amountMinor, currency: command.currency,
           reference: `booking:${command.bookingId}`, idempotencyKey: `${command.idempotencyKey}:release`,
-        } })
+        })
         await tx.auditEvent.create({ data: {
           tenantId: command.tenantId, userId: command.userId, actorType: 'USER',
           action: 'booking.finance.released', entityType: 'booking', entityId: command.bookingId,
