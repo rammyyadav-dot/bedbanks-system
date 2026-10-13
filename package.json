@@ -19,7 +19,8 @@
     "check:public-env": "node --import tsx tools/public-env-check.ts",
     "check:runtime-db-role": "node --import tsx tools/runtime-db-role-check.ts",
     "check:aws-governance": "node tools/aws-governance-check.mjs",
-    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance"
+    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance",
+    "test:browser": "pnpm --dir e2e test"
   },
   "dependencies": {
     "next": "16.3.3",

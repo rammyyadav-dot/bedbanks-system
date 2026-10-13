@@ -159,10 +159,10 @@ Booking, payment, wallet, supplier confirmation and any live connector. No merge
 | S9 expiry sweeper | **BUILT** (disabled by default) | ADR 0057 |
 | S6 child + extra-adult lines; F12 resolved | **BUILT**, strict-role smoke 66/66 | ADR 0057 |
 | S10a promotions; S10b derived rates (policy ADR 0058) | **BUILT** | ADR 0057, 0058 |
-| S4 | NOT BUILT | - |
+| S4 guided setup; F13 frozen cancellation terms; promotion shown on offers; browser journeys (16) | **BUILT** | ADR 0059, `e2e/` |
 
 | F5 | closed in application code (D3: the lifecycle credential can still write status) | S5 |
 | F4 | closed for plan-level market and nationality lists | S3 |
-| F13 (new) | Cancellation penalties and vouchers read live contract rules, not a copy frozen at booking | open, needs a booking decision |
+| F13 (new) | Cancellation penalties and vouchers read live contract rules, not a copy frozen at booking | closed for new bookings (ADR 0059); earlier bookings keep the live rules |
 
 Finding status: F1 closed by S2b for offers, penalties and vouchers (via one resolver). F2 (plan validity) closed for the sale window; the booking window stays contract-level. Payment type is recorded but not yet shown to Agents. F1, F3-F10 remain open.

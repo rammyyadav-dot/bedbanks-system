@@ -354,6 +354,30 @@ importers:
         specifier: 5.7.3
         version: 5.7.3
 
+  e2e:
+    devDependencies:
+      '@playwright/test':
+        specifier: 1.56.1
+        version: 1.56.1
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.7.3))(typescript@5.7.3)
+      '@types/bcryptjs':
+        specifier: ^2.4.6
+        version: 2.4.6
+      '@types/node':
+        specifier: ^24
+        version: 24.13.3
+      bcryptjs:
+        specifier: ^2.4.3
+        version: 2.4.3
+      prisma:
+        specifier: ^6.2.1
+        version: 6.19.3(typescript@5.7.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.7.3
+
   packages/config:
     devDependencies:
       typescript:

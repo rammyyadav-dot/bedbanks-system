@@ -24,7 +24,7 @@ interface FormState { contractId: string; hotelId: string; roomTypeId: string; b
 const blank: FormState = { contractId: '', hotelId: '', roomTypeId: '', boardBasisId: '', code: '', status: 'DRAFT', currency: 'AED', occupancy: '2', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: '1', maxStay: '', releaseDays: '0', validFrom: '', validTo: '', paymentType: '', cancellationPolicySet: '', salesMarkets: '', nationalities: '' }
 const wholeNumber = (value: string) => /^\d+$/.test(value.trim()) ? Number(value) : null
 
-export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
+export function RatePlanForm({ ratePlanId, termsOnly = false, afterCreate = 'plan' }: { ratePlanId?: string; /** Guided setup shows only the plan terms; the other sections have their own steps. */ termsOnly?: boolean; /** Where a newly created plan opens: its page, or the guided setup. A plain value, so a server page can pass it. */ afterCreate?: 'plan' | 'setup' }) {
   const router = useRouter()
   const can = useCan()
   const editing = Boolean(ratePlanId)
@@ -103,7 +103,7 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
     setSaving(true)
     try {
       if (ratePlanId) { const saved = await updateRatePlan(ratePlanId, body); setForm((current) => ({ ...current, status: saved.status })); setMessage({ kind: 'ok', text: 'Rate plan saved.' }) }
-      else { const created = await createRatePlan(body); router.push(`/rates/plans/${created.id}`) }
+      else { const created = await createRatePlan(body); router.push(afterCreate === 'setup' ? `/rates/plans/${created.id}/setup` : `/rates/plans/${created.id}`) }
     } catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the rate plan') }) } finally { setSaving(false) }
   }
 
@@ -136,12 +136,12 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
           </div>
           {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#bc5652' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
           {canManage ? <button type="submit" className="admin-btn admin-btn-primary" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save rate plan' : 'Create rate plan'}</button> : <p role="status" style={{ fontSize: 12 }}>You have read-only access to rate plans.</p>}
-          {editing && plan ? <p style={{ fontSize: 12, marginTop: 10 }}><Link href={`/rates?ratePlanId=${plan.id}`}>Open in Rates &amp; Inventory</Link> · <Link href={`/sellability?ratePlanId=${plan.id}`}>Check sellability</Link></p> : null}
+          {editing && plan && !termsOnly ? <p style={{ fontSize: 12, marginTop: 10 }}><Link href={`/rates/plans/${plan.id}/setup`}>Guided setup</Link> · <Link href={`/rates?ratePlanId=${plan.id}`}>Open in Rates &amp; Inventory</Link> · <Link href={`/sellability?ratePlanId=${plan.id}`}>Check sellability</Link></p> : null}
         </form>
       )}
-      {editing && ratePlanId && !loading && !loadError ? <GuestPricesPanel ratePlanId={ratePlanId} /> : null}
-      {editing && ratePlanId && !loading && !loadError ? <DerivationPanel ratePlanId={ratePlanId} /> : null}
-      {editing && ratePlanId && !loading && !loadError ? <PromotionsPanel ratePlanId={ratePlanId} /> : null}
+      {editing && ratePlanId && !termsOnly && !loading && !loadError ? <GuestPricesPanel ratePlanId={ratePlanId} /> : null}
+      {editing && ratePlanId && !termsOnly && !loading && !loadError ? <DerivationPanel ratePlanId={ratePlanId} /> : null}
+      {editing && ratePlanId && !termsOnly && !loading && !loadError ? <PromotionsPanel ratePlanId={ratePlanId} /> : null}
     </div>
   )
 }
