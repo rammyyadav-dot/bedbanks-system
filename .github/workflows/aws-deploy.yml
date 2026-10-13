@@ -21,13 +21,50 @@ on:
 permissions:
   id-token: write
   contents: read
+  checks: read
+  deployments: read
 
 concurrency:
   group: aws-deploy-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
+  # Promotion gate. Runs before the environment approval and before any AWS credential is assumed: a commit that did not pass the
+  # release checks, or (production) is not on main or was never deployed to staging, cannot be rolled out from here.
+  gate:
+    name: Promotion gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require green release checks, and for production main plus a successful staging deployment of the same commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.sha }}
+          TARGET: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA" >&2; exit 1; }
+          runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" --jq '.check_runs[] | [.name, .status, (.conclusion // "none")] | @tsv')
+          # Keep these names in step with the jobs in ci.yml.
+          for required in "Schema integrity" "Prisma migration certification" "verify" "End-to-end release suite (Admin, Agent, Supplier)" "Website production checks"; do
+            line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$required" '$1==n {l=$0} END {print l}')
+            [ -n "$line" ] || { echo "required check '$required' has not run on $SHA" >&2; exit 1; }
+            [ "$(printf '%s' "$line" | cut -f2,3)" = "$(printf 'completed\tsuccess')" ] || { echo "required check '$required' is not green on $SHA: $line" >&2; exit 1; }
+          done
+          if [ "$TARGET" = "production" ]; then
+            rel=$(gh api "repos/$REPO/compare/main...$SHA" --jq .status)
+            case "$rel" in identical|behind) ;; *) echo "$SHA is not on main (compare: $rel); production only deploys commits merged to main" >&2; exit 1 ;; esac
+            ok=0
+            for id in $(gh api "repos/$REPO/deployments?environment=staging&sha=$SHA&per_page=100" --jq '.[].id'); do
+              state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state // "none"')
+              [ "$state" = "success" ] && ok=1
+            done
+            [ "$ok" = 1 ] || { echo "$SHA has no successful staging deployment; deploy and verify staging first" >&2; exit 1; }
+          fi
+          echo "Gate passed for $SHA -> $TARGET" >> "$GITHUB_STEP_SUMMARY"
+
   deploy:
+    needs: gate
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
@@ -62,5 +99,8 @@ jobs:
             # A circuit-breaker rollback leaves the service "stable" on the OLD revision: verify we are really serving the new one.
             now=$(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" --query 'services[0].taskDefinition' --output text)
             [ "$now" = "$arn" ] || { echo "$svc did not stay on $arn (rolled back to $now)" >&2; exit 1; }
+            # Fully rolled: exactly one deployment left and every desired task running.
+            read -r running desired deployments < <(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" --query 'services[0].[runningCount,desiredCount,length(deployments)]' --output text)
+            { [ "$running" = "$desired" ] && [ "$deployments" = 1 ]; } || { echo "$svc not fully rolled: running=$running desired=$desired deployments=$deployments" >&2; exit 1; }
             echo "$svc -> $image (commit $SHA)" >> "$GITHUB_STEP_SUMMARY"
           done

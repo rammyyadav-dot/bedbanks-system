@@ -74,3 +74,31 @@ resource "aws_cloudwatch_metric_alarm" "db_storage" {
   dimensions          = { DBInstanceIdentifier = aws_db_instance.this.identifier }
   alarm_actions       = [aws_sns_topic.alarms.arn]
 }
+# "No healthy target" must page even when the metric disappears (all tasks gone), which the alarms above would read as not breaching.
+resource "aws_cloudwatch_metric_alarm" "api_no_healthy_hosts" {
+  alarm_name          = "${local.name}-api-no-healthy-targets"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HealthyHostCount"
+  statistic           = "Minimum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  dimensions          = { TargetGroup = aws_lb_target_group.api.arn_suffix, LoadBalancer = aws_lb.internal.arn_suffix }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "breaching"
+}
+resource "aws_cloudwatch_metric_alarm" "portal_no_healthy_hosts" {
+  for_each            = local.portals
+  alarm_name          = "${local.name}-${each.key}-no-healthy-targets"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HealthyHostCount"
+  statistic           = "Minimum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  dimensions          = { TargetGroup = aws_lb_target_group.portal[each.key].arn_suffix, LoadBalancer = aws_lb.public.arn_suffix }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "breaching"
+}
