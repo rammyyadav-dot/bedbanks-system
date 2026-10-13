@@ -18,6 +18,10 @@ import { assessRatePlanActivation, cloneDraftFields, transitionTarget, type Rate
 import { deriveRatePlanCapabilities } from './rate-plan-capabilities'
 import { activationApprovalMode } from './rate-plan-approval-mode'
 import { planFingerprint } from './rate-plan-fingerprint'
+import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
+import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived-rates'
+import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
+import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
@@ -36,6 +40,8 @@ const refuseUnknownFields = (input: unknown) => {
   const unknown = Object.keys(input && typeof input === 'object' ? input : {}).filter(key => !RATE_PLAN_EDITABLE.has(key))
   if (unknown.length) throw new BadRequestException({ code: 'RATE_PLAN_UNKNOWN_FIELD', message: `Unsupported rate plan field(s): ${unknown.join(', ')}` })
 }
+type PromotionRow = { id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null }
+const promotionRule = (row: PromotionRow, day: (value: Date) => string): PromotionRule => ({ id: row.id, kind: row.kind as PromotionKind, name: row.name, percentBp: row.percentBp, minLeadDays: row.minLeadDays, maxLeadDays: row.maxLeadDays, minNights: row.minNights, freeNights: row.freeNights, bookFrom: row.bookFrom ? day(row.bookFrom) : null, bookTo: row.bookTo ? day(row.bookTo) : null, stayFrom: row.stayFrom ? day(row.stayFrom) : null, stayTo: row.stayTo ? day(row.stayTo) : null })
 const dayOf = (value: Date | null | undefined): string | null => (value ? value.toISOString().slice(0, 10) : null)
 /** Validated sale window and payment type of a plan, resolved against the contract term. A refusal is a typed 400 and nothing is written. */
 const planTermsOrThrow = (input: Record<string, unknown>, current: PlanTerms, contract: { validFrom: Date; validTo: Date }): PlanTerms => {
@@ -398,15 +404,27 @@ export class SupplyService {
     })
   }
 
+  /**
+   * The nightly rates that price a plan from `from` on: its own rows, or for a derived plan (ADR 0058, S10b) its parent's rows adjusted by the plan's terms.
+   * `problem` says why a derived plan has none. Ordered by date and capped.
+   */
+  private async effectiveRates(tx: Prisma.TransactionClient, tenantId: string, plan: { id: string; occupancy: number; currency: string; contractId: string; derivedFromId: string | null; derivedMode: string | null; derivedAdjustment: number | null; roomType: { hotelId: string }; derivedFrom: { id: string; status: string; occupancy: number; currency: string; contractId: string; derivedFromId: string | null; roomType: { hotelId: string } } | null }, from: Date, take: number) {
+    const select = { stayDate: true, occupancy: true, amountBasis: true, currency: true, amountMinor: true } as const
+    if (!plan.derivedFromId) return { rows: await tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.id, occupancy: plan.occupancy, stayDate: { gte: from } }, select, orderBy: { stayDate: 'asc' }, take }), problem: null as string | null }
+    const parentRows = await tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.derivedFromId, occupancy: plan.occupancy, stayDate: { gte: from } }, select, orderBy: { stayDate: 'asc' }, take })
+    const derived = withDerivedRates({ ...plan, dailyRates: [] as RateRowLike[], derivedFrom: plan.derivedFrom ? { ...plan.derivedFrom, dailyRates: parentRows as RateRowLike[] } : null })
+    return { rows: derived.dailyRates.map(row => ({ stayDate: row.stayDate, occupancy: row.occupancy ?? plan.occupancy, amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })), problem: derived.derivedProblem as string | null }
+  }
+
   /** Loads plain facts for the activation evaluator inside the caller's tenant transaction. Nothing is inferred: a missing relation is reported by the checklist. */
   private async activationReadiness(tx: Prisma.TransactionClient, tenantId: string, ratePlanId: string) {
-    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, cancellationPolicies: { select: { policySet: true } } } } } })
+    const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { roomType: { include: { hotel: { select: { id: true, timeZone: true } } } }, boardBasis: true, contract: { include: { supplierHotelMapping: true, cancellationPolicies: { select: { policySet: true } } } }, guestPrices: true, promotions: true, derivedFrom: { include: { roomType: { select: { hotelId: true } } } } } })
     if (!plan) throw new NotFoundException('Rate plan not found')
     const timeZone = plan.roomType.hotel.timeZone
     const today = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     const todayDate = new Date(`${today}T00:00:00Z`)
-    const [rates, availability] = await Promise.all([
-      tx.dailyRate.findMany({ where: { tenantId, ratePlanId, occupancy: plan.occupancy, stayDate: { gte: todayDate } }, select: { stayDate: true, amountBasis: true, currency: true, amountMinor: true }, orderBy: { stayDate: 'asc' }, take: 1500 }),
+    const [effective, availability] = await Promise.all([
+      this.effectiveRates(tx, tenantId, plan, todayDate, 1500),
       tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId, stayDate: { gte: todayDate } }, select: { stayDate: true }, orderBy: { stayDate: 'asc' }, take: 1500 }),
     ])
     const day = (value: Date) => value.toISOString().slice(0, 10)
@@ -416,7 +434,10 @@ export class SupplyService {
       room: { hotelId: plan.roomType.hotelId, maxOccupancy: plan.roomType.maxOccupancy, isActive: plan.roomType.isActive },
       board: { isActive: plan.boardBasis.isActive },
       contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: rulesForPlan(plan, plan.contract.cancellationPolicies).rules.length, markets: parseMarketRules(plan.contract) },
-      rates: rates.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
+      rates: effective.rows.map(row => ({ stayDate: day(row.stayDate), amountBasis: row.amountBasis, currency: row.currency, amountMinor: row.amountMinor })),
+      derived: { derived: plan.derivedFromId !== null, problem: effective.problem },
+      guestPrices: plan.guestPrices.map(line => ({ kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis, currency: line.currency })),
+      promotions: plan.promotions.map(promo => promotionRule(promo, day)),
       availabilityDates: availability.map(row => day(row.stayDate)),
     })
     return { plan, readiness, today }
@@ -467,9 +488,11 @@ export class SupplyService {
 
   /** The content an approver is shown: plan terms and every rate row of the plan occupancy from `asOf`. Capped; an oversized plan is refused rather than hashed partially. */
   private async contentFingerprint(tx: Prisma.TransactionClient, tenantId: string, plan: Awaited<ReturnType<SupplyService['activationReadiness']>>['plan'], asOf: string): Promise<string> {
-    const rows = await tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.id, occupancy: plan.occupancy, stayDate: { gte: new Date(`${asOf}T00:00:00Z`) } }, select: { stayDate: true, occupancy: true, amountMinor: true, amountBasis: true, currency: true }, orderBy: { stayDate: 'asc' }, take: MAX_APPROVAL_RATE_ROWS + 1 })
+    const rows = (await this.effectiveRates(tx, tenantId, plan, new Date(`${asOf}T00:00:00Z`), MAX_APPROVAL_RATE_ROWS + 1)).rows
     if (rows.length > MAX_APPROVAL_RATE_ROWS) throw new BadRequestException({ code: 'RATE_PLAN_TOO_MANY_RATES', message: `Approval covers at most ${MAX_APPROVAL_RATE_ROWS} dated rates; split the plan or end its sale window.` })
-    return planFingerprint(plan, rows, asOf)
+    const guestLines = await tx.ratePlanGuestPrice.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true, currency: true } })
+    const promotions = await tx.ratePlanPromotion.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } })
+    return planFingerprint(plan, rows, asOf, guestLines, promotions)
   }
 
   /** Read-only: readiness plus the content fingerprint, for requesting an approval. */
@@ -498,6 +521,140 @@ export class SupplyService {
       return { id: value.id, value }
     }, { isolationLevel: 'Serializable', lifecycleRole: true })
   }
+  /** Child and extra-adult lines of a plan (ADR 0057, S6). `supply.rates.read`; 404 for another tenant's plan. */
+  async guestPrices(tenantId: string, userId: string, ratePlanId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, currency: true, occupancy: true, guestPrices: { orderBy: [{ kind: 'asc' }, { minAge: 'asc' }] } } }))
+    if (!plan) throw new NotFoundException('Rate plan not found')
+    return { ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), currency: plan.currency, occupancy: plan.occupancy, lines: plan.guestPrices.map(line => ({ kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor.toString(), amountBasis: line.amountBasis, currency: line.currency })) }
+  }
+
+  /**
+   * Replaces all of a plan's guest price lines atomically (ADR 0057, S6). Version-checked against the plan, validated as a whole (every problem reported),
+   * audited with the amounts before and after. The plan version moves, so an activation approval filed on the old prices is voided.
+   */
+  async replaceGuestPrices(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid guest price request')
+    const expected = typeof input.expectedUpdatedAt === 'string' ? new Date(input.expectedUpdatedAt) : null
+    if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
+    if (!Array.isArray(input.lines) || input.lines.length > 40) throw new BadRequestException('Provide at most 40 guest price lines')
+    const lines = input.lines.map((raw: any) => {
+      const kind = raw?.kind
+      const amount = typeof raw?.amountMinor === 'string' && /^[0-9]{1,19}$/.test(raw.amountMinor) ? BigInt(raw.amountMinor) : null
+      return { kind, ...(kind === 'EXTRA_ADULT' ? EXTRA_ADULT_BAND : { minAge: raw?.minAge, maxAge: raw?.maxAge }), amountMinor: amount, basis: raw?.amountBasis, currency: typeof raw?.currency === 'string' ? raw.currency.toUpperCase() : undefined }
+    })
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.guest_prices_replaced', 'rate_plan', requestId, async tx => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, currency: true, guestPrices: { select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true } } } })
+      if (!plan) throw new NotFoundException('Rate plan not found')
+      if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
+      const issues = validateGuestPriceLines(lines, plan.currency)
+      if (issues.length) throw new BadRequestException({ code: issues[0]!.code, message: issues[0]!.message, details: issues })
+      await tx.ratePlanGuestPrice.deleteMany({ where: { tenantId, ratePlanId } })
+      if (lines.length) await tx.ratePlanGuestPrice.createMany({ data: lines.map((line: any) => ({ tenantId, ratePlanId, kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, amountBasis: line.basis, currency: line.currency })) })
+      // The plan version moves with its prices: an approval or a stale editor bound to the old version is refused.
+      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      const shape = (rows: Array<{ kind: string; minAge: number; maxAge: number; amountMinor: bigint | null; amountBasis?: string | null; basis?: string }>) => rows.map(r => ({ kind: r.kind, minAge: r.minAge, maxAge: r.maxAge, amountMinor: r.amountMinor?.toString() ?? null, basis: r.amountBasis ?? r.basis ?? null }))
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.guest_prices_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.guestPrices), after: shape(lines) } } })
+      return { id: ratePlanId, value: { ratePlanId } }
+    }).then(() => this.guestPrices(tenantId, userId, ratePlanId))
+  }
+
+  /** Promotions of a plan (ADR 0058, S10a). `supply.rates.read`; 404 for another tenant's plan. */
+  async promotions(tenantId: string, userId: string, ratePlanId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { orderBy: [{ nameKey: 'asc' }] } } }))
+    if (!plan) throw new NotFoundException('Rate plan not found')
+    return { ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), promotions: plan.promotions.map(row => ({ id: row.id, kind: row.kind, name: row.name, percentBp: row.percentBp, minLeadDays: row.minLeadDays, maxLeadDays: row.maxLeadDays, minNights: row.minNights, freeNights: row.freeNights, bookFrom: dayOf(row.bookFrom), bookTo: dayOf(row.bookTo), stayFrom: dayOf(row.stayFrom), stayTo: dayOf(row.stayTo) })) }
+  }
+
+  /**
+   * Replaces all of a plan's promotions atomically (ADR 0058, S10a). Version-checked, validated as a whole, audited with before and after; the plan version moves,
+   * so an activation approval filed on the old terms is voided.
+   */
+  async replacePromotions(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid promotions request')
+    const expected = typeof input.expectedUpdatedAt === 'string' ? new Date(input.expectedUpdatedAt) : null
+    if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
+    if (!Array.isArray(input.promotions) || input.promotions.length > 40) throw new BadRequestException('Provide at most 40 promotions')
+    const num = (v: unknown) => (v === null || v === undefined ? null : v)
+    const rules = input.promotions.map((raw: any) => ({ kind: raw?.kind, name: typeof raw?.name === 'string' ? raw.name.trim() : raw?.name, percentBp: num(raw?.percentBp), minLeadDays: num(raw?.minLeadDays), maxLeadDays: num(raw?.maxLeadDays), minNights: num(raw?.minNights), freeNights: num(raw?.freeNights), bookFrom: num(raw?.bookFrom), bookTo: num(raw?.bookTo), stayFrom: num(raw?.stayFrom), stayTo: num(raw?.stayTo) }))
+    const issues = validatePromotions(rules)
+    if (issues.length) throw new BadRequestException({ code: issues[0]!.code, message: issues[0]!.message, details: issues })
+    const date = (v: unknown) => (typeof v === 'string' ? new Date(`${v}T00:00:00Z`) : null)
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.promotions_replaced', 'rate_plan', requestId, async tx => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } } } })
+      if (!plan) throw new NotFoundException('Rate plan not found')
+      if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
+      await tx.ratePlanPromotion.deleteMany({ where: { tenantId, ratePlanId } })
+      if (rules.length) await tx.ratePlanPromotion.createMany({ data: rules.map((rule: any) => ({ tenantId, ratePlanId, kind: rule.kind, name: rule.name, nameKey: rule.name.toLowerCase(), percentBp: rule.percentBp, minLeadDays: rule.minLeadDays, maxLeadDays: rule.maxLeadDays, minNights: rule.minNights, freeNights: rule.freeNights, bookFrom: date(rule.bookFrom), bookTo: date(rule.bookTo), stayFrom: date(rule.stayFrom), stayTo: date(rule.stayTo) })) })
+      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      const shape = (rows: Array<Record<string, unknown>>) => rows.map(r => ({ kind: r.kind as string, name: r.name, percentBp: r.percentBp ?? null, minLeadDays: r.minLeadDays ?? null, maxLeadDays: r.maxLeadDays ?? null, minNights: r.minNights ?? null, freeNights: r.freeNights ?? null, bookFrom: r.bookFrom instanceof Date ? dayOf(r.bookFrom) : r.bookFrom ?? null, bookTo: r.bookTo instanceof Date ? dayOf(r.bookTo) : r.bookTo ?? null, stayFrom: r.stayFrom instanceof Date ? dayOf(r.stayFrom) : r.stayFrom ?? null, stayTo: r.stayTo instanceof Date ? dayOf(r.stayTo) : r.stayTo ?? null })) as Prisma.InputJsonValue
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.promotions_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.promotions), after: shape(rules) } } })
+      return { id: ratePlanId, value: { ratePlanId } }
+    }).then(() => this.promotions(tenantId, userId, ratePlanId))
+  }
+
+  /** Derivation of a plan and the plans it could derive from (ADR 0058, S10b). `supply.rates.read`; 404 for another tenant's plan. */
+  async derivation(tenantId: string, userId: string, ratePlanId: string) {
+    await this.check(tenantId, userId, 'supply.rates.read')
+    return this.prisma.withTenant(tenantId, async tx => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, status: true, currency: true, occupancy: true, contractId: true, derivedFromId: true, derivedMode: true, derivedAdjustment: true, derivedFrom: { select: { code: true } }, roomType: { select: { hotelId: true } } } })
+      if (!plan) throw new NotFoundException('Rate plan not found')
+      const [ownRates, derivedPlans, candidates] = await Promise.all([
+        tx.dailyRate.count({ where: { tenantId, ratePlanId } }),
+        tx.ratePlan.count({ where: { tenantId, derivedFromId: ratePlanId } }),
+        tx.ratePlan.findMany({ where: { tenantId, id: { not: ratePlanId }, contractId: plan.contractId, currency: plan.currency, occupancy: plan.occupancy, derivedFromId: null, status: { not: 'EXPIRED' }, roomType: { hotelId: plan.roomType.hotelId } }, select: { id: true, code: true, roomType: { select: { name: true } } }, orderBy: { code: 'asc' }, take: 200 }),
+      ])
+      return {
+        ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), status: plan.status, currency: plan.currency,
+        derived: plan.derivedFromId && plan.derivedMode && plan.derivedAdjustment !== null ? { parentId: plan.derivedFromId, parentCode: plan.derivedFrom?.code ?? '', mode: plan.derivedMode, adjustment: plan.derivedAdjustment } : null,
+        candidates: candidates.map(c => ({ id: c.id, code: c.code, roomName: c.roomType.name })),
+        hasOwnRates: ownRates > 0, hasDerivedPlans: derivedPlans > 0,
+      }
+    })
+  }
+
+  /**
+   * Sets or removes the derivation of a plan (ADR 0058, S10b). Only a DRAFT or SUSPENDED plan: the price source of a live plan is not switched under buyers.
+   * Version-checked, audited with before and after, moves the plan version (so an approval filed on the old price is void). The database enforces the same
+   * shape rules with a trigger; the checks here answer first with a typed reason.
+   */
+  async replaceDerivation(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid derivation request')
+    const expected = typeof input.expectedUpdatedAt === 'string' ? new Date(input.expectedUpdatedAt) : null
+    if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
+    const parentId = input.parentId === null ? null : typeof input.parentId === 'string' && input.parentId ? input.parentId : undefined
+    if (parentId === undefined) throw new BadRequestException('parentId must be a rate plan id, or null to remove the derivation')
+    let mode: 'PERCENT_BP' | 'FIXED_MINOR' | null = null
+    let adjustment: number | null = null
+    if (parentId !== null) {
+      if (input.mode !== 'PERCENT_BP' && input.mode !== 'FIXED_MINOR') throw new BadRequestException({ code: 'DERIVED_TERMS_INVALID', message: 'mode must be PERCENT_BP or FIXED_MINOR.' })
+      if (typeof input.adjustment !== 'number' || !Number.isSafeInteger(input.adjustment)) throw new BadRequestException({ code: 'DERIVED_TERMS_INVALID', message: 'adjustment must be a whole number (signed basis points or signed minor units).' })
+      mode = input.mode; adjustment = input.adjustment
+      if (!validDerivedTerms(mode, adjustment)) throw new BadRequestException({ code: 'DERIVED_TERMS_INVALID', message: mode === 'PERCENT_BP' ? 'A percentage adjustment is from -9000 to 100000 basis points (-90% to +1000%).' : 'A fixed adjustment is at most 2,000,000,000 minor units either way.' })
+    }
+    return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.derivation_replaced', 'rate_plan', requestId, async tx => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, status: true, contractId: true, currency: true, occupancy: true, derivedFromId: true, derivedMode: true, derivedAdjustment: true, roomType: { select: { hotelId: true } } } })
+      if (!plan) throw new NotFoundException('Rate plan not found')
+      if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
+      if (plan.status !== 'DRAFT' && plan.status !== 'SUSPENDED') throw new ConflictException({ code: 'RATE_PLAN_NOT_EDITABLE', message: `A ${plan.status} rate plan keeps its price source. Suspend it first to change how it is priced.` })
+      if (parentId !== null) {
+        if (parentId === ratePlanId) throw new BadRequestException({ code: 'DERIVED_PARENT_MISSING', message: 'A rate plan cannot be derived from itself.' })
+        const parent = await tx.ratePlan.findFirst({ where: { id: parentId, tenantId }, select: { id: true, status: true, contractId: true, currency: true, occupancy: true, derivedFromId: true, roomType: { select: { hotelId: true } } } })
+        if (!parent) throw new BadRequestException({ code: 'DERIVED_PARENT_MISSING', message: 'The parent rate plan was not found in this tenant.' })
+        if (parent.derivedFromId !== null) throw new BadRequestException({ code: 'DERIVED_PARENT_IS_DERIVED', message: 'The parent is itself derived. Derivation is one level deep: choose the plan that owns the rates.' })
+        if (parent.status === 'EXPIRED') throw new BadRequestException({ code: 'DERIVED_PARENT_INACTIVE', message: 'The parent plan has expired.' })
+        if (parent.contractId !== plan.contractId || parent.roomType.hotelId !== plan.roomType.hotelId || parent.currency !== plan.currency || parent.occupancy !== plan.occupancy) throw new BadRequestException({ code: 'DERIVED_PARENT_MISMATCH', message: 'The parent must share this plan\'s contract, hotel, currency and occupancy.' })
+        if (await tx.dailyRate.count({ where: { tenantId, ratePlanId } }) > 0) throw new ConflictException({ code: 'RATE_PLAN_HAS_OWN_RATES', message: 'This plan has its own rates. A derived plan has none: delete its rate rows first.' })
+        if (await tx.ratePlan.count({ where: { tenantId, derivedFromId: ratePlanId } }) > 0) throw new ConflictException({ code: 'RATE_PLAN_HAS_DERIVED_PLANS', message: 'Other plans are derived from this one, so it cannot itself be derived (derivation is one level deep).' })
+      }
+      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { derivedFromId: parentId, derivedMode: mode, derivedAdjustment: adjustment, updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      const shape = (parent: string | null, m: string | null, a: number | null) => ({ parentId: parent, mode: m, adjustment: a })
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.derivation_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.derivedFromId, plan.derivedMode, plan.derivedAdjustment), after: shape(parentId, mode, adjustment) } } })
+      return { id: ratePlanId, value: { ratePlanId } }
+    }).then(() => this.derivation(tenantId, userId, ratePlanId))
+  }
+
   /** Copies the commercial shape into a new DRAFT. Rates, availability, pool membership and status are never copied. */
   async cloneRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
     const code = clean(input?.code)
@@ -566,6 +723,46 @@ export class SupplyService {
 
   /** One transaction for the entire calendar edit. Preview performs the same validation without writes.
    * The strict runtime grant contract remains authoritative; this does not elevate the connection. */
+  /**
+   * CSV import preview (ADR 0057, S7). Read-only. Parses and validates the file per row, loads only the cells it refers to for their current versions,
+   * and runs the accepted cells through the same preview as every other calendar edit. Applying is `calendar/apply` with the returned `edit`.
+   */
+  async previewCalendarImport(tenantId: string, userId: string, input: { hotelId?: unknown; csv?: unknown }, requestId?: string) {
+    if (typeof input?.hotelId !== 'string' || !input.hotelId.trim() || input.hotelId.length > 100) throw new BadRequestException('hotelId is required')
+    if (typeof input.csv !== 'string') throw new BadRequestException('csv must be text')
+    await this.check(tenantId, userId, 'supply.rates.read')
+    const hotelId = input.hotelId
+    const refs = scanReferences(input.csv)
+    const loaded = await this.prisma.withTenant(tenantId, async tx => {
+      const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { id: true } })
+      if (!hotel) throw new NotFoundException('Hotel not found')
+      const plans = await tx.ratePlan.findMany({ where: { tenantId, roomType: { hotelId, hotel: { tenantId } } }, select: { id: true, code: true, currency: true, occupancy: true, inventoryPoolId: true, status: true, contract: { select: { validFrom: true, validTo: true } } }, orderBy: { id: 'asc' }, take: 2001 })
+      if (plans.length > 2000) throw new BadRequestException('This hotel has too many rate plans to import against in one file; contact support.')
+      const referenced = plans.filter(plan => refs.planKeys.includes(plan.id) || refs.planKeys.includes(plan.code))
+      const planIds = referenced.map(plan => plan.id)
+      const stayDates = refs.dates.map(day => new Date(`${day}T00:00:00.000Z`))
+      const [rates, availability] = planIds.length && stayDates.length
+        ? await Promise.all([
+          tx.dailyRate.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, occupancy: true, updatedAt: true } }),
+          tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, updatedAt: true } }),
+        ])
+        : [[], []]
+      return { plans, rates, availability }
+    })
+    const day = (value: Date) => value.toISOString().slice(0, 10)
+    const importPlans: ImportPlan[] = loaded.plans.map(plan => ({ id: plan.id, code: plan.code, currency: plan.currency, occupancy: plan.occupancy, inventoryPoolId: plan.inventoryPoolId, expired: plan.status === 'EXPIRED', contractValidFrom: day(plan.contract.validFrom), contractValidTo: day(plan.contract.validTo) }))
+    const plansByCode = new Map<string, ImportPlan[]>()
+    for (const plan of importPlans) plansByCode.set(plan.code, [...(plansByCode.get(plan.code) ?? []), plan])
+    const rateIndex = new Map<string, ExistingRate>(loaded.rates.map(row => [`${row.ratePlanId}|${day(row.stayDate)}|${row.occupancy}`, { updatedAt: row.updatedAt.toISOString() }]))
+    const availabilityIndex = new Map<string, ExistingAvailability>(loaded.availability.map(row => [`${row.ratePlanId}|${day(row.stayDate)}`, { updatedAt: row.updatedAt.toISOString(), allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay }]))
+    const built = buildCalendarImport(input.csv, { plansByCode, plansById: new Map(importPlans.map(plan => [plan.id, plan])), rate: (planId, date, occupancy) => rateIndex.get(`${planId}|${date}|${occupancy}`) ?? null, availability: (planId, date) => availabilityIndex.get(`${planId}|${date}`) ?? null })
+    const cells = built.rates.length + built.availability.length
+    const edit = cells > 0 && built.fatal.length === 0 ? { ...(built.rates.length ? { rates: built.rates } : {}), ...(built.availability.length ? { availability: built.availability } : {}) } : null
+    // The authoritative preview: same validation, permissions and stale-cell rules as every other calendar edit. It writes nothing.
+    const preview = edit ? await this.editCalendar(tenantId, userId, edit, requestId, true, true) : null
+    return { ok: built.ok && built.fatal.length === 0, fatal: built.fatal, errors: built.errors, warnings: built.warnings, truncatedErrors: built.truncatedErrors, stats: built.stats, edit, preview }
+  }
+
   async editCalendar(tenantId: string, userId: string, input: { rates?: unknown; availability?: unknown }, requestId?: string, preview = false, requireVersions = false) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid calendar edit')
     const rates = input.rates === undefined ? [] : inputRows(input.rates, 'daily rate').map(rateInput)
@@ -584,6 +781,9 @@ export class SupplyService {
         const ids = [...new Set([...rates, ...availability].map(row => row.ratePlanId))].sort()
         const plans = await tx.ratePlan.findMany({ where: { tenantId, id: { in: ids } }, include: { contract: true } })
         if (plans.length !== ids.length) throw new BadRequestException('Rate plan unavailable in this tenant')
+        // ADR 0058, S10b: a derived plan's price is its parent's. The database refuses the row as well; this answers with a typed reason first.
+        const derivedTarget = plans.find(plan => typeof plan.derivedFromId === 'string' && rates.some(row => row.ratePlanId === plan.id))
+        if (derivedTarget) throw new BadRequestException({ code: 'RATE_PLAN_IS_DERIVED', message: `Rate plan ${derivedTarget.code} is derived from another plan and has no rates of its own. Change the parent plan or the adjustment.` })
         const checkVersion = (expected: string | null | undefined, current: { updatedAt: Date } | null) => {
           if (expected !== undefined && expected !== (current?.updatedAt.toISOString() ?? null)) throw new ConflictException({ code: 'CALENDAR_CHANGED', message: 'A cell changed since it was loaded. Reload and review your changes.' })
         }

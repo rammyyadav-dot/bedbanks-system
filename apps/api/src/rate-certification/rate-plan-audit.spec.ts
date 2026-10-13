@@ -15,7 +15,7 @@ interface PlanOpts {
 function plan(o: PlanOpts = {}): AuditPlan {
   const id = o.id ?? 'plan-1'
   return {
-    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, salesMarkets: [], nationalities: [], releaseDays: 0, refundable: o.refundable ?? true,
+    id, code: o.code ?? `RP-${id.toUpperCase()}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: 0, refundable: o.refundable ?? true,
     contractId: o.contractId ?? 'c1', roomTypeId: 'room-1', boardBasisId: o.boardId ?? 'b1',
     boardBasis: { code: 'BB', isActive: true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: o.maxOccupancy ?? 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
@@ -213,6 +213,32 @@ describe('price simulator (RC)', () => {
     const r = base(plan())
     expect(r).toMatchObject({ eligible: true, reasons: [], totalMinor: '90000', netMinor: '90000', markupMinor: '0', recomputedTotalMinor: '90000', reconciles: true })
     expect(r.nights.map((n) => n.sellMinor)).toEqual(['30000', '30000', '30000'])
+  })
+
+  it('RC-S6: a family stay with child lines reconciles; the markup applies to the net plus the child price (ADR 0057, S6)', () => {
+    const withLines = (basis: 'SELL' | 'NET', amount: bigint) => ({ ...plan({ basis, amount, maxOccupancy: 4 }), roomType: { ...plan().roomType, maxAdults: 3, maxChildren: 2, maxOccupancy: 4 },
+      guestPrices: [{ kind: 'CHILD', minAge: 3, maxAge: 11, amountMinor: 5_005n, amountBasis: basis, currency: 'AED' }] } as AuditPlan)
+    const sell = base(withLines('SELL', 30_000n), [], { children: 1, childAges: [5] })
+    expect(sell).toMatchObject({ eligible: true, totalMinor: String(3n * 35_005n), recomputedTotalMinor: String(3n * 35_005n), reconciles: true })
+    expect(sell.nights[0]).toMatchObject({ rateMinor: '30000', guestMinor: '5005', sellMinor: '35005' })
+    const net = base(withLines('NET', 30_000n), [NET_RULE], { children: 1, childAges: [5] })
+    // 35,005 net per night; 10% = 3,500.5 -> 3,501 half up; sell 38,506 per night
+    expect(net).toMatchObject({ eligible: true, totalMinor: String(3n * 38_506n), reconciles: true })
+    expect(net.nights[0]).toMatchObject({ markupMinor: '3501', sellMinor: '38506' })
+  })
+  it('RC-S6b: without child ages the simulator refuses with the reason instead of pricing the child as free', () => {
+    const p = { ...plan({ maxOccupancy: 4 }), roomType: { ...plan().roomType, maxAdults: 3, maxChildren: 2, maxOccupancy: 4 }, guestPrices: [{ kind: 'CHILD', minAge: 3, maxAge: 11, amountMinor: 5_005n, amountBasis: 'SELL', currency: 'AED' }] } as AuditPlan
+    const r = base(p, [], { children: 1 })
+    expect(r.eligible).toBe(false); expect(r.reasons).toContain('CHILD_AGES_REQUIRED'); expect(r.totalMinor).toBeNull()
+  })
+
+  it('RC-S10: a promotion comes off the net before the markup, and the simulator reconciles and names it (ADR 0058)', () => {
+    const promo = { id: 'pr1', kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1000, minLeadDays: 1, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null }
+    const p = { ...plan({ basis: 'NET', amount: 30_005n }), promotions: [promo] } as AuditPlan
+    const r = base(p, [NET_RULE])
+    // discount (30005 * 1000 + 5000) / 10000 = 3001 half up -> net 27004; markup 10% = 2700.4 -> 2700; sell 29704
+    expect(r.nights[0]).toMatchObject({ rateMinor: '30005', promotionMinor: '3001', markupMinor: '2700', sellMinor: '29704' })
+    expect(r).toMatchObject({ eligible: true, totalMinor: String(3 * 29_704), reconciles: true, promotion: { name: 'Book early', kind: 'EARLY_BIRD', savingMinor: String(3 * 3001) } })
   })
 
   it('RC-19: NET markup is half-up per night and rooms multiply the total, without floating point', () => {

@@ -57,6 +57,8 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
+| `RatePlanGuestPrice` | yes | - | - | - | forced tenant | per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path |
+| `RatePlanPromotion` | yes | - | - | - | forced tenant | plan promotions (ADR 0058); search prices from them, authoring is a privileged supply path |
 | `Role` | yes | - | - | - | forced tenant | read only |
 | `RolePermission` | yes | - | - | - | forced tenant | read only |
 | `RoomAmenity` | yes | yes | cols (3) | yes | forced tenant | INSERT: HotelRoomsService.replaceAmenities; POST /admin/hotels/:hotelId/rooms, PATCH /admin/hotels/:hotelId/rooms/:roomId; record a room amenity / UPDATE (fee_type, updated_by_id, updated_at): HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; change an amenity fee type (upsert); the room it belongs to cannot be reassigned / DELETE: HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; remove an amenity from a room |
@@ -108,6 +110,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `PlatformRoleAssignment`: platform administration
 - `PlatformRolePermission`: platform administration
 - `RatePlan`: supply authoring and pool membership/release
+- `RatePlanGuestPrice`: supply authoring (guest price lines)
+- `RatePlanPromotion`: supply authoring (promotions)
 - `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
 - `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
 - `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { TenantContextGuard, ACTIVE_TENANT_REQUEST_KEY } from '../agent/tenant-context.guard'
 import { SupplyService } from './supply.service'
@@ -51,9 +51,16 @@ export class SupplyController {
   @Get('rate-plans/:ratePlanId/readiness') ratePlanReadiness(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.supply.ratePlanReadiness(c.tenantId, c.userId, ratePlanId) }
   @Post('rate-plans/:ratePlanId/activate') activateRatePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.transitionRatePlan(c.tenantId, c.userId, ratePlanId, 'activate', body, c.requestId) }
   @Post('rate-plans/:ratePlanId/suspend') suspendRatePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.transitionRatePlan(c.tenantId, c.userId, ratePlanId, 'suspend', body, c.requestId) }
+  @Get('rate-plans/:ratePlanId/guest-prices') guestPrices(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.supply.guestPrices(c.tenantId, c.userId, ratePlanId) }
+  @Put('rate-plans/:ratePlanId/guest-prices') replaceGuestPrices(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.replaceGuestPrices(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
+  @Get('rate-plans/:ratePlanId/derivation') derivation(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.supply.derivation(c.tenantId, c.userId, ratePlanId) }
+  @Put('rate-plans/:ratePlanId/derivation') replaceDerivation(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.replaceDerivation(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
+  @Get('rate-plans/:ratePlanId/promotions') promotions(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.supply.promotions(c.tenantId, c.userId, ratePlanId) }
+  @Put('rate-plans/:ratePlanId/promotions') replacePromotions(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.replacePromotions(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
   @Post('rate-plans/:ratePlanId/clone') cloneRatePlan(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.cloneRatePlan(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
   @Get('daily-rates') dailyRates(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.dailyRates(c.tenantId, c.userId, query) }
   @Get('availability') availabilityRows(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.availabilityRows(c.tenantId, c.userId, query) }
+  @Post('calendar/import/preview') previewCalendarImport(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.previewCalendarImport(c.tenantId, c.userId, body, c.requestId) }
   @Post('calendar/preview') previewCalendar(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.editCalendar(c.tenantId, c.userId, body, c.requestId, true, true) }
   @Post('calendar/apply') applyCalendar(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.editCalendar(c.tenantId, c.userId, body, c.requestId, false, true) }
   @Post('availability/bulk') bulkAvailability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.bulkAvailability(c.tenantId, c.userId, body, c.requestId) }
