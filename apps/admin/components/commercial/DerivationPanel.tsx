@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DerivedRateMode, RatePlanDerivation } from '@bedbanks/contracts'
 import { FormField } from '@/components/forms/FormField'
 import { describeApiError } from '@/lib/api/describe-error'
@@ -20,15 +20,17 @@ export function DerivationPanel({ ratePlanId }: { ratePlanId: string }) {
   const [problems, setProblems] = useState<string[]>([])
   const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // A late initial load must not overwrite what the person has already chosen (see PromotionsPanel).
+  const touched = useRef(false)
 
   const adopt = (next: RatePlanDerivation) => {
     setView(next)
     setDraft(next.derived ? { parentId: next.derived.parentId, mode: next.derived.mode, amount: next.derived.mode === 'PERCENT_BP' ? basisPointsToSignedPercent(next.derived.adjustment) : minorToSignedMajor(next.derived.adjustment, next.currency) } : blankDerivation())
   }
-  const load = () => getDerivation(ratePlanId).then((loaded) => { adopt(loaded); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the derived pricing')))
+  const load = () => getDerivation(ratePlanId).then((loaded) => { if (touched.current) return; adopt(loaded); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the derived pricing')))
   useEffect(() => { void load() }, [ratePlanId])
 
-  const change = (patch: Partial<DerivationDraft>) => { setProblems([]); setMessage(null); setDraft((cur) => ({ ...cur, ...patch })) }
+  const change = (patch: Partial<DerivationDraft>) => { touched.current = true; setProblems([]); setMessage(null); setDraft((cur) => ({ ...cur, ...patch })) }
   const editable = canManage && view !== null && (view.status === 'DRAFT' || view.status === 'SUSPENDED')
 
   async function save() {
@@ -44,7 +46,7 @@ export function DerivationPanel({ ratePlanId }: { ratePlanId: string }) {
   }
   async function send(input: Parameters<typeof replaceDerivation>[1], ok: string) {
     setBusy(true); setMessage(null)
-    try { adopt(await replaceDerivation(ratePlanId, input)); setMessage({ kind: 'ok', text: ok }) }
+    try { const saved = await replaceDerivation(ratePlanId, input); touched.current = false; adopt(saved); setMessage({ kind: 'ok', text: ok }) }
     catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the derived pricing') }) } finally { setBusy(false) }
   }
 

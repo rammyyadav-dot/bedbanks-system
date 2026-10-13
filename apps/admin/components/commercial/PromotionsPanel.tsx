@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PromotionKind } from '@bedbanks/contracts'
 import { FormField } from '@/components/forms/FormField'
 import { describeApiError } from '@/lib/api/describe-error'
@@ -20,11 +20,13 @@ export function PromotionsPanel({ ratePlanId }: { ratePlanId: string }) {
   const [problems, setProblems] = useState<string[]>([])
   const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // A load that finishes after the person has started editing must not overwrite their edits (the page can load twice in development, and a slow server answers late).
+  const touched = useRef(false)
 
-  const load = () => getPromotions(ratePlanId).then((loaded) => { setUpdatedAt(loaded.updatedAt); setDrafts(draftFromPromotions(loaded.promotions)); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the promotions')))
+  const load = () => getPromotions(ratePlanId).then((loaded) => { if (touched.current) return; setUpdatedAt(loaded.updatedAt); setDrafts(draftFromPromotions(loaded.promotions)); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the promotions')))
   useEffect(() => { void load() }, [ratePlanId])
 
-  const patch = (index: number, change: Partial<PromotionDraft>) => { setProblems([]); setMessage(null); setDrafts((cur) => cur.map((row, i) => (i === index ? { ...row, ...change } : row))) }
+  const patch = (index: number, change: Partial<PromotionDraft>) => { touched.current = true; setProblems([]); setMessage(null); setDrafts((cur) => cur.map((row, i) => (i === index ? { ...row, ...change } : row))) }
 
   async function save() {
     if (!updatedAt) return
@@ -32,7 +34,7 @@ export function PromotionsPanel({ ratePlanId }: { ratePlanId: string }) {
     setProblems(built.problems)
     if (!built.input) return
     setBusy(true); setMessage(null)
-    try { const saved = await replacePromotions(ratePlanId, built.input); setUpdatedAt(saved.updatedAt); setDrafts(draftFromPromotions(saved.promotions)); setMessage({ kind: 'ok', text: 'Promotions saved. Any activation approval filed before this change is void.' }) }
+    try { const saved = await replacePromotions(ratePlanId, built.input); touched.current = false; setUpdatedAt(saved.updatedAt); setDrafts(draftFromPromotions(saved.promotions)); setMessage({ kind: 'ok', text: 'Promotions saved. Any activation approval filed before this change is void.' }) }
     catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the promotions') }) } finally { setBusy(false) }
   }
 
@@ -55,14 +57,14 @@ export function PromotionsPanel({ ratePlanId }: { ratePlanId: string }) {
           <FormField label="Book to"><input type="date" value={row.bookTo} onChange={(e) => patch(index, { bookTo: e.target.value })} disabled={!canManage} aria-label={`Promotion ${index + 1} book to`} /></FormField>
           <FormField label="Stay from"><input type="date" value={row.stayFrom} onChange={(e) => patch(index, { stayFrom: e.target.value })} disabled={!canManage} aria-label={`Promotion ${index + 1} stay from`} /></FormField>
           <FormField label="Stay to"><input type="date" value={row.stayTo} onChange={(e) => patch(index, { stayTo: e.target.value })} disabled={!canManage} aria-label={`Promotion ${index + 1} stay to`} /></FormField>
-          {canManage ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => cur.filter((_, i) => i !== index)) }}>Remove</button> : null}
+          {canManage ? <button type="button" className="admin-btn" onClick={() => { touched.current = true; setProblems([]); setDrafts((cur) => cur.filter((_, i) => i !== index)) }}>Remove</button> : null}
         </div>
       ))}
       {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: '#a11d1d' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
       {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#a11d1d' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
       {canManage ? (
         <span style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankPromotion('EARLY_BIRD')]) }}>Add promotion</button>
+          <button type="button" className="admin-btn" onClick={() => { touched.current = true; setProblems([]); setDrafts((cur) => [...cur, blankPromotion('EARLY_BIRD')]) }}>Add promotion</button>
           <button type="button" className="admin-btn admin-btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save promotions'}</button>
         </span>
       ) : <p style={{ fontSize: 12 }}>You can view these promotions but not change them.</p>}

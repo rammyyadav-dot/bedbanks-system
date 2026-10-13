@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FormField } from '@/components/forms/FormField'
 import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
@@ -19,11 +19,13 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
   const [problems, setProblems] = useState<string[]>([])
   const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // A late load must not overwrite edits already made (see PromotionsPanel).
+  const touched = useRef(false)
 
-  const load = () => getGuestPrices(ratePlanId).then((loaded) => { setState({ currency: loaded.currency, occupancy: loaded.occupancy, updatedAt: loaded.updatedAt }); setDrafts(draftFromLines(loaded.lines)); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the guest prices')))
+  const load = () => getGuestPrices(ratePlanId).then((loaded) => { if (touched.current) return; setState({ currency: loaded.currency, occupancy: loaded.occupancy, updatedAt: loaded.updatedAt }); setDrafts(draftFromLines(loaded.lines)); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the guest prices')))
   useEffect(() => { void load() }, [ratePlanId])
 
-  const patch = (index: number, change: Partial<GuestLineDraft>) => { setProblems([]); setMessage(null); setDrafts((cur) => cur.map((line, i) => (i === index ? { ...line, ...change } : line))) }
+  const patch = (index: number, change: Partial<GuestLineDraft>) => { touched.current = true; setProblems([]); setMessage(null); setDrafts((cur) => cur.map((line, i) => (i === index ? { ...line, ...change } : line))) }
 
   async function save() {
     if (!state) return
@@ -31,7 +33,7 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
     setProblems(built.problems)
     if (!built.input) return
     setBusy(true); setMessage(null)
-    try { const saved = await replaceGuestPrices(ratePlanId, built.input); setState({ currency: saved.currency, occupancy: saved.occupancy, updatedAt: saved.updatedAt }); setDrafts(draftFromLines(saved.lines)); setMessage({ kind: 'ok', text: saved.lines.length ? `Saved ${saved.lines.length} guest price line(s).` : 'Removed every guest price line: the plan sells its flat occupancy again.' }) }
+    try { const saved = await replaceGuestPrices(ratePlanId, built.input); touched.current = false; setState({ currency: saved.currency, occupancy: saved.occupancy, updatedAt: saved.updatedAt }); setDrafts(draftFromLines(saved.lines)); setMessage({ kind: 'ok', text: saved.lines.length ? `Saved ${saved.lines.length} guest price line(s).` : 'Removed every guest price line: the plan sells its flat occupancy again.' }) }
     catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the guest prices') }) } finally { setBusy(false) }
   }
 
@@ -52,15 +54,15 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
           ) : null}
           <FormField label={`Per night (${state.currency})`}><input inputMode="decimal" size={9} value={line.amount} onChange={(e) => patch(index, { amount: e.target.value })} disabled={!canManage} aria-label={`Line ${index + 1} price per night`} placeholder="0 = free" /></FormField>
           <FormField label="Basis"><select value={line.basis} onChange={(e) => patch(index, { basis: e.target.value as GuestLineDraft['basis'] })} disabled={!canManage} aria-label={`Line ${index + 1} basis`}><option value="">Choose…</option><option value="SELL">SELL</option><option value="NET">NET</option></select></FormField>
-          {canManage ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => cur.filter((_, i) => i !== index)) }}>Remove</button> : null}
+          {canManage ? <button type="button" className="admin-btn" onClick={() => { touched.current = true; setProblems([]); setDrafts((cur) => cur.filter((_, i) => i !== index)) }}>Remove</button> : null}
         </div>
       ))}
       {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: '#a11d1d' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
       {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#a11d1d' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
       {canManage ? (
         <span style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankLine('CHILD')]) }}>Add child band</button>
-          {!drafts.some((d) => d.kind === 'EXTRA_ADULT') ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankLine('EXTRA_ADULT')]) }}>Add extra-adult price</button> : null}
+          <button type="button" className="admin-btn" onClick={() => { touched.current = true; setProblems([]); setDrafts((cur) => [...cur, blankLine('CHILD')]) }}>Add child band</button>
+          {!drafts.some((d) => d.kind === 'EXTRA_ADULT') ? <button type="button" className="admin-btn" onClick={() => { touched.current = true; setProblems([]); setDrafts((cur) => [...cur, blankLine('EXTRA_ADULT')]) }}>Add extra-adult price</button> : null}
           <button type="button" className="admin-btn admin-btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save guest prices'}</button>
         </span>
       ) : <p style={{ fontSize: 12 }}>You can view these prices but not change them.</p>}
