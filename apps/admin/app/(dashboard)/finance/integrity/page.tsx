@@ -1,11 +1,14 @@
 'use client'
 
+import Link from 'next/link'
 import { PageHeader } from '@/components/common/PageHeader'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { getOpsLedgerIntegrity } from '@/lib/data/operations'
+import { downloadText } from '@/lib/rate-certification-ui'
+import { ledgerIntegrityCsv, ledgerIntegrityFilename } from '@/lib/ledger-integrity-csv'
 
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
 const VERDICT = { PASS: ['ok', 'Ledger is consistent'], WARN: ['warn', 'Needs attention'], FAIL: ['bad', 'Ledger has errors'] } as const
@@ -26,6 +29,7 @@ export default function LedgerIntegrityPage() {
               <Tag tone={VERDICT[d.status][0]}>{d.status}</Tag> <strong>{VERDICT[d.status][1]}.</strong>{' '}
               <span style={note}>Checked {d.scanned.accounts} accounts, {d.scanned.bookings} bookings and {d.scanned.entries} entries at {when(d.generatedAt)}. {d.counts.errors} errors, {d.counts.warnings} warnings.</span>
             </p>
+            <div><button type="button" className="admin-btn" data-testid="integrity-export" onClick={() => downloadText(ledgerIntegrityFilename(d), 'text/csv', ledgerIntegrityCsv(d))}>Download CSV</button> <span style={note}>For accountants and auditors. Built in your browser from this report; nothing is uploaded.</span></div>
             {d.truncated && <p style={{ ...note, color: '#8a5a00' }} data-testid="integrity-truncated">This ledger is larger than one report examines. Only the first part was checked, so a clean result here is not a full clearance.</p>}
 
             <div className="workspace-panel">
@@ -62,7 +66,7 @@ export default function LedgerIntegrityPage() {
                         <tr key={`${f.code}-${f.bookingId ?? f.accountId}-${i}`} data-testid={`integrity-finding-${f.code}`}>
                           <td style={td}><Tag tone={f.severity === 'ERROR' ? 'bad' : 'warn'}>{f.severity.toLowerCase()}</Tag></td>
                           <td style={td}><strong>{f.code.replace(/_/g, ' ').toLowerCase()}</strong><div style={note}>{f.message}</div></td>
-                          <td style={td}><code>{f.bookingId ?? f.accountId}</code></td>
+                          <td style={td}>{f.bookingId ? <Link href={`/bookings/${encodeURIComponent(f.bookingId)}`}><code>{f.bookingId}</code></Link> : <code>{f.accountId}</code>}</td>
                           {(['heldMinor', 'releasedMinor', 'chargedMinor', 'refundedMinor'] as const).map(k => (
                             <td key={k} style={{ ...td, textAlign: 'right' }}>{f.amountsMinor[k] !== undefined && f.currency ? <Money minor={f.amountsMinor[k]} currency={f.currency} /> : '—'}</td>
                           ))}
