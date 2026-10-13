@@ -46,6 +46,11 @@ async function waitFor(url: string, ok: (status: number) => boolean, ms: number,
   throw new Error(`${label} did not become ready at ${url} within ${ms / 1000}s (${last})`)
 }
 
+/** Last lines of a service log, with connection strings masked, for failure messages. */
+function tail(name: string): string {
+  try { return readFileSync(join(STATE_DIR, `${name}.log`), 'utf8').split('\n').slice(-40).join('\n').replace(/postgres(ql)?:\/\/[^\s'"]+/g, 'postgresql://<redacted>') } catch { return '(no log)' }
+}
+
 function launch(name: string, cmd: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   mkdirSync(STATE_DIR, { recursive: true })
   const log = createWriteStream(join(STATE_DIR, `${name}.log`))
@@ -96,8 +101,9 @@ export async function startStack(): Promise<StackState> {
     BOOKING_ENABLED: process.env.E2E_BOOKING_ENABLED ?? 'false', // only the mutation check overrides this
   })
   const pids = [api.pid!]
-  await waitFor(`${ORIGINS.api}/api/v1/health`, (s) => s === 200, 120_000, 'API').catch(async (e) => {
-    throw new Error(`${e.message}\nSee e2e/.artifacts/api.log`)
+  await waitFor(`${ORIGINS.api}/api/v1/health`, (s) => s === 200, 120_000, 'API').catch((e) => {
+    stopStack({ pids, secretDir })
+    throw new Error(`${e.message}\n--- last lines of e2e/.artifacts/api.log ---\n${tail('api')}`)
   })
 
   // 6. The three portals, production-mode builds, talking to the API through their runtime origin.
@@ -114,7 +120,10 @@ export async function startStack(): Promise<StackState> {
     })
     pids.push(child.pid!)
   }
-  await Promise.all(portals.map(([name, , port]) => waitFor(`http://localhost:${port}/`, (s) => s > 0 && s < 500, 90_000, `${name} portal`)))
+  await Promise.all(portals.map(([name, , port]) => waitFor(`http://localhost:${port}/`, (s) => s > 0 && s < 500, 90_000, `${name} portal`))).catch((e) => {
+    stopStack({ pids, secretDir })
+    throw new Error(`${e.message}\n--- portal logs ---\n${['agent', 'admin', 'supplier'].map((n) => `[${n}] ${tail(n)}`).join('\n')}`)
+  })
 
   void portalOrigins
   const state: StackState = { fixtures, passwords, pids, secretDir }
