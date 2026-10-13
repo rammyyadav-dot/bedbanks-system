@@ -89,7 +89,7 @@ describe('AuthService audit persistence (CTO audit F01)', () => {
     user: { findUnique: jest.fn() },
     session: { findUnique: jest.fn().mockResolvedValue({ userId: 'u1' }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     auditEvent: { create: jest.fn() },
-    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ $executeRaw: executeRaw, auditEvent: { create: auditCreate } })),
+    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ $executeRaw: executeRaw, auditEvent: { createMany: auditCreate } })),
   };
   const service = new AuthService(prisma as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60 } }));
   const token = 'a'.repeat(64);
@@ -98,7 +98,7 @@ describe('AuthService audit persistence (CTO audit F01)', () => {
     auditCreate.mockResolvedValue({});
     await service.logout(token);
     expect(executeRaw).toHaveBeenCalledTimes(1);
-    expect(auditCreate.mock.calls[0][0].data).toMatchObject({ action: 'auth.logout', entityType: 'auth', entityId: 'u1', userId: 'u1' });
+    expect(auditCreate.mock.calls[0][0].data[0]).toMatchObject({ action: 'auth.logout', entityType: 'auth', entityId: 'u1', userId: 'u1' });
   });
 
   it('does not block logout when persistence fails, and logs only a safe code', async () => {

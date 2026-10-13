@@ -8,6 +8,9 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag } from '@/components/ops/ops-ui'
 import { getHotelCalendar } from '@/lib/data/hotel-commercial'
+import { useCan } from '@/lib/auth/capabilities'
+import { CalendarImport } from './CalendarImport'
+import { RateGrid } from './RateGrid'
 import { reasonText } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
@@ -21,6 +24,8 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
   const [from, setFrom] = useState(() => (isDay(linked.get('from') ?? '') ? (linked.get('from') as string) : ''))
   const [days, setDays] = useState(14)
   const [roomTypeId, setRoomTypeId] = useState(() => (rooms.some((r) => r.id === linked.get('roomTypeId')) ? (linked.get('roomTypeId') as string) : ''))
+  const can = useCan()
+  const canEdit = can('supply.rates.manage')
   const params = { from: isDay(from) ? from : undefined, days, roomTypeId: roomTypeId || undefined }
   const { state, reload } = useOpsQuery(() => getHotelCalendar(hotelId, params), [hotelId, params.from, days, roomTypeId])
   return (
@@ -83,6 +88,18 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
           </div>
         )}
       </OpsState>
+      {canEdit ? (
+        <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+          <details>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Edit prices for many plans</summary>
+            <RateGrid hotelId={hotelId} onApplied={reload} />
+          </details>
+          <details>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Import rates and availability from a CSV file</summary>
+            <CalendarImport hotelId={hotelId} planCodeById={(id) => (state.status === 'ready' ? state.data.rows.find((r) => r.ratePlanId === id)?.ratePlanCode : undefined) ?? id} onApplied={reload} />
+          </details>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -31,6 +31,8 @@ export interface AssessPlan extends StayPlanInput {
   /** Rates for every occupancy loaded in the window; assessment keeps only rows matching the plan's own occupancy. */
   dailyRates: Array<StayPlanInput['dailyRates'][number] & { occupancy: number }>
   id: string; code: string; contractId: string; roomTypeId: string; boardBasisId: string; refundable: boolean
+  /** ADR 0058, S10b. Optional: only the Admin calendar shows them; pricing reads `dailyRates`, already derived by the loader. */
+  derivedFromId?: string | null; derivedMode?: 'PERCENT_BP' | 'FIXED_MINOR' | null; derivedAdjustment?: number | null; derivedFrom?: { code?: string } | null
   boardBasis: { code: string; isActive: boolean }
   roomType: StayPlanInput['roomType'] & { id: string; name: string; code: string }
   contract: StayPlanInput['contract'] & { id: string; code: string; supplierId: string; supplierHotelMappingId: string | null; supplier: { status: string; displayName: string } }
@@ -187,11 +189,11 @@ interface ReasonContext { hotelMappingOk: boolean; contractStatus: string; hasRa
 export function categoryOfReason(reason: string, context: ReasonContext): CommercialIssueCategory {
   switch (reason) {
     case 'HOTEL_INACTIVE': case HOTEL_STAR_RATING_MISSING: return 'HOTEL_CONTENT'
-    case 'ROOM_TYPE_INACTIVE': case 'BOARD_BASIS_INACTIVE': case 'SUPPLIER_INACTIVE': case 'RATE_PLAN_INACTIVE': case 'RATE_PLAN_MISSING': case 'OUTSIDE_RATE_PLAN_VALIDITY': case 'CANCELLATION_POLICY_MISSING': return 'ENTITY_INACTIVE'
+    case 'ROOM_TYPE_INACTIVE': case 'BOARD_BASIS_INACTIVE': case 'SUPPLIER_INACTIVE': case 'RATE_PLAN_INACTIVE': case 'RATE_PLAN_MISSING': case 'OUTSIDE_RATE_PLAN_VALIDITY': case 'CANCELLATION_POLICY_MISSING': case 'DERIVED_TERMS_INVALID': case 'DERIVED_PARENT_MISSING': case 'DERIVED_PARENT_IS_DERIVED': case 'DERIVED_PARENT_MISMATCH': case 'DERIVED_PARENT_INACTIVE': return 'ENTITY_INACTIVE'
     case 'CONTRACT_INACTIVE': return context.contractStatus === 'EXPIRED' ? 'CONTRACT_EXPIRED' : 'ENTITY_INACTIVE'
     case 'OUTSIDE_CONTRACT_VALIDITY': return 'CONTRACT_EXPIRED'
     case 'SUPPLIER_MAPPING_INVALID': return context.hotelMappingOk ? 'UNMAPPED_ROOM' : 'UNMAPPED_HOTEL'
-    case 'OCCUPANCY_UNSUPPORTED': return 'OCCUPANCY_UNSUPPORTED'
+    case 'OCCUPANCY_UNSUPPORTED': case 'CHILD_AGES_REQUIRED': case 'CHILD_AGE_NOT_COVERED': case 'CHILD_PRICE_AMBIGUOUS': case 'EXTRA_ADULT_PRICE_MISSING': case 'GUEST_PRICE_BASIS_MIXED': case 'GUEST_PRICE_BASIS_MISMATCH': case 'GUEST_PRICE_CURRENCY_MISMATCH': return 'OCCUPANCY_UNSUPPORTED'
     case 'DAILY_RATE_MISSING_OR_INVALID': return context.hasRate ? 'RATE_INVALID' : 'RATE_MISSING'
     case 'RATE_CURRENCY_MISMATCH': case 'RATE_AMOUNT_BASIS_UNVERIFIED': case 'NET_RATE_MARKUP_UNAVAILABLE': return 'CURRENCY_OR_BASIS'
     case 'AVAILABILITY_MISSING': return 'AVAILABILITY_MISSING'
@@ -216,12 +218,12 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'mapping', label: 'Hotel / room mapping', reasons: ['SUPPLIER_MAPPING_INVALID'] },
   { key: 'room', label: 'Room', reasons: ['ROOM_TYPE_INACTIVE', 'BOARD_BASIS_INACTIVE'] },
   { key: 'contract', label: 'Contract', reasons: ['CONTRACT_INACTIVE', 'OUTSIDE_CONTRACT_VALIDITY'] },
-  { key: 'plan', label: 'Rate plan', reasons: ['RATE_PLAN_INACTIVE', 'RATE_PLAN_MISSING', 'OUTSIDE_RATE_PLAN_VALIDITY', 'CANCELLATION_POLICY_MISSING'] },
+  { key: 'plan', label: 'Rate plan', reasons: ['RATE_PLAN_INACTIVE', 'RATE_PLAN_MISSING', 'OUTSIDE_RATE_PLAN_VALIDITY', 'CANCELLATION_POLICY_MISSING', 'DERIVED_TERMS_INVALID', 'DERIVED_PARENT_MISSING', 'DERIVED_PARENT_IS_DERIVED', 'DERIVED_PARENT_MISMATCH', 'DERIVED_PARENT_INACTIVE'] },
   { key: 'rate', label: 'Daily rate', reasons: ['DAILY_RATE_MISSING_OR_INVALID', 'RATE_CURRENCY_MISMATCH', 'RATE_AMOUNT_BASIS_UNVERIFIED', 'NET_RATE_MARKUP_UNAVAILABLE'] },
   { key: 'availability', label: 'Availability', reasons: ['AVAILABILITY_MISSING'] },
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
   { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },
-  { key: 'occupancy', label: 'Occupancy', reasons: ['OCCUPANCY_UNSUPPORTED'] },
+  { key: 'occupancy', label: 'Occupancy and guest prices', reasons: ['OCCUPANCY_UNSUPPORTED', 'CHILD_AGES_REQUIRED', 'CHILD_AGE_NOT_COVERED', 'CHILD_PRICE_AMBIGUOUS', 'EXTRA_ADULT_PRICE_MISSING', 'GUEST_PRICE_BASIS_MIXED', 'GUEST_PRICE_BASIS_MISMATCH', 'GUEST_PRICE_CURRENCY_MISMATCH'] },
   { key: 'buyer', label: 'Buyer eligibility', reasons: ['AGENCY_SUSPENDED', 'DISTRIBUTION_RESTRICTED', 'CONTRACT_MARKET_RULE_INVALID', 'NATIONALITY_NOT_ALLOWED', 'SOURCE_MARKET_NOT_ALLOWED', 'RATE_PLAN_MARKET_RULE_INVALID', 'RATE_PLAN_NATIONALITY_NOT_ALLOWED', 'RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED'] },
   { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE'] },
 ]

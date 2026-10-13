@@ -1,3 +1,4 @@
+import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
@@ -87,16 +88,19 @@ export class OperationsHotelsService {
     const gte = new Date(`${win.from}T00:00:00.000Z`)
     const lte = new Date(`${win.to}T00:00:00.000Z`)
     const lteDeparture = new Date(lte.getTime() + 86_400_000)
-    const [rooms, plans, mappings, roomMappings, mappedContracts] = await Promise.all([
+    const [rooms, rawPlans, mappings, roomMappings, mappedContracts] = await Promise.all([
       tx.roomType.findMany({ where: { hotelId: { in: ids }, hotel: { tenantId } }, select: { id: true, hotelId: true, name: true, code: true, maxAdults: true, maxChildren: true, maxOccupancy: true, isActive: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
       tx.ratePlan.findMany({
         where: { tenantId, roomType: { hotelId: { in: ids }, hotel: { tenantId } } },
         select: {
-          id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, cancellationPolicySet: true, salesMarkets: true, nationalities: true, inventoryPoolId: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
+          id: true, code: true, status: true, occupancy: true, currency: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, cancellationPolicySet: true, salesMarkets: true, nationalities: true, guestPrices: { select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true, currency: true } }, promotions: { select: { id: true, kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } }, inventoryPoolId: true, refundable: true, contractId: true, roomTypeId: true, boardBasisId: true,
           boardBasis: { select: { code: true, isActive: true } },
           roomType: { select: { id: true, name: true, code: true, hotelId: true, isActive: true, maxAdults: true, maxChildren: true, maxOccupancy: true, hotel: { select: { contentStatus: true, timeZone: true } } } },
           contract: { select: { cancellationPolicies: { select: { policySet: true } }, id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } } } },
           dailyRates: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, amountMinor: true, currency: true, amountBasis: true, occupancy: true } },
+          // ADR 0058, S10b: a derived plan is priced from its parent's rates in the same window.
+          derivedFromId: true, derivedMode: true, derivedAdjustment: true,
+          derivedFrom: { select: derivedParentSelect({ tenantId, stayDate: { gte, lte } }) },
           // One day past the window: the departure row of the last night carries closedToDeparture.
           availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, inventoryMode: true, source: true, freshUntil: true } },
           inventoryPool: { select: { name: true, days: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, capacity: true, sold: true, held: true, source: true, freshUntil: true } } } },
@@ -107,6 +111,7 @@ export class OperationsHotelsService {
       tx.supplierRoomMapping.findMany({ where: { tenantId, hotelId: { in: ids } }, select: { id: true, supplierHotelMappingId: true, roomTypeId: true, supplierRoomId: true, status: true, confidence: true, updatedAt: true }, orderBy: [{ id: 'asc' }] }),
       tx.contract.findMany({ where: { tenantId, supplierHotelMapping: { is: { hotelId: { in: ids } } } }, select: { id: true, code: true, status: true, validFrom: true, validTo: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } }, supplierHotelMapping: { select: { hotelId: true } } } }),
     ])
+    const plans = rawPlans.map(withDerivedRates)
     for (const hotel of hotels) {
       out.set(hotel.id, {
         hotel: { id: hotel.id, name: hotel.name, contentStatus: hotel.contentStatus, starRating: hotel.starRating },
@@ -503,7 +508,7 @@ export class OperationsHotelsService {
             rateSourceUpdatedAt: iso(rateExtra.get(`${plan.id}:${date}:${plan.occupancy}`)?.sourceUpdatedAt), availabilitySourceUpdatedAt: iso(availExtra.get(`${plan.id}:${date}`)?.sourceUpdatedAt),
           }
         })
-        return { ratePlanId: plan.id, ratePlanCode: plan.code, planStatus: plan.status, roomTypeId: plan.roomTypeId, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), currency: plan.currency, occupancy: plan.occupancy, contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName, cells }
+        return { ratePlanId: plan.id, ratePlanCode: plan.code, planStatus: plan.status, roomTypeId: plan.roomTypeId, roomName: plan.roomType.name, boardCode: plan.boardBasis.code.trim(), currency: plan.currency, occupancy: plan.occupancy, contractCode: plan.contract.code, supplierName: plan.contract.supplier.displayName, derived: plan.derivedFromId && plan.derivedMode && typeof plan.derivedAdjustment === 'number' ? { parentCode: plan.derivedFrom?.code ?? '', mode: plan.derivedMode, adjustment: plan.derivedAdjustment } : null, cells }
       })
       return { hotelId: hotel.id, window: { from: win.from, to: win.to, days: win.days }, rows, truncated: all.length > plans.length }
     })

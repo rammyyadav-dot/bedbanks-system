@@ -50,6 +50,7 @@ describe('Rate plan clone role', () => {
     await login?.$disconnect()
     const tenants = { in: [tenantId, otherTenantId] }
     await prisma.auditEvent.deleteMany({ where: { tenantId: tenants } })
+    await prisma.ratePlan.updateMany({ where: { tenantId: tenants }, data: { derivedFromId: null, derivedMode: null, derivedAdjustment: null } })
     await prisma.ratePlan.deleteMany({ where: { tenantId: tenants } })
     await prisma.inventoryPool.deleteMany({ where: { tenantId: tenants } })
     await prisma.contract.deleteMany({ where: { tenantId: tenants } })
@@ -82,6 +83,20 @@ describe('Rate plan clone role', () => {
     await insertAs(login, tenantId, {})
     const row = await prisma.ratePlan.findFirstOrThrow({ where: { code: `${suffix}-INS-${n}` } })
     expect(row).toMatchObject({ status: 'DRAFT', inventoryPoolId: null })
+  })
+
+  it('may insert a DRAFT derived from a same-shape parent, and the database refuses a parent of another shape (ADR 0058, S10b)', async () => {
+    const insertDerived = (code: string, parent: string, occupancy: number) => login.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant_id', '${tenantId}', true)`)
+      await tx.$executeRawUnsafe(`INSERT INTO "RatePlan" (id, tenant_id, contract_id, room_type_id, board_basis_id, code, status, occupancy, currency, derived_from_id, derived_mode, derived_adjustment, updated_at)
+        VALUES ('${suffix}-${code}', '${tenantId}', '${source.contractId}', '${source.roomTypeId}', '${source.boardBasisId}', '${suffix}-${code}', 'DRAFT'::"RatePlanStatus", ${occupancy}, 'AED', '${parent}', 'PERCENT_BP'::"DerivedRateMode", -1000, now())`)
+    })
+    await insertDerived('DERIVED-OK', source.id, 2)
+    expect(await prisma.ratePlan.findFirstOrThrow({ where: { code: `${suffix}-DERIVED-OK` } })).toMatchObject({ status: 'DRAFT', derivedFromId: source.id, derivedMode: 'PERCENT_BP', derivedAdjustment: -1000 })
+    await expect(insertDerived('DERIVED-BAD', source.id, 1)).rejects.toThrow(/DERIVED_PARENT_MISMATCH/)
+    const child = await prisma.ratePlan.findFirstOrThrow({ where: { code: `${suffix}-DERIVED-OK` } })
+    await expect(insertDerived('DERIVED-DEEP', child.id, 2)).rejects.toThrow(/DERIVED_PARENT_IS_DERIVED/)
+    expect(await prisma.ratePlan.count({ where: { code: { in: [`${suffix}-DERIVED-BAD`, `${suffix}-DERIVED-DEEP`] } } })).toBe(0)
   })
 
   it('can never insert a plan that is not a DRAFT, whatever the application does: the database refuses', async () => {

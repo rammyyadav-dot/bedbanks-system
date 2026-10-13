@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, HttpStatus, Inject, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, HttpException, HttpStatus, Inject, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { routes } from '@bedbanks/contracts';
@@ -8,6 +8,7 @@ import { OriginGuard } from './guards/origin.guard';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
+import { LoginThrottle } from './login-throttle';
 import { SessionAuthGuard } from './guards/session-auth.guard';
 import type { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 
@@ -18,6 +19,7 @@ export class AuthController {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(ConfigService) private readonly configService: ConfigService<AppConfig>,
+    @Inject(LoginThrottle) private readonly throttle: LoginThrottle,
   ) {}
 
   private cookieOptions(): { name: string; httpOnly: true; sameSite: 'lax' | 'strict' | 'none'; secure: boolean; path: string; maxAge: number } {
@@ -32,8 +34,22 @@ export class AuthController {
   @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: `${routes.auth.login} — authenticate and receive a session cookie` })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const { rawToken, identity } = await this.authService.login(dto.email, dto.password);
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const address = req.ip ?? 'unknown';
+    const decision = this.throttle.check(dto.email, address);
+    if (!decision.allowed) {
+      res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+      throw new HttpException({ message: 'Too many sign-in attempts. Try again later.', code: 'LOGIN_THROTTLED' }, HttpStatus.TOO_MANY_REQUESTS);
+    }
+    let result: Awaited<ReturnType<AuthService['login']>>;
+    try {
+      result = await this.authService.login(dto.email, dto.password);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) this.throttle.recordFailure(dto.email, address);
+      throw error;
+    }
+    this.throttle.recordSuccess(dto.email, address);
+    const { rawToken, identity } = result;
     const { name, ...options } = this.cookieOptions();
     res.cookie(name, rawToken, options);
     return identity;

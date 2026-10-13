@@ -50,3 +50,77 @@ export interface RatePlanActivationApproval {
   isRequester: boolean; canDecide: boolean; canCancel: boolean; canExecute: boolean
 }
 export interface RatePlanApprovalExecuteResult { approval: RatePlanActivationApproval; ratePlanId: string; status: 'ACTIVE' }
+
+/**
+ * Child and extra-adult price lines of a rate plan (ADR 0057, S6). Per night, per guest, on top of the plan's base nightly rate (which is for
+ * `occupancy` adults). A plan with no lines keeps the flat rule. `GET` returns the lines and the plan version; `PUT` replaces them all atomically.
+ */
+export type GuestPriceKind = 'CHILD' | 'EXTRA_ADULT'
+export interface RatePlanGuestPriceLine {
+  kind: GuestPriceKind
+  /** Child band, inclusive, 0 to 17. For EXTRA_ADULT the server stores and returns the sentinel band 18 to 99. */
+  minAge: number; maxAge: number
+  /** Integer minor units per night per guest, as a decimal string. Zero is an explicit free guest. */
+  amountMinor: string
+  amountBasis: 'NET' | 'SELL'
+  currency: string
+}
+export interface RatePlanGuestPrices { ratePlanId: string; updatedAt: string; currency: string; occupancy: number; lines: RatePlanGuestPriceLine[] }
+/**
+ * Promotions on a rate plan (ADR 0058, S10a). At most one applies to a stay (the largest saving; they never stack) and it is taken off the nightly net
+ * before the markup. `GET` returns the promotions and the plan version; `PUT` replaces them all atomically.
+ */
+export type PromotionKind = 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS'
+export interface RatePlanPromotion {
+  id?: string
+  kind: PromotionKind
+  /** 1 to 80 characters; agents see it. Unique per plan ignoring case. */
+  name: string
+  /** Basis points off every night, 1 to 9000. Percent kinds only. */
+  percentBp: number | null
+  /** EARLY_BIRD: whole days of notice required. LAST_MINUTE: whole days of notice allowed at most. Hotel-local calendar. */
+  minLeadDays: number | null
+  maxLeadDays: number | null
+  /** LONG_STAY and FREE_NIGHTS: the stay must have at least this many nights. */
+  minNights: number | null
+  /** FREE_NIGHTS: how many of the cheapest nights are free; below minNights. */
+  freeNights: number | null
+  /** Optional windows, YYYY-MM-DD inclusive: when the booking is made (hotel-local today) and the nights that must all fall inside. */
+  bookFrom: string | null; bookTo: string | null; stayFrom: string | null; stayTo: string | null
+}
+export interface RatePlanPromotions { ratePlanId: string; updatedAt: string; promotions: RatePlanPromotion[] }
+export interface RatePlanPromotionsInput { expectedUpdatedAt: string; promotions: RatePlanPromotion[]; reason?: string }
+/**
+ * Derived rates (ADR 0058, S10b). A derived plan sells at its parent's nightly rate for the same date, adjusted, and owns no rates. The parent must be a plan
+ * of the same contract, hotel, currency and occupancy that is not itself derived. `PERCENT_BP` adjustment is signed basis points (-9000 to 100000);
+ * `FIXED_MINOR` is signed minor units (at most 2,000,000,000). Both are whole numbers.
+ */
+export type DerivedRateMode = 'PERCENT_BP' | 'FIXED_MINOR'
+export interface RatePlanDerivation {
+  ratePlanId: string
+  updatedAt: string
+  status: string
+  currency: string
+  derived: { parentId: string; parentCode: string; mode: DerivedRateMode; adjustment: number } | null
+  /** Plans this one could be derived from: same contract, hotel, currency and occupancy, not themselves derived. */
+  candidates: Array<{ id: string; code: string; roomName: string }>
+  /** True when the plan holds its own rate rows (it must be emptied before it can be derived). */
+  hasOwnRates: boolean
+  /** True when other plans derive from this one (it cannot itself be derived). */
+  hasDerivedPlans: boolean
+}
+export interface RatePlanDerivationInput {
+  expectedUpdatedAt: string
+  /** The parent plan, or null to remove the derivation. */
+  parentId: string | null
+  mode?: DerivedRateMode
+  adjustment?: number
+  reason?: string
+}
+export interface RatePlanGuestPricesInput {
+  expectedUpdatedAt: string
+  /** Each line: `minAge`/`maxAge` are required for CHILD and ignored for EXTRA_ADULT. */
+  lines: Array<{ kind: GuestPriceKind; minAge?: number; maxAge?: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string }>
+  reason?: string
+}
+

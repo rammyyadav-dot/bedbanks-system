@@ -16,12 +16,12 @@ const iso = /^\d{4}-\d{2}-\d{2}$/
 export function Simulator({ initialRatePlanId = '' }: { initialRatePlanId?: string }) {
   const [ratePlanId, setRatePlanId] = useState(initialRatePlanId)
   const [checkIn, setCheckIn] = useState(''); const [checkOut, setCheckOut] = useState('')
-  const [adults, setAdults] = useState('2'); const [children, setChildren] = useState('0'); const [rooms, setRooms] = useState('1')
+  const [adults, setAdults] = useState('2'); const [children, setChildren] = useState('0'); const [childAges, setChildAges] = useState(''); const [rooms, setRooms] = useState('1')
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [result, setResult] = useState<SimulationResult | null>(null)
   const valid = ratePlanId.trim().length > 0 && iso.test(checkIn) && iso.test(checkOut) && checkOut > checkIn && Number(adults) >= 1
   async function run() {
     setBusy(true); setError(null)
-    try { setResult(await simulateRateStay({ ratePlanId: ratePlanId.trim(), checkIn, checkOut, adults: Number(adults), children: Number(children), rooms: Number(rooms) })) }
+    try { setResult(await simulateRateStay({ ratePlanId: ratePlanId.trim(), checkIn, checkOut, adults: Number(adults), children: Number(children), ...(Number(children) > 0 && childAges.trim() ? { childAges: childAges.split(',').map((a) => Number(a.trim())) } : {}), rooms: Number(rooms) })) }
     catch (e) { setResult(null); setError(describeApiError(e, 'simulate the stay')) }
     finally { setBusy(false) }
   }
@@ -34,6 +34,7 @@ export function Simulator({ initialRatePlanId = '' }: { initialRatePlanId?: stri
         <label style={label}><span>Check-out</span><input type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} required /></label>
         <label style={label}><span>Adults</span><input type="number" min={1} max={9} value={adults} onChange={(e) => setAdults(e.target.value)} style={{ width: 64 }} /></label>
         <label style={label}><span>Children</span><input type="number" min={0} max={9} value={children} onChange={(e) => setChildren(e.target.value)} style={{ width: 64 }} /></label>
+        {Number(children) > 0 ? <label style={label}><span>Child ages (comma separated)</span><input value={childAges} onChange={(e) => setChildAges(e.target.value)} placeholder="e.g. 3, 8" aria-label="Child ages" /></label> : null}
         <label style={label}><span>Rooms</span><input type="number" min={1} max={9} value={rooms} onChange={(e) => setRooms(e.target.value)} style={{ width: 64 }} /></label>
         <button type="submit" className="admin-btn" disabled={!valid || busy}>{busy ? 'Pricing…' : 'Simulate'}</button>
       </form>

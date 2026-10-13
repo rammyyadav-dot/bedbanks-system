@@ -1,3 +1,5 @@
 # End-to-end release suite
 
-This directory is reserved for browser and database-backed release tests: authentication, tenant isolation, booking lifecycle and idempotency concurrency. The current tenant guard unit suite is a temporary CI gate; full PostgreSQL and browser suites are added with P0-E and booking implementation, not as empty placeholder tests.
+Browser and database-backed release tests for the Admin, Agent and Supplier portals against the real API and a disposable PostgreSQL running under the strict runtime role. See `docs/runbooks/e2e-release-suite.md` (how to run, what it checks) and ADR 0064.
+
+`pnpm --filter @bedbanks/e2e e2e` starts everything, runs 30 checks and cleans up. It needs freshly built portals and a loopback PostgreSQL.

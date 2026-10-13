@@ -53,8 +53,9 @@ export class AuthService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.auth_audit', 'true', true)`
-        await tx.auditEvent.create({
-          data: { actorType: userId ? 'USER' : 'SYSTEM', action, entityType: 'auth', entityId: userId ?? 'anonymous', payload, userId },
+        // createMany issues INSERT without RETURNING: tenantless rows have no SELECT policy, and RETURNING would be rejected by it.
+        await tx.auditEvent.createMany({
+          data: [{ actorType: userId ? 'USER' : 'SYSTEM', action, entityType: 'auth', entityId: userId ?? 'anonymous', payload, userId }],
         })
       })
     } catch (error) {

@@ -1,3 +1,4 @@
+import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbanks/domain'
@@ -213,7 +214,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     })
   }
 
-  private findPlanBatch(
+  private async findPlanBatch(
     tx: Parameters<Parameters<PrismaService['withTenant']>[1]>[0],
     tenantId: string,
     criteria: SearchCriteria,
@@ -223,12 +224,17 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     nightDates: Date[],
     hotelIds: string[],
   ) {
-    return tx.ratePlan.findMany({
+    const plans = await tx.ratePlan.findMany({
       where: {
         tenantId,
         status: 'ACTIVE',
         currency: criteria.currency,
-        occupancy,
+        // ADR 0057, S6: a plan without guest price lines sells to exactly the searched party size (as before); a plan with lines is for a base party of
+        // adults, so it is a candidate whenever its base occupancy is within the adults searched. The evaluator decides the rest, per child age.
+        OR: [
+          { occupancy, guestPrices: { none: {} } },
+          { occupancy: { lte: criteria.adults }, guestPrices: { some: {} } },
+        ],
         boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
         roomType: {
           isActive: true,
@@ -258,13 +264,18 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },
-        dailyRates: { where: { tenantId, occupancy, stayDate: { in: nightDates } } },
+        dailyRates: { where: { tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } } },
+        guestPrices: true,
+        promotions: true,
+        // ADR 0058, S10b: a derived plan is priced from its parent's rates in the same window; `withDerivedRates` turns them into the plan's own rows.
+        derivedFrom: { select: derivedParentSelect({ tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } }) },
         // The departure date row is read only for closedToDeparture; its stock is never counted.
         availability: { where: { tenantId, stayDate: { in: [...nightDates, checkOut] } } },
         inventoryPool: { include: { days: { where: { tenantId, stayDate: { in: nightDates } } } } },
       },
       orderBy: { id: 'asc' },
     })
+    return plans.map(withDerivedRates)
   }
 
   /**
@@ -403,6 +414,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       rooms: criteria.rooms,
       adults: criteria.adults,
       children: criteria.children,
+      childAges: criteria.childAges,
       currency: criteria.currency,
       now,
       buyer,
@@ -466,6 +478,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       markupAmountMinor: Number(decision.markupMinor ?? 0n),
       sellAmountMinor,
       paymentType: offerPaymentType(plan.paymentType),
+      ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }
     const latitude = decimalText(plan.roomType.hotel.latitude)

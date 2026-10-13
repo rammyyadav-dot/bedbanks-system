@@ -1,3 +1,4 @@
+import { readFrozenTerms } from './booking-cancellation-terms'
 import { rulesForPlan } from '../supply/cancellation-rules'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
@@ -62,7 +63,7 @@ export class BookingDocumentService {
     return { id: doc.id, type: doc.type as DocumentKind, number: doc.number, issuedAt: doc.issuedAt.toISOString(), bookingStatus, payload: doc.payload as Record<string, any>, alreadyIssued }
   }
 
-  private async build(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; reference: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue }, type: DocumentKind) {
+  private async build(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; reference: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue; cancellationPolicy: Prisma.JsonValue | null }, type: DocumentKind) {
     const s = booking.searchSnapshot as Record<string, any>
     const [tenant, hotel, room, board, plan] = await Promise.all([
       tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { name: true } }),
@@ -81,6 +82,10 @@ export class BookingDocumentService {
       leadGuest: s.leadGuest,
     }
     if (type === 'VOUCHER') {
+      // Finding F13: the voucher shows the terms frozen at booking; only a booking made before they were frozen reads the plan's live rules.
+      const frozen = readFrozenTerms(booking.cancellationPolicy)
+      if (frozen.kind === 'invalid') throw new ConflictException('The frozen cancellation terms are unreadable')
+      if (frozen.kind === 'frozen') return { ...base, cancellationPolicy: frozen.rules.map(rule => ({ daysBeforeCheckin: rule.daysBeforeCheckin, penalty: rule.penaltyPercent !== undefined ? `${rule.penaltyPercent}% of the booking total` : `${booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)` })) }
       return { ...base, cancellationPolicy: (plan ? rulesForPlan(plan, plan.contract.cancellationPolicies).rules : []).map(rule => ({
         daysBeforeCheckin: rule.daysBeforeCheckin,
         penalty: rule.penaltyPercent !== null ? `${rule.penaltyPercent}% of the booking total` : `${rule.currency ?? booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)`,

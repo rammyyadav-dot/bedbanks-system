@@ -1,13 +1,27 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import type { DestinationResolution, SearchCriteria } from '@bedbanks/domain'
 import { PrismaService } from '../database/prisma.service'
+import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
+import { CacheAside } from '../common/cache/cache-aside'
 import { cityDestinationId } from './search-offers'
 
 const QUERY_LIMIT = 8
+/** Boards and property types change only when staff edit the catalogue; a minute of staleness is acceptable and Redis absorbs agent traffic. */
+const FACETS_TTL_MS = 60_000
+
+type Facets = { boards: { id: string; name: string }[]; propertyTypes: string[] }
+const isFacets = (value: unknown): value is Facets => {
+  const candidate = value as Partial<Facets> | null
+  return !!candidate && Array.isArray(candidate.boards) && Array.isArray(candidate.propertyTypes)
+}
 
 @Injectable()
 export class DestinationResolverService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly staticContent: CacheAside
+
+  constructor(private readonly prisma: PrismaService, @Inject(CACHE_PORT) cache: CachePort = new NoopCache()) {
+    this.staticContent = new CacheAside(cache)
+  }
 
   async search(tenantId: string, query: string): Promise<DestinationResolution[]> {
     const trimmed = query.trim().replace(/\s+/g, ' ')
@@ -54,7 +68,12 @@ export class DestinationResolverService {
     return [...cities, ...properties]
   }
 
-  async facets(tenantId: string): Promise<{ boards: { id: string; name: string }[]; propertyTypes: string[] }> {
+  /** Tenant-keyed static content (cache-aside). A cache fault falls through to the database; see CacheAside. */
+  async facets(tenantId: string): Promise<Facets> {
+    return this.staticContent.read(tenantCacheKey(tenantId, 'agent-facets', 'all'), FACETS_TTL_MS, () => this.loadFacets(tenantId), { accept: isFacets })
+  }
+
+  private async loadFacets(tenantId: string): Promise<Facets> {
     const [boards, hotels] = await Promise.all([
       this.prisma.withTenant(tenantId, (tx) => tx.boardBasis.findMany({
         where: { tenantId, isActive: true },

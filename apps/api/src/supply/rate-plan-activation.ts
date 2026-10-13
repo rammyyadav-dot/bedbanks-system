@@ -34,11 +34,19 @@ export interface ActivationFacts {
   }
   /** Daily rows for the plan's own occupancy from `today` onward. */
   rates: Array<{ stayDate: string; amountBasis: string | null; currency: string; amountMinor: bigint }>
+  /** Child and extra-adult lines (ADR 0057, S6). Empty means the plan keeps the flat-occupancy rule. */
+  guestPrices: GuestPriceLine[]
+  /** ADR 0058, S10b. Whether the plan is derived and, if so, why its parent cannot price it. Required so a caller cannot skip the check. */
+  derived: { derived: boolean; problem: string | null }
+  /** Promotions (ADR 0058, S10a). Empty means none. Required so a caller cannot skip the check. */
+  promotions: PromotionRule[]
   /** Future availability rows for the plan. */
   availabilityDates: string[]
 }
 
 import { codesOutsideContract } from './market-rules'
+import { validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
+import { validatePromotions, type PromotionRule } from './promotions'
 
 const DAY_MS = 86_400_000
 const addDay = (day: string): string => new Date(Date.parse(`${day}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10)
@@ -107,6 +115,25 @@ export function assessRatePlanActivation(facts: ActivationFacts): ActivationRead
   checks.push(check('RATES_CURRENCY', 'Rate currency', wrongCurrency.length === 0, 'Every rate is in the plan currency.', `${wrongCurrency.length} rate(s) are not in ${plan.currency}, first ${wrongCurrency[0]?.stayDate}.`))
   checks.push(check('RATES_POSITIVE', 'Rate amounts', nonPositive.length === 0, 'Every rate is a positive amount.', `${nonPositive.length} rate(s) are zero or negative, first ${nonPositive[0]?.stayDate}.`))
 
+  // ADR 0057, S6: the lines must be a coherent price list and share the basis of the rates they are added to, or every night they touch would be refused.
+  const lineIssues = validateGuestPriceLines(facts.guestPrices, plan.currency)
+  const rateBases = new Set(future.map((row) => row.amountBasis).filter((basis): basis is string => basis !== null))
+  const basisMismatch = facts.guestPrices.length > 0 && facts.guestPrices.some((line) => [...rateBases].some((basis) => basis !== line.basis))
+  checks.push(check('GUEST_PRICES_VALID', 'Child and extra-adult prices', lineIssues.length === 0 && !basisMismatch,
+    facts.guestPrices.length === 0 ? 'No guest price lines: the plan sells its flat occupancy.' : `${facts.guestPrices.length} guest price line(s), consistent with the rates.`,
+    lineIssues.length ? `${lineIssues[0]!.message}${lineIssues.length > 1 ? ` (${lineIssues.length} problems)` : ''}` : 'A guest price line has a different basis (NET or SELL) than the rates it is added to.'))
+
+  // ADR 0058, S10b: a derived plan has no rates of its own; its parent must be an active, same-shape plan, or nothing about its price is true.
+  checks.push(check('DERIVED_PARENT_VALID', 'Derived rates', facts.derived.problem === null,
+    facts.derived.derived ? "The plan sells at its parent's rate, adjusted; the parent is an active plan of the same contract, hotel, currency and occupancy." : 'The plan has its own rates.',
+    `The parent plan cannot price this plan (${facts.derived.problem}). Fix or reactivate the parent, or remove the derivation.`))
+
+  // ADR 0058: promotions must pass the same validation as on write, so a hand-edited row cannot sell a surprise discount.
+  const promoIssues = validatePromotions(facts.promotions)
+  checks.push(check('PROMOTIONS_VALID', 'Promotions', promoIssues.length === 0,
+    facts.promotions.length === 0 ? 'No promotions: the plan sells at its rate.' : `${facts.promotions.length} promotion(s), valid.`,
+    `${promoIssues[0]?.message ?? 'A promotion is invalid.'}${promoIssues.length > 1 ? ` (${promoIssues.length} problems)` : ''}`))
+
   const futureAvailability = facts.availabilityDates.filter((day) => day >= today)
   checks.push(check('INVENTORY_LINKED', 'Inventory linkage', plan.inventoryPoolId !== null || futureAvailability.length > 0,
     plan.inventoryPoolId ? 'Plan draws from a shared inventory pool.' : `${futureAvailability.length} availability row(s) from ${today}.`,
@@ -123,7 +150,7 @@ export function transitionTarget(action: RatePlanAction, from: RatePlanStatusVal
 
 /** Clone keeps the commercial shape but never identity, status, rates or stock. */
 export function cloneDraftFields(
-  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet: string | null; salesMarkets: unknown; nationalities: unknown },
+  source: { contractId: string; roomTypeId: string; boardBasisId: string; occupancy: number; currency: string; refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number; releaseTimeLocal: string; validFrom: Date | null; validTo: Date | null; paymentType: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet: string | null; salesMarkets: unknown; nationalities: unknown; derivedFromId?: string | null; derivedMode?: 'PERCENT_BP' | 'FIXED_MINOR' | null; derivedAdjustment?: number | null },
   overrides: { code: string; roomTypeId?: string },
 ) {
   return {
@@ -131,5 +158,7 @@ export function cloneDraftFields(
     status: 'DRAFT' as const, occupancy: source.occupancy, currency: source.currency, refundable: source.refundable, taxesIncluded: source.taxesIncluded,
     feesIncluded: source.feesIncluded, minStay: source.minStay, maxStay: source.maxStay, releaseDays: source.releaseDays, releaseTimeLocal: source.releaseTimeLocal,
     validFrom: source.validFrom, validTo: source.validTo, paymentType: source.paymentType, cancellationPolicySet: source.cancellationPolicySet, salesMarkets: source.salesMarkets, nationalities: source.nationalities,
+    // ADR 0058, S10b: a clone of a derived plan stays derived from the same parent on the same terms.
+    derivedFromId: source.derivedFromId ?? null, derivedMode: source.derivedMode ?? null, derivedAdjustment: source.derivedAdjustment ?? null,
   }
 }

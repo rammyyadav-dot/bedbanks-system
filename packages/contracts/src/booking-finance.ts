@@ -24,7 +24,7 @@ export const PENALTY_REASON_MAX = 500
 
 /** One rule, in the shape the CancellationPolicyService evaluates, with the fixed amount as a decimal string of minor units. */
 export interface FrozenCancellationRule { daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string }
-export interface FrozenCancellationPolicy { rules: FrozenCancellationRule[]; frozenAt: string; source: 'MANUAL_ENTRY' }
+export interface FrozenCancellationPolicy { rules: FrozenCancellationRule[]; frozenAt: string; source: 'MANUAL_ENTRY' | 'CONTRACT_AT_BOOKING' }
 
 const MINOR = /^\d{1,24}$/
 export function parseMinor(value: unknown): bigint | null {
@@ -41,7 +41,7 @@ export function parseFrozenRules(value: unknown): FrozenCancellationRule[] | nul
   for (const raw of source) {
     if (!raw || typeof raw !== 'object') return null
     const r = raw as Record<string, unknown>
-    if (typeof r.daysBeforeCheckin !== 'number' || !Number.isInteger(r.daysBeforeCheckin) || r.daysBeforeCheckin < 0 || r.daysBeforeCheckin > 3650) return null
+    if (typeof r.daysBeforeCheckin !== 'number' || !Number.isInteger(r.daysBeforeCheckin) || r.daysBeforeCheckin < 0 || r.daysBeforeCheckin > 100_000) return null
     const hasPercent = r.penaltyPercent !== undefined && r.penaltyPercent !== null
     const hasFixed = r.penaltyMinor !== undefined && r.penaltyMinor !== null
     if (hasPercent === hasFixed) return null

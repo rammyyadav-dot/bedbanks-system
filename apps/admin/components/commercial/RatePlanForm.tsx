@@ -11,6 +11,9 @@ import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
 import { badCodes, formatCodeList, parseCodeList } from '@/lib/market-list'
 import { setNames } from '@/lib/cancellation-sets'
+import { GuestPricesPanel } from './GuestPricesPanel'
+import { PromotionsPanel } from './PromotionsPanel'
+import { DerivationPanel } from './DerivationPanel'
 import { PAYMENT_TYPE_OPTIONS, dayFromApi, termsFromForm } from '@/lib/rate-plan-terms'
 import {
   createRatePlan, getBoardBases, getContract, getContracts, getHotels, getRatePlan, getRoomsByHotel, updateRatePlan,
@@ -136,6 +139,9 @@ export function RatePlanForm({ ratePlanId }: { ratePlanId?: string }) {
           {editing && plan ? <p style={{ fontSize: 12, marginTop: 10 }}><Link href={`/rates?ratePlanId=${plan.id}`}>Open in Rates &amp; Inventory</Link> · <Link href={`/sellability?ratePlanId=${plan.id}`}>Check sellability</Link></p> : null}
         </form>
       )}
+      {editing && ratePlanId && !loading && !loadError ? <GuestPricesPanel ratePlanId={ratePlanId} /> : null}
+      {editing && ratePlanId && !loading && !loadError ? <DerivationPanel ratePlanId={ratePlanId} /> : null}
+      {editing && ratePlanId && !loading && !loadError ? <PromotionsPanel ratePlanId={ratePlanId} /> : null}
     </div>
   )
 }
