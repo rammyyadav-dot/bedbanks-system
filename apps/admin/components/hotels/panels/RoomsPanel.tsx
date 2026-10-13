@@ -1,5 +1,7 @@
 'use client'
 
+import { useUnsavedChanges } from '../useUnsavedChanges'
+
 import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { BED_TYPES, EXTRA_BED_SUPPORT, type BedType, type AmenitySelection, type ExtraBedSupport, type HotelCommercial360, type HotelRoomView, type HotelRoomsView, type RoomSave } from '@bedbanks/contracts'
@@ -133,6 +135,7 @@ function RoomEditor({ hotelId, view, room, onClose, onDone }: { hotelId: string;
     return out as never
   }
   const dirty = isNew || Object.keys(changes()).length > 0
+  useUnsavedChanges(JSON.stringify(form) !== JSON.stringify(initial))
 
   async function save() {
     if (inFlight.current || !dirty) return

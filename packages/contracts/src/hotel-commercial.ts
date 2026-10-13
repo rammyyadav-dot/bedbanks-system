@@ -111,7 +111,7 @@ export interface HotelCommercialRow {
   updatedAt: string
 }
 export interface HotelCommercialQuery {
-  search?: string; destination?: string; supplierId?: string; contentStatus?: string
+  search?: string; countryCode?: string; destination?: string; supplierId?: string; contentStatus?: string
   readiness?: CommercialReadiness; mapping?: MappingState; contractState?: ContractState
   /** Canonical reason code or issue category. */
   issue?: string

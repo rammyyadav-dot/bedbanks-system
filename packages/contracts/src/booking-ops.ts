@@ -110,6 +110,10 @@ export interface BookingListRow {
   checkIn: string | null
   checkOut: string | null
   nights: number | null
+  /** Frozen plan id from the booking snapshot. */
+  ratePlanId?: string | null
+  /** Nights multiplied by all booked room quantities. */
+  roomNights?: number | null
   createdAt: string
   cancelDeadline: string | null
   currency: string

@@ -50,3 +50,14 @@ test('readiness outcomes: UNKNOWN is never the failure tone, and every action la
   assert.equal(readinessActionHref('h1', { tab: 'mappings', label: 'x', permission: null }), '/hotels/h1?tab=mappings')
   assert.equal(readinessActionHref('h1', { tab: 'nonsense' as never, label: 'x', permission: null }), '/hotels/h1')
 })
+
+test('six primary sections cover every legacy hotel URL exactly once', async () => {
+  const { HOTEL_WORKSPACE_SECTIONS, workspaceSection } = await import('./hotel-ui')
+  assert.equal(HOTEL_WORKSPACE_SECTIONS.length, 6)
+  assert.deepEqual(HOTEL_WORKSPACE_SECTIONS.map(s => s.id), ['profile', 'bookings', 'quick', 'rooms', 'rateplans', 'reports'])
+  for (const t of HOTEL_TABS) {
+    assert.equal(HOTEL_WORKSPACE_SECTIONS.filter(s => (s.tabs as readonly string[]).includes(t.id)).length, 1, t.id)
+    assert.ok(workspaceSection(t.id))
+  }
+  assert.equal(workspaceSection(parseTab('mappings')).id, 'profile'); assert.equal(workspaceSection(parseTab('rates')).id, 'quick'); assert.equal(workspaceSection(parseTab('contracts')).id, 'rateplans')
+})
