@@ -186,6 +186,36 @@ export interface ReceivableRow {
   overdue: AgencyOverdueView
 }
 export interface ReceivablesView { items: ReceivableRow[]; counts: { notice: number; holdsRefused: number }; noticeDays: number; refuseHoldsAfterDays: number }
+/**
+ * Ledger integrity report (ADR 0063). Read-only checks over the append-only ledger: every account balance, every booking's
+ * hold/release/charge/refund chain, and control totals per currency. Currencies are never added together.
+ */
+export type LedgerIntegrityStatus = 'PASS' | 'WARN' | 'FAIL'
+export type LedgerIntegrityCode =
+  | 'MIXED_CURRENCY' | 'DUPLICATE_HOLD' | 'DUPLICATE_DEBIT' | 'DUPLICATE_REFUND' | 'RELEASE_EXCEEDS_HOLD'
+  | 'SETTLEMENT_MISMATCH' | 'REFUND_EXCEEDS_CHARGE' | 'STALE_AUTHORIZATION' | 'ACCOUNT_OVERDRAWN' | 'ENTRY_CURRENCY_MISMATCH'
+export interface LedgerIntegrityFinding {
+  code: LedgerIntegrityCode; severity: 'ERROR' | 'WARNING'; message: string
+  /** The booking this concerns, or null for an account-level finding. */
+  bookingId: string | null; accountId: string | null; currency: string | null
+  /** Amounts that explain the finding (minor units); empty when none apply. */
+  amountsMinor: Record<string, MinorString>
+}
+export interface LedgerIntegrityView {
+  status: LedgerIntegrityStatus; generatedAt: string
+  scanned: { accounts: number; bookings: number; entries: number }
+  /** True when more bookings exist than one report examines; the findings then cover only the first part. */
+  truncated: boolean
+  counts: { errors: number; warnings: number; byCode: Array<{ code: LedgerIntegrityCode; count: number }> }
+  /** At most 200, errors first. The counts above are always complete for what was scanned. */
+  findings: LedgerIntegrityFinding[]
+  /** Per currency: money in and out by entry type over all time, and the resulting position. */
+  control: Array<{
+    currency: string; accounts: number; balanceMinor: MinorString; creditLineMinor: MinorString; availableMinor: MinorString; overdrawnAccounts: number
+    byType: Array<{ type: string; entries: number; sumMinor: MinorString }>
+  }>
+  staleAuthorizationHours: number
+}
 export interface AgencyAccountView {
   agency: AccountAgencyRef & { status: string }
   accounts: AgencyAccountPosition[]

@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module'
 import { OperationsController } from './operations.controller'
 import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
+import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
 import { ApprovalsModule } from '../approvals/approvals.module'
@@ -33,6 +34,6 @@ import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplie
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
   controllers: [OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController, BookingBulkController],
-  providers: [BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  providers: [BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
 })
 export class AdminOperationsModule {}

@@ -76,12 +76,12 @@ describe('LedgerService financial safety', () => {
 })
 
 describe('LedgerService sign rules (ADR 0062)', () => {
-  it('refuses a refund stored negative or a debit stored positive before any lookup', async () => {
-    const prisma = { withTenant: jest.fn() }
-    const service = new LedgerService(prisma as any)
+  it('refuses a refund stored negative or a debit stored positive and writes nothing', async () => {
+    const tx = { wallet: { findFirst: jest.fn().mockResolvedValue({ id: 'w1', tenantId: 't1', currency: 'AED' }) }, ledgerEntry: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() } }
+    const service = new LedgerService({ withTenant: jest.fn(async (_t: string, fn: any) => fn(tx)) } as any)
     const base = { tenantId: 't1', walletId: 'w1', currency: 'AED', idempotencyKey: 'k', reference: 'booking:1' }
     await expect(service.post({ ...base, type: 'REFUND', amountMinor: -1000n })).rejects.toBeInstanceOf(BadRequestException)
     await expect(service.post({ ...base, type: 'DEBIT', amountMinor: 1000n })).rejects.toBeInstanceOf(BadRequestException)
-    expect(prisma.withTenant).not.toHaveBeenCalled()
+    expect(tx.ledgerEntry.create).not.toHaveBeenCalled()
   })
 })

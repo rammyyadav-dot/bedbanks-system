@@ -13,6 +13,7 @@ import { BookingAccess, BookingAccessGuard } from '../booking-ops/booking-access
 import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
+import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
 import { OperationsSupplyService } from './operations-supply.service'
@@ -30,7 +31,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -162,6 +163,10 @@ export class OperationsController {
 
   @Get('receivables') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   receivables(@ActiveTenant() tenantId: string) { return this.tx.receivables(tenantId) }
+
+  /** Ledger integrity report (ADR 0063). Read-only checks of balances, booking chains and per-currency control totals. */
+  @Get('ledger-integrity') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  ledgerIntegrity(@ActiveTenant() tenantId: string) { return this.integrity.report(tenantId) }
 
   /** One agency's account position (ADR 0028 slice 1). Read-only; the statement is `ledger?walletId=`. */
   @Get('agencies/:agencyId/account') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)

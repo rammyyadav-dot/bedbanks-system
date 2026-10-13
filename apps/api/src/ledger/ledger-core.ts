@@ -66,3 +66,27 @@ export async function ledgerWindowGroups(tx: Prisma.TransactionClient, tenantId:
   })
   return groups.map(g => ({ currency: g.currency, type: g.type, sumMinor: g._sum.amountMinor ?? 0n, entries: g._count._all }))
 }
+
+export interface BookingLedgerGroup { bookingRef: string; currency: string; type: LedgerEntryType; sumMinor: bigint; entries: number; oldestAt: Date | null }
+
+/**
+ * Ledger entries of bookings grouped by booking reference, currency and type. Bounded: at most `limit` groups are read, in reference
+ * order, and `truncated` says whether more exist. The reference is `booking:<id>`; other references (funding receipts) are excluded.
+ */
+export async function bookingLedgerGroups(tx: Prisma.TransactionClient, tenantId: string, limit: number): Promise<{ groups: BookingLedgerGroup[]; truncated: boolean }> {
+  const rows = await tx.ledgerEntry.groupBy({
+    by: ['reference', 'currency', 'type'], where: { tenantId, reference: { startsWith: 'booking:' } },
+    _sum: { amountMinor: true }, _count: { _all: true }, _min: { immutableAt: true },
+    orderBy: [{ reference: 'asc' }, { currency: 'asc' }, { type: 'asc' }], take: limit + 1,
+  })
+  return {
+    truncated: rows.length > limit,
+    groups: rows.slice(0, limit).map(g => ({ bookingRef: g.reference ?? '', currency: g.currency, type: g.type, sumMinor: g._sum.amountMinor ?? 0n, entries: g._count._all, oldestAt: g._min.immutableAt ?? null })),
+  }
+}
+
+/** Entry counts per wallet and entry currency, to find entries whose currency differs from their wallet's. */
+export async function walletEntryCurrencies(tx: Prisma.TransactionClient, tenantId: string): Promise<Array<{ walletId: string; currency: string; entries: number }>> {
+  const rows = await tx.ledgerEntry.groupBy({ by: ['walletId', 'currency'], where: { tenantId }, _count: { _all: true } })
+  return rows.map(r => ({ walletId: r.walletId, currency: r.currency, entries: r._count._all }))
+}

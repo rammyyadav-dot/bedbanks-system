@@ -4,7 +4,7 @@ import type { LedgerEntryType } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 import { refundWithin } from '@bedbanks/money'
-import { appendLedgerEntry, assertValidAppend } from '../ledger/ledger-core'
+import { appendLedgerEntry } from '../ledger/ledger-core'
 
 @Injectable()
 export class LedgerService {
@@ -13,7 +13,8 @@ export class LedgerService {
   /** Posts one append-only minor-unit entry, idempotently, inside the tenant RLS transaction. */
   async post(input: { tenantId: string; walletId: string; currency: string; amountMinor: bigint; type: LedgerEntryType; idempotencyKey: string; reference?: string }) {
     assertSupportedSettlementCurrency(input.currency)
-    assertValidAppend(input)
+    if (!input.idempotencyKey.trim()) throw new BadRequestException('Ledger idempotency key is required')
+    if (input.amountMinor === 0n) throw new BadRequestException('Ledger amount must be non-zero')
 
     const key = { walletId_idempotencyKey: { walletId: input.walletId, idempotencyKey: input.idempotencyKey } }
 
