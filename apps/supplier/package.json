@@ -8,7 +8,7 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --import tsx --test lib/runtime.test.ts"
+    "test": "node --import tsx --test lib/runtime.test.ts lib/format.test.ts lib/booking-filters.test.ts"
   },
   "dependencies": {
     "@bedbanks/contracts": "workspace:*",

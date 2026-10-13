@@ -153,11 +153,16 @@ describe('BookingQueryV1 on PostgreSQL (HTTP + service, strict roles)', () => {
     expect((await get('guest=Haddad', 'plain')).status).toBe(403)
   })
 
-  it('BQ-E06: the booking role reads through row-level security only: no tenant context sees nothing; the API role cannot read bookings at all', async () => {
+  it('BQ-E06: the booking role reads through row-level security only: no tenant context sees nothing; the API role cannot read booking money, agency or snapshot columns', async () => {
     const roleUrl = process.env.BOOKING_OPS_DATABASE_URL as string
     const role = new PrismaClient({ datasourceUrl: roleUrl })
     try { expect(await role.booking.count()).toBe(0) } finally { await role.$disconnect() }
     const api = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL as string })
-    try { await expect(api.$queryRawUnsafe('SELECT 1 FROM "Booking" LIMIT 1')).rejects.toThrow(/permission denied/) } finally { await api.$disconnect() }
+    try {
+      // ADR 0061 Amendment 1: the API role reads only the supplier-extranet columns of Booking. Money, agency, snapshot and SELECT * stay denied.
+      await expect(api.$queryRawUnsafe('SELECT "total_minor" FROM "Booking" LIMIT 1')).rejects.toThrow(/permission denied/)
+      await expect(api.$queryRawUnsafe('SELECT "agency_id", "search_snapshot" FROM "Booking" LIMIT 1')).rejects.toThrow(/permission denied/)
+      await expect(api.$queryRawUnsafe('SELECT * FROM "Booking" LIMIT 1')).rejects.toThrow(/permission denied/)
+    } finally { await api.$disconnect() }
   })
 })
