@@ -128,7 +128,7 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000
 }
 
-function geoDistance(incoming: { latitude?: number | null; longitude?: number | null }, hotel: CanonicalHotelObservation): number | null {
+export function geoDistance(incoming: { latitude?: number | null; longitude?: number | null }, hotel: CanonicalHotelObservation): number | null {
   if (incoming.latitude == null || incoming.longitude == null || hotel.latitude == null || hotel.longitude == null) return null
   const toRad = (value: number) => value * Math.PI / 180
   const dLat = toRad(hotel.latitude - incoming.latitude)
@@ -185,6 +185,9 @@ function scoreRoom(incoming: ReturnType<typeof normalizeRoomIdentity>, supplier:
   }
   if (incoming.view && canonical.view && incoming.view !== canonical.view) {
     return { canonicalRoomTypeId: room.roomTypeId, confidence: 35, reasons: ['view_mismatch'], tier: 'REVIEW_REQUIRED' }
+  }
+  if (incoming.roomClass && canonical.roomClass && incoming.roomClass !== canonical.roomClass) {
+    return { canonicalRoomTypeId: room.roomTypeId, confidence: 30, reasons: ['room_class_mismatch'], tier: 'NO_MATCH' }
   }
   const nameSimilarity = Math.max(trigramSimilarity(incoming.normalizedName, canonical.normalizedName), tokenSimilarity(incoming.normalizedName, canonical.normalizedName))
   if (incoming.bedType && incoming.bedType === canonical.bedType) reasons.push('bed_type')
