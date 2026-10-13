@@ -2,7 +2,7 @@ import type { HotelCompleteness } from '@bedbanks/contracts'
 import Link from 'next/link'
 import { hotelHref } from '@/lib/hotel-ui'
 
-const SECTION_TAB: Record<string, 'setup' | 'rooms'> = { identity: 'setup', location: 'setup', classification: 'setup', content: 'setup', operations: 'setup', contacts: 'setup', governance: 'setup', rooms: 'rooms' }
+const SECTION_TAB: Record<string, 'setup' | 'rooms' | 'images'> = { identity: 'setup', location: 'setup', classification: 'setup', content: 'setup', operations: 'setup', contacts: 'setup', governance: 'setup', rooms: 'rooms', images: 'images' }
 
 /** Publication requirements as computed by the API. Nothing here decides completeness; it lists what the server returned. */
 export function Completeness({ completeness, hotelId, compact = false }: { completeness: HotelCompleteness; hotelId: string; compact?: boolean }) {

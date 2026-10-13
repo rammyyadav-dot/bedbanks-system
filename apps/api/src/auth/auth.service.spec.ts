@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../database/prisma.service';
@@ -78,5 +79,36 @@ describe('opaque session lifecycle', () => {
   it('fails closed on database errors', async () => {
     db.session.findUnique.mockRejectedValueOnce(new Error('unavailable'));
     await expect(service.validateSession(generateSessionToken())).rejects.toThrow('unavailable');
+  });
+});
+
+describe('AuthService audit persistence (CTO audit F01)', () => {
+  const auditCreate = jest.fn();
+  const executeRaw = jest.fn().mockResolvedValue(0);
+  const prisma = {
+    user: { findUnique: jest.fn() },
+    session: { findUnique: jest.fn().mockResolvedValue({ userId: 'u1' }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    auditEvent: { create: jest.fn() },
+    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ $executeRaw: executeRaw, auditEvent: { createMany: auditCreate } })),
+  };
+  const service = new AuthService(prisma as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60 } }));
+  const token = 'a'.repeat(64);
+
+  it('writes the auth event in a transaction that sets the auth-audit flag first', async () => {
+    auditCreate.mockResolvedValue({});
+    await service.logout(token);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(auditCreate.mock.calls[0][0].data[0]).toMatchObject({ action: 'auth.logout', entityType: 'auth', entityId: 'u1', userId: 'u1' });
+  });
+
+  it('does not block logout when persistence fails, and logs only a safe code', async () => {
+    const logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    auditCreate.mockRejectedValue(Object.assign(new Error('new row violates row-level security policy for table "AuditEvent" secret'), { meta: { code: '42501' } }));
+    await expect(service.logout(token)).resolves.toBeUndefined();
+    const logged = logSpy.mock.calls.join(' ');
+    logSpy.mockRestore();
+    expect(logged).toContain('auth_audit_persist_failed');
+    expect(logged).toContain('42501');
+    expect(logged).not.toContain('secret');
   });
 });

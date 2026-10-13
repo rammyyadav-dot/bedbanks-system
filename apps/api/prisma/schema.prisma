@@ -919,6 +919,10 @@ model Booking {
   agentUserId         String?               @map("agent_user_id")
   agentUser           User?                 @relation("BookingAgent", fields: [agentUserId], references: [id], onDelete: SetNull)
   channel             BookingChannel        @default(PORTAL)
+  /// Supplier organization that owns this booking (ADR 0061 Amendment 1). Set once at creation from hold -> rate plan -> contract; null for connector, manual and
+  /// unattributable historical bookings. Immutable once non-null (database trigger). Never derived from `supplier`, a name or request input.
+  supplierId          String?               @map("supplier_id")
+  supplierOrganization Supplier?            @relation("BookingSupplierOrganization", fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
   agentRef            String?               @map("agent_ref")
   /// The supplier's own answer, kept apart from `status` (a free supplier word such as CONFIRMED or ON_REQUEST).
   supplierStatus      String?               @map("supplier_status")
@@ -964,6 +968,9 @@ model Booking {
   @@index([tenantId, agentRef])
   @@index([tenantId, cancelDeadline])
   @@index([tenantId, createdAt])
+  @@index([tenantId, supplierId, createdAt])
+  @@index([tenantId, supplierId, status])
+  @@index([tenantId, supplierId, checkIn])
 }
 
 /// The booked room product(s). `quantity` rooms of this type and board; occupancy is per room.
@@ -1456,6 +1463,7 @@ model Supplier {
   inventoryEvents InventoryUpdateEvent[]
   memberships    SupplierMembership[]
   roomDrafts     SupplierRoomDraft[]
+  bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
 
   @@unique([tenantId, legalName])
   @@unique([tenantId, id])

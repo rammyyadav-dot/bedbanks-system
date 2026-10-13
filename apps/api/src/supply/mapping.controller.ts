@@ -3,6 +3,7 @@ import type { Request } from 'express'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { ACTIVE_TENANT_REQUEST_KEY, TenantContextGuard } from '../agent/tenant-context.guard'
+import type { HotelMappingApproveBody } from '@bedbanks/contracts'
 import { MappingService } from './mapping.service'
 
 @Controller('supply/mappings')
@@ -19,7 +20,7 @@ export class MappingController {
   @Get('hotels/:mappingId') hotel(@Req() req: Request, @Param('mappingId') mappingId: string) { const c = this.context(req); return this.mapping.hotel(c.tenantId, c.userId, mappingId) }
   @Post('hotels') createHotel(@Req() req: Request, @Body() input: Record<string, unknown>) { const c = this.context(req); return this.mapping.createHotel(c.tenantId, c.userId, input, c.requestId) }
   @Patch('hotels/:mappingId') updateHotel(@Req() req: Request, @Param('mappingId') mappingId: string, @Body() input: Record<string, unknown>) { const c = this.context(req); return this.mapping.updateHotel(c.tenantId, c.userId, mappingId, input, c.requestId) }
-  @Post('hotels/:mappingId/approve') approveHotel(@Req() req: Request, @Param('mappingId') mappingId: string, @Body() body?: { reason?: string }) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'hotel', mappingId, 'approve', c.requestId, undefined, body?.reason) }
+  @Post('hotels/:mappingId/approve') approveHotel(@Req() req: Request, @Param('mappingId') mappingId: string, @Body() body?: HotelMappingApproveBody) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'hotel', mappingId, 'approve', c.requestId, undefined, body?.reason, body?.acknowledgeDuplicateHotelIds) }
   @Post('hotels/:mappingId/reject') rejectHotel(@Req() req: Request, @Param('mappingId') mappingId: string, @Body() body?: { reason?: string }) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'hotel', mappingId, 'reject', c.requestId, undefined, body?.reason) }
   @Post('hotels/:mappingId/reopen') reopenHotel(@Req() req: Request, @Param('mappingId') mappingId: string, @Body() body?: { reason?: string }) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'hotel', mappingId, 'reopen', c.requestId, undefined, body?.reason) }
   @Get('hotels/:mappingId/rooms') rooms(@Req() req: Request, @Param('mappingId') mappingId: string) { const c = this.context(req); return this.mapping.rooms(c.tenantId, c.userId, mappingId) }

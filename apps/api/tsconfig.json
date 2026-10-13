@@ -12,6 +12,7 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
+      "@bedbanks/connectors-core": ["../../packages/connectors/core/src/index.ts"],
       "@bedbanks/contracts": ["../../packages/contracts/src/index.ts"],
       "@bedbanks/domain": ["../../packages/domain/src/index.ts"],
       "@bedbanks/money": ["../../packages/money/src/index.ts"],

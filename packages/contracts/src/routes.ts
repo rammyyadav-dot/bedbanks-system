@@ -102,6 +102,9 @@ export const routes = {
     hotel: '/supplier/extranet/hotels/:hotelId',
     rooms: '/supplier/extranet/hotels/:hotelId/rooms',
     roomDraft: '/supplier/extranet/hotels/:hotelId/rooms/:roomId/draft',
+    contracts: '/supplier/extranet/contracts',
+    bookings: '/supplier/extranet/bookings',
+    booking: '/supplier/extranet/bookings/:bookingId',
   },
   platformAccess: {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',

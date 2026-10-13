@@ -17,7 +17,7 @@ Nothing here has been run. A tick means "proved by evidence in `docs/aws-verific
 ## C. Pre-apply gates (automatable now; CI runs them)
 - [x] `terraform fmt -check`, `validate`, offline `terraform test` (guards refuse open staging, unauthorized production DNS, production without edge or exception).
 - [x] `checkov` with a documented baseline; `check:aws-governance`; actionlint.
-- [ ] A reviewed `terraform plan` against the real account (needs credentials; the mock plan is not a substitute).
+- [ ] A reviewed `terraform plan` against the real account (needs credentials; the mock plan is not a substitute). Procedure and read-only wrapper: `docs/runbooks/aws-staging-plan.md` (`infra/aws/plan-staging.sh`).
 - [ ] The applying human reads the plan: no public data endpoint, no `0.0.0.0/0` in staging, no `create_portal_records` for production.
 
 ## D. Apply and deploy (owner, with approval for each step)

@@ -9,6 +9,8 @@ import { idParam, likeLiteral, textParam } from '../admin-operations/query-param
 import { assertHotelIdentityAvailable } from './hotel-identity'
 import { lockHotelSetup, setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
+import { assessContentQuality } from './hotel-content-quality'
+import { possibleDuplicatesFor } from './hotel-duplicate-lookup'
 
 const STATUS_CHANGED = 'hotel.setup.status_changed'
 const SAVED = 'hotel.setup.updated'
@@ -39,28 +41,33 @@ export class HotelSetupService {
     if (!hotelId) throw new BadRequestException('Invalid hotelId')
     const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId } })
     if (!hotel) throw new NotFoundException('Hotel not found')
-    const [profile, identifiers, activeRooms, totalRooms] = await Promise.all([
+    const [profile, identifiers, activeRooms, totalRooms, imageCount, primaryImages, amenityCount] = await Promise.all([
       tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId } }),
       tx.hotelExternalIdentifier.findMany({ where: { hotelId: hotel.id, tenantId }, orderBy: { scheme: 'asc' } }),
       tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } }),
       tx.roomType.count({ where: { hotelId: hotel.id } }),
+      tx.hotelImage.count({ where: { hotelId: hotel.id, tenantId } }),
+      tx.hotelImage.count({ where: { hotelId: hotel.id, tenantId, isPrimary: true } }),
+      tx.hotelAmenity.count({ where: { hotelId: hotel.id, tenantId } }),
     ])
     // Resolved only while the owner is still a member of this tenant; a stale id shows as "not set" rather than leaking a foreign user.
     const ownerRow = profile?.ownerUserId ? await tx.membership.findUnique({ where: { userId_tenantId: { userId: profile.ownerUserId, tenantId } }, select: { user: { select: { id: true, name: true, email: true } } } }) : null
     const owner = ownerRow ? { userId: ownerRow.user.id, name: ownerRow.user.name, email: ownerRow.user.email } : null
-    return { hotel, profile, identifiers, activeRooms, totalRooms, owner }
+    const possibleDuplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null, identifiers)
+    return { hotel, profile, identifiers, activeRooms, totalRooms, owner, imageCount, hasPrimaryImage: primaryImages > 0, amenityCount, possibleDuplicates }
   }
 
-  current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number): CurrentSetup {
+  current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number, hasPrimaryImage: boolean): CurrentSetup {
     return {
       name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
       starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
-      contacts: asContacts(profile?.contacts), activeRooms,
+      contacts: asContacts(profile?.contacts), activeRooms, hasPrimaryImage,
     }
   }
 
   toView(data: Awaited<ReturnType<HotelSetupService['load']>>, includeContacts: boolean): HotelSetupView {
-    const { hotel, profile, identifiers, activeRooms, totalRooms, owner } = data
+    const { hotel, profile, identifiers, activeRooms, totalRooms, owner, imageCount, hasPrimaryImage, amenityCount, possibleDuplicates } = data
+    const policies = asPolicies(profile?.policies)
     return {
       generatedAt: new Date().toISOString(), hotelId: hotel.id, concurrencyToken: this.token(hotel, profile), profileExists: profile !== null,
       identity: { name: hotel.name, propertyType: hotel.propertyType, legalName: profile?.legalName ?? null, chainName: profile?.chainName ?? null, brandName: profile?.brandName ?? null, code: hotel.externalRef, externalIdentifiers: identifiers.map((i) => ({ scheme: i.scheme, value: i.value, createdAt: i.createdAt.toISOString() })) },
@@ -69,10 +76,16 @@ export class HotelSetupService {
       content: { shortDescription: profile?.shortDescription ?? null, fullDescription: profile?.fullDescription ?? null, languages: profile?.languages ?? [] },
       operations: { checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null, notes: profile?.operationalNotes ?? null },
       contacts: includeContacts ? asContacts(profile?.contacts) : null,
-      policies: asPolicies(profile?.policies),
+      policies,
       governance: { status: hotel.contentStatus as HotelProfileStatus, sourceSystem: profile?.sourceSystem ?? null, ownerUserId: profile?.ownerUserId ?? null, owner, approvedById: profile?.approvedById ?? null, approvedAt: iso(profile?.approvedAt), updatedById: profile?.updatedById ?? null, updatedAt: hotel.updatedAt.toISOString() },
       rooms: { active: activeRooms, total: totalRooms },
-      completeness: assessCompleteness(this.current(hotel, profile, activeRooms)),
+      completeness: assessCompleteness(this.current(hotel, profile, activeRooms, hasPrimaryImage)),
+      quality: assessContentQuality({
+        shortDescription: profile?.shortDescription ?? null, fullDescription: profile?.fullDescription ?? null, languages: profile?.languages ?? [], starSource: profile?.starSource ?? null,
+        postalCode: profile?.postalCode ?? null, area: profile?.area ?? null, chainName: profile?.chainName ?? null, brandName: profile?.brandName ?? null,
+        policyCount: Object.values(policies).filter(Boolean).length, externalIdentifierCount: identifiers.length, imageCount, hasPrimaryImage, amenityCount,
+      }),
+      possibleDuplicates,
     }
   }
 
@@ -131,7 +144,7 @@ export class HotelSetupService {
         if (body.expectedToken !== this.token(before.hotel, before.profile)) this.stale()
 
         if (Object.keys(data.hotel).some(k => ['name', 'city', 'countryCode', 'address'].includes(k))) await assertHotelIdentityAvailable(tx, tenantId, { ...before.hotel, ...data.hotel }, before.hotel.id)
-        const beforeCurrent = this.current(before.hotel, before.profile, before.activeRooms)
+        const beforeCurrent = this.current(before.hotel, before.profile, before.activeRooms, before.hasPrimaryImage)
         const afterCurrent: CurrentSetup = {
           ...beforeCurrent, ...data.hotel,
           starVerified: data.hotel.starRating !== undefined && data.hotel.starRating !== beforeCurrent.starRating ? false : (data.starVerified ?? beforeCurrent.starVerified),

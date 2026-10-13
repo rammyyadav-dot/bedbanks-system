@@ -315,3 +315,28 @@ test('breadcrumbs: a route that is itself a navigation entry has no duplicate tr
   assert.deepEqual(breadcrumbTrail('/hotels/new'), { label: 'Hotels', detail: 'new' })
   assert.deepEqual(breadcrumbTrail(null), { label: 'Dashboard', detail: null })
 })
+
+import { isAllowed, loadingCapabilities } from './auth/capability-policy'
+test('capability policy fails closed while loading, on error, and across tenants', () => {
+  assert.equal(isAllowed(loadingCapabilities('t1'), 't1', 'supply.rates.manage'), false)
+  assert.equal(isAllowed({ status: 'error', tenantId: 't1', permissions: new Set() }, 't1', 'supply.rates.manage'), false)
+  const ready = { status: 'ready' as const, tenantId: 't1', permissions: new Set(['supply.rates.manage']) }
+  assert.equal(isAllowed(ready, 't1', 'supply.rates.manage'), true)
+  assert.equal(isAllowed(ready, 't1', 'supply.rates.read'), false)
+  assert.equal(isAllowed(ready, 't2', 'supply.rates.manage'), false)
+  assert.equal(isAllowed(ready, null, 'supply.rates.manage'), false)
+})
+
+import { requiredPermissionFor, resolveRouteAccess } from './auth/route-access'
+test('route guard resolves the permission from the catalogue and fails closed', () => {
+  const gated = '/rates/plans'
+  const required = requiredPermissionFor(gated)
+  assert.ok(required, 'rate plans route declares a permission')
+  assert.equal(requiredPermissionFor('/rates/plans/abc'), required)
+  assert.equal(requiredPermissionFor('/not-in-nav'), null)
+  assert.equal(resolveRouteAccess('/not-in-nav', 'loading', () => false), 'allow')
+  assert.equal(resolveRouteAccess(gated, 'loading', () => true), 'checking')
+  assert.equal(resolveRouteAccess(gated, 'error', () => true), 'unavailable')
+  assert.equal(resolveRouteAccess(gated, 'ready', () => false), 'denied')
+  assert.equal(resolveRouteAccess(gated, 'ready', () => true), 'allow')
+})

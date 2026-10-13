@@ -36,7 +36,7 @@ function setup(overrides: { existing?: any; hold?: any; createError?: Error; age
       create: overrides.createError ? jest.fn().mockRejectedValue(overrides.createError) : jest.fn().mockResolvedValue(booking),
     },
     inventoryHold: { findFirst: jest.fn().mockResolvedValue(overrides.hold === undefined ? hold : overrides.hold) },
-    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { cancellationPolicySet: null, contract: { cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
+    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
     agencyMember: { findUnique: jest.fn().mockResolvedValue(overrides.agencyId === null ? null : { agencyId: overrides.agencyId ?? 'agency-a' }) },
     roomType: { findFirst: jest.fn().mockResolvedValue({ name: 'Deluxe Sea View' }) },
     boardBasis: { findFirst: jest.fn().mockResolvedValue({ code: 'BB' }) },
@@ -49,6 +49,36 @@ function setup(overrides: { existing?: any; hold?: any; createError?: Error; age
 }
 
 describe('BookingPersistenceService', () => {
+  it('freezes supplier ownership from hold -> rate plan -> contract in the creating transaction (ADR 0061 Amendment 1)', async () => {
+    const { service, tx, prisma } = setup()
+    await service.persistPending(command)
+    expect(prisma.withTenant).toHaveBeenCalledTimes(1)
+    expect(tx.ratePlan.findFirst).toHaveBeenCalledWith({ where: { id: 'plan-a', tenantId: 'tenant-a' }, select: { contract: { select: { tenantId: true, supplierId: true } } } })
+    expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({ supplierId: 'supplier-a', supplier: 'PENDING_SUPPLIER' })
+  })
+
+  it('refuses a command whose rate plan differs from the hold, before any ownership lookup', async () => {
+    const { service, tx } = setup()
+    await expect(service.persistPending({ ...command, ratePlanId: 'plan-from-request' })).rejects.toBeInstanceOf(ConflictException)
+    expect(tx.ratePlan.findFirst).not.toHaveBeenCalled()
+    expect(tx.booking.create).not.toHaveBeenCalled()
+  })
+
+  it('fails closed, creating nothing, when the plan or its contract cannot be resolved inside the tenant', async () => {
+    for (const plan of [null, { contract: { tenantId: 'tenant-other', supplierId: 'supplier-a' } }, { contract: { tenantId: 'tenant-a', supplierId: '' } }]) {
+      const { service, tx } = setup({ plan })
+      await expect(service.persistPending(command)).rejects.toBeInstanceOf(ForbiddenException)
+      expect(tx.booking.create).not.toHaveBeenCalled()
+    }
+  })
+
+  it('does not re-resolve or rewrite ownership on an idempotent replay', async () => {
+    const { service, tx } = setup({ existing: booking })
+    await service.persistPending(command)
+    expect(tx.ratePlan.findFirst).not.toHaveBeenCalled()
+    expect(tx.booking.create).not.toHaveBeenCalled()
+  })
+
   it('persists only PENDING after validating the authoritative hold', async () => {
     const { service, tx } = setup()
     await expect(service.persistPending(command)).resolves.toEqual(booking)

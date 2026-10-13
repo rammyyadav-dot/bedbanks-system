@@ -17,13 +17,15 @@ elif grep -q AWSOrganizationsNotInUse <<<"$out"; then say FAIL organizations "ac
 else say UNKNOWN organizations "cannot read: $(head -c 120 <<<"$out")"; fi
 
 # IAM Identity Center (instances are listed in its home region; try the given one)
-if out=$(aws sso-admin list-instances 2>&1); then n=$(j '.Instances|length' <<<"$out"); [ "${n:-0}" -ge 1 ] && say PASS identity-center "$n instance(s) in $REGION" || say FAIL identity-center "no instance in $REGION (may live in another region)"
+if out=$(aws sso-admin list-instances 2>&1); then
+  n=$(j '.Instances|length' <<<"$out")
+  if [ "${n:-0}" -ge 1 ]; then say PASS identity-center "$n instance(s) in $REGION"; else say FAIL identity-center "no instance in $REGION (may live in another region)"; fi
 else say UNKNOWN identity-center "cannot read: $(head -c 120 <<<"$out")"; fi
 
 # Root account and IAM users
 if out=$(aws iam get-account-summary 2>&1); then
-  [ "$(j .SummaryMap.AccountMFAEnabled <<<"$out")" = 1 ] && say PASS root-mfa "root MFA enabled" || say FAIL root-mfa "root MFA not enabled"
-  [ "$(j .SummaryMap.AccountAccessKeysPresent <<<"$out")" = 0 ] && say PASS root-access-keys "no root access keys" || say FAIL root-access-keys "root access keys exist"
+  if [ "$(j .SummaryMap.AccountMFAEnabled <<<"$out")" = 1 ]; then say PASS root-mfa "root MFA enabled"; else say FAIL root-mfa "root MFA not enabled"; fi
+  if [ "$(j .SummaryMap.AccountAccessKeysPresent <<<"$out")" = 0 ]; then say PASS root-access-keys "no root access keys"; else say FAIL root-access-keys "root access keys exist"; fi
   say INFO iam-users "$(j .SummaryMap.Users <<<"$out") IAM user(s); humans should use Identity Center, not IAM users"
 else say UNKNOWN root-mfa "cannot read: $(head -c 120 <<<"$out")"; fi
 
@@ -41,21 +43,25 @@ else say UNKNOWN cloudtrail "cannot read: $(head -c 120 <<<"$out")"; fi
 # Bucket protections (Terraform state and CloudTrail log bucket)
 bucket_checks() {
   local b="$1" tag="$2" v e p
-  v=$(aws s3api get-bucket-versioning --bucket "$b" 2>/dev/null | j '.Status // "none"'); [ "$v" = Enabled ] && say PASS "$tag-versioning" "$b" || say FAIL "$tag-versioning" "$b status=${v:-unreadable}"
-  e=$(aws s3api get-bucket-encryption --bucket "$b" 2>/dev/null | j '.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm'); [ -n "$e" ] && [ "$e" != null ] && say PASS "$tag-encryption" "$b $e" || say FAIL "$tag-encryption" "$b not encrypted/unreadable"
-  p=$(aws s3api get-public-access-block --bucket "$b" 2>/dev/null | j '[.PublicAccessBlockConfiguration[]]|all'); [ "$p" = true ] && say PASS "$tag-public-block" "$b" || say FAIL "$tag-public-block" "$b public access not fully blocked"
+  v=$(aws s3api get-bucket-versioning --bucket "$b" 2>/dev/null | j '.Status // "none"')
+  if [ "$v" = Enabled ]; then say PASS "$tag-versioning" "$b"; else say FAIL "$tag-versioning" "$b status=${v:-unreadable}"; fi
+  e=$(aws s3api get-bucket-encryption --bucket "$b" 2>/dev/null | j '.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm')
+  if [ -n "$e" ] && [ "$e" != null ]; then say PASS "$tag-encryption" "$b $e"; else say FAIL "$tag-encryption" "$b not encrypted/unreadable"; fi
+  p=$(aws s3api get-public-access-block --bucket "$b" 2>/dev/null | j '[.PublicAccessBlockConfiguration[]]|all')
+  if [ "$p" = true ]; then say PASS "$tag-public-block" "$b"; else say FAIL "$tag-public-block" "$b public access not fully blocked"; fi
 }
 bucket_checks "$STATE_BUCKET" tfstate
 [ -n "$TRAIL_BUCKET" ] && bucket_checks "$TRAIL_BUCKET" cloudtrail-bucket
 # State locking (Terraform 1.9.x uses DynamoDB)
 if out=$(aws dynamodb describe-table --table-name "$LOCK_TABLE" 2>&1); then
-  k=$(j '.Table.KeySchema[0].AttributeName' <<<"$out"); [ "$k" = LockID ] && say PASS tfstate-lock-table "$LOCK_TABLE hash key LockID" || say FAIL tfstate-lock-table "hash key is $k, Terraform needs LockID"
+  k=$(j '.Table.KeySchema[0].AttributeName' <<<"$out")
+  if [ "$k" = LockID ]; then say PASS tfstate-lock-table "$LOCK_TABLE hash key LockID"; else say FAIL tfstate-lock-table "hash key is $k, Terraform needs LockID"; fi
 else say FAIL tfstate-lock-table "cannot describe $LOCK_TABLE: $(head -c 100 <<<"$out")"; fi
 
 # GitHub OIDC provider and role trust
 if out=$(aws iam list-open-id-connect-providers 2>&1); then
   arn=$(j '.OpenIDConnectProviderList[].Arn|select(contains("token.actions.githubusercontent.com"))' <<<"$out")
-  [ -n "$arn" ] && say PASS github-oidc-provider "$arn" || say INFO github-oidc-provider "absent (Terraform phase 1 creates it)"
+  if [ -n "$arn" ]; then say PASS github-oidc-provider "$arn"; else say INFO github-oidc-provider "absent (Terraform phase 1 creates it)"; fi
 else say UNKNOWN github-oidc-provider "cannot read"; fi
 for role in $(aws iam list-roles 2>/dev/null | j '.Roles[]|select(.RoleName|test("^fbeds-.*-github-(build|deploy)$"))|.RoleName'); do
   doc=$(aws iam get-role --role-name "$role" | j '.Role.AssumeRolePolicyDocument|tojson')

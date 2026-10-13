@@ -9,6 +9,15 @@ const BASE = process.env.ADMIN_URL ?? 'http://localhost:3000'
 const SHOTS = process.env.SHOT_DIR ?? require('os').tmpdir()
 const H = seed.hotels
 const results = []
+const zlib = require('zlib')
+function png(w, h, [r, g, b]) {
+  const crc = (buf) => { const n = Buffer.alloc(4); n.writeUInt32BE(zlib.crc32(buf) >>> 0); return n }
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type, 'latin1'), data]); return Buffer.concat([len, body, crc(body)]) }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: w }, () => [r, g, b]).flat())])
+  const raw = Buffer.concat(Array.from({ length: h }, () => row))
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
+}
 const check = (name, ok, extra = '') => { results.push({ name, ok: !!ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + String(extra).slice(0, 160) : ''}`) }
 const text = async (page) => (await page.locator('main, .admin-page').first().innerText()).replace(/\s+/g, ' ')
 const stateOf = async (page) => page.locator('[data-state]').first().getAttribute('data-state')
@@ -174,7 +183,7 @@ async function openHotel(page, key, tab) {
   await openHotel(page, 'kilo')
   check('before: the unrated DRAFT hotel lists the star-rating and content issues', /no 1-5 star rating/i.test(await text(page)) && /content is not COMPLETE/i.test(await text(page)))
   await page.waitForSelector('[data-testid=profile-completeness]', { timeout: 15000 })
-  check('the Overview shows an explicit completeness figure and names what is missing', /of 12 publication requirements met/.test(await text(page)) && (await page.locator('[data-testid=profile-completeness] [data-met=false]').count()) > 0)
+  check('the Overview shows an explicit completeness figure and names what is missing', /of 13 publication requirements met/.test(await text(page)) && (await page.locator('[data-testid=profile-completeness] [data-met=false]').count()) > 0)
   check('the Overview no longer carries a master-data form or placeholder summary', (await page.getByRole('button', { name: 'Save changes' }).count()) === 0 && !/mock summary/i.test(await text(page)))
   await page.getByRole('tab', { name: 'Hotel Setup' }).click(); await page.waitForSelector('[data-testid=setup-form]')
   check('Hotel Setup shows the immutable canonical id', (await page.locator('[data-testid=canonical-id]').innerText()).trim() === H.kilo)
@@ -202,6 +211,11 @@ async function openHotel(page, key, tab) {
   await page.reload(); await page.waitForSelector('[data-testid=setup-form]')
   check('after a reload the saved draft is read back from the server', (await page.getByLabel('Street address').inputValue()) === '1 Verification Road' && (await page.getByLabel('Area').inputValue()) === 'Business Bay' && (await page.getByLabel('Star category').inputValue()) === '4')
   check('the audit trail records the same server request id', await (async () => { await page.goto(`${BASE}/hotels/${H.kilo}?tab=audit`); await page.waitForSelector('table[aria-label="Hotel audit events"]'); return (await text(page)).includes(saveRequestId) && /hotel\.setup\.updated/.test(await text(page)) })())
+  // a primary image is a publication requirement (ADR 0058): the request is refused until one is uploaded
+  await page.goto(`${BASE}/hotels/${H.kilo}?tab=images`); await page.waitForSelector('[data-testid=image-card]', { timeout: 15000 })
+  check('the uploaded image persists on the Images tab with the real limits and an upload control', (await page.getByTestId('image-card').count()) === 1 && /5 MB/.test(await text(page)) && (await page.locator('input[type=file]').count()) === 1)
+  await page.getByTestId('image-file').setInputFiles({ name: 'lobby.png', mimeType: 'image/png', buffer: png(800, 600, [20, 90, 160]) }); await page.getByLabel('Alt text (required)').fill('Lobby')
+  await page.getByTestId('image-upload-submit').click(); await page.waitForSelector('[data-testid=image-card]', { timeout: 15000 })
   // publication is gated, then allowed once the requirements are met
   await page.goto(`${BASE}/hotels/${H.kilo}?tab=setup`); await page.waitForSelector('[data-testid=status-form]')
   check('the status form states that publication enables no booking or payment path', /does not enable booking, payment or supplier access/.test(await page.getByTestId('status-form').innerText()))

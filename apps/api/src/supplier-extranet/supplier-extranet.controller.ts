@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common'
 import type { Request } from 'express'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
@@ -7,11 +7,13 @@ import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { ActiveSupplier, SupplierOrganizationGuard } from './supplier-organization.guard'
 import { SupplierExtranetService } from './supplier-extranet.service'
 import { UpdateRoomDraftDto } from './update-room-draft.dto'
+import { ListBookingsQueryDto } from './list-bookings.dto'
+import { SupplierBookingsService } from './supplier-bookings.service'
 
 @Controller('supplier/extranet')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class SupplierExtranetController {
-  constructor(private readonly extranet: SupplierExtranetService) {}
+  constructor(private readonly extranet: SupplierExtranetService, private readonly bookings: SupplierBookingsService) {}
 
   @Get('memberships')
   memberships(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) {
@@ -40,6 +42,24 @@ export class SupplierExtranetController {
   @UseGuards(SupplierOrganizationGuard)
   rooms(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser, @Param('hotelId') hotelId: string) {
     return this.extranet.rooms(tenantId, identity.user.id, supplierId, hotelId)
+  }
+
+  @Get('contracts')
+  @UseGuards(SupplierOrganizationGuard)
+  contracts(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser) {
+    return this.extranet.contracts(tenantId, identity.user.id, supplierId)
+  }
+
+  @Get('bookings')
+  @UseGuards(SupplierOrganizationGuard)
+  listBookings(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: ListBookingsQueryDto) {
+    return this.bookings.list(tenantId, identity.user.id, supplierId, query)
+  }
+
+  @Get('bookings/:bookingId')
+  @UseGuards(SupplierOrganizationGuard)
+  booking(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser, @Param('bookingId') bookingId: string) {
+    return this.bookings.detail(tenantId, identity.user.id, supplierId, bookingId)
   }
 
   @Patch('hotels/:hotelId/rooms/:roomId/draft')

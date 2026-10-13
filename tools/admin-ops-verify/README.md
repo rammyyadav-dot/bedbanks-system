@@ -93,7 +93,7 @@ node tools/admin-ops-verify/verify-agent-images.cjs
 
 `seed-hotel-journey.ts` creates one empty tenant with two Admin users (maker and checker); `verify-hotel-journey.cjs` drives the whole journey in Chromium against an API
 process connected as the **provisioned, non-superuser, non-BYPASSRLS runtime login role** (never the owner): Add hotel hands off into Hotel Setup, the profile saves, a room is created
-with bedding and an amenity then archived and restored, hotel amenities save, an image uploads and decodes, completeness reaches 12 of 12, a second person approves publication,
+with bedding and an amenity then archived and restored, hotel amenities save, an image uploads and decodes, an image is uploaded before publication (ADR 0058), completeness reaches 13 of 13, a second person approves publication,
 the hotel is COMPLETE, and a privileged column answers the typed 403. Disposable local database only (`fbeds_ci` or `p0N_*`).
 
 ```bash
