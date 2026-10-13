@@ -221,6 +221,8 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
 
   it('W-09 publication is maker-checker: request, approve by another user, execute (stamps the hotel row)', async () => {
     const id = hotel2
+    // A primary image is a publication requirement (ADR 0058); a fixture row is enough because the requirement is about presence.
+    await owner.hotelImage.create({ data: { tenantId: tenantA, hotelId: id, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString('hex'), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: ids.maker } })
     const setup = `/admin/hotels/${id}/setup`
     const load = async () => (await call('get', setup, 'maker').expect(200)).body.data
     // A primary image is a publication requirement (ADR 0058); a fixture row is enough because the requirement is presence, not bytes.

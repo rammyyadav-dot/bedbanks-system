@@ -36,6 +36,8 @@ describe('hotel readiness (PostgreSQL, HTTP, runtime role, two tenants)', () => 
   async function makeHotel(key: string, o: { content?: string; profile?: boolean; mapping?: string; rates?: boolean; availability?: boolean; salesMarkets?: string[]; nationalities?: string[]; tenant?: 'A' | 'B' } = {}) {
     const tenantId = o.tenant === 'B' ? tenantB : tenantA; const supplierId = o.tenant === 'B' ? supplierB : supplierA
     const h = await owner.hotel.create({ data: { tenantId, name: `${suffix} ${key}`, externalRef: `${key}-${suffix.slice(-6)}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', address: '1 Sheikh Zayed Rd', latitude: '25.2', longitude: '55.27', timeZone: 'Asia/Dubai', contentStatus: (o.content ?? 'COMPLETE') as never, starRating: 5 } })
+    // A primary image is a publication requirement (ADR 0058); a fixture row is enough because the requirement is about presence.
+    if ((o.content ?? 'COMPLETE') === 'COMPLETE') await owner.hotelImage.create({ data: { tenantId, hotelId: h.id, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString("hex"), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: userIds[0] } })
     const room = await owner.roomType.create({ data: { hotelId: h.id, name: 'Deluxe', code: `D-${key}`.slice(0, 40), maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     if (o.profile !== false) {
       const admin = userIds[0]
