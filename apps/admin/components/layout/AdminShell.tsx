@@ -15,10 +15,11 @@ interface AdminShellProps {
 export function AdminShell({ children, identity }: AdminShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   // Set during render so it is in place before any child effect issues its first API call.
-  setActiveTenantId(pickActiveTenantId(identity.memberships));
+  const activeTenantId = pickActiveTenantId(identity.memberships);
+  setActiveTenantId(activeTenantId);
 
   return (
-    <CapabilityProvider>
+    <CapabilityProvider tenantId={activeTenantId}>
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} identity={identity} />
       {mobileOpen && (

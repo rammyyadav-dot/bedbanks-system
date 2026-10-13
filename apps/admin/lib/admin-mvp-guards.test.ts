@@ -315,3 +315,14 @@ test('breadcrumbs: a route that is itself a navigation entry has no duplicate tr
   assert.deepEqual(breadcrumbTrail('/hotels/new'), { label: 'Hotels', detail: 'new' })
   assert.deepEqual(breadcrumbTrail(null), { label: 'Dashboard', detail: null })
 })
+
+import { isAllowed, loadingCapabilities } from './auth/capability-policy'
+test('capability policy fails closed while loading, on error, and across tenants', () => {
+  assert.equal(isAllowed(loadingCapabilities('t1'), 't1', 'supply.rates.manage'), false)
+  assert.equal(isAllowed({ status: 'error', tenantId: 't1', permissions: new Set() }, 't1', 'supply.rates.manage'), false)
+  const ready = { status: 'ready' as const, tenantId: 't1', permissions: new Set(['supply.rates.manage']) }
+  assert.equal(isAllowed(ready, 't1', 'supply.rates.manage'), true)
+  assert.equal(isAllowed(ready, 't1', 'supply.rates.read'), false)
+  assert.equal(isAllowed(ready, 't2', 'supply.rates.manage'), false)
+  assert.equal(isAllowed(ready, null, 'supply.rates.manage'), false)
+})
