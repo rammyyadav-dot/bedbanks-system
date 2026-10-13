@@ -1,4 +1,5 @@
 import { rulesForPlan } from '../supply/cancellation-rules'
+import { readFrozenTerms } from './booking-cancellation-terms'
 import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
@@ -82,13 +83,16 @@ export class BookingCancellationService {
     }
   }
 
-  private async evaluate(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue }, now: Date) {
+  private async evaluate(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue; cancellationPolicy: Prisma.JsonValue | null }, now: Date) {
     const snapshot = booking.searchSnapshot as { checkIn?: string; inventoryHoldId?: string; ratePlanId?: string; canonicalHotelId?: string }
     if (!snapshot.checkIn || !snapshot.inventoryHoldId || !snapshot.ratePlanId) throw new ConflictException('Booking snapshot is incomplete')
     const plan = await tx.ratePlan.findFirst({ where: { id: snapshot.ratePlanId, tenantId }, include: { contract: { include: { cancellationPolicies: true } }, roomType: { include: { hotel: true } } } })
     if (!plan) throw new ConflictException('Rate plan is unavailable')
     const timeZone = plan.roomType.hotel.timeZone || 'UTC'
-    const rules: CancellationRule[] = rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map(rule => ({
+    // Finding F13: the terms frozen at booking govern. Only a booking made before they were frozen reads the plan's live rules; unreadable frozen terms are never treated as free.
+    const frozen = readFrozenTerms(booking.cancellationPolicy)
+    if (frozen.kind === 'invalid') throw new ConflictException('Cancellation requires manual review: the frozen cancellation terms are unreadable')
+    const rules: CancellationRule[] = frozen.kind === 'frozen' ? frozen.rules : rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map(rule => ({
       daysBeforeCheckin: rule.daysBeforeCheckin, ...(rule.penaltyPercent !== null ? { penaltyPercent: rule.penaltyPercent } : {}),
       ...(rule.penaltyMinor !== null ? { penaltyMinor: rule.penaltyMinor } : {}), ...(rule.currency ? { currency: rule.currency } : {}),
     }))

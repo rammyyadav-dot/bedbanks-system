@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { createHash } from 'crypto'
 import { PrismaService } from '../database/prisma.service'
+import { freezeCancellationTerms } from './booking-cancellation-terms'
+import { rulesForPlan } from '../supply/cancellation-rules'
 import { readSupplierPrebook, type RecordedSupplierPrebook } from './supplier-prebook-record'
 
 const COMMERCIAL_SNAPSHOT_KEYS = [
@@ -91,8 +93,16 @@ export class BookingPersistenceService {
         const member = await tx.agencyMember.findUnique({ where: { tenantId_userId: { tenantId: command.tenantId, userId: command.userId } }, select: { agencyId: true } })
         const checkIn = new Date(`${command.checkIn}T00:00:00.000Z`)
         const checkOut = new Date(`${command.checkOut}T00:00:00.000Z`)
+        // Finding F13: the terms the buyer was shown are frozen onto the booking, so a later contract edit cannot change a cancellation or a voucher.
+        const plan = await tx.ratePlan.findFirst({ where: { id: command.ratePlanId, tenantId: command.tenantId }, include: { contract: { include: { cancellationPolicies: true } } } })
+        if (!plan) throw new ConflictException('Rate plan is unavailable')
+        const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies)
+        if (resolved.missing) throw new ConflictException('The rate plan names a cancellation rule set that has no rules')
+        const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date())
+        if (frozenTerms === null) throw new ConflictException('The cancellation terms of this rate plan cannot be recorded on the booking')
         const created = await tx.booking.create({
           data: {
+            cancellationPolicy: frozenTerms as Prisma.InputJsonObject,
             tenantId: command.tenantId,
             reference: bookingReference(command),
             supplier: 'PENDING_SUPPLIER',

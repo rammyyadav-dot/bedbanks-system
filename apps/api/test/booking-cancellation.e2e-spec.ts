@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentAuditService } from '../src/agent/audit.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
@@ -131,6 +132,25 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     expect((await types(total.bookingId)).some((entry) => entry.type === 'REFUND')).toBe(false)
   })
 
+  it('F13: the terms frozen at booking govern the cancellation and the voucher, even if the contract changes afterwards', async () => {
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-frozen`)
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }], source: 'CONTRACT_AT_BOOKING' } })
+    // the hotel later makes the contract far stricter; the booking made earlier keeps what the buyer was shown
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])
+    expect(await cancellations.quote({ tenantId, userId, requestId: 'q-frozen', bookingId })).toMatchObject({ penaltyMinor: '37529', refundMinor: '87570' })
+    expect(await cancel(bookingId)).toMatchObject({ penaltyMinor: '37529', refundMinor: '87570' })
+    // a booking whose frozen terms are unreadable is never treated as free
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }])
+    const broken = await bookConfirmed(`${suffix}-broken`)
+    await prisma.booking.update({ where: { id: broken.bookingId }, data: { cancellationPolicy: { rules: 'nonsense', frozenAt: 'x' } } })
+    await expect(cancel(broken.bookingId)).rejects.toThrow('manual review: the frozen cancellation terms are unreadable')
+    // a booking made before terms were frozen (no stored terms) still reads the live rules
+    await prisma.booking.update({ where: { id: broken.bookingId }, data: { cancellationPolicy: Prisma.JsonNull } })
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 40 }])
+    expect(await cancel(broken.bookingId)).toMatchObject({ penaltyMinor: '50039' }) // floor(125099*40/100)
+  })
+
   it('converges 25 simultaneous cancellations on one refund', async () => {
     await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
     const { bookingId } = await bookConfirmed(`${suffix}-race`)
@@ -153,9 +173,12 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     expect(await prisma.booking.findUniqueOrThrow({ where: { id: noPolicy.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancel.refused', entityId: noPolicy.bookingId } })).toBe(1)
 
+    // the terms are frozen at booking: a booking sold with no rules stays "no rules" (manual review) even after the contract gains one
     await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
-    await expect(cancel(noPolicy.bookingId, { now: new Date('2099-03-02T00:00:00.000Z') })).rejects.toThrow('Stay has already started')
-    expect(await prisma.booking.findUniqueOrThrow({ where: { id: noPolicy.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
+    await expect(cancel(noPolicy.bookingId, { now: new Date('2099-03-02T00:00:00.000Z') })).rejects.toThrow('manual review: missing_cancellation_policy')
+    const started = await bookConfirmed(`${suffix}-started`)
+    await expect(cancel(started.bookingId, { now: new Date('2099-03-02T00:00:00.000Z') })).rejects.toThrow('Stay has already started')
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: started.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
 
     const hold = await newHold(`${suffix}-pending`)
     const pending = await tx.prebook({ tenantId, userId, requestId: 'p', inventoryHoldId: hold.holdId, idempotencyKey: `${suffix}-pending`, adults: 2, children: 0, childAges: [], leadGuest: guest })

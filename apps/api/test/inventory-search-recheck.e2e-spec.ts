@@ -217,6 +217,9 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     const first = await rates()
     expect(forPlan(first, sell)).toMatchObject({ sellAmountMinor: nights.length * 45_000 })
     expect(forPlan(first, unaffected)).toMatchObject({ sellAmountMinor: nights.length * 50_000 })
+    // the Agent is told which promotion is already in the price (informational: the total is final)
+    expect(forPlan(first, sell)).toMatchObject({ promotion: { name: 'Early', kind: 'EARLY_BIRD' } })
+    expect(forPlan(first, unaffected)?.promotion).toBeUndefined()
     // the larger saving wins and nothing stacks: one free night (50,000) beats 10% (10,000)
     await promo(sell, { name: 'Stay 2 pay 1', kind: 'FREE_NIGHTS', percentBp: null, minLeadDays: null, minNights: 2, freeNights: 1 })
     const offer = forPlan(await rates(), sell)!

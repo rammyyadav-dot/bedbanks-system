@@ -478,6 +478,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       markupAmountMinor: Number(decision.markupMinor ?? 0n),
       sellAmountMinor,
       paymentType: offerPaymentType(plan.paymentType),
+      ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }
     const latitude = decimalText(plan.roomType.hotel.latitude)
