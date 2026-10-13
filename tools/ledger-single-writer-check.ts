@@ -2,7 +2,7 @@ import { readFileSync, globSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 
 /**
- * ADR 0056: the API appends to LedgerEntry only through apps/api/src/ledger/ledger-core.ts, and computes a wallet balance only through it.
+ * ADR 0062: the API appends to LedgerEntry only through apps/api/src/ledger/ledger-core.ts, and computes a wallet balance only through it.
  * Specs are exempt (they mock the client). Reads that list entries (findMany) are unrestricted; sums and writes are not.
  */
 const root = process.cwd();

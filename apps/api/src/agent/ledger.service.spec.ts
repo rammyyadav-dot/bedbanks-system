@@ -75,7 +75,7 @@ describe('LedgerService financial safety', () => {
   })
 })
 
-describe('LedgerService sign rules (ADR 0056)', () => {
+describe('LedgerService sign rules (ADR 0062)', () => {
   it('refuses a refund stored negative or a debit stored positive before any lookup', async () => {
     const prisma = { withTenant: jest.fn() }
     const service = new LedgerService(prisma as any)

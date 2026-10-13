@@ -1,5 +1,5 @@
 /**
- * Pure ledger arithmetic: the one definition of sign rules, balance and available credit (ADR 0056).
+ * Pure ledger arithmetic: the one definition of sign rules, balance and available credit (ADR 0062).
  * Integer minor units as bigint, no floating point, no I/O, no framework. Amounts of different currencies are never added.
  */
 export type LedgerEntryKind = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND'

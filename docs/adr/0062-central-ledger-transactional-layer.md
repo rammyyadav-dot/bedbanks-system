@@ -1,4 +1,4 @@
-# ADR 0056: One transactional ledger layer
+# ADR 0062: One transactional ledger layer
 
 Status: **Built (behaviour-preserving refactor, no schema change).**
 

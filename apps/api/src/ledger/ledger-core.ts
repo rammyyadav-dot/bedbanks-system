@@ -3,7 +3,7 @@ import type { LedgerEntryType, Prisma } from '@prisma/client'
 import { assertLedgerSign } from '@bedbanks/money'
 
 /**
- * The single transactional ledger layer (ADR 0056). Every append to `LedgerEntry` and every balance read in the API goes through here,
+ * The single transactional ledger layer (ADR 0062). Every append to `LedgerEntry` and every balance read in the API goes through here,
  * so the sign rules, the zero and idempotency-key checks and the balance definition live in one place and cannot drift between the
  * booking, cancellation, funding and reporting paths. All functions take the caller's tenant transaction: they open none, take no lock
  * and post no audit event. Callers keep the wallet row lock and the audit event, which are part of their own business transaction.
