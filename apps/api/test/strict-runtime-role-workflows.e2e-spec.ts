@@ -221,6 +221,8 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
 
   it('W-09 publication is maker-checker: request, approve by another user, execute (stamps the hotel row)', async () => {
     const id = hotel2
+    // A primary image is a publication requirement (ADR 0058); a fixture row is enough because the requirement is about presence.
+    await owner.hotelImage.create({ data: { tenantId: tenantA, hotelId: id, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString('hex'), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: ids.maker } })
     const setup = `/admin/hotels/${id}/setup`
     const load = async () => (await call('get', setup, 'maker').expect(200)).body.data
     await call('patch', setup, 'maker', { idempotencyKey: key(), expectedToken: (await load()).concurrencyToken, address: '1 Palm Road', latitude: '25.1234', longitude: '55.1234', starRating: 4, starVerified: true, starSource: 'Tourism authority register', shortDescription: 'A quiet hotel on the Palm.', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'private-res@hotel.test' } } }).expect(200)
