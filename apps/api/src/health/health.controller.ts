@@ -2,6 +2,7 @@ import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/co
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
+import { isDraining } from '../common/lifecycle';
 import { PrismaService } from '../database/prisma.service';
 
 export type Readiness = 'ready' | 'database_unavailable' | 'dependency_unavailable';
@@ -70,6 +71,9 @@ export class HealthController {
   @ApiResponse({ status: 200, description: 'The process can serve traffic and the database is reachable.' })
   @ApiResponse({ status: 503, description: 'The database is not ready.' })
   async ready(): Promise<HealthStatus> {
+    if (isDraining()) {
+      throw new ServiceUnavailableException('Shutting down');
+    }
     const databaseHealthy = await this.databaseHealthy();
     const dependenciesHealthy = this.dependenciesHealthy();
     if (!databaseHealthy) {

@@ -6,12 +6,23 @@ import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { beginDraining } from './common/lifecycle';
 import type { AppConfig } from './config/configuration';
 
 const logger = new Logger('Bootstrap');
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+
+  // Without this, SIGTERM kills the process immediately: in-flight bookings are cut off and the
+  // onModuleDestroy hooks (hold-expiry sweeper, supplier runner, database pool) never run.
+  app.enableShutdownHooks();
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      beginDraining();
+      logger.log(`${signal} received: reporting not-ready and draining`);
+    });
+  }
 
   const configService = app.get(ConfigService<AppConfig>);
   const apiPrefix = configService.get('api.prefix', { infer: true }) ?? 'api/v1';
