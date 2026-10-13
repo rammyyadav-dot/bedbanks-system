@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, HttpException, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Logger, HttpException, ServiceUnavailableException } from '@nestjs/common'
 import type { ArgumentsHost } from '@nestjs/common'
 import { HttpExceptionFilter } from './http-exception.filter'
 import { CommercialControlUnavailableError } from '../../supply/commercial-controls'
@@ -55,5 +55,20 @@ describe('HttpExceptionFilter codes', () => {
     const result = run(new CommercialControlUnavailableError('markup_rules', 'denied', '42501'))
     expect(result.status).toBe(503)
     expect(result.error.code).toBe('COMMERCIAL_CONTROL_UNAVAILABLE')
+  })
+})
+
+describe('HttpExceptionFilter logging (CTO audit F06)', () => {
+  it('logs unexpected errors without message, stack or query string', () => {
+    const spy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const response = { status() { return this }, json() { return undefined } }
+    const request = { method: 'GET', url: '/x?token=SECRET-QUERY', path: '/x', requestId: 'req-1' }
+    const host = { switchToHttp: () => ({ getResponse: () => response, getRequest: () => request }) } as unknown as ArgumentsHost
+    new HttpExceptionFilter().catch(new Error('Bearer SECRET-MESSAGE guest@example.test'), host)
+    const logged = spy.mock.calls.map((call) => call.join(' ')).join('\n')
+    spy.mockRestore()
+    expect(logged).toContain('server_error')
+    expect(logged).toContain('req-1')
+    for (const secret of ['SECRET-QUERY', 'SECRET-MESSAGE', 'guest@example.test', ' at ']) expect(logged).not.toContain(secret)
   })
 })

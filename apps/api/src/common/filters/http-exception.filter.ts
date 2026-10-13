@@ -50,6 +50,11 @@ function explicitCode(body: unknown): string | undefined {
   return typeof code === 'string' && EXPLICIT_CODE.test(code) ? code : undefined;
 }
 
+/** Constructor names are developer-chosen identifiers; anything else is reported as a generic name. */
+function safeErrorName(name: string): string {
+  return /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name) ? name : 'Error';
+}
+
 /**
  * Catches every exception thrown anywhere in the app (NestJS
  * HttpExceptions, ValidationPipe errors, and unexpected/unhandled
@@ -75,10 +80,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // Infrastructure configuration, not a caller decision: structured diagnostic without SQL, table names or values.
       this.logger.error(JSON.stringify({ event: 'database_role_not_permitted', dbCode: databaseErrorCode(exception), method: request.method, path: request.path, requestId: request.requestId ?? 'unknown' }));
     } else if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(
-        `${request.method} ${request.url} -> ${status}`,
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      // Path without query string; error name only. Messages and stacks can carry tokens, PII or supplier payloads.
+      this.logger.error(JSON.stringify({
+        event: 'server_error',
+        method: request.method,
+        path: request.path,
+        status,
+        errorName: exception instanceof Error ? safeErrorName(exception.name) : 'NonError',
+        requestId: request.requestId ?? 'unknown',
+      }));
     }
 
     const errorResponse: ApiErrorResponse = {
