@@ -45,8 +45,8 @@ const ADMIN_PERMISSIONS = [
   'supply.availability.read',
 ]
 const AGENT_PERMISSIONS = ['hotel.search', 'booking.prebook', 'booking.create']
-const EDITOR_PERMISSIONS = ['supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.drafts.manage']
-const READER_PERMISSIONS = ['supplier.extranet.hotels.read', 'supplier.extranet.rooms.read']
+const EDITOR_PERMISSIONS = ['supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.drafts.manage', 'supplier.extranet.contracts.read']
+const READER_PERMISSIONS = ['supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.contracts.read']
 
 type Tx = Prisma.TransactionClient
 

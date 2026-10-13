@@ -88,6 +88,12 @@ export class BookingPersistenceService {
         if (!hold) throw new ForbiddenException('Inventory hold is unavailable')
         this.assertAuthoritativeHold(hold, command)
 
+        // Supplier ownership (ADR 0061 Amendment 1): frozen here, once, from the hold's rate plan -> contract -> supplier, all inside this tenant.
+        // Never from `Booking.supplier`, a name, the snapshot or any request field. A hold whose plan or contract cannot be resolved fails closed.
+        const plan = await tx.ratePlan.findFirst({ where: { id: hold.ratePlanId, tenantId: command.tenantId }, select: { contract: { select: { tenantId: true, supplierId: true } } } })
+        if (!plan || plan.contract.tenantId !== command.tenantId || !plan.contract.supplierId) throw new ForbiddenException('Inventory hold is unavailable')
+        const supplierId = plan.contract.supplierId
+
         // The Admin booking module's promoted columns and child rows (ADR 0039): written in this same transaction from the same command,
         // so the list never has to guess from the JSON snapshot. The agency is the booking user's agency membership, or null (Unassigned).
         const member = await tx.agencyMember.findUnique({ where: { tenantId_userId: { tenantId: command.tenantId, userId: command.userId } }, select: { agencyId: true } })
@@ -106,6 +112,7 @@ export class BookingPersistenceService {
             tenantId: command.tenantId,
             reference: bookingReference(command),
             supplier: 'PENDING_SUPPLIER',
+            supplierId,
             hotelId: command.canonicalHotelId,
             status: 'PENDING_SUPPLIER',
             currency: command.currency,

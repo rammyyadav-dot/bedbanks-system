@@ -4,6 +4,7 @@ import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { AgentAuditService } from './audit.service'
 import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
@@ -64,7 +65,7 @@ export class BookingCancellationService {
         for (const night of nights) await moveNight(tx, tenantId, night, 'cancel')
         await tx.inventoryHold.update({ where: { id: holdId }, data: { status: 'RELEASED', releasedAt: new Date() } })
         if (refund > 0n) {
-          await tx.ledgerEntry.create({ data: { tenantId, walletId: debit.walletId, type: 'REFUND', amountMinor: refund, currency: booking.currency, reference: `booking:${bookingId}`, idempotencyKey: `booking:${bookingId}:cancel-refund` } })
+          await appendLedgerEntry(tx, { tenantId, walletId: debit.walletId, type: 'REFUND', amountMinor: refund, currency: booking.currency, reference: `booking:${bookingId}`, idempotencyKey: `booking:${bookingId}:cancel-refund` })
         }
         const cancellation = await tx.cancellation.create({ data: { bookingId, reason: command.reason?.slice(0, 500) ?? null, refundMinor: refund } })
         // Through the one writer of Booking.status (ADR 0039): start, then complete, as two recorded moves in the same transaction.

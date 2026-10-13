@@ -38,6 +38,7 @@ const STATUS_CODE_MAP: Record<number, string> = {
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
   [HttpStatus.CONFLICT]: 'CONFLICT',
   [HttpStatus.UNPROCESSABLE_ENTITY]: 'UNPROCESSABLE_ENTITY',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
   [HttpStatus.SERVICE_UNAVAILABLE]: 'SERVICE_UNAVAILABLE',
   [HttpStatus.INTERNAL_SERVER_ERROR]: 'INTERNAL_SERVER_ERROR',
 };
@@ -48,6 +49,11 @@ function explicitCode(body: unknown): string | undefined {
   if (typeof body !== 'object' || body === null || !('code' in body)) return undefined;
   const code = (body as { code: unknown }).code;
   return typeof code === 'string' && EXPLICIT_CODE.test(code) ? code : undefined;
+}
+
+/** Constructor names are developer-chosen identifiers; anything else is reported as a generic name. */
+function safeErrorName(name: string): string {
+  return /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name) ? name : 'Error';
 }
 
 /**
@@ -75,10 +81,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // Infrastructure configuration, not a caller decision: structured diagnostic without SQL, table names or values.
       this.logger.error(JSON.stringify({ event: 'database_role_not_permitted', dbCode: databaseErrorCode(exception), method: request.method, path: request.path, requestId: request.requestId ?? 'unknown' }));
     } else if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(
-        `${request.method} ${request.url} -> ${status}`,
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      // Path without query string; error name only. Messages and stacks can carry tokens, PII or supplier payloads.
+      this.logger.error(JSON.stringify({
+        event: 'server_error',
+        method: request.method,
+        path: request.path,
+        status,
+        errorName: exception instanceof Error ? safeErrorName(exception.name) : 'NonError',
+        requestId: request.requestId ?? 'unknown',
+      }));
     }
 
     const errorResponse: ApiErrorResponse = {

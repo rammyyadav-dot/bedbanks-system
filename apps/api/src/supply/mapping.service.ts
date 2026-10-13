@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, MappingStatus } from '@prisma/client'
+import { MAPPING_DUPLICATE_CONFLICT_CODE } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { possibleDuplicatesFor } from '../hotel-setup/hotel-duplicate-lookup'
 
 type Input = Record<string, unknown>
 type MappingKind = 'hotel' | 'room'
@@ -168,8 +170,10 @@ export class MappingService {
       return { id: roomMappingId, value, payload: { supplierId: parent.supplierId, supplierHotelId: parent.supplierHotelId, supplierRoomId: prior.supplierRoomId, hotelId: parent.hotelId, roomTypeId: prior.roomTypeId, previousStatus: prior.status, newStatus: value.status, confidence: value.confidence } }
     })
   }
-  async decide(tenantId: string, userId: string, kind: MappingKind, mappingId: string, decision: 'approve' | 'reject' | 'reopen', requestId?: string, parentId?: string, reasonRaw?: unknown) {
+  async decide(tenantId: string, userId: string, kind: MappingKind, mappingId: string, decision: 'approve' | 'reject' | 'reopen', requestId?: string, parentId?: string, reasonRaw?: unknown, acknowledgeRaw?: unknown) {
     const reason = reasonOf(reasonRaw)
+    if (acknowledgeRaw !== undefined && (!Array.isArray(acknowledgeRaw) || acknowledgeRaw.length > 20 || acknowledgeRaw.some((v) => typeof v !== 'string' || !v.trim()))) throw new BadRequestException('acknowledgeDuplicateHotelIds must be a list of at most 20 hotel ids')
+    const acknowledged = new Set<string>((acknowledgeRaw as string[] | undefined) ?? [])
     return this.write(tenantId, userId, requestId, decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'reopened', kind, async tx => {
       // Serialize parent decisions with room approvals. A room cannot become
       // MAPPED while its Hotel mapping is concurrently reopened or rejected.
@@ -186,6 +190,24 @@ export class MappingService {
         const approvedRooms = await tx.supplierRoomMapping.count({ where: { supplierHotelMappingId: mappingId, status: 'MAPPED' } })
         if (approvedRooms) throw new BadRequestException('Reopen approved room mappings first')
       }
+      // A supplier already MAPPED to a likely duplicate of this canonical hotel would sell the same inventory under two identities (ADR 0059).
+      let acknowledgedDuplicates: string[] = []
+      if (kind === 'hotel' && decision === 'approve') {
+        const hotel = await tx.hotel.findFirstOrThrow({ where: { id: prior.hotelId, tenantId } })
+        const [profile, identifiers] = await Promise.all([tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId }, select: { postalCode: true } }), tx.hotelExternalIdentifier.findMany({ where: { hotelId: hotel.id, tenantId }, select: { scheme: true, value: true } })])
+        const duplicates = await possibleDuplicatesFor(tx, tenantId, hotel, profile?.postalCode ?? null, identifiers)
+        const conflicts = duplicates.length ? await tx.supplierHotelMapping.findMany({ where: { tenantId, supplierId: (prior as { supplierId: string }).supplierId, status: 'MAPPED', hotelId: { in: duplicates.map((d) => d.hotelId) } }, select: { hotelId: true, supplierHotelId: true } }) : []
+        if (conflicts.length) {
+          const missing = conflicts.filter((c) => !acknowledged.has(c.hotelId))
+          if (missing.length || !reason) {
+            throw new ConflictException({
+              code: MAPPING_DUPLICATE_CONFLICT_CODE, message: 'This supplier is already mapped to a likely duplicate of this hotel. Resolve the duplicate, or acknowledge each listed hotel with a reason.',
+              details: conflicts.map((c) => { const d = duplicates.find((x) => x.hotelId === c.hotelId)!; return { hotelId: c.hotelId, name: d.name, city: d.city, supplierHotelId: c.supplierHotelId, basis: d.basis } }),
+            })
+          }
+          acknowledgedDuplicates = conflicts.map((c) => c.hotelId).sort()
+        }
+      }
       const status: MappingStatus = decision === 'approve' ? 'MAPPED' : decision === 'reject' ? 'REJECTED' : 'PENDING'
       const changed = kind === 'hotel'
         ? await tx.supplierHotelMapping.updateMany({ where: { id: mappingId, tenantId, status: prior.status }, data: { status } })
@@ -197,7 +219,7 @@ export class MappingService {
       return { id: mappingId, value, payload: { supplierId: kind === 'hotel' ? (prior as { supplierId: string }).supplierId : parent!.supplierId,
         hotelId: prior.hotelId, supplierHotelId: kind === 'hotel' ? (prior as { supplierHotelId: string }).supplierHotelId : parent!.supplierHotelId,
         ...(kind === 'room' ? { supplierRoomId: (prior as { supplierRoomId: string }).supplierRoomId, roomTypeId: (prior as { roomTypeId: string }).roomTypeId } : {}),
-        previousStatus: prior.status, newStatus: status, confidence: prior.confidence, ...(reason ? { reason } : {}) } }
+        previousStatus: prior.status, newStatus: status, confidence: prior.confidence, ...(reason ? { reason } : {}), ...(acknowledgedDuplicates.length ? { acknowledgedDuplicateHotelIds: acknowledgedDuplicates } : {}) } }
     })
   }
 }

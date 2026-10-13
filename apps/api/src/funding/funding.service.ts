@@ -6,6 +6,7 @@ import {
   type AgentFundingReceiptView, type AgentFundingView, type FundingChannel, type FundingDeclareRequest, type FundingReceiptView, type Paged,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { appendLedgerEntry } from '../ledger/ledger-core'
 import { AgentAuditService } from '../agent/audit.service'
 import { enumParam, idParam, pageParams, paged } from '../admin-operations/query-params'
 import { duties, validateDeclaration, type Refusal, type ValidDeclaration } from './funding-policy'
@@ -233,9 +234,9 @@ export class FundingService {
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agency-account:${r.agencyId}:${r.currency}`}, 0))`)
       const account = await tx.wallet.findFirst({ where: { tenantId, agencyId: r.agencyId, currency: r.currency } })
         ?? await tx.wallet.create({ data: { tenantId, agencyId: r.agencyId, currency: r.currency } })
-      const entry = await tx.ledgerEntry.create({ data: {
+      const entry = await appendLedgerEntry(tx, {
         tenantId, walletId: account.id, type: 'CREDIT', amountMinor: r.amountMinor, currency: r.currency, idempotencyKey: ledgerKey(r.id), reference: ledgerKey(r.id),
-      } })
+      })
       return tx.fundingReceipt.update({ where: { id: r.id }, data: { status: 'POSTED', postedById: me, postedAt: new Date(), walletId: account.id, ledgerEntryId: entry.id }, include: { agency: AGENCY } })
     })
   }

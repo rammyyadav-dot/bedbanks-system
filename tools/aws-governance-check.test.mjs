@@ -10,6 +10,8 @@ const mutate = (edits) => {
   cpSync('infra/aws/terraform', join(dir, 'infra/aws/terraform'), { recursive: true, filter: (s) => !s.includes('.terraform') })
   cpSync('.github/workflows', join(dir, '.github/workflows'), { recursive: true })
   cpSync('docs/adr', join(dir, 'docs/adr'), { recursive: true })
+  mkdirSync(join(dir, 'infra/aws'), { recursive: true })
+  cpSync('infra/aws/plan-staging.sh', join(dir, 'infra/aws/plan-staging.sh'))
   cpSync('Dockerfile.web', join(dir, 'Dockerfile.web'))
   cpSync('docs/aws-checkov-exception-register.md', join(dir, 'docs/aws-checkov-exception-register.md'))
   for (const app of ['agent', 'admin', 'supplier']) {
@@ -75,3 +77,4 @@ test('WP3: portal proxy stops using the resolver', () => match([['apps/supplier/
 test('WP3: checkov skip without a reason', () => match([[`${T}/.checkov.yaml`, '  - CKV2_AWS_19   # the EIPs are attached to NAT gateways', '  - CKV2_AWS_19']], /has no reason/))
 test('WP3: checkov skip missing from the register', () => match([[`${T}/.checkov.yaml`, '  - CKV2_AWS_19   # the EIPs are attached to NAT gateways', '  - CKV2_AWS_19   # the EIPs are attached to NAT gateways\n  - CKV_AWS_999   # a brand new unregistered exception with a reason']], /CKV_AWS_999 is not in/))
 test('WP3: state backend without encryption', () => match([[`${T}/versions.tf`, 'encrypt = true', 'encrypt = false']], /encrypt = true/))
+test('WP3: an operator script that applies', () => match([['infra/aws/plan-staging.sh', 'tf test', 'tf test\ntf apply -auto-approve']], /operator script runs terraform apply/))

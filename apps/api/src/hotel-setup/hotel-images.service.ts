@@ -133,6 +133,9 @@ export class HotelImagesService {
       await this.lock(tx, hotelId)
       const current = await tx.hotelImage.findFirst({ where: { id: imageId, hotelId, tenantId }, select: { id: true, isPrimary: true } })
       if (!current) throw new NotFoundException('Image not found')
+      // A published hotel must keep a primary image (ADR 0058), the same rule as every other publication requirement.
+      const [status, remaining] = await Promise.all([tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { contentStatus: true } }), tx.hotelImage.count({ where: { hotelId, tenantId, NOT: { id: imageId } } })])
+      if (status?.contentStatus === 'COMPLETE' && remaining === 0) throw new ConflictException({ message: 'A published hotel must keep at least one image. Add another image first, or change the hotel status.', code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST' })
       await tx.hotelImage.delete({ where: { id: imageId } })
       let promoted: string | null = null
       if (current.isPrimary) {

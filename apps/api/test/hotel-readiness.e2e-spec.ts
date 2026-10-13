@@ -41,6 +41,8 @@ describe('hotel readiness (PostgreSQL, HTTP, runtime role, two tenants)', () => 
       const admin = userIds[0]
       await owner.hotelProfile.create({ data: { tenantId, hotelId: h.id, shortDescription: 'A hotel', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'res@example.test' } }, starVerifiedAt: new Date(), starVerifiedById: admin, updatedById: admin } as never })
     }
+    // A primary image is a publication requirement (ADR 0058); a fixture row is enough because the requirement is presence, not bytes.
+    if (o.profile !== false) await owner.hotelImage.create({ data: { tenantId, hotelId: h.id, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString('hex'), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: userIds[0] } })
     const m = await owner.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId: h.id, supplierHotelId: `${suffix}-${key}`, status: (o.mapping ?? 'MAPPED') as never } })
     await owner.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: m.id, hotelId: h.id, supplierRoomId: `${suffix}-${key}-r`, roomTypeId: room.id, status: 'MAPPED' } })
     const c = await owner.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: m.id, code: `${suffix}-${key}`, status: 'ACTIVE', validFrom: new Date(Date.now() - 400 * 86_400_000), validTo: new Date(Date.now() + 4000 * 86_400_000), settlementCurrency: 'AED', ...(o.salesMarkets ? { salesMarkets: o.salesMarkets as never } : {}), ...(o.nationalities ? { nationalities: o.nationalities as never } : {}) } })

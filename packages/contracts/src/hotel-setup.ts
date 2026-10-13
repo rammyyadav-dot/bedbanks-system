@@ -1,3 +1,5 @@
+import type { HotelContentQuality, HotelDuplicateCandidate } from './hotel-quality'
+
 /**
  * Hotel Setup contracts (ADR 0021): descriptive and operational hotel content, kept apart from commercial readiness.
  *
@@ -28,7 +30,7 @@ export const EXTERNAL_IDENTIFIER_SCHEME_PATTERN = /^[A-Z][A-Z0-9_]{1,31}$/;
 export const KNOWN_EXTERNAL_SCHEMES = ['GIATA'] as const;
 export interface HotelExternalIdentifierView { scheme: string; value: string; createdAt: string }
 
-export type HotelSetupSection = 'identity' | 'location' | 'classification' | 'content' | 'operations' | 'contacts' | 'governance' | 'rooms';
+export type HotelSetupSection = 'identity' | 'location' | 'classification' | 'content' | 'operations' | 'contacts' | 'governance' | 'rooms' | 'images';
 
 /** Fields required to publish a hotel to Agents. A profile may be saved without them. */
 export const HOTEL_PUBLICATION_REQUIREMENTS = [
@@ -44,6 +46,7 @@ export const HOTEL_PUBLICATION_REQUIREMENTS = [
   { key: 'CHECK_IN_OUT', label: 'Check-in and check-out times', section: 'operations' },
   { key: 'RESERVATIONS_CONTACT', label: 'Reservations contact (name and email or phone)', section: 'contacts' },
   { key: 'ACTIVE_ROOM', label: 'At least one active canonical room', section: 'rooms' },
+  { key: 'PRIMARY_IMAGE', label: 'Primary image with alt text', section: 'images' },
 ] as const satisfies ReadonlyArray<{ key: string; label: string; section: HotelSetupSection }>;
 export type HotelPublicationRequirementKey = (typeof HOTEL_PUBLICATION_REQUIREMENTS)[number]['key'];
 
@@ -67,6 +70,10 @@ export interface HotelSetupView {
   governance: { status: HotelProfileStatus; sourceSystem: string | null; ownerUserId: string | null; /** Resolved for display; null when unset or the user is no longer a tenant member. */ owner: HotelOwnerCandidate | null; approvedById: string | null; approvedAt: string | null; updatedById: string | null; updatedAt: string }
   rooms: { active: number; total: number }
   completeness: HotelCompleteness
+  /** Advisory content grade (ADR 0057). Never gates publication. */
+  quality: HotelContentQuality
+  /** Possible duplicates inside this tenant (ADR 0057). A hint for a human; empty when none or when the check was not possible. */
+  possibleDuplicates: HotelDuplicateCandidate[]
   /** The open (pending or approved) publication request, if any. Present on the detail read only. */
   publication?: HotelPublicationApproval | null
 }

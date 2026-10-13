@@ -10,6 +10,7 @@ import {
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Completeness } from '../Completeness'
+import { ContentQuality } from '../ContentQuality'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
 import { approveHotelPublication, cancelHotelPublication, changeHotelStatus, executeHotelPublication, getHotelSetup, getOwnerCandidates, rejectHotelPublication, requestHotelPublication, saveHotelSetup } from '@/lib/data/hotel-setup'
 import { useCan } from '@/lib/auth/capabilities'
@@ -167,6 +168,7 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="workspace-panel" style={{ padding: 18 }}><Completeness completeness={setup.completeness} hotelId={hotelId} /></div>
+      <div className="workspace-panel" style={{ padding: 18 }}><ContentQuality quality={setup.quality} duplicates={setup.possibleDuplicates} hotelId={hotelId} /></div>
       <form aria-label="Hotel setup" onSubmit={(e) => { e.preventDefault(); void save() }} style={{ display: 'grid', gap: 16 }} data-testid="setup-form">
         {section('Identity', <>
           {input('name', 'Hotel name', { maxLength: 160, required: true })}

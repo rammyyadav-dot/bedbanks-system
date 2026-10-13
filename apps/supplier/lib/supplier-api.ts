@@ -2,7 +2,7 @@ import 'server-only'
 
 import { cache } from 'react'
 import { cookies } from 'next/headers'
-import { routes } from '@bedbanks/contracts'
+import { routes, type ExtranetBookingDetail, type ExtranetBookingList, type ExtranetBookingQuery, type ExtranetContractList, type ExtranetContractSummary } from '@bedbanks/contracts'
 import { apiInternalUrl, SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE, supplierOrigin } from './server-env'
 
 export class SupplierApiError extends Error {
@@ -204,6 +204,52 @@ export async function listRooms(hotelId: string): Promise<{ hotelId: string; hot
       }]
     }),
   }
+}
+
+export async function listContracts(): Promise<ExtranetContractSummary[]> {
+  const data = await authorizedRequest(routes.supplier.contracts)
+  if (!isRecord(data) || !Array.isArray(data.contracts)) throw new SupplierApiError(502)
+  return (data as unknown as ExtranetContractList).contracts
+}
+
+const BOOKING_NET_STATUSES = new Set(['RECORDED', 'PARTIAL', 'NOT_RECORDED', 'MISMATCH'])
+const nullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
+
+/** Fails closed (502) on a shape the portal does not recognise; never fills a gap with a default or a zero. */
+function booking(value: unknown): ExtranetBookingDetail {
+  if (!isRecord(value)) throw new SupplierApiError(502)
+  const { id, reference, status, hotelId, currency, netStatus, createdAt } = value
+  if (typeof id !== 'string' || typeof reference !== 'string' || typeof status !== 'string' || typeof hotelId !== 'string' || typeof currency !== 'string' || typeof createdAt !== 'string') throw new SupplierApiError(502)
+  if (typeof netStatus !== 'string' || !BOOKING_NET_STATUSES.has(netStatus)) throw new SupplierApiError(502)
+  if (!nullableString(value.netMinor) || !nullableString(value.hotelName) || !nullableString(value.checkIn) || !nullableString(value.checkOut) || !nullableString(value.leadGuestName) || !nullableString(value.supplierRef)) throw new SupplierApiError(502)
+  const rooms = Array.isArray(value.rooms) ? value.rooms : []
+  return {
+    id, reference, status: status as ExtranetBookingDetail['status'], hotelId, hotelName: value.hotelName, checkIn: value.checkIn, checkOut: value.checkOut,
+    nights: typeof value.nights === 'number' ? value.nights : null, leadGuestName: value.leadGuestName, currency, netMinor: value.netMinor,
+    netStatus: netStatus as ExtranetBookingDetail['netStatus'], supplierRef: value.supplierRef, createdAt,
+    hotelConfirmationNo: typeof value.hotelConfirmationNo === 'string' ? value.hotelConfirmationNo : null,
+    rooms: rooms.flatMap((room) => {
+      if (!isRecord(room) || typeof room.position !== 'number' || !nullableString(room.netMinor)) return []
+      return [{
+        position: room.position, roomName: typeof room.roomName === 'string' ? room.roomName : null, boardCode: typeof room.boardCode === 'string' ? room.boardCode : null,
+        quantity: typeof room.quantity === 'number' ? room.quantity : 1, adults: typeof room.adults === 'number' ? room.adults : 0, children: typeof room.children === 'number' ? room.children : 0,
+        netMinor: room.netMinor,
+      }]
+    }),
+  }
+}
+
+export async function listBookings(query: ExtranetBookingQuery = {}): Promise<ExtranetBookingList> {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== '') params.set(key, String(value))
+  const suffix = params.size > 0 ? `?${params.toString()}` : ''
+  const data = await authorizedRequest(`${routes.supplier.bookings}${suffix}`)
+  if (!isRecord(data) || !Array.isArray(data.bookings) || !nullableString(data.nextCursor)) throw new SupplierApiError(502)
+  return { bookings: data.bookings.map((item) => { const { rooms: _rooms, hotelConfirmationNo: _hcn, ...summary } = booking(item); return summary }), nextCursor: data.nextCursor }
+}
+
+export async function getBooking(bookingId: string): Promise<ExtranetBookingDetail> {
+  return booking(await authorizedRequest(routes.supplier.booking.replace(':bookingId', encodeURIComponent(bookingId))))
 }
 
 export async function saveRoomDraft(hotelId: string, roomId: string, supplierNotes: string, requestId: string): Promise<void> {

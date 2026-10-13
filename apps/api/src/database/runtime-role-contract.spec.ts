@@ -62,13 +62,21 @@ describe('API runtime role contract (the single definition)', () => {
       const writes = byTable.get(table)!.writes
       expect({ table, delete: writes.some((w) => w.op === 'DELETE'), tableLevelUpdate: writes.some((w) => w.op === 'UPDATE' && !w.columns) }).toEqual({ table, delete: false, tableLevelUpdate: false })
     }
-    for (const table of ['Wallet', 'LedgerEntry', 'Booking', 'BookingDocument', 'SupplierMutation', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
+    for (const table of ['Wallet', 'LedgerEntry', 'BookingDocument', 'SupplierMutation', 'ConnectorCredentialReference']) expect(byTable.has(table)).toBe(false)
     // The hold tables are readable only through named columns (no guest, contact, financial or raw payload column) and are never written by the API role.
     for (const table of ['InventoryHold', 'InventoryHoldNight']) {
       const g = byTable.get(table)!
       expect({ table, writes: g.writes.length, tableLevelRead: g.readColumns === undefined, columns: (g.readColumns ?? []).length > 0 }).toEqual({ table, writes: 0, tableLevelRead: false, columns: true })
       expect(g.readColumns).not.toEqual(expect.arrayContaining(['sell_amount_minor']))
     }
+    // The booking tables are readable ONLY through named columns for the supplier extranet (ADR 0061 Amendment 1): never written, and no money-sensitive or personal column beyond the lead name.
+    const FORBIDDEN_BOOKING_COLUMNS = ['total_minor', 'sell_minor', 'markup_minor', 'fx_rate', 'search_snapshot', 'agency_id', 'agent_user_id', 'agent_ref', 'channel', 'payment_mode', 'payment_status', 'supplier', 'idempotency_key', 'rate_key', 'child_ages', 'cancellation_policy', 'assigned_to_id']
+    for (const table of ['Booking', 'BookingRoom', 'BookingGuest']) {
+      const g = byTable.get(table)!
+      expect({ table, writes: g.writes.length, tableLevelRead: g.read, columns: (g.readColumns ?? []).length > 0 }).toEqual({ table, writes: 0, tableLevelRead: false, columns: true })
+      expect({ table, forbidden: (g.readColumns ?? []).filter((c) => FORBIDDEN_BOOKING_COLUMNS.includes(c)) }).toEqual({ table, forbidden: [] })
+    }
+    expect(byTable.get('BookingGuest')!.readColumns).toEqual(['id', 'tenant_id', 'booking_id', 'first_name', 'last_name', 'is_lead'])
     // InventoryPoolDay: one capacity-only column UPDATE; sold, held, tenant, pool and date are never writable; no INSERT or DELETE.
     const poolDay = byTable.get('InventoryPoolDay')!
     expect(poolDay.writes.map((w) => w.op)).toEqual(['UPDATE'])

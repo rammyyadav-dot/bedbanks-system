@@ -689,13 +689,13 @@ export class OperationsHotelsService {
   private async readCompleteness(tx: Prisma.TransactionClient, tenantId: string, hotel: HotelRecord): Promise<HotelCompleteness | null> {
     await tx.$executeRawUnsafe('SAVEPOINT readiness_profile_read')
     try {
-      const [profile, activeRooms] = await Promise.all([tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId } }), tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } })])
+      const [profile, activeRooms, primaryImages] = await Promise.all([tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId } }), tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } }), tx.hotelImage.count({ where: { hotelId: hotel.id, tenantId, isPrimary: true } })])
       await tx.$executeRawUnsafe('RELEASE SAVEPOINT readiness_profile_read')
       const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).replace(/\.?0+$/, '') || '0')
       return assessCompleteness({
         name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
         starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
-        contacts: (profile?.contacts && typeof profile.contacts === 'object' && !Array.isArray(profile.contacts) ? profile.contacts : {}) as HotelContacts, activeRooms,
+        contacts: (profile?.contacts && typeof profile.contacts === 'object' && !Array.isArray(profile.contacts) ? profile.contacts : {}) as HotelContacts, activeRooms, hasPrimaryImage: primaryImages > 0,
       })
     } catch (error) {
       if (!isBookingReadDenied(error)) throw error

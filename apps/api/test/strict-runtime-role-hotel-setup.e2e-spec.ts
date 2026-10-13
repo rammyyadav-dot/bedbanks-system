@@ -54,11 +54,14 @@ describe('hotel setup on the strict runtime role: negative authorization, tenant
   })
   const FULL = { address: '1 Palm Road', latitude: '25.1234', longitude: '55.1234', starRating: 4, starVerified: true, starSource: 'Tourism authority register', shortDescription: 'A quiet hotel on the Palm.', checkInTime: '14:00', checkOutTime: '12:00', contacts: { reservations: { name: 'Front desk', email: 'private-res@hotel.test' } } }
   /** A hotel created through the API on the strict role that meets every publication requirement. */
-  async function publishableHotel(label: string, who = 'maker'): Promise<string> {
+  async function publishableHotel(label: string, who = 'maker', withImage = true): Promise<string> {
     const id = (await call('post', '/supply/hotels', who, { name: `${suffix} ${label}`, propertyType: 'HOTEL', address: null, city: 'Dubai', countryCode: 'AE', timeZone: 'Asia/Dubai', contentStatus: 'DRAFT', externalRef: null }).expect(201)).body.data.id as string
     const token = async () => (await call('get', `/admin/hotels/${id}/setup`, who).expect(200)).body.data.concurrencyToken
     await call('patch', `/admin/hotels/${id}/setup`, who, { idempotencyKey: key(), expectedToken: await token(), ...FULL }).expect(200)
     await call('post', `/admin/hotels/${id}/rooms`, who, { idempotencyKey: key(), name: 'Room', code: `R${++seq}`, maxAdults: 2, maxChildren: 0, maxOccupancy: 2 }).expect(201)
+    // A primary image is a publication requirement (ADR 0058). A fixture row through the owner connection: the requirement is presence, not bytes.
+    const { tenantId } = await owner.hotel.findUniqueOrThrow({ where: { id }, select: { tenantId: true } })
+    if (withImage) await owner.hotelImage.create({ data: { tenantId, hotelId: id, contentType: 'image/png', bytes: 4, width: 800, height: 600, sha256: randomBytes(32).toString('hex'), altText: 'Lobby', isPrimary: true, data: Buffer.from('fake'), uploadedById: ids[who] } })
     return id
   }
 
@@ -294,7 +297,7 @@ describe('hotel setup on the strict runtime role: negative authorization, tenant
   })
 
   it('HN-08 the whole journey for an image: upload on the strict role, an unauthorized user cannot, and the other tenant cannot see it', async () => {
-    const id = await publishableHotel('img')
+    const id = await publishableHotel('img', 'maker', false)
     await call('post', `/admin/hotels/${id}/images?altText=Lobby`, 'maker').set('Content-Type', 'image/png').send(png()).expect(201)
     expect((await call('post', `/admin/hotels/${id}/images?altText=Lobby`, 'reader').set('Content-Type', 'image/png').send(png())).status).toBe(403)
     expect((await call('post', `/admin/hotels/${id}/images?altText=Lobby`, 'badmin').set('Content-Type', 'image/png').send(png())).status).toBe(404)

@@ -23,7 +23,10 @@ describe('api runtime role grants', () => {
     expect(sql).toContain('GRANT SELECT, INSERT ON "AuditEvent"')
     expect(sql).not.toContain('Wallet')
     expect(sql).not.toContain('LedgerEntry')
-    expect(sql).not.toContain('Booking')
+    // ADR 0061 Amendment 1: the booking tables are readable by named columns only (supplier extranet) and never written; BookingEvent, BookingDocument etc. stay ungranted.
+    expect(sql).not.toMatch(/GRANT [^(]*ON "Booking(Room|Guest)?" TO/)
+    expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE)[A-Z, ]*(\([^)]*\))? ON "Booking(Room|Guest)?"/)
+    expect(sql).not.toMatch(/"Booking(Event|Document|Finance|Supplier|Ops|Saved|Bulk)[A-Za-z]*"/)
     expect(sql).not.toContain('ConnectorCredentialReference')
     expect(sql).not.toContain('BYPASSRLS')
     expect(sql).not.toMatch(/GRANT UPDATE ON "Hotel"/)

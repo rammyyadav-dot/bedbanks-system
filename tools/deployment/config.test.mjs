@@ -30,3 +30,15 @@ test('portals resolve the API origin per request: no build-time rewrites, and ea
     assert.doesNotMatch(proxy, /process\.env\.NEXT_PUBLIC/, `${app}: proxy.ts must not read build-time public variables`)
   }
 })
+
+test('Vercel builds only main: every portal skips preview builds for other branches (ignoreCommand exit 0 = skip, exit 1 = build)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { spawnSync } = await import('node:child_process')
+  for (const app of ['agent', 'admin', 'supplier', 'website']) {
+    const cfg = JSON.parse(readFileSync(new URL(`../../apps/${app}/vercel.json`, import.meta.url), 'utf8'))
+    assert.ok(cfg.ignoreCommand, `${app}: ignoreCommand missing`)
+    const exit = (ref) => spawnSync('sh', ['-c', cfg.ignoreCommand], { env: { PATH: process.env.PATH, ...(ref === undefined ? {} : { VERCEL_GIT_COMMIT_REF: ref }) } }).status
+    assert.equal(exit('main'), 1, `${app}: main must build (the production fallback)`)
+    for (const ref of ['infra/aws-wp3-staging-hardening', 'claude/x', 'feature/main', 'main2', 'Main', '']) assert.equal(exit(ref), 0, `${app}: branch "${ref}" must be skipped`)
+  }
+})

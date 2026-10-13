@@ -2,6 +2,8 @@
 
 import { useRef, useState } from 'react'
 import type { AuditEventView, HotelMappingRow, HotelMappingsView, MappingState, Paged, RoomMappingRow } from '@bedbanks/contracts'
+import { MAPPING_DUPLICATE_CONFLICT_CODE } from '@bedbanks/contracts'
+import { ApiResponseError } from '@/lib/api/errors'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { when } from '@/components/ops/ops-ui'
@@ -10,7 +12,7 @@ import { apiErrorParts } from '@/lib/hotel-setup-ui'
 import { getHotelAudit, getHotelMappings } from '@/lib/data/hotel-commercial'
 import { getSuppliers } from '@/lib/data'
 import { createSupplierHotelMapping, createSupplierRoomMapping, decideSupplierHotelMapping, decideSupplierRoomMapping, type MappingDecision } from '@/lib/data/hotel-mappings'
-import { mappingTone } from '@/lib/hotel-ui'
+import { hotelHref, mappingTone } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
@@ -83,7 +85,18 @@ function Decision({ row, noun, busy, onDecide }: { row: { status: string }; noun
   )
 }
 
+interface DuplicateConflict { hotelId: string; name: string; city: string; supplierHotelId: string; basis: string[] }
+const BASIS_TEXT: Record<string, string> = { SAME_EXTERNAL_ID: 'shares an external identifier', NEAR_LOCATION_SIMILAR_NAME: 'similar name within 150 m', SAME_POSTAL_SIMILAR_NAME: 'similar name, same postal code' }
+const asConflicts = (items: unknown[]): DuplicateConflict[] => items.filter((i): i is DuplicateConflict => typeof i === 'object' && i !== null && typeof (i as DuplicateConflict).hotelId === 'string' && typeof (i as DuplicateConflict).name === 'string').map((i) => ({ ...i, basis: Array.isArray(i.basis) ? i.basis : [] }))
+
 function HotelMappings({ hotelId, data, canManage, busy, act }: { hotelId: string; data: HotelMappingsView; canManage: boolean; busy: boolean; act: Act }) {
+  // ADR 0059: the API refuses to verify a mapping when this supplier is already verified against a likely duplicate hotel.
+  const [dup, setDup] = useState<{ mappingId: string; reason: string; conflicts: DuplicateConflict[] } | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const approve = (mappingId: string, reason: string) => act(async () => {
+    try { const result = await decideSupplierHotelMapping(mappingId, 'approve', reason); setDup(null); return result }
+    catch (e) { if (e instanceof ApiResponseError && e.code === MAPPING_DUPLICATE_CONFLICT_CODE) { setDup({ mappingId, reason, conflicts: asConflicts(e.structuredDetails) }); setConfirmed(false) } throw e }
+  }, 'Hotel mapping verified.')
   return (
     <section className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10 }} aria-label="Supplier hotel mappings" data-testid="hotel-mappings">
       <h2 style={{ fontSize: 14, margin: 0 }}>Supplier hotel mappings ({data.hotelMappings.length})</h2>
@@ -96,8 +109,20 @@ function HotelMappings({ hotelId, data, canManage, busy, act }: { hotelId: strin
               <td style={td}>{m.supplierName}</td><td style={td}><code>{m.supplierHotelId}</code></td>
               <td style={td}><Chip tone={mappingTone(m.status as MappingState)}>{LABEL[m.status] ?? m.status}</Chip></td>
               <td style={td}>{m.confidence ?? '—'}</td><td style={td}>{m.provenance ?? 'not recorded'}</td><td style={td}>{when(m.createdAt)}</td><td style={td}>{when(m.updatedAt)}</td>
-              {canManage && <td style={td}><Decision row={m} noun="hotel mapping" busy={busy} onDecide={(d, reason) => void act(() => decideSupplierHotelMapping(m.id, d, reason), `Hotel mapping ${d === 'approve' ? 'verified' : d === 'reject' ? 'rejected' : 'reopened'}.`)} /></td>}
+              {canManage && <td style={td}><Decision row={m} noun="hotel mapping" busy={busy} onDecide={(d, reason) => void (d === 'approve' ? approve(m.id, reason) : act(() => decideSupplierHotelMapping(m.id, d, reason), `Hotel mapping ${d === 'reject' ? 'rejected' : 'reopened'}.`))} /></td>}
             </tr>))}</tbody></table></ScrollRegion>
+      )}
+      {dup && (
+        <div role="alert" data-testid="mapping-duplicate-conflict" className="admin-error" style={{ padding: 12, display: 'grid', gap: 8 }}>
+          <strong>This supplier is already verified against a likely duplicate of this hotel.</strong>
+          <span style={note}>Verifying this mapping too would sell the supplier's inventory under two identities. Resolve the duplicate, or confirm these are different properties.</span>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>{dup.conflicts.map((c) => <li key={c.hotelId}><a href={hotelHref(c.hotelId, 'mappings')}>{c.name}</a>, {c.city}: supplier hotel id <code>{c.supplierHotelId}</code> ({c.basis.map((b) => BASIS_TEXT[b] ?? b).join('; ')})</li>)}</ul>
+          <label style={{ fontSize: 12, display: 'flex', gap: 6 }}><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} data-testid="mapping-duplicate-confirm" /> I checked: these are different properties. My reason is recorded in the audit trail.</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="button primary" disabled={busy || !confirmed || dup.conflicts.length === 0} data-testid="mapping-duplicate-approve" onClick={() => { const d = dup; void act(async () => { const result = await decideSupplierHotelMapping(d.mappingId, 'approve', d.reason, d.conflicts.map((c) => c.hotelId)); setDup(null); return result }, 'Hotel mapping verified with the duplicate acknowledged.') }}>Verify anyway</button>
+            <button type="button" className="admin-btn" onClick={() => setDup(null)}>Cancel</button>
+          </div>
+        </div>
       )}
       {canManage && <NewHotelMapping hotelId={hotelId} busy={busy} act={act} />}
     </section>
