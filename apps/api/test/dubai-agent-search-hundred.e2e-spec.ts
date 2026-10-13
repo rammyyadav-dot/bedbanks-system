@@ -501,7 +501,8 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     // The number of SQL statements must not depend on how many hotels are assessed (no per-hotel loop).
     expect(row('list: 100 hotels, 7 nights').statements).toBe(row('list: 25 hotels (page 1)').statements)
     expect(row('summary: 100 hotels, 7 nights').statements).toBeLessThanOrEqual(row('list: 100 hotels, 7 nights').statements + 2)
-    for (const r of runs) expect({ label: r.label, bounded: r.statements <= 25 }).toEqual({ label: r.label, bounded: true })
+    // Fixed ceiling, not a per-hotel allowance: 25 and 100 hotels run the same number of statements. It was 25 until the primary-image lookups (ADR 0027, ADR 0058) added one.
+    for (const r of runs) expect({ label: r.label, bounded: r.statements <= 28 }).toEqual({ label: r.label, bounded: true })
     // A loose ceiling only (a regression guard, not a benchmark); the measured values are recorded below.
     for (const r of runs) expect({ label: r.label, ok: r.ms < 15_000 }).toEqual({ label: r.label, ok: true })
     measured.adminPerf = Object.fromEntries(runs.flatMap((r) => [[`${r.label} ms`, r.ms], [`${r.label} statements`, r.statements]]))
