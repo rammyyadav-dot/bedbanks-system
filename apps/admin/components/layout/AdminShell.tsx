@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { RouteGuard } from './RouteGuard';
 import type { AuthenticatedUser } from '@/lib/api/auth-client';
 import { CapabilityProvider } from '@/lib/auth/capabilities';
 import { pickActiveTenantId, setActiveTenantId } from '@/lib/api/tenant-context';
@@ -32,7 +33,7 @@ export function AdminShell({ children, identity }: AdminShellProps) {
       )}
       <div className="enterprise-main">
         <Topbar identity={identity} onMenuClick={() => setMobileOpen(true)} />
-        <main>{children}</main>
+        <main><RouteGuard>{children}</RouteGuard></main>
       </div>
     </div>
     </CapabilityProvider>
