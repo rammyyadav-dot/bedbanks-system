@@ -1,7 +1,8 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
+import { databaseErrorCode } from '../database/db-errors';
 import type { AppConfig } from '../config/configuration';
 import { DUMMY_HASH, hashPassword, verifyPassword } from './utils/password';
 import { generateSessionToken, hashSessionToken, isSessionToken } from './utils/session-token';
@@ -21,6 +22,7 @@ function toSafeUser(user: UserRow): SafeUser {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly sessionTtlSeconds: number;
 
   constructor(
@@ -40,11 +42,24 @@ export class AuthService {
     return email.trim().toLowerCase();
   }
 
+  /**
+   * Authentication events are tenantless, so they are written in a transaction that sets the
+   * transaction-local `app.auth_audit` flag the narrow AuditEvent_auth_insert policy requires.
+   * A persistence failure never blocks authentication, but it is never silent: it is logged with
+   * the action and a database error code only (no payload, email or SQL).
+   */
   private async recordAudit(action: string, payload: Prisma.InputJsonObject, userId?: string) {
     if (!this.prisma.auditEvent) return
-    await this.prisma.auditEvent.create({
-      data: { actorType: userId ? 'USER' : 'SYSTEM', action, entityType: 'auth', entityId: userId ?? 'anonymous', payload, userId },
-    }).catch(() => undefined)
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.auth_audit', 'true', true)`
+        await tx.auditEvent.create({
+          data: { actorType: userId ? 'USER' : 'SYSTEM', action, entityType: 'auth', entityId: userId ?? 'anonymous', payload, userId },
+        })
+      })
+    } catch (error) {
+      this.logger.error(JSON.stringify({ event: 'auth_audit_persist_failed', action, dbCode: databaseErrorCode(error) }))
+    }
   }
 
   private async loadActiveMemberships(userId: string): Promise<MembershipSummary[]> {
