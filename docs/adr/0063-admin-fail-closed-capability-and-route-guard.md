@@ -18,8 +18,11 @@ The API remains the authorization boundary: every endpoint re-checks its permiss
 Gated controls and nav items are hidden until permissions load, and stay hidden if the capability call fails (the page shows a "could not be verified" message). Routes with no declared permission in the catalogue are not gated by the guard; their API calls enforce access.
 
 ## Verified
-Admin unit tests (110 pass), type-check, lint, production build. **Not run:** browser walkthrough and Postgres e2e suites (no database or browser session here).
+Admin unit tests (110 pass), Agent tests (107 pass), full `pnpm type-check`, lint, Admin production build. **Not run:** browser walkthrough and Postgres e2e suites (no database or browser session here).
+
+## Related fix
+`apps/agent` ran its tests with plain `node --test`, which cannot load `packages/money` since ADR 0062 added an extensionless `export * from './ledger'`. The Agent test script now uses `node --import tsx --test`, as the Admin app does (107 pass).
 
 ## Not done / next
-- A retry control on the "could not be verified" state.
-- Declare a permission for `/inventory` in the catalogue so the guard covers it.
+- Retry currently reloads the page; a lighter in-place refetch could replace it.
+- `/inventory` needs no entry: it only redirects to `/rates`, which is gated.
