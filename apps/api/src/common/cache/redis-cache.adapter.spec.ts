@@ -4,6 +4,7 @@ const redisUrl = process.env.REDIS_URL
 const describeRedis = redisUrl ? describe : describe.skip
 
 describeRedis('RedisCacheAdapter integration', () => {
+  afterAll(() => redis.close())
   const redis = new RedisCacheAdapter(redisUrl ?? 'redis://127.0.0.1:6379', 1_000)
   const key = (name: string) => `fbeds:test:redis-cache:${name}:${Date.now()}`
 
