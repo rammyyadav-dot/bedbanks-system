@@ -154,7 +154,7 @@ export const marketplaceHome = {
   supporting: 'Find available hotel rates, compare room and board options, and recheck the selected offer before proceeding.',
   resultsQuote: 'Search quotes — price and availability require recheck before proceeding.',
   destinationPlaceholder: 'City or destination',
-  searchCta: 'Search Hotels',
+  searchCta: 'Search',
   searchingCta: 'Searching…',
   retryCta: 'Retry Search',
   currencyLabel: 'Selling currency',

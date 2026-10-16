@@ -1,4 +1,4 @@
-import type { AgentFundingReceiptView, AgentFundingView, FundingDeclareRequest } from '@bedbanks/contracts'
+import { routes, type AgentFundingReceiptView, type AgentFundingView, type FundingDeclareRequest, type SmartSearchParseResponse } from '@bedbanks/contracts'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
 import { NON_EXPIRING_PATHS, announceSessionExpired } from './session-events.mjs'
@@ -81,4 +81,9 @@ export function getFundingReceipts(tenantId: string) {
 
 export function declareFundingReceipt(tenantId: string, body: FundingDeclareRequest) {
   return request<AgentFundingReceiptView>('/agent/funding/receipts', { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify(body) })
+}
+
+/** Smart Search (ADR 0065): the server reads search fields from pasted text. The text is not stored or logged. */
+export async function parseSmartSearch(text: string, tenantId: string): Promise<SmartSearchParseResponse> {
+  return request<SmartSearchParseResponse>(routes.agent.smartSearchParse, { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify({ text }) })
 }

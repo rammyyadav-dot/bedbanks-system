@@ -5,6 +5,7 @@ import { BrandLogo } from '@/components/brand-logo'
 import { useEffect, useRef, useState } from 'react'
 import { searchAttemptNotice } from '@/lib/search-notice'
 import { SearchView } from '@/components/search/agent-search-view'
+import { readClientMarkup, rememberClientMarkup } from '@/lib/client-markup'
 import { AgentSignOut } from './agent-auth-gate'
 import { AgentHome } from '@/components/home/agent-home'
 import { Bookings } from '@/components/booking/agent-bookings'
@@ -63,6 +64,10 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
   const [nationality, setNationality] = useState('IN')
   const [currency, setCurrency] = useState('AED')
   const [sort, setSort] = useState<SearchSort>('default')
+  // Display-only client markup (ADR 0065): basis points, remembered for this user and tenant in this browser session.
+  const [clientMarkupBp, setClientMarkupState] = useState(0)
+  useEffect(() => { setClientMarkupState(readClientMarkup(window.sessionStorage, identity.user.id, tenantId)) }, [identity.user.id, tenantId])
+  const setClientMarkupBp = (basisPoints: number) => { setClientMarkupState(basisPoints); rememberClientMarkup(window.sessionStorage, identity.user.id, tenantId, basisPoints) }
   const [starRatings, setStarRatings] = useState<number[]>([])
   const [refundableOnly, setRefundableOnly] = useState(false)
   const [minPrice, setMinPrice] = useState('')
@@ -376,6 +381,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     nationality, setNationality: changeNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
     minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
     boards: facets.boards, propertyTypeOptions: facets.propertyTypes, searching, searchFailed, tenantId,
+    clientMarkupBp, setClientMarkupBp,
   }
   const supplierNote = providerStatus === 'checking' ? 'Checking supplier access' : providerStatus === 'unavailable' ? 'Supplier access was not confirmed' : 'This status is not a live supplier probe'
 
@@ -400,7 +406,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     </header>
     <div className="portal-body"><main className="portal-main">
       {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={bookingEnabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onReplay={replaySearch} />}
-      {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}
+      {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} onApplyFilters={(filters) => beginSearch({ starRatings: filters.starRatings ?? [], refundableOnly: Boolean(filters.refundableOnly), boardBasisIds: filters.boardBasisIds ?? [], propertyTypes: filters.propertyTypes ?? [], minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor })} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} />}
       {view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
       {view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} tenantId={tenantId} overdue={finance?.overdue ? { state: finance.overdue.state, daysOverdue: finance.overdue.daysOverdue, unpaidLabel: formatMinorAmount(finance.overdue.unpaidMinor, finance.currency) } : null} />}
       {view === 'account' && <AgentAccount identity={identity} tenantId={tenantId} />}

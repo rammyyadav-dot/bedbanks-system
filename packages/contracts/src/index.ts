@@ -29,3 +29,4 @@ export * from './rate-plan-lifecycle';
 export * from './supplier-extranet';
 
 export * from './hotel-reports'
+export * from './agent-search';
