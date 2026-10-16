@@ -9,12 +9,8 @@ import { formatMarkupPercent, MAX_CLIENT_MARKUP_BP, parseMarkupPercent, stepMark
 import { guestMarketName } from '@/lib/guest-market'
 import { formatCompactStay } from '@/lib/format'
 
-/**
- * Client markup (ADR 0065): a percentage the agent adds for their own client, applied to prices on screen only.
- * The toggle reveals the field; the value is integer basis points.
- */
+/** Client markup (ADR 0065): a percentage the agent adds for their own client, applied to prices on screen only. Integer basis points. */
 export function MarkupControl({ basisPoints, onChange }: { basisPoints: number; onChange: (basisPoints: number) => void }) {
-  const [open, setOpen] = useState(basisPoints > 0)
   const [text, setText] = useState(basisPoints ? formatMarkupPercent(basisPoints) : '0')
   const [error, setError] = useState('')
   const id = useId()
@@ -26,25 +22,21 @@ export function MarkupControl({ basisPoints, onChange }: { basisPoints: number; 
     setError(''); onChange(parsed.basisPoints)
   }
   const step = (direction: 1 | -1) => { setError(''); onChange(stepMarkup(basisPoints, direction)) }
-  return <>
-    <button type="button" className={`sb-markup-toggle${basisPoints > 0 ? ' is-set' : ''}`} aria-pressed={open} aria-controls={`${id}-field`} aria-label={open ? 'Hide extra markup' : 'Set extra markup'} title="Extra markup for your client" onClick={() => setOpen((value) => !value)}>
-      <BadgePercent size={22} aria-hidden="true" />
-    </button>
-    {open && <div className="sb-markup" id={`${id}-field`}>
-      <label htmlFor={`${id}-input`}>Set extra markup (%)</label>
-      <div className="sb-markup-input">
-        <input id={`${id}-input`} inputMode="decimal" value={text} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} onChange={(event) => commit(event.target.value)} onKeyDown={(event) => {
-          if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); step(event.key === 'ArrowUp' ? 1 : -1) }
-        }} />
-        <span className="sb-markup-steps">
-          <button type="button" aria-label="Increase markup by 1%" disabled={basisPoints >= MAX_CLIENT_MARKUP_BP} onClick={() => step(1)}><ChevronUp size={12} /></button>
-          <button type="button" aria-label="Decrease markup by 1%" disabled={basisPoints <= 0} onClick={() => step(-1)}><ChevronDown size={12} /></button>
-        </span>
-        <span aria-hidden="true">%</span>
-      </div>
-      <small id={`${id}-help`} className={error ? 'is-error' : ''} role={error ? 'alert' : undefined}>{error || 'Client price on screen only; you pay the agency price.'}</small>
-    </div>}
-  </>
+  return <div className={`sb-markup${basisPoints > 0 ? ' is-set' : ''}`}>
+    <BadgePercent size={20} aria-hidden="true" className="sb-field-icon" />
+    <label htmlFor={`${id}-input`}>Set extra markup (%)</label>
+    <div className="sb-markup-input">
+      <input id={`${id}-input`} inputMode="decimal" value={text} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} onChange={(event) => commit(event.target.value)} onKeyDown={(event) => {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); step(event.key === 'ArrowUp' ? 1 : -1) }
+      }} />
+      <span className="sb-markup-steps">
+        <button type="button" aria-label="Increase markup by 1%" disabled={basisPoints >= MAX_CLIENT_MARKUP_BP} onClick={() => step(1)}><ChevronUp size={12} /></button>
+        <button type="button" aria-label="Decrease markup by 1%" disabled={basisPoints <= 0} onClick={() => step(-1)}><ChevronDown size={12} /></button>
+      </span>
+      <span aria-hidden="true">%</span>
+    </div>
+    <small id={`${id}-help`} className={error ? 'is-error' : ''} role={error ? 'alert' : undefined}>{error || (basisPoints > 0 ? 'Client price shown; you pay agency price' : 'No markup: agency prices shown')}</small>
+  </div>
 }
 
 const FIELD_LABEL: Record<SmartSearchParseResponse['unresolved'][number], string> = { destination: 'destination', dates: 'dates', occupancy: 'guests & rooms', stars: 'star rating', nationality: 'nationality' }
@@ -85,9 +77,9 @@ export function SmartSearchControl({ tenantId, onApply }: { tenantId: string; on
   return <div className={`sb-smart${open ? ' is-open' : ''}`}>
     <button type="button" className="sb-smart-trigger" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen((value) => !value)}>
       <Sparkles size={20} aria-hidden="true" />
-      <span><strong>Try Smart Search</strong><small>Type or paste</small></span>
+      <span><em>Smart Search</em><strong>Try Smart Search</strong><small>Type or paste a request</small></span>
     </button>
-    <p className="sb-smart-hint">Search faster by destination, dates, hotel class and occupancy.</p>
+    <p className="sb-smart-hint">Paste a client email; we fill in the search.</p>
     {open && <div className="sb-smart-panel" id={`${id}-panel`} role="dialog" aria-label="Smart Search">
       <div className="sb-smart-panel-head"><strong>Paste your client’s request</strong><button type="button" aria-label="Close Smart Search" onClick={() => setOpen(false)}><X size={16} /></button></div>
       <textarea ref={area} value={text} maxLength={SMART_SEARCH_TEXT_MAX} rows={4} aria-label="Client request" placeholder="e.g. 5-star hotel in Dubai for 2 adults, 3 nights from next Friday, Indian guests" onChange={(event) => { setText(event.target.value); setResult(null) }} onKeyDown={(event) => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void read() } }} />
