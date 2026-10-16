@@ -39,8 +39,9 @@ describe('renderBookingDocument', () => {
     const html = renderBookingDocument(doc('VOUCHER', {
       agentRef: 'TR-<9>', hotelDetails: { address: '1 Marina Walk', checkInTime: '15:00', checkOutTime: '12:00' },
       guestsByRoom: [{ room: 1, guests: [{ name: 'Mrs Layla <O>', type: 'ADULT', age: null, isLead: true }, { name: 'Zain', type: 'CHILD', age: 7, isLead: false }] }, { room: 2, guests: [{ name: 'Mr Ali Khan', type: 'ADULT', age: null, isLead: false }] }],
-      specialRequests: { items: ['Late check-in', 'Quiet room'], note: 'Arriving <late>' }, cancellationPolicy: [],
+      specialRequests: { items: ['Late check-in', 'Quiet room'], note: 'Arriving <late>', arrivalTime: '23:30' }, cancellationPolicy: [],
     }))
+    expect(html).toContain('Estimated arrival'); expect(html).toContain('23:30 (hotel local time, not guaranteed)')
     expect(html).toContain('Rooming list'); expect(html).toContain('Room 2'); expect(html).toContain('Mrs Layla &lt;O&gt;'); expect(html).toContain('Lead guest'); expect(html).toContain('Child, age 7')
     expect(html).toContain('Not guaranteed'); expect(html).toContain('Late check-in'); expect(html).toContain('Arriving &lt;late&gt;')
     expect(html).toContain('Agent reference'); expect(html).toContain('TR-&lt;9&gt;'); expect(html).toContain('2099-03-01 from 15:00'); expect(html).toContain('1 Marina Walk')

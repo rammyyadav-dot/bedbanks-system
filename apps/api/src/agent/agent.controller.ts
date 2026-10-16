@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { PrismaService } from '../database/prisma.service'
@@ -26,7 +26,7 @@ import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
 import { SmartSearchService } from './smart-search.service'
-import { SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
+import { DUPLICATE_BOOKING_SUSPECTED, SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
 import { BookingCancellationService } from './booking-cancellation.service'
@@ -236,11 +236,18 @@ export class AgentController {
     }
     if (body.termsAccepted !== true) throw new BadRequestException({ code: 'TERMS_NOT_ACCEPTED', message: 'Accept the cancellation policy and booking terms to book.' })
     const requestId = req.requestId ?? randomUUID()
+    // ADR 0066 amendment 1: a probable duplicate (same agency, hotel, dates and lead guest) needs the agent's explicit go-ahead. Nothing is held or charged yet.
+    const duplicates = await this.bookingTx.findDuplicates({ tenantId, userId: identity.user.id, inventoryHoldId: body.inventoryHoldId, idempotencyKey: body.idempotencyKey, leadGuest: body.leadGuest })
+    if (duplicates.length && body.acknowledgeDuplicate !== true) {
+      throw new ConflictException({ code: DUPLICATE_BOOKING_SUSPECTED, message: `Your agency already has ${duplicates.length === 1 ? 'a booking' : 'bookings'} for this lead guest, hotel and dates (${duplicates.map((d) => d.reference).join(', ')}). Confirm that this is a separate booking.`, details: duplicates })
+    }
     const result = await this.bookingTx.prebook({ tenantId, userId: identity.user.id, requestId, inventoryHoldId: body.inventoryHoldId, idempotencyKey: body.idempotencyKey,
       adults: body.adults, children: body.children, childAges: body.childAges, leadGuest: body.leadGuest,
       ...(body.guests ? { guests: body.guests } : {}), ...(body.agentRef !== undefined ? { agentRef: body.agentRef } : {}), ...(body.specialRequests ? { specialRequests: body.specialRequests } : {}) })
     // ADR 0066: the acceptance is evidence, so it is audited (no guest data).
     await this.audit.record({ tenantId, user: identity, action: 'booking.terms.accepted', entityType: 'booking', entityId: result.bookingId, payload: { requestId, inventoryHoldId: body.inventoryHoldId } })
+    // The agent booked over a duplicate warning: evidence for support and finance (references only).
+    if (duplicates.length) await this.audit.record({ tenantId, user: identity, action: 'booking.duplicate.acknowledged', entityType: 'booking', entityId: result.bookingId, payload: { requestId, existingReferences: duplicates.map((d) => d.reference) } })
     response.status(HttpStatus.CREATED)
     return result
   }

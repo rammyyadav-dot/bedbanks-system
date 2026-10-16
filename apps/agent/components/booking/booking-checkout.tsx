@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BedDouble, CalendarDays, CheckCircle2, Clock, FileText, Mail, Printer, ShieldAlert, Users } from 'lucide-react'
+import { AlertTriangle, BedDouble, CalendarDays, CheckCircle2, Clock, FileText, Globe, Mail, Printer, ShieldAlert, Tag, Users, Wallet } from 'lucide-react'
 import type { SearchCriteria, SearchRateOffer } from '@bedbanks/domain'
-import { AGENT_REF_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABELS, SPECIAL_REQUEST_NOTE_MAX, type ConfirmationEmailState, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts'
+import { AGENT_REF_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABELS, SPECIAL_REQUEST_NOTE_MAX, type ConfirmationEmailState, type DuplicateBookingMatch, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts'
 import { BookingService, type BookingFailure, type DocumentType } from '@/services/booking-service'
 import { formatCancellationDeadline, formatMinorAmount, formatStay } from '@/lib/format'
-import { buildRoster, isLead, parseCcEmails, rosterErrors, rosterPayload, type GuestDraft } from '@/lib/checkout'
+import { ARRIVAL_TIME_OPTIONS, buildRoster, isLead, parseCcEmails, rosterErrors, rosterPayload, stayNights, type GuestDraft } from '@/lib/checkout'
+import { averageNightlyMinor } from '@/lib/listing'
+import { guestMarketName } from '@/lib/guest-market'
 
 type Phase = 'idle' | 'holding' | 'held' | 'booking' | 'done' | 'failed'
 const newKey = () => `hold-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
@@ -37,6 +39,9 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
   const [agentRef, setAgentRef] = useState('')
   const [requests, setRequests] = useState<SpecialRequestCode[]>([])
   const [note, setNote] = useState('')
+  const [arrival, setArrival] = useState('')
+  const [duplicates, setDuplicates] = useState<DuplicateBookingMatch[]>([])
+  const [bookAnyway, setBookAnyway] = useState(false)
   const [cc, setCc] = useState('')
   const [terms, setTerms] = useState(false)
   const [touched, setTouched] = useState(false)
@@ -51,7 +56,9 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
   const ccParsed = parseCcEmails(cc, agentEmail)
   const deadline = rate.cancellation.refundable && rate.cancellation.deadline ? formatCancellationDeadline(rate.cancellation.deadline, timeZone || 'UTC') : null
   const conflict = requests.includes('TWIN_BEDS') && requests.includes('DOUBLE_BED')
-  const ready = Object.keys(errors).length === 0 && ccParsed.ok && terms && !conflict && note.length <= SPECIAL_REQUEST_NOTE_MAX && agentRef.length <= AGENT_REF_MAX
+  const nights = stayNights(request.checkIn, request.checkOut)
+  const perNight = nights !== null && nights > 1 ? formatMinorAmount(averageNightlyMinor(rate.total.amountMinor, nights), rate.total.currency) : null
+  const ready = Object.keys(errors).length === 0 && ccParsed.ok && terms && !conflict && note.length <= SPECIAL_REQUEST_NOTE_MAX && agentRef.length <= AGENT_REF_MAX && (duplicates.length === 0 || bookAnyway)
   const failure = (result: BookingFailure) => { setMessage(result.message); if (result.kind === 'auth' || result.kind === 'denied' || result.kind === 'unavailable') setPhase('failed') }
   const reset = () => { holdKey.current = newKey(); setHold(null); setBookingId(null); setPhase('idle'); setMessage('') }
   const update = (key: string, patch: Partial<GuestDraft>) => setRoster((current) => current.map((g) => g.key === key ? { ...g, ...patch } : g))
@@ -84,7 +91,8 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
     if (!id) {
       const pre = await api.prebook(hold.holdId, {
         adults: request.adults, children: request.children, childAges: request.childAges, firstName: lead.firstName, lastName: lead.lastName,
-        guests: rosterPayload(roster), agentRef, specialRequests: { codes: requests, ...(note.trim() ? { note: note.trim() } : {}) }, termsAccepted: terms,
+        guests: rosterPayload(roster), agentRef, specialRequests: { codes: requests, ...(note.trim() ? { note: note.trim() } : {}), ...(arrival ? { arrivalTime: arrival } : {}) }, termsAccepted: terms,
+        ...(duplicates.length && bookAnyway ? { acknowledgeDuplicate: true } : {}),
       }, tenantId)
       if (!pre.ok) {
         if (/reconciliation/i.test(pre.message)) {
@@ -93,6 +101,8 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
           return
         }
         if (pre.kind === 'invalid') { setPhase('held'); setMessage(pre.message); return }
+        // Probable duplicate: nothing was booked and the hold stays; the agent decides.
+        if (pre.duplicates?.length) { setDuplicates(pre.duplicates); setBookAnyway(false); setPhase('held'); return }
         holdKey.current = newKey(); setHold(null); failure(pre); setPhase('failed'); return
       }
       id = pre.data.bookingId; setBookingId(id)
@@ -118,6 +128,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       <div><dt>Room</dt><dd>{roomName} · {rate.boardBasisName}</dd></div>
       <div><dt>Stay</dt><dd>{formatStay(request.checkIn, request.checkOut)} · {request.rooms} room{request.rooms === 1 ? '' : 's'}</dd></div>
       <div><dt>Lead guest</dt><dd>{(() => { const lead = roster.find((g) => isLead(g, roster)); return lead ? [lead.title, lead.firstName.trim(), lead.lastName.trim()].filter(Boolean).join(' ') : '—' })()}</dd></div>
+      {arrival && <div><dt>Estimated arrival</dt><dd>{arrival} (hotel local time)</dd></div>}
       <div><dt>Total charged</dt><dd><strong>{total}</strong> · agency credit</dd></div>
       <div><dt>Cancellation</dt><dd>{deadline ? `Free cancellation until ${deadline}` : rate.cancellation.summary}</dd></div>
     </dl>
@@ -140,9 +151,12 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       <li><BedDouble size={14} aria-hidden="true" />{roomName} · {rate.boardBasisName}</li>
       <li><CalendarDays size={14} aria-hidden="true" />{formatStay(request.checkIn, request.checkOut)}</li>
       <li><Users size={14} aria-hidden="true" />{request.rooms} room{request.rooms === 1 ? '' : 's'} · {request.adults} adult{request.adults === 1 ? '' : 's'}{request.children ? ` + ${request.children} child${request.children === 1 ? '' : 'ren'}` : ''} per room</li>
+      <li><Globe size={14} aria-hidden="true" />{guestMarketName(request.nationality)} guests · rate valid for this nationality</li>
+      {rate.promotion && <li><Tag size={14} aria-hidden="true" />{rate.promotion.name} · included in the price</li>}
     </ul>
     <p className={`ck-summary-policy${rate.cancellation.refundable ? '' : ' is-nonref'}`}>{deadline ? `Free cancellation until ${deadline}` : rate.cancellation.summary || (rate.cancellation.refundable ? 'Refundable' : 'Non-refundable')}</p>
-    <div className="ck-summary-total"><span>Total charged</span><strong>{total}</strong><small>Agency credit · rechecked price</small></div>
+    <div className="ck-summary-total"><span>Total charged</span><strong>{total}</strong><small>{perNight ? `avg. ${perNight} / night · ` : ''}rechecked price</small></div>
+    <p className="ck-summary-pay"><Wallet size={14} aria-hidden="true" />Charged to your agency credit at confirmation</p>
     {hold && (phase === 'held' || phase === 'booking') && <p className={`ck-summary-hold${remaining < 120_000 ? ' is-ending' : ''}`}><Clock size={14} aria-hidden="true" />{expired ? 'Hold expired' : <>Held for <b>{clock(remaining)}</b></>}</p>}
   </aside>
 
@@ -171,6 +185,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
             <div className="ck-requests" role="group" aria-label="Special requests">{SPECIAL_REQUEST_CODES.map((code) => <label key={code} className={`ck-chip${requests.includes(code) ? ' is-on' : ''}`}><input type="checkbox" checked={requests.includes(code)} onChange={() => toggle(code)} />{SPECIAL_REQUEST_LABELS[code]}</label>)}</div>
             {conflict && <p className="portal-field-error" role="alert">Choose twin beds or a double bed, not both.</p>}
             <label className="ck-field"><span>Note to the hotel (optional)</span><textarea value={note} maxLength={SPECIAL_REQUEST_NOTE_MAX} rows={2} placeholder="e.g. arriving on a late flight" onChange={(e) => setNote(e.target.value)} /><small>{note.length}/{SPECIAL_REQUEST_NOTE_MAX} · requests are passed to the hotel and are not guaranteed</small></label>
+            <label className="ck-field ck-arrival"><span>Estimated arrival (optional, hotel local time)</span><select value={arrival} onChange={(e) => setArrival(e.target.value)}><option value="">Not known</option>{ARRIVAL_TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
           </section>
           <section className="ck-step" aria-labelledby="ck-email"><h4 id="ck-email"><span>3</span>Confirmation email</h4>
             <p className="booking-note">{agentEmail ? <>The voucher and invoice are emailed to <strong>{agentEmail}</strong>.</> : 'Your account has no email address, so no confirmation email can be sent. The documents stay available in My bookings.'}</p>
@@ -178,12 +193,15 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
           </section>
           <section className="ck-step" aria-labelledby="ck-terms"><h4 id="ck-terms"><span>4</span>Review and confirm</h4>
             <p className="ck-policy">{deadline ? <>Free cancellation until <strong>{deadline}</strong>. After that, the cancellation policy of this rate applies.</> : rate.cancellation.refundable ? rate.cancellation.summary : <><strong>Non-refundable.</strong> The full amount is charged if this booking is cancelled or the guest does not arrive.</>}</p>
+            {duplicates.length > 0 && <div className="ck-duplicate" role="alert"><p><AlertTriangle size={16} aria-hidden="true" /><strong>Possible duplicate booking.</strong> Your agency already has {duplicates.length === 1 ? 'a booking' : 'bookings'} for this lead guest, hotel and dates:</p>
+              <ul>{duplicates.map((d) => <li key={d.reference}><b>{d.reference}</b> · {d.status.replace(/_/g, ' ').toLowerCase()} · booked {d.createdAt.slice(0, 10)}</li>)}</ul>
+              <label><input type="checkbox" checked={bookAnyway} onChange={(e) => setBookAnyway(e.target.checked)} />This is a separate booking. Book it anyway.</label></div>}
             <label className={`ck-terms${touched && !terms ? ' has-error' : ''}`}><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />I accept the cancellation policy and the booking terms, and confirm the guest names are correct.</label>
             <div className="ck-actions">
               <button className="portal-primary" disabled={phase === 'booking' || /reconciliation/i.test(message)} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
               {!bookingId && <button className="portal-link" disabled={phase === 'booking'} onClick={() => void releaseHold()}>Release hold</button>}
             </div>
-            {touched && !ready && <p className="portal-field-error" role="alert">{Object.keys(errors).length ? 'Enter every guest name.' : !terms ? 'Accept the cancellation policy and booking terms.' : 'Check the highlighted fields.'}</p>}
+            {touched && !ready && <p className="portal-field-error" role="alert">{Object.keys(errors).length ? 'Enter every guest name.' : !terms ? 'Accept the cancellation policy and booking terms.' : duplicates.length && !bookAnyway ? 'Confirm this is a separate booking, or release the hold.' : 'Check the highlighted fields.'}</p>}
           </section>
         </>}
       </div>

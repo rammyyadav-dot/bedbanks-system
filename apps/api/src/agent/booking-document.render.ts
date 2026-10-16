@@ -48,6 +48,7 @@ export function renderBookingDocument(doc: RenderableDocument): string {
   if (p.room) rows.push(row('Room', p.room.name), row('Board', `${p.board?.name ?? ''}${p.board?.code ? ` (${p.board.code})` : ''}`))
   if (stay.checkIn) rows.push(row('Check-in', `${stay.checkIn}${p.hotelDetails?.checkInTime ? ` from ${p.hotelDetails.checkInTime}` : ''}`), row('Check-out', `${stay.checkOut}${p.hotelDetails?.checkOutTime ? ` by ${p.hotelDetails.checkOutTime}` : ''}`), row('Nights', stay.nights), row('Rooms', stay.rooms),
     row('Guests', `${stay.adults} adult${stay.adults === 1 ? '' : 's'}${stay.children ? `, ${stay.children} child${stay.children === 1 ? '' : 'ren'} (ages ${(stay.childAges ?? []).join(', ')})` : ''}`))
+  if (p.specialRequests?.arrivalTime) rows.push(row('Estimated arrival', `${p.specialRequests.arrivalTime} (hotel local time, not guaranteed)`))
   if (p.leadGuest) rows.push(row('Lead guest', `${p.leadGuest.firstName} ${p.leadGuest.lastName}`))
   if (Array.isArray(p.guests) && p.guests.length > 1) rows.push(row('All guests', p.guests.join(', ')))
   // ADR 0066: every guest by room, the lead guest marked.

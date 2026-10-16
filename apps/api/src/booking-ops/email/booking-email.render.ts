@@ -27,6 +27,7 @@ export function renderConfirmationEmail(input: { voucher: IssuedDocumentInput; i
     ...(v.hotelDetails?.address ? [['Address', v.hotelDetails.address] as [string, string]] : []),
     ['Check-in', `${stay.checkIn ?? ''}${v.hotelDetails?.checkInTime ? ` from ${v.hotelDetails.checkInTime}` : ''}`],
     ['Check-out', `${stay.checkOut ?? ''}${v.hotelDetails?.checkOutTime ? ` by ${v.hotelDetails.checkOutTime}` : ''}`],
+    ...(v.specialRequests?.arrivalTime ? [['Estimated arrival', `${v.specialRequests.arrivalTime} (hotel local time)`] as [string, string]] : []),
     ['Stay', `${stay.nights} night${stay.nights === 1 ? '' : 's'} · ${stay.rooms} room${stay.rooms === 1 ? '' : 's'}`],
     ['Room', `${v.room?.name ?? ''} · ${v.board?.name ?? ''}`],
     ['Guests', guestsLine],

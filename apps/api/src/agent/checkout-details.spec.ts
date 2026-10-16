@@ -43,6 +43,10 @@ describe('checkout details (ADR 0066)', () => {
     expect(code(() => normalizeCheckout({ specialRequests: { codes: ['FREE_UPGRADE' as never] } }, occ))).toBe('SPECIAL_REQUEST_INVALID')
     expect(code(() => normalizeCheckout({ specialRequests: { codes: ['TWIN_BEDS', 'DOUBLE_BED'] } }, occ))).toBe('SPECIAL_REQUEST_CONFLICT')
     expect(code(() => normalizeCheckout({ specialRequests: { codes: [], note: 'x'.repeat(301) } }, occ))).toBe('SPECIAL_REQUEST_NOTE_TOO_LONG')
+    // ADR 0066 amendment 1: estimated arrival is 24-hour HH:MM and is kept even without other requests.
+    expect(normalizeCheckout({ specialRequests: { codes: [], arrivalTime: '23:30' } }, occ).specialRequests).toEqual({ codes: [], arrivalTime: '23:30' })
+    expect(code(() => normalizeCheckout({ specialRequests: { codes: [], arrivalTime: '24:00' } }, occ))).toBe('ARRIVAL_TIME_INVALID')
+    expect(code(() => normalizeCheckout({ specialRequests: { codes: [], arrivalTime: '9pm' } }, occ))).toBe('ARRIVAL_TIME_INVALID')
   })
 
   it('CC emails: valid, de-duplicated, never the primary recipient, at most three', () => {

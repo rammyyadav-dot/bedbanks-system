@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildRoster, isLead, parseCcEmails, rosterErrors, rosterPayload } from './checkout.ts'
+import { ARRIVAL_TIME_OPTIONS, buildRoster, duplicateMatches, isLead, parseCcEmails, rosterErrors, rosterPayload, stayNights } from './checkout.ts'
 
 test('roster: every guest of every identical room, children carry their searched age, room 1 first adult is lead', () => {
   const roster = buildRoster(2, 2, [5])
@@ -27,4 +27,15 @@ test('CC emails: comma, semicolon or space separated; de-duplicated; never the a
   assert.deepEqual(parseCcEmails(' Ops@Agency.example; ops@agency.example, me@agency.example ', 'me@agency.example'), { ok: true, emails: ['ops@agency.example'] })
   assert.equal(parseCcEmails('nope', null).ok, false)
   assert.equal(parseCcEmails('a@x.example b@x.example c@x.example d@x.example', null).ok, false)
+})
+
+test('stay nights, arrival choices and duplicate matches (ADR 0066 amendment 1)', () => {
+  assert.equal(stayNights('2026-10-30', '2026-11-01'), 2)
+  assert.equal(stayNights('2026-11-01', '2026-11-01'), null)
+  assert.equal(stayNights('bad', '2026-11-01'), null)
+  assert.equal(ARRIVAL_TIME_OPTIONS.length, 48)
+  assert.deepEqual([ARRIVAL_TIME_OPTIONS[0], ARRIVAL_TIME_OPTIONS[1], ARRIVAL_TIME_OPTIONS[47]], ['00:00', '00:30', '23:30'])
+  const match = { reference: 'FB-1', status: 'CONFIRMED', createdAt: '2026-10-01T10:00:00.000Z' }
+  assert.deepEqual(duplicateMatches([match, { reference: 2 }, null, 'x']), [match])
+  assert.deepEqual(duplicateMatches(undefined), [])
 })

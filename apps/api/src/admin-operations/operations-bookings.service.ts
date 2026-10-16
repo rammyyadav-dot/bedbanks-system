@@ -34,7 +34,7 @@ const day = (d: Date | null | undefined): string | null => (d ? d.toISOString().
  * Scope is applied here from the authenticated access (tenant, and agency for agency-scoped callers), never from a query parameter.
  */
 const maskRequests = (requests: StoredSpecialRequests | null, canViewPii: boolean): StoredSpecialRequests | null =>
-  !requests ? null : canViewPii || !requests.note ? requests : { codes: requests.codes, note: '••••' }
+  !requests ? null : canViewPii || !requests.note ? requests : { ...requests, note: '••••' }
 
 @Injectable()
 export class OperationsBookingsService {

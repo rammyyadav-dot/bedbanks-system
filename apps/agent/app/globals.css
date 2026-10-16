@@ -884,3 +884,10 @@ label, .field span { color: #5a5a55; }
 .ck, .ck label, .ck span, .ck small, .ck input, .ck select, .ck textarea, .ck button { font-family: 'Barlow Semi Condensed', sans-serif; letter-spacing: normal; }
 .ck .ck-guest label span, .ck .ck-field > span, .ck .ck-room legend { letter-spacing: .06em; }
 .ck .ck-step h4, .ck .ck-summary-hotel, .ck .ck-summary-total strong, .ck-done-hero h3 { font-family: Montserrat, sans-serif; }
+/* ADR 0066 amendment 1: arrival time, duplicate warning, payment line */
+.ck .ck-arrival select { max-width: 220px; }
+.ck-summary-pay { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 12px; color: #4b5563; }
+.ck-duplicate { margin: 0 0 12px; padding: 12px 14px; border: 1px solid #f59e0b; border-radius: 8px; background: #fffbeb; color: #78350f; font-size: 13px; }
+.ck-duplicate p { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px; }
+.ck-duplicate ul { margin: 0 0 8px; padding-left: 22px; }
+.ck-duplicate label { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }

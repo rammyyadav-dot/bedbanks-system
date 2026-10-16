@@ -93,7 +93,7 @@ export class BookingDocumentService {
     }
     if (type === 'VOUCHER') {
       const requests = readSpecialRequests(booking.specialRequests)
-      const voucherExtra = requests ? { specialRequests: { items: specialRequestLabels(requests), ...(requests.note ? { note: requests.note } : {}) } } : {}
+      const voucherExtra = requests ? { specialRequests: { items: specialRequestLabels(requests), ...(requests.note ? { note: requests.note } : {}), ...(requests.arrivalTime ? { arrivalTime: requests.arrivalTime } : {}) } } : {}
       // Finding F13: the voucher shows the terms frozen at booking; only a booking made before they were frozen reads the plan's live rules.
       const frozen = readFrozenTerms(booking.cancellationPolicy)
       if (frozen.kind === 'invalid') throw new ConflictException('The frozen cancellation terms are unreadable')
