@@ -159,7 +159,7 @@ function DestinationField({ destination, resolved, invalid, tenantId, onChange, 
           if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
         }} />
       </div>
-      {resolved && <small className="sb-resolved">Selected from the catalogue</small>}
+      <small className={resolved ? 'sb-hint is-ok' : 'sb-hint'}>{resolved ? 'Selected from the catalogue' : 'City or hotel name'}</small>
       {open && <ul className="market-suggest" id={listId} role="listbox" aria-label="Destinations">
         {suggestions.flatMap((item, index) => [
           ...(index === 0 || suggestions[index - 1].type !== item.type ? [<li key={`group:${item.type}`} role="presentation" aria-hidden="true" className="sb-group">{item.type === 'city' ? 'Cities' : 'Hotels'}</li>] : []),
@@ -300,7 +300,7 @@ function NationalityField({ nationality, onChange }: { nationality: string; onCh
   const id = useId()
   useDismiss(box, () => setOpen(false))
   const markets = GUEST_MARKETS.filter((market) => market.name.toLowerCase().includes(query.toLowerCase()) || market.code.toLowerCase().includes(query.toLowerCase()))
-  return <div className="market-field sb-field sb-nationality" ref={box}><Globe size={20} aria-hidden="true" className="sb-field-icon" /><span>{marketplaceHome.nationalityLabel}</span><button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? id : undefined} onClick={() => { setQuery(''); setOpen((value) => !value) }}><strong>{guestMarketName(nationality)}</strong></button>
+  return <div className="market-field sb-field sb-nationality" ref={box}><Globe size={20} aria-hidden="true" className="sb-field-icon" /><span>{marketplaceHome.nationalityLabel}</span><button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? id : undefined} onClick={() => { setQuery(''); setOpen((value) => !value) }}><span><strong>{guestMarketName(nationality)}</strong><small>Rates can vary by guest market</small></span></button>
     {open && <div id={id} className="market-popover market-nationality" role="dialog" aria-label="Guest nationality"><label>Find a country<input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} /></label><label>Country<select aria-label="Country" size={6} value={nationality} onChange={(event) => { onChange(event.target.value); setOpen(false); box.current?.querySelector('button')?.focus() }}>{markets.map((market) => <option key={market.code} value={market.code}>{market.name} ({market.code})</option>)}</select></label>{markets.length === 0 && <p role="status">No supported country matches.</p>}<button type="button" onClick={() => { setOpen(false); box.current?.querySelector('button')?.focus() }}>Cancel</button></div>}
   </div>
 }
