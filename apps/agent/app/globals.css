@@ -820,3 +820,67 @@ label, .field span { color: #5a5a55; }
   .sb-smart-trigger { flex: 1; border-right: 0; border-radius: var(--sb-r); }
   .sb-smart-panel { left: 0; right: 0; width: auto; }
 }
+
+/* Bedbank checkout (ADR 0066): numbered steps beside a sticky booking summary, then a confirmation page. */
+.ck { --ck-line: #E5E7EB; --ck-ink: #111827; --ck-muted: #6B7280; margin-top: 14px; }
+.ck-start { display: grid; gap: 6px; justify-items: start; }
+.ck-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.ck-form { display: grid; gap: 12px; min-width: 0; }
+.ck-step { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--ck-line); border-radius: 12px; background: #FFFFFF; }
+.ck-step h4 { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ck-ink); font: 700 15px Montserrat, sans-serif; }
+.ck-step h4 span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #111827; color: #FFFFFF; font-size: 12px; }
+.ck-step .booking-note { margin: 0; font-size: 12px; }
+.ck-room { display: grid; gap: 8px; margin: 0; padding: 10px 12px; border: 1px solid var(--ck-line); border-radius: 10px; background: #FAFAFA; }
+.ck-room legend { padding: 0 6px; color: var(--ck-ink); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.ck-guest { display: grid; grid-template-columns: 96px 92px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: end; }
+.ck-guest-kind { align-self: center; color: var(--ck-muted); font-size: 12px; font-weight: 700; }
+.ck-guest label, .ck-field { display: grid; gap: 3px; min-width: 0; }
+.ck-guest label span, .ck-field > span { color: var(--ck-muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.ck-guest input, .ck-guest select, .ck-field input, .ck-field textarea { width: 100%; min-width: 0; min-height: 38px; padding: 6px 10px; border: 1px solid #D1D5DB; border-radius: 8px; background: #FFFFFF; color: var(--ck-ink); font: 15px 'Barlow Semi Condensed', sans-serif; }
+.ck-field textarea { resize: vertical; }
+.ck-guest input:focus, .ck-guest select:focus, .ck-field input:focus, .ck-field textarea:focus { outline: 2px solid #FBBF2466; border-color: #F59E0B; }
+.ck-guest.has-error input { border-color: #D90429; }
+.ck-guest small { grid-column: 2 / -1; color: #B42318; font-size: 12px; }
+.ck-field small { color: var(--ck-muted); font-size: 12px; }
+.ck-field small.is-error { color: #B42318; }
+.ck-requests { display: flex; flex-wrap: wrap; gap: 6px; }
+.ck-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid #D1D5DB; border-radius: 999px; background: #FFFFFF; color: #374151; font-size: 13px; cursor: pointer; }
+.ck-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.ck-chip.is-on { border-color: #111827; background: #111827; color: #FFFFFF; }
+.ck-chip:focus-within { outline: 2px solid #0f7681; outline-offset: 2px; }
+.ck-policy { margin: 0; padding: 10px 12px; border-left: 3px solid #10B981; border-radius: 6px; background: #ECFDF5; color: #064E3B; font-size: 14px; }
+.ck-terms { display: flex; align-items: flex-start; gap: 10px; color: var(--ck-ink); font-size: 14px; cursor: pointer; }
+.ck-terms input { width: 18px; height: 18px; margin-top: 1px; accent-color: #D90429; }
+.ck-terms.has-error { color: #B42318; }
+.ck-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ck-actions .portal-primary { min-height: 46px; padding: 0 22px; font-size: 15px; }
+.ck-summary { position: sticky; top: 12px; display: grid; gap: 10px; padding: 16px; border: 1px solid var(--ck-line); border-radius: 12px; background: #FFFFFF; box-shadow: 0 10px 24px #1118270d; }
+.ck-summary h4 { margin: 0; color: var(--ck-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.ck-summary-hotel { margin: 0; color: var(--ck-ink); font: 700 16px Montserrat, sans-serif; }
+.ck-summary ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; color: #374151; font-size: 13px; }
+.ck-summary li { display: flex; align-items: flex-start; gap: 8px; }
+.ck-summary li svg { flex: none; margin-top: 2px; color: var(--ck-muted); }
+.ck-summary-policy { margin: 0; color: #047857; font-size: 13px; font-weight: 700; }
+.ck-summary-policy.is-nonref { color: #B42318; }
+.ck-summary-total { display: grid; gap: 2px; padding-top: 10px; border-top: 1px dashed var(--ck-line); }
+.ck-summary-total span, .ck-summary-total small { color: var(--ck-muted); font-size: 12px; }
+.ck-summary-total strong { color: var(--ck-ink); font: 700 22px Montserrat, sans-serif; }
+.ck-summary-hold { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 10px; border-radius: 8px; background: #FFF7ED; color: #9A3412; font-size: 13px; }
+.ck-summary-hold.is-ending { background: #FEF2F2; color: #B42318; }
+.ck-done { display: grid; gap: 14px; margin-top: 14px; padding: 20px; border: 1px solid #A7E3C9; border-radius: 14px; background: #FFFFFF; }
+.ck-done-hero { display: flex; align-items: center; gap: 14px; color: #047857; }
+.ck-done-hero h3 { margin: 0; color: #064E3B; font: 700 22px Montserrat, sans-serif; }
+.ck-done-hero p { margin: 2px 0 0; color: #374151; font-size: 14px; }
+.ck-done-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 0; }
+.ck-done-facts div { padding: 10px 12px; border: 1px solid var(--ck-line); border-radius: 10px; background: #FAFAFA; }
+.ck-done-facts dt { color: var(--ck-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.ck-done-facts dd { margin: 2px 0 0; color: var(--ck-ink); font-size: 14px; }
+.ck-done-email { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #F0F9FF; color: #075985; font-size: 13px; }
+.ck-done-email svg { flex: none; margin-top: 2px; }
+.ck-done-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ck-done-actions .portal-primary, .ck-done-actions .portal-secondary { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 1000px) { .ck-grid { grid-template-columns: 1fr; } .ck-summary { position: static; order: -1; } }
+@media (max-width: 640px) { .ck-guest { grid-template-columns: 1fr 1fr; } .ck-guest-kind { grid-column: 1 / -1; } .ck-guest small { grid-column: 1 / -1; } }
+.ck, .ck label, .ck span, .ck small, .ck input, .ck select, .ck textarea, .ck button { font-family: 'Barlow Semi Condensed', sans-serif; letter-spacing: normal; }
+.ck .ck-guest label span, .ck .ck-field > span, .ck .ck-room legend { letter-spacing: .06em; }
+.ck .ck-step h4, .ck .ck-summary-hotel, .ck .ck-summary-total strong, .ck-done-hero h3 { font-family: Montserrat, sans-serif; }

@@ -6,6 +6,7 @@ import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentAuditService } from './audit.service'
 import { CancellationDto, OfferHoldDto, OfferHoldParamsDto, OfferRecheckDto, ReconcileBookingsDto, PrebookBookingDto, ConfirmBookingDto } from './domain.dto'
+import { normalizeCcEmails, validRecipient } from './checkout-details'
 import { AgentFinanceService } from './finance.service'
 import { AgencySuspensionGuard, AllowWhenAgencySuspended } from './agency-suspension.guard'
 import { AgentHotelImageService } from './agent-hotel-image.service'
@@ -233,8 +234,13 @@ export class AgentController {
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
     }
-    const result = await this.bookingTx.prebook({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), inventoryHoldId: body.inventoryHoldId, idempotencyKey: body.idempotencyKey,
-      adults: body.adults, children: body.children, childAges: body.childAges, leadGuest: body.leadGuest })
+    if (body.termsAccepted !== true) throw new BadRequestException({ code: 'TERMS_NOT_ACCEPTED', message: 'Accept the cancellation policy and booking terms to book.' })
+    const requestId = req.requestId ?? randomUUID()
+    const result = await this.bookingTx.prebook({ tenantId, userId: identity.user.id, requestId, inventoryHoldId: body.inventoryHoldId, idempotencyKey: body.idempotencyKey,
+      adults: body.adults, children: body.children, childAges: body.childAges, leadGuest: body.leadGuest,
+      ...(body.guests ? { guests: body.guests } : {}), ...(body.agentRef !== undefined ? { agentRef: body.agentRef } : {}), ...(body.specialRequests ? { specialRequests: body.specialRequests } : {}) })
+    // ADR 0066: the acceptance is evidence, so it is audited (no guest data).
+    await this.audit.record({ tenantId, user: identity, action: 'booking.terms.accepted', entityType: 'booking', entityId: result.bookingId, payload: { requestId, inventoryHoldId: body.inventoryHoldId } })
     response.status(HttpStatus.CREATED)
     return result
   }
@@ -249,9 +255,19 @@ export class AgentController {
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck, persistence and finance gates are certified.' }
     }
-    const result = await this.bookingTx.confirm({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId: body.bookingId })
+    const requestId = req.requestId ?? randomUUID()
+    const recipient = validRecipient(identity.user.email)
+    const cc = normalizeCcEmails(body.ccEmails, recipient)
+    const result = await this.bookingTx.confirm({ tenantId, userId: identity.user.id, requestId, bookingId: body.bookingId, recipient, cc: recipient ? cc : [] })
+    // ADR 0066: voucher and invoice are issued right away (issue-once, immutable) so the confirmation page and the email can carry them.
+    // A failure here does not undo a committed booking: the documents are issued on first open instead, and the null says so.
+    const issue = async (type: 'VOUCHER' | 'INVOICE'): Promise<string | null> => {
+      try { return (await this.documents.get({ tenantId, userId: identity.user.id, requestId, bookingId: result.bookingId, type })).number } catch { return null }
+    }
+    const [voucher, invoice] = await Promise.all([issue('VOUCHER'), issue('INVOICE')])
     response.status(result.alreadyConfirmed ? HttpStatus.OK : HttpStatus.CREATED)
-    return result
+    return { bookingId: result.bookingId, reference: result.reference, status: result.status, alreadyConfirmed: result.alreadyConfirmed, documents: { voucher, invoice },
+      email: result.email ? { status: 'queued' as const, to: result.email.to, cc: result.email.cc } : { status: 'not_queued' as const, reason: 'no_recipient' as const } }
   }
 
   @Get('bookings')

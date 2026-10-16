@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from './audit.service'
+import { readSpecialRequests, specialRequestLabels } from './special-requests'
 
 export type DocumentKind = 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE'
 export const DOCUMENT_ROUTE_TYPES: Record<string, DocumentKind> = { voucher: 'VOUCHER', invoice: 'INVOICE', 'credit-note': 'CREDIT_NOTE' }
@@ -63,15 +64,18 @@ export class BookingDocumentService {
     return { id: doc.id, type: doc.type as DocumentKind, number: doc.number, issuedAt: doc.issuedAt.toISOString(), bookingStatus, payload: doc.payload as Record<string, any>, alreadyIssued }
   }
 
-  private async build(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; reference: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue; cancellationPolicy: Prisma.JsonValue | null }, type: DocumentKind) {
+  private async build(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; reference: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue; cancellationPolicy: Prisma.JsonValue | null; agentRef: string | null; specialRequests: Prisma.JsonValue | null; agencyId: string | null; hotelConfirmationNo: string | null }, type: DocumentKind) {
     const s = booking.searchSnapshot as Record<string, any>
-    const [tenant, hotel, room, board, plan] = await Promise.all([
+    const [tenant, hotel, room, board, plan, guests, agency] = await Promise.all([
       tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { name: true } }),
       tx.hotel.findFirst({ where: { id: s.canonicalHotelId, tenantId } }),
       tx.roomType.findFirst({ where: { id: s.canonicalRoomTypeId, hotel: { tenantId } } }),
       tx.boardBasis.findFirst({ where: { id: s.boardBasisId, tenantId } }),
       tx.ratePlan.findFirst({ where: { id: s.ratePlanId, tenantId }, include: { contract: { include: { cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } } } } } }),
+      tx.bookingGuest.findMany({ where: { bookingId: booking.id, tenantId }, orderBy: [{ roomNumber: 'asc' }, { isLead: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }], select: { roomNumber: true, title: true, firstName: true, lastName: true, type: true, age: true, isLead: true } }),
+      booking.agencyId ? tx.agency.findFirst({ where: { id: booking.agencyId, tenantId }, select: { name: true } }) : Promise.resolve(null),
     ])
+    const profile = hotel ? await tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId }, select: { checkInTime: true, checkOutTime: true } }) : null
     if (!hotel || !room || !board) throw new ConflictException('Booking content is incomplete')
     const nights = Math.round((Date.parse(`${s.checkOut}T00:00:00.000Z`) - Date.parse(`${s.checkIn}T00:00:00.000Z`)) / 86_400_000)
     const base = {
@@ -80,13 +84,21 @@ export class BookingDocumentService {
       room: { name: room.name }, board: { code: board.code.trim(), name: board.name },
       stay: { checkIn: s.checkIn, checkOut: s.checkOut, nights, rooms: s.rooms, adults: s.adults, children: s.children, childAges: s.childAges ?? [] },
       leadGuest: s.leadGuest,
+      // ADR 0066: agency file reference, every guest by room, hotel address and times. No hotel contact detail (HotelProfile.contacts stays private).
+      ...(booking.agentRef ? { agentRef: booking.agentRef } : {}),
+      ...(booking.hotelConfirmationNo ? { hotelConfirmationNo: booking.hotelConfirmationNo } : {}),
+      ...(agency ? { agencyName: agency.name } : {}),
+      hotelDetails: { address: hotel.address ?? null, checkInTime: profile?.checkInTime?.trim() || null, checkOutTime: profile?.checkOutTime?.trim() || null },
+      guestsByRoom: guestRooms(guests),
     }
     if (type === 'VOUCHER') {
+      const requests = readSpecialRequests(booking.specialRequests)
+      const voucherExtra = requests ? { specialRequests: { items: specialRequestLabels(requests), ...(requests.note ? { note: requests.note } : {}) } } : {}
       // Finding F13: the voucher shows the terms frozen at booking; only a booking made before they were frozen reads the plan's live rules.
       const frozen = readFrozenTerms(booking.cancellationPolicy)
       if (frozen.kind === 'invalid') throw new ConflictException('The frozen cancellation terms are unreadable')
-      if (frozen.kind === 'frozen') return { ...base, cancellationPolicy: frozen.rules.map(rule => ({ daysBeforeCheckin: rule.daysBeforeCheckin, penalty: rule.penaltyPercent !== undefined ? `${rule.penaltyPercent}% of the booking total` : `${booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)` })) }
-      return { ...base, cancellationPolicy: (plan ? rulesForPlan(plan, plan.contract.cancellationPolicies).rules : []).map(rule => ({
+      if (frozen.kind === 'frozen') return { ...base, ...voucherExtra, cancellationPolicy: frozen.rules.map(rule => ({ daysBeforeCheckin: rule.daysBeforeCheckin, penalty: rule.penaltyPercent !== undefined ? `${rule.penaltyPercent}% of the booking total` : `${booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)` })) }
+      return { ...base, ...voucherExtra, cancellationPolicy: (plan ? rulesForPlan(plan, plan.contract.cancellationPolicies).rules : []).map(rule => ({
         daysBeforeCheckin: rule.daysBeforeCheckin,
         penalty: rule.penaltyPercent !== null ? `${rule.penaltyPercent}% of the booking total` : `${rule.currency ?? booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)`,
       })) }
@@ -100,4 +112,14 @@ export class BookingDocumentService {
     const refund = cancellation.refundMinor ?? 0n
     return { ...base, currency: booking.currency, originalInvoiceNumber: `${PREFIX.INVOICE}-${booking.reference}`, totalMinor: total, penaltyMinor: (booking.totalMinor - refund).toString(), refundMinor: refund.toString(), cancelledAt: cancellation.createdAt.toISOString() }
   }
+}
+
+/** Guests grouped by room for the voucher, lead guest first. Rooms recorded before ADR 0066 (no room number) are room 1. */
+function guestRooms(guests: Array<{ roomNumber: number | null; title: string | null; firstName: string; lastName: string; type: string; age: number | null; isLead: boolean }>) {
+  const rooms = new Map<number, Array<{ name: string; type: string; age: number | null; isLead: boolean }>>()
+  for (const g of guests) {
+    const room = g.roomNumber ?? 1
+    rooms.set(room, [...(rooms.get(room) ?? []), { name: [g.title, g.firstName, g.lastName].filter(Boolean).join(' '), type: g.type, age: g.age, isLead: g.isLead }])
+  }
+  return [...rooms.entries()].sort(([a], [b]) => a - b).map(([room, list]) => ({ room, guests: list }))
 }

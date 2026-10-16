@@ -640,6 +640,7 @@ model Tenant {
   bookingEvents BookingEvent[]
   bookingSupplierJobs BookingSupplierJob[]
   bookingSupplierCalls BookingSupplierCall[]
+  bookingEmails BookingEmail[]
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
   bookingSavedViews BookingSavedView[]
@@ -924,6 +925,8 @@ model Booking {
   supplierId          String?               @map("supplier_id")
   supplierOrganization Supplier?            @relation("BookingSupplierOrganization", fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
   agentRef            String?               @map("agent_ref")
+  /// Non-binding guest requests from checkout (ADR 0066): { codes: string[], note?: string }. Shown to the hotel as "not guaranteed"; never priced, never logged.
+  specialRequests     Json?                 @map("special_requests")
   /// The supplier's own answer, kept apart from `status` (a free supplier word such as CONFIRMED or ON_REQUEST).
   supplierStatus      String?               @map("supplier_status")
   supplierRef         String?               @map("supplier_ref")
@@ -952,6 +955,7 @@ model Booking {
   guests              BookingGuest[]
   events              BookingEvent[]
   supplierJobs        BookingSupplierJob[]
+  emails              BookingEmail[]
   opsState            BookingOpsState?
   financeEvents       BookingFinanceEvent[]
   /// The cancellation rules frozen with the booking (Phase 5): { rules: [{ daysBeforeCheckin, penaltyPercent | penaltyMinor }], frozenAt, source }. Written at creation only.
@@ -1010,6 +1014,8 @@ model BookingGuest {
   title     String?
   firstName String           @map("first_name")
   lastName  String           @map("last_name")
+  /// 1-based room within the booking room line (identical rooms share one line with a quantity). Null for bookings made before ADR 0066.
+  roomNumber Int?           @map("room_number")
   isLead    Boolean          @default(false) @map("is_lead")
   type      BookingGuestType @default(ADULT)
   age       Int?
@@ -1202,6 +1208,46 @@ model BookingSupplierJob {
   @@unique([tenantId, bookingId, idempotencyKey])
   @@index([tenantId, status, runAfter])
   @@index([tenantId, bookingId, createdAt])
+}
+
+enum BookingEmailKind {
+  BOOKING_CONFIRMATION
+}
+
+enum BookingEmailStatus {
+  QUEUED
+  SENDING
+  RETRY_WAIT
+  SENT
+  FAILED
+}
+
+/// Transactional email outbox (ADR 0066). Queued in the same transaction that confirms the booking, sent by the booking module's dispatcher.
+/// Holds the recipient addresses (the booking agent's own email and optional CC addresses), never guest contact data and never the message body:
+/// the dispatcher renders it from the issued, immutable voucher and invoice.
+model BookingEmail {
+  id                String             @id @default(cuid())
+  tenantId          String             @map("tenant_id")
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String             @map("booking_id")
+  booking           Booking            @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  kind              BookingEmailKind
+  toAddress         String             @map("to_address")
+  ccAddresses       String[]           @default([]) @map("cc_addresses")
+  status            BookingEmailStatus @default(QUEUED)
+  attempt           Int                @default(0)
+  maxAttempts       Int                @default(5) @map("max_attempts")
+  runAfter          DateTime           @map("run_after")
+  lockedUntil       DateTime?          @map("locked_until")
+  lastErrorCode     String?            @map("last_error_code")
+  providerMessageId String?            @map("provider_message_id")
+  requestedByUserId String?            @map("requested_by_user_id")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  sentAt            DateTime?          @map("sent_at")
+
+  @@unique([tenantId, bookingId, kind])
+  @@index([tenantId, status, runAfter])
 }
 
 /// Append-only log of supplier calls: a summary, never a raw request or response (CLAUDE.md invariant 7).

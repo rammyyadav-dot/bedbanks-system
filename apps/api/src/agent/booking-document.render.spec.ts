@@ -35,6 +35,21 @@ describe('renderBookingDocument', () => {
     const note = renderBookingDocument(doc('CREDIT_NOTE', { currency: 'AED', originalInvoiceNumber: 'INV-FB-ABC123', totalMinor: '125099', penaltyMinor: '37529', refundMinor: '87570' }, 'CANCELLED'))
     expect(note).toContain('AED 375.29'); expect(note).toContain('AED 875.70'); expect(note).toContain('INV-FB-ABC123'); expect(note).not.toContain('THIS BOOKING HAS BEEN CANCELLED')
   })
+  it('ADR 0066: voucher prints every guest by room, special requests as not guaranteed, agent ref and hotel times; still no price', () => {
+    const html = renderBookingDocument(doc('VOUCHER', {
+      agentRef: 'TR-<9>', hotelDetails: { address: '1 Marina Walk', checkInTime: '15:00', checkOutTime: '12:00' },
+      guestsByRoom: [{ room: 1, guests: [{ name: 'Mrs Layla <O>', type: 'ADULT', age: null, isLead: true }, { name: 'Zain', type: 'CHILD', age: 7, isLead: false }] }, { room: 2, guests: [{ name: 'Mr Ali Khan', type: 'ADULT', age: null, isLead: false }] }],
+      specialRequests: { items: ['Late check-in', 'Quiet room'], note: 'Arriving <late>' }, cancellationPolicy: [],
+    }))
+    expect(html).toContain('Rooming list'); expect(html).toContain('Room 2'); expect(html).toContain('Mrs Layla &lt;O&gt;'); expect(html).toContain('Lead guest'); expect(html).toContain('Child, age 7')
+    expect(html).toContain('Not guaranteed'); expect(html).toContain('Late check-in'); expect(html).toContain('Arriving &lt;late&gt;')
+    expect(html).toContain('Agent reference'); expect(html).toContain('TR-&lt;9&gt;'); expect(html).toContain('2099-03-01 from 15:00'); expect(html).toContain('1 Marina Walk')
+    expect(html).not.toMatch(/AED\s?\d/); expect(html).not.toContain('<O>')
+  })
+  it('ADR 0066: invoice names the agency billed and the rooming list', () => {
+    const html = renderBookingDocument(doc('INVOICE', { agencyName: 'Acme & Co', currency: 'AED', lines: [{ description: 'Accommodation', amountMinor: '90000' }], totalMinor: '90000', payment: { status: 'PAID' }, guestsByRoom: [{ room: 1, guests: [{ name: 'Mr A B', type: 'ADULT', age: null, isLead: true }] }] }))
+    expect(html).toContain('Billed to'); expect(html).toContain('Acme &amp; Co'); expect(html).toContain('Rooming list'); expect(html).toContain('AED 900.00')
+  })
   it('marks a voucher and invoice of a cancelled booking as no longer valid', () => {
     expect(renderBookingDocument(doc('VOUCHER', {}, 'CANCELLED'))).toContain('THIS BOOKING HAS BEEN CANCELLED')
     expect(renderBookingDocument(doc('INVOICE', { currency: 'AED', lines: [], totalMinor: '1', payment: {} }, 'CANCELLED'))).toContain('THIS BOOKING HAS BEEN CANCELLED')

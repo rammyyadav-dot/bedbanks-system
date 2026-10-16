@@ -7,8 +7,9 @@ import { moveNight } from '../inventory/inventory-counters'
 import { readSupplierPrebook } from './supplier-prebook-record'
 import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
 
-export interface BookingConfirmationCommand { tenantId: string; userId: string; requestId: string; bookingId: string }
-export interface BookingConfirmationResult { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean }
+/** `recipient`/`cc`: the confirmation email (ADR 0066). The recipient is the booking agent's own account email from the session, never a request field. */
+export interface BookingConfirmationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; recipient?: string | null; cc?: string[] }
+export interface BookingConfirmationResult { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean; email: { to: string; cc: string[] } | null }
 
 /**
  * Confirms a prebooked booking against contracted (in-house) inventory in ONE database transaction:
@@ -26,7 +27,10 @@ export class BookingConfirmationService {
       const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
       if (locked.length !== 1) throw new NotFoundException('Booking not found')
       const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId } })
-      if (booking.status === 'CONFIRMED') return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: true }
+      if (booking.status === 'CONFIRMED') {
+        const queued = await tx.bookingEmail.findUnique({ where: { tenantId_bookingId_kind: { tenantId, bookingId, kind: 'BOOKING_CONFIRMATION' } }, select: { toAddress: true, ccAddresses: true } })
+        return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: true, email: queued ? { to: queued.toAddress, cc: queued.ccAddresses } : null }
+      }
       if (booking.status !== 'PENDING_SUPPLIER') throw new ConflictException('Booking is not confirmable')
 
       const mutation = await tx.supplierMutation.findFirst({ where: { tenantId, bookingId, operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' } })
@@ -71,7 +75,12 @@ export class BookingConfirmationService {
       await tx.booking.update({ where: { id: bookingId }, data: { supplier: 'contracted-inventory' } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.confirmed', entityType: 'booking', entityId: bookingId,
         payload: { requestId, inventoryHoldId: holdId, walletId: reservation.walletId, currency: booking.currency, amountMinor: amountMinor.toString() } } })
-      return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: false }
+      // ADR 0066 transactional outbox: the confirmation email is queued in this same transaction, once per booking (unique), or not at all.
+      if (command.recipient) {
+        await tx.bookingEmail.create({ data: { tenantId, bookingId, kind: 'BOOKING_CONFIRMATION', toAddress: command.recipient, ccAddresses: command.cc ?? [], runAfter: new Date(), requestedByUserId: userId } })
+        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.email.queued', entityType: 'booking', entityId: bookingId, payload: { requestId, kind: 'BOOKING_CONFIRMATION', ccCount: (command.cc ?? []).length } } })
+      }
+      return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: false, email: command.recipient ? { to: command.recipient, cc: command.cc ?? [] } : null }
     })
   }
 }
