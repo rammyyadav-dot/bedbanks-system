@@ -1,5 +1,6 @@
 'use client'
 
+import { Archive, CheckCircle2, Pencil } from 'lucide-react'
 import { useUnsavedChanges } from '../useUnsavedChanges'
 
 import { useMemo, useRef, useState } from 'react'
@@ -31,13 +32,14 @@ const BED_LABEL: Record<BedType, string> = { SINGLE: 'Single', DOUBLE: 'Double',
  * Canonical room master for one hotel. Management (create, edit, archive, restore) goes through the Admin room API with a
  * concurrency token and an idempotency key; commercial columns come from the API's own assessment. Rooms are never deleted.
  */
-export function RoomsPanel({ data, onChanged }: { data: HotelCommercial360; onChanged: () => void }) {
+export function RoomsPanel({ data, onChanged, compact = false }: { data: HotelCommercial360; onChanged: () => void; compact?: boolean }) {
   const hotelId = data.hotel.id
   const can = useCan()
   const canManage = can('supply.rooms.manage')
   const initial = useSearchParams().get('room')
   const [version, setVersion] = useState(0)
   const [editing, setEditing] = useState<string | null>(initial)
+  const [archiveRequested, setArchiveRequested] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
   const { state, reload } = useOpsQuery(() => getHotelRooms(hotelId), [hotelId, version])
   const commercial = useMemo(() => new Map(data.rooms.map((r) => [r.id, r])), [data.rooms])
@@ -48,13 +50,24 @@ export function RoomsPanel({ data, onChanged }: { data: HotelCommercial360; onCh
       <OpsState state={state} onRetry={reload}>
         {(view) => (
           <>
-            <div className="workspace-panel" style={{ padding: 18 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <h2 style={{ fontSize: 14, margin: 0 }}>Rooms ({view.rooms.length})</h2>
-                {canManage && <button type="button" className="button primary" onClick={() => { setFlash(null); setEditing('new') }}>+ Add room</button>}
+            <div className={compact ? "hotel-room-card" : "workspace-panel"} style={compact ? undefined : { padding: 18 }}>
+              <div className={compact ? 'hotel-room-card-heading' : undefined} style={compact ? undefined : { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <h2 style={{ fontSize: 14, margin: 0 }}>{compact ? 'Room Types' : `Rooms (${view.rooms.length})`}</h2>
+                {canManage && !compact && <button type="button" className="button primary" onClick={() => { setFlash(null); setEditing('new') }}>+ Add room</button>}
               </div>
               {!view.amenitiesAvailable && <p role="status" data-testid="amenities-unavailable" style={{ ...note, color: '#8a5a00' }}>Room amenities are unavailable to the API database role, so they are not shown or saved here.</p>}
-              {view.rooms.length === 0 ? <p data-testid="rooms-empty" style={{ color: '#3f565c' }}>This hotel has no room types. Without a room, nothing can be mapped, priced or sold.</p> : (
+              {compact && view.rooms.length > 0 && <div className="hotel-room-scroll" role="region" aria-label="Room types" tabIndex={0}><table className="hotel-room-table" aria-label="Room types">
+                <thead><tr>{['Room Type Name', 'Max Occupancy', 'Max Adults', 'Max Children', 'Max Adults with Children', 'Min Occupancy', 'Extra Bed', 'Status', 'Actions'].map(h => <th scope="col" key={h}>{h.startsWith('Max ') || h.startsWith('Min ') ? <>{h === 'Max Adults with Children' ? 'Max Adults' : h.split(' ')[0]}<br />{h === 'Max Adults with Children' ? 'with Children' : h.split(' ').slice(1).join(' ')}</> : h}</th>)}</tr></thead>
+                <tbody>{view.rooms.map(room => <tr key={room.id} data-room-id={room.id} data-active={room.isActive}>
+                  <td><div className="hotel-room-name"><i className={room.isActive ? 'active' : ''} /><span>{room.name}<small>{room.code}</small></span></div></td>
+                  <td>{room.maxOccupancy}</td><td>{room.maxAdults}</td><td>{room.maxChildren}</td>
+                  <td><span aria-label="Not recorded" title="Not recorded">—</span></td><td><span aria-label="Not recorded" title="Not recorded">—</span></td>
+                  <td>{room.bedding.extraBed === 'SUPPORTED' ? <CheckCircle2 size={16} className="hotel-extra-bed" aria-label="Supported" /> : room.bedding.extraBed === 'NOT_SUPPORTED' ? 'No' : <span title="Not recorded">—</span>}</td>
+                  <td><span className={`hotel-room-status ${room.isActive ? 'active' : ''}`}>{room.isActive ? 'Active' : 'Archived'}</span></td>
+                  <td>{canManage ? <div className="hotel-property-room-actions"><button type="button" className="hotel-ui-button" onClick={() => { setFlash(null); setArchiveRequested(false); setEditing(room.id) }}><Pencil size={13} />Edit</button>{room.isActive && <button type="button" className="hotel-room-archive" aria-label={`Archive ${room.name}`} title="Archive room" onClick={() => { setFlash(null); setArchiveRequested(true); setEditing(room.id) }}><Archive size={13} /></button>}</div> : '—'}</td>
+                </tr>)}</tbody>
+              </table></div>}
+              {view.rooms.length === 0 ? <p data-testid="rooms-empty" style={{ color: '#3f565c' }}>This hotel has no room types. Without a room, nothing can be mapped, priced or sold.</p> : !compact && (
                 <ScrollRegion label="Rooms">
                   <table style={tableStyle} aria-label="Rooms">
                     <thead><tr>{['Room', 'Code', 'Occupancy', 'Bedding', 'Amenities', 'Status', 'Supplier mapping', 'Rate plans', 'Inventory', 'Sellability', 'Blockers', 'Actions'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
@@ -74,7 +87,7 @@ export function RoomsPanel({ data, onChanged }: { data: HotelCommercial360; onCh
                             <td style={td}>{c ? <InventoryChip value={c.inventory} /> : '—'}</td>
                             <td style={td}>{c ? <ReadinessChip value={c.readiness} blockers={c.blockers} /> : '—'}</td>
                             <td style={td}>{c && c.blockers.length ? c.blockers.map((b) => <div key={b} title={reasonText(b)}><code>{b}</code></div>) : '—'}</td>
-                            <td style={{ ...td, whiteSpace: 'nowrap' }}>{canManage ? <button type="button" className="admin-btn" onClick={() => { setFlash(null); setEditing(room.id) }}>Edit</button> : '—'}</td>
+                            <td style={{ ...td, whiteSpace: 'nowrap' }}>{canManage ? <button type="button" className="admin-btn" onClick={() => { setFlash(null); setArchiveRequested(false); setEditing(room.id) }}>Edit</button> : '—'}</td>
                           </tr>
                         )
                       })}
@@ -83,8 +96,8 @@ export function RoomsPanel({ data, onChanged }: { data: HotelCommercial360; onCh
                 </ScrollRegion>
               )}
             </div>
-            {editing && canManage && <RoomEditor key={editing} hotelId={hotelId} view={view} room={editing === 'new' ? undefined : view.rooms.find((r) => r.id === editing)} onClose={() => setEditing(null)} onDone={done} />}
-            <ChildAgeRules view={view} />
+            {editing && canManage && <RoomEditor key={`${editing}-${archiveRequested}`} startArchive={archiveRequested} hotelId={hotelId} view={view} room={editing === 'new' ? undefined : view.rooms.find((r) => r.id === editing)} onClose={() => setEditing(null)} onDone={done} />}
+            {!compact && <ChildAgeRules view={view} />}
           </>
         )}
       </OpsState>
@@ -109,14 +122,14 @@ function ChildAgeRules({ view }: { view: HotelRoomsView }) {
   )
 }
 
-function RoomEditor({ hotelId, view, room, onClose, onDone }: { hotelId: string; view: HotelRoomsView; room?: HotelRoomView; onClose: () => void; onDone: (text: string) => void }) {
+function RoomEditor({ hotelId, view, room, onClose, onDone, startArchive = false }: { startArchive?: boolean; hotelId: string; view: HotelRoomsView; room?: HotelRoomView; onClose: () => void; onDone: (text: string) => void }) {
   const initial = useMemo(() => toForm(room), [room])
   const [form, setForm] = useState<RoomForm>(initial)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false); const inFlight = useRef(false)
   const key = useRef<string | null>(null)
   const [error, setError] = useState<{ message: string; details: string[]; requestId: string | null; stale: boolean } | null>(null)
-  const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(startArchive)
   const set = <K extends keyof RoomForm>(k: K, v: RoomForm[K]) => { key.current = null; setForm((f) => ({ ...f, [k]: v })) }
   const isNew = !room
   const amenitiesOn = view.amenitiesAvailable
