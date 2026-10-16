@@ -35,8 +35,9 @@ test.describe('Agent portal: search, compare, recheck, booking stays closed', ()
 
     // Pick dates 14 and 16 days from now (the window the fixtures sell).
     await page.getByRole('button', { name: /nights/ }).first().click()
-    await page.getByRole('button', { name: D(14), exact: true }).first().click()
-    await page.getByRole('button', { name: D(16), exact: true }).first().click()
+    // A day can appear twice (the trailing cell of one month and its own month); only the enabled one is selectable.
+    await page.getByRole('button', { name: D(14), exact: true }).and(page.locator(':enabled')).first().click()
+    await page.getByRole('button', { name: D(16), exact: true }).and(page.locator(':enabled')).first().click()
     await page.getByRole('button', { name: 'Apply dates' }).click()
 
     await page.getByRole('button', { name: 'Search Hotels' }).click()
