@@ -210,13 +210,11 @@ export interface BookingTransactionCommand {
     firstName: string
     lastName: string
   }
-  /** Non-commercial checkout notes. They do not change price, occupancy, or idempotency equality. */
+  /** Non-commercial checkout notes (ADR 0066). They do not change price, occupancy, or idempotency equality. */
   agencyReference?: string
-  specialRequests?: string
-  roomGuests?: {
-    roomIndex: number
-    guests: { type: 'adult' | 'child'; firstName: string; lastName: string }[]
-  }[]
+  specialRequests?: { codes: string[]; note?: string }
+  /** Every guest by room, validated against the held occupancy; the lead guest is room 1's first adult. */
+  guests?: { roomNumber: number; type: 'ADULT' | 'CHILD'; title: string | null; firstName: string; lastName: string; age: number | null; isLead: boolean }[]
 }
 
 /**

@@ -34,7 +34,7 @@ export function SearchView({
   roomStays, setRoomStays, currency, setCurrency, sort, setSort, onCriteriaChange,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions, onApplyFilters, clientMarkupBp = 0, setClientMarkupBp,
+  boards, propertyTypeOptions, onApplyFilters, clientMarkupBp = 0, setClientMarkupBp, agentEmail = null,
   bookingEnabled, tenantId, onBooked, onViewBooking,
 }: {
   destination: string; destinationRef: DestinationRef | null; setDestination: (label: string, ref: DestinationRef | null, cityName: string) => void
@@ -58,6 +58,8 @@ export function SearchView({
   onApplyFilters: (filters: NonNullable<SearchCriteria['filters']>) => void
   /** Display-only client markup in basis points (ADR 0065). */
   clientMarkupBp?: number; setClientMarkupBp?: (basisPoints: number) => void
+  /** The signed-in agent's account email: where the booking confirmation is sent (ADR 0066). */
+  agentEmail?: string | null
   bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void
 }) {
   const [selectedLive, setSelectedLive] = useState<SearchHotelOffer | null>(null)
@@ -122,7 +124,7 @@ export function SearchView({
     <SearchCriteriaForm destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes} boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !canSubmitDestination(destinationRef))} tenantId={tenantId} filtersInSidebar={Boolean(result)} clientMarkupBp={clientMarkupBp} setClientMarkupBp={setClientMarkupBp} />
     {validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}
     {searching && !result && <SearchLoadingState />}
-    {result && request && selectedLive && <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} markupBp={clientMarkupBp} onBooked={onBooked} onViewBooking={onViewBooking} />}
+    {result && request && selectedLive && <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} markupBp={clientMarkupBp} agentEmail={agentEmail} onBooked={onBooked} onViewBooking={onViewBooking} />}
     {result && request && !selectedLive && <>
       <div className="market-criteria-bar">
         <p>
@@ -297,7 +299,7 @@ function LiveHotelCard({ hotel, tenantId, nights, markupBp, active, onSelect }: 
     </div>
   </article>
 }
-function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, markupBp, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; markupBp: number; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
+function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, markupBp, agentEmail, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; markupBp: number; agentEmail: string | null; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
@@ -404,7 +406,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       {(recheck?.status === 'provider_unavailable' || recheck?.status === 'rejected' || recheck?.status === 'mapping_invalid') && !rechecking && <button className="portal-primary" type="button" onClick={() => choose(selection.room, selection.rate)}>Try again</button>}
       {recheck && <RecheckOutcome result={recheck} currency={selection.rate.total.currency} priceMove={priceMove} bookingEnabled={bookingEnabled} />}
       {selection && reviewMinor !== null && <BookingReview hotelName={hotel.name} destination={hotel.destination} starRating={hotel.starRating} roomName={selection.room.name} rate={selection.rate} request={request} recheckedMinor={reviewMinor} bookingEnabled={bookingEnabled} expiresAt={recheck?.expiresAt} timeZone={hotel.timeZone} />}
-      {canOpenCheckout(bookingEnabled, recheck?.status) && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} />}</div>}
+      {canOpenCheckout(bookingEnabled, recheck?.status) && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} agentEmail={agentEmail} timeZone={hotel.timeZone} />}</div>}
   </section>
 }
 

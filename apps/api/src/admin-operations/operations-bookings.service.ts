@@ -1,3 +1,4 @@
+import { readSpecialRequests, type StoredSpecialRequests } from '../agent/special-requests'
 import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
@@ -32,6 +33,9 @@ const day = (d: Date | null | undefined): string | null => (d ? d.toISOString().
  * degrade explicitly: a name that cannot be read is null, and unreadable reconciliation evidence is `attention: null`, never "no flags".
  * Scope is applied here from the authenticated access (tenant, and agency for agency-scoped callers), never from a query parameter.
  */
+const maskRequests = (requests: StoredSpecialRequests | null, canViewPii: boolean): StoredSpecialRequests | null =>
+  !requests ? null : canViewPii || !requests.note ? requests : { codes: requests.codes, note: '••••' }
+
 @Injectable()
 export class OperationsBookingsService {
   /** Replaceable in tests so every date rule is deterministic. */
@@ -150,7 +154,8 @@ export class OperationsBookingsService {
     const { attention: _a, leadGuest: _l, guests: _g, room: _r, ...rest } = row
     return {
       access,
-      booking: { ...rest, hotelAddress: hotel?.address ?? null, specialRequests: null },
+      // ADR 0066: request codes are operational facts; the free-text note may carry personal data, so it follows the PII permission.
+      booking: { ...rest, hotelAddress: hotel?.address ?? null, specialRequests: maskRequests(readSpecialRequests(b.specialRequests), access.canViewPii) },
       rooms, guests,
       pricing: {
         currency: b.currency, sellMinor: b.totalMinor.toString(),

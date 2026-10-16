@@ -123,6 +123,7 @@ export class BookingPersistenceService {
             agencyId: member?.agencyId ?? null,
             agentUserId: command.userId,
             agentRef: command.agencyReference?.trim().slice(0, 120) || null,
+            ...(command.specialRequests ? { specialRequests: command.specialRequests as Prisma.InputJsonObject } : {}),
             checkIn, checkOut, nights: Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000),
           },
         })
@@ -136,7 +137,15 @@ export class BookingPersistenceService {
             adults: command.adults, children: command.children, childAges: command.childAges, sellMinor: BigInt(command.totalMinor),
           },
         })
-        await tx.bookingGuest.create({ data: { tenantId: command.tenantId, bookingId: created.id, roomId: bookingRoom.id, firstName: command.leadGuest.firstName, lastName: command.leadGuest.lastName, isLead: true, type: 'ADULT' } })
+        // ADR 0066: every guest by room when the checkout sent them (validated against the held occupancy), otherwise the lead guest only.
+        if (command.guests?.length) {
+          await tx.bookingGuest.createMany({ data: command.guests.map((guest) => ({
+            tenantId: command.tenantId, bookingId: created.id, roomId: bookingRoom.id, roomNumber: guest.roomNumber, title: guest.title, firstName: guest.firstName, lastName: guest.lastName,
+            isLead: guest.isLead, type: guest.type, age: guest.age,
+          })) })
+        } else {
+          await tx.bookingGuest.create({ data: { tenantId: command.tenantId, bookingId: created.id, roomId: bookingRoom.id, roomNumber: 1, firstName: command.leadGuest.firstName, lastName: command.leadGuest.lastName, isLead: true, type: 'ADULT' } })
+        }
         await tx.bookingEvent.create({ data: { tenantId: command.tenantId, bookingId: created.id, fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: command.userId, reason: 'Booking created', payload: { requestId: command.requestId } } })
         return created
       })

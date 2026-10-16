@@ -3,6 +3,8 @@ import { PrismaService } from '../database/prisma.service'
 import { bookingAccountFor } from './agency-account'
 import { BookingConfirmationService } from './booking-confirmation.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
+import { normalizeCheckout } from './checkout-details'
+import type { CheckoutGuest, CheckoutSpecialRequests } from '@bedbanks/contracts'
 
 /** Booking is a financial capability: it stays off unless an operator explicitly sets BOOKING_ENABLED=true. */
 export function bookingEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -14,6 +16,8 @@ export interface PrebookInput {
   inventoryHoldId: string; idempotencyKey: string
   adults: number; children: number; childAges: number[]
   leadGuest: { firstName: string; lastName: string }
+  /** ADR 0066 checkout details; all optional and non-commercial. */
+  guests?: CheckoutGuest[]; agentRef?: string; specialRequests?: CheckoutSpecialRequests
 }
 
 /**
@@ -43,6 +47,7 @@ export class BookingTransactionService {
     if (guests !== plan.occupancy || input.adults > plan.roomType.maxAdults || input.children > plan.roomType.maxChildren || input.childAges.length !== input.children) {
       throw new BadRequestException('Guest occupancy does not match the held rate')
     }
+    const details = normalizeCheckout(input, { rooms: hold.rooms, adults: input.adults, children: input.children, childAges: input.childAges, leadGuest: input.leadGuest })
     const iso = (value: Date) => value.toISOString().slice(0, 10)
     const total = Number(hold.sellAmountMinor)
     if (!Number.isSafeInteger(total)) throw new ConflictException('Hold amount cannot be represented safely')
@@ -52,10 +57,13 @@ export class BookingTransactionService {
       canonicalHotelId: hold.canonicalHotelId, canonicalRoomTypeId: hold.canonicalRoomTypeId, ratePlanId: hold.ratePlanId, boardBasisId: hold.boardBasisId,
       checkIn: iso(hold.checkIn), checkOut: iso(hold.checkOut), rooms: hold.rooms, adults: input.adults, children: input.children, childAges: input.childAges,
       currency: hold.currency, totalMinor: total, leadGuest: input.leadGuest, walletId: wallet.id,
+      ...(details.agentRef ? { agencyReference: details.agentRef } : {}),
+      ...(details.specialRequests ? { specialRequests: details.specialRequests } : {}),
+      ...(details.guests ? { guests: details.guests } : {}),
     })
   }
 
-  confirm(input: { tenantId: string; userId: string; requestId: string; bookingId: string }) {
+  confirm(input: { tenantId: string; userId: string; requestId: string; bookingId: string; recipient?: string | null; cc?: string[] }) {
     return this.confirmation.confirm(input)
   }
 }

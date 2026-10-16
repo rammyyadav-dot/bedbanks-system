@@ -30,3 +30,4 @@ export * from './supplier-extranet';
 
 export * from './hotel-reports'
 export * from './agent-search';
+export * from './agent-checkout';
