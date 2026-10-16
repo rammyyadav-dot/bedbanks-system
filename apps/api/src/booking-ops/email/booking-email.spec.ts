@@ -7,7 +7,7 @@ const voucher = { number: 'VCH-FB-1', issuedAt: '2099-01-01T00:00:00.000Z', payl
   bookingReference: 'FB-1', issuedFor: 'Acme <Travel>', hotel: { name: 'Marina <b>Bay</b>', city: 'Dubai' }, room: { name: 'Deluxe' }, board: { name: 'Bed and Breakfast' },
   stay: { checkIn: '2099-05-01', checkOut: '2099-05-03', nights: 2, rooms: 1, adults: 2, children: 0, childAges: [] }, leadGuest: { firstName: 'Layla', lastName: "O'Hara" },
   agentRef: 'TR-1', hotelDetails: { address: '1 Marina Walk', checkInTime: '15:00', checkOutTime: '12:00' }, cancellationPolicy: [{ daysBeforeCheckin: 7, penalty: '100% of the booking total' }],
-  specialRequests: { items: ['Late check-in'], note: 'After <midnight>' },
+  specialRequests: { items: ['Late check-in'], note: 'After <midnight>', arrivalTime: '23:30' },
 } }
 const invoice = { number: 'INV-FB-1', issuedAt: '2099-01-01T00:00:00.000Z', payload: { ...voucher.payload, currency: 'AED', totalMinor: '90000', lines: [{ description: 'Accommodation', amountMinor: '90000' }], payment: { status: 'PAID' } } }
 const decode = (raw: string, type: string) => Buffer.from(raw.split(`Content-Type: ${type}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n`)[1].split('\r\n--')[0].replace(/\r\n/g, ''), 'base64').toString('utf8')
@@ -18,6 +18,7 @@ describe('confirmation email (ADR 0066)', () => {
     expect(mail.subject).toBe('Booking confirmed: Marina <b>Bay</b> · 2099-05-01 · FB-1')
     expect(mail.html).toContain('Marina &lt;b&gt;Bay&lt;/b&gt;'); expect(mail.html).not.toContain('<b>Bay'); expect(mail.html).toContain('AED 900.00')
     expect(mail.html).toContain('After &lt;midnight&gt;'); expect(mail.html).toContain('href="https://agent.example/bookings"'); expect(mail.html).not.toMatch(/<script|<img|http:\/\//)
+    expect(mail.html).toContain('23:30 (hotel local time)'); expect(mail.text).toContain('Estimated arrival: 23:30 (hotel local time)')
     expect(mail.text).toContain('Total charged: AED 900.00'); expect(mail.text).toContain('Within 7 day(s) of check-in: 100% of the booking total')
     expect(mail.attachments.map((a) => a.filename)).toEqual(['Voucher-VCH-FB-1.html', 'Invoice-INV-FB-1.html'])
     expect(mail.attachments[0].content).toContain('Hotel Voucher'); expect(mail.attachments[0].content).not.toContain('AED 900.00')

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Suspense, use, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { BOOKING_ACTION_RULES, type BookingDetailView } from '@bedbanks/contracts'
+import { BOOKING_ACTION_RULES, SPECIAL_REQUEST_LABELS, type BookingDetailView, type SpecialRequestCode } from '@bedbanks/contracts'
 import { LoadingState } from '@/components/common/LoadingState'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
@@ -101,7 +101,7 @@ function Summary({ d }: { d: BookingDetailView }) {
           <dt>Hotel time zone</dt><dd>{b.hotel.timeZone ?? '—'}</dd>
           <dt>Rooms</dt>
           <dd>{d.rooms.length === 0 ? <span style={muted}>not recorded</span> : <ul style={{ margin: 0, paddingLeft: 16 }}>{d.rooms.map((r) => <li key={r.position}>{r.quantity} × {r.roomName ?? 'room'}{r.boardCode ? ` · ${r.boardCode}` : ''} · {r.adults} adult{r.adults === 1 ? '' : 's'}{r.children ? `, ${r.children} child${r.children === 1 ? '' : 'ren'}${r.childAges.length ? ` (ages ${r.childAges.join(', ')})` : ''}` : ''} per room</li>)}</ul>}</dd>
-          <dt>Special requests</dt><dd><span style={muted}>Not stored on bookings yet</span></dd>
+          <dt>Special requests</dt><dd>{b.specialRequests ? <>{[...b.specialRequests.codes.map((c) => SPECIAL_REQUEST_LABELS[c as SpecialRequestCode] ?? c), ...(b.specialRequests.arrivalTime ? [`Arrival ${b.specialRequests.arrivalTime} (hotel local time)`] : [])].join(' · ') || null}{b.specialRequests.note ? <div style={muted}>Note: {b.specialRequests.note}</div> : null}<div style={muted}>Not guaranteed by the hotel</div></> : <span style={muted}>None</span>}</dd>
         </dl>
       </section>
       <section className="workspace-panel" style={{ padding: 16 }} aria-labelledby="s-guests">

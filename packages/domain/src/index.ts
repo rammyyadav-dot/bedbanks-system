@@ -212,7 +212,7 @@ export interface BookingTransactionCommand {
   }
   /** Non-commercial checkout notes (ADR 0066). They do not change price, occupancy, or idempotency equality. */
   agencyReference?: string
-  specialRequests?: { codes: string[]; note?: string }
+  specialRequests?: { codes: string[]; note?: string; arrivalTime?: string }
   /** Every guest by room, validated against the held occupancy; the lead guest is room 1's first adult. */
   guests?: { roomNumber: number; type: 'ADULT' | 'CHILD'; title: string | null; firstName: string; lastName: string; age: number | null; isLead: boolean }[]
 }

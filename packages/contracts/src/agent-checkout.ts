@@ -13,6 +13,12 @@ export const SPECIAL_REQUEST_LABELS: Record<SpecialRequestCode, string> = {
 export const SPECIAL_REQUEST_NOTE_MAX = 300
 export const AGENT_REF_MAX = 60
 export const CONFIRMATION_CC_MAX = 3
+/** Estimated arrival, hotel local time, 24-hour "HH:MM". Optional, non-binding, printed on the voucher like a special request. */
+export const ARRIVAL_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+/** Prebook refusal (409) when the agency already holds an active booking for the same lead guest, hotel and dates. Repeat with acknowledgeDuplicate: true to book anyway. */
+export const DUPLICATE_BOOKING_SUSPECTED = 'DUPLICATE_BOOKING_SUSPECTED'
+/** One entry of the 409's error.details: the existing booking, never its guests. */
+export interface DuplicateBookingMatch { reference: string; status: string; createdAt: string }
 
 export interface CheckoutGuest {
   /** 1-based room within the booking. */
@@ -25,7 +31,7 @@ export interface CheckoutGuest {
   age?: number
 }
 
-export interface CheckoutSpecialRequests { codes: SpecialRequestCode[]; note?: string }
+export interface CheckoutSpecialRequests { codes: SpecialRequestCode[]; note?: string; arrivalTime?: string }
 
 /** Extra fields of POST routes.agent.prebook (on top of hold, idempotency key and occupancy). */
 export interface CheckoutDetails {
@@ -34,6 +40,8 @@ export interface CheckoutDetails {
   specialRequests?: CheckoutSpecialRequests
   /** Must be true when booking is enabled: the agent accepted the cancellation policy and booking terms. */
   termsAccepted?: boolean
+  /** The agent saw the duplicate-booking warning and books anyway. Audited. */
+  acknowledgeDuplicate?: boolean
 }
 
 /** Extra field of POST routes.agent.bookings (confirm). */

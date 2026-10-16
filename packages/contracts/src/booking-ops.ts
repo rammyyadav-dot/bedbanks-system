@@ -170,7 +170,7 @@ export interface BookingTimelineItem {
 
 export interface BookingDetailView {
   access: BookingAccessView
-  booking: Omit<BookingListRow, 'attention' | 'leadGuest' | 'guests' | 'room'> & { hotelAddress: string | null; /** ADR 0066. The note reads '••••' without booking.pii.view. */ specialRequests: { codes: string[]; note?: string } | null }
+  booking: Omit<BookingListRow, 'attention' | 'leadGuest' | 'guests' | 'room'> & { hotelAddress: string | null; /** ADR 0066. The note reads '••••' without booking.pii.view. */ specialRequests: { codes: string[]; note?: string; arrivalTime?: string } | null }
   rooms: BookingRoomView[]
   guests: BookingGuestView[]
   pricing: {

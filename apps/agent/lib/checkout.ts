@@ -1,4 +1,4 @@
-import { CONFIRMATION_CC_MAX, type CheckoutGuest, type GuestTitle } from '@bedbanks/contracts'
+import { CONFIRMATION_CC_MAX, type CheckoutGuest, type DuplicateBookingMatch, type GuestTitle } from '@bedbanks/contracts'
 
 /** Same rule as the server and the lead guest: letters first, then letters, marks, apostrophes, spaces, dots and hyphens; 1-80 characters. */
 const NAME = /^[\p{L}][\p{L}\p{M}' .-]{0,79}$/u
@@ -44,4 +44,21 @@ export function parseCcEmails(input: string, own: string | null): { ok: true; em
   }
   if (emails.length > CONFIRMATION_CC_MAX) return { ok: false, reason: `Add at most ${CONFIRMATION_CC_MAX} CC addresses.` }
   return { ok: true, emails }
+}
+
+/** Whole nights between two ISO dates (UTC days), or null when either date is unreadable or the range is empty. */
+export function stayNights(checkIn: string, checkOut: string): number | null {
+  const start = Date.parse(`${checkIn}T00:00:00Z`); const end = Date.parse(`${checkOut}T00:00:00Z`)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  return Math.round((end - start) / 86_400_000)
+}
+
+/** Estimated-arrival choices in hotel local time, every 30 minutes, "HH:MM". */
+export const ARRIVAL_TIME_OPTIONS: string[] = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`)
+
+/** The existing bookings a DUPLICATE_BOOKING_SUSPECTED refusal names. Anything malformed is dropped rather than shown. */
+export function duplicateMatches(details: unknown): DuplicateBookingMatch[] {
+  if (!Array.isArray(details)) return []
+  return details.filter((d): d is DuplicateBookingMatch => typeof d === 'object' && d !== null && typeof (d as DuplicateBookingMatch).reference === 'string'
+    && typeof (d as DuplicateBookingMatch).status === 'string' && typeof (d as DuplicateBookingMatch).createdAt === 'string').slice(0, 3)
 }

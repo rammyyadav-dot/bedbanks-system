@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { AGENT_REF_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_NOTE_MAX, type CheckoutGuest, type CheckoutSpecialRequests, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts'
+import { AGENT_REF_MAX, ARRIVAL_TIME_PATTERN, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_NOTE_MAX, type CheckoutGuest, type CheckoutSpecialRequests, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts'
 
 /** The same rule as the lead guest: letters first, then letters, marks, apostrophes, spaces, dots and hyphens; 1-80 characters. */
 const NAME = /^[\p{L}][\p{L}\p{M}' .-]{0,79}$/u
@@ -8,7 +8,7 @@ const AGENT_REF = /^[\p{L}\p{N}][\p{L}\p{N} ._/#:-]*$/u
 
 export interface CheckoutOccupancy { rooms: number; adults: number; children: number; childAges: number[]; leadGuest: { firstName: string; lastName: string } }
 export interface NormalizedGuest { roomNumber: number; type: 'ADULT' | 'CHILD'; title: GuestTitle | null; firstName: string; lastName: string; age: number | null; isLead: boolean }
-export interface NormalizedCheckout { guests: NormalizedGuest[] | null; agentRef: string | null; specialRequests: { codes: SpecialRequestCode[]; note?: string } | null }
+export interface NormalizedCheckout { guests: NormalizedGuest[] | null; agentRef: string | null; specialRequests: { codes: SpecialRequestCode[]; note?: string; arrivalTime?: string } | null }
 
 const refuse = (code: string, message: string): never => { throw new BadRequestException({ code, message }) }
 const sameName = (left: string, right: string) => left.trim().toLocaleLowerCase('en-US') === right.trim().toLocaleLowerCase('en-US')
@@ -61,8 +61,10 @@ export function normalizeCheckout(input: { guests?: CheckoutGuest[]; agentRef?: 
     // Free text is kept to one line of printable characters: it is printed on the voucher, and markup characters are escaped when rendered.
     const note = (input.specialRequests.note ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
     if (note.length > SPECIAL_REQUEST_NOTE_MAX) refuse('SPECIAL_REQUEST_NOTE_TOO_LONG', `Keep the note to ${SPECIAL_REQUEST_NOTE_MAX} characters.`)
+    const arrivalTime = input.specialRequests.arrivalTime?.trim() ?? ''
+    if (arrivalTime && !ARRIVAL_TIME_PATTERN.test(arrivalTime)) refuse('ARRIVAL_TIME_INVALID', 'Enter the estimated arrival time as HH:MM (24-hour, hotel local time).')
     const ordered = SPECIAL_REQUEST_CODES.filter((code) => codes.includes(code))
-    specialRequests = ordered.length || note ? { codes: ordered, ...(note ? { note } : {}) } : null
+    specialRequests = ordered.length || note || arrivalTime ? { codes: ordered, ...(note ? { note } : {}), ...(arrivalTime ? { arrivalTime } : {}) } : null
   }
   return { guests, agentRef, specialRequests }
 }

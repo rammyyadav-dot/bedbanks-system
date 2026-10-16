@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer'
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator'
-import { AGENT_REF_MAX, CONFIRMATION_CC_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_NOTE_MAX } from '@bedbanks/contracts'
+import { AGENT_REF_MAX, ARRIVAL_TIME_PATTERN, CONFIRMATION_CC_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_NOTE_MAX } from '@bedbanks/contracts'
 import { enabledSettlementCurrencies } from './currency'
 
 export class RateActionDto {
@@ -56,6 +56,8 @@ export class CheckoutGuestDto {
 export class SpecialRequestsDto {
   @IsArray() @ArrayMaxSize(SPECIAL_REQUEST_CODES.length) @IsIn(SPECIAL_REQUEST_CODES as unknown as string[], { each: true }) codes!: typeof SPECIAL_REQUEST_CODES[number][]
   @IsOptional() @IsString() @MaxLength(SPECIAL_REQUEST_NOTE_MAX) note?: string
+  /** Estimated arrival, hotel local time (ADR 0066 amendment 1). */
+  @IsOptional() @IsString() @Matches(ARRIVAL_TIME_PATTERN) arrivalTime?: string
 }
 
 export class LeadGuestDto {
@@ -76,6 +78,8 @@ export class PrebookBookingDto {
   @IsOptional() @ValidateNested() @Type(() => SpecialRequestsDto) specialRequests?: SpecialRequestsDto
   /** Required (true) when booking is enabled: the agent accepted the cancellation policy and booking terms. */
   @IsOptional() @IsBoolean() termsAccepted?: boolean
+  /** The agent saw the duplicate-booking warning and books anyway (ADR 0066 amendment 1). */
+  @IsOptional() @IsBoolean() acknowledgeDuplicate?: boolean
 }
 
 export class ConfirmBookingDto {

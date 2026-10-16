@@ -219,4 +219,22 @@ describe('booking checkout details and confirmation email (PostgreSQL)', () => {
     } finally { await ops.$disconnect() }
     expect((await emailOf(bookingId)).toAddress).toBe('agent@agency.example')
   })
+
+  it('CE-07: the duplicate check finds an active booking for the same agency, hotel, dates and lead guest (any letter case), and nothing once it is cancelled', async () => {
+    const noor = { firstName: 'Noor', lastName: 'Haddad' }
+    const first = await hold(`${suffix}-dup-1`, 1)
+    const pre = await tx.prebook({ tenantId, userId, requestId: 'dup-1', inventoryHoldId: first.holdId, idempotencyKey: `${suffix}-dup-1`, adults: 2, children: 0, childAges: [], leadGuest: noor,
+      specialRequests: { codes: [], arrivalTime: '22:30' } })
+    const done = await tx.confirm({ tenantId, userId, requestId: 'dup-1c', bookingId: pre.bookingId, recipient: null })
+    expect((await prisma.booking.findUniqueOrThrow({ where: { id: pre.bookingId } })).specialRequests).toEqual({ codes: [], arrivalTime: '22:30' })
+    const second = await hold(`${suffix}-dup-2`, 1)
+    const ask = (leadGuest: { firstName: string; lastName: string }, idempotencyKey = `${suffix}-dup-2`) => tx.findDuplicates({ tenantId, userId, inventoryHoldId: second.holdId, idempotencyKey, leadGuest })
+    expect(await ask({ firstName: ' noor ', lastName: 'HADDAD' })).toEqual([{ reference: done.reference, status: 'CONFIRMED', createdAt: expect.any(String) }])
+    expect(await ask({ firstName: 'Nour', lastName: 'Haddad' })).toEqual([])
+    // A retry of the same prebook is not its own duplicate; another user's hold reveals nothing.
+    expect(await ask(noor, `${suffix}-dup-1`)).toEqual([])
+    expect(await tx.findDuplicates({ tenantId, userId: 'someone-else', inventoryHoldId: second.holdId, idempotencyKey: 'k', leadGuest: noor })).toEqual([])
+    await cancellations.cancel({ tenantId, userId, requestId: 'dup-cx', bookingId: pre.bookingId, reason: 'duplicate' } as never)
+    expect(await ask(noor)).toEqual([])
+  })
 })

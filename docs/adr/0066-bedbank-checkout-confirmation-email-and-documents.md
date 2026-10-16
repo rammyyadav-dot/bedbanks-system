@@ -30,3 +30,13 @@ Constraints: idempotency on booking mutations (6); never log guest PII (7); audi
 - Resend / change-recipient actions and an email status column in My bookings (the runtime role cannot read `BookingEmail`; a narrow column grant is a follow-up).
 - Client-facing documents with the agent's markup (ADR 0065 keeps markup display-only).
 - SES domain verification, DKIM and sending limits are an operations task in AWS; until done, keep `EMAIL_DISPATCH_ENABLED` off.
+
+## Amendment 1 (2026-10-16): industry-standard checkout items
+
+Checked against what Hotelbeds, WebBeds and TBO show at checkout, three items were missing.
+
+- **Estimated arrival time.** Optional, 24-hour `HH:MM` in hotel local time, stored with the special requests (`Booking.special_requests.arrivalTime`, no migration: the column is already a JSON object). The voucher and the email print it as not guaranteed. Admin booking detail now shows the stored requests and arrival time instead of "not stored yet"; the free-text note stays masked without `booking.pii.view`.
+- **Duplicate booking warning.** Before a portal prebook, `BookingTransactionService.findDuplicates` looks for an active booking (pending, on request, confirmed, amend or cancel requested) of the same agency, hotel, check-in, check-out and lead guest (case-insensitive), excluding a retry of the same prebook. If one exists, `POST agent/prebook` answers 409 `DUPLICATE_BOOKING_SUSPECTED` with up to three `{ reference, status, createdAt }` in `error.details` (never guest data), before anything is held or charged. The agent books anyway with `acknowledgeDuplicate: true`, which is audited as `booking.duplicate.acknowledged` with the existing references. It is a warning, not a database constraint: only the agent-portal endpoint asks, so admin, manual and future API channels are unaffected, and two concurrent prebooks can both pass.
+- **Summary context.** The booking summary adds guest nationality (the rate depends on it), the included promotion, the average per night and how the booking is paid (agency credit). It does not show a tax and fee breakdown: contracted inventory records tax and fees as 0, meaning not modelled, and showing "Taxes AED 0.00" would be false.
+
+Not built in this amendment: lead-guest phone and email (more guest PII to store, mask and retain; a separate decision), supplier rate comments / essential hotel information (no source data in contracted inventory yet), and region-specific identity fields (for example PAN or passport numbers).
