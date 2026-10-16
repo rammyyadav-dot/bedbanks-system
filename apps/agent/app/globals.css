@@ -594,3 +594,104 @@ label, .field span { color: #5a5a55; }
   .portal-brand .fabbeds-brand small { font-size: 6.5px; letter-spacing: .35px; }
   .trade-hero-logo.fabbeds-brand small { font-size: 8px; letter-spacing: .55px; }
 }
+
+/* Bedbank results layout (TBO / WebBeds pattern): filter sidebar, sort bar, horizontal hotel cards, full-width hotel page with a rate table. */
+.bb-results-layout { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 18px; align-items: start; }
+.bb-results-main { display: grid; gap: 12px; min-width: 0; }
+.bb-filter-toggle { display: none; }
+.bb-filters { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; border: 1px solid #E5E7EB; border-radius: 10px; background: #FFFFFF; }
+.bb-filters-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #E5E7EB; }
+.bb-filters-head h2 { flex: 1; margin: 0; color: #1F2937; font: 700 14px Montserrat, sans-serif; }
+.bb-filters-close { display: none; border: 0; background: none; color: #4B5563; }
+.bb-filters form { display: grid; }
+.bb-filter-group { display: grid; gap: 8px; margin: 0; padding: 14px 16px; border: 0; border-bottom: 1px solid #F0F1F3; }
+.bb-filter-group legend { float: left; width: 100%; margin-bottom: 8px; padding: 0; color: #1F2937; font-size: 13px; font-weight: 700; }
+.bb-check { display: flex; align-items: center; gap: 8px; color: #374151; font-size: 13px; cursor: pointer; }
+.bb-check input { width: 16px; height: 16px; accent-color: #D90429; }
+.bb-price-range { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: end; }
+.bb-price-range label { display: grid; gap: 4px; color: #6B7280; font-size: 11px; }
+.bb-price-range input { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border: 1px solid #D1D5DB; border-radius: 6px; color: #1F2937; font-size: 13px; }
+.bb-price-range > span { padding-bottom: 9px; color: #9CA3AF; }
+.bb-filters-actions { position: sticky; bottom: 0; display: grid; gap: 6px; padding: 12px 16px; background: #FFFFFF; border-top: 1px solid #E5E7EB; }
+.bb-filters-actions .portal-primary { width: 100%; }
+.bb-filters-actions .portal-primary:disabled { opacity: .5; cursor: not-allowed; }
+.bb-filters-actions p { margin: 0; color: #B45309; font-size: 12px; }
+
+.bb-results-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.bb-results-count { display: grid; gap: 2px; margin: 0; color: #1F2937; font-size: 15px; }
+.bb-results-count span { color: #6B7280; font-size: 12px; }
+.bb-sort { display: flex; flex-wrap: wrap; align-items: center; gap: 0; overflow: hidden; border: 1px solid #D1D5DB; border-radius: 8px; background: #FFFFFF; }
+.bb-sort > span { padding: 0 12px; color: #6B7280; font-size: 12px; }
+.bb-sort button { min-height: 36px; padding: 0 14px; border: 0; border-left: 1px solid #E5E7EB; background: none; color: #374151; font-size: 13px; font-weight: 600; }
+.bb-sort button[aria-pressed="true"] { background: #1F2937; color: #FFFFFF; }
+.bb-sort button:disabled { cursor: progress; }
+.bb-sort button:focus-visible, .bb-rate-tools button:focus-visible, .bb-hotel-media:focus-visible { outline: 2px solid #0f7681; outline-offset: -2px; }
+
+.bb-hotel-list { gap: 12px; }
+.portal-hotel-card.bb-hotel-card { display: grid; grid-template-columns: 220px minmax(0, 1fr) 210px; min-height: 176px; border-radius: 10px; }
+.bb-hotel-card.is-active { box-shadow: 0 0 0 2px #1F293733; }
+.bb-hotel-media { display: block; padding: 0; border: 0; background: #F7F8FA; cursor: pointer; }
+.bb-hotel-media .market-hotel-mark { width: 100%; height: 100%; min-height: 176px; font-size: 42px; font-weight: 700; }
+.bb-hotel-media .market-hotel-mark.has-image img { width: 100%; height: 100%; }
+.bb-hotel-info { display: grid; align-content: start; gap: 5px; min-width: 0; padding: 14px 16px; }
+.bb-hotel-place { display: flex; align-items: flex-start; gap: 5px; margin: 0; color: #4B5563; font-size: 13px; }
+.bb-hotel-place svg { flex: none; margin-top: 2px; color: #D90429; }
+.bb-hotel-type { width: max-content; margin: 0; padding: 2px 8px; border: 1px solid #E5E7EB; border-radius: 4px; color: #4B5563; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.bb-lead-rate { display: grid; gap: 2px; margin-top: 6px; padding: 8px 10px; border-left: 3px solid #E5E7EB; background: #F9FAFB; }
+.bb-lead-rate strong { color: #1F2937; font-size: 13px; }
+.bb-lead-rate span { color: #4B5563; font-size: 12px; }
+.bb-badges .is-cancel { background: #ECFDF5; color: #047857; }
+.bb-badges .is-nonref { background: #FEF2F2; color: #B42318; }
+.bb-badges .is-promo { background: #FFF7ED; color: #B45309; }
+.bb-badges .is-limited { background: #FEF3C7; color: #92400E; }
+.bb-hotel-price { display: grid; align-content: center; justify-items: end; gap: 4px; padding: 14px 16px; border-left: 1px dashed #E5E7EB; text-align: right; }
+.bb-hotel-price small { color: #6B7280; font-size: 12px; }
+.bb-hotel-price strong { color: #1F2937; font: 700 22px Montserrat, sans-serif; }
+.bb-hotel-price strong.is-none { font-size: 14px; color: #6B7280; }
+.bb-hotel-price .portal-primary { width: 100%; margin-top: 6px; }
+.bb-per-night { color: #4B5563; }
+
+.market-hotel-detail.bb-hotel-page { position: static; display: grid; gap: 12px; }
+.bb-hotel-page .back-link { margin-bottom: 0; justify-self: start; }
+.bb-hotel-hero { display: grid; grid-template-columns: 280px minmax(0, 1fr) auto; gap: 18px; align-items: stretch; overflow: hidden; border: 1px solid #E5E7EB; border-radius: 10px; background: #FFFFFF; }
+.bb-hotel-hero > .market-hotel-mark { width: 100%; min-height: 190px; font-size: 48px; font-weight: 700; }
+.bb-hotel-hero-copy { display: grid; align-content: center; gap: 6px; padding: 14px 0; min-width: 0; }
+.bb-hotel-hero .bb-hotel-price { border-left: 1px dashed #E5E7EB; min-width: 200px; }
+.bb-stay-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+.bb-stay-chips li { padding: 4px 10px; border: 1px solid #E5E7EB; border-radius: 999px; background: #F7F8FA; color: #1F2937; font-size: 12px; font-weight: 600; }
+.bb-rate-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px; border: 1px solid #E5E7EB; border-radius: 10px; background: #FFFFFF; }
+.bb-rate-tools > span { margin-right: 4px; color: #6B7280; font-size: 12px; font-weight: 700; }
+.bb-rate-tools button { min-height: 32px; padding: 0 12px; border: 1px solid #D1D5DB; border-radius: 999px; background: #FFFFFF; color: #374151; font-size: 12px; font-weight: 600; }
+.bb-rate-tools button[aria-pressed="true"] { border-color: #1F2937; background: #1F2937; color: #FFFFFF; }
+.bb-rate-tools .bb-check { margin-left: auto; }
+.bb-rate-columns { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(180px, 1.2fr) minmax(150px, auto) 132px; gap: 12px; padding: 0 14px; color: #6B7280; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.bb-rate-columns span:nth-child(3) { text-align: right; }
+.bb-room-group { margin-top: 0; }
+.bb-room-group .market-rate-row { grid-template-columns: minmax(160px, 1.3fr) minmax(180px, 1.2fr) minmax(150px, auto) 132px; }
+.bb-room-group .market-rate-row .portal-primary { width: 100%; }
+
+@media (max-width: 1100px) {
+  .portal-hotel-card.bb-hotel-card { grid-template-columns: 180px minmax(0, 1fr) 190px; }
+  .bb-hotel-hero { grid-template-columns: 220px minmax(0, 1fr); }
+  .bb-hotel-hero .bb-hotel-price { grid-column: 1 / -1; justify-items: start; border-left: 0; border-top: 1px dashed #E5E7EB; text-align: left; }
+}
+@media (max-width: 900px) {
+  .bb-results-layout { grid-template-columns: 1fr; }
+  .bb-filter-toggle { display: inline-flex; justify-self: start; }
+  .bb-filters { display: none; position: fixed; inset: 0 auto 0 0; z-index: 40; width: min(340px, 100%); max-height: none; border-radius: 0; box-shadow: 8px 0 24px #1f293733; }
+  .bb-filters.is-open { display: block; }
+  .bb-filters-close { display: grid; }
+  .bb-rate-columns { display: none; }
+  .bb-room-group .market-rate-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .portal-hotel-card.bb-hotel-card { grid-template-columns: 1fr; }
+  .bb-hotel-media .market-hotel-mark { min-height: 160px; }
+  .bb-hotel-price { justify-items: stretch; border-left: 0; border-top: 1px dashed #E5E7EB; text-align: left; }
+  .bb-hotel-hero { grid-template-columns: 1fr; }
+  .bb-hotel-hero-copy { padding: 0 14px; }
+  .bb-sort { width: 100%; }
+  .bb-sort > span { display: none; }
+  .bb-sort button { flex: 1; padding: 0 8px; }
+  .bb-rate-tools .bb-check { margin-left: 0; }
+}

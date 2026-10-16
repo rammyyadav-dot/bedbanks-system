@@ -21,7 +21,7 @@ export function SearchCriteriaForm({
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
   boards, propertyTypeOptions, sort, setSort,
-  searching, searchFailed = false, onSubmit, onChange, destinationInvalid = false, tenantId,
+  searching, searchFailed = false, onSubmit, onChange, destinationInvalid = false, tenantId, filtersInSidebar = false,
 }: {
   destination: string
   destinationRef: DestinationRef | null
@@ -58,6 +58,8 @@ export function SearchCriteriaForm({
   onChange: (action: () => void) => void
   destinationInvalid?: boolean
   tenantId: string
+  /** The results page shows filters in its sidebar, so the form does not offer a second copy of them. */
+  filtersInSidebar?: boolean
 }) {
   const currencyOptions = useCurrencyOptions()
   const errorId = useId()
@@ -89,12 +91,12 @@ export function SearchCriteriaForm({
       </div>
       <div className="market-search-tools">
         <NationalityField nationality={nationality} onChange={(value) => change(() => setNationality(value))} />
-        <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>
+        {!filtersInSidebar && <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>}
         <label><span>{marketplaceHome.currencyLabel}</span> <select aria-label="Selling currency" value={currency} onChange={(event) => change(() => setCurrency(event.target.value))}>{currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
       </div>
       {formError && <p id={errorId} className="portal-field-error" role="alert">{formError}</p>}
       <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} {marketplaceHome.residencyNote} A search total is not confirmed availability.</p>
-      {advanced && <AdvancedFields currency={currency} starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPrice={minPrice} setMinPrice={(value) => change(() => setMinPrice(value))} maxPrice={maxPrice} setMaxPrice={(value) => change(() => setMaxPrice(value))} boardBasisIds={boardBasisIds} setBoardBasisIds={(value) => change(() => setBoardBasisIds(value))} boards={boards} propertyTypes={propertyTypes} setPropertyTypes={(value) => change(() => setPropertyTypes(value))} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={(value) => change(() => setSort(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPrice(''); setMaxPrice(''); setBoardBasisIds([]); setPropertyTypes([]); setSort('default') })} />}
+      {advanced && !filtersInSidebar && <AdvancedFields currency={currency} starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPrice={minPrice} setMinPrice={(value) => change(() => setMinPrice(value))} maxPrice={maxPrice} setMaxPrice={(value) => change(() => setMaxPrice(value))} boardBasisIds={boardBasisIds} setBoardBasisIds={(value) => change(() => setBoardBasisIds(value))} boards={boards} propertyTypes={propertyTypes} setPropertyTypes={(value) => change(() => setPropertyTypes(value))} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={(value) => change(() => setSort(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPrice(''); setMaxPrice(''); setBoardBasisIds([]); setPropertyTypes([]); setSort('default') })} />}
     </form>
   )
 }
