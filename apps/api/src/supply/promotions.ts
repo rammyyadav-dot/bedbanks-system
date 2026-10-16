@@ -94,7 +94,7 @@ export function validatePromotions(rules: ReadonlyArray<Partial<Record<keyof Pro
     names.add(name.toLowerCase())
     const kind = rule.kind as PromotionKind
     const percentKind = kind !== 'FREE_NIGHTS'
-    if (percentKind && !whole(rule.percentBp, 1, MAX_PERCENT_BP)) add('PROMOTION_PERCENT_INVALID', `the discount must be 1 to ${MAX_PERCENT_BP} basis points (0.01% to ${MAX_PERCENT_BP / 100}%). A free night is a FREE_NIGHTS promotion.`)
+    if (percentKind && !whole(rule.percentBp, 1, MAX_PERCENT_BP)) add('PROMOTION_PERCENT_INVALID', `the discount must be 1 to ${MAX_PERCENT_BP} basis points (0.01% to ${MAX_PERCENT_BP / 100}%). A free night is a FREE_NIGHTS promotion.`) // no-float-check: display-only
     if (!percentKind && rule.percentBp != null) add('PROMOTION_PERCENT_INVALID', 'a FREE_NIGHTS promotion takes no percentage.')
     if (kind === 'EARLY_BIRD' && (!whole(rule.minLeadDays, 1, 730) || rule.maxLeadDays != null)) add('PROMOTION_LEAD_INVALID', 'an early-bird promotion needs minLeadDays from 1 to 730 and no maxLeadDays.')
     if (kind === 'LAST_MINUTE' && (!whole(rule.maxLeadDays, 0, 365) || rule.minLeadDays != null)) add('PROMOTION_LEAD_INVALID', 'a last-minute promotion needs maxLeadDays from 0 to 365 and no minLeadDays.')
