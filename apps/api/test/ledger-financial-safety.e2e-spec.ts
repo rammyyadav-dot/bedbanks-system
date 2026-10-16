@@ -68,7 +68,8 @@ describe('ledger financial safety on PostgreSQL', () => {
     const key = `${suffix}-intent`
     await post(key)
     await expect(post(key, { amountMinor: 15000n })).rejects.toBeInstanceOf(ConflictException)
-    await expect(post(key, { type: 'DEBIT' })).rejects.toBeInstanceOf(ConflictException)
+    // A valid DEBIT (signed negative) under the same key is a different intent, not a sign error.
+    await expect(post(key, { type: 'DEBIT', amountMinor: -10000n })).rejects.toBeInstanceOf(ConflictException)
     await expect(post(key, { reference: 'deposit:different' })).rejects.toBeInstanceOf(ConflictException)
     expect(await prisma.ledgerEntry.count({ where: { walletId: walletA, idempotencyKey: key } })).toBe(1)
   })
