@@ -55,7 +55,7 @@ test.describe('Admin console: tenant-scoped supply management', () => {
     await expect(page.getByText(/You do not have permission to view this page/)).toBeVisible()
     await expect(page.getByText('Preview Creek Dubai')).toHaveCount(0)
     await page.goto(`${ORIGINS.admin}/suppliers`)
-    await expect(page.getByText('No fallback data is shown.')).toBeVisible()
+    await expect(page.getByText(/You do not have permission to view this page/)).toBeVisible()
     await expect(page.getByText('Preview Supplier Alpha')).toHaveCount(0)
   })
 })

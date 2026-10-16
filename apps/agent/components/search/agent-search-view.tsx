@@ -138,7 +138,7 @@ export function SearchView({
         <ResultFilters key={`${request.currency}:${JSON.stringify(request.filters ?? {})}`} applied={request.filters} currency={request.currency} boards={boards} propertyTypeOptions={propertyTypeOptions} searching={searching} onApply={onApplyFilters} />
         <div className="bb-results-main">
           <div className="bb-results-head">
-            <p className="bb-results-count">{pageWindow.total === 0 ? <><strong>0</strong> hotels found</> : <><strong>{pageWindow.total}</strong> {pageWindow.total === 1 ? 'hotel' : 'hotels'} found · showing {pageWindow.start}–{pageWindow.end}</>}<span>{formatStay(request.checkIn, request.checkOut)} · prices in {request.currency}, total stay</span></p>
+            <p className="bb-results-count"><b>{pageWindow.total === 0 ? <><strong>0</strong> hotels found</> : <><strong>{pageWindow.total}</strong> {pageWindow.total === 1 ? 'hotel' : 'hotels'} found · showing {pageWindow.start}–{pageWindow.end}</>}</b><span>{formatStay(request.checkIn, request.checkOut)} · prices in {request.currency}, total stay</span></p>
             <SortBar sort={sort} disabled={searching} onSort={setSort} />
           </div>
           <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' || result.status === 'destination_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status)}</div>

@@ -695,3 +695,8 @@ label, .field span { color: #5a5a55; }
   .bb-sort button { flex: 1; padding: 0 8px; }
   .bb-rate-tools .bb-check { margin-left: 0; }
 }
+.bb-results-count b { font-weight: 400; }
+.bb-results-count b strong { font-weight: 700; }
+.bb-filters label, .bb-filters label span, .bb-filters input, .bb-rate-tools label, .bb-hotel-type { font-family: 'Barlow Semi Condensed', sans-serif; letter-spacing: normal; }
+.bb-filters .market-stars { font-size: 15px; letter-spacing: 2px; }
+@media (max-width: 900px) { .bb-filters.is-open { box-shadow: 0 0 0 100vmax #1118274d; } }
