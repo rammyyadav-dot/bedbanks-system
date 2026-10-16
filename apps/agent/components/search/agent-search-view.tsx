@@ -26,6 +26,7 @@ import { agencySuspendedMessage, agencySuspendedTitle } from '@/lib/agency-suspe
 import { ResultFilters } from '@/components/search/result-filters'
 import { nightCount } from '@/lib/stay-calendar'
 import { averageNightlyMinor, hotelBoards, roomFromMinor, visibleRooms } from '@/lib/listing'
+import { clientPrice, formatMarkupPercent } from '@/lib/client-markup'
 
 export function SearchView({
   destination, destinationRef, setDestination, checkIn, setCheckIn, checkOut, setCheckOut,
@@ -33,7 +34,7 @@ export function SearchView({
   roomStays, setRoomStays, currency, setCurrency, sort, setSort, onCriteriaChange,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions, onApplyFilters,
+  boards, propertyTypeOptions, onApplyFilters, clientMarkupBp = 0, setClientMarkupBp,
   bookingEnabled, tenantId, onBooked, onViewBooking,
 }: {
   destination: string; destinationRef: DestinationRef | null; setDestination: (label: string, ref: DestinationRef | null, cityName: string) => void
@@ -55,6 +56,8 @@ export function SearchView({
   boards: { id: string; name: string }[]; propertyTypeOptions: string[]
   /** Runs a new search with these filters (applied server-side before pagination). */
   onApplyFilters: (filters: NonNullable<SearchCriteria['filters']>) => void
+  /** Display-only client markup in basis points (ADR 0065). */
+  clientMarkupBp?: number; setClientMarkupBp?: (basisPoints: number) => void
   bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void
 }) {
   const [selectedLive, setSelectedLive] = useState<SearchHotelOffer | null>(null)
@@ -116,10 +119,10 @@ export function SearchView({
     window.scrollTo({ top: 0 })
   }
   return <>
-    <SearchCriteriaForm destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes} boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !canSubmitDestination(destinationRef))} tenantId={tenantId} filtersInSidebar={Boolean(result)} />
+    <SearchCriteriaForm destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes} boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !canSubmitDestination(destinationRef))} tenantId={tenantId} filtersInSidebar={Boolean(result)} clientMarkupBp={clientMarkupBp} setClientMarkupBp={setClientMarkupBp} />
     {validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}
     {searching && !result && <SearchLoadingState />}
-    {result && request && selectedLive && <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onBooked} onViewBooking={onViewBooking} />}
+    {result && request && selectedLive && <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} markupBp={clientMarkupBp} onBooked={onBooked} onViewBooking={onViewBooking} />}
     {result && request && !selectedLive && <>
       <div className="market-criteria-bar">
         <p>
@@ -138,12 +141,12 @@ export function SearchView({
         <ResultFilters key={`${request.currency}:${JSON.stringify(request.filters ?? {})}`} applied={request.filters} currency={request.currency} boards={boards} propertyTypeOptions={propertyTypeOptions} searching={searching} onApply={onApplyFilters} />
         <div className="bb-results-main">
           <div className="bb-results-head">
-            <p className="bb-results-count"><b>{pageWindow.total === 0 ? <><strong>0</strong> hotels found</> : <><strong>{pageWindow.total}</strong> {pageWindow.total === 1 ? 'hotel' : 'hotels'} found · showing {pageWindow.start}–{pageWindow.end}</>}</b><span>{formatStay(request.checkIn, request.checkOut)} · prices in {request.currency}, total stay</span></p>
+            <p className="bb-results-count"><b>{pageWindow.total === 0 ? <><strong>0</strong> hotels found</> : <><strong>{pageWindow.total}</strong> {pageWindow.total === 1 ? 'hotel' : 'hotels'} found · showing {pageWindow.start}–{pageWindow.end}</>}</b><span>{formatStay(request.checkIn, request.checkOut)} · prices in {request.currency}, total stay{clientMarkupBp > 0 ? ` · client prices include your ${formatMarkupPercent(clientMarkupBp)}% markup` : ''}</span></p>
             <SortBar sort={sort} disabled={searching} onSort={setSort} />
           </div>
           <div className={`portal-status-banner ${result.status === 'empty' ? 'is-empty' : result.status === 'provider_unavailable' || result.status === 'destination_unavailable' ? 'is-error' : ''}`} role="status"><ShieldAlert size={15} /> {statusCopy(result.status)}</div>
           <div className="portal-hotel-list bb-hotel-list" data-result-count={liveHotels.length} tabIndex={0} ref={listRef} onKeyDown={moveCursor} aria-label="Hotel results">
-            {liveHotels.map((hotel, index) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} tenantId={tenantId} nights={nights} active={index === cursor} onSelect={() => openHotel(hotel, index)} />)}
+            {liveHotels.map((hotel, index) => <LiveHotelCard key={hotel.hotelId} hotel={hotel} tenantId={tenantId} nights={nights} markupBp={clientMarkupBp} active={index === cursor} onSelect={() => openHotel(hotel, index)} />)}
             {!liveHotels.length && <SearchOutcomeState status={result.status} onRetry={onSearch} onEdit={() => document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />}
             {liveHotels.length > 0 && result.pagination?.hasMore && <div className="portal-load-more"><button className="portal-secondary" type="button" onClick={onLoadMore} disabled={loadingMore || refreshing} aria-busy={loadingMore}>{loadingMore ? 'Loading more hotels…' : pageSize ? `Load ${pageSize} more hotels` : 'Load more hotels'}</button></div>}
             {pageSize && total > pageSize && liveHotels.length <= pageSize && <PageLinks limit={pageSize} total={total} offset={result.pagination?.offset ?? 0} disabled={loadingMore || refreshing} onPage={onPage} />}
@@ -250,7 +253,21 @@ function PerNight({ total, nights }: { total: SearchRateOffer['total']; nights: 
   const formatted = average === null || nights === null || nights < 2 ? null : formatMinorAmount(average, total.currency)
   return formatted ? <small className="bb-per-night">avg. {formatted} / night</small> : null
 }
-function LiveHotelCard({ hotel, tenantId, nights, active, onSelect }: { hotel: SearchHotelOffer; tenantId: string; nights: number | null; active: boolean; onSelect: () => void }) {
+/**
+ * Lead price for a card or hotel page. With a client markup (ADR 0065) the client price leads and the agency price stays visible:
+ * the agency is always charged the agency price.
+ */
+function PriceBlock({ total, nights, markupBp }: { total: SearchRateOffer['total']; nights: number | null; markupBp: number }) {
+  const client = clientPrice(total, markupBp)
+  if (!client) return <><small>From · total for {nightsLabel(nights)}</small><strong>{formatTotal(total)}</strong><PerNight total={total} nights={nights} /></>
+  return <>
+    <small className="bb-client-label">Client price · +{formatMarkupPercent(markupBp)}% · {nightsLabel(nights)}</small>
+    <strong>{formatTotal(client)}</strong>
+    <PerNight total={client} nights={nights} />
+    <small className="bb-agency-price">Agency price {formatTotal(total)}</small>
+  </>
+}
+function LiveHotelCard({ hotel, tenantId, nights, markupBp, active, onSelect }: { hotel: SearchHotelOffer; tenantId: string; nights: number | null; markupBp: number; active: boolean; onSelect: () => void }) {
   const lead = leadStay(hotel)
   const rate = lead?.rate
   const roomOptions = selectableRoomLabel(selectableRoomCount(hotel.rooms))
@@ -274,17 +291,13 @@ function LiveHotelCard({ hotel, tenantId, nights, active, onSelect }: { hotel: S
       </div>}
     </div>
     <div className="bb-hotel-price">
-      {rate ? <>
-        <small>From · total for {nightsLabel(nights)}</small>
-        <strong>{formatTotal(rate.total)}</strong>
-        <PerNight total={rate.total} nights={nights} />
-      </> : <strong className="is-none">No available rate</strong>}
+      {rate ? <PriceBlock total={rate.total} nights={nights} markupBp={markupBp} /> : <strong className="is-none">No available rate</strong>}
       <button className="portal-primary" type="button" onClick={onSelect} aria-label={`View rooms for ${hotel.name}`}>View rooms</button>
       {hotel.rooms.length > 0 && <small>{roomOptions}</small>}
     </div>
   </article>
 }
-function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
+function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, markupBp, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; markupBp: number; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
@@ -359,9 +372,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
         </ul>
       </div>
       {lead && <div className="bb-hotel-price">
-        <small>From · total for {nightsLabel(nights)}</small>
-        <strong>{formatTotal(lead.rate.total)}</strong>
-        <PerNight total={lead.rate.total} nights={nights} />
+        <PriceBlock total={lead.rate.total} nights={nights} markupBp={markupBp} />
         <small>{selectableRoomLabel(selectableRoomCount(hotel.rooms))}</small>
       </div>}
     </div>
@@ -380,7 +391,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       const selectable = !expired && rate.availability !== 'sold_out' && rate.availability !== 'on_request'
       const selected = selection?.rate.offerId === rate.offerId
       const components = [moneyLine('taxes', rate.taxAmountMinor, rate.total.currency), moneyLine('fees', rate.feeAmountMinor, rate.total.currency)].filter(Boolean).join(' · ')
-      return <div key={rate.offerId} data-offer-id={rate.offerId} className={`market-rate-row${selected ? ' is-selected' : ''}`}><div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}{rate.promotion && <em>{rate.promotion.name} applied</em>}</div><div className="market-rate-policy"><span>{cancellationLine(rate, hotel.timeZone)}</span><span>{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {rate.availability === 'limited' ? 'Limited availability' : rate.availability === 'on_request' ? 'On request · not confirmed' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span></div><div className="market-rate-price"><b>{formatTotal(rate.total)}</b><small>Total stay{components ? ` · ${components}` : ''}</small></div><button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : rate.availability === 'on_request' ? 'On request' : 'Select Offer'}</button></div>
+      return <div key={rate.offerId} data-offer-id={rate.offerId} className={`market-rate-row${selected ? ' is-selected' : ''}`}><div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}{rate.promotion && <em>{rate.promotion.name} applied</em>}</div><div className="market-rate-policy"><span>{cancellationLine(rate, hotel.timeZone)}</span><span>{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {rate.availability === 'limited' ? 'Limited availability' : rate.availability === 'on_request' ? 'On request · not confirmed' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span></div><div className="market-rate-price">{(() => { const client = clientPrice(rate.total, markupBp); return client ? <><b>{formatTotal(client)}</b><small>Client price · +{formatMarkupPercent(markupBp)}%</small><small className="bb-agency-price">Agency {formatTotal(rate.total)}{components ? ` · ${components}` : ''}</small></> : <><b>{formatTotal(rate.total)}</b><small>Total stay{components ? ` · ${components}` : ''}</small></> })()}</div><button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : rate.availability === 'on_request' ? 'On request' : 'Select Offer'}</button></div>
     })}</div></div>
     })}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} /> This rate has expired. Refresh the latest rates to continue.</div>}

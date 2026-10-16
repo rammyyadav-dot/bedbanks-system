@@ -14,7 +14,7 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test",
+    "test": "node --test src/search-offers.test.cjs && node --import tsx --test smart-search.test.ts",
     "build": "tsc"
   },
   "devDependencies": {

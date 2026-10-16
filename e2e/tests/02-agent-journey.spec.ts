@@ -28,7 +28,7 @@ test.describe('Agent portal: search, compare, recheck, booking stays closed', ()
     expect(session.secure).toBe(true)
 
     // Pick destination.
-    const destination = page.getByPlaceholder('Select a city or hotel')
+    const destination = page.getByPlaceholder('Search destinations & hotels…')
     await destination.click()
     await destination.fill('Dubai')
     await page.getByRole('option', { name: /^Dubai City/ }).click()
@@ -40,7 +40,7 @@ test.describe('Agent portal: search, compare, recheck, booking stays closed', ()
     await page.getByRole('button', { name: D(16), exact: true }).and(page.locator(':enabled')).first().click()
     await page.getByRole('button', { name: 'Apply dates' }).click()
 
-    await page.getByRole('button', { name: 'Search Hotels' }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByText('Preview Creek Dubai').first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('Preview Marina Dubai').first()).toBeVisible()
     await expect(page.getByText('Preview Other Tenant Dubai')).toHaveCount(0)

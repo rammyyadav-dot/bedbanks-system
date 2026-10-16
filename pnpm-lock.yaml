@@ -109,6 +109,9 @@ importers:
       '@bedbanks/money':
         specifier: workspace:*
         version: link:../../packages/money
+      '@bedbanks/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       '@bedbanks/ui':
         specifier: workspace:*
         version: link:../../packages/ui

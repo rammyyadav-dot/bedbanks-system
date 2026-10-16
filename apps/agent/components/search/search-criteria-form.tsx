@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, MapPin, Minus, Plus, Search } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Globe, MapPin, Minus, Plus, Search, Users } from 'lucide-react'
+import type { SmartSearchParseResponse } from '@bedbanks/contracts'
+import { MarkupControl, SmartSearchControl } from '@/components/search/search-utility'
 import type { DestinationRef, DestinationResolution, SearchSort } from '@bedbanks/domain'
 import { marketplaceHome } from '@/lib/marketplace-content'
 import { canSubmitDestination, destinationSuggestions } from '@/lib/destination-suggestions'
@@ -9,8 +11,7 @@ import { fetchDestinations } from '@/lib/destination-client'
 import { criteriaFilters } from '@/lib/search-filters'
 import { useCurrencyOptions } from '@/components/search/currency-options'
 import { GUEST_MARKETS, guestMarketName } from '@/lib/guest-market'
-import { buildRoomStays, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, roomStaySummary, supportedRoomStaysError, type RoomStayDraft } from '@/lib/occupancy'
-import { formatCompactStay, weekdayShort } from '@/lib/format'
+import { buildRoomStays, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, supportedRoomStaysError, type RoomStayDraft } from '@/lib/occupancy'
 import { addUtcDays, applyStayPick, monthGrid, monthLabel, nightCount, shiftMonth, businessToday } from '@/lib/stay-calendar'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -22,6 +23,7 @@ export function SearchCriteriaForm({
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
   boards, propertyTypeOptions, sort, setSort,
   searching, searchFailed = false, onSubmit, onChange, destinationInvalid = false, tenantId, filtersInSidebar = false,
+  clientMarkupBp, setClientMarkupBp,
 }: {
   destination: string
   destinationRef: DestinationRef | null
@@ -60,6 +62,9 @@ export function SearchCriteriaForm({
   tenantId: string
   /** The results page shows filters in its sidebar, so the form does not offer a second copy of them. */
   filtersInSidebar?: boolean
+  /** Display-only client markup in basis points (ADR 0065). Omitted where prices are not shown. */
+  clientMarkupBp?: number
+  setClientMarkupBp?: (basisPoints: number) => void
 }) {
   const currencyOptions = useCurrencyOptions()
   const errorId = useId()
@@ -81,24 +86,42 @@ export function SearchCriteriaForm({
     setFormError('')
     onSubmit()
   }
+  const applySmartSearch = (result: SmartSearchParseResponse, picked: SmartSearchParseResponse['destination']) => change(() => {
+    if (picked?.type === 'city') setDestination(picked.name, { type: 'city', id: picked.id, countryCode: picked.countryCode }, picked.name)
+    if (picked?.type === 'hotel') setDestination(`${picked.name}, ${picked.cityName}`, { type: 'hotel', id: picked.id }, picked.cityName)
+    if (result.checkIn && result.checkOut) { setCheckIn(result.checkIn); setCheckOut(result.checkOut) }
+    if (result.rooms) setRoomStays(result.rooms.map((room) => ({ adults: room.adults, childAges: [...room.childAges] })))
+    if (result.starRatings) setStarRatings(result.starRatings)
+    if (result.nationality) setNationality(result.nationality)
+  })
   return (
-    <form className="market-search" id="hotel-search" aria-label="Hotel search" aria-describedby={formError ? errorId : undefined} onSubmit={(event) => { event.preventDefault(); if (!searching) submit() }}>
-      <div className="market-search-row">
+    <form className="market-search sb-search" id="hotel-search" aria-label="Hotel search" aria-describedby={formError ? errorId : undefined} onSubmit={(event) => { event.preventDefault(); if (!searching) submit() }}>
+      <div className="sb-main">
         <DestinationField errorId={errorId} destination={destination} resolved={canSubmitDestination(destinationRef)} invalid={destinationInvalid || Boolean(formError && !canSubmitDestination(destinationRef))} tenantId={tenantId} onChange={(label, ref, cityName) => change(() => setDestination(label, ref, cityName))} />
         <StayField checkIn={checkIn} checkOut={checkOut} nights={nights} onChange={(next) => change(() => { setCheckIn(next.checkIn); setCheckOut(next.checkOut) })} />
         <OccupancyField stays={roomStays} onChange={(next) => change(() => setRoomStays(next))} />
-        <button className="portal-primary market-search-cta" type="submit" disabled={searching}><Search size={16} /> {submitLabel}</button>
+        <button className="sb-search-cta" type="submit" disabled={searching} aria-busy={searching}><Search size={20} aria-hidden="true" /> {submitLabel}</button>
       </div>
-      <div className="market-search-tools">
+      <div className="sb-utility">
         <NationalityField nationality={nationality} onChange={(value) => change(() => setNationality(value))} />
-        {!filtersInSidebar && <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>}
-        <label><span>{marketplaceHome.currencyLabel}</span> <select aria-label="Selling currency" value={currency} onChange={(event) => change(() => setCurrency(event.target.value))}>{currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
+        {setClientMarkupBp && <MarkupControl basisPoints={clientMarkupBp ?? 0} onChange={setClientMarkupBp} />}
+        <SmartSearchControl tenantId={tenantId} onApply={applySmartSearch} />
       </div>
       {formError && <p id={errorId} className="portal-field-error" role="alert">{formError}</p>}
-      <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} {marketplaceHome.residencyNote} A search total is not confirmed availability.</p>
+      <div className="sb-foot">
+        <label className="sb-currency"><span>{marketplaceHome.currencyLabel}</span><select aria-label="Selling currency" value={currency} onChange={(event) => change(() => setCurrency(event.target.value))}>{currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
+        <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} A search total is not confirmed availability.</p>
+        {!filtersInSidebar && <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>}
+      </div>
       {advanced && !filtersInSidebar && <AdvancedFields currency={currency} starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPrice={minPrice} setMinPrice={(value) => change(() => setMinPrice(value))} maxPrice={maxPrice} setMaxPrice={(value) => change(() => setMaxPrice(value))} boardBasisIds={boardBasisIds} setBoardBasisIds={(value) => change(() => setBoardBasisIds(value))} boards={boards} propertyTypes={propertyTypes} setPropertyTypes={(value) => change(() => setPropertyTypes(value))} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={(value) => change(() => setSort(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPrice(''); setMaxPrice(''); setBoardBasisIds([]); setPropertyTypes([]); setSort('default') })} />}
     </form>
   )
+}
+
+/** "Fri, 23 Oct" for a YYYY-MM-DD date (UTC calendar date, no time zone shift). */
+function dayLabel(iso: string): string {
+  const ms = Date.parse(`${iso}T00:00:00.000Z`)
+  return Number.isFinite(ms) ? new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(ms) : iso
 }
 
 function DestinationField({ destination, resolved, invalid, tenantId, onChange, errorId }: { errorId: string; destination: string; resolved: boolean; invalid: boolean; tenantId: string; onChange: (label: string, ref: DestinationRef | null, cityName: string) => void }) {
@@ -126,20 +149,23 @@ function DestinationField({ destination, resolved, invalid, tenantId, onChange, 
     box.current?.querySelector('input')?.focus()
   }
   return (
-    <div className="market-field" ref={box}>
-      <label htmlFor={`${listId}-input`}>Destination</label>
+    <div className="market-field sb-field sb-destination" ref={box}>
+      <MapPin size={20} aria-hidden="true" className="sb-field-icon" />
+      <label htmlFor={`${listId}-input`}>Destination or hotel</label>
       <div className={invalid ? 'has-error' : ''}>
-        <MapPin size={16} aria-hidden="true" />
-        <input id={`${listId}-input`} value={destination} placeholder="Select a city or hotel" aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list" aria-activedescendant={open && suggestions[active] ? `${listId}-${active}` : undefined} role="combobox" autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value, null, ''); setRemote([]); setActive(-1); setOpen(true) }} onKeyDown={(event) => {
+        <input id={`${listId}-input`} value={destination} placeholder="Search destinations & hotels…" aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} aria-expanded={open} aria-controls={open ? listId : undefined} aria-autocomplete="list" aria-activedescendant={open && suggestions[active] ? `${listId}-${active}` : undefined} role="combobox" autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value, null, ''); setRemote([]); setActive(-1); setOpen(true) }} onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActive((value) => suggestions.length ? value < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.length - 1 : (value + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length : -1) }
           if (event.key === 'Enter' && open && suggestions[active]) { event.preventDefault(); select(suggestions[active]) }
           if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
         }} />
       </div>
-      {resolved && <small>City or hotel selected</small>}
+      {resolved && <small className="sb-resolved">Selected from the catalogue</small>}
       {open && <ul className="market-suggest" id={listId} role="listbox" aria-label="Destinations">
-        {suggestions.map((item, index) => <li key={`${item.type}:${item.id}`} role="option" id={`${listId}-${index}`} aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => select(item)}><strong>{item.name}</strong><small>{item.type === 'city' ? 'City' : 'Hotel'}</small><span>{item.type === 'city' ? item.countryCode : item.cityName}</span></li>)}
-        {suggestions.length === 0 && <li role="presentation">No supported destination found. Select a city or hotel from the catalogue. Areas are not supported.</li>}
+        {suggestions.flatMap((item, index) => [
+          ...(index === 0 || suggestions[index - 1].type !== item.type ? [<li key={`group:${item.type}`} role="presentation" aria-hidden="true" className="sb-group">{item.type === 'city' ? 'Cities' : 'Hotels'}</li>] : []),
+          <li key={`${item.type}:${item.id}`} role="option" id={`${listId}-${index}`} aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => select(item)}><strong>{item.name}</strong><small>{item.type === 'city' ? 'City' : 'Hotel'}</small><span>{item.type === 'city' ? item.countryCode : item.cityName}</span></li>,
+        ])}
+        {suggestions.length === 0 && <li role="presentation">{destination.trim().length < 2 ? 'Type at least two letters of a city or hotel.' : 'No city or hotel in your catalogue matches. Spelling mistakes are tolerated; regions and airport zones are not available yet.'}</li>}
       </ul>}
     </div>
   )
@@ -168,16 +194,16 @@ function StayField({ checkIn, checkOut, nights, onChange }: { checkIn: string; c
     onChange(draft); close()
   }
   return (
-    <div className="market-field" ref={box}>
-      <span>Stay</span>
+    <div className="market-field sb-field sb-stay" ref={box}>
+      <CalendarDays size={20} aria-hidden="true" className="sb-field-icon" />
+      <span>Check-in — Check-out</span>
       <button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? dialogId : undefined} onClick={() => {
         if (open) return close()
         setDraft({ checkIn, checkOut }); setError(''); setSelecting('check-in')
         if (/^\d{4}-\d{2}-\d{2}$/.test(checkIn)) setCursor({ year: Number(checkIn.slice(0, 4)), monthIndex: Number(checkIn.slice(5, 7)) - 1 })
         setOpen(true)
       }}>
-        <CalendarDays size={16} aria-hidden="true" />
-        <span><strong>{formatCompactStay(checkIn, checkOut)}</strong><small>{nights ? `${nights} night${nights === 1 ? '' : 's'}` : 'Choose dates'}{weekdayShort(checkIn) && weekdayShort(checkOut) ? ` · ${weekdayShort(checkIn)} – ${weekdayShort(checkOut)}` : ''}</small></span>
+        <span><strong>{dayLabel(checkIn)} — {dayLabel(checkOut)}</strong><small>{nights ? `${nights} night${nights === 1 ? '' : 's'}` : 'Choose dates'}</small></span>
       </button>
       {open && <div id={dialogId} className="market-popover market-calendar" role="dialog" aria-label="Stay dates">
         <div className="market-calendar-head">
@@ -226,10 +252,11 @@ function OccupancyField({ stays, onChange }: { stays: RoomStayDraft[]; onChange:
   useDismiss(box, () => setOpen(false))
   const update = (index: number, next: RoomStayDraft) => { setError(''); setDraft(draft.map((stay, position) => position === index ? next : stay)) }
   return (
-    <div className="market-field" ref={box}>
-      <span>Rooms & guests</span>
+    <div className="market-field sb-field sb-occupancy" ref={box}>
+      <Users size={20} aria-hidden="true" className="sb-field-icon" />
+      <span>Guests & rooms</span>
       <button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? dialogId : undefined} onClick={() => { setDraft(stays.map((stay) => ({ ...stay, childAges: [...stay.childAges] }))); setError(''); setOpen((value) => !value) }}>
-        <span><strong>{roomStaySummary(stays)}</strong><small>Identical occupancy per room</small></span>
+        <span><strong>{guestsLabel(stays)}</strong><small>{stays.some((stay) => stay.childAges.length) ? `Children aged ${stays.flatMap((stay) => stay.childAges).map((age) => age ?? '?').join(', ')}` : 'No children'}</small></span>
       </button>
       {open && <div id={dialogId} className="market-popover market-occupancy" role="dialog" aria-label="Rooms and guests">
         {draft.map((stay, index) => <fieldset key={index} className="market-room-stay" aria-describedby={error ? `${dialogId}-error` : undefined}><legend>Room {index + 1}</legend>
@@ -255,6 +282,13 @@ function OccupancyField({ stays, onChange }: { stays: RoomStayDraft[]; onChange:
   )
 }
 
+/** "2 adults · 1 room", "3 adults · 2 children · 2 rooms". */
+function guestsLabel(stays: RoomStayDraft[]): string {
+  const adults = stays.reduce((total, stay) => total + stay.adults, 0)
+  const children = stays.reduce((total, stay) => total + stay.childAges.length, 0)
+  return [`${adults} adult${adults === 1 ? '' : 's'}`, children ? `${children} child${children === 1 ? '' : 'ren'}` : null, `${stays.length} room${stays.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ')
+}
+
 function Stepper({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
   return <div className="market-stepper"><span>{label}</span><div><button type="button" aria-label={`Decrease ${label}`} disabled={value <= min} onClick={() => onChange(value - 1)}><Minus size={14} /></button><strong>{value}</strong><button type="button" aria-label={`Increase ${label}`} disabled={value >= max} onClick={() => onChange(value + 1)}><Plus size={14} /></button></div></div>
 }
@@ -266,7 +300,7 @@ function NationalityField({ nationality, onChange }: { nationality: string; onCh
   const id = useId()
   useDismiss(box, () => setOpen(false))
   const markets = GUEST_MARKETS.filter((market) => market.name.toLowerCase().includes(query.toLowerCase()) || market.code.toLowerCase().includes(query.toLowerCase()))
-  return <div className="market-field" ref={box}><span>{marketplaceHome.nationalityLabel}</span><button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? id : undefined} onClick={() => { setQuery(''); setOpen((value) => !value) }}>{guestMarketName(nationality)} ({nationality})</button>
+  return <div className="market-field sb-field sb-nationality" ref={box}><Globe size={20} aria-hidden="true" className="sb-field-icon" /><span>{marketplaceHome.nationalityLabel}</span><button type="button" className="market-control" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? id : undefined} onClick={() => { setQuery(''); setOpen((value) => !value) }}><strong>{guestMarketName(nationality)}</strong></button>
     {open && <div id={id} className="market-popover market-nationality" role="dialog" aria-label="Guest nationality"><label>Find a country<input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} /></label><label>Country<select aria-label="Country" size={6} value={nationality} onChange={(event) => { onChange(event.target.value); setOpen(false); box.current?.querySelector('button')?.focus() }}>{markets.map((market) => <option key={market.code} value={market.code}>{market.name} ({market.code})</option>)}</select></label>{markets.length === 0 && <p role="status">No supported country matches.</p>}<button type="button" onClick={() => { setOpen(false); box.current?.querySelector('button')?.focus() }}>Cancel</button></div>}
   </div>
 }

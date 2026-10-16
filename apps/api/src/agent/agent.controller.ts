@@ -15,7 +15,7 @@ import type { SearchCriteria } from '@bedbanks/domain'
 import { ACTIVE_TENANT_HEADER, ActiveTenant, TenantContextGuard, activeTenantId, sessionTenantId } from './tenant-context.guard'
 import { effectiveAgentPermissions } from './agent-permissions'
 import type { AgentPermission } from './supplier.port'
-import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator'
+import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
@@ -24,6 +24,8 @@ import { validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
+import { SmartSearchService } from './smart-search.service'
+import { SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
 import { BookingCancellationService } from './booking-cancellation.service'
@@ -54,6 +56,10 @@ class RoomChildDto {
 class RoomStayDto {
   @IsInt() @Min(1) @Max(8) adults!: number
   @IsArray() @ValidateNested({ each: true }) @Type(() => RoomChildDto) children: RoomChildDto[] = []
+}
+
+class SmartSearchParseDto {
+  @IsString() @MinLength(1) @MaxLength(SMART_SEARCH_TEXT_MAX) text!: string
 }
 
 class SearchHotelsDto {
@@ -169,6 +175,14 @@ export class AgentController {
     const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
     if (!resolved || !validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
     return { status: this.supplier.name === 'unconfigured' ? 'provider_unavailable' : 'not_checked' }
+  }
+
+  @Post('search/parse')
+  @ApiOperation({ summary: 'Smart Search: read search fields from a pasted client request (ADR 0065). The text is not stored or logged.' })
+  @RequirePermission(PERMISSIONS.search)
+  @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
+  async parseSmartSearch(@Body() body: SmartSearchParseDto, @ActiveTenant() tenantId: string) {
+    return new SmartSearchService(this.destinationResolver).parse(tenantId, body.text)
   }
 
   @Post('search')
