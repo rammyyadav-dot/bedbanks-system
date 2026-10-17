@@ -73,7 +73,8 @@ export default function CompliancePage() {
             <input type="date" value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
           </label>
         ))}
-        <button type="submit">Apply</button>
+        <button type="submit" className="admin-btn">Apply</button>
+        <button type="button" className="admin-btn" onClick={() => { const empty = { category: '', exportState: '', crossBorder: '', from: '', to: '' }; setDraft(empty); setApplied(empty); setPage(1) }}>Clear</button>
       </form>
       <OpsState state={records.state} onRetry={records.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No compliance records', description: 'The query succeeded and no captured record matches these filters.' }}>
         {(d) => (
