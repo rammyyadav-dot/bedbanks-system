@@ -297,6 +297,38 @@ export interface AccessReviewUserRow {
 }
 export interface AccessReviewPage { items: AccessReviewUserRow[]; page: number; pageSize: number; total: number }
 
+// ---- Compliance evidence (ADR 0067 amendment 1) ---------------------------------------------------------------------------
+/** Categories of the compliance capture trigger. Mirrors the database enum `ComplianceCategory`. */
+export const COMPLIANCE_CATEGORY_VALUES = ['RBAC_CHANGE', 'PRIVILEGED_ACCESS', 'ACCESS_DENIAL', 'TENANT_GOVERNANCE', 'DATA_EXPORT', 'FINANCIAL_CONTROL', 'BOOKING_JURISDICTION'] as const
+export type ComplianceCategoryValue = (typeof COMPLIANCE_CATEGORY_VALUES)[number]
+/** Where a record is on its way to WORM storage: not yet in a batch, in a sealed batch not yet stored, or stored. */
+export type ComplianceExportState = 'PENDING' | 'SEALED' | 'STORED'
+
+export interface ComplianceSummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  /** Records captured in the window, per category. Every category is present (zero when none). */
+  byCategory: Array<{ category: ComplianceCategoryValue; count: number }>
+  /** Booking events in the window whose buyer and destination countries differ, and those whose countries are unknown. */
+  bookings: { crossBorder: number; domestic: number; unknown: number }
+  /** The tenant's chain of export batches. All-time, not windowed. */
+  export: SectionState<{
+    batches: number; stored: number; sealedNotStored: number
+    headSequence: number | null; headSha256: string | null; lastStoredAt: string | null
+    pendingRecords: number; oldestPendingAt: string | null
+  }>
+}
+
+/** One captured record. The audit payload itself is not exposed here: only its SHA-256, which matches the archived copy. */
+export interface ComplianceRecordView {
+  id: string; occurredAt: string; category: ComplianceCategoryValue; action: string; entityType: string; entityId: string
+  actorType: 'USER' | 'SYSTEM'; userId: string | null; payloadSha256: string
+  originCountry: string | null; destinationCountry: string | null; crossBorder: boolean | null
+  exportState: ComplianceExportState; batchSequence: number | null; storedAt: string | null
+}
+export type ComplianceRecordPage = Paged<ComplianceRecordView>
+
 // ---- Agent Search Monitor (ADR 0053) -------------------------------------------------------------------------------------
 export const SEARCH_MONITOR_STATUSES = ['available', 'partial', 'no_availability', 'provider_unavailable', 'mapping_unavailable'] as const
 export type SearchMonitorStatus = (typeof SEARCH_MONITOR_STATUSES)[number]

@@ -2,38 +2,61 @@
 
 Compliance records are captured automatically by the database whenever a classified audit event is written. This runbook covers the owner steps that make them leave the database for WORM storage, and how to verify the archive.
 
-## 1. Owner prerequisites (once per environment)
+## 1. Owner steps (once per environment)
+The AWS side is in Terraform (`infra/aws/terraform/compliance.tf`, ADR 0067 amendment 2) and is **off by default**.
+
 1. Deploy migration `202611200001_compliance_reporting_hooks` with the normal reviewed migration process.
-2. Create an S3 bucket **with Object Lock enabled at creation** (versioning on), in the platform's region, encrypted with a KMS key. Do not set a bucket default retention that is shorter than `COMPLIANCE_RETENTION_DAYS`; the exporter sets `COMPLIANCE` mode and a retain-until date on every object itself.
-3. Give the exporter's task role `s3:PutObject`, `s3:PutObjectRetention`, `s3:GetObject`, `s3:ListBucket`, `s3:GetBucketObjectLockConfiguration` on that bucket only. No `s3:DeleteObject*`, no `s3:BypassGovernanceRetention`.
-4. Provision the database role (owner connection; prints no secret):
+2. Provision the database role (owner connection; prints no secret):
    ```sh
    PROVISION_DATABASE_URL=<owner URL from the secret manager> \
    COMPLIANCE_LOGIN_PASSWORD=<generated 32+ char URL-safe secret> \
    pnpm --filter @bedbanks/api ops:compliance provision [--allow-remote --confirm-database=<name>]
    ```
-   Build `COMPLIANCE_DATABASE_URL` for `fbeds_compliance_export` and store it in the secret manager.
-5. Check the role: `COMPLIANCE_DATABASE_URL=... COMPLIANCE_ARCHIVE_BUCKET=... pnpm --filter @bedbanks/api ops:compliance verify-role`.
+3. Decide the retention. `compliance_retention_days` (default 2557, i.e. seven years; minimum 365) is the bucket's default COMPLIANCE retention, and the exporter's per-object date. **Objects under COMPLIANCE retention cannot be deleted by anyone, root included, until that date. The bucket outlives `terraform destroy` for that long.** Keep that in mind for staging.
+4. Apply with `compliance_export_enabled = true` (and `compliance_retention_days` if not the default). This creates:
+   - the Object Lock bucket (COMPLIANCE mode) with its own KMS key, TLS-only, deletes denied, and uploads denied unless they carry COMPLIANCE retention;
+   - the `COMPLIANCE_DATABASE_URL` secret shell;
+   - an execution role that can read only that secret, and a task role that can put, read and list the archive prefix only (never delete);
+   - a `compliance` security group that can reach Postgres and HTTPS only;
+   - two task definitions and the EventBridge Scheduler schedules (export every 15 minutes, verify hourly);
+   - alarms on the existing alarm topic.
+5. Set the secret value out of band, the same way as the other runtime URLs (never in Terraform):
+   ```sh
+   aws secretsmanager put-secret-value --secret-id "$(terraform output -raw compliance_database_url_secret_arn)" \
+     --secret-string 'postgresql://fbeds_compliance_export:<password>@<db-host>:5432/<db>?schema=public&sslmode=require'
+   ```
+6. Deploy the API once (`aws-deploy.yml`, service `api`). The deploy registers a compliance task revision with the same image digest. The schedules always run the latest revision, so later deploys keep them on the current image with no further step.
+7. Check the role from inside the VPC: run the `fbeds-<env>-compliance-verify` task once by hand with the command override `["node","--no-experimental-strip-types","-r","@swc-node/register","src/compliance/compliance-ops.cli.ts","verify-role"]`.
+
+Until step 5 is done, every scheduled task fails to start (ECS refuses a task whose secret is empty) and the heartbeat alarms fire. That is intended: nothing fails silently.
 
 ## 2. Scheduled run
-Run every 15 minutes (export), then hourly (verify), as a scheduled task with:
+Terraform sets these on the task definitions:
 
 | Variable | Value |
 | --- | --- |
-| `COMPLIANCE_DATABASE_URL` | the compliance role (never the owner, never the API role; the CLI refuses a superuser, BYPASSRLS or owner login) |
+| `COMPLIANCE_DATABASE_URL` | the compliance role, from Secrets Manager. Never the owner or the API role; the CLI refuses a superuser, BYPASSRLS or owner login |
 | `COMPLIANCE_ARCHIVE_BUCKET` | the Object Lock bucket |
 | `AWS_REGION` | the bucket's region |
-| `COMPLIANCE_RETENTION_DAYS` | optional, default 2557 (7 years), minimum 365 |
-| `COMPLIANCE_BATCH_SIZE` | optional, default 1000, maximum 5000 |
-| `COMPLIANCE_MAX_LAG_HOURS` | optional (verify), default 24 |
+| `COMPLIANCE_RETENTION_DAYS` | `compliance_retention_days` |
+| `COMPLIANCE_BATCH_SIZE` | optional, default 1000, maximum 5000 (not set by Terraform) |
+| `COMPLIANCE_MAX_LAG_HOURS` | optional (verify), default 24 (not set by Terraform) |
 
+Outside AWS, the same commands run by hand:
 ```sh
 pnpm --filter @bedbanks/api ops:compliance export   # exit 1 when any scope failed
 pnpm --filter @bedbanks/api ops:compliance verify   # exit 1 on any chain, archive or coverage problem
 ```
-Alert on a non-zero exit of either. Output contains scope ids, sequences, hashes and object keys only.
+Output contains scope ids, sequences, hashes and object keys only (log group `/fbeds/<env>/compliance`).
 
-`COMPLIANCE_ARCHIVE_DIR=<dir>` replaces the bucket for local development; it is refused for a non-local database because a filesystem is not WORM storage.
+**Alarms** (SNS topic `fbeds-<env>-alarms`):
+- `fbeds-<env>-compliance-failure`: any `FAIL:` line, a crash, or a refused database identity.
+- `fbeds-<env>-compliance-export-missing`: no successful export run in 45 minutes.
+- `fbeds-<env>-compliance-verify-missing`: no successful verification in 2 hours.
+
+Missing data counts as breaching, so a stopped schedule or a task that never starts also pages.
+
+`COMPLIANCE_ARCHIVE_DIR=<dir>` replaces the bucket for local development. It is refused for a non-local database, because a filesystem is not WORM storage.
 
 ## 3. Failures
 | Message | Meaning | Action |
@@ -45,7 +68,10 @@ Alert on a non-zero exit of either. Output contains scope ids, sequences, hashes
 | `fell behind the exported chain` | a record committed more than 24 h after newer records were exported | investigate the long transaction; the record is still in the database and must be exported by an owner-reviewed one-off batch |
 | `waited longer than the allowed export lag` | the exporter is not running or is failing | restore the schedule |
 
-## 4. Archive format (for auditors)
+## 4. Viewing evidence in Admin
+Risk & Compliance → **Compliance evidence** (`/compliance`, permission `audit.read`) shows each tenant's captured records, their export state (not yet exported / sealed / stored), and the head of its chain. That head is the same hash `ops:compliance verify` prints. After deploying ADR 0067 amendment 1, re-run `ops:provision-api-runtime-role` so the API role can read the compliance tables (column-level; never the payload).
+
+## 5. Archive format (for auditors)
 Keys: `compliance/v1/<scope>/<sequence, 10 digits>-<first 16 hex of batch hash>.ndjson` and the same key ending `.manifest.json`. `<scope>` is a tenant id or `platform`.
 
 Body: one JSON object per line, `\n`-terminated, keys in this order: `v, id, tenantId, category, action, entityType, entityId, actorType, userId, occurredAt, payloadSha256, payloadText, originCountry, destinationCountry, crossBorder`. `sha256(payloadText) = payloadSha256`, and `payloadText` is exactly the audit payload as stored. Lines are ordered by `occurredAt`, then `id`.

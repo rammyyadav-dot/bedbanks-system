@@ -42,6 +42,9 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `CancellationPolicy` | yes | - | - | - | forced tenant | search and recheck include each contract's cancellation terms |
 | `ChildPolicy` | yes | - | - | - | forced tenant | search, recheck and hold price children from the contract child policy (ADR 0067, F-03) |
 | `CommercialMarkupRule` | yes | yes | yes | - | forced tenant | INSERT: CommercialMarkupService.create; POST /admin/commercial/markups; draft a markup rule / UPDATE: CommercialMarkupService.retire/execute; POST /admin/commercial/markups/:ruleId/retire, POST /admin/commercial/markups/approvals/:approvalId/execute; activate or retire a rule (rules are otherwise immutable) |
+| `ComplianceExportBatch` | yes | - | - | - | forced tenant | Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067) |
+| `ComplianceExportBatchRecord` | yes | - | - | - | forced tenant | Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067) |
+| `ComplianceRecord` | cols (13) | - | - | - | forced tenant | SELECT (id, tenant_id, category, action, entity_type, entity_id, actor_type, user_id, occurred_at, payload_sha256, origin_country, destination_country, cross_border): Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS |
 | `Contract` | yes | - | - | - | forced tenant | read only |
 | `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |
 | `DailyAvailability` | yes | - | - | - | forced tenant | read only |

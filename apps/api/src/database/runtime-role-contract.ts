@@ -67,6 +67,9 @@ export const BOOKING_ROOM_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_i
 /** BookingGuest columns the extranet reads: the lead guest's name only. No title, age, type, room link or any contact detail. */
 export const BOOKING_GUEST_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'first_name', 'last_name', 'is_lead'] as const
 
+/** ComplianceRecord columns the Admin compliance evidence view reads (ADR 0067 amendment 1). Everything except the audit payload: the view shows its SHA-256 only. */
+export const COMPLIANCE_RECORD_READ_COLUMNS = ['id', 'tenant_id', 'category', 'action', 'entity_type', 'entity_id', 'actor_type', 'user_id', 'occurred_at', 'payload_sha256', 'origin_country', 'destination_country', 'cross_border'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -92,6 +95,8 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'BookingLeadTimeRule', model: 'BookingLeadTimeRule', rls: 'forced-tenant', note: 'search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02)' },
   { table: 'ChildPolicy', model: 'ChildPolicy', rls: 'forced-tenant', note: 'search, recheck and hold price children from the contract child policy (ADR 0067, F-03)' },
   { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
+  { table: 'ComplianceExportBatch', model: 'ComplianceExportBatch', rls: 'forced-tenant', note: 'Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067)' },
+  { table: 'ComplianceExportBatchRecord', model: 'ComplianceExportBatchRecord', rls: 'forced-tenant', note: 'Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067)' },
 ]
 
 /** Tables the runtime reads through named columns only, and never writes. */
@@ -100,6 +105,7 @@ const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
   { table: 'BookingRoom', model: 'BookingRoom', read: false, readColumns: BOOKING_ROOM_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: room line and supplier net; no sell amount or rate key' },
   { table: 'BookingGuest', model: 'BookingGuest', read: false, readColumns: BOOKING_GUEST_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: lead guest name; no contact detail, age or room link' },
   { table: 'InventoryHold', model: 'InventoryHold', read: false, readColumns: HOLD_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column' },
+  { table: 'ComplianceRecord', model: 'ComplianceRecord', read: false, readColumns: COMPLIANCE_RECORD_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS' },
   { table: 'InventoryHoldNight', model: 'InventoryHoldNight', read: false, readColumns: HOLD_NIGHT_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference' },
 ]
 
