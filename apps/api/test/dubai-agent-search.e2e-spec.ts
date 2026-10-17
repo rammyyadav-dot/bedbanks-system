@@ -8,6 +8,7 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
 import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -213,7 +214,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-C`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
     contractId = contract.body.data.id
-    await admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contractId, 'ACTIVE')
     const plan = await admin.post('/api/v1/supply/rate-plans').send({
       contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-FLEX`, occupancy: 2, currency: 'AED',
       refundable: true, minStay: 1, releaseDays: 0,
@@ -240,7 +241,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'COMPLETE' } }) // fixture reset: re-publishing is maker-checker (ADR 0022)
     await admin.patch(`/api/v1/supply/hotels/${hotelId}/rooms/${roomId}`).send({ isActive: true }).expect(200)
     await admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: true }).expect(200)
-    await admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'ACTIVE', validFrom: day(0), validTo: day(60) }).expect(200)
+    await setContractStatusFixture(prisma, contractId, 'ACTIVE', { validFrom: new Date(`${day(0)}T00:00:00.000Z`), validTo: new Date(`${day(60)}T00:00:00.000Z`) })
     await setRatePlanStatusFixture(prisma, ratePlanId, 'ACTIVE')
     await admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 1, releaseDays: 0 }).expect(200)
     await admin.post('/api/v1/supply/daily-rates/bulk').send({ rows: nights.map((stayDate) => ({
@@ -335,8 +336,8 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       // The room API refuses to archive a room a published hotel still requires (hotel-setup rule), so the archived-room state is seeded directly.
       ['room inactive', () => prisma.roomType.update({ where: { id: roomId }, data: { isActive: false } })],
       ['board inactive', () => admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: false }).expect(200)],
-      ['contract inactive', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'SUSPENDED' }).expect(200)],
-      ['contract expired', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'EXPIRED' }).expect(200)],
+      ['contract inactive', () => setContractStatusFixture(prisma, contractId, 'SUSPENDED')],
+      ['contract expired', () => setContractStatusFixture(prisma, contractId, 'EXPIRED')],
       ['rate plan inactive', () => setRatePlanStatusFixture(prisma, ratePlanId, 'SUSPENDED')],
       ['minimum stay', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 5 }).expect(200)],
       ['release days', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ releaseDays: 40 }).expect(200)],

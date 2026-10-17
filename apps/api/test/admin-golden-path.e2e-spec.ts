@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 /**
  * One-hotel Admin commercial golden path, driven only through the authoritative HTTP API the Admin UI uses:
@@ -137,7 +138,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
     expect(contract.body.data).toMatchObject({ status: 'DRAFT', supplierId: ids.supplier, supplierHotelMappingId: ids.hotelMapping, settlementCurrency: 'AED' })
     await api(operator).post(`/supply/contracts/${ids.contract}/policies/cancellation`, { daysBeforeCheckin: 7, penaltyPercent: 100 }).expect(201)
     await api(operator).post(`/supply/contracts/${ids.contract}/policies/lead-time`, { minLeadHours: 24 }).expect(201)
-    await api(operator).patch(`/supply/contracts/${ids.contract}`, { status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, ids.contract, 'ACTIVE')
 
     const plan = await api(operator).post('/supply/rate-plans', { contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, code: 'DLX-BB-2A', occupancy: 2, currency: 'AED', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: 1, releaseDays: 0 }).expect(201)
     ids.ratePlan = plan.body.data.id

@@ -1,0 +1,78 @@
+import {
+  activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
+  type ContractTerms, type PlanFacts,
+} from './contract-lifecycle'
+
+const terms = (over: Partial<ContractTerms> = {}): ContractTerms => ({
+  code: 'DXB-2027', supplierId: 's1', supplierHotelMappingId: 'm1', validFrom: '2026-11-01', validTo: '2027-10-31', settlementCurrency: 'AED',
+  salesMarkets: [], nationalities: [], paymentPolicyRef: null,
+  cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, currency: null }],
+  childPolicies: [{ minAge: 0, maxAge: 5, extraBedAllowed: false, supplementMinor: '0', currency: 'AED' }],
+  leadTimeRule: null, ...over,
+})
+const plan = (over: Partial<PlanFacts> = {}): PlanFacts => ({ code: 'P1', status: 'DRAFT', currency: 'AED', refundable: true, cancellationPolicySet: null, validFrom: null, validTo: null, ...over })
+const facts = (over: Partial<Parameters<typeof assessContractActivation>[0]> = {}) => ({ today: '2026-10-17', status: 'REVIEW', terms: terms(), supplierStatus: 'ACTIVE', mappingStatus: 'MAPPED', plans: [plan()], ...over })
+const failed = (r: ReturnType<typeof assessContractActivation>) => r.checks.filter((c) => !c.ok).map((c) => c.code)
+
+describe('contract lifecycle (ADR 0067, F-01)', () => {
+  it('locks terms while ACTIVE or EXPIRED and allows direct edits in DRAFT, REVIEW and SUSPENDED', () => {
+    expect(['DRAFT', 'REVIEW', 'SUSPENDED'].map(termsEditable)).toEqual([true, true, true])
+    expect(['ACTIVE', 'EXPIRED'].map(termsEditable)).toEqual([false, false])
+  })
+
+  it('never offers activation as a single-actor transition', () => {
+    expect(lifecycleTarget('submit', 'DRAFT')).toBe('REVIEW')
+    expect(lifecycleTarget('return', 'REVIEW')).toBe('DRAFT')
+    expect(lifecycleTarget('suspend', 'ACTIVE')).toBe('SUSPENDED')
+    for (const from of ['DRAFT', 'REVIEW', 'SUSPENDED', 'EXPIRED']) for (const a of ['submit', 'return', 'suspend'] as const) expect(lifecycleTarget(a, from)).not.toBe('ACTIVE')
+    expect(lifecycleTarget('submit', 'ACTIVE')).toBeNull()
+    expect([activationAllowedFrom('EXPIRED'), activationAllowedFrom('ACTIVE'), activationAllowedFrom('SUSPENDED')]).toEqual([false, false, true])
+  })
+
+  it('fingerprints the terms independent of row order, and changes on any policy edit', () => {
+    const a = terms({ cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, currency: null }, { policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] })
+    const b = terms({ cancellationPolicies: [...a.cancellationPolicies].reverse() })
+    expect(termsFingerprint(a)).toBe(termsFingerprint(b))
+    expect(termsFingerprint(a)).toMatch(/^[0-9a-f]{64}$/)
+    expect(termsFingerprint(terms({ childPolicies: [] }))).not.toBe(termsFingerprint(terms()))
+    expect(termsFingerprint(terms({ leadTimeRule: { minLeadHours: 24, maxLeadDays: null } }))).not.toBe(termsFingerprint(terms()))
+  })
+
+  it('activation passes a sound contract and names every failing check', () => {
+    expect(assessContractActivation(facts()).ready).toBe(true)
+    expect(failed(assessContractActivation(facts({ status: 'ACTIVE' })))).toEqual(['STATUS_ALLOWED'])
+    expect(failed(assessContractActivation(facts({ terms: terms({ validTo: '2026-10-16' }) })))).toEqual(['VALIDITY'])
+    expect(failed(assessContractActivation(facts({ supplierStatus: 'SUSPENDED' })))).toEqual(['SUPPLIER_ACTIVE'])
+    expect(failed(assessContractActivation(facts({ mappingStatus: 'PENDING' })))).toEqual(['MAPPING_APPROVED'])
+    expect(assessContractActivation(facts({ mappingStatus: null })).ready).toBe(true)
+    expect(failed(assessContractActivation(facts({ plans: [plan({ currency: 'USD' })] })))).toEqual(['PLANS_CONSISTENT'])
+  })
+
+  it('validates amendments and refuses identity, status and unknown keys', () => {
+    expect(normaliseAmendment({ validTo: '2027-12-31', salesMarkets: ['ae', 'SA'] }).changes).toEqual({ validTo: '2027-12-31', salesMarkets: ['AE', 'SA'] })
+    expect(normaliseAmendment({ supplierId: 'x' }).errors[0]).toMatch(/identify a contract/)
+    expect(normaliseAmendment({ status: 'ACTIVE' }).errors[0]).toMatch(/never changes status/)
+    expect(normaliseAmendment({ foo: 1 }).errors[0]).toMatch(/not an amendable term/)
+    expect(normaliseAmendment({}).errors[0]).toMatch(/at least one/)
+    expect(normaliseAmendment({ validTo: '2027-02-30' }).errors).toHaveLength(1)
+    expect(normaliseAmendment({ cancellationPolicies: [{ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: '100' }] }).errors[0]).toMatch(/exactly one/)
+    expect(normaliseAmendment({ childPolicies: [{ minAge: 0, maxAge: 5 }, { minAge: 5, maxAge: 11 }] }).errors[0]).toMatch(/overlap/)
+    expect(normaliseAmendment({ leadTimeRule: { minLeadHours: 48, maxLeadDays: 365 } }).changes).toEqual({ leadTimeRule: { minLeadHours: 48, maxLeadDays: 365 } })
+  })
+
+  it('refuses an amendment that breaks a plan under the contract, or changes nothing', () => {
+    const before = terms()
+    expect(amendmentProblems(before, before, [])).toEqual(['The amendment changes nothing.'])
+    expect(amendmentProblems(before, applyAmendment(before, { settlementCurrency: 'USD' }), [plan()])).toEqual([expect.stringMatching(/child band is in AED/), expect.stringMatching(/another currency than USD/)])
+    expect(amendmentProblems(before, applyAmendment(before, { validTo: '2027-03-31' }), [plan({ validTo: '2027-06-30' })])[0]).toMatch(/outside 2026-11-01 to 2027-03-31/)
+    expect(amendmentProblems(before, applyAmendment(before, { cancellationPolicies: [] }), [plan({ cancellationPolicySet: 'FLEX' })])).toEqual(expect.arrayContaining([expect.stringMatching(/cancellation set/)]))
+    expect(amendmentProblems(before, applyAmendment(before, { validTo: '2027-12-31' }), [plan({ status: 'EXPIRED', currency: 'USD' })])).toEqual([])
+  })
+
+  it('raises the version on every amendment, and on reactivation only when the terms changed since the last snapshot', () => {
+    expect(nextVersion(1, null, 'a', 'ACTIVATION')).toBe(1)
+    expect(nextVersion(1, { version: 1, fingerprint: 'a' }, 'a', 'ACTIVATION')).toBe(1)
+    expect(nextVersion(1, { version: 1, fingerprint: 'a' }, 'b', 'ACTIVATION')).toBe(2)
+    expect(nextVersion(2, { version: 2, fingerprint: 'b' }, 'c', 'AMENDMENT')).toBe(3)
+  })
+})

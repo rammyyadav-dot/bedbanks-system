@@ -1832,10 +1832,38 @@ model Contract {
   cancellationPolicies  CancellationPolicy[]
   childPolicies         ChildPolicy[]
   leadTimeRules         BookingLeadTimeRule[]
+  versions              ContractVersion[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
   @@index([supplierId, status])
+}
+
+enum ContractVersionKind {
+  ACTIVATION
+  AMENDMENT
+}
+
+/// Immutable snapshot of a contract's reviewed terms (ADR 0067, F-01). One row per approved activation or amendment; never updated or deleted
+/// (database trigger). `version` is the contract version the terms became; `fingerprint` is the SHA-256 the approval was bound to.
+model ContractVersion {
+  id            String              @id @default(cuid())
+  tenantId      String              @map("tenant_id")
+  contractId    String              @map("contract_id")
+  contract      Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  version       Int
+  kind          ContractVersionKind
+  terms         Json
+  fingerprint   String              @db.Char(64)
+  approvalId    String              @map("approval_id")
+  requestedById String              @map("requested_by_id")
+  approvedById  String              @map("approved_by_id")
+  appliedById   String              @map("applied_by_id")
+  reason        String
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  @@unique([contractId, version])
+  @@index([tenantId, contractId])
 }
 
 model RatePlan {
