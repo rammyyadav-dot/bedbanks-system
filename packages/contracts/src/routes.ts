@@ -90,7 +90,7 @@ export const routes = {
     wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', receivables: '/admin/operations/receivables', supplierPayables: '/admin/operations/supplier-payables', creditNotes: '/admin/operations/credit-notes', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
     commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
-    financeSummary: '/admin/operations/finance/summary', auditSummary: '/admin/operations/audit/summary',
+    financeSummary: '/admin/operations/finance/summary', ledgerIntegrity: '/admin/operations/finance/ledger-integrity', auditSummary: '/admin/operations/audit/summary',
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },
   platform: {

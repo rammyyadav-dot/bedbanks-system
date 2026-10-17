@@ -6,6 +6,7 @@ import {
 import { positionsByCurrency } from '@bedbanks/money'
 import { ledgerWindowGroups, totalsOf, walletTotals } from '../ledger/ledger-core'
 import { PrismaService } from '../database/prisma.service'
+import { creditLineResolver } from '../agent/agency-account'
 import { day, iso, sectionRead } from './operations-read'
 import { endOfDay, intParam } from './query-params'
 
@@ -40,7 +41,7 @@ export class OperationsFinanceAuditService {
       window: { from: win.from, to: win.to, days: win.days },
       definitions: {
         balance: 'The sum of every ledger entry for the wallet, as the finance service computes it.',
-        availableCredit: 'Credit limit plus balance. Currencies are reported separately and never added together.',
+        availableCredit: 'Credit line plus balance; an agency account uses its agency\'s approved credit limit. Currencies are reported separately and never added together.',
         overdrawn: 'A wallet whose available credit is below zero. This should not happen; investigate any.',
         ledgerWindow: 'Ledger entries whose immutable timestamp falls in the window; amounts are the stored signed values per entry type.',
       },
@@ -54,7 +55,9 @@ export class OperationsFinanceAuditService {
         tx.wallet.findMany({ where: { tenantId }, orderBy: [{ currency: 'asc' }, { id: 'asc' }] }),
         walletTotals(tx, tenantId),
       ])
-      const currencies: FinanceCurrencySummary[] = positionsByCurrency(wallets.map(w => ({ currency: w.currency, balanceMinor: totalsOf(totals, w.id).balanceMinor, creditLineMinor: w.creditLimit }))).map(r => ({
+      // ADR 0068 F1: an agency account's credit line is its agency's approved limit, not `Wallet.credit_limit` (always 0 there).
+      const line = await creditLineResolver(tx, tenantId, wallets)
+      const currencies: FinanceCurrencySummary[] = positionsByCurrency(wallets.map(w => ({ currency: w.currency, balanceMinor: totalsOf(totals, w.id).balanceMinor, creditLineMinor: line(w) }))).map(r => ({
         currency: r.currency, wallets: r.accounts, creditLimitMinor: r.creditLineMinor.toString(), balanceMinor: r.balanceMinor.toString(), availableCreditMinor: r.availableMinor.toString(), overdrawnWallets: r.overdrawnAccounts,
       }))
       return { total: wallets.length, currencies }

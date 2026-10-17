@@ -240,6 +240,40 @@ export interface FinanceSummary {
   ledger: SectionState<LedgerWindowSummary>
 }
 
+// ---- Ledger integrity and reconciliation (ADR 0068) ---------------------------------------------------------------------
+/** CLEAN: no finding. WARNINGS: credit-control or timing items only. ISSUES: at least one critical break. INCOMPLETE: the scan was capped, nothing is claimed. */
+export type LedgerIntegrityVerdict = 'CLEAN' | 'WARNINGS' | 'ISSUES' | 'INCOMPLETE'
+export const LEDGER_INTEGRITY_ENTRY_LIMIT = 50_000
+export const LEDGER_INTEGRITY_FINDING_LIMIT = 500
+export const LEDGER_INTEGRITY_STALE_MINUTES_DEFAULT = 60
+export interface LedgerIntegrityFindingView {
+  code: string
+  severity: 'critical' | 'warning'
+  currency: string | null
+  accountId: string | null; agencyId: string | null; bookingId: string | null; receiptId: string | null; entryId: string | null
+  /** Named integer minor-unit strings that show the break (for example expectedRefundMinor and refundMinor). */
+  amounts: Record<string, MinorString>
+}
+/** Roll-forward per currency: balance = funding credits + other credits + refunds - charges - open reservations. Never added across currencies. */
+export interface LedgerIntegrityCurrencyTotals {
+  currency: string; accounts: number; entries: number
+  fundingCreditsMinor: MinorString; otherCreditsMinor: MinorString; chargesMinor: MinorString; refundsMinor: MinorString; openReservationsMinor: MinorString; balanceMinor: MinorString
+  /** POSTED funding receipts from the receipt register. Equal to fundingCreditsMinor when the sub-ledger ties out. */
+  postedReceiptsMinor: MinorString
+}
+export interface LedgerIntegrityReport {
+  generatedAt: string
+  verdict: LedgerIntegrityVerdict
+  staleReservationMinutes: number
+  scan: { accounts: number; entries: number; bookings: number; receipts: number; entryLimit: number; capped: boolean }
+  counts: { critical: number; warning: number; byCode: Array<{ code: string; severity: 'critical' | 'warning'; count: number }> }
+  totals: LedgerIntegrityCurrencyTotals[]
+  /** Critical first. At most LEDGER_INTEGRITY_FINDING_LIMIT; `findingsTruncated` says when more exist (counts are always complete). */
+  findings: LedgerIntegrityFindingView[]
+  findingsTruncated: boolean
+  definitions: Record<string, string>
+}
+
 export interface AuditSummary {
   generatedAt: string
   window: SummaryWindow

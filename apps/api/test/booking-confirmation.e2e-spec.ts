@@ -136,6 +136,19 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     await expect(confirm('does-not-exist')).rejects.toThrow('Booking not found')
   })
 
+  it('ADR 0068 F2: refuses to settle a reservation that was already released, so a confirmed stay can never net to zero', async () => {
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 9 } })
+    const hold = await newHold(`${suffix}-released`)
+    const pre = await prebook(`${suffix}-released`, hold.holdId)
+    expect(pre).toMatchObject({ status: 'prebooked' })
+    // The supplier accepted, but a compensation path returned the reservation anyway.
+    await finance.release({ tenantId, userId, requestId: 'comp', walletId, bookingId: pre.bookingId, currency: 'AED', amountMinor: 125099n, idempotencyKey: `booking:${pre.bookingId}:authorize` })
+    await expect(confirm(pre.bookingId)).rejects.toThrow('Financial authorization was released')
+    expect((await entries(pre.bookingId)).map(e => e.type)).toEqual(['HOLD', 'RELEASE'])
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: pre.bookingId } })).toMatchObject({ status: 'PENDING_SUPPLIER' })
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: hold.holdId } })).toMatchObject({ status: 'PROCESSING' })
+  })
+
   it('rejects insufficient credit, mismatched occupancy and a foreign user without moving money', async () => {
     await prisma.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 9 } })
     const hold = await newHold(`${suffix}-credit`)
