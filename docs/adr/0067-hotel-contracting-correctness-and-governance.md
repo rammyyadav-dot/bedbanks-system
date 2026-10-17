@@ -39,3 +39,17 @@ Constraints that apply throughout: tenant identity only from the session (1); a 
 An unusable hotel zone fails closed for whichever side is set. Because Agent search, recheck, hold, Admin readiness, the commercial assessment and rate certification all use this one evaluator, they all enforce it. The strict runtime role gains SELECT on `BookingLeadTimeRule` (and on `ChildPolicy`, for F-03); both tables keep their contract-joined RLS.
 
 **Tests.** Unit: both bounds at the minute in Dubai time, no rule, and an invalid zone. End to end: Agent search hides the hotel while either rule blocks the stay and shows it again once the rule is removed.
+
+## F-03: One child policy
+
+**Problem.** A contract child policy (age band, extra bed, supplement) was stored and shown, but pricing read only the rate plan's own child lines. A dead `evaluateCommercialRules` function priced contract child bands and mandatory supplements but was never called. Children could therefore be refused, or sold on terms other than the contract's.
+
+**Decision.**
+- A rate plan's own CHILD lines govern it. A plan with no CHILD line inherits the contract's child bands (`effectiveGuestLines`). An inherited band is charged per child per night on the same basis (NET or SELL) as that night's rate, in the band's currency or the plan's when none is set. A band whose contract recorded no supplement cannot price a child who must be charged (`CHILD_PRICE_MISSING`): never priced as free.
+- Children may fill base places that adults leave empty. The oldest children take those places at no extra charge, and only the remaining children are priced by band. So 1 adult + 1 child in a double pays the double rate, which is common practice. A party must still have at least one adult and fill the base occupancy.
+- Agent search pre-selects a plan whose base occupancy is within the whole party when it has guest lines or its contract has child bands; the evaluator decides. The rate certification simulator uses the same effective lines, so its independent recomputation still agrees.
+- `evaluateCommercialRules` and its types are removed. Compulsory supplements are designed in Phase 2.
+
+**Admin.** The child band form now takes the supplement per child per night in the settlement currency (0 for free) and explains which plans it governs. The guest-price panel says whether its own lines or the contract policy apply.
+
+**Tests.** Unit: inheritance, plan override, the INHERIT basis, the unpriced band, currency mismatch, and base places filled by the oldest child. End to end: Agent search prices an extra child aged 8 from the contract band, a child aged 3 free, 1 adult + 1 child at the double rate, and returns nothing for an age no band covers.

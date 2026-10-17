@@ -229,11 +229,13 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         tenantId,
         status: 'ACTIVE',
         currency: criteria.currency,
-        // ADR 0057, S6: a plan without guest price lines sells to exactly the searched party size (as before); a plan with lines is for a base party of
-        // adults, so it is a candidate whenever its base occupancy is within the adults searched. The evaluator decides the rest, per child age.
+        // ADR 0057, S6 and ADR 0067, F-03: a flat plan sells to exactly the searched party size; a plan priced by guest lines, its own or inherited from
+        // its contract's child policy, is for a base party that children may complete, so it is a candidate whenever its base occupancy is within the
+        // whole party. This is only a pre-filter: the evaluator decides, per adult count and child age.
         OR: [
-          { occupancy, guestPrices: { none: {} } },
-          { occupancy: { lte: criteria.adults }, guestPrices: { some: {} } },
+          { occupancy },
+          { occupancy: { lte: occupancy }, guestPrices: { some: {} } },
+          { occupancy: { lte: occupancy }, contract: { childPolicies: { some: {} } } },
         ],
         boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
         roomType: {
@@ -262,6 +264,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             supplier: true,
             cancellationPolicies: true,
             leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
+            childPolicies: { select: { minAge: true, maxAge: true, supplementMinor: true, currency: true } },
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },

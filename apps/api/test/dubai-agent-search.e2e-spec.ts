@@ -356,6 +356,23 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }
   }, 40_000) // eleven cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
 
+  it('prices children from the contract child policy when the plan has no child lines (ADR 0067, F-03)', async () => {
+    await prisma.roomType.update({ where: { id: roomId }, data: { maxChildren: 2, maxOccupancy: 3 } })
+    await prisma.childPolicy.createMany({ data: [{ contractId, minAge: 0, maxAge: 5, supplementMinor: 0n, currency: 'AED' }, { contractId, minAge: 6, maxAge: 11, supplementMinor: 5000n, currency: 'AED' }] })
+    try {
+      const priced = (body: Record<string, unknown>) => search(agentCookie, body).expect(201).then((r) => r.body.data.hotels.map((h: { rooms: Array<{ rates: Array<{ sellAmountMinor: number }> }> }) => h.rooms[0].rates[0].sellAmountMinor))
+      // An extra child aged 8 pays the 6-11 band per night; a child aged 3 is free; 1 adult + 1 child fills the double at the base rate.
+      expect(await priced({ adults: 2, children: 1, childAges: [8] })).toEqual([(nightMinor + 5000) * nights.length])
+      expect(await priced({ adults: 2, children: 1, childAges: [3] })).toEqual([nightMinor * nights.length])
+      expect(await priced({ adults: 1, children: 1, childAges: [8] })).toEqual([nightMinor * nights.length])
+      // No band covers age 14: never priced as free.
+      expect(await priced({ adults: 2, children: 1, childAges: [14] })).toEqual([])
+    } finally {
+      await prisma.childPolicy.deleteMany({ where: { contractId } })
+      await prisma.roomType.update({ where: { id: roomId }, data: { maxChildren: 0, maxOccupancy: 2 } })
+    }
+  })
+
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)
     await admin.post(`/api/v1/supply/mappings/hotels/${mappingId}/rooms/${roomMappingId}/reopen`).expect(201)
