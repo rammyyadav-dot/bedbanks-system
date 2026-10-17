@@ -33,8 +33,29 @@ Constraints: tenant identity from server context only (1); never log credentials
 
 ## Not built
 - **Infrastructure.** No Terraform for the Object Lock bucket, its KMS key or the scheduled ECS task is included. Until the owner provisions the bucket, the role and the schedule, nothing is exported and records accumulate in the database (still captured and immutable).
-- **Admin UI / API.** There is no Admin screen or HTTP endpoint for compliance records or export status; the existing Audit and Access review screens are unchanged. Such a read surface needs its own contract in `@bedbanks/contracts`, a permission and a runtime-role read grant.
+- **Admin UI / API.** Built by amendment 1 below.
 - **External anchoring** of the chain head beyond Object Lock (for example a periodic signed timestamp) and **report generation** (per-regulator summaries) are not built.
 
 ## Rollback
 Forward migration, reviewed before use, while the exporter is stopped; listed in the header of `202611200001_compliance_reporting_hooks`. Dropping the trigger restores the previous audit behaviour exactly. Archived objects remain in WORM storage for their retention period by design.
+
+## Amendment 1: Admin compliance evidence (read surface)
+**Decision.** Administration & Governance gets a read-only **Compliance evidence** module under Risk & Compliance (`/compliance`), backed by two tenant-scoped endpoints declared in `@bedbanks/contracts` (`routes.admin.operations.complianceSummary`, `complianceRecords`):
+- `GET /admin/operations/compliance/summary?days=1..90` returns the records captured in the window per category (every category present), the jurisdiction split of booking events (cross-border, domestic, unknown), and the all-time export chain: batch count, stored, sealed but not stored, head sequence and hash, last stored time, and how many records are still pending (and the oldest pending one). The export section is `unavailable` (never zero) if the role cannot read it.
+- `GET /admin/operations/compliance/records` returns a paged list, newest first, filterable by category, export state (`PENDING`, `SEALED`, `STORED`), cross-border, action text (LIKE-escaped) and day range. Each row shows the payload's SHA-256, never the payload itself. The Audit explorer remains the place to read payloads.
+- **Permission:** `audit.read`, the same authority as the Audit explorer and Access reviews, since the evidence is derived from the same audit trail. No new permission row. A refused request is itself captured as an `ACCESS_DENIAL` record (asserted in the e2e).
+- **Database:** following repository rule SR-07, the grant is stated only in `runtime-role-contract.ts` and applied by `ops:provision-api-runtime-role`, not by a migration. The API role gets column-level SELECT on `ComplianceRecord` (every column except `payload`) and SELECT on `ComplianceExportBatch` and `ComplianceExportBatchRecord`. It still has no write on any compliance table. Forced RLS limits every read to the active tenant; platform (tenantless) records are never visible through the API.
+
+**Evidence.** `apps/api/test/compliance-evidence.e2e-spec.ts` runs the whole application as the provisioned strict runtime role. It covers:
+- the 401 and 403 gate;
+- per-category, jurisdiction and export-chain counts after a real export;
+- tenant and platform isolation;
+- the absence of the payload, both in responses and as a database privilege;
+- every filter, and rejection of invalid ones.
+
+`apps/admin/lib/admin-mvp-guards.test.ts` asserts that the page uses the two endpoints, renders an unavailable section as unavailable, performs no arithmetic or mutation, and is gated by `audit.read` in navigation.
+
+**Rollout.** Re-run `ops:provision-api-runtime-role` (owner) after deploying, so the role receives the three read grants. Until then, the summary answers with its export section `unavailable` and the list answers `503 OPERATIONS_READ_DENIED`. Neither shows an empty result.
+
+**Still not built:** Terraform for the bucket and the schedule, external anchoring of the chain head, and per-regulator reports.
+

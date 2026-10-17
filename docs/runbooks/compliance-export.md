@@ -45,7 +45,10 @@ Alert on a non-zero exit of either. Output contains scope ids, sequences, hashes
 | `fell behind the exported chain` | a record committed more than 24 h after newer records were exported | investigate the long transaction; the record is still in the database and must be exported by an owner-reviewed one-off batch |
 | `waited longer than the allowed export lag` | the exporter is not running or is failing | restore the schedule |
 
-## 4. Archive format (for auditors)
+## 4. Viewing evidence in Admin
+Risk & Compliance → **Compliance evidence** (`/compliance`, permission `audit.read`) shows each tenant's captured records, their export state (not yet exported / sealed / stored), and the head of its chain. That head is the same hash `ops:compliance verify` prints. After deploying ADR 0067 amendment 1, re-run `ops:provision-api-runtime-role` so the API role can read the compliance tables (column-level; never the payload).
+
+## 5. Archive format (for auditors)
 Keys: `compliance/v1/<scope>/<sequence, 10 digits>-<first 16 hex of batch hash>.ndjson` and the same key ending `.manifest.json`. `<scope>` is a tenant id or `platform`.
 
 Body: one JSON object per line, `\n`-terminated, keys in this order: `v, id, tenantId, category, action, entityType, entityId, actorType, userId, occurredAt, payloadSha256, payloadText, originCountry, destinationCountry, crossBorder`. `sha256(payloadText) = payloadSha256`, and `payloadText` is exactly the audit payload as stored. Lines are ordered by `occurredAt`, then `id`.

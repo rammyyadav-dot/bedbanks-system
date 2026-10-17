@@ -15,6 +15,7 @@ import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
+import { OperationsComplianceService } from './operations-compliance.service'
 import { OperationsSupplyService } from './operations-supply.service'
 import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -30,7 +31,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly compliance: OperationsComplianceService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -181,6 +182,12 @@ export class OperationsController {
 
   @Get('access-review/users') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   accessReviewUsers(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.governance.accessReviewUsers(tenantId, query) }
+
+  @Get('compliance/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  complianceSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.compliance.summary(tenantId, query) }
+
+  @Get('compliance/records') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  complianceRecords(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.compliance.records(tenantId, query) }
 
   @Get('finance/summary') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   financeSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.financeSummary(tenantId, query) }
