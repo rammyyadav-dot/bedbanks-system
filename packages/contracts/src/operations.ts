@@ -329,6 +329,35 @@ export interface ComplianceRecordView {
 }
 export type ComplianceRecordPage = Paged<ComplianceRecordView>
 
+/** Per-period compliance report (ADR 0067 amendment 3). Downloaded as a file (`?from=YYYY-MM-DD&to=YYYY-MM-DD&format=json|csv`); never paged. */
+export const COMPLIANCE_REPORT_MAX_DAYS = 366
+/** A period with more records is refused (COMPLIANCE_REPORT_TOO_LARGE), never truncated: narrow the period. */
+export const COMPLIANCE_REPORT_MAX_RECORDS = 20_000
+export const COMPLIANCE_REPORT_TOO_LARGE = 'COMPLIANCE_REPORT_TOO_LARGE'
+export type ComplianceReportFormat = 'json' | 'csv'
+export interface ComplianceReport {
+  formatVersion: 1
+  tenantId: string
+  /** Inclusive UTC calendar days. */
+  period: { from: string; to: string }
+  generatedAt: string
+  generatedByUserId: string
+  definitions: Record<string, string>
+  totals: { records: number; stored: number; sealed: number; pending: number }
+  byCategory: Array<{ category: ComplianceCategoryValue; count: number; actions: Array<{ action: string; count: number }> }>
+  bookings: { crossBorder: number; domestic: number; unknown: number; corridors: Array<{ origin: string; destination: string; count: number }> }
+  attestation: {
+    /** SHA-256 (hex) of `${id}\t${payloadSha256}\n` for every record of the period, oldest first (occurredAt, then id). Recomputable from the archive. */
+    recordsSha256: string
+    recordCount: number
+    /** The tenant's newest export batch when the report was generated; null before the first batch. */
+    chainHead: { sequence: number; batchSha256: string; storageStatus: 'SEALED' | 'STORED'; storedAt: string | null } | null
+  }
+  /** Every record of the period, oldest first. */
+  records: ComplianceRecordView[]
+}
+
+
 // ---- Agent Search Monitor (ADR 0053) -------------------------------------------------------------------------------------
 export const SEARCH_MONITOR_STATUSES = ['available', 'partial', 'no_availability', 'provider_unavailable', 'mapping_unavailable'] as const
 export type SearchMonitorStatus = (typeof SEARCH_MONITOR_STATUSES)[number]

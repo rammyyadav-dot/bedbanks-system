@@ -16,6 +16,7 @@ import { OperationsFinanceAuditService } from './operations-finance-audit.servic
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
 import { OperationsComplianceService } from './operations-compliance.service'
+import { complianceReportCsv } from './compliance-report'
 import { OperationsSupplyService } from './operations-supply.service'
 import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -188,6 +189,17 @@ export class OperationsController {
 
   @Get('compliance/records') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   complianceRecords(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.compliance.records(tenantId, query) }
+
+  /** A file download (JSON or CSV), audited as compliance.report.exported. Errors keep the normal JSON envelope. */
+  @Get('compliance/report') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  async complianceReport(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q, @Req() req: Request, @Res() res: Response) {
+    const { report, format } = await this.compliance.report(tenantId, identity.user.id, requestIdOf(req), query)
+    const name = `compliance-report-${report.period.from}-to-${report.period.to}.${format}`
+    res.status(200).set({
+      'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`,
+      'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Compliance-Records': String(report.attestation.recordCount), 'X-Compliance-Records-Sha256': report.attestation.recordsSha256,
+    }).send(format === 'csv' ? complianceReportCsv(report) : JSON.stringify(report, null, 2))
+  }
 
   @Get('finance/summary') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   financeSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.financeSummary(tenantId, query) }
