@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { TenantContextGuard, ACTIVE_TENANT_REQUEST_KEY } from '../agent/tenant-context.guard'
 import { SupplyService } from './supply.service'
@@ -41,6 +41,9 @@ export class SupplyController {
   @Post('contracts/:contractId/policies/cancellation') createCancellationPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createCancellationPolicy(c.tenantId, c.userId, contractId, body, c.requestId) }
   @Post('contracts/:contractId/policies/child') createChildPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createChildPolicy(c.tenantId, c.userId, contractId, body, c.requestId) }
   @Post('contracts/:contractId/policies/lead-time') createLeadTimeRule(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createLeadTimeRule(c.tenantId, c.userId, contractId, body, c.requestId) }
+  @Delete('contracts/:contractId/policies/cancellation/:policyId') deleteCancellationPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Param('policyId') policyId: string) { const c = this.context(req); return this.supply.deleteCancellationPolicy(c.tenantId, c.userId, contractId, policyId, c.requestId) }
+  @Delete('contracts/:contractId/policies/child/:policyId') deleteChildPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Param('policyId') policyId: string) { const c = this.context(req); return this.supply.deleteChildPolicy(c.tenantId, c.userId, contractId, policyId, c.requestId) }
+  @Delete('contracts/:contractId/policies/lead-time') deleteLeadTimeRule(@Req() req: Request, @Param('contractId') contractId: string) { const c = this.context(req); return this.supply.deleteLeadTimeRule(c.tenantId, c.userId, contractId, c.requestId) }
   @Get('rate-plan-portfolio') portfolio(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.supply.ratePlanPortfolio(c.tenantId, c.userId, query) }
   @Get('rate-plans') ratePlans(@Req() req: Request) { const c = this.context(req); return this.supply.ratePlans(c.tenantId, c.userId) }
   // Declared before ':ratePlanId' so the literal segment is never read as an id.

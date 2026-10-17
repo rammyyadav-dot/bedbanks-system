@@ -119,7 +119,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   planned('booking.export', 'reservations', 'S2', 'Export bookings (Phase 6)', 'booking.read'),
   planned('booking.export.agency', 'reservations', 'S2', 'Export the caller\'s own agency bookings (Phase 6)', 'booking.view.agency'),
   planned('booking.sla.manage', 'reservations', 'S2', 'Change SLA rules (Phase 4)', 'booking.read'),
-  planned('contract.approve', 'contracting', 'S3', 'Approve a commercial contract (maker-checker)', 'supply.contracts.manage'),
+  { key: 'contract.approve', department: 'contracting', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'supply.contracts.manage', approvalOnly: true, description: 'Activate or amend a contract after a second person approves exactly the terms reviewed (maker-checker, ADR 0067)' },
   planned('contract.terminate', 'contracting', 'S3', 'Terminate a contract', 'supply.contracts.manage'),
   { key: 'hotel.activate', department: 'supply', actionClass: 'S3', scope: 'TENANT', status: 'enforced', refines: 'supply.hotels.manage', approvalOnly: true, description: 'Publish a hotel profile after the publication requirements are met (maker-checker, ADR 0022)' },
   planned('hotel.deactivate', 'supply', 'S2', 'Deactivate a hotel', 'supply.hotels.manage'),

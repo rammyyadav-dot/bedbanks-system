@@ -1,7 +1,7 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
-import { releaseAllows } from './zoned-time'
+import { releaseAllows, zonedLocalToUtc } from './zoned-time'
 import { hotelToday } from './rate-plan-expiry'
-import { selectPromotion, type AppliedPromotion, type PromotionRule } from './promotions'
+import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } from './promotions'
 import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
@@ -119,6 +119,8 @@ export interface ContractedStaySnapshot {
   promotions: PromotionRule[]
   /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
   cancellationPolicyMissing: boolean
+  /** The contract's booking lead-time rule, or null when it has none (ADR 0067, F-02). Required so a caller cannot omit it and sell inside the cut-off. */
+  leadTimeRule: { minLeadHours: number; maxLeadDays: number | null } | null
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -216,6 +218,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
   if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
+  reasons.push(...leadTimeReasons(snapshot.leadTimeRule, request.now, request.checkIn, snapshot.hotelTimeZone ?? ''))
   if (request.buyer) {
     reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
     reasons.push(...planMarketReasons(snapshot.planMarketRules, request.buyer))
@@ -312,4 +315,24 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
   if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion }
   return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion }
+}
+
+/**
+ * The contract's booking lead time (ADR 0067, F-02). `minLeadHours`: the booking must be made at least that many hours before the start of the
+ * check-in day in the hotel's zone (the stricter reading: a later check-in hour never shortens it). `maxLeadDays`: check-in may be at most that
+ * many hotel-local days ahead of today. An unusable zone fails closed for whichever side is set.
+ */
+export function leadTimeReasons(rule: { minLeadHours: number; maxLeadDays: number | null } | null, now: Date, checkIn: string, timeZone: string): string[] {
+  if (!rule) return []
+  const reasons: string[] = []
+  if (rule.minLeadHours > 0) {
+    let arrival: number | null = null
+    try { arrival = zonedLocalToUtc(checkIn, '00:00', timeZone).getTime() } catch { arrival = null }
+    if (arrival === null || arrival - now.getTime() < rule.minLeadHours * 3_600_000) reasons.push('LEAD_TIME_TOO_SHORT')
+  }
+  if (rule.maxLeadDays !== null) {
+    const today = hotelToday(now, timeZone)
+    if (today === null || leadDays(today, checkIn) > rule.maxLeadDays) reasons.push('LEAD_TIME_TOO_LONG')
+  }
+  return reasons
 }

@@ -261,6 +261,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           include: {
             supplier: true,
             cancellationPolicies: true,
+            leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },

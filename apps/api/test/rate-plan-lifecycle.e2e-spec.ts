@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 /**
  * ADR 0041: rate plan lifecycle status is written only by the readiness-gated activate/suspend routes. Everything here runs
@@ -103,7 +104,7 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
     await api(operator).post(`/supply/mappings/hotels/${mappingId}/rooms/${roomMapping}/approve`).expect(201)
     contractId = (await api(operator).post('/supply/contracts', { supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-C1`, validFrom: iso(-30), validTo: iso(365), settlementCurrency: 'AED', salesMarkets: ['AE'], nationalities: [] }).expect(201)).body.data.id
     await api(operator).post(`/supply/contracts/${contractId}/policies/cancellation`, { daysBeforeCheckin: 7, penaltyPercent: 100 }).expect(201)
-    await api(operator).patch(`/supply/contracts/${contractId}`, { status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contractId, 'ACTIVE')
   }, 90000)
 
   afterAll(async () => {
@@ -417,7 +418,16 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
   })
   describe('plan cancellation rule sets (ADR 0057)', () => {
     const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
-    const addRule = (policySet: string | null, daysBeforeCheckin: number) => api(operator).post(`/supply/contracts/${contractId}/policies/cancellation`, { daysBeforeCheckin, penaltyPercent: 100, ...(policySet === null ? {} : { policySet }) })
+    const postRule = (policySet: string | null, daysBeforeCheckin: number) => api(operator).post(`/supply/contracts/${contractId}/policies/cancellation`, { daysBeforeCheckin, penaltyPercent: 100, ...(policySet === null ? {} : { policySet }) })
+    /** An ACTIVE contract's terms are locked (ADR 0067); rules are added while it is suspended, which is how an operator would do it. */
+    const addRule = async (policySet: string | null, daysBeforeCheckin: number) => {
+      await setContractStatusFixture(prisma, contractId, 'SUSPENDED')
+      try { return await postRule(policySet, daysBeforeCheckin) } finally { await setContractStatusFixture(prisma, contractId, 'ACTIVE') }
+    }
+
+    it('an ACTIVE contract refuses a new rule outright (ADR 0067)', async () => {
+      expect((await postRule('FLEX-7', 7).then((r) => expectStatus(r, 409))).body.error.code).toBe('CONTRACT_TERMS_LOCKED')
+    })
     const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-S${++n}`, occupancy: 2, currency: 'AED', ...body })
 
     it('stores rules in a named set, leaving the contract default untouched', async () => {

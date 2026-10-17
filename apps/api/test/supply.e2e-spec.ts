@@ -245,10 +245,13 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).get(`/api/v1/supply/contracts/${contractBId}`).expect(404)
 
     const requestId = `${suffix}-contract-policy-audit`
+    // ADR 0067: status is never set by PATCH; a DRAFT contract's terms are edited directly.
+    const refused = await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).send({ status: 'ACTIVE' }).expect(400)
+    expect(refused.body.error.code).toBe('CONTRACT_STATUS_VIA_LIFECYCLE_ONLY')
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).set('x-request-id', requestId)
-      .send({ status: 'ACTIVE', validFrom: day(-20), validTo: day(380), settlementCurrency: 'AED' }).expect(200)
-    await expect(prisma.contract.findUnique({ where: { id: contractAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', settlementCurrency: 'AED' })
-    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractBId}`).send({ status: 'ACTIVE' }).expect(404)
+      .send({ validFrom: day(-20), validTo: day(380), settlementCurrency: 'AED' }).expect(200)
+    await expect(prisma.contract.findUnique({ where: { id: contractAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'DRAFT', settlementCurrency: 'AED' })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractBId}`).send({ code: 'X' }).expect(404)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).send({ validFrom: '2028-01-01', validTo: '2027-01-01' }).expect(400)
 
     const cancellation = await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation`).set('x-request-id', requestId)
