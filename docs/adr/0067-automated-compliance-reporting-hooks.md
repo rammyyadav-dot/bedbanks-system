@@ -32,7 +32,7 @@ Constraints: tenant identity from server context only (1); never log credentials
 - The exporter refuses a filesystem archive unless the database is local, and refuses an S3 bucket without Object Lock enabled.
 
 ## Not built
-- **Infrastructure.** No Terraform for the Object Lock bucket, its KMS key or the scheduled ECS task is included. Until the owner provisions the bucket, the role and the schedule, nothing is exported and records accumulate in the database (still captured and immutable).
+- **Infrastructure.** Built by amendment 2 below, off by default. Until the owner enables it and provisions the role, nothing is exported, and records accumulate in the database (still captured and immutable).
 - **Admin UI / API.** Built by amendment 1 below.
 - **External anchoring** of the chain head beyond Object Lock (for example a periodic signed timestamp) and **report generation** (per-regulator summaries) are not built.
 
@@ -57,5 +57,27 @@ Forward migration, reviewed before use, while the exporter is stopped; listed in
 
 **Rollout.** Re-run `ops:provision-api-runtime-role` (owner) after deploying, so the role receives the three read grants. Until then, the summary answers with its export section `unavailable` and the list answers `503 OPERATIONS_READ_DENIED`. Neither shows an empty result.
 
-**Still not built:** Terraform for the bucket and the schedule, external anchoring of the chain head, and per-regulator reports.
+**Still not built:** external anchoring of the chain head and per-regulator reports. Terraform is in amendment 2.
+
+## Amendment 2: AWS infrastructure (Terraform)
+**Decision.** `infra/aws/terraform/compliance.tf` provisions the archive and the schedule behind `compliance_export_enabled` (default `false`), so no environment changes until an owner opts in.
+- **Archive.** S3 with Object Lock enabled at creation, default retention COMPLIANCE for `compliance_retention_days` (default 2557, validated to be at least 365, matching the exporter's minimum). Versioning on, public access blocked, bucket-owner-enforced ownership. SSE-KMS with a dedicated key (rotation on) and bucket keys. Lifecycle only aborts incomplete uploads; nothing expires. The bucket policy denies non-TLS access, denies `DeleteObject` and `DeleteObjectVersion` to every principal (Object Lock alone would still allow delete markers, which hide a batch), and denies any `PutObject` that does not carry COMPLIANCE retention.
+- **Least privilege.**
+  - Execution role: may read only the `COMPLIANCE_DATABASE_URL` secret shell (value set out of band, like every runtime URL).
+  - Task role: may `PutObject`, `PutObjectRetention` and `GetObject` under `compliance/*`, `ListBucket` and `GetBucketObjectLockConfiguration` on the bucket, and use the compliance key. No delete, no bypass, no wildcard action.
+  - Security group: the new `compliance` group reaches Postgres (5432 to `data`) and HTTPS only, and has no ingress. S3 is reached through the existing gateway endpoint.
+- **Schedules.** EventBridge Scheduler runs the API image's `ops:compliance export` every 15 minutes and `verify` hourly, on Fargate in private subnets without a public IP. The schedule definitions are encrypted with the compliance key. The scheduler role may only `ecs:RunTask` the two compliance families on this cluster and pass their two roles. Targets name the task family without a revision, so they always run the latest revision.
+- **Deploy.** `aws-deploy.yml` registers a compliance task revision with the same image digest whenever it deploys `api` (skipped when the families do not exist). The CI deploy role gains `iam:PassRole` for the two compliance roles only; it still has no `ecs:RunTask`.
+- **Observability.** A log metric filter on `/fbeds/<env>/compliance` counts `FAIL:` lines, crashes and refused database identities, and alarms on any. Heartbeat filters count successful exports and verifications; their alarms treat missing data as breaching (45 minutes and 2 hours), so a stopped schedule or a task that cannot start also pages the existing alarm topic.
+
+**Evidence.**
+- `terraform validate` and `terraform fmt -check` pass.
+- The offline plan tests in `tests/governance.tftest.hcl` pass, 20 in total, including three new ones:
+  - off by default;
+  - WORM, least-privilege and monitored when enabled: the assertions cover Object Lock, COMPLIANCE retention, no delete or wildcard in the task role, the deny statements, the schedule rates, no public IP, breaching heartbeats, and the single secret;
+  - retention below 365 days is refused.
+- `tools/aws-governance-check.mjs` passes, and checkov 3.2.0 with the repository baseline reports 427 passed and 0 failed, with no new exception. CKV_AWS_297 (schedules using a customer-managed key) was fixed rather than skipped.
+- Nothing was applied to an AWS account.
+
+**Consequences.** Enabling the archive in an environment commits it to keep every archived object for the retention period. Nobody, root included, can delete them before then, and the bucket survives `terraform destroy`. This is the purpose of WORM storage, and it is why the module is opt-in and the runbook says it twice.
 
