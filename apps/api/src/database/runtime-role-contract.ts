@@ -218,6 +218,9 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   HotelSearchIndex: 'search-index maintenance (reindex) is an operator job; the runtime only reads the index',
   TenantControlProfile: 'dedicated tenant control authoring role only', Membership: 'dedicated tenant membership authoring role only', Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',
   User: 'identity provisioning (create user) is an operator action; the runtime only records the last sign-in',
+  ComplianceRecord: 'never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event\'s own transaction (ADR 0067)',
+  ComplianceExportBatch: 'compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)',
+  ComplianceExportBatchRecord: 'compliance export role only: append-only batch membership (ADR 0067)',
   PlatformRole: 'platform administration', PlatformRoleAssignment: 'platform administration', PlatformRolePermission: 'platform administration',
 }
 

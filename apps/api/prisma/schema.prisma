@@ -2213,3 +2213,81 @@ model SandboxContentLease {
   supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
   @@id([tenantId, connectorId])
 }
+
+/// Compliance category of a captured audit event (ADR 0067). The classifier lives in apps/api/src/compliance/compliance-classification.ts.
+enum ComplianceCategory {
+  RBAC_CHANGE
+  PRIVILEGED_ACCESS
+  ACCESS_DENIAL
+  TENANT_GOVERNANCE
+  DATA_EXPORT
+  FINANCIAL_CONTROL
+  BOOKING_JURISDICTION
+}
+
+enum ComplianceStorageStatus {
+  SEALED
+  STORED
+}
+
+/// Immutable copy of a compliance-relevant audit event, appended by the "AuditEvent_compliance_capture" trigger in the audit event's own transaction (ADR 0067).
+/// id is the audit event id. No foreign key to tenants: evidence outlives a tenant. Never written by application code.
+model ComplianceRecord {
+  id                 String                       @id
+  tenantId           String?                      @map("tenant_id")
+  category           ComplianceCategory
+  action             String
+  entityType         String                       @map("entity_type")
+  entityId           String                       @map("entity_id")
+  actorType          AuditActorType               @map("actor_type")
+  userId             String?                      @map("user_id")
+  occurredAt         DateTime                     @map("occurred_at")
+  payload            Json
+  payloadSha256      String                       @map("payload_sha256") @db.Char(64)
+  originCountry      String?                      @map("origin_country") @db.Char(2)
+  destinationCountry String?                      @map("destination_country") @db.Char(2)
+  crossBorder        Boolean?                     @map("cross_border")
+  exports            ComplianceExportBatchRecord?
+
+  @@index([tenantId, occurredAt, id])
+  @@index([tenantId, category, occurredAt])
+}
+
+/// A sealed, hash-chained batch of compliance records for one scope (a tenant id, or 'platform'), stored in WORM object storage (ADR 0067).
+/// Written only by the compliance export role; only storage_status SEALED -> STORED (with stored_at, object_version_id) may change, once.
+model ComplianceExportBatch {
+  id              String                        @id
+  tenantId        String?                       @map("tenant_id")
+  scopeKey        String                        @map("scope_key")
+  sequence        Int
+  formatVersion   Int                           @default(1) @map("format_version")
+  recordCount     Int                           @map("record_count")
+  firstOccurredAt DateTime                      @map("first_occurred_at")
+  lastOccurredAt  DateTime                      @map("last_occurred_at")
+  bodySha256      String                        @map("body_sha256") @db.Char(64)
+  previousSha256  String                        @map("previous_sha256") @db.Char(64)
+  batchSha256     String                        @map("batch_sha256") @db.Char(64)
+  objectKey       String                        @unique @map("object_key")
+  retainUntil     DateTime                      @map("retain_until")
+  storageStatus   ComplianceStorageStatus       @default(SEALED) @map("storage_status")
+  objectVersionId String?                       @map("object_version_id")
+  sealedAt        DateTime                      @default(now()) @map("sealed_at")
+  storedAt        DateTime?                     @map("stored_at")
+  records         ComplianceExportBatchRecord[]
+
+  @@unique([scopeKey, sequence])
+  @@index([tenantId, storageStatus])
+}
+
+/// Membership of a record in an export batch. record_id is unique: each record is exported exactly once. Append-only.
+model ComplianceExportBatchRecord {
+  batchId  String                @map("batch_id")
+  batch    ComplianceExportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  position Int
+  tenantId String?               @map("tenant_id")
+  recordId String                @unique @map("record_id")
+  record   ComplianceRecord      @relation(fields: [recordId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([batchId, position])
+  @@index([tenantId, batchId])
+}
