@@ -95,6 +95,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
+- `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
+- `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
+- `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
 - `Contract`: supply authoring
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update
