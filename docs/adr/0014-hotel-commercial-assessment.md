@@ -27,3 +27,6 @@ The Admin hotel list showed master data only. The first operations readiness (AD
 - A hotel's Admin readiness and its Agent offers share one rule set and one snapshot builder; a test asserts Admin and Agent agree for the same stay.
 - A hotel with a stop-sell plan alongside a sellable one is PARTIAL, by design, so intentional restrictions stay visible.
 - Rollback: remove the `hotels*` and `exceptions` routes; the older `/supply` pages are untouched.
+
+## Amendment (ADR 0067, F-06)
+`validTo` of a contract or rate plan is now the last stay night (inclusive) everywhere, not the last check-out date. Migration `202611200002_valid_to_is_last_night` moved stored values back one day so each contract sells exactly the nights it sold before.

@@ -32,7 +32,7 @@ Definitions (ADR 0014): READY = every active rate plan is sellable on every nigh
 |---|---|
 | READY / PARTIAL / BLOCKED | Each proven by test (HOTEL-OPS-05/06/07) and in the browser. A hotel with a stop-sell plan beside a sellable one is PARTIAL by design. |
 | MAPPING_DIAGNOSTICS | Hotel mapping PENDING/REJECTED/NONE and room mapping NONE/PENDING/REJECTED, with the unmapped rooms listed per supplier mapping. Rooms are never matched by name. |
-| CONTRACT_DIAGNOSTICS | ACTIVE / EXPIRING / EXPIRED / INACTIVE / NONE from one server threshold (30 days). `validTo` is the last check-out date, exactly as the Agent treats it. |
+| CONTRACT_DIAGNOSTICS | ACTIVE / EXPIRING / EXPIRED / INACTIVE / NONE from one server threshold (30 days). `validTo` is the last stay night (ADR 0067 F-06; it was the last check-out date before), exactly as the Agent treats it. |
 | RATE_DIAGNOSTICS | RATE_MISSING vs RATE_INVALID, with the affected range; currency and amount-basis problems. |
 | AVAILABILITY_DIAGNOSTICS | AVAILABILITY_MISSING with range; remaining = allotment − sold − held. |
 | STOP_SELL_DIAGNOSTICS | Per night, per plan, with range. |

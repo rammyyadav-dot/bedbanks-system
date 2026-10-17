@@ -53,3 +53,13 @@ An unusable hotel zone fails closed for whichever side is set. Because Agent sea
 **Admin.** The child band form now takes the supplement per child per night in the settlement currency (0 for free) and explains which plans it governs. The guest-price panel says whether its own lines or the contract policy apply.
 
 **Tests.** Unit: inheritance, plan override, the INHERIT basis, the unpriced band, currency mismatch, and base places filled by the oldest child. End to end: Agent search prices an extra child aged 8 from the contract band, a child aged 3 free, 1 adult + 1 child at the double rate, and returns nothing for an age no band covers.
+
+## F-06: One date convention: "valid to" is the last stay night
+
+**Problem.** Agent search, recheck and hold read `Contract.validTo` and `RatePlan.validTo` as the last check-out date, while markups, promotions, rate and availability loading, the calendar import and the Sellability Inspector read the same field as the last night. Hotels write contract periods as stay nights (01 Nov – 31 Oct), so a contract keyed as written never sold its last night, yet the import accepted rates for it.
+
+**Decision.** `validFrom` and `validTo` of contracts and rate plans are the first and last stay nights, inclusive, everywhere. The stay evaluator compares the stay's last night (check-out minus one day) with `validTo`. The Agent candidate query and the hold double-check bound `validTo` by the last night. Expiry, rate loading, import, markups and promotions already used this meaning. The admin labels now read "First stay night (valid from)" and "Last stay night (valid to)", and the rate plan's window "Last stay night on sale".
+
+**Data.** Migration `202611200002_valid_to_is_last_night` moves every stored `validTo` back one day, so each contract and plan sells exactly the nights it sold before. It lifts forced RLS for its own transaction only, because the table owner would otherwise update no row. A row whose `validTo` equals `validFrom` sold nothing under the old meaning and is left unchanged; it now covers that one night. Operators can list such rows with `SELECT id, code FROM "Contract" WHERE valid_to = valid_from`. `ContractVersion` snapshots taken before the migration keep the reviewed value under the old meaning. The migration also changes the term fingerprint of every contract it touches, so any request open at release time can no longer be approved and must be filed again.
+
+**Also fixed.** The hold double-check required a plan occupancy of at least the whole party, which contradicted guest-line pricing (ADR 0057 S6) and F-03. It now requires a base occupancy within the party, and the evaluator decides the rest.

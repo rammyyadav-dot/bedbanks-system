@@ -106,9 +106,9 @@ describe('commercial assessment', () => {
     }
   })
 
-  it('HOTEL-OPS-10: a contract outside its validity blocks the affected nights; validTo behaves as the last check-out day, exactly like the Agent', () => {
-    // validTo = TODAY+3: a one-night stay needs check-out <= validTo, so the last sellable night is TODAY+2.
-    const a = assessHotel(input({ plans: [plan({ validTo: addDays(TODAY, 3) })] }))
+  it('HOTEL-OPS-10: a contract outside its validity blocks the affected nights; validTo is the last stay night, exactly like the Agent (ADR 0067, F-06)', () => {
+    // validTo = TODAY+2: the last sellable night is TODAY+2 itself.
+    const a = assessHotel(input({ plans: [plan({ validTo: addDays(TODAY, 2) })] }))
     expect(a.readiness).toBe('PARTIAL')
     const nights = a.plans[0].nights
     expect(nights.map((n) => n.sellable)).toEqual([true, true, true, false, false])

@@ -224,6 +224,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     nightDates: Date[],
     hotelIds: string[],
   ) {
+    const lastNight = new Date(checkOut.getTime() - 86_400_000)
     const plans = await tx.ratePlan.findMany({
       where: {
         tenantId,
@@ -251,7 +252,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           status: 'ACTIVE',
           settlementCurrency: criteria.currency,
           validFrom: { lte: checkIn },
-          validTo: { gte: checkOut },
+          // ADR 0067 F-06: validTo is the last stay night.
+          validTo: { gte: lastNight },
           supplier: { tenantId, status: 'ACTIVE' },
           supplierHotelMapping: { is: { tenantId, status: 'MAPPED', hotelId: { in: hotelIds } } },
         },

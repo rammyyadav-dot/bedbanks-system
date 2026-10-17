@@ -205,8 +205,12 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const extraPerNight = guestPricing.mode === 'LINES' ? guestPricing.extraMinorPerNight : 0n
   const guestBasis = guestPricing.mode === 'LINES' ? guestPricing.basis : null
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
-  if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
-  if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
+  // ADR 0067 F-06: validFrom and validTo are the first and last STAY NIGHTS (inclusive), as hotels write contract periods. Check-out may be the day after validTo.
+  const checkOutMs = Date.parse(`${request.checkOut}T00:00:00.000Z`)
+  // An unparseable check-out keeps itself as the bound, so a malformed request never widens validity (the night count rejects it anyway).
+  const lastNight = Number.isFinite(checkOutMs) ? new Date(checkOutMs - NIGHT_MS).toISOString().slice(0, 10) : request.checkOut
+  if (request.checkIn < snapshot.contractValidFrom || lastNight > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+  if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && lastNight > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (snapshot.cancellationPolicyMissing) reasons.push('CANCELLATION_POLICY_MISSING')
   if (snapshot.derivedProblem !== null) reasons.push(snapshot.derivedProblem)
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {

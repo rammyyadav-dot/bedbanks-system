@@ -78,7 +78,11 @@ describe('contracted stay sellability', () => {
     const inside = snapshot({ ratePlanValidFrom: '2026-10-15', ratePlanValidTo: '2026-10-18' })
     expect(evaluateContractedStay(inside, request).reasons).not.toContain('OUTSIDE_RATE_PLAN_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
-    expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-17' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    // ADR 0067 F-06: validTo is the last stay night. Nights 15-17 fit a window ending on the 17th, not one ending on the 16th.
+    expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-17' }), request).reasons).not.toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-16' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    expect(evaluateContractedStay(snapshot({ contractValidTo: '2026-10-17' }), request).reasons).not.toContain('OUTSIDE_CONTRACT_VALIDITY')
+    expect(evaluateContractedStay(snapshot({ contractValidTo: '2026-10-16' }), request).reasons).toContain('OUTSIDE_CONTRACT_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).eligible).toBe(false)
   })
   it('enforces the contract booking lead time in hotel-local time (ADR 0067, F-02)', () => {
