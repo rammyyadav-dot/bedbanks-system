@@ -30,6 +30,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     contractCurrency: 'AED',
     guestPrices: [], promotions: [], derivedProblem: null,
     cancellationPolicyMissing: false,
+    leadTimeRule: null,
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
@@ -79,6 +80,18 @@ describe('contracted stay sellability', () => {
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-17' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).eligible).toBe(false)
+  })
+  it('enforces the contract booking lead time in hotel-local time (ADR 0067, F-02)', () => {
+    // Check-in 2026-10-15 starts at 2026-10-14T20:00Z in Dubai (UTC+4).
+    const at = (iso: string) => ({ ...request, now: new Date(iso) })
+    const s = (minLeadHours: number, maxLeadDays: number | null) => snapshot({ hotelTimeZone: 'Asia/Dubai', ratePlanReleaseDays: 0, leadTimeRule: { minLeadHours, maxLeadDays } })
+    expect(evaluateContractedStay(s(48, null), at('2026-10-12T19:59:00Z')).reasons).not.toContain('LEAD_TIME_TOO_SHORT')
+    expect(evaluateContractedStay(s(48, null), at('2026-10-12T20:01:00Z')).reasons).toContain('LEAD_TIME_TOO_SHORT')
+    expect(evaluateContractedStay(s(0, 30), at('2026-09-15T10:00:00Z')).reasons).not.toContain('LEAD_TIME_TOO_LONG')
+    expect(evaluateContractedStay(s(0, 29), at('2026-09-15T10:00:00Z')).reasons).toContain('LEAD_TIME_TOO_LONG')
+    expect(evaluateContractedStay(snapshot({ hotelTimeZone: 'Asia/Dubai', ratePlanReleaseDays: 0, leadTimeRule: null }), at('2026-10-14T19:00:00Z')).reasons).not.toContain('LEAD_TIME_TOO_SHORT')
+    // An unusable zone fails closed for whichever side is set.
+    expect(evaluateContractedStay(snapshot({ hotelTimeZone: 'Not/AZone', leadTimeRule: { minLeadHours: 1, maxLeadDays: 365 } }), at('2026-09-01T00:00:00Z')).reasons).toEqual(expect.arrayContaining(['LEAD_TIME_TOO_SHORT', 'LEAD_TIME_TOO_LONG']))
   })
   it('a plan naming a cancellation set with no rules is not sellable (ADR 0057)', () => {
     const decision = evaluateContractedStay(snapshot({ cancellationPolicyMissing: true }), request)

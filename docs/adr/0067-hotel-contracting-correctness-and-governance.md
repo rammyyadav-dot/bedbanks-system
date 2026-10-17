@@ -28,3 +28,14 @@ Constraints that apply throughout: tenant identity only from the session (1); a 
 **Not built.** Automatic expiry of contracts after `validTo` (a contract stays ACTIVE and its nights stop selling by validity), contract termination (`contract.terminate` stays planned), and recording the contract version on each booking (bookings already freeze their cancellation terms).
 
 **Rollback.** Revert the application change; drop the trigger, function, table and enum as listed in migration `202611200001_contract_versions`. Contracts keep their status and version.
+
+## F-02: The contract booking lead time is enforced
+
+**Problem.** A contract's lead-time rule (minimum hours before arrival, maximum days ahead) was saved, shown on the Policies and Contracts tabs and counted, but the stay evaluator never read it, so agents could book inside a cut-off the hotel contracted for.
+
+**Decision.** `ContractedStaySnapshot.leadTimeRule` is a required field and `StayPlanInput.contract.leadTimeRules` must be loaded, so a loader that forgets it fails type-check (and `buildStaySnapshot` refuses at run time). `evaluateContractedStay` adds two reasons, both in the "Stay rules" gate:
+- `LEAD_TIME_TOO_SHORT`: the booking is less than `minLeadHours` before the start of the check-in day in the hotel's zone. Midnight is the stricter reading; a later check-in hour never shortens the cut-off.
+- `LEAD_TIME_TOO_LONG`: check-in is more than `maxLeadDays` hotel-local days after today.
+An unusable hotel zone fails closed for whichever side is set. Because Agent search, recheck, hold, Admin readiness, the commercial assessment and rate certification all use this one evaluator, they all enforce it. The strict runtime role gains SELECT on `BookingLeadTimeRule` (and on `ChildPolicy`, for F-03); both tables keep their contract-joined RLS.
+
+**Tests.** Unit: both bounds at the minute in Dubai time, no rule, and an invalid zone. End to end: Agent search hides the hotel while either rule blocks the stay and shows it again once the rule is removed.

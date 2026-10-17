@@ -16,7 +16,7 @@ function plan(o: { rows?: Row[]; pool?: StayPlanInput['inventoryPool']; poolId?:
     inventoryPoolId: o.poolId ?? null, inventoryPool: o.pool ?? null,
     roomType: { hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
     boardBasis: { isActive: true },
-    contract: { cancellationPolicies: [], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
+    contract: { cancellationPolicies: [], leadTimeRules: [], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
     dailyRates: [...DATES, '2026-10-18'].map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: 'AED', amountBasis: 'SELL' })),
     availability: o.rows ?? [...DATES, '2026-10-18'].map((d) => row(d)),
   }

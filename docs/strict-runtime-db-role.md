@@ -37,8 +37,10 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `BoardBasis` | yes | - | - | - | forced tenant | read only |
 | `Booking` | cols (15) | - | - | - | forced tenant | SELECT (id, tenant_id, reference, supplier_id, hotel_id, status, currency, net_minor, check_in, check_out, nights, supplier_ref, hotel_confirmation_no, created_at, updated_at): supplier extranet bookings only (ADR 0061 Amendment 1): no sell price, markup, FX, agency, channel, payment or snapshot column; never written by this role |
 | `BookingGuest` | cols (6) | - | - | - | forced tenant | SELECT (id, tenant_id, booking_id, first_name, last_name, is_lead): supplier extranet bookings only: lead guest name; no contact detail, age or room link |
+| `BookingLeadTimeRule` | yes | - | - | - | forced tenant | search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02) |
 | `BookingRoom` | cols (10) | - | - | - | forced tenant | SELECT (id, tenant_id, booking_id, position, quantity, room_name, board_code, adults, children, net_minor): supplier extranet bookings only: room line and supplier net; no sell amount or rate key |
 | `CancellationPolicy` | yes | - | - | - | forced tenant | search and recheck include each contract's cancellation terms |
+| `ChildPolicy` | yes | - | - | - | forced tenant | search, recheck and hold price children from the contract child policy (ADR 0067, F-03) |
 | `CommercialMarkupRule` | yes | yes | yes | - | forced tenant | INSERT: CommercialMarkupService.create; POST /admin/commercial/markups; draft a markup rule / UPDATE: CommercialMarkupService.retire/execute; POST /admin/commercial/markups/:ruleId/retire, POST /admin/commercial/markups/approvals/:approvalId/execute; activate or retire a rule (rules are otherwise immutable) |
 | `Contract` | yes | - | - | - | forced tenant | read only |
 | `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |

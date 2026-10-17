@@ -89,6 +89,8 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'RatePlanGuestPrice', model: 'RatePlanGuestPrice', rls: 'forced-tenant', note: 'per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path' },
   { table: 'DailyAvailability', model: 'DailyAvailability', rls: 'forced-tenant' },
   { table: 'CancellationPolicy', model: 'CancellationPolicy', rls: 'forced-tenant', note: 'search and recheck include each contract\'s cancellation terms' },
+  { table: 'BookingLeadTimeRule', model: 'BookingLeadTimeRule', rls: 'forced-tenant', note: 'search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02)' },
+  { table: 'ChildPolicy', model: 'ChildPolicy', rls: 'forced-tenant', note: 'search, recheck and hold price children from the contract child policy (ADR 0067, F-03)' },
   { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
 ]
 

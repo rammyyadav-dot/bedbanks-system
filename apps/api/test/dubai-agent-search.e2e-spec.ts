@@ -235,6 +235,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
 
   async function restoreCommercial() {
     const admin = api(ownerCookie)
+    await prisma.bookingLeadTimeRule.deleteMany({ where: { contractId } })
     await prisma.supplierHotelMapping.update({ where: { id: mappingId }, data: { status: 'MAPPED' } })
     await prisma.supplierRoomMapping.update({ where: { id: roomMappingId }, data: { status: 'MAPPED' } })
     await admin.patch(`/api/v1/supply/suppliers/${supplierId}`).send({ status: 'ACTIVE' }).expect(200)
@@ -341,6 +342,9 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       ['rate plan inactive', () => setRatePlanStatusFixture(prisma, ratePlanId, 'SUSPENDED')],
       ['minimum stay', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 5 }).expect(200)],
       ['release days', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ releaseDays: 40 }).expect(200)],
+      // ADR 0067 F-02: the contract's booking lead time is enforced. The contract is ACTIVE (terms locked), so the rule is seeded directly.
+      ['lead time too short', () => prisma.bookingLeadTimeRule.create({ data: { contractId, minLeadHours: 24 * 400 } })],
+      ['beyond the booking window', () => prisma.bookingLeadTimeRule.create({ data: { contractId, minLeadHours: 0, maxLeadDays: 0 } })],
     ]
     for (const [name, mutate] of cases) {
       await mutate()
@@ -350,7 +354,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       const restored = await search().expect(201)
       expect({ case: name, hotels: restored.body.data.hotels.length }).toEqual({ case: name, hotels: 1 })
     }
-  }, 30_000) // nine cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
+  }, 40_000) // eleven cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
 
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)
