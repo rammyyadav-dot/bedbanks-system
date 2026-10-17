@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
@@ -7,7 +7,8 @@ import { Test } from '@nestjs/testing'
 import { PrismaClient } from '@prisma/client'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
-import { COMPLIANCE_CATEGORY_VALUES, type ComplianceRecordPage, type ComplianceSummary } from '@bedbanks/contracts'
+import { COMPLIANCE_CATEGORY_VALUES, COMPLIANCE_REPORT_MAX_RECORDS, type ComplianceRecordPage, type ComplianceReport, type ComplianceSummary } from '@bedbanks/contracts'
+import { recordsSha256 } from '../src/admin-operations/compliance-report'
 import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
@@ -183,6 +184,60 @@ describe('Admin compliance evidence (strict runtime role, PostgreSQL, HTTP)', ()
     await get('auditor', '/summary?days=91').expect(400)
   })
 
+  // ---- per-period report (ADR 0067 amendment 3) ----
+  const today = () => new Date().toISOString().slice(0, 10)
+  const weekAgo = () => new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+  const download = (who: string, query: string) => get(who, `/report?${query}`).buffer(true).parse((res, cb) => { const chunks: Buffer[] = []; res.on('data', (c: Buffer) => chunks.push(c)); res.on('end', () => cb(null, Buffer.concat(chunks))) })
+
+  it('downloads the period report as JSON with counts, coverage and an attestation that matches the WORM archive', async () => {
+    const res = await download('auditor', `from=${weekAgo()}&to=${today()}&format=json`).expect(200)
+    expect(res.headers['content-type']).toMatch(/application\/json/)
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="compliance-report-${weekAgo()}-to-${today()}.json"`)
+    const report = JSON.parse((res.body as Buffer).toString('utf8')) as ComplianceReport
+    expect(report).toMatchObject({ formatVersion: 1, tenantId: tenantA, period: { from: weekAgo(), to: today() }, generatedByUserId: userIds[0], totals: { records: 6, stored: 2, sealed: 0, pending: 4 } })
+    expect(report.records.map((r) => r.id)).toEqual([ids.denied, ids.rbac, ids.cross, ids.dom, ids.unk, ids.export].sort((a, b) => (report.records.find((r) => r.id === a)!.occurredAt).localeCompare(report.records.find((r) => r.id === b)!.occurredAt) || a.localeCompare(b)))
+    expect(report.bookings).toEqual({ crossBorder: 1, domestic: 1, unknown: 1, corridors: [{ origin: 'GB', destination: 'AE', count: 1 }] })
+    expect(report.attestation.recordsSha256).toBe(recordsSha256(report.records))
+    expect(res.headers['x-compliance-records-sha256']).toBe(report.attestation.recordsSha256)
+    expect(JSON.stringify(report)).not.toContain(SECRET)
+    // The stored records are byte-for-byte the archived ones: same ids and payload digests as the batch body in WORM storage.
+    const batch = await owner.complianceExportBatch.findFirstOrThrow({ where: { scopeKey: tenantA, sequence: 1 } })
+    expect(report.attestation.chainHead).toEqual({ sequence: 1, batchSha256: batch.batchSha256, storageStatus: 'STORED', storedAt: expect.any(String) })
+    const archived = (await readFile(join(archiveDir, ...batch.objectKey.split('/')), 'utf8')).trim().split('\n').map((l) => JSON.parse(l) as { id: string; payloadSha256: string })
+    const stored = report.records.filter((r) => r.exportState === 'STORED')
+    expect(stored.map((r) => [r.id, r.payloadSha256])).toEqual(archived.map((a) => [a.id, a.payloadSha256]))
+    expect(recordsSha256(stored)).toBe(recordsSha256(archived))
+  })
+
+  it('downloads the same period as a formula-safe CSV, and every download is itself audited as DATA_EXPORT evidence', async () => {
+    const before = await owner.complianceRecord.count({ where: { tenantId: tenantA, action: 'compliance.report.exported' } })
+    const res = await download('auditor', `from=${weekAgo()}&to=${today()}&format=csv`).expect(200)
+    expect(res.headers['content-type']).toMatch(/text\/csv/)
+    const csv = (res.body as Buffer).toString('utf8')
+    const hash = res.headers['x-compliance-records-sha256'] as string
+    expect(csv).toContain(`Records SHA-256,${hash}`)
+    expect(csv).toContain(`Records,${res.headers['x-compliance-records']}`)
+    expect(csv).toContain(ids.cross)
+    expect(csv).not.toContain(SECRET)
+    // The download was captured, in the same transaction, as DATA_EXPORT evidence naming exactly what was handed out.
+    const exports = await owner.complianceRecord.findMany({ where: { tenantId: tenantA, action: 'compliance.report.exported' }, orderBy: { occurredAt: 'asc' } })
+    expect(exports).toHaveLength(before + 1)
+    expect(exports.every((r) => r.category === 'DATA_EXPORT')).toBe(true)
+    const event = await owner.auditEvent.findFirstOrThrow({ where: { tenantId: tenantA, action: 'compliance.report.exported', payload: { path: ['recordsSha256'], equals: hash } } })
+    expect(event).toMatchObject({ userId: userIds[0], entityType: 'compliance_report', entityId: `${weekAgo()}..${today()}` })
+    expect(event.payload).toMatchObject({ format: 'csv', records: Number(res.headers['x-compliance-records']), chainHeadSequence: 1 })
+  })
+
+  it('validates the period and keeps the error envelope', async () => {
+    await get('auditor', '/report').expect(400)
+    await get('auditor', `/report?from=${today()}`).expect(400)
+    await get('auditor', `/report?from=${today()}&to=${weekAgo()}`).expect(400)
+    await get('auditor', '/report?from=2024-01-01&to=2025-12-31').expect(400)
+    await get('auditor', `/report?from=${weekAgo()}&to=${today()}&format=xlsx`).expect(400)
+    const denied = await get('viewer', `/report?from=${weekAgo()}&to=${today()}`).expect(403)
+    expect(denied.body.success).toBe(false)
+  })
+
   it('the strict runtime role can read every column the view needs and not the payload', async () => {
     const runtime = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL })
     try {
@@ -195,10 +250,22 @@ describe('Admin compliance evidence (strict runtime role, PostgreSQL, HTTP)', ()
   })
 
   it('requires a session and the audit.read permission, and the refusal itself becomes compliance evidence', async () => {
+    const viewerDenials = async () => ((await get('auditor', '/records?category=ACCESS_DENIAL&pageSize=100').expect(200)).body.data as ComplianceRecordPage).items
+      .filter((r) => r.action === 'permission.denied' && r.userId === userIds[1] && r.entityId === 'audit.read').length
+    const before = await viewerDenials()
     await get(null, '/summary').expect(401)
     await get('viewer', '/summary').expect(403)
     await get('viewer', '/records').expect(403)
-    const denials = ((await get('auditor', '/records?category=ACCESS_DENIAL&pageSize=100').expect(200)).body.data as ComplianceRecordPage).items
-    expect(denials.filter((r) => r.action === 'permission.denied' && r.userId === userIds[1] && r.entityId === 'audit.read')).toHaveLength(2)
+    expect(await viewerDenials()).toBe(before + 2)
   })
+
+  it('refuses a period with more records than the report cap instead of truncating it', async () => {
+    const day = new Date(Date.now() - 3 * 86_400_000)
+    await owner.auditEvent.createMany({ data: Array.from({ length: COMPLIANCE_REPORT_MAX_RECORDS + 1 }, (_, i) => ({
+      id: `${suffix}-bulk-${i}`, tenantId: tenantB, userId: userIds[2], actorType: 'USER' as const, action: 'permission.denied', entityType: 'admin_permission', entityId: 'x', payload: {}, createdAt: day,
+    })) })
+    const res = await get('bauditor', `/report?from=${day.toISOString().slice(0, 10)}&to=${day.toISOString().slice(0, 10)}`).expect(422)
+    expect(res.body.error.code).toBe('COMPLIANCE_REPORT_TOO_LARGE')
+    expect(await owner.auditEvent.count({ where: { tenantId: tenantB, action: 'compliance.report.exported' } })).toBe(0)
+  }, 120_000)
 })

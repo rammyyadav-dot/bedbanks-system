@@ -9,6 +9,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { getComplianceRecords, getComplianceSummary } from '@/lib/data/operations'
+import { ComplianceReportPanel } from '@/components/compliance/ComplianceReportPanel'
 
 const CATEGORY_LABELS: Record<ComplianceCategoryValue, string> = {
   RBAC_CHANGE: 'Role & membership changes', PRIVILEGED_ACCESS: 'Privileged access', ACCESS_DENIAL: 'Access denials', TENANT_GOVERNANCE: 'Tenant governance',
@@ -64,6 +65,7 @@ export default function CompliancePage() {
           </section>
         )}
       </OpsState>
+      <ComplianceReportPanel />
       <form aria-label="Compliance filters" onSubmit={(e) => { e.preventDefault(); setApplied(draft); setPage(1) }} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
         {select('category', 'Category', COMPLIANCE_CATEGORY_VALUES.map((c) => [c, CATEGORY_LABELS[c]]))}
         {select('exportState', 'Export', (Object.keys(EXPORT_LABELS) as ComplianceExportState[]).map((s) => [s, EXPORT_LABELS[s]]))}

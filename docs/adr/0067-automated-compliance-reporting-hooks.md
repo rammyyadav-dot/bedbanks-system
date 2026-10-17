@@ -57,7 +57,7 @@ Forward migration, reviewed before use, while the exporter is stopped; listed in
 
 **Rollout.** Re-run `ops:provision-api-runtime-role` (owner) after deploying, so the role receives the three read grants. Until then, the summary answers with its export section `unavailable` and the list answers `503 OPERATIONS_READ_DENIED`. Neither shows an empty result.
 
-**Still not built:** external anchoring of the chain head and per-regulator reports. Terraform is in amendment 2.
+**Still not built:** external anchoring of the chain head. Terraform is in amendment 2; per-period reports are in amendment 3.
 
 ## Amendment 2: AWS infrastructure (Terraform)
 **Decision.** `infra/aws/terraform/compliance.tf` provisions the archive and the schedule behind `compliance_export_enabled` (default `false`), so no environment changes until an owner opts in.
@@ -80,4 +80,25 @@ Forward migration, reviewed before use, while the exporter is stopped; listed in
 - Nothing was applied to an AWS account.
 
 **Consequences.** Enabling the archive in an environment commits it to keep every archived object for the retention period. Nobody, root included, can delete them before then, and the bucket survives `terraform destroy`. This is the purpose of WORM storage, and it is why the module is opt-in and the runbook says it twice.
+
+## Amendment 3: per-period compliance reports
+**Decision.** Admin's Compliance evidence page gains a **Period report** download, backed by `GET /admin/operations/compliance/report?from=YYYY-MM-DD&to=YYYY-MM-DD&format=json|csv` (`routes.admin.operations.complianceReport`, permission `audit.read`). There is no new grant and no new permission.
+- **Content** (`ComplianceReport` in `@bedbanks/contracts`):
+  - every record of the period (inclusive UTC days), oldest first;
+  - counts per category and per action, with every category present;
+  - export coverage: stored, sealed or pending;
+  - booking jurisdiction (cross-border, domestic, unknown) and the cross-border corridors (agency country to hotel country);
+  - payloads are excluded; each record carries its payload SHA-256, as on the page.
+- **Attestation:** `recordsSha256` is the SHA-256 of one line `<id>\t<payloadSha256>\n` per record, in report order. For the stored records, the same lines can be recomputed from the WORM batch bodies, which proves the report and the archive agree. The report also carries the tenant's chain head (sequence, batch hash, storage state) at generation time. The CSV repeats both in its header block, and the response sends `X-Compliance-Records` and `X-Compliance-Records-Sha256`. CSV cells are formula-safe (the shared `csvCell`).
+- **Limits:** at most 366 days and 20,000 records. A larger period is refused with `422 COMPLIANCE_REPORT_TOO_LARGE`, never truncated.
+- **Audit:** the read and a `compliance.report.exported` audit event (format, record count, `recordsSha256`, chain head sequence) share one transaction. Migration `202611210001_compliance_report_classification` regenerates the classifier so that action is captured as `DATA_EXPORT` evidence: every report download is itself compliance evidence.
+
+**Evidence.**
+- `compliance-report.spec.ts`: counts, corridors, attestation determinism and sensitivity, and formula-safe CSV.
+- `compliance-evidence.e2e-spec.ts`, on the strict runtime role:
+  - the JSON report, and its stored records matching the archived batch body line for line;
+  - the CSV, and its download captured as `DATA_EXPORT` with the same hash;
+  - period validation, and the 403;
+  - the 422 above the cap, with nothing audited.
+- The Admin guard test, plus a browser check of the download.
 
