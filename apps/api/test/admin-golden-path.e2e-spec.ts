@@ -170,7 +170,8 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
 
   it('reaches SELLABLE for every night of the seven-night stay', async () => {
     // A DRAFT hotel passes every commercial check but is flagged as invisible to agent search.
-    for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [], warnings: ['HOTEL_CONTENT_NOT_COMPLETE'] })
+    // ADR 0067 F-07: the inspector is the Agent's evaluator, so an unpublished hotel is not sellable (it used to be a warning only).
+    for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: false, status: 'NOT_ELIGIBLE', reasons: ['HOTEL_INACTIVE'], warnings: [] })
     await prisma.hotel.update({ where: { id: ids.hotel }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
     for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [], warnings: [] })
     // AED amounts are read back as integer minor-unit strings, never floats.
@@ -220,7 +221,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       const pending = await prisma.supplierHotelMapping.findFirstOrThrow({ where: { tenantId, supplierHotelId: 'SUP-PENDING' } })
       await api(operator).post('/supply/contracts', { supplierId: ids.supplier, supplierHotelMappingId: pending.id, code: `${suffix}-PENDING`, validFrom: iso(0), validTo: iso(10), settlementCurrency: 'AED' }).expect(400)
       await prisma.supplierRoomMapping.update({ where: { id: ids.roomMapping }, data: { status: 'PENDING' } })
-      expect((await sellable({})).reasons).toContain('ROOM_MAPPING_UNAPPROVED')
+      expect((await sellable({})).reasons).toContain('SUPPLIER_MAPPING_INVALID') // a pending room mapping: the Agent's single mapping reason
       await prisma.supplierHotelMapping.update({ where: { id: ids.hotelMapping }, data: { status: 'PENDING' } })
       expect((await sellable({})).reasons).toContain('SUPPLIER_MAPPING_INVALID')
     })

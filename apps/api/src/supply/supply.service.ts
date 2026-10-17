@@ -8,7 +8,13 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
-import { evaluateNightSellability } from './contracted-sellability'
+import { evaluateContractedStay } from './contracted-sellability'
+import { assessPlanSelect } from './assess-plan-select'
+import { evaluatePlanNight, occupancySplit, starRatingValid, type AssessPlan } from './commercial-assessment'
+import { buildStaySnapshot } from './stay-snapshot'
+import { markupResolverFor } from './markup-rules'
+import { loadActiveMarkupRulesInTx } from './markup-rules.loader'
+import { HOTEL_STAR_RATING_MISSING } from '@bedbanks/contracts'
 import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { RatePlanCloneDatabase } from './rate-plan-clone-database'
@@ -880,34 +886,48 @@ export class SupplyService {
   }
 
   /**
-   * Per-night sellability diagnostic. `reasons` are stable backend codes; clients render them verbatim.
-   * Optional stay context (`checkInDate` + `nights`) additionally evaluates minimum stay, maximum stay and release days.
+   * Sellability Inspector (ADR 0067, F-07). The answer comes from the SAME evaluator Agent search, recheck and hold use, loaded through the shared
+   * plan select, so the inspector cannot say "sellable" where the Agent says no, or the reverse. Without stay context the night is judged alone
+   * (stay-only rules such as minimum stay are not applied, exactly as the hotel assessment does); with `checkInDate` and `nights` the whole stay is
+   * judged with every stay rule, including release, lead time, closed to arrival/departure and the contract and plan validity.
+   * Buyer-specific rules (markets, nationalities, agency restrictions) are not evaluated: no buyer is named.
    */
   async sellability(tenantId: string, userId: string, input: any) {
     await this.check(tenantId, userId, 'supply.rates.read')
     const stayDate = date(input.stayDate)
     const hasStay = input.checkInDate !== undefined || input.nights !== undefined
     if (hasStay && (typeof input.checkInDate !== 'string' || !Number.isInteger(input.nights) || input.nights < 1 || input.nights > 366)) throw new BadRequestException('checkInDate and a positive integer nights are required together')
-    const checkIn = hasStay ? date(input.checkInDate) : null
-    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, include: { roomType: { include: { hotel: true } }, boardBasis: true, contract: { include: { supplier: true, supplierHotelMapping: true } }, dailyRates: { where: { tenantId, stayDate, occupancy: input.occupancy } }, availability: { where: { tenantId, stayDate } } } }))
-    const roomMapping = plan?.contract.supplierHotelMapping
-      ? await this.prisma.withTenant(tenantId, tx => tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId, status: 'MAPPED' } }))
-      : null
-    const reasons: string[] = evaluateNightSellability(plan, { stayDate, occupancy: input.occupancy })
-    // Non-blocking: the night checks pass, but agent search only lists hotels whose content is COMPLETE.
-    const warnings: string[] = plan && plan.roomType.hotel.contentStatus !== 'COMPLETE' && plan.roomType.hotel.contentStatus !== 'SUSPENDED' ? ['HOTEL_CONTENT_NOT_COMPLETE'] : []
-    if (plan) {
-      const hotelMapping = plan.contract.supplierHotelMapping
-      if (hotelMapping && hotelMapping.hotelId === plan.roomType.hotelId && hotelMapping.status === 'MAPPED' && !roomMapping) reasons.push('ROOM_MAPPING_UNAPPROVED')
-      const availability = plan.availability[0]
-      if (checkIn) {
-        const requiredMinStay = Math.max(plan.minStay, availability && stayDate.getTime() === checkIn.getTime() ? availability.minStay : 1)
-        if (input.nights < requiredMinStay) reasons.push('MIN_STAY_NOT_MET')
-        if (plan.maxStay != null && input.nights > plan.maxStay) reasons.push('MAX_STAY_EXCEEDED')
-        const today = date(new Intl.DateTimeFormat('en-CA', { timeZone: plan.roomType.hotel.timeZone || 'UTC' }).format(new Date()))
-        if (Math.round((checkIn.getTime() - today.getTime()) / 86_400_000) < plan.releaseDays) reasons.push('RELEASE_DAYS_NOT_MET')
+    if (!Number.isInteger(input.occupancy) || input.occupancy < 1 || input.occupancy > 20) throw new BadRequestException('occupancy must be a whole number from 1 to 20')
+    if (typeof input.ratePlanId !== 'string' || !input.ratePlanId) throw new BadRequestException('ratePlanId is required')
+    const checkIn = hasStay ? date(input.checkInDate) : stayDate
+    const nights: number = hasStay ? input.nights : 1
+    const dayOfDate = (value: Date) => value.toISOString().slice(0, 10)
+    const first = dayOfDate(checkIn)
+    const dates = Array.from({ length: nights }, (_, n) => dayOfDate(new Date(checkIn.getTime() + n * 86_400_000)))
+    const now = new Date()
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const raw = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, select: assessPlanSelect(tenantId, { gte: checkIn, lte: new Date(checkIn.getTime() + (nights - 1) * 86_400_000) }) })
+      if (!raw) return { eligible: false, status: 'NOT_ELIGIBLE' as const, reasons: ['RATE_PLAN_MISSING'], warnings: [] as string[] }
+      const derived = withDerivedRates(raw) as unknown as AssessPlan
+      const plan: AssessPlan = { ...derived, dailyRates: derived.dailyRates.filter((rate) => rate.occupancy === derived.occupancy) }
+      const [hotel, mapping, markupRules] = await Promise.all([
+        tx.hotel.findFirst({ where: { id: plan.roomType.hotelId, tenantId }, select: { starRating: true } }),
+        plan.contract.supplierHotelMappingId ? tx.supplierHotelMapping.findFirst({ where: { id: plan.contract.supplierHotelMappingId, tenantId }, select: { id: true, status: true, hotelId: true } }) : Promise.resolve(null),
+        loadActiveMarkupRulesInTx(tx, tenantId),
+      ])
+      const roomMapping = mapping ? await tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: mapping.id, roomTypeId: plan.roomTypeId }, select: { status: true } }) : null
+      const guests = occupancySplit({ occupancy: input.occupancy, roomType: plan.roomType })
+      let reasons: string[]
+      if (!hasStay) reasons = evaluatePlanNight(plan, mapping, roomMapping, dayOfDate(stayDate), hotel?.starRating ?? null, guests, markupRules, now)
+      else {
+        const checkOut = dayOfDate(new Date(checkIn.getTime() + nights * 86_400_000))
+        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId)),
+          { checkIn: first, checkOut, rooms: 1, adults: guests.adults, children: guests.children, currency: plan.currency, now })
+        reasons = [...decision.reasons]
+        if (!starRatingValid(hotel?.starRating ?? null)) reasons.push(HOTEL_STAR_RATING_MISSING)
       }
-    }
-    return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons, warnings }
+      const unique = [...new Set(reasons)]
+      return { eligible: unique.length === 0, status: unique.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' as const : 'NOT_ELIGIBLE' as const, reasons: unique, warnings: [] as string[] }
+    })
   }
 }
