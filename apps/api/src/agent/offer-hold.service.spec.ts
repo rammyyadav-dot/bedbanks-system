@@ -39,6 +39,15 @@ describe('authoritative supplier recheck and hold boundary', () => {
     expect(fixture.holds.create).not.toHaveBeenCalled()
   })
 
+  it('passes the server-derived supplier net to the hold, and nothing when the recheck did not state one (ADR 0061 Amendment 2)', async () => {
+    const withNet = setup({ status: 'available', offer: { ...authority, netAmountMinor: 100000 } })
+    await withNet.service.execute(command)
+    expect(withNet.holds.create).toHaveBeenCalledWith(expect.objectContaining({ netAmountMinor: 100000 }))
+    const without = setup({ status: 'available', offer: authority })
+    await without.service.execute(command)
+    expect((without.holds.create as jest.Mock).mock.calls[0][0]).not.toHaveProperty('netAmountMinor')
+  })
+
   it('holds only after authoritative recheck and mapping verification', async () => {
     const fixture = setup({ status: 'available', offer: authority })
     await expect(fixture.service.execute(command)).resolves.toMatchObject({ status: 'held', holdId: 'hold-a' })

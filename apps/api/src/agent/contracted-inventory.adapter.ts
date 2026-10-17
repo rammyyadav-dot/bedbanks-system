@@ -134,8 +134,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       const stored = await this.readOffer(context.tenantId, request.offerId)
       if (!stored) return { status: 'unavailable' }
       if (Date.parse(stored.expiresAt) <= Date.now()) return { status: 'offer_expired' }
-      const decision = await this.reprice(context.tenantId, context.userId, stored, await this.restrictionsFor(context.tenantId, context.userId))
-      if (!decision) return { status: 'unavailable' }
+      const repriced = await this.reprice(context.tenantId, context.userId, stored, await this.restrictionsFor(context.tenantId, context.userId))
+      if (!repriced) return { status: 'unavailable' }
+      const decision = repriced.sellAmountMinor
       const offer: RecheckedOfferAuthority = {
         offerId: stored.offerId,
         searchId: request.searchId,
@@ -154,6 +155,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         childAges: [...stored.childAges],
         currency: stored.currency,
         sellAmountMinor: decision,
+        ...(Number.isSafeInteger(repriced.netAmountMinor) && repriced.netAmountMinor >= 0 ? { netAmountMinor: repriced.netAmountMinor } : {}),
         expiresAt: stored.expiresAt,
       }
       return { status: 'available', offer }
@@ -501,7 +503,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     return { hotel, rate }
   }
 
-  private async reprice(tenantId: string, userId: string | undefined, stored: StoredOffer, restrictions: DistributionRestrictions): Promise<number | null> {
+  private async reprice(tenantId: string, userId: string | undefined, stored: StoredOffer, restrictions: DistributionRestrictions): Promise<{ sellAmountMinor: number; netAmountMinor: number } | null> {
     const criteria: SearchCriteria = {
       destination: '',
       canonicalHotelIds: [stored.canonicalHotelId],
@@ -523,7 +525,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, buyer, false)
     // An on-request night is never confirmed inventory: a recheck of it is unavailable, never an upgrade to held.
     if (!priced || !priced.rate.available || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
-    return priced.rate.sellAmountMinor
+    return { sellAmountMinor: priced.rate.sellAmountMinor, netAmountMinor: priced.rate.netAmountMinor }
   }
 
   private remember(offer: StoredOffer): void {

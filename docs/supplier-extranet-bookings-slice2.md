@@ -58,7 +58,7 @@ supplier_id is null · channel is `PORTAL` · snapshot names exactly one hold an
 Not covered, by design: supplier-aware RLS on `Booking` (shared with the booking role; application filter plus column grants instead), read auditing of guest names (no invariant requires it; reconsider if suppliers get guest contact data), rate limiting beyond the global limits, MFA.
 
 ## 6. Known limitations
-1. **Net is not captured at booking time.** The creation path stores `BookingRoom.sell_minor` only. Every contracted booking therefore shows net as **Not recorded** until a slice stores the supplier net per room at creation. This is the main gap for the "room-level net" requirement: the plumbing, reconciliation rules and UI are done and tested with fixture data, but there is no production data to show yet.
+1. **(Resolved by ADR 0061 Amendment 2 for bookings made after it; older bookings stay Not recorded.) Net was not captured at booking time.** The creation path stores `BookingRoom.sell_minor` only. Every contracted booking therefore shows net as **Not recorded** until a slice stores the supplier net per room at creation. This is the main gap for the "room-level net" requirement: the plumbing, reconciliation rules and UI are done and tested with fixture data, but there is no production data to show yet.
 2. Booking creation itself is gated off in this deployment ("booking is disabled"); ownership therefore applies to new bookings only once booking is enabled, and the backfill covers what exists.
 3. The booking status shown is the platform status; supplier-side statuses and SLA clocks are slice 3.
 4. Hotel name is shown even if the hotel's mapping for the supplier was later rejected (the booking is the supplier's own).

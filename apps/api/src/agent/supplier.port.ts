@@ -13,7 +13,10 @@ export interface RecheckedOfferAuthority {
   offerId: string; searchId: string; supplierId: string; supplierHotelId: string; supplierRoomId: string
   canonicalHotelId: string; canonicalRoomTypeId: string; ratePlanId: string; boardBasisId: string
   checkIn: string; checkOut: string; rooms: number; adults: number; children: number; childAges: number[]
-  currency: string; sellAmountMinor: number; expiresAt: string
+  currency: string; sellAmountMinor: number
+  /** The supplier's net for the whole stay (all rooms), re-derived on the server at recheck. Absent when the adapter cannot state it; it is then stored as unknown, never zero (ADR 0061 Amendment 2). */
+  netAmountMinor?: number
+  expiresAt: string
 }
 export type SupplierRecheckResult =
   | { status: 'available'; offer: RecheckedOfferAuthority; metadata?: { providerRequestId?: string; durationMs?: number } }

@@ -174,10 +174,10 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
 
   // ---- Ownership at creation (real service, real PostgreSQL) -------------------------------------------------------------------------------
   describe('ownership is frozen at creation from hold -> rate plan -> contract', () => {
-    let holdOf: (supplierId: string, tenantId: string) => Promise<{ holdId: string; ratePlanId: string; roomTypeId: string; boardBasisId: string; hotelId: string }>
+    let holdOf: (supplierId: string, tenantId: string, netAmountMinor?: bigint | null) => Promise<{ holdId: string; ratePlanId: string; roomTypeId: string; boardBasisId: string; hotelId: string }>
     const ownerPrisma = { withTenant: <T>(tenantId: string, work: (tx: never) => Promise<T>) => owner.$transaction(async (tx) => { await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`; return work(tx as never) }) }
     beforeAll(() => {
-      holdOf = async (supplierId, tenantId) => {
+      holdOf = async (supplierId, tenantId, netAmountMinor: bigint | null = null) => {
         const hotelId = tenantId === tenantA ? hotelA : hotelB
         const n = ++seq
         const board = await owner.boardBasis.upsert({ where: { tenantId_code: { tenantId, code: 'BB ' } }, update: {}, create: { tenantId, code: 'BB ', name: `Board ${suffix}` } })
@@ -186,7 +186,7 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
         const plan = await owner.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `RP${n}`, occupancy: 2, currency: 'AED' } })
         const hold = await owner.inventoryHold.create({ data: {
           tenantId, ratePlanId: plan.id, offerId: `offer-${n}`, searchId: `search-${n}`, canonicalHotelId: hotelId, canonicalRoomTypeId: room.id, boardBasisId: board.id,
-          checkIn: new Date('2099-06-01'), checkOut: new Date('2099-06-03'), rooms: 1, currency: 'AED', sellAmountMinor: 125099n, idempotencyKey: `${suffix}-h${n}`,
+          checkIn: new Date('2099-06-01'), checkOut: new Date('2099-06-03'), rooms: 1, currency: 'AED', sellAmountMinor: 125099n, netAmountMinor, idempotencyKey: `${suffix}-h${n}`,
           requestFingerprint: 'f'.repeat(64), requestId: 'r', createdByUserId: userIds[0] ?? 'u', status: 'HELD', expiresAt: new Date(Date.now() + 3_600_000),
         } })
         return { holdId: hold.id, ratePlanId: plan.id, roomTypeId: room.id, boardBasisId: board.id, hotelId }
@@ -211,6 +211,22 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
       const replay = await service.persistPending(commandFor(tenantA, h, `${suffix}-persist-1`) as never)
       expect(replay.id).toBe(created.id)
       expect((await owner.booking.findUniqueOrThrow({ where: { id: created.id }, select: { supplierId: true } })).supplierId).toBe(s1)
+    })
+
+    it('carries the hold\'s supplier net onto the room line, which the extranet then shows as a recorded net (ADR 0061 Amendment 2)', async () => {
+      const h = await holdOf(s1, tenantA, 98765n)
+      await owner.inventoryHold.update({ where: { id: h.holdId }, data: { offerId: 'offer', searchId: 'search' } })
+      const service = new BookingPersistenceService(ownerPrisma as never)
+      const created = await service.persistPending(commandFor(tenantA, h, `${suffix}-persist-net`) as never)
+      const room = await owner.bookingRoom.findFirstOrThrow({ where: { bookingId: created.id }, select: { netMinor: true, sellMinor: true } })
+      expect(room).toEqual({ netMinor: 98765n, sellMinor: 125099n })
+      // The finance-facing booking-level net is not written by this path.
+      expect((await owner.booking.findUniqueOrThrow({ where: { id: created.id }, select: { netMinor: true } })).netMinor).toBeNull()
+      bookings.persistedNet = created.id
+      const detail = await get(await login('s1'), tenantA, `/bookings/${created.id}`).expect(200)
+      expect(detail.body.data).toMatchObject({ netStatus: 'RECORDED', netMinor: '98765' })
+      expect(detail.body.data.rooms).toMatchObject([{ netMinor: '98765' }])
+      assertNoSecrets(detail.body)
     })
 
     it('fails closed and creates nothing when the hold belongs to a rate plan that is not in the tenant', async () => {
@@ -258,7 +274,7 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
       const cookie = await login('s1')
       const response = await get(cookie, tenantA, '/bookings?limit=50').expect(200)
       const ids = response.body.data.bookings.map((b: { id: string }) => b.id)
-      expect(ids).toEqual([bookings.own1, bookings.own2, bookings.own3, ...[bookings.own4, bookings.own5].sort().reverse(), bookings.persisted]) // persisted: created by the real service in the first describe, owned by s1
+      expect(ids).toEqual([bookings.own1, bookings.own2, bookings.own3, ...[bookings.own4, bookings.own5].sort().reverse(), bookings.persistedNet, bookings.persisted]) // persisted: created by the real service in the first describe, owned by s1
       for (const hidden of ['other', 'connector', 'tenantb']) expect(ids).not.toContain(bookings[hidden])
       expect(response.body.data.nextCursor).toBeNull()
       assertNoSecrets(response.body)
@@ -276,8 +292,8 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
         cursor = page.body.data.nextCursor
         if (!cursor) break
       }
-      expect(seen).toHaveLength(6)
-      expect(new Set(seen).size).toBe(6)
+      expect(seen).toHaveLength(7)
+      expect(new Set(seen).size).toBe(7)
       await get(cookie, tenantA, '/bookings?limit=0').expect(400)
       await get(cookie, tenantA, '/bookings?limit=51').expect(400)
       await get(cookie, tenantA, '/bookings?cursor=not-a-cursor').expect(400)
@@ -290,7 +306,7 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
     it('filters by status, arrival date range and reference prefix, and rejects invalid filters', async () => {
       const cookie = await login('s1')
       const pending = await get(cookie, tenantA, '/bookings?status=PENDING_SUPPLIER').expect(200)
-      expect(pending.body.data.bookings.map((b: { id: string }) => b.id).sort()).toEqual([bookings.own2, bookings.persisted].sort())
+      expect(pending.body.data.bookings.map((b: { id: string }) => b.id).sort()).toEqual([bookings.own2, bookings.persisted, bookings.persistedNet].sort())
       const range = await get(cookie, tenantA, '/bookings?checkInFrom=2099-04-01&checkInTo=2099-04-30').expect(200)
       expect(range.body.data.bookings.map((b: { id: string }) => b.id).sort()).toEqual([bookings.own3, bookings.own4].sort())
       const byRef = await get(cookie, tenantA, `/bookings?reference=${refs.own5.toLowerCase()}`).expect(200)

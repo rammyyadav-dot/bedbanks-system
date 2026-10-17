@@ -1,4 +1,4 @@
-import { holdFingerprint, stayDates } from './inventory-hold.service'
+import { InventoryHoldService, holdFingerprint, stayDates } from './inventory-hold.service'
 
 const input = { offerId: 'offer-a', searchId: 'search-a', ratePlanId: 'plan-a', canonicalHotelId: 'hotel-a',
   canonicalRoomTypeId: 'room-a', boardBasisId: 'board-a', checkIn: '2026-10-01', checkOut: '2026-10-04',
@@ -16,5 +16,18 @@ describe('inventory hold contract helpers', () => {
   it('rejects invalid and excessive stay ranges', () => {
     expect(() => stayDates('2026-10-04', '2026-10-01')).toThrow('Invalid stay dates')
     expect(() => stayDates('2026-10-01', '2026-12-01')).toThrow('Invalid stay length')
+  })
+})
+
+describe('hold supplier net (ADR 0061 Amendment 2)', () => {
+  const command = { ...input, tenantId: 'tenant-a', userId: 'user-a', requestId: 'req-a' }
+  const service = new InventoryHoldService({} as never)
+  it('refuses a negative or non-integer net before touching the database', async () => {
+    for (const netAmountMinor of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2]) {
+      await expect(service.create({ ...command, netAmountMinor })).rejects.toThrow('Invalid net amount')
+    }
+  })
+  it('does not put the net in the idempotency fingerprint, so a replay is not turned into a conflict', () => {
+    expect(holdFingerprint({ ...command, netAmountMinor: 5 } as never)).toBe(holdFingerprint(command))
   })
 })

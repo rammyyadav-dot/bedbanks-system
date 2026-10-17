@@ -77,3 +77,23 @@ Cross-organization booking returns 404; null-supplier booking invisible; update 
 | Permission | `supplier.extranet.bookings.read` (granted to no role by the migration) | e2e: 403 without it |
 | DTO minimality | `@bedbanks/contracts` `ExtranetBooking*`; column grants | e2e leak assertion over list, detail and error bodies; `runtime-role-contract.spec` forbidden-column test; 26 live privilege probes |
 | Portal list, filters, detail, "Not recorded" | `apps/supplier/app/(portal)/bookings` | unit tests (format, filters), type-check, lint, `next build` |
+
+## Amendment 2: capture the supplier net when a booking is made
+
+Status: **Accepted and implemented.** Resolves limitation 1 of Amendment 1 (every booking showed net as "Not recorded").
+
+### Decision
+- The supplier net for a stay is **derived on the server at recheck**, from the same contracted rate decision that produces the sell price (`ContractedInventoryAdapter.reprice`). It is never taken from the client or from the earlier search response.
+- It is stored on the **inventory hold** (`InventoryHold.net_amount_minor`, nullable `BIGINT`, `>= 0`), next to `sell_amount_minor`, then copied to the booking's **room line** (`BookingRoom.net_minor`) in the same transaction that creates the booking. The extranet already reads that column (Amendment 1).
+- **Unknown stays unknown.** A hold made before this change, or by an adapter that cannot state a net, has `null`, and the booking shows "Not recorded". It is never defaulted to zero.
+- The hold's idempotency fingerprint does **not** include the net, so a replayed hold request is not turned into a conflict.
+- **The finance-facing `Booking.net_minor` is deliberately not written.** Finance events and payables read it (ADR 0039, ADR 0054); filling it would change financial behavior and needs its own decision and review. Only the room line carries the supplier net, which is what the extranet shows.
+- One room line per booking today, so the line net equals the stay total for all rooms, the same basis as the sell amount.
+
+### Consequences
+- New contracted bookings made after this change show a recorded net in the supplier portal. Existing bookings stay "Not recorded"; there is no backfill, because a net cannot be reconstructed safely from rates that may have changed since.
+- No new database privilege: the API role still has no access to `net_amount_minor` (hold reads stay column-limited), and the booking write paths insert at table level.
+- Rollback: a later forward migration drops the check and the column; booking room nets already copied stay.
+
+### Verification
+Unit: recheck output to hold command (present and absent), hold validation (negative, fractional, unsafe values refused; fingerprint unchanged), room line copy (value, null, legacy). API e2e on PostgreSQL: the recheck returns the net equal to the search offer's; a booking created through the real service from a hold with a net carries it on the room line, leaves `Booking.net_minor` null, and the strict-role extranet shows `RECORDED` with the exact amount and no sell/markup/agency/snapshot data.

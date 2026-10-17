@@ -11,6 +11,8 @@ export interface AuthoritativeHoldCommand extends InventoryHoldRequest {
   tenantId: string
   userId: string
   requestId: string
+  /** Supplier net for the whole stay, from the server-side recheck (never from the client). Stored as unknown (null) when absent. */
+  netAmountMinor?: number
 }
 
 export function stayDates(checkIn: string, checkOut: string): Date[] {
@@ -55,6 +57,7 @@ export class InventoryHoldService {
           canonicalRoomTypeId: command.canonicalRoomTypeId, boardBasisId: command.boardBasisId,
           checkIn: new Date(`${command.checkIn}T00:00:00.000Z`), checkOut: new Date(`${command.checkOut}T00:00:00.000Z`),
           rooms: command.rooms, currency: command.currency, sellAmountMinor: BigInt(command.sellAmountMinor),
+          netAmountMinor: command.netAmountMinor === undefined ? null : BigInt(command.netAmountMinor),
           idempotencyKey: command.idempotencyKey, requestFingerprint: fingerprint, requestId: command.requestId,
           createdByUserId: command.userId, status: 'HOLD_PENDING', expiresAt: holdExpiry,
         } })
@@ -164,6 +167,7 @@ export class InventoryHoldService {
     if (!/^[A-Za-z0-9._:-]{8,128}$/.test(command.idempotencyKey)) throw new BadRequestException('Invalid idempotency key')
     if (!Number.isSafeInteger(command.rooms) || command.rooms < 1 || command.rooms > 8) throw new BadRequestException('Invalid room quantity')
     if (!Number.isSafeInteger(command.sellAmountMinor) || command.sellAmountMinor < 0) throw new BadRequestException('Invalid sell amount')
+    if (command.netAmountMinor !== undefined && (!Number.isSafeInteger(command.netAmountMinor) || command.netAmountMinor < 0)) throw new BadRequestException('Invalid net amount')
     assertSupportedSettlementCurrency(command.currency)
     stayDates(command.checkIn, command.checkOut)
     if (!Number.isFinite(Date.parse(command.offerExpiresAt)) || Date.parse(command.offerExpiresAt) <= Date.now()) throw new ConflictException('Offer expired')

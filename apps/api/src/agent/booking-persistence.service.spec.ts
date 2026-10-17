@@ -85,6 +85,20 @@ describe('BookingPersistenceService', () => {
     }
   })
 
+  it('copies the hold\'s supplier net to the room line, and records unknown (null), never zero, when the hold has none (ADR 0061 Amendment 2)', async () => {
+    const withNet = setup({ hold: { ...hold, netAmountMinor: 100000n } })
+    await withNet.service.persistPending(command)
+    expect(withNet.tx.bookingRoom.create.mock.calls[0][0].data).toMatchObject({ sellMinor: 125099n, netMinor: 100000n })
+    const without = setup({ hold: { ...hold, netAmountMinor: null } })
+    await without.service.persistPending(command)
+    expect(without.tx.bookingRoom.create.mock.calls[0][0].data.netMinor).toBeNull()
+    const legacy = setup()
+    await legacy.service.persistPending(command)
+    expect(legacy.tx.bookingRoom.create.mock.calls[0][0].data.netMinor).toBeNull()
+    // The finance-facing booking-level net stays untouched: only the room line carries the supplier net.
+    expect(withNet.tx.booking.create.mock.calls[0][0].data).not.toHaveProperty('netMinor')
+  })
+
   it('does not re-resolve or rewrite ownership on an idempotent replay', async () => {
     const { service, tx } = setup({ existing: booking })
     await service.persistPending(command)

@@ -2056,6 +2056,8 @@ model InventoryHold {
   rooms              Int
   currency           String              @db.Char(3)
   sellAmountMinor    BigInt              @map("sell_amount_minor")
+  /// Supplier net for the whole stay, re-derived server-side at recheck (ADR 0061 Amendment 2). Null = not recorded (older holds, adapters that cannot state it); never zero.
+  netAmountMinor     BigInt?             @map("net_amount_minor")
   idempotencyKey     String              @map("idempotency_key")
   requestFingerprint String              @map("request_fingerprint")
   requestId          String              @map("request_id")

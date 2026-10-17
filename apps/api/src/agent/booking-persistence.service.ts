@@ -134,7 +134,7 @@ export class BookingPersistenceService {
         const bookingRoom = await tx.bookingRoom.create({
           data: {
             tenantId: command.tenantId, bookingId: created.id, position: 1, quantity: command.rooms, roomTypeId: command.canonicalRoomTypeId, roomName: room?.name ?? null, boardCode: board?.code?.trim() ?? null,
-            adults: command.adults, children: command.children, childAges: command.childAges, sellMinor: BigInt(command.totalMinor),
+            adults: command.adults, children: command.children, childAges: command.childAges, sellMinor: BigInt(command.totalMinor), netMinor: hold.netAmountMinor ?? null,
           },
         })
         // ADR 0066: every guest by room when the checkout sent them (validated against the held occupancy), otherwise the lead guest only.

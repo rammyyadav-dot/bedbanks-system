@@ -64,6 +64,7 @@ export class OfferHoldService {
         canonicalHotelId: offer.canonicalHotelId, canonicalRoomTypeId: offer.canonicalRoomTypeId,
         boardBasisId: offer.boardBasisId, checkIn: offer.checkIn, checkOut: offer.checkOut,
         rooms: offer.rooms, currency: offer.currency, sellAmountMinor: offer.sellAmountMinor,
+        ...(offer.netAmountMinor === undefined ? {} : { netAmountMinor: offer.netAmountMinor }),
         offerExpiresAt: offer.expiresAt, idempotencyKey: command.idempotencyKey,
       })
       const response: OfferHoldResponse = { ...base, status: 'held', holdId: held.holdId, currency: held.currency,

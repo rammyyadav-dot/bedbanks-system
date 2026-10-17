@@ -203,7 +203,7 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
       expect(forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [1] })), withLines)).toBeDefined()
       // recheck reproduces the same price from the stored child ages
       const offer = forPlan(await rates(criteria({ adults: 2, children: 1, childAges: [1] })), withLines)!
-      expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toMatchObject({ status: 'available', offer: { sellAmountMinor: offer.sellAmountMinor } })
+      expect(await adapter.recheck({ offerId: offer.offerId, searchId: 's' }, { ...ctx, userId })).toMatchObject({ status: 'available', offer: { sellAmountMinor: offer.sellAmountMinor, netAmountMinor: offer.netAmountMinor } }) // the recheck re-derives the supplier net on the server (ADR 0061 Amendment 2)
     } finally { await prisma.roomType.update({ where: { id: roomId }, data: { maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } }) }
   })
 
