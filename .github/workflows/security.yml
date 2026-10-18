@@ -1,0 +1,79 @@
+name: Security
+
+# Supply-chain and static-analysis gates. Read-only except code scanning results, which GitHub requires security-events: write for.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dependency-audit:
+    name: Dependency audit (production)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs
+      - run: node tools/workflow-permissions-check.mjs
+      # Fails on any unaccepted high or critical advisory; accepted ones live in security/audit-allowlist.json with a reason and expiry.
+      - run: node tools/dependency-audit-check.mjs
+
+  dependency-review:
+    name: Dependency review (new packages in the PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  codeql:
+    name: CodeQL (JavaScript and TypeScript)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
+
+  secret-scan:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
+        run: |
+          set -euo pipefail
+          base=https://github.com/gitleaks/gitleaks/releases/download/v8.21.2
+          curl -sSfLO "$base/gitleaks_8.21.2_linux_x64.tar.gz"
+          curl -sSfL "$base/gitleaks_8.21.2_checksums.txt" -o checksums.txt
+          sha256sum --check --ignore-missing checksums.txt
+          tar -xzf gitleaks_8.21.2_linux_x64.tar.gz gitleaks
+          ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --exit-code 1
