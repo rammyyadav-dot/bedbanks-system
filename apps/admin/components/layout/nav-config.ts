@@ -3,7 +3,7 @@ import { departments, sidebarGroups, type DepartmentPermission, type OperationsP
 import {
   Building2, LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
   BookOpen, Lock, Wrench, Globe, Activity, UserCheck, Percent, Users, LifeBuoy, EyeOff, Landmark, Receipt, BanknoteArrowDown, Hourglass, History, Cable, Gauge, Undo2, TriangleAlert, BadgeCheck,
-  ListChecks,
+  ListChecks, FileLock2, Scale,
 } from 'lucide-react';
 
 export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission | DepartmentPermission; }
@@ -14,7 +14,7 @@ const icons: Record<string, LucideIcon> = {
   '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/hotels': Hotel, '/mappings': Link2,
   '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
   '/sellability': ClipboardCheck, '/rate-certification': BadgeCheck, '/operations': Gauge, '/bookings': BookOpen, '/bookings/queue': ListChecks, '/holds': Lock, '/cancellations': Undo2,
-  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/finance/funding': BanknoteArrowDown, '/finance/receivables': Hourglass, '/finance/payables': Truck, '/finance/refunds': Undo2, '/finance/credit-notes': Receipt, '/commercial/markups': Percent, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/distribution/search-monitor': Activity, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
+  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/finance/funding': BanknoteArrowDown, '/finance/receivables': Hourglass, '/finance/payables': Truck, '/finance/refunds': Undo2, '/finance/credit-notes': Receipt, '/finance/reconciliation': Scale, '/commercial/markups': Percent, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/distribution/search-monitor': Activity, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/compliance': FileLock2, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
 };
 
 /**

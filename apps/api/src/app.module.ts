@@ -17,6 +17,7 @@ import { RateCertificationModule } from './rate-certification/rate-certification
 import { CommercialModule } from './commercial/commercial.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { FundingModule } from './funding/funding.module';
+import { FinanceReconciliationModule } from './finance-reconciliation/finance-reconciliation.module';
 import { HotelSetupModule } from './hotel-setup/hotel-setup.module';
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
@@ -41,6 +42,7 @@ import { SupplierExtranetModule } from './supplier-extranet/supplier-extranet.mo
     CommercialModule,
     DepartmentsModule,
     FundingModule,
+    FinanceReconciliationModule,
     HotelSetupModule,
     AdminSettingsModule,
     PlatformAdminModule,

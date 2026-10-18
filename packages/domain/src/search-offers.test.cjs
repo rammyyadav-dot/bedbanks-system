@@ -46,6 +46,19 @@ test('preserves an optional contract id', () => {
   blank.rooms[0].rates[0].contractId = ' '
   assert.equal(validateSearchHotels([blank], criteria).ok, false)
 })
+test('keeps what the price includes and the charges paid at the hotel (ADR 0067, F-04)', () => {
+  const sample = hotel()
+  const dirham = { kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: 2000, currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', estimatedTotalMinor: 6000 }
+  Object.assign(sample.rooms[0].rates[0], { priceIncludes: { taxes: true, fees: false }, payAtHotel: [{ ...dirham, secret: 'x' }] })
+  const result = validateSearchHotels([sample], criteria)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.hotels[0].rooms[0].rates[0].priceIncludes, { taxes: true, fees: false })
+  assert.deepEqual(result.hotels[0].rooms[0].rates[0].payAtHotel, [dirham])
+  for (const bad of [{ ...dirham, amountMinor: -1 }, { ...dirham, basis: 'PER_WEEK' }, { ...dirham, currency: 'aed' }, { ...dirham, label: '' }]) {
+    const broken = hotel(); broken.rooms[0].rates[0].payAtHotel = [bad]
+    assert.deepEqual(validateSearchHotels([broken], criteria), { ok: false, reason: 'mapping_unavailable' })
+  }
+})
 for (const [name, mutate] of [
   ['missing board ID', (h) => { delete h.rooms[0].rates[0].boardBasisId }],
   ['conflicting room ID', (h) => { h.rooms[0].rates[0].roomTypeId = 'room-b' }],

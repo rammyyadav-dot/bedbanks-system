@@ -125,9 +125,10 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
   })
 
   it('SR-12 the plan sale window removes the offer outside it and keeps it inside (ADR 0057)', async () => {
-    const inside = await newPlan('in', { validFrom: checkIn, validTo: checkOut })
+    // ADR 0067 F-06: validTo is the last stay night; this two-night stay's nights are checkIn and mid.
+    const inside = await newPlan('in', { validFrom: checkIn, validTo: mid })
     const late = await newPlan('late-start', { validFrom: mid })
-    const early = await newPlan('early-end', { validTo: mid })
+    const early = await newPlan('early-end', { validTo: checkIn })
     const list = await rates()
     expect(forPlan(list, inside)).toBeDefined()
     expect(forPlan(list, late)).toBeUndefined()

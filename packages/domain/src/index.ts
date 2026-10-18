@@ -90,9 +90,22 @@ export interface SearchRateOffer {
   sellAmountMinor: number
   /** `unspecified` means the contracted plan has no recorded payment type. It is never defaulted to prepaid (ADR 0057). */
   paymentType: 'prepaid' | 'pay_at_hotel' | 'credit' | 'unspecified'
+  /** What the contracted price includes, as the rate plan records it (ADR 0067, F-04). Absent for a provider that does not say. */
+  priceIncludes?: { taxes: boolean; fees: boolean }
+  /** Charges the guest pays the hotel directly, NOT included in the total (ADR 0067, F-04), each with an estimate for this stay and party. */
+  payAtHotel?: PayAtHotelCharge[]
   /** The hotel promotion already included in the price (ADR 0058). Informational: the total is final, nothing is deducted again. */
   promotion?: { name: string; kind: 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS' }
   source: 'hotel_direct' | 'dmc' | 'bedbank' | 'channel_manager' | 'gds'
+}
+/** A local charge paid at the hotel (Tourism Dirham, city tax, resort fee). Integer minor units; `estimatedTotalMinor` is for the stay searched. */
+export interface PayAtHotelCharge {
+  kind: string
+  label: string
+  amountMinor: number
+  currency: string
+  basis: 'PER_ROOM_PER_NIGHT' | 'PER_PERSON_PER_NIGHT' | 'PER_ROOM_PER_STAY' | 'PER_PERSON_PER_STAY'
+  estimatedTotalMinor: number
 }
 export interface SearchRoomOffer {
   roomTypeId: string

@@ -1,5 +1,5 @@
 import type { PromotionRule } from './promotions'
-import { evaluateContractedStay, evaluateNightSellability, type ContractedStaySnapshot, type NightSellabilityPlan } from './contracted-sellability'
+import { evaluateContractedStay, type ContractedStaySnapshot } from './contracted-sellability'
 
 const request = { checkIn: '2026-10-15', checkOut: '2026-10-18', rooms: 1, adults: 2, children: 0, currency: 'AED', now: new Date('2026-10-05T00:00:00.000Z') }
 
@@ -30,6 +30,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     contractCurrency: 'AED',
     guestPrices: [], promotions: [], derivedProblem: null,
     cancellationPolicyMissing: false,
+    leadTimeRule: null,
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
@@ -77,8 +78,24 @@ describe('contracted stay sellability', () => {
     const inside = snapshot({ ratePlanValidFrom: '2026-10-15', ratePlanValidTo: '2026-10-18' })
     expect(evaluateContractedStay(inside, request).reasons).not.toContain('OUTSIDE_RATE_PLAN_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
-    expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-17' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    // ADR 0067 F-06: validTo is the last stay night. Nights 15-17 fit a window ending on the 17th, not one ending on the 16th.
+    expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-17' }), request).reasons).not.toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    expect(evaluateContractedStay(snapshot({ ratePlanValidTo: '2026-10-16' }), request).reasons).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
+    expect(evaluateContractedStay(snapshot({ contractValidTo: '2026-10-17' }), request).reasons).not.toContain('OUTSIDE_CONTRACT_VALIDITY')
+    expect(evaluateContractedStay(snapshot({ contractValidTo: '2026-10-16' }), request).reasons).toContain('OUTSIDE_CONTRACT_VALIDITY')
     expect(evaluateContractedStay(snapshot({ ratePlanValidFrom: '2026-10-16' }), request).eligible).toBe(false)
+  })
+  it('enforces the contract booking lead time in hotel-local time (ADR 0067, F-02)', () => {
+    // Check-in 2026-10-15 starts at 2026-10-14T20:00Z in Dubai (UTC+4).
+    const at = (iso: string) => ({ ...request, now: new Date(iso) })
+    const s = (minLeadHours: number, maxLeadDays: number | null) => snapshot({ hotelTimeZone: 'Asia/Dubai', ratePlanReleaseDays: 0, leadTimeRule: { minLeadHours, maxLeadDays } })
+    expect(evaluateContractedStay(s(48, null), at('2026-10-12T19:59:00Z')).reasons).not.toContain('LEAD_TIME_TOO_SHORT')
+    expect(evaluateContractedStay(s(48, null), at('2026-10-12T20:01:00Z')).reasons).toContain('LEAD_TIME_TOO_SHORT')
+    expect(evaluateContractedStay(s(0, 30), at('2026-09-15T10:00:00Z')).reasons).not.toContain('LEAD_TIME_TOO_LONG')
+    expect(evaluateContractedStay(s(0, 29), at('2026-09-15T10:00:00Z')).reasons).toContain('LEAD_TIME_TOO_LONG')
+    expect(evaluateContractedStay(snapshot({ hotelTimeZone: 'Asia/Dubai', ratePlanReleaseDays: 0, leadTimeRule: null }), at('2026-10-14T19:00:00Z')).reasons).not.toContain('LEAD_TIME_TOO_SHORT')
+    // An unusable zone fails closed for whichever side is set.
+    expect(evaluateContractedStay(snapshot({ hotelTimeZone: 'Not/AZone', leadTimeRule: { minLeadHours: 1, maxLeadDays: 365 } }), at('2026-09-01T00:00:00Z')).reasons).toEqual(expect.arrayContaining(['LEAD_TIME_TOO_SHORT', 'LEAD_TIME_TOO_LONG']))
   })
   it('a plan naming a cancellation set with no rules is not sellable (ADR 0057)', () => {
     const decision = evaluateContractedStay(snapshot({ cancellationPolicyMissing: true }), request)
@@ -97,16 +114,6 @@ describe('contracted stay sellability', () => {
       expect(decision).toMatchObject({ eligible: false, totalMinor: null, netMinor: null })
       expect(decision.reasons).toEqual(['DAILY_RATE_MISSING_OR_INVALID'])
     }
-    const plan: NightSellabilityPlan = {
-      status: 'ACTIVE', occupancy: 2, currency: 'AED', validFrom: null, validTo: null,
-      roomType: { isActive: true, maxOccupancy: 2, hotelId: 'hotel-a', hotel: { contentStatus: 'COMPLETE' } },
-      boardBasis: { isActive: true },
-      contract: { status: 'ACTIVE', validFrom: new Date('2026-01-01T00:00:00.000Z'), validTo: new Date('2026-12-31T00:00:00.000Z'), supplier: { status: 'ACTIVE' }, supplierHotelMapping: null },
-      dailyRates: [{ amountMinor: 0n, currency: 'AED', amountBasis: 'SELL' }],
-      availability: [{ stopSell: false, allotment: 4, sold: 0, held: 0 }],
-    }
-    expect(evaluateNightSellability(plan, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toContain('DAILY_RATE_MISSING_OR_INVALID')
-    expect(evaluateNightSellability({ ...plan, dailyRates: [{ amountMinor: 1n, currency: 'AED', amountBasis: 'SELL' }] }, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toEqual([])
   })
 
   it('fails when one night has no availability', () => {
@@ -126,24 +133,6 @@ describe('contracted stay sellability', () => {
     expect(evaluateContractedStay(snapshot({ nights: [night('2026-10-15', { availability: { allotment: 4, sold: 0, held: 0, stopSell: true, minStay: 1, closedToArrival: false } }), night('2026-10-16'), night('2026-10-17')] }), request).reasons).toContain('STOP_SELL')
     expect(evaluateContractedStay(snapshot({ ratePlanMinStay: 5 }), request).reasons).toContain('MIN_STAY_NOT_MET')
     expect(evaluateContractedStay(snapshot({ ratePlanReleaseDays: 30 }), request).reasons).toContain('RELEASE_DAYS_NOT_MET')
-  })
-
-  it('keeps the single-night admin reasons for an eligible SELL night', () => {
-    const plan: NightSellabilityPlan = {
-      status: 'ACTIVE', occupancy: 2, currency: 'AED', validFrom: null, validTo: null,
-      roomType: { isActive: true, maxOccupancy: 2, hotelId: 'hotel-a', hotel: { contentStatus: 'DRAFT' } },
-      boardBasis: { isActive: true },
-      contract: { status: 'ACTIVE', validFrom: new Date('2026-01-01T00:00:00.000Z'), validTo: new Date('2026-12-31T00:00:00.000Z'), supplier: { status: 'ACTIVE' }, supplierHotelMapping: null },
-      dailyRates: [{ amountMinor: 29900n, currency: 'AED', amountBasis: 'SELL' }],
-      availability: [{ stopSell: false, allotment: 4, sold: 1, held: 1 }],
-    }
-    expect(evaluateNightSellability(plan, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toEqual([])
-    // ADR 0057: the plan's own sale window applies to a single night as well, so Admin diagnostics agree with the stay evaluator.
-    const night = { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 }
-    expect(evaluateNightSellability({ ...plan, validFrom: new Date('2026-10-16T00:00:00.000Z') }, night)).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
-    expect(evaluateNightSellability({ ...plan, validTo: new Date('2026-10-14T00:00:00.000Z') }, night)).toContain('OUTSIDE_RATE_PLAN_VALIDITY')
-    expect(evaluateNightSellability({ ...plan, validFrom: new Date('2026-10-15T00:00:00.000Z'), validTo: new Date('2026-10-15T00:00:00.000Z') }, night)).toEqual([])
-    expect(evaluateNightSellability(null, { stayDate: new Date('2026-10-15T00:00:00.000Z'), occupancy: 2 })).toEqual(['RATE_PLAN_MISSING'])
   })
 
   describe('NET rates and markup (ADR 0018)', () => {

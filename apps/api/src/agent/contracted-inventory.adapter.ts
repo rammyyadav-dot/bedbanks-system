@@ -1,3 +1,4 @@
+import { payAtHotel } from '../supply/local-charges'
 import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'crypto'
@@ -224,16 +225,19 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     nightDates: Date[],
     hotelIds: string[],
   ) {
+    const lastNight = new Date(checkOut.getTime() - 86_400_000)
     const plans = await tx.ratePlan.findMany({
       where: {
         tenantId,
         status: 'ACTIVE',
         currency: criteria.currency,
-        // ADR 0057, S6: a plan without guest price lines sells to exactly the searched party size (as before); a plan with lines is for a base party of
-        // adults, so it is a candidate whenever its base occupancy is within the adults searched. The evaluator decides the rest, per child age.
+        // ADR 0057, S6 and ADR 0067, F-03: a flat plan sells to exactly the searched party size; a plan priced by guest lines, its own or inherited from
+        // its contract's child policy, is for a base party that children may complete, so it is a candidate whenever its base occupancy is within the
+        // whole party. This is only a pre-filter: the evaluator decides, per adult count and child age.
         OR: [
-          { occupancy, guestPrices: { none: {} } },
-          { occupancy: { lte: criteria.adults }, guestPrices: { some: {} } },
+          { occupancy },
+          { occupancy: { lte: occupancy }, guestPrices: { some: {} } },
+          { occupancy: { lte: occupancy }, contract: { childPolicies: { some: {} } } },
         ],
         boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
         roomType: {
@@ -249,18 +253,22 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           status: 'ACTIVE',
           settlementCurrency: criteria.currency,
           validFrom: { lte: checkIn },
-          validTo: { gte: checkOut },
+          // ADR 0067 F-06: validTo is the last stay night.
+          validTo: { gte: lastNight },
           supplier: { tenantId, status: 'ACTIVE' },
           supplierHotelMapping: { is: { tenantId, status: 'MAPPED', hotelId: { in: hotelIds } } },
         },
       },
       include: {
         boardBasis: true,
-        roomType: { include: { hotel: true } },
+        // ADR 0067 F-04: only the structured local charges are read from the profile; contacts stay private.
+        roomType: { include: { hotel: { include: { profile: { select: { localCharges: true } } } } } },
         contract: {
           include: {
             supplier: true,
             cancellationPolicies: true,
+            leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
+            childPolicies: { select: { minAge: true, maxAge: true, supplementMinor: true, currency: true } },
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
         },
@@ -478,6 +486,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       markupAmountMinor: Number(decision.markupMinor ?? 0n),
       sellAmountMinor,
       paymentType: offerPaymentType(plan.paymentType),
+      // ADR 0067 F-04: what the price includes, as recorded on the plan, and the charges paid at the hotel with an estimate for this stay. Never added to the total.
+      priceIncludes: { taxes: plan.taxesIncluded, fees: plan.feesIncluded },
+      payAtHotel: payAtHotel(plan.roomType.hotel.profile?.localCharges, { nights: nights.length, rooms: criteria.rooms, guests: criteria.adults + criteria.children }),
       ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }

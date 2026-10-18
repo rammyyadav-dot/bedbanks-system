@@ -9,6 +9,7 @@ import { OperationsFinanceAuditService } from './operations-finance-audit.servic
 import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
+import { OperationsComplianceService } from './operations-compliance.service'
 import { ApprovalsModule } from '../approvals/approvals.module'
 import { OperationsSupplyService } from './operations-supply.service'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -39,6 +40,6 @@ import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplie
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
   controllers: [HotelReportsController, OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController, BookingBulkController],
-  providers: [HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  providers: [HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, OperationsReconciliationApprovalsService, OperationsGovernanceService, OperationsComplianceService],
 })
 export class AdminOperationsModule {}

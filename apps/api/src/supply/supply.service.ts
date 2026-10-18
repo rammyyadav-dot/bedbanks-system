@@ -8,7 +8,13 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
-import { evaluateNightSellability } from './contracted-sellability'
+import { evaluateContractedStay } from './contracted-sellability'
+import { assessPlanSelect } from './assess-plan-select'
+import { evaluatePlanNight, occupancySplit, starRatingValid, type AssessPlan } from './commercial-assessment'
+import { buildStaySnapshot } from './stay-snapshot'
+import { markupResolverFor } from './markup-rules'
+import { loadActiveMarkupRulesInTx } from './markup-rules.loader'
+import { HOTEL_STAR_RATING_MISSING } from '@bedbanks/contracts'
 import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { RatePlanCloneDatabase } from './rate-plan-clone-database'
@@ -21,6 +27,7 @@ import { planFingerprint } from './rate-plan-fingerprint'
 import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
 import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived-rates'
 import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
+import { termsEditable } from './contract-lifecycle'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
@@ -91,6 +98,17 @@ export class SupplyService {
     return { permissions: [...keys].sort() }
   }
   private async check(tenantId: string, userId: string, permission: string) { await this.permitted(tenantId, userId, permission) }
+  /**
+   * Locks the contract row for the rest of the transaction and refuses when its terms are locked (ADR 0067): an ACTIVE contract changes only
+   * through an approved amendment and an EXPIRED one not at all. The lock serializes direct edits with an approval being applied.
+   */
+  private async lockEditableContract(tx: Prisma.TransactionClient, tenantId: string, contractId: string) {
+    await tx.$queryRaw`SELECT id FROM "Contract" WHERE id = ${contractId} AND tenant_id = ${tenantId} FOR UPDATE`
+    const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } })
+    if (!contract) throw new NotFoundException('Contract not found')
+    if (!termsEditable(contract.status)) throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: contract.status === 'ACTIVE' ? 'This contract is ACTIVE. Its terms change only through an amendment a second person approves.' : `A ${contract.status} contract cannot be changed.` })
+    return contract
+  }
   private async write<T>(tenantId: string, userId: string, permission: string, action: string, entityType: string, requestId: string | undefined, work: (tx: Prisma.TransactionClient) => Promise<{ id: string; value: T }>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; lifecycleRole?: boolean; cloneRole?: boolean }) {
     try {
       await this.check(tenantId, userId, permission)
@@ -316,23 +334,55 @@ export class SupplyService {
   async boardBases(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId, isActive: true }, orderBy: { code: 'asc' } })) }
   async contracts(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); return this.prisma.withTenant(tenantId, tx => tx.contract.findMany({ where: { tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } } }, orderBy: { validFrom: 'desc' } })) }
   async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true } })); if (!value) throw new NotFoundException('Contract not found'); return value }
-  async createContract(tenantId: string, userId: string, input: any, requestId?: string) { const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
+  async createContract(tenantId: string, userId: string, input: any, requestId?: string) { if (input?.status !== undefined && input.status !== 'DRAFT') throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'A contract is created in DRAFT. Activation needs a second approver (ADR 0067).' }); const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
   async updateContract(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
+    // ADR 0067: status moves only through the lifecycle routes (activation needs a second approver); terms of an ACTIVE contract change only by amendment.
+    if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'status')) throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'Contract status cannot be set here. Submit for review, request activation (a second person approves) or suspend instead.' })
     return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.updated', 'contract', requestId, async tx => {
-      const current = await tx.contract.findFirst({ where: { id: contractId, tenantId } }); if (!current) throw new NotFoundException('Contract not found')
+      const current = await this.lockEditableContract(tx, tenantId, contractId)
       const validFrom = input.validFrom === undefined ? current.validFrom : date(input.validFrom), validTo = input.validTo === undefined ? current.validTo : date(input.validTo)
       if (validTo < validFrom) throw new BadRequestException('Invalid contract validity')
       const supplierId = input.supplierId ?? current.supplierId; const supplier = await tx.supplier.findFirst({ where: { id: supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant')
       const mappingId = input.supplierHotelMappingId === undefined ? current.supplierHotelMappingId : input.supplierHotelMappingId
       if (mappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: mappingId, tenantId, supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') }
-      const value = await tx.contract.update({ where: { id: contractId }, data: { ...(input.supplierId !== undefined ? { supplierId } : {}), ...(input.supplierHotelMappingId !== undefined ? { supplierHotelMappingId: mappingId } : {}), ...(input.code !== undefined ? { code: clean(input.code) } : {}), ...(input.status !== undefined ? { status: input.status } : {}), validFrom, validTo, ...(input.settlementCurrency !== undefined ? { settlementCurrency: enabledCurrency(input.settlementCurrency) } : {}), ...(input.salesMarkets !== undefined ? { salesMarkets: marketList('salesMarkets', input.salesMarkets) } : {}), ...(input.nationalities !== undefined ? { nationalities: marketList('nationalities', input.nationalities) } : {}), ...(input.paymentPolicyRef !== undefined ? { paymentPolicyRef: input.paymentPolicyRef == null ? null : clean(input.paymentPolicyRef) } : {}) } })
+      const value = await tx.contract.update({ where: { id: contractId }, data: { ...(input.supplierId !== undefined ? { supplierId } : {}), ...(input.supplierHotelMappingId !== undefined ? { supplierHotelMappingId: mappingId } : {}), ...(input.code !== undefined ? { code: clean(input.code) } : {}), validFrom, validTo, ...(input.settlementCurrency !== undefined ? { settlementCurrency: enabledCurrency(input.settlementCurrency) } : {}), ...(input.salesMarkets !== undefined ? { salesMarkets: marketList('salesMarkets', input.salesMarkets) } : {}), ...(input.nationalities !== undefined ? { nationalities: marketList('nationalities', input.nationalities) } : {}), ...(input.paymentPolicyRef !== undefined ? { paymentPolicyRef: input.paymentPolicyRef == null ? null : clean(input.paymentPolicyRef) } : {}) } })
       return { id: value.id, value }
     })
   }
   async contractPolicies(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true } })); if (!value) throw new NotFoundException('Contract not found'); return { ...value, cancellationPolicies: value.cancellationPolicies.map(policy => ({ ...policy, penaltyMinor: policy.penaltyMinor?.toString() ?? null })), childPolicies: value.childPolicies.map(policy => ({ ...policy, supplementMinor: policy.supplementMinor?.toString() ?? null })) } }
-  async createCancellationPolicy(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.daysBeforeCheckin) || input.daysBeforeCheckin < 0 || ((input.penaltyPercent !== undefined) === (input.penaltyMinor !== undefined)) || (input.penaltyPercent !== undefined && (!Number.isInteger(input.penaltyPercent) || input.penaltyPercent < 0 || input.penaltyPercent > 100))) throw new BadRequestException('Invalid cancellation policy'); if (input.policySet !== undefined && input.policySet !== null && !isValidPolicySetName(input.policySet)) throw new BadRequestException({ code: 'CANCELLATION_POLICY_SET_INVALID', message: 'policySet must be 1-80 characters: letters, digits, space, dot, dash or underscore, starting with a letter or digit.' }); const penaltyMinor = input.penaltyMinor === undefined ? null : BigInt(input.penaltyMinor); if (penaltyMinor !== null && penaltyMinor < 0n) throw new BadRequestException('Invalid cancellation policy'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.cancellation_policy.created', 'cancellation_policy', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } }); if (!contract) throw new NotFoundException('Contract not found'); const currency = input.currency == null ? null : enabledCurrency(input.currency); if (currency && currency.length !== 3) throw new BadRequestException('Invalid policy currency'); const value = await tx.cancellationPolicy.create({ data: { contractId, policySet: input.policySet ?? null, daysBeforeCheckin: input.daysBeforeCheckin, penaltyPercent: input.penaltyPercent ?? null, penaltyMinor, currency } }); return { id: value.id, value: { ...value, penaltyMinor: value.penaltyMinor?.toString() ?? null } } }) }
-  async createChildPolicy(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minAge) || !Number.isInteger(input.maxAge) || input.minAge < 0 || input.maxAge < input.minAge || input.maxAge > 17) throw new BadRequestException('Invalid child policy ages'); const supplementMinor = input.supplementMinor == null ? null : BigInt(input.supplementMinor); if (supplementMinor !== null && supplementMinor < 0n) throw new BadRequestException('Invalid child supplement'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.child_policy.created', 'child_policy', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } }); if (!contract) throw new NotFoundException('Contract not found'); const overlap = await tx.childPolicy.findFirst({ where: { contractId, minAge: { lte: input.maxAge }, maxAge: { gte: input.minAge } } }); if (overlap) throw new BadRequestException('Child policy age ranges overlap'); const currency = input.currency == null ? null : enabledCurrency(input.currency); if (currency && currency.length !== 3) throw new BadRequestException('Invalid policy currency'); const value = await tx.childPolicy.create({ data: { contractId, minAge: input.minAge, maxAge: input.maxAge, extraBedAllowed: input.extraBedAllowed ?? false, supplementMinor, currency } }); return { id: value.id, value: { ...value, supplementMinor: value.supplementMinor?.toString() ?? null } } }) }
-  async createLeadTimeRule(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minLeadHours) || input.minLeadHours < 0 || (input.maxLeadDays != null && (!Number.isInteger(input.maxLeadDays) || input.maxLeadDays < 0))) throw new BadRequestException('Invalid lead-time rule'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.lead_time_rule.updated', 'booking_lead_time_rule', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } }); if (!contract) throw new NotFoundException('Contract not found'); const value = await tx.bookingLeadTimeRule.upsert({ where: { contractId }, update: { minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null }, create: { contractId, minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null } }); return { id: value.id, value } }) }
+  async createCancellationPolicy(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.daysBeforeCheckin) || input.daysBeforeCheckin < 0 || ((input.penaltyPercent !== undefined) === (input.penaltyMinor !== undefined)) || (input.penaltyPercent !== undefined && (!Number.isInteger(input.penaltyPercent) || input.penaltyPercent < 0 || input.penaltyPercent > 100))) throw new BadRequestException('Invalid cancellation policy'); if (input.policySet !== undefined && input.policySet !== null && !isValidPolicySetName(input.policySet)) throw new BadRequestException({ code: 'CANCELLATION_POLICY_SET_INVALID', message: 'policySet must be 1-80 characters: letters, digits, space, dot, dash or underscore, starting with a letter or digit.' }); const penaltyMinor = input.penaltyMinor === undefined ? null : BigInt(input.penaltyMinor); if (penaltyMinor !== null && penaltyMinor < 0n) throw new BadRequestException('Invalid cancellation policy'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.cancellation_policy.created', 'cancellation_policy', requestId, async tx => { await this.lockEditableContract(tx, tenantId, contractId); const currency = input.currency == null ? null : enabledCurrency(input.currency); if (currency && currency.length !== 3) throw new BadRequestException('Invalid policy currency'); const value = await tx.cancellationPolicy.create({ data: { contractId, policySet: input.policySet ?? null, daysBeforeCheckin: input.daysBeforeCheckin, penaltyPercent: input.penaltyPercent ?? null, penaltyMinor, currency } }); return { id: value.id, value: { ...value, penaltyMinor: value.penaltyMinor?.toString() ?? null } } }) }
+  async createChildPolicy(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minAge) || !Number.isInteger(input.maxAge) || input.minAge < 0 || input.maxAge < input.minAge || input.maxAge > 17) throw new BadRequestException('Invalid child policy ages'); const supplementMinor = input.supplementMinor == null ? null : BigInt(input.supplementMinor); if (supplementMinor !== null && supplementMinor < 0n) throw new BadRequestException('Invalid child supplement'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.child_policy.created', 'child_policy', requestId, async tx => { await this.lockEditableContract(tx, tenantId, contractId); const overlap = await tx.childPolicy.findFirst({ where: { contractId, minAge: { lte: input.maxAge }, maxAge: { gte: input.minAge } } }); if (overlap) throw new BadRequestException('Child policy age ranges overlap'); const currency = input.currency == null ? null : enabledCurrency(input.currency); if (currency && currency.length !== 3) throw new BadRequestException('Invalid policy currency'); const value = await tx.childPolicy.create({ data: { contractId, minAge: input.minAge, maxAge: input.maxAge, extraBedAllowed: input.extraBedAllowed ?? false, supplementMinor, currency } }); return { id: value.id, value: { ...value, supplementMinor: value.supplementMinor?.toString() ?? null } } }) }
+  async createLeadTimeRule(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minLeadHours) || input.minLeadHours < 0 || (input.maxLeadDays != null && (!Number.isInteger(input.maxLeadDays) || input.maxLeadDays < 0))) throw new BadRequestException('Invalid lead-time rule'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.lead_time_rule.updated', 'booking_lead_time_rule', requestId, async tx => { await this.lockEditableContract(tx, tenantId, contractId); const value = await tx.bookingLeadTimeRule.upsert({ where: { contractId }, update: { minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null }, create: { contractId, minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null } }); return { id: value.id, value } }) }
+  /** Removes one cancellation rule from an editable contract. Refused when a refundable plan names its set and it is the set's last rule. */
+  async deleteCancellationPolicy(tenantId: string, userId: string, contractId: string, policyId: string, requestId?: string) {
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.cancellation_policy.deleted', 'cancellation_policy', requestId, async tx => {
+      await this.lockEditableContract(tx, tenantId, contractId)
+      const rule = await tx.cancellationPolicy.findFirst({ where: { id: policyId, contractId } }); if (!rule) throw new NotFoundException('Cancellation rule not found')
+      if (rule.policySet !== null) {
+        const remaining = await tx.cancellationPolicy.count({ where: { contractId, policySet: rule.policySet, id: { not: rule.id } } })
+        const users = remaining === 0 ? await tx.ratePlan.count({ where: { tenantId, contractId, refundable: true, cancellationPolicySet: rule.policySet, status: { not: 'EXPIRED' } } }) : 0
+        if (users > 0) throw new ConflictException({ code: 'CANCELLATION_SET_IN_USE', message: `${users} refundable rate plan(s) use set "${rule.policySet}" and this is its last rule. Move the plans to another set first.` })
+      }
+      await tx.cancellationPolicy.delete({ where: { id: rule.id } })
+      return { id: rule.id, value: { id: rule.id, deleted: true } }
+    })
+  }
+  async deleteChildPolicy(tenantId: string, userId: string, contractId: string, policyId: string, requestId?: string) {
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.child_policy.deleted', 'child_policy', requestId, async tx => {
+      await this.lockEditableContract(tx, tenantId, contractId)
+      const band = await tx.childPolicy.findFirst({ where: { id: policyId, contractId } }); if (!band) throw new NotFoundException('Child policy not found')
+      await tx.childPolicy.delete({ where: { id: band.id } })
+      return { id: band.id, value: { id: band.id, deleted: true } }
+    })
+  }
+  async deleteLeadTimeRule(tenantId: string, userId: string, contractId: string, requestId?: string) {
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.lead_time_rule.deleted', 'booking_lead_time_rule', requestId, async tx => {
+      await this.lockEditableContract(tx, tenantId, contractId)
+      const rule = await tx.bookingLeadTimeRule.findFirst({ where: { contractId } }); if (!rule) throw new NotFoundException('Lead-time rule not found')
+      await tx.bookingLeadTimeRule.delete({ where: { id: rule.id } })
+      return { id: rule.id, value: { id: rule.id, deleted: true } }
+    })
+  }
 
   async ratePlanPortfolio(tenantId: string, userId: string, query: Record<string, unknown>) {
     await this.check(tenantId, userId, 'supply.rates.read')
@@ -484,7 +534,7 @@ export class SupplyService {
   }
 
   /** Permission gate for the approval service: authentication is not authorization. */
-  assertPermission(tenantId: string, userId: string, permission: 'supply.rates.read' | 'supply.rates.manage') { return this.check(tenantId, userId, permission) }
+  assertPermission(tenantId: string, userId: string, permission: 'supply.rates.read' | 'supply.rates.manage' | 'supply.contracts.read' | 'supply.contracts.manage') { return this.check(tenantId, userId, permission) }
 
   /** The content an approver is shown: plan terms and every rate row of the plan occupancy from `asOf`. Capped; an oversized plan is refused rather than hashed partially. */
   private async contentFingerprint(tx: Prisma.TransactionClient, tenantId: string, plan: Awaited<ReturnType<SupplyService['activationReadiness']>>['plan'], asOf: string): Promise<string> {
@@ -836,34 +886,48 @@ export class SupplyService {
   }
 
   /**
-   * Per-night sellability diagnostic. `reasons` are stable backend codes; clients render them verbatim.
-   * Optional stay context (`checkInDate` + `nights`) additionally evaluates minimum stay, maximum stay and release days.
+   * Sellability Inspector (ADR 0067, F-07). The answer comes from the SAME evaluator Agent search, recheck and hold use, loaded through the shared
+   * plan select, so the inspector cannot say "sellable" where the Agent says no, or the reverse. Without stay context the night is judged alone
+   * (stay-only rules such as minimum stay are not applied, exactly as the hotel assessment does); with `checkInDate` and `nights` the whole stay is
+   * judged with every stay rule, including release, lead time, closed to arrival/departure and the contract and plan validity.
+   * Buyer-specific rules (markets, nationalities, agency restrictions) are not evaluated: no buyer is named.
    */
   async sellability(tenantId: string, userId: string, input: any) {
     await this.check(tenantId, userId, 'supply.rates.read')
     const stayDate = date(input.stayDate)
     const hasStay = input.checkInDate !== undefined || input.nights !== undefined
     if (hasStay && (typeof input.checkInDate !== 'string' || !Number.isInteger(input.nights) || input.nights < 1 || input.nights > 366)) throw new BadRequestException('checkInDate and a positive integer nights are required together')
-    const checkIn = hasStay ? date(input.checkInDate) : null
-    const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, include: { roomType: { include: { hotel: true } }, boardBasis: true, contract: { include: { supplier: true, supplierHotelMapping: true } }, dailyRates: { where: { tenantId, stayDate, occupancy: input.occupancy } }, availability: { where: { tenantId, stayDate } } } }))
-    const roomMapping = plan?.contract.supplierHotelMapping
-      ? await this.prisma.withTenant(tenantId, tx => tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: plan.contract.supplierHotelMappingId!, roomTypeId: plan.roomTypeId, status: 'MAPPED' } }))
-      : null
-    const reasons: string[] = evaluateNightSellability(plan, { stayDate, occupancy: input.occupancy })
-    // Non-blocking: the night checks pass, but agent search only lists hotels whose content is COMPLETE.
-    const warnings: string[] = plan && plan.roomType.hotel.contentStatus !== 'COMPLETE' && plan.roomType.hotel.contentStatus !== 'SUSPENDED' ? ['HOTEL_CONTENT_NOT_COMPLETE'] : []
-    if (plan) {
-      const hotelMapping = plan.contract.supplierHotelMapping
-      if (hotelMapping && hotelMapping.hotelId === plan.roomType.hotelId && hotelMapping.status === 'MAPPED' && !roomMapping) reasons.push('ROOM_MAPPING_UNAPPROVED')
-      const availability = plan.availability[0]
-      if (checkIn) {
-        const requiredMinStay = Math.max(plan.minStay, availability && stayDate.getTime() === checkIn.getTime() ? availability.minStay : 1)
-        if (input.nights < requiredMinStay) reasons.push('MIN_STAY_NOT_MET')
-        if (plan.maxStay != null && input.nights > plan.maxStay) reasons.push('MAX_STAY_EXCEEDED')
-        const today = date(new Intl.DateTimeFormat('en-CA', { timeZone: plan.roomType.hotel.timeZone || 'UTC' }).format(new Date()))
-        if (Math.round((checkIn.getTime() - today.getTime()) / 86_400_000) < plan.releaseDays) reasons.push('RELEASE_DAYS_NOT_MET')
+    if (!Number.isInteger(input.occupancy) || input.occupancy < 1 || input.occupancy > 20) throw new BadRequestException('occupancy must be a whole number from 1 to 20')
+    if (typeof input.ratePlanId !== 'string' || !input.ratePlanId) throw new BadRequestException('ratePlanId is required')
+    const checkIn = hasStay ? date(input.checkInDate) : stayDate
+    const nights: number = hasStay ? input.nights : 1
+    const dayOfDate = (value: Date) => value.toISOString().slice(0, 10)
+    const first = dayOfDate(checkIn)
+    const dates = Array.from({ length: nights }, (_, n) => dayOfDate(new Date(checkIn.getTime() + n * 86_400_000)))
+    const now = new Date()
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const raw = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, select: assessPlanSelect(tenantId, { gte: checkIn, lte: new Date(checkIn.getTime() + (nights - 1) * 86_400_000) }) })
+      if (!raw) return { eligible: false, status: 'NOT_ELIGIBLE' as const, reasons: ['RATE_PLAN_MISSING'], warnings: [] as string[] }
+      const derived = withDerivedRates(raw) as unknown as AssessPlan
+      const plan: AssessPlan = { ...derived, dailyRates: derived.dailyRates.filter((rate) => rate.occupancy === derived.occupancy) }
+      const [hotel, mapping, markupRules] = await Promise.all([
+        tx.hotel.findFirst({ where: { id: plan.roomType.hotelId, tenantId }, select: { starRating: true } }),
+        plan.contract.supplierHotelMappingId ? tx.supplierHotelMapping.findFirst({ where: { id: plan.contract.supplierHotelMappingId, tenantId }, select: { id: true, status: true, hotelId: true } }) : Promise.resolve(null),
+        loadActiveMarkupRulesInTx(tx, tenantId),
+      ])
+      const roomMapping = mapping ? await tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: mapping.id, roomTypeId: plan.roomTypeId }, select: { status: true } }) : null
+      const guests = occupancySplit({ occupancy: input.occupancy, roomType: plan.roomType })
+      let reasons: string[]
+      if (!hasStay) reasons = evaluatePlanNight(plan, mapping, roomMapping, dayOfDate(stayDate), hotel?.starRating ?? null, guests, markupRules, now)
+      else {
+        const checkOut = dayOfDate(new Date(checkIn.getTime() + nights * 86_400_000))
+        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId)),
+          { checkIn: first, checkOut, rooms: 1, adults: guests.adults, children: guests.children, currency: plan.currency, now })
+        reasons = [...decision.reasons]
+        if (!starRatingValid(hotel?.starRating ?? null)) reasons.push(HOTEL_STAR_RATING_MISSING)
       }
-    }
-    return { eligible: reasons.length === 0, status: reasons.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' : 'NOT_ELIGIBLE', reasons, warnings }
+      const unique = [...new Set(reasons)]
+      return { eligible: unique.length === 0, status: unique.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' as const : 'NOT_ELIGIBLE' as const, reasons: unique, warnings: [] as string[] }
+    })
   }
 }

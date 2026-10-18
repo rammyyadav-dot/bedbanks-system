@@ -8,6 +8,7 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
 import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -213,7 +214,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-C`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
     contractId = contract.body.data.id
-    await admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contractId, 'ACTIVE')
     const plan = await admin.post('/api/v1/supply/rate-plans').send({
       contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-FLEX`, occupancy: 2, currency: 'AED',
       refundable: true, minStay: 1, releaseDays: 0,
@@ -234,13 +235,14 @@ describe('Authoritative Dubai one-hotel agent search', () => {
 
   async function restoreCommercial() {
     const admin = api(ownerCookie)
+    await prisma.bookingLeadTimeRule.deleteMany({ where: { contractId } })
     await prisma.supplierHotelMapping.update({ where: { id: mappingId }, data: { status: 'MAPPED' } })
     await prisma.supplierRoomMapping.update({ where: { id: roomMappingId }, data: { status: 'MAPPED' } })
     await admin.patch(`/api/v1/supply/suppliers/${supplierId}`).send({ status: 'ACTIVE' }).expect(200)
     await prisma.hotel.update({ where: { id: hotelId }, data: { contentStatus: 'COMPLETE' } }) // fixture reset: re-publishing is maker-checker (ADR 0022)
     await admin.patch(`/api/v1/supply/hotels/${hotelId}/rooms/${roomId}`).send({ isActive: true }).expect(200)
     await admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: true }).expect(200)
-    await admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'ACTIVE', validFrom: day(0), validTo: day(60) }).expect(200)
+    await setContractStatusFixture(prisma, contractId, 'ACTIVE', { validFrom: new Date(`${day(0)}T00:00:00.000Z`), validTo: new Date(`${day(60)}T00:00:00.000Z`) })
     await setRatePlanStatusFixture(prisma, ratePlanId, 'ACTIVE')
     await admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 1, releaseDays: 0 }).expect(200)
     await admin.post('/api/v1/supply/daily-rates/bulk').send({ rows: nights.map((stayDate) => ({
@@ -335,11 +337,14 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       // The room API refuses to archive a room a published hotel still requires (hotel-setup rule), so the archived-room state is seeded directly.
       ['room inactive', () => prisma.roomType.update({ where: { id: roomId }, data: { isActive: false } })],
       ['board inactive', () => admin.patch(`/api/v1/supply/board-bases/${boardId}`).send({ isActive: false }).expect(200)],
-      ['contract inactive', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'SUSPENDED' }).expect(200)],
-      ['contract expired', () => admin.patch(`/api/v1/supply/contracts/${contractId}`).send({ status: 'EXPIRED' }).expect(200)],
+      ['contract inactive', () => setContractStatusFixture(prisma, contractId, 'SUSPENDED')],
+      ['contract expired', () => setContractStatusFixture(prisma, contractId, 'EXPIRED')],
       ['rate plan inactive', () => setRatePlanStatusFixture(prisma, ratePlanId, 'SUSPENDED')],
       ['minimum stay', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ minStay: 5 }).expect(200)],
       ['release days', () => admin.patch(`/api/v1/supply/rate-plans/${ratePlanId}`).send({ releaseDays: 40 }).expect(200)],
+      // ADR 0067 F-02: the contract's booking lead time is enforced. The contract is ACTIVE (terms locked), so the rule is seeded directly.
+      ['lead time too short', () => prisma.bookingLeadTimeRule.create({ data: { contractId, minLeadHours: 24 * 400 } })],
+      ['beyond the booking window', () => prisma.bookingLeadTimeRule.create({ data: { contractId, minLeadHours: 0, maxLeadDays: 0 } })],
     ]
     for (const [name, mutate] of cases) {
       await mutate()
@@ -349,7 +354,37 @@ describe('Authoritative Dubai one-hotel agent search', () => {
       const restored = await search().expect(201)
       expect({ case: name, hotels: restored.body.data.hotels.length }).toEqual({ case: name, hotels: 1 })
     }
-  }, 30_000) // nine cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
+  }, 40_000) // eleven cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
+
+  it('prices children from the contract child policy when the plan has no child lines (ADR 0067, F-03)', async () => {
+    await prisma.roomType.update({ where: { id: roomId }, data: { maxChildren: 2, maxOccupancy: 3 } })
+    await prisma.childPolicy.createMany({ data: [{ contractId, minAge: 0, maxAge: 5, supplementMinor: 0n, currency: 'AED' }, { contractId, minAge: 6, maxAge: 11, supplementMinor: 5000n, currency: 'AED' }] })
+    try {
+      const priced = (body: Record<string, unknown>) => search(agentCookie, body).expect(201).then((r) => r.body.data.hotels.map((h: { rooms: Array<{ rates: Array<{ sellAmountMinor: number }> }> }) => h.rooms[0].rates[0].sellAmountMinor))
+      // An extra child aged 8 pays the 6-11 band per night; a child aged 3 is free; 1 adult + 1 child fills the double at the base rate.
+      expect(await priced({ adults: 2, children: 1, childAges: [8] })).toEqual([(nightMinor + 5000) * nights.length])
+      expect(await priced({ adults: 2, children: 1, childAges: [3] })).toEqual([nightMinor * nights.length])
+      expect(await priced({ adults: 1, children: 1, childAges: [8] })).toEqual([nightMinor * nights.length])
+      // No band covers age 14: never priced as free.
+      expect(await priced({ adults: 2, children: 1, childAges: [14] })).toEqual([])
+    } finally {
+      await prisma.childPolicy.deleteMany({ where: { contractId } })
+      await prisma.roomType.update({ where: { id: roomId }, data: { maxChildren: 0, maxOccupancy: 2 } })
+    }
+  })
+
+  it('discloses charges paid at the hotel with a stay estimate, never adding them to the price (ADR 0067, F-04)', async () => {
+    const dirham = { kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: '2000', currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', maxNights: 30 }
+    const profile = await prisma.hotelProfile.upsert({ where: { hotelId }, update: { localCharges: [dirham] }, create: { tenantId, hotelId, updatedById: 'fixture', localCharges: [dirham] } })
+    try {
+      const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
+      expect(rate.payAtHotel).toEqual([{ kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: 2000, currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', estimatedTotalMinor: 2000 * nights.length }])
+      expect(rate.priceIncludes).toEqual({ taxes: false, fees: false })
+      expect(rate.sellAmountMinor).toBe(nightMinor * nights.length)
+    } finally {
+      await prisma.hotelProfile.update({ where: { id: profile.id }, data: { localCharges: [] } })
+    }
+  })
 
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)

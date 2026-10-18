@@ -18,8 +18,22 @@ export const HOTEL_POLICY_KEYS = ['children', 'extraBeds', 'pets', 'accessibilit
 export type HotelPolicyKey = (typeof HOTEL_POLICY_KEYS)[number];
 export type HotelPolicies = Partial<Record<HotelPolicyKey, string | null>>;
 export const HOTEL_POLICY_LABELS: Record<HotelPolicyKey, string> = {
-  children: 'Children', extraBeds: 'Extra beds', pets: 'Pets', accessibility: 'Accessibility', localCharges: 'Local charges (paid at the hotel)',
+  children: 'Children', extraBeds: 'Extra beds', pets: 'Pets', accessibility: 'Accessibility', localCharges: 'Local charges: notes (amounts are recorded below as structured charges)',
 };
+
+/**
+ * Charges the guest pays the hotel directly, not included in the price (ADR 0067, F-04): Dubai Tourism Dirham, city tax, municipality or resort fees.
+ * Structured so Agent offers, vouchers, invoices and the confirmation email can state them with an estimate for the stay. Money is integer minor units.
+ * `maxNights` caps a per-night charge (Tourism Dirham is charged for at most 30 consecutive nights); null means no cap.
+ */
+export const LOCAL_CHARGE_KINDS = ['TOURISM_DIRHAM', 'CITY_TAX', 'MUNICIPALITY_FEE', 'RESORT_FEE', 'OTHER'] as const;
+export type LocalChargeKind = (typeof LOCAL_CHARGE_KINDS)[number];
+export const LOCAL_CHARGE_BASES = ['PER_ROOM_PER_NIGHT', 'PER_PERSON_PER_NIGHT', 'PER_ROOM_PER_STAY', 'PER_PERSON_PER_STAY'] as const;
+export type LocalChargeBasis = (typeof LOCAL_CHARGE_BASES)[number];
+export const LOCAL_CHARGE_LIMITS = { charges: 10, labelMax: 80, maxNights: 365 } as const;
+export const LOCAL_CHARGE_KIND_LABELS: Record<LocalChargeKind, string> = { TOURISM_DIRHAM: 'Tourism Dirham', CITY_TAX: 'City tax', MUNICIPALITY_FEE: 'Municipality fee', RESORT_FEE: 'Resort fee', OTHER: 'Other local charge' };
+export const LOCAL_CHARGE_BASIS_LABELS: Record<LocalChargeBasis, string> = { PER_ROOM_PER_NIGHT: 'per room per night', PER_PERSON_PER_NIGHT: 'per person per night', PER_ROOM_PER_STAY: 'per room per stay', PER_PERSON_PER_STAY: 'per person per stay' };
+export interface HotelLocalCharge { kind: LocalChargeKind; label: string; amountMinor: string; currency: string; basis: LocalChargeBasis; maxNights: number | null }
 
 export const HOTEL_PROFILE_STATUSES = ['DRAFT', 'INCOMPLETE', 'COMPLETE', 'SUSPENDED', 'ARCHIVED'] as const;
 export type HotelProfileStatus = (typeof HOTEL_PROFILE_STATUSES)[number];
@@ -67,6 +81,8 @@ export interface HotelSetupView {
   /** Private. Returned only to callers holding supply.hotels.manage. */
   contacts: HotelContacts | null
   policies: HotelPolicies
+  /** Structured charges paid at the hotel (ADR 0067, F-04). Shown to Agents and on vouchers; never added to the price. */
+  localCharges: HotelLocalCharge[]
   governance: { status: HotelProfileStatus; sourceSystem: string | null; ownerUserId: string | null; /** Resolved for display; null when unset or the user is no longer a tenant member. */ owner: HotelOwnerCandidate | null; approvedById: string | null; approvedAt: string | null; updatedById: string | null; updatedAt: string }
   rooms: { active: number; total: number }
   completeness: HotelCompleteness
@@ -94,6 +110,8 @@ export interface HotelSetupSave {
   shortDescription?: string | null; fullDescription?: string | null; languages?: string[]
   checkInTime?: string | null; checkOutTime?: string | null; operationalNotes?: string | null
   contacts?: HotelContacts; policies?: HotelPolicies
+  /** Replaces the stored set when sent; [] clears it. */
+  localCharges?: HotelLocalCharge[]
   sourceSystem?: string | null; ownerUserId?: string | null
   externalIdentifiers?: Array<{ scheme: string; value: string }>
 }

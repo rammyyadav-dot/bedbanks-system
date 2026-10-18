@@ -32,9 +32,101 @@ Constraints: tenant identity from server context only (1); never log credentials
 - The exporter refuses a filesystem archive unless the database is local, and refuses an S3 bucket without Object Lock enabled.
 
 ## Not built
-- **Infrastructure.** No Terraform for the Object Lock bucket, its KMS key or the scheduled ECS task is included. Until the owner provisions the bucket, the role and the schedule, nothing is exported and records accumulate in the database (still captured and immutable).
-- **Admin UI / API.** There is no Admin screen or HTTP endpoint for compliance records or export status; the existing Audit and Access review screens are unchanged. Such a read surface needs its own contract in `@bedbanks/contracts`, a permission and a runtime-role read grant.
+- **Infrastructure.** Built by amendment 2 below, off by default. Until the owner enables it and provisions the role, nothing is exported, and records accumulate in the database (still captured and immutable).
+- **Admin UI / API.** Built by amendment 1 below.
 - **External anchoring** of the chain head beyond Object Lock (for example a periodic signed timestamp) and **report generation** (per-regulator summaries) are not built.
 
 ## Rollback
 Forward migration, reviewed before use, while the exporter is stopped; listed in the header of `202611200001_compliance_reporting_hooks`. Dropping the trigger restores the previous audit behaviour exactly. Archived objects remain in WORM storage for their retention period by design.
+
+## Amendment 1: Admin compliance evidence (read surface)
+**Decision.** Administration & Governance gets a read-only **Compliance evidence** module under Risk & Compliance (`/compliance`), backed by two tenant-scoped endpoints declared in `@bedbanks/contracts` (`routes.admin.operations.complianceSummary`, `complianceRecords`):
+- `GET /admin/operations/compliance/summary?days=1..90` returns the records captured in the window per category (every category present), the jurisdiction split of booking events (cross-border, domestic, unknown), and the all-time export chain: batch count, stored, sealed but not stored, head sequence and hash, last stored time, and how many records are still pending (and the oldest pending one). The export section is `unavailable` (never zero) if the role cannot read it.
+- `GET /admin/operations/compliance/records` returns a paged list, newest first, filterable by category, export state (`PENDING`, `SEALED`, `STORED`), cross-border, action text (LIKE-escaped) and day range. Each row shows the payload's SHA-256, never the payload itself. The Audit explorer remains the place to read payloads.
+- **Permission:** `audit.read`, the same authority as the Audit explorer and Access reviews, since the evidence is derived from the same audit trail. No new permission row. A refused request is itself captured as an `ACCESS_DENIAL` record (asserted in the e2e).
+- **Database:** following repository rule SR-07, the grant is stated only in `runtime-role-contract.ts` and applied by `ops:provision-api-runtime-role`, not by a migration. The API role gets column-level SELECT on `ComplianceRecord` (every column except `payload`) and SELECT on `ComplianceExportBatch` and `ComplianceExportBatchRecord`. It still has no write on any compliance table. Forced RLS limits every read to the active tenant; platform (tenantless) records are never visible through the API.
+
+**Evidence.** `apps/api/test/compliance-evidence.e2e-spec.ts` runs the whole application as the provisioned strict runtime role. It covers:
+- the 401 and 403 gate;
+- per-category, jurisdiction and export-chain counts after a real export;
+- tenant and platform isolation;
+- the absence of the payload, both in responses and as a database privilege;
+- every filter, and rejection of invalid ones.
+
+`apps/admin/lib/admin-mvp-guards.test.ts` asserts that the page uses the two endpoints, renders an unavailable section as unavailable, performs no arithmetic or mutation, and is gated by `audit.read` in navigation.
+
+**Rollout.** Re-run `ops:provision-api-runtime-role` (owner) after deploying, so the role receives the three read grants. Until then, the summary answers with its export section `unavailable` and the list answers `503 OPERATIONS_READ_DENIED`. Neither shows an empty result.
+
+Terraform is in amendment 2, per-period reports in amendment 3, signed checkpoints in amendment 4.
+
+## Amendment 2: AWS infrastructure (Terraform)
+**Decision.** `infra/aws/terraform/compliance.tf` provisions the archive and the schedule behind `compliance_export_enabled` (default `false`), so no environment changes until an owner opts in.
+- **Archive.** S3 with Object Lock enabled at creation, default retention COMPLIANCE for `compliance_retention_days` (default 2557, validated to be at least 365, matching the exporter's minimum). Versioning on, public access blocked, bucket-owner-enforced ownership. SSE-KMS with a dedicated key (rotation on) and bucket keys. Lifecycle only aborts incomplete uploads; nothing expires. The bucket policy denies non-TLS access, denies `DeleteObject` and `DeleteObjectVersion` to every principal (Object Lock alone would still allow delete markers, which hide a batch), and denies any `PutObject` that does not carry COMPLIANCE retention.
+- **Least privilege.**
+  - Execution role: may read only the `COMPLIANCE_DATABASE_URL` secret shell (value set out of band, like every runtime URL).
+  - Task role: may `PutObject`, `PutObjectRetention` and `GetObject` under `compliance/*`, `ListBucket` and `GetBucketObjectLockConfiguration` on the bucket, and use the compliance key. No delete, no bypass, no wildcard action.
+  - Security group: the new `compliance` group reaches Postgres (5432 to `data`) and HTTPS only, and has no ingress. S3 is reached through the existing gateway endpoint.
+- **Schedules.** EventBridge Scheduler runs the API image's `ops:compliance export` every 15 minutes and `verify` hourly, on Fargate in private subnets without a public IP. The schedule definitions are encrypted with the compliance key. The scheduler role may only `ecs:RunTask` the two compliance families on this cluster and pass their two roles. Targets name the task family without a revision, so they always run the latest revision.
+- **Deploy.** `aws-deploy.yml` registers a compliance task revision with the same image digest whenever it deploys `api` (skipped when the families do not exist). The CI deploy role gains `iam:PassRole` for the two compliance roles only; it still has no `ecs:RunTask`.
+- **Observability.** A log metric filter on `/fbeds/<env>/compliance` counts `FAIL:` lines, crashes and refused database identities, and alarms on any. Heartbeat filters count successful exports and verifications; their alarms treat missing data as breaching (45 minutes and 2 hours), so a stopped schedule or a task that cannot start also pages the existing alarm topic.
+
+**Evidence.**
+- `terraform validate` and `terraform fmt -check` pass.
+- The offline plan tests in `tests/governance.tftest.hcl` pass, 20 in total, including three new ones:
+  - off by default;
+  - WORM, least-privilege and monitored when enabled: the assertions cover Object Lock, COMPLIANCE retention, no delete or wildcard in the task role, the deny statements, the schedule rates, no public IP, breaching heartbeats, and the single secret;
+  - retention below 365 days is refused.
+- `tools/aws-governance-check.mjs` passes, and checkov 3.2.0 with the repository baseline reports 427 passed and 0 failed, with no new exception. CKV_AWS_297 (schedules using a customer-managed key) was fixed rather than skipped.
+- Nothing was applied to an AWS account.
+
+**Consequences.** Enabling the archive in an environment commits it to keep every archived object for the retention period. Nobody, root included, can delete them before then, and the bucket survives `terraform destroy`. This is the purpose of WORM storage, and it is why the module is opt-in and the runbook says it twice.
+
+## Amendment 3: per-period compliance reports
+**Decision.** Admin's Compliance evidence page gains a **Period report** download, backed by `GET /admin/operations/compliance/report?from=YYYY-MM-DD&to=YYYY-MM-DD&format=json|csv` (`routes.admin.operations.complianceReport`, permission `audit.read`). There is no new grant and no new permission.
+- **Content** (`ComplianceReport` in `@bedbanks/contracts`):
+  - every record of the period (inclusive UTC days), oldest first;
+  - counts per category and per action, with every category present;
+  - export coverage: stored, sealed or pending;
+  - booking jurisdiction (cross-border, domestic, unknown) and the cross-border corridors (agency country to hotel country);
+  - payloads are excluded; each record carries its payload SHA-256, as on the page.
+- **Attestation:** `recordsSha256` is the SHA-256 of one line `<id>\t<payloadSha256>\n` per record, in report order. For the stored records, the same lines can be recomputed from the WORM batch bodies, which proves the report and the archive agree. The report also carries the tenant's chain head (sequence, batch hash, storage state) at generation time. The CSV repeats both in its header block, and the response sends `X-Compliance-Records` and `X-Compliance-Records-Sha256`. CSV cells are formula-safe (the shared `csvCell`).
+- **Limits:** at most 366 days and 20,000 records. A larger period is refused with `422 COMPLIANCE_REPORT_TOO_LARGE`, never truncated.
+- **Audit:** the read and a `compliance.report.exported` audit event (format, record count, `recordsSha256`, chain head sequence) share one transaction. Migration `202611210001_compliance_report_classification` regenerates the classifier so that action is captured as `DATA_EXPORT` evidence: every report download is itself compliance evidence.
+
+**Evidence.**
+- `compliance-report.spec.ts`: counts, corridors, attestation determinism and sensitivity, and formula-safe CSV.
+- `compliance-evidence.e2e-spec.ts`, on the strict runtime role:
+  - the JSON report, and its stored records matching the archived batch body line for line;
+  - the CSV, and its download captured as `DATA_EXPORT` with the same hash;
+  - period validation, and the 403;
+  - the 422 above the cap, with nothing audited.
+- The Admin guard test, plus a browser check of the download.
+
+## Amendment 4: signed checkpoints of the chain heads
+**Context.** Object Lock stops anyone from altering an archived batch, and each batch hash covers its predecessor. What it does not stop is someone with database owner rights, or with the compliance login's password, sealing an *alternative* history before it is stored, or claiming afterwards that a different chain was the real one. Without an independent commitment to "this was the head at that time", that cannot be told apart.
+
+**Decision.** After every export run, `ops:compliance export` writes a **checkpoint** to the WORM archive (`compliance/checkpoints/v1/<sequence>.json`, write-once):
+- **Contents:** the stored chain head (sequence and batch hash) of every scope, the previous checkpoint's hash, the creation time, and the signing key's id and fingerprint.
+- **Signature:** canonical JSON bytes, signed with ECDSA P-256 (`ECDSA_SHA_256`) by an **AWS KMS asymmetric key**. Only the 32-byte digest is sent to KMS (`MessageType: DIGEST`). The private key never leaves KMS, and only the compliance task role may use it (`kms:Sign`, `kms:GetPublicKey`). The database owner, the deploy role and the API role cannot.
+- **Public key:** stored once per key in the archive (`keys/<fingerprint>.pem`), so verification needs nothing but the archive.
+- **Frequency:** a checkpoint is written only when a head moved, so an idle platform does not grow the archive. Concurrent writers fail on the write-once key; the chain does not fork.
+- **No database change.** The checkpoint chain lives in the archive; its sequence is the archive's own.
+
+`ops:compliance verify` additionally checks every checkpoint:
+- the signature, against the archived public key and, when a KMS key is configured, that it is the expected key;
+- sequence continuity and links;
+- that every signed head is the batch at that sequence in the scope's archived chain;
+- that no head ever moves back.
+
+It also fails when signing is configured but no checkpoint exists.
+
+**Infrastructure.** `compliance.tf` adds `aws_kms_key.compliance_signing` (`ECC_NIST_P256`, `SIGN_VERIFY`, alias `alias/fbeds-<env>-compliance-signing`), grants the task role `kms:Sign` and `kms:GetPublicKey` on it, and passes `COMPLIANCE_SIGNING_KEY_ID` to both tasks. Asymmetric KMS keys do not rotate automatically. Rotation is a new key: checkpoints name their key fingerprint, the archive keeps every public key, and the verifier checks each checkpoint against the key it names.
+
+**Local development.** `COMPLIANCE_LOCAL_SIGNER=true` signs with an in-memory key and is refused for a non-local database.
+
+**Evidence.**
+- `compliance-anchor.spec.ts`: real ECDSA signing and verification. It covers linking, no-op when nothing moved, altered content, forged signature, missing checkpoint, foreign key, heads absent from the chain or moving back, an unreadable last checkpoint, the exact KMS request (digest only), refusal of a non-P-256 key, and CLI signer selection.
+- `compliance-reporting.e2e-spec.ts`: heads read through the restricted compliance role match the database, and a checkpoint of them verifies against the archive.
+- A CLI smoke run: export signed checkpoint #1, a second export reported it unchanged, and verify passed.
+- Terraform plan tests assert the key spec and that only the compliance task role, not the deploy role, can sign. checkov passes with no new exception.
+

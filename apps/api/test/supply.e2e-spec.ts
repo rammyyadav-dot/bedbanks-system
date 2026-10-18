@@ -245,10 +245,13 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).get(`/api/v1/supply/contracts/${contractBId}`).expect(404)
 
     const requestId = `${suffix}-contract-policy-audit`
+    // ADR 0067: status is never set by PATCH; a DRAFT contract's terms are edited directly.
+    const refused = await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).send({ status: 'ACTIVE' }).expect(400)
+    expect(refused.body.error.code).toBe('CONTRACT_STATUS_VIA_LIFECYCLE_ONLY')
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).set('x-request-id', requestId)
-      .send({ status: 'ACTIVE', validFrom: day(-20), validTo: day(380), settlementCurrency: 'AED' }).expect(200)
-    await expect(prisma.contract.findUnique({ where: { id: contractAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'ACTIVE', settlementCurrency: 'AED' })
-    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractBId}`).send({ status: 'ACTIVE' }).expect(404)
+      .send({ validFrom: day(-20), validTo: day(380), settlementCurrency: 'AED' }).expect(200)
+    await expect(prisma.contract.findUnique({ where: { id: contractAId } })).resolves.toMatchObject({ tenantId: tenantAId, status: 'DRAFT', settlementCurrency: 'AED' })
+    await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractBId}`).send({ code: 'X' }).expect(404)
     await supply(cookie, tenantAId).patch(`/api/v1/supply/contracts/${contractAId}`).send({ validFrom: '2028-01-01', validTo: '2027-01-01' }).expect(400)
 
     const cancellation = await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation`).set('x-request-id', requestId)
@@ -314,6 +317,24 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).post('/api/v1/supply/availability').send({ ratePlanId: ratePlanAId, stayDate: day(1), allotment: 5, sold: 0 }).expect(201)
   })
 
+  /**
+   * ADR 0067 F-07: the inspector answers with the Agent's evaluator, so "eligible" needs everything the Agent needs: a published, rated hotel and an
+   * approved hotel and room mapping bound to the contract. Arranged here through the owner client and undone by the returned function.
+   */
+  const sellableChain = async () => {
+    const hotelBefore = await prisma.hotel.findUniqueOrThrow({ where: { id: hotelAId } })
+    await prisma.hotel.update({ where: { id: hotelAId }, data: { contentStatus: 'COMPLETE', starRating: 4 } })
+    const mapping = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantAId, supplierId: supplierAId, hotelId: hotelAId, supplierHotelId: `${suffix}-inspector`, status: 'MAPPED' } })
+    const room = await prisma.supplierRoomMapping.create({ data: { tenantId: tenantAId, supplierHotelMappingId: mapping.id, hotelId: hotelAId, supplierRoomId: `${suffix}-inspector-room`, roomTypeId: roomAId, status: 'MAPPED' } })
+    await prisma.contract.update({ where: { id: contractAId }, data: { supplierHotelMappingId: mapping.id } })
+    return async () => {
+      await prisma.contract.update({ where: { id: contractAId }, data: { supplierHotelMappingId: null } })
+      await prisma.supplierRoomMapping.delete({ where: { id: room.id } })
+      await prisma.supplierHotelMapping.delete({ where: { id: mapping.id } })
+      await prisma.hotel.update({ where: { id: hotelAId }, data: { contentStatus: hotelBefore.contentStatus, starRating: hotelBefore.starRating } })
+    }
+  }
+
   it('certifies seven-day bulk SELL rates and sellability acceptance', async () => {
     const cookie = await login(`${suffix}-a@example.test`)
     await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'ACTIVE', currency: 'USD', occupancy: 2 } })
@@ -327,8 +348,14 @@ describe('Supply HTTP authorization boundaries', () => {
     const rates = await supply(cookie, tenantAId).get(`/api/v1/supply/daily-rates?from=${day(20)}&to=${day(26)}`).expect(200)
     expect(rates.body.data).toHaveLength(7)
     expect(rates.body.data.every((row: { amountBasis: string }) => row.amountBasis === 'SELL')).toBe(true)
-    const sellable = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: day(20), occupancy: 2 }).expect(201)
-    expect(sellable.body.data).toMatchObject({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [] })
+    const unpublished = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: day(20), occupancy: 2 }).expect(201)
+    // The Agent would not sell an unpublished, unmapped hotel, so neither does the inspector (ADR 0067, F-07).
+    expect(unpublished.body.data).toMatchObject({ eligible: false, reasons: expect.arrayContaining(['HOTEL_INACTIVE', 'SUPPLIER_MAPPING_INVALID']) })
+    const undo = await sellableChain()
+    try {
+      const sellable = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate: day(20), occupancy: 2 }).expect(201)
+      expect(sellable.body.data).toMatchObject({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [] })
+    } finally { await undo() }
     await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(20)}T00:00:00.000Z`), lte: new Date(`${day(26)}T00:00:00.000Z`) } } })
     await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(20)}T00:00:00.000Z`), lte: new Date(`${day(26)}T00:00:00.000Z`) } } })
     await prisma.ratePlan.update({ where: { id: ratePlanAId }, data: { status: 'DRAFT' } })
@@ -343,6 +370,7 @@ describe('Supply HTTP authorization boundaries', () => {
     await supply(cookie, tenantAId).post('/api/v1/supply/daily-rates/bulk').send({ rows: dates.map((stayDate) => ({ ratePlanId: ratePlanAId, stayDate, occupancy: 2, amountMinor: '29900', amountBasis: 'SELL', currency: 'USD' })) }).expect(201)
     await supply(cookie, tenantAId).post('/api/v1/supply/availability/bulk').send({ rows: dates.map((stayDate, index) => ({ ratePlanId: ratePlanAId, stayDate, allotment: 5, sold: 0, stopSell: index === 3, minStay: 1 })) }).expect(201)
 
+    const undo = await sellableChain()
     const matrix = await Promise.all(dates.map(async (stayDate) => {
       const response = await supply(cookie, tenantAId).post('/api/v1/supply/sellability').send({ ratePlanId: ratePlanAId, stayDate, occupancy: 2 }).expect(201)
       return response.body.data as { eligible: boolean; reasons: string[] }
@@ -357,6 +385,7 @@ describe('Supply HTTP authorization boundaries', () => {
       return response.body.data as { eligible: boolean }
     }))
     expect(reopened.every((row) => row.eligible)).toBe(true)
+    await undo()
 
     await prisma.dailyRate.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(40)}T00:00:00.000Z`), lte: new Date(`${day(46)}T00:00:00.000Z`) } } })
     await prisma.dailyAvailability.deleteMany({ where: { ratePlanId: ratePlanAId, stayDate: { gte: new Date(`${day(40)}T00:00:00.000Z`), lte: new Date(`${day(46)}T00:00:00.000Z`) } } })
