@@ -218,13 +218,13 @@ describe('Admin booking finance and documents (PostgreSQL, HTTP)', () => {
     expect((await html(b.id, 'lead', 'voucher')).status).toBe(404) // not issued
   })
 
-  it('BF-E07: the booking role cannot rewrite money or documents (INSERT and SELECT only) and the API role cannot read them at all', async () => {
+  it('BF-E07: the booking role cannot rewrite money facts or documents (INSERT and SELECT only), nor a booking\'s currency or frozen terms (the price columns are writable only for an amendment, ADR 0072), and the API role cannot read them at all', async () => {
     const url = process.env.BOOKING_OPS_DATABASE_URL as string
     const role = new PrismaClient({ datasources: { db: { url } } })
     try {
       const b = await booking('CONFIRMED')
       await owner.bookingFinanceEvent.create({ data: { tenantId: tenantA, bookingId: b.id, type: 'CONFIRMED', currency: 'AED', sellMinor: 1n } })
-      for (const q of [`UPDATE "BookingFinanceEvent" SET sell_minor = 2`, `DELETE FROM "BookingFinanceEvent"`, `UPDATE "BookingDocument" SET number = 'x'`, `DELETE FROM "BookingDocument"`, `SELECT 1 FROM "LedgerEntry" LIMIT 1`, `SELECT 1 FROM "Wallet" LIMIT 1`, `UPDATE "Booking" SET cancellation_policy = '{}'::jsonb`, `UPDATE "Booking" SET total_minor = 1`]) await expect(role.$executeRawUnsafe(q)).rejects.toThrow(/permission denied/)
+      for (const q of [`UPDATE "BookingFinanceEvent" SET sell_minor = 2`, `DELETE FROM "BookingFinanceEvent"`, `UPDATE "BookingDocument" SET number = 'x'`, `DELETE FROM "BookingDocument"`, `SELECT 1 FROM "LedgerEntry" LIMIT 1`, `SELECT 1 FROM "Wallet" LIMIT 1`, `UPDATE "Booking" SET cancellation_policy = '{}'::jsonb`, `UPDATE "Booking" SET currency = 'USD'`, `UPDATE "Booking" SET payment_mode = NULL`, `UPDATE "BookingFinanceEvent" SET adjustment_minor = 1`]) await expect(role.$executeRawUnsafe(q)).rejects.toThrow(/permission denied/)
     } finally { await role.$disconnect() }
     const api = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL as string } } })
     try { for (const t of ['BookingFinanceEvent', 'BookingDocument']) await expect(api.$queryRawUnsafe(`SELECT 1 FROM "${t}" LIMIT 1`)).rejects.toThrow(/permission denied/) } finally { await api.$disconnect() }

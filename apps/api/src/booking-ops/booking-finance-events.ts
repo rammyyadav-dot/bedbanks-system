@@ -56,3 +56,15 @@ export async function emitTransitionFinance(tx: Prisma.TransactionClient, bookin
       : { payload: { action, penaltyState: 'NEEDS_DECISION' } })
   }
 }
+
+/**
+ * ADR 0072: the money fact of an approved amendment that changed the price: the new sell, the new net, and the signed difference (new minus old). Recorded as "awaiting Finance
+ * booking" like every other event; nothing reads or writes the ledger, a wallet or a balance. A zero difference is not a money fact and is not recorded.
+ */
+export async function emitAmendmentFinance(tx: Prisma.TransactionClient, booking: FinanceBooking, differenceMinor: bigint, actorUserId: string | null, payload: Prisma.InputJsonObject): Promise<void> {
+  if (differenceMinor === 0n) return
+  await tx.bookingFinanceEvent.create({ data: {
+    tenantId: booking.tenantId, bookingId: booking.id, type: 'AMENDED', seq: await nextSeq(tx, booking, 'AMENDED'), currency: booking.currency, sellMinor: booking.totalMinor, netMinor: booking.netMinor,
+    adjustmentMinor: differenceMinor, paymentMode: (booking.paymentMode ?? null) as BookingPaymentMode | null, actorUserId, payload: { ...payload, direction: differenceMinor > 0n ? 'INCREASE' : 'DECREASE' },
+  } })
+}

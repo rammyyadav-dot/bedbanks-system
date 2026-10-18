@@ -7,6 +7,8 @@ import { quoteSummary } from '@/lib/booking-finance-ui'
 import { getBookingFinance, patchBookingReferences, postBookingAction } from '@/lib/data/operations'
 import { buildActionRequest, describeActionError, emptyActionForm, FIELD_LABEL, isOptional, MAX_LENGTH, newIdempotencyKey, visibleFields, type ActionFormState } from '@/lib/booking-actions-ui'
 import { statusLabel } from '@/lib/booking-ui'
+import { openAmendment } from '@/lib/booking-amendment-ui'
+import { ApproveAmendmentDialog, RequestAmendmentDialog } from './AmendmentDialogs'
 import { Modal } from './Modal'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
@@ -129,7 +131,9 @@ export function BookingActions({ d, onChanged }: { d: BookingDetailView; onChang
     <div role="group" aria-label="Booking actions" data-testid="booking-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {d.availableActions.map((a) => <button key={a.action} type="button" className="admin-btn" data-action={a.action} onClick={() => setOpen(a)}>{a.label}</button>)}
       {canEditRefs && <button type="button" className="admin-btn" data-action="editReferences" onClick={() => setOpen('references')}>Edit references</button>}
-      {open && open !== 'references' && <ActionDialog d={d} action={open} onClose={() => setOpen(null)} onDone={done} />}
+      {open && open !== 'references' && open.action === 'requestAmendment' && <RequestAmendmentDialog d={d} action={open} onClose={() => setOpen(null)} onDone={done} />}
+      {open && open !== 'references' && open.action === 'approveAmendment' && openAmendment(d) !== null && <ApproveAmendmentDialog d={d} action={open} onClose={() => setOpen(null)} onDone={done} />}
+      {open && open !== 'references' && !(open.action === 'requestAmendment' || (open.action === 'approveAmendment' && openAmendment(d) !== null)) && <ActionDialog d={d} action={open} onClose={() => setOpen(null)} onDone={done} />}
       {open === 'references' && <ReferencesDialog d={d} onClose={() => setOpen(null)} onDone={done} />}
     </div>
   )

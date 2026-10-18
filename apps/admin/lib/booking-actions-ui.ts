@@ -64,6 +64,14 @@ const COPY: Record<string, string> = {
   NOT_FOUND: 'This booking could not be found.',
   FIELD_TOO_LONG: 'One of the fields is too long.',
   NO_CHANGE: 'Nothing changed: those references are already recorded.',
+  AMENDMENT_INVALID: 'The amendment is not valid.',
+  AMENDMENT_NO_CHANGE: 'Nothing would change: the dates and the people are the same as now. To ask for something else, describe it in the note without changing the fields.',
+  AMENDMENT_APPROVAL_REQUIRED: 'Record the price the supplier confirmed for the new dates and occupancy.',
+  AMENDMENT_APPROVAL_INVALID: 'The price you entered is not valid.',
+  AMENDMENT_APPROVAL_NOT_EXPECTED: 'This request has no structured change, so it is approved without a price.',
+  AMENDMENT_STALE: 'The booking changed after this amendment was requested. Reject it and ask again.',
+  AMENDMENT_LEDGER_ADJUSTMENT_REQUIRED: 'This booking was charged on the agency ledger, and a price change needs a ledger adjustment that is not built yet. Nothing was changed. Reject this amendment and agree the change with Finance, or approve it only if the price stays the same.',
+  AMENDMENT_LEDGER_UNVERIFIABLE: 'Could not check whether this booking was charged on the agency ledger, so a price change is not allowed. Nothing was changed. Try again, or ask Finance.',
   MANUAL_BOOKING_DISABLED: 'Manual booking entry is switched off in this environment.',
   HOTEL_NOT_FOUND: 'That hotel was not found for this operator.',
   AGENCY_NOT_FOUND: 'That agency was not found for this operator.',
@@ -89,7 +97,7 @@ const COPY: Record<string, string> = {
 export function describeActionError(error: unknown): { message: string; requestId: string | null; reload: boolean } {
   if (!(error instanceof ApiResponseError)) return { message: 'Something went wrong. Nothing was confirmed.', requestId: null, reload: false }
   const base = COPY[error.code] ?? (error.status >= 500 ? 'The server could not complete the request. Nothing was confirmed.' : error.message || 'The request was refused.')
-  const detail = error.code === 'MISSING_FIELDS' || error.code === 'SAVED_VIEW_INVALID' || error.code === 'BOOKING_QUERY_INVALID' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' ? ` ${error.message}` : ''
+  const detail = error.code === 'MISSING_FIELDS' || error.code === 'SAVED_VIEW_INVALID' || error.code === 'BOOKING_QUERY_INVALID' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' || error.code === 'AMENDMENT_INVALID' || error.code === 'AMENDMENT_APPROVAL_INVALID' ? ` ${error.message}` : ''
   return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' }
 }
 
