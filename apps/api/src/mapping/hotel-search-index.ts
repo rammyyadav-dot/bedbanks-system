@@ -68,6 +68,11 @@ const RESULT_LIMIT = 20
 /**
  * Hybrid retrieval: vector, trigram and full-text candidates are fetched independently and fused by rank (RRF),
  * so incomparable raw scores are never mixed. Uses stock pgvector, pg_trgm and tsvector, available on any PostgreSQL.
+ *
+ * Every retriever reads from one MATERIALIZED tenant scope on purpose. Left as a plain WHERE, the planner orders by the HNSW index and
+ * filters afterwards, so with many tenants in one index the approximate scan returns other tenants' neighbours and the tenant gets
+ * fewer than LIMIT rows, or none (reproduced: 100 tenants, 0 of 20). Reading the tenant first makes recall exact and independent of
+ * pgvector's version and of hnsw.ef_search (docs/adr/0073).
  */
 export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tenantId: string, observation: { name: string; address?: string | null; city?: string | null; countryCode?: string | null }, embedder: MappingEmbeddingProvider = embeddings): Promise<HotelCandidateRow[]> {
   const normalized = normalizeHotelIdentity(observation)
@@ -75,38 +80,34 @@ export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tena
   const text = [normalized.normalizedName, normalized.normalizedCity, normalized.normalizedAddress].join(' ')
   const country = normalized.normalizedCountryCode
   return tx.$queryRaw<HotelCandidateRow[]>`
-    WITH q AS (
-      SELECT replace(plainto_tsquery('simple', ${text})::text, ' & ', ' | ')::tsquery AS tsq
-    ),
-    -- Scope to the tenant first. As a plain WHERE the planner walks the HNSW index across all tenants and filters afterwards, so the
-    -- vector arm can return fewer than RETRIEVER_LIMIT rows, or none (reproduced: 100 tenants, 0 of 20). docs/adr/0073.
-    tenant_scope AS MATERIALIZED (
-      SELECT "hotel_id", "embedding"
+    WITH "scoped" AS MATERIALIZED (
+      SELECT "hotel_id", "normalized_name", "embedding", "search_tsv"
         FROM "HotelSearchIndex"
        WHERE "tenant_id" = ${tenantId} AND (${country} = '' OR "normalized_country_code" = ${country})
+    ),
+    q AS (
+      SELECT replace(plainto_tsquery('simple', ${text})::text, ' & ', ' | ')::tsquery AS tsq
     ),
     vector_ranked AS (
       SELECT "hotel_id", "embedding" <=> ${literal}::vector AS distance,
              row_number() OVER (ORDER BY "embedding" <=> ${literal}::vector) AS rank
-        FROM tenant_scope
+        FROM "scoped"
        ORDER BY "embedding" <=> ${literal}::vector
        LIMIT ${RETRIEVER_LIMIT}
     ),
     trigram_ranked AS (
       SELECT "hotel_id", similarity("normalized_name", ${normalized.normalizedName}) AS sim,
              row_number() OVER (ORDER BY similarity("normalized_name", ${normalized.normalizedName}) DESC) AS rank
-        FROM "HotelSearchIndex"
-       WHERE "tenant_id" = ${tenantId} AND (${country} = '' OR "normalized_country_code" = ${country})
-         AND "normalized_name" % ${normalized.normalizedName}
+        FROM "scoped"
+       WHERE "normalized_name" % ${normalized.normalizedName}
        ORDER BY sim DESC
        LIMIT ${RETRIEVER_LIMIT}
     ),
     text_ranked AS (
       SELECT "hotel_id", ts_rank_cd("search_tsv", q.tsq) AS score,
              row_number() OVER (ORDER BY ts_rank_cd("search_tsv", q.tsq) DESC) AS rank
-        FROM "HotelSearchIndex", q
-       WHERE "tenant_id" = ${tenantId} AND (${country} = '' OR "normalized_country_code" = ${country})
-         AND "search_tsv" @@ q.tsq
+        FROM "scoped", q
+       WHERE "search_tsv" @@ q.tsq
        ORDER BY score DESC
        LIMIT ${RETRIEVER_LIMIT}
     ),
@@ -123,7 +124,7 @@ export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tena
            COALESCE(ts_rank_cd(i."search_tsv", q.tsq), 0)::float8 AS "textRank",
            f.fused::float8 AS "fusedScore"
       FROM fused f
-      JOIN "HotelSearchIndex" i ON i."tenant_id" = ${tenantId} AND i."hotel_id" = f."hotel_id"
+      JOIN "scoped" i ON i."hotel_id" = f."hotel_id"
       CROSS JOIN q
      ORDER BY f.fused DESC, f."hotel_id" ASC
      LIMIT ${RESULT_LIMIT}
