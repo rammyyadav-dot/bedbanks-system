@@ -85,6 +85,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
+- `BookingAmendment`: booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)
 - `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
 - `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
 - `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)

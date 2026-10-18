@@ -32,7 +32,9 @@ describe('Booking lifecycle jobs: Checked-out (PostgreSQL, booking role)', () =>
     hotelA = (await owner.hotel.create({ data: { tenantId: tenantA, name: `${suffix} A`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', timeZone: 'Asia/Dubai' } })).id
     hotelB = (await owner.hotel.create({ data: { tenantId: tenantB, name: `${suffix} B`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' } })).id
     restore = await enableBookingOps(owner)
-    database = new BookingOpsDatabase(); job = new BookingLifecycleJobs(database, {})
+    // The job visits every tenant that has a due booking. On a database shared with other suites, only the tenants of THIS suite are visited, so it never moves another suite's fixtures.
+    class ScopedDatabase extends BookingOpsDatabase { override async checkoutDueTenants(today: string) { return (await super.checkoutDueTenants(today)).filter((t) => t === tenantA || t === tenantB) } }
+    database = new ScopedDatabase(); job = new BookingLifecycleJobs(database, {})
   })
   afterAll(async () => {
     await database?.onModuleDestroy(); restore()
@@ -75,7 +77,7 @@ describe('Booking lifecycle jobs: Checked-out (PostgreSQL, booking role)', () =>
     const ids = await Promise.all(Array.from({ length: 6 }, () => booking('A', { checkOut: day(-1) })))
     const raced = await booking('A', { checkOut: day(-1) })
     await owner.booking.update({ where: { id: raced }, data: { status: 'CANCEL_REQUESTED' as never } }) // a person got there first
-    const other = new BookingLifecycleJobs(new BookingOpsDatabase(), {})
+    const other = new BookingLifecycleJobs(database, {})
     const [a, b] = await Promise.all([job.runOnce(() => NOW), other.runOnce(() => NOW)])
     expect(a.failed + b.failed).toBe(0); expect(a.checkedOut + b.checkedOut).toBe(ids.length)
     for (const id of ids) { expect(await status(id)).toBe('CHECKED_OUT'); expect(await events(id)).toHaveLength(1) }
