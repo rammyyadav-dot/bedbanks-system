@@ -30,6 +30,21 @@ export async function accountCreditLineMinor(tx: Prisma.TransactionClient, walle
   return wallet.agencyId ? agencyCreditLineMinor(tx, wallet.tenantId, wallet.agencyId, wallet.currency) : wallet.creditLimit
 }
 
+/**
+ * Credit lines of many accounts in one query, with the same rule as `accountCreditLineMinor`: a house account uses its stored limit; an
+ * agency account uses its agency's approved limit in the same currency, else zero (its own `credit_limit` is always 0).
+ */
+export async function creditLineResolver(tx: Prisma.TransactionClient, tenantId: string, wallets: ReadonlyArray<{ agencyId: string | null }>) {
+  const agencyIds = [...new Set(wallets.flatMap(w => (w.agencyId ? [w.agencyId] : [])))]
+  const limits = agencyIds.length ? await tx.agencyCreditLimit.findMany({ where: { tenantId, agencyId: { in: agencyIds } }, select: { agencyId: true, currency: true, limitMinor: true } }) : []
+  const byAgency = new Map(limits.map(l => [l.agencyId, l]))
+  return (w: { agencyId: string | null; currency: string; creditLimit: bigint }): bigint => {
+    if (!w.agencyId) return w.creditLimit
+    const l = byAgency.get(w.agencyId)
+    return l && l.currency === w.currency ? l.limitMinor : 0n
+  }
+}
+
 export async function agencyPendingMinor(tx: Prisma.TransactionClient, tenantId: string, agencyId: string, currency: string, now = new Date()): Promise<bigint> {
   const members = await tx.agencyMember.findMany({ where: { tenantId, agencyId }, select: { userId: true } })
   if (members.length === 0) return 0n
