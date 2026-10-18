@@ -20,3 +20,16 @@
 
 # CI/CD
 /.github/workflows/ @rammyyadav-dot
+
+# Security-sensitive surfaces: tenancy contracts, schema history, infrastructure, guardrail tooling, dependency and release policy
+/packages/contracts/ @rammyyadav-dot
+/apps/api/prisma/ @rammyyadav-dot
+/infra/ @rammyyadav-dot
+/tools/ @rammyyadav-dot
+/security/ @rammyyadav-dot
+/.github/CODEOWNERS @rammyyadav-dot
+/.github/dependabot.yml @rammyyadav-dot
+/.gitleaks.toml @rammyyadav-dot
+/Dockerfile.* @rammyyadav-dot
+/pnpm-lock.yaml @rammyyadav-dot
+/package.json @rammyyadav-dot

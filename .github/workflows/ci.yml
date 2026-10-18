@@ -4,6 +4,14 @@ on:
   pull_request:
   push:
 
+permissions:
+  contents: read
+
+# A newer push to the same PR supersedes the older run; branch pushes keep running to completion.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   schema-integrity:
     name: Schema integrity

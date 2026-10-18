@@ -9,6 +9,9 @@ on:
         type: choice
         options: [staging, production]
 
+permissions:
+  contents: read
+
 jobs:
   deploy-gate:
     runs-on: ubuntu-latest
