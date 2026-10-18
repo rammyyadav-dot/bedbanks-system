@@ -83,6 +83,7 @@ export function checkConfigText(file: string, text: string, opts: { disposable: 
 export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }> = [
   { file: 'apps/api/src/booking-ops/booking-ops-database.ts', url: 'BOOKING_OPS_DATABASE_URL' },
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
+  { file: 'apps/api/src/ledger/ledger-audit-database.ts', url: 'LEDGER_AUDIT_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
   { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL' },
 ]
