@@ -91,8 +91,8 @@ export class HotelQuickUpdateService {
       lines.push(`R|${r.ratePlanId}|${day(r.stayDate)}|${r.amountMinor}|${r.amountBasis ?? ''}|${r.updatedAt.getTime()}`)
     }
     for (const a of availRows) {
-      avail.set(`${a.ratePlanId}:${day(a.stayDate)}`, { allotment: a.allotment, sold: a.sold, held: a.held, stopSell: a.stopSell, minStay: a.minStay, closedToArrival: a.closedToArrival, closedToDeparture: a.closedToDeparture, mode: a.inventoryMode })
-      lines.push(`A|${a.ratePlanId}|${day(a.stayDate)}|${a.allotment}|${a.sold}|${a.held}|${a.stopSell}|${a.minStay}|${a.closedToArrival}|${a.closedToDeparture}|${a.inventoryMode}|${a.updatedAt.getTime()}`)
+      avail.set(`${a.ratePlanId}:${day(a.stayDate)}`, { allotment: a.allotment, sold: a.sold, held: a.held, stopSell: a.stopSell, minStay: a.minStay, closedToArrival: a.closedToArrival, closedToDeparture: a.closedToDeparture, releaseDays: a.releaseDays, mode: a.inventoryMode })
+      lines.push(`A|${a.ratePlanId}|${day(a.stayDate)}|${a.allotment}|${a.sold}|${a.held}|${a.stopSell}|${a.minStay}|${a.closedToArrival}|${a.closedToDeparture}|${a.releaseDays ?? ''}|${a.inventoryMode}|${a.updatedAt.getTime()}`)
     }
     const fingerprint = createHash('sha256').update(lines.sort().join('\n')).digest('hex')
     return { hotel, plans, refs, rates, avail, pools, poolDayIds, fingerprint, dates: [] }
@@ -185,7 +185,7 @@ export class HotelQuickUpdateService {
       }
       if (row.nextAvail) {
         const n = row.nextAvail
-        const fields = { allotment: n.allotment, stopSell: n.stopSell, minStay: n.minStay, closedToArrival: n.closedToArrival, closedToDeparture: n.closedToDeparture, inventoryMode: n.mode as Prisma.DailyAvailabilityCreateManyInput['inventoryMode'], ...provenance }
+        const fields = { allotment: n.allotment, stopSell: n.stopSell, minStay: n.minStay, closedToArrival: n.closedToArrival, closedToDeparture: n.closedToDeparture, releaseDays: n.releaseDays, inventoryMode: n.mode as Prisma.DailyAvailabilityCreateManyInput['inventoryMode'], ...provenance }
         if (n.create) newAvail.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, sold: 0, held: 0, ...fields })
         else await this.guarded(() => tx.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate } }, data: fields }))
         availabilityRows++

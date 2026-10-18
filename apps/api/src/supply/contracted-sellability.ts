@@ -25,6 +25,8 @@ export interface StayNightSnapshot {
     stopSell: boolean
     minStay: number
     closedToArrival: boolean
+    /** Release override for a check-in on this night (ADR 0067, F-08). Null or absent uses the plan's release. */
+    releaseDays?: number | null
     /** Defaults to ALLOTMENT. FREE_SALE needs no stock, ON_REQUEST is never instant, CLOSED never sells. */
     mode?: InventoryModeName
     /** Provenance. Defaults to ADMIN (never expires unless freshUntil is set). SUPPLIER_* sources without freshUntil are stale. */
@@ -170,7 +172,9 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const minStayNights = snapshot.minStayMode === 'ARRIVAL' ? snapshot.nights.slice(0, 1) : snapshot.nights
   if (nightCount < snapshot.ratePlanMinStay || minStayNights.some((night) => (night.availability?.minStay ?? 1) > nightCount)) reasons.push('MIN_STAY_NOT_MET')
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
-  if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
+  // ADR 0067 F-08: the check-in night may carry its own release (a period rule); otherwise the plan's applies. The plan's release time applies either way.
+  const releaseDays = snapshot.nights[0]?.availability?.releaseDays ?? snapshot.ratePlanReleaseDays
+  if (!releaseAllows(request.now, request.checkIn, releaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
   reasons.push(...leadTimeReasons(snapshot.leadTimeRule, request.now, request.checkIn, snapshot.hotelTimeZone ?? ''))
   if (request.buyer) {

@@ -8,7 +8,7 @@ const DATES = ['2026-10-15', '2026-10-16', '2026-10-17']
 
 type Row = StayPlanInput['availability'][number]
 function row(date: string, patch: Partial<Row> = {}): Row {
-  return { stayDate: at(date), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, closedToDeparture: false, inventoryMode: 'ALLOTMENT', source: 'ADMIN', freshUntil: null, ...patch }
+  return { stayDate: at(date), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, releaseDays: null, closedToDeparture: false, inventoryMode: 'ALLOTMENT', source: 'ADMIN', freshUntil: null, ...patch }
 }
 function plan(o: { rows?: Row[]; pool?: StayPlanInput['inventoryPool']; poolId?: string | null; releaseDays?: number; releaseTime?: string } = {}): StayPlanInput {
   return {
@@ -133,6 +133,16 @@ describe('hotel-local release deadline', () => {
   it('sells one millisecond before the deadline', () => expect(decide(p, { now: new Date('2026-10-12T13:59:59.999Z') }).eligible).toBe(true))
   it('does not sell at the deadline', () => expect(decide(p, { now: new Date('2026-10-12T14:00:00.000Z') }).reasons).toContain('RELEASE_DAYS_NOT_MET'))
   it('does not sell after the deadline', () => expect(decide(p, { now: new Date('2026-10-13T00:00:00.000Z') }).reasons).toContain('RELEASE_DAYS_NOT_MET'))
+  it('the check-in night can carry its own release; other nights and a null override keep the plan release (ADR 0067, F-08)', () => {
+    const at10 = { now: new Date('2026-10-10T10:00:00.000Z') }
+    const peak = plan({ releaseDays: 3, releaseTime: '18:00', rows: rowsWith((x) => (x === '2026-10-15' ? { releaseDays: 7 } : {})) })
+    expect(decide(peak, at10).reasons).toContain('RELEASE_DAYS_NOT_MET')
+    const midStay = plan({ releaseDays: 3, releaseTime: '18:00', rows: rowsWith((x) => (x === '2026-10-16' ? { releaseDays: 30 } : {})) })
+    expect(decide(midStay, at10).eligible).toBe(true)
+    const relaxed = plan({ releaseDays: 3, releaseTime: '18:00', rows: rowsWith((x) => (x === '2026-10-15' ? { releaseDays: 0 } : {})) })
+    expect(decide(relaxed, { now: new Date('2026-10-14T10:00:00.000Z') }).eligible).toBe(true)
+    expect(decide(p, { now: new Date('2026-10-14T10:00:00.000Z') }).reasons).toContain('RELEASE_DAYS_NOT_MET')
+  })
   it('a missing hotel time zone fails closed', () => {
     const snap: ContractedStaySnapshot = { ...buildStaySnapshot(plan(), { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES), hotelTimeZone: '' }
     expect(evaluateContractedStay(snap, base).reasons).toContain('RELEASE_DAYS_NOT_MET')

@@ -110,13 +110,13 @@ export class OfferHoldService {
         contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: lastNight }, settlementCurrency: offer.currency,
           supplier: { tenantId, status: 'ACTIVE' }, supplierHotelMapping: { tenantId, hotelId: offer.canonicalHotelId, supplierHotelId: offer.supplierHotelId, status: 'MAPPED',
             roomMappings: { some: { tenantId, supplierRoomId: offer.supplierRoomId, roomTypeId: offer.canonicalRoomTypeId, status: 'MAPPED' } } } },
-      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, roomType: { select: { hotel: { select: { timeZone: true } } } } } })
+      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, availability: { where: { tenantId, stayDate: checkIn }, select: { releaseDays: true } }, roomType: { select: { hotel: { select: { timeZone: true } } } } } })
       if (!plan) return false
       const nights = stayNightCount(offer.checkIn, offer.checkOut)
-      // Hotel-local release deadline, the same rule the canonical evaluator applies.
+      // Hotel-local release deadline, the same rule the canonical evaluator applies: the check-in night's override, else the plan's (ADR 0067, F-08).
       // ADR 0057: the plan's own sale window, the same rule the canonical evaluator applies. A null side inherits the contract term checked above.
       if ((plan.validFrom && checkIn < plan.validFrom) || (plan.validTo && lastNight > plan.validTo)) return false
-      return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && releaseAllows(today, offer.checkIn, plan.releaseDays, plan.releaseTimeLocal, plan.roomType.hotel.timeZone)
+      return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && releaseAllows(today, offer.checkIn, plan.availability[0]?.releaseDays ?? plan.releaseDays, plan.releaseTimeLocal, plan.roomType.hotel.timeZone)
     })
   }
 

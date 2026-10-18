@@ -17,7 +17,7 @@ export const assessPlanSelect = (tenantId: string, { gte, lte }: { gte: Date; lt
     derivedFromId: true, derivedMode: true, derivedAdjustment: true,
     derivedFrom: { select: derivedParentSelect({ tenantId, stayDate: { gte, lte } }) },
     // One day past the window: the departure row of the last night carries closedToDeparture.
-    availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, inventoryMode: true, source: true, freshUntil: true } },
+    availability: { where: { tenantId, stayDate: { gte, lte: lteDeparture } }, select: { stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, closedToArrival: true, closedToDeparture: true, releaseDays: true, inventoryMode: true, source: true, freshUntil: true } },
     inventoryPool: { select: { name: true, days: { where: { tenantId, stayDate: { gte, lte } }, select: { stayDate: true, capacity: true, sold: true, held: true, source: true, freshUntil: true } } } },
   } as const
 }

@@ -38,7 +38,7 @@ export interface StayPlanInput {
   /** ADR 0067 F-03: the contract child bands, inherited by a plan without CHILD lines of its own. Required for the same reason. */
   contract: { minStayMode: string; childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
   dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
-  availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
+  availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; releaseDays: number | null; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
 
 /** One night of a shared pool's stock. Loaded for the plan's pool only; tenant, hotel and supplier isolation is enforced by the loader and the DB. */
@@ -86,7 +86,7 @@ export function buildStaySnapshot(
       amountBasis: rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null,
       markupBasisPoints: rate?.amountBasis === 'NET' && markupFor ? markupFor(date) : null,
       availability: row ? {
-        allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, closedToArrival: row.closedToArrival,
+        allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, closedToArrival: row.closedToArrival, releaseDays: row.releaseDays,
         mode: toMode(row.inventoryMode),
         source: row.source ?? 'ADMIN',
         freshUntil: isoOrNull(row.freshUntil),

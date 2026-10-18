@@ -827,7 +827,7 @@ export class SupplyService {
       const [rates, availability] = planIds.length && stayDates.length
         ? await Promise.all([
           tx.dailyRate.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, occupancy: true, updatedAt: true } }),
-          tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, updatedAt: true } }),
+          tx.dailyAvailability.findMany({ where: { tenantId, ratePlanId: { in: planIds }, stayDate: { in: stayDates } }, select: { ratePlanId: true, stayDate: true, allotment: true, sold: true, held: true, stopSell: true, minStay: true, releaseDays: true, updatedAt: true } }),
         ])
         : [[], []]
       return { plans, rates, availability }
@@ -837,7 +837,7 @@ export class SupplyService {
     const plansByCode = new Map<string, ImportPlan[]>()
     for (const plan of importPlans) plansByCode.set(plan.code, [...(plansByCode.get(plan.code) ?? []), plan])
     const rateIndex = new Map<string, ExistingRate>(loaded.rates.map(row => [`${row.ratePlanId}|${day(row.stayDate)}|${row.occupancy}`, { updatedAt: row.updatedAt.toISOString() }]))
-    const availabilityIndex = new Map<string, ExistingAvailability>(loaded.availability.map(row => [`${row.ratePlanId}|${day(row.stayDate)}`, { updatedAt: row.updatedAt.toISOString(), allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay }]))
+    const availabilityIndex = new Map<string, ExistingAvailability>(loaded.availability.map(row => [`${row.ratePlanId}|${day(row.stayDate)}`, { updatedAt: row.updatedAt.toISOString(), allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, releaseDays: row.releaseDays }]))
     const built = buildCalendarImport(input.csv, { plansByCode, plansById: new Map(importPlans.map(plan => [plan.id, plan])), rate: (planId, date, occupancy) => rateIndex.get(`${planId}|${date}|${occupancy}`) ?? null, availability: (planId, date) => availabilityIndex.get(`${planId}|${date}`) ?? null })
     const cells = built.rates.length + built.availability.length
     const edit = cells > 0 && built.fatal.length === 0 ? { ...(built.rates.length ? { rates: built.rates } : {}), ...(built.availability.length ? { availability: built.availability } : {}) } : null
@@ -892,7 +892,7 @@ export class SupplyService {
         }
         const changes = [
           ...rateChanges.map(({ row, before }) => ({ kind: 'rate', ratePlanId: row.ratePlanId, stayDate: row.stayDate.toISOString().slice(0, 10), before: before ? { amountMinor: before.amountMinor.toString(), amountBasis: before.amountBasis, currency: before.currency } : null, after: { amountMinor: row.amountMinor.toString(), amountBasis: row.amountBasis, currency: row.currency } })),
-          ...availabilityChanges.map(({ row, before }) => ({ kind: 'availability', ratePlanId: row.ratePlanId, stayDate: row.stayDate.toISOString().slice(0, 10), before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay } : null, after: { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1 } })),
+          ...availabilityChanges.map(({ row, before }) => ({ kind: 'availability', ratePlanId: row.ratePlanId, stayDate: row.stayDate.toISOString().slice(0, 10), before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay, releaseDays: before.releaseDays } : null, after: { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1, releaseDays: row.releaseDays === undefined ? before?.releaseDays ?? null : row.releaseDays } })),
         ]
         const savedRates = []
         const savedAvailability = []
@@ -904,10 +904,10 @@ export class SupplyService {
             await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.daily_rate.updated', entityType: 'daily_rate', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { amountMinor: before.amountMinor.toString(), amountBasis: before.amountBasis } : null, after: { amountMinor: row.amountMinor.toString(), amountBasis: row.amountBasis } } } })
           }
           for (const { row, before } of availabilityChanges) {
-            const data = { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1 }
+            const data = { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1, releaseDays: row.releaseDays === undefined ? before?.releaseDays ?? null : row.releaseDays }
             const saved = await tx.dailyAvailability.upsert({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate } }, create: { tenantId, ratePlanId: row.ratePlanId, stayDate: row.stayDate, ...data }, update: { ...data, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
             savedAvailability.push(saved)
-            await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.availability.updated', entityType: 'daily_availability', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay } : null, after: data } } })
+            await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.availability.updated', entityType: 'daily_availability', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay, releaseDays: before.releaseDays } : null, after: data } } })
           }
         }
         return { atomic: true, preview, affectedCells: changes.length, changes, rates: savedRates, availability: savedAvailability }

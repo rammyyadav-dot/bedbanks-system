@@ -184,7 +184,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       await prisma.supplier.update({ where: { id: ids.supplier }, data: { status: 'ACTIVE' } })
       await prisma.contract.update({ where: { id: ids.contract }, data: { status: 'ACTIVE', validTo: new Date(`${iso(365)}T00:00:00.000Z`) } })
       await prisma.ratePlan.update({ where: { id: ids.ratePlan }, data: { status: 'ACTIVE', minStay: 1, maxStay: null, releaseDays: 0 } })
-      await prisma.dailyAvailability.updateMany({ where: { ratePlanId: ids.ratePlan }, data: { allotment: 5, stopSell: false, minStay: 1 } })
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId: ids.ratePlan }, data: { allotment: 5, stopSell: false, minStay: 1, releaseDays: null } })
       await prisma.supplierRoomMapping.update({ where: { id: ids.roomMapping }, data: { status: 'MAPPED' } })
       await prisma.supplierHotelMapping.update({ where: { id: ids.hotelMapping }, data: { status: 'MAPPED' } })
     }
@@ -268,6 +268,13 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       expect((await sellable({ checkInDate: start, nights: 3 })).reasons).toContain('MIN_STAY_NOT_MET')
       await restore()
       await prisma.ratePlan.update({ where: { id: ids.ratePlan }, data: { releaseDays: 30 } })
+      expect((await sellable({ checkInDate: start, nights: 2 })).reasons).toContain('RELEASE_DAYS_NOT_MET')
+      await restore()
+      // ADR 0067 F-08: a period release on the check-in night overrides the plan's; a mid-stay night's override does not apply.
+      const night = (offset: number) => new Date(new Date(`${start}T00:00:00.000Z`).getTime() + offset * 86_400_000)
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId: ids.ratePlan, stayDate: night(1) }, data: { releaseDays: 30 } })
+      expect((await sellable({ checkInDate: start, nights: 2 })).eligible).toBe(true)
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId: ids.ratePlan, stayDate: night(0) }, data: { releaseDays: 30 } })
       expect((await sellable({ checkInDate: start, nights: 2 })).reasons).toContain('RELEASE_DAYS_NOT_MET')
       await restore()
       await api(operator).post('/supply/sellability', { ratePlanId: ids.ratePlan, stayDate: start, occupancy: 2, nights: 2 }).expect(400)

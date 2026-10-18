@@ -166,6 +166,19 @@ describe('Calendar CSV import (ADR 0057, S7)', () => {
     })
   })
 
+  it('imports a period release per night, then clears it back to the plan release (ADR 0067, F-08)', async () => {
+    const csv = ['plan_code,date,allotment,release_days', `${planCode},${d(50)},4,14`, `${planCode},${d(51)},4,`].join('\n')
+    const preview = (await importCsv(operator, csv).then((x) => expectStatus(x, 201))).body.data
+    expect(preview.edit.availability.map((c: { releaseDays: number | null }) => c.releaseDays)).toEqual([14, null])
+    await api(operator).post('/supply/calendar/apply', preview.edit).then((x) => expectStatus(x, 201))
+    const night = () => prisma.dailyAvailability.findUniqueOrThrow({ where: { ratePlanId_stayDate: { ratePlanId: planId, stayDate: new Date(d(50)) } } })
+    expect((await night()).releaseDays).toBe(14)
+    const cleared = (await importCsv(operator, ['plan_code,date,release_days', `${planCode},${d(50)},plan`].join('\n')).then((x) => expectStatus(x, 201))).body.data
+    expect(cleared.preview.changes[0]).toMatchObject({ before: { releaseDays: 14 }, after: { releaseDays: null } })
+    await api(operator).post('/supply/calendar/apply', cleared.edit).then((x) => expectStatus(x, 201))
+    expect((await night()).releaseDays).toBeNull()
+  })
+
   describe('row-level errors and the error file', () => {
     it('keeps the good rows, reports each bad row with its line and reason, and applies only what was accepted', async () => {
       const before = await rateCount(planId)

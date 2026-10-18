@@ -34,12 +34,18 @@ export function rateInput(input: Record<string, unknown>) {
   if (input.amountBasis !== 'NET' && input.amountBasis !== 'SELL') throw new BadRequestException('Invalid rate basis')
   return { ratePlanId: id(input.ratePlanId), stayDate: calendarDate(input.stayDate), occupancy: integer(input.occupancy, 'occupancy', 1), amountMinor, amountBasis: input.amountBasis as 'NET' | 'SELL', currency: enabledCurrency(input.currency), expectedUpdatedAt: expected(input.expectedUpdatedAt) }
 }
+/** ADR 0067 F-08: the night's release override. Undefined keeps the stored value, null clears it (the plan's release applies). */
+function releaseOverride(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) return value
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 365) throw new BadRequestException('Release days must be a whole number from 0 to 365, or null to use the plan release')
+  return value as number
+}
 export function availabilityInput(input: Record<string, unknown>) {
   // Stock consumption belongs to holds/bookings, never an Admin price edit.
   if (input.sold !== undefined && input.sold !== 0) throw new BadRequestException('Sold inventory cannot be authored')
   if (input.held !== undefined) throw new BadRequestException('Held inventory cannot be authored')
   if (input.stopSell !== undefined && typeof input.stopSell !== 'boolean') throw new BadRequestException('Invalid stop sell')
-  return { ratePlanId: id(input.ratePlanId), stayDate: calendarDate(input.stayDate), allotment: integer(input.allotment, 'allotment', 0), stopSell: input.stopSell as boolean | undefined, minStay: input.minStay === undefined ? undefined : integer(input.minStay, 'minimum stay', 1), expectedUpdatedAt: expected(input.expectedUpdatedAt) }
+  return { ratePlanId: id(input.ratePlanId), stayDate: calendarDate(input.stayDate), allotment: integer(input.allotment, 'allotment', 0), stopSell: input.stopSell as boolean | undefined, minStay: input.minStay === undefined ? undefined : integer(input.minStay, 'minimum stay', 1), releaseDays: releaseOverride(input.releaseDays), expectedUpdatedAt: expected(input.expectedUpdatedAt) }
 }
 export function inputRows(value: unknown, kind: string): Record<string, unknown>[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 366 || value.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new BadRequestException(`Provide 1 to 366 ${kind} rows`)

@@ -17,7 +17,7 @@ function plan(o: PlanOpts = {}): AssessPlan {
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
     contract: { cancellationPolicies: [], leadTimeRules: [], minStayMode: 'STAY_THROUGH', childPolicies: [], id: `c-${id}`, code: `C-${id}`, status: 'ACTIVE', validFrom: at('2030-01-01'), validTo: at('2031-01-01'), settlementCurrency: 'AED', supplierId, supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: 'ACTIVE', displayName: `Supplier ${supplierId}` }, nationalities: o.nationalities, salesMarkets: o.salesMarkets },
     dailyRates: o.rate === false ? [] : dates.map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis, occupancy: o.occupancy ?? 2 })),
-    availability: o.availability === false ? [] : dates.map((d) => ({ stayDate: at(d), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, inventoryMode: o.mode })),
+    availability: o.availability === false ? [] : dates.map((d) => ({ stayDate: at(d), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, releaseDays: null, inventoryMode: o.mode })),
   }
 }
 const assess = (o: { plans?: AssessPlan[]; mappingStatus?: string; stars?: number | null; content?: string } = {}): AssessHotelInput => ({

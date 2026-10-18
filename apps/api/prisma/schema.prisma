@@ -1918,7 +1918,7 @@ model RatePlan {
   maxStay           Int?           @map("max_stay")
   releaseDays       Int            @default(0) @map("release_days")
   /// Hotel-local time of day (HH:MM) at which the release deadline falls, `releaseDays` before the check-in date (ADR 0030).
-  releaseTimeLocal  String         @default("00:00") @map("release_time_local") @db.Char(5)
+  releaseTimeLocal  String         @default("18:00") @map("release_time_local") @db.Char(5)
   /// Optional sale window of this plan (ADR 0057). Null inherits the contract term on that side. A stay must fit inside both; the window never extends the contract.
   validFrom         DateTime?      @map("valid_from") @db.Date
   validTo           DateTime?      @map("valid_to") @db.Date
@@ -2057,6 +2057,8 @@ model DailyAvailability {
   minStay            Int      @default(1) @map("min_stay")
   closedToArrival    Boolean  @default(false) @map("closed_to_arrival")
   closedToDeparture  Boolean  @default(false) @map("closed_to_departure")
+  /// Release for a check-in on this night, in days (ADR 0067, F-08). Null uses the plan's release. The plan's release time applies.
+  releaseDays        Int?     @map("release_days")
   /// ALLOTMENT uses the plan row's counters, or the pool day when the plan belongs to a pool. FREE_SALE needs no stock. ON_REQUEST is never instant. CLOSED is never sold.
   inventoryMode      InventoryMode @default(ALLOTMENT) @map("inventory_mode")
   source             InventorySource @default(ADMIN)

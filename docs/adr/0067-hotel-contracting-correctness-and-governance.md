@@ -102,3 +102,14 @@ An unusable hotel zone fails closed for whichever side is set. Because Agent sea
 - The shared stay evaluator takes `minStayMode` as a required snapshot field, so every loader (Agent search, recheck and hold, the inspector, readiness, certification) must load it. In ARRIVAL mode only the check-in night's minimum stay applies; the plan's own minimum stay always applies.
 
 **Not built.** Commission is recorded, not yet used: sell prices for commissionable contracts still come from the plan's rates and markup rules (Phase 3, F-11). The renewal flag is shown, not sent: no reminder email or task is created. The owner is entered as a user id; there is no member picker yet.
+
+## F-08: Release per period
+
+**Problem.** Release was one number per rate plan. Hotel contracts set a longer release over peak periods (for example 21 days over New Year, 3 days otherwise), which could only be modelled by cloning the plan per period. New plans released at 00:00 hotel time, while most contracts say 18:00.
+
+**Decision.**
+- `DailyAvailability.release_days` (0-365, null by default) is the release for a check-in on that night. The shared evaluator reads the check-in night's value and falls back to the plan's; a mid-stay night's value is ignored. The plan's release time applies either way. The hold double-check reads the same override, so Agent search, recheck and hold agree.
+- Quick Update sets it (`restrictions.releaseDays`, null clears) with a preview line per night. The calendar import takes a `release_days` column (a number, or `plan` to clear), and the calendar edit and apply routes accept `releaseDays` with before and after in the audit. The hotel calendar shows each night's release, or "Plan".
+- New rate plans default to an 18:00 release time. Existing plans keep their stored time.
+
+Migration `202611200005_release_per_night` adds the nullable column with a range check and changes the default. No stored behaviour changes.

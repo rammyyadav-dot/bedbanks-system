@@ -497,7 +497,7 @@ export class OperationsHotelsService {
             ...poolCells(plan, date),
             source: row?.source ?? null, freshUntil: iso(row?.freshUntil), stale: row ? !rowIsFresh(row.source ?? 'ADMIN', row.freshUntil ? row.freshUntil.toISOString() : null, this.clock()) : false,
             stopSell: row ? row.stopSell : null, closedToArrival: row ? row.closedToArrival : null, minStay: row ? row.minStay : null, sellable: reasons.length === 0, reasons,
-            closedToDeparture: row ? row.closedToDeparture ?? false : null,
+            closedToDeparture: row ? row.closedToDeparture ?? false : null, releaseDays: row?.releaseDays ?? null,
             rateSourceUpdatedAt: iso(rateExtra.get(`${plan.id}:${date}:${plan.occupancy}`)?.sourceUpdatedAt), availabilitySourceUpdatedAt: iso(availExtra.get(`${plan.id}:${date}`)?.sourceUpdatedAt),
           }
         })

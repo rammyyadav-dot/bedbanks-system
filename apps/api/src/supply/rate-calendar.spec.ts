@@ -52,7 +52,7 @@ describe('calendar transaction orchestration', () => {
   it('preserves stored restrictions and never updates sold or held', async () => {
     const { service, tx, prisma } = setup()
     await service.editCalendar('tenant', 'user', { availability: [availability()] })
-    expect(tx.dailyAvailability.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { allotment: 10, stopSell: true, minStay: 3, updatedAt: expect.any(Date) } }))
+    expect(tx.dailyAvailability.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { allotment: 10, stopSell: true, minStay: 3, releaseDays: null, updatedAt: expect.any(Date) } }))
     expect(prisma.withTenant).toHaveBeenLastCalledWith('tenant', expect.any(Function), { isolationLevel: 'Serializable' })
     expect(tx.auditEvent.create).toHaveBeenCalledTimes(1)
   })

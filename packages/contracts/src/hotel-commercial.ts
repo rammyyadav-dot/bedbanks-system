@@ -233,6 +233,8 @@ export interface CalendarCell {
   stopSell: boolean | null; closedToArrival: boolean | null; minStay: number | null
   /** Applied to the DEPARTURE date: a stay may not end on a night where this is set. A missing row is not closed. */
   closedToDeparture: boolean | null
+  /** Release for a check-in on this night when it overrides the plan's (ADR 0067, F-08); null uses the plan's release. */
+  releaseDays: number | null
   /** When the supplier last updated this night's rate and availability, if the source recorded it. A missing value means unknown, not fresh. */
   rateSourceUpdatedAt: string | null; availabilitySourceUpdatedAt: string | null
   sellable: boolean

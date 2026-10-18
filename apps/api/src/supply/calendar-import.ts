@@ -14,7 +14,7 @@ export const MAX_IMPORT_LINES = 2_000
 export const MAX_IMPORT_CELLS = 366
 export const MAX_REPORTED_ERRORS = 200
 
-const COLUMNS = ['plan_code', 'plan_id', 'date', 'occupancy', 'amount', 'basis', 'currency', 'allotment', 'stop_sell', 'min_stay'] as const
+const COLUMNS = ['plan_code', 'plan_id', 'date', 'occupancy', 'amount', 'basis', 'currency', 'allotment', 'stop_sell', 'min_stay', 'release_days'] as const
 type Column = (typeof COLUMNS)[number]
 
 export interface ImportPlan {
@@ -25,7 +25,7 @@ export interface ImportPlan {
   contractValidFrom: string; contractValidTo: string
 }
 export interface ExistingRate { updatedAt: string }
-export interface ExistingAvailability { updatedAt: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number }
+export interface ExistingAvailability { updatedAt: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; releaseDays?: number | null }
 export interface ImportLookups {
   plansByCode: ReadonlyMap<string, ImportPlan[]>
   plansById: ReadonlyMap<string, ImportPlan>
@@ -34,7 +34,7 @@ export interface ImportLookups {
 }
 export interface ImportError { line: number; code: string; message: string; field?: Column }
 export interface RateCell { ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string; expectedUpdatedAt: string | null }
-export interface AvailabilityCell { ratePlanId: string; stayDate: string; allotment: number; stopSell: boolean; minStay: number; expectedUpdatedAt: string | null }
+export interface AvailabilityCell { ratePlanId: string; stayDate: string; allotment: number; stopSell: boolean; minStay: number; releaseDays: number | null; expectedUpdatedAt: string | null }
 export interface ImportResult {
   ok: boolean
   /** File-level refusals (bad header, too large, too many cells). When set, no cell is produced. */
@@ -80,6 +80,8 @@ interface ParsedRow {
   line: number; plan: ImportPlan; date: string; occupancy: number
   rate: { amountMinor: bigint; basis: 'NET' | 'SELL'; currency: string } | null
   allotment: number | null; stopSell: boolean | null; minStay: number | null
+  /** undefined: column empty (keep). null: "plan" (clear the override). */
+  releaseDays: number | null | undefined
 }
 
 export function buildCalendarImport(csv: string, lookups: ImportLookups): ImportResult {
@@ -103,7 +105,7 @@ export function buildCalendarImport(csv: string, lookups: ImportLookups): Import
   })
   if (!seenColumns.has('date')) fatal.push({ line: 1, code: 'MISSING_COLUMN', message: 'A "date" column is required.', field: 'date' })
   if (!seenColumns.has('plan_code') && !seenColumns.has('plan_id')) fatal.push({ line: 1, code: 'MISSING_COLUMN', message: 'A "plan_code" or "plan_id" column is required.' })
-  if (!['amount', 'allotment', 'stop_sell', 'min_stay'].some((c) => seenColumns.has(c))) fatal.push({ line: 1, code: 'MISSING_COLUMN', message: 'Nothing to change: add an "amount", "allotment", "stop_sell" or "min_stay" column.' })
+  if (!['amount', 'allotment', 'stop_sell', 'min_stay', 'release_days'].some((c) => seenColumns.has(c))) fatal.push({ line: 1, code: 'MISSING_COLUMN', message: 'Nothing to change: add an "amount", "allotment", "stop_sell", "min_stay" or "release_days" column.' })
   if (seenColumns.has('amount') && !seenColumns.has('basis')) fatal.push({ line: 1, code: 'MISSING_COLUMN', message: 'A "basis" column (NET or SELL) is required with "amount": the basis is never assumed.', field: 'basis' })
   if (fatal.length) return empty(fatal, parsed.rows.length)
 
@@ -161,28 +163,35 @@ export function buildCalendarImport(csv: string, lookups: ImportLookups): Import
     const minRaw = col(row, 'min_stay')
     let minStay: number | null = null
     if (minRaw !== '') { if (!INT.test(minRaw) || Number(minRaw) < 1) return fail(line, 'MIN_STAY_INVALID', 'min_stay must be a whole number of 1 or more.', 'min_stay'); minStay = Number(minRaw) }
-    if (!rate && allotment === null && stopSell === null && minStay === null) return fail(line, 'ROW_EMPTY', 'The row changes nothing: give an amount, allotment, stop_sell or min_stay.')
+    // ADR 0067 F-08: release for a check-in on this night. "plan" clears the override so the plan's release applies.
+    const relRaw = col(row, 'release_days')
+    let releaseDays: number | null | undefined
+    if (relRaw.toLowerCase() === 'plan') releaseDays = null
+    else if (relRaw !== '') { if (!INT.test(relRaw) || Number(relRaw) > 365) return fail(line, 'RELEASE_DAYS_INVALID', 'release_days must be a whole number from 0 to 365, or "plan" to use the plan release.', 'release_days'); releaseDays = Number(relRaw) }
+    const touchesAvail = allotment !== null || stopSell !== null || minStay !== null || releaseDays !== undefined
+    if (!rate && !touchesAvail) return fail(line, 'ROW_EMPTY', 'The row changes nothing: give an amount, allotment, stop_sell, min_stay or release_days.')
 
     // Availability rules that the apply step would also refuse, reported per row instead of failing the whole file.
-    if (allotment !== null || stopSell !== null || minStay !== null) {
+    if (touchesAvail) {
       const existing = lookups.availability(plan!.id, date)
       const effectiveAllotment = allotment ?? existing?.allotment ?? null
       if (effectiveAllotment === null) return fail(line, 'ALLOTMENT_REQUIRED', 'A new availability cell needs an allotment.', 'allotment')
       if (existing && effectiveAllotment < existing.sold + existing.held) return fail(line, 'ALLOTMENT_BELOW_COMMITTED', `Allotment ${effectiveAllotment} is below the ${existing.sold + existing.held} rooms already sold or held.`, 'allotment')
       if (plan!.inventoryPoolId && (!existing || effectiveAllotment !== existing.allotment)) return fail(line, 'POOLED_STOCK', 'This plan draws from a shared inventory pool: change stock in the pool capacity workflow. Restrictions (stop_sell, min_stay) are allowed.', 'allotment')
     }
-    rows.push({ line, plan: plan!, date, occupancy, rate, allotment, stopSell, minStay })
+    rows.push({ line, plan: plan!, date, occupancy, rate, allotment, stopSell, minStay, releaseDays })
   })
 
   // ---- duplicates: identical repeats collapse to one with a warning; conflicting repeats reject every occurrence -------------------------------
   const rateKey = (r: ParsedRow) => `${r.plan.id}|${r.date}|${r.occupancy}`
   const availKey = (r: ParsedRow) => `${r.plan.id}|${r.date}`
+  const availTouched = (r: ParsedRow) => r.allotment !== null || r.stopSell !== null || r.minStay !== null || r.releaseDays !== undefined
   const groups = new Map<string, ParsedRow[]>()
-  for (const r of rows) for (const key of [r.rate ? `R|${rateKey(r)}` : null, (r.allotment !== null || r.stopSell !== null || r.minStay !== null) ? `A|${availKey(r)}` : null]) if (key) groups.set(key, [...(groups.get(key) ?? []), r])
+  for (const r of rows) for (const key of [r.rate ? `R|${rateKey(r)}` : null, availTouched(r) ? `A|${availKey(r)}` : null]) if (key) groups.set(key, [...(groups.get(key) ?? []), r])
   let identicalIgnored = 0
   for (const [key, group] of groups) {
     if (group.length < 2) continue
-    const signature = (r: ParsedRow) => key.startsWith('R|') ? `${r.rate!.amountMinor}|${r.rate!.basis}|${r.rate!.currency}` : `${r.allotment}|${r.stopSell}|${r.minStay}`
+    const signature = (r: ParsedRow) => key.startsWith('R|') ? `${r.rate!.amountMinor}|${r.rate!.basis}|${r.rate!.currency}` : `${r.allotment}|${r.stopSell}|${r.minStay}|${r.releaseDays}`
     if (new Set(group.map(signature)).size === 1) {
       for (const dup of group.slice(1)) { warnings.push({ line: dup.line, code: 'DUPLICATE_IDENTICAL', message: 'Repeats an earlier row with identical values; ignored.' }); identicalIgnored += 1 }
     } else for (const r of group) fail(r.line, 'DUPLICATE_CONFLICT', `Line ${r.line} repeats ${key.startsWith('R|') ? 'the same rate cell' : 'the same availability cell'} with different values. Every occurrence is rejected; fix the file.`)
@@ -196,10 +205,10 @@ export function buildCalendarImport(csv: string, lookups: ImportLookups): Import
       seenRate.add(rateKey(r))
       rates.push({ ratePlanId: r.plan.id, stayDate: r.date, occupancy: r.occupancy, amountMinor: r.rate.amountMinor.toString(), amountBasis: r.rate.basis, currency: r.rate.currency, expectedUpdatedAt: lookups.rate(r.plan.id, r.date, r.occupancy)?.updatedAt ?? null })
     }
-    if ((r.allotment !== null || r.stopSell !== null || r.minStay !== null) && !seenAvail.has(availKey(r))) {
+    if (availTouched(r) && !seenAvail.has(availKey(r))) {
       seenAvail.add(availKey(r))
       const existing = lookups.availability(r.plan.id, r.date)
-      availability.push({ ratePlanId: r.plan.id, stayDate: r.date, allotment: (r.allotment ?? existing?.allotment)!, stopSell: r.stopSell ?? existing?.stopSell ?? false, minStay: r.minStay ?? existing?.minStay ?? 1, expectedUpdatedAt: existing?.updatedAt ?? null })
+      availability.push({ ratePlanId: r.plan.id, stayDate: r.date, allotment: (r.allotment ?? existing?.allotment)!, stopSell: r.stopSell ?? existing?.stopSell ?? false, minStay: r.minStay ?? existing?.minStay ?? 1, releaseDays: r.releaseDays === undefined ? existing?.releaseDays ?? null : r.releaseDays, expectedUpdatedAt: existing?.updatedAt ?? null })
     }
   }
   const cells = rates.length + availability.length
