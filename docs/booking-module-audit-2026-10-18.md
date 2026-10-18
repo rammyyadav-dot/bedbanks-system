@@ -42,7 +42,7 @@ The module is **not production-activatable** and must not be described as such, 
 | F4 | Medium | Approved amendments change status only; dates, room and occupancy are not re-priced or applied. Do not present amendments as a capability. | Open |
 | F5 | Medium | Confirmed bookings never moved to Checked out automatically, and nothing closes terminal bookings after the dispute window (window length is still an open owner question). | Checked-out job built (Phase 6E, branch `claude/booking-scheduled-jobs`); close-after-dispute still open |
 | F6 | Medium | No production supplier adapter: only the mock (named tenants) and the XML connector kit. Unknown external outcomes must stay "pending investigation". | Open (release gate) |
-| F7 | Low | The list shows reconciliation attention tags but not the SLA "Urgent" badge the reference screen shows; Urgent is computed only in the operations queue. | Open |
+| F7 | Low | The list showed reconciliation attention tags but not the SLA "Urgent" badge the reference screen shows. | Built (Phase 6F, branch `claude/booking-urgent-badge`): the badge is the queue's own verdict; no "Only urgent" filter |
 | F8 | Low | One SLA policy per deployment; the spec wants per-tenant-contract overrides. | Open |
 | F9 | Info | The strict API role has no grants on booking tables by design; the booking role (`fbeds_booking_ops`) must be provisioned or the screens correctly answer 503. | By design |
 

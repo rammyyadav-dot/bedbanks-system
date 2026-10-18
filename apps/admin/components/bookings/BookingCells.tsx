@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { BookingListRow } from '@bedbanks/contracts'
 import { AttentionTags, Money, Tag, bookingTone } from '@/components/ops/ops-ui'
-import { BOOKING_COLUMN_LABEL, deadlineUrgency, formatInZone, statusLabel, type BookingColumnId } from '@/lib/booking-ui'
+import { BOOKING_COLUMN_LABEL, deadlineUrgency, formatInZone, statusLabel, urgencyBadgeView, type BookingColumnId } from '@/lib/booking-ui'
 
 const small: React.CSSProperties = { display: 'block', color: '#3f565c', fontSize: 10, marginTop: 2 }
 const dot = (tone: 'ok' | 'warn' | 'bad' | 'neutral') => ({ ok: '#22a58a', warn: '#d9962b', bad: '#c0443f', neutral: '#8aa0a6' }[tone])
@@ -16,6 +16,7 @@ export function BookingCell({ column, row, now, attentionAvailable }: { column: 
         <>
           <Link href={`/bookings/${row.id}`} style={{ fontWeight: 600 }}>{row.reference}</Link>
           <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
+            {(() => { const u = urgencyBadgeView(row.urgency); return u ? <span data-testid="urgent-badge" title={u.title}><Tag tone="bad">{u.text}</Tag></span> : null })()}
             {row.isRefundable === false && <Tag tone="warn">NR</Tag>}
             {row.amended && <Tag tone="neutral">AMENDED</Tag>}
             {row.closedAt && <Tag tone="neutral">CLOSED</Tag>}

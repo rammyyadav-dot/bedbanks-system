@@ -163,6 +163,7 @@ function BookingTable({ data, columns, now, selectable, selection, onSelect, onS
         <label style={{ fontSize: 11 }}>Rows per page <select value={data.pageSize} onChange={(e) => onSize(Number(e.target.value))}>{BOOKING_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
         <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={onPage} />
       </div>
+      {data.urgencyAvailable === false && <p data-testid="urgency-unavailable" style={{ fontSize: 11, color: '#3f565c', padding: '0 14px 12px', margin: 0 }}>Urgent badges are not shown: the operations queue could not be evaluated just now (for example an invalid SLA policy). That is not the same as "nothing is urgent".</p>}
       {!data.attentionAvailable && <p style={{ fontSize: 11, color: '#3f565c', padding: '0 14px 12px', margin: 0 }}>Reconciliation flags are not shown: the API database role cannot read the transaction records they come from. That is not the same as "no flags".</p>}
     </div>
   )

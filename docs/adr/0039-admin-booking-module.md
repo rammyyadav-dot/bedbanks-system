@@ -225,3 +225,13 @@ Unknown refundability is treated as non-refundable. Owner membership implies non
 
 **Not built: close after the dispute window.** The spec leaves the window length as an open owner question, and "Closed" today exists only as the operator's Failed lock. No default is invented. When the owner sets the window, closing is a second pass in the same job through `transitionBooking`.
 
+## Phase 6F decisions: the Urgent badge on list rows (2026-10-18)
+
+**One ruleset.** The spec says Urgent "is computed by rules, never set by hand". The operations queue (Phase 4) already is that ruleset, so the list does not get a second one: `BookingOpsQueueService.urgencyFor` loads the queue's own facts for the page's bookings (`loadOpsFacts`, a fixed number of queries, never one per booking) and runs `evaluateBookingOps` with the deployment's SLA policy and the request clock. The badge is `urgencyBadge(...)`: a case that is **Urgent or Critical**, nothing else (High and Normal cases carry no badge). It clears itself the moment the rule stops being true, because nothing is stored.
+
+**Who sees it.** Only callers for whom the queue is visible (`access.opsQueue`: operator, formal `booking.ops.view`, queue switched on). Everyone else gets no `urgency` field and no `urgencyAvailable` marker at all, not `false`.
+
+**Unknown is not "not urgent".** If the queue cannot be evaluated (an invalid `BOOKING_OPS_SLA_POLICY`, unreadable tables) the list still answers 200, the failure class is logged, `urgencyAvailable` is `false`, rows carry no `urgency`, and the screen says the badges are unavailable. A failing evaluation never turns into an empty badge column.
+
+**Scope.** The same `BookingListRow.urgency` is shown on the list's Booking # cell and on Kanban cards (both read the list API). The export never carries it. An "Only urgent" filter is **not** built: it would need the queue evaluation over every matching booking rather than a page; the Operations queue's Urgent filters already answer that question.
+
