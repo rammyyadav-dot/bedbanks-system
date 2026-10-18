@@ -35,3 +35,13 @@ Verified: `tsc --noEmit` clean, the two destination-resolver suites pass, `pnpm 
 4. **Availability search (F3):** make exact `destinationRef` mandatory for city searches, add a covering index review for `RatePlan`/`Contract` date-range filters, and record search latency percentiles before any "sub-second" claim.
 5. **Amenity clustering:** only if product wants it; needs its own design. Today it does not exist.
 6. **Pool budget:** record `tasks × Σ connection_limit` against Neon `max_connections` per environment in the runbook.
+
+## Update: population (plan item 2, first half)
+Built `pnpm --filter @bedbanks/api ops:reindex-hotel-search` (`mapping/hotel-search-reindex.ts`, `database/reindex-hotel-search.cli.ts`). It is an owner-run operator job, consistent with `runtime-role-contract.ts` ("the runtime only reads the index"), so no runtime role gained write access.
+
+- **Dry run by default**; `--apply` writes. `--tenant=<id>` scopes. Remote targets need `--allow-remote --confirm-database=<name>`; the pooled endpoint is refused.
+- **Idempotent and convergent:** a hotel is stale when it has no row, the row has another `embedding_model`, or `Hotel.updated_at` is newer than the row. Re-running writes only stale hotels. Keyset pagination in 200-hotel batches, one tenant-scoped transaction per batch.
+- **Reports** counts and hotel ids only; hotels with no country code are listed as skipped; exit code 2 if applied does not reconcile.
+- Verified: unit tests (dry run writes nothing, multi-batch apply, invalid skipped), type-check, lint, `check:architecture`, and the stale-selection SQL against PostgreSQL 16 (missing row and old model selected, current row skipped). **Not verified:** the upsert itself and HNSW (needs pgvector; the existing `hotel-search-index.e2e-spec.ts` covers it on a Neon branch).
+
+**Still open:** keeping the index current after hotel edits (needs either scheduled reindex runs or a decision to give a write-capable role the `INSERT/UPDATE` grant on `HotelSearchIndex`, which the migration currently withholds), and wiring `mapping-pipeline` to `retrieveHotelCandidates`. Run the reindex after each deploy until that is decided.
