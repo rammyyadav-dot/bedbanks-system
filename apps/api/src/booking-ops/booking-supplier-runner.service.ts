@@ -1,3 +1,4 @@
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { ConflictException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import { BOOKING_SUPPLIER_MAX_ATTEMPTS, BOOKING_SUPPLIER_RETRY_DELAYS_SECONDS, type BookingAction, type BookingStatus, type BookingSupplierJobKind } from '@bedbanks/contracts'
@@ -30,7 +31,7 @@ export class BookingSupplierRunner implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
   private running = false
 
-  constructor(private readonly db: BookingOpsDatabase, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, @Optional() private readonly env: Record<string, string | undefined> = process.env) {}
+  constructor(private readonly db: BookingOpsDatabase, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, @Optional() private readonly env: Record<string, string | undefined> = process.env, @Optional() private readonly settlement?: CancellationSettlementService) {}
 
   onModuleInit(): void {
     if (this.env.BOOKING_JOB_RUNNER_ENABLED !== 'true') return
@@ -227,6 +228,8 @@ export class BookingSupplierRunner implements OnModuleInit, OnModuleDestroy {
       await this.stop(tx, job, jobStatus, code, at)
       if (!out.replayed) await this.audit(tx, job, f, `booking.${action}`, { from: f.status, to: out.status, jobId: job.id, attempt: job.attempt })
     })
+    // ADR 0069: the supplier confirmed the cancellation, so the agency is credited per the effective penalty, on behalf of the requester.
+    if (action === 'systemCompleteCancellation' && job.requestedByUserId) await this.settlement?.settleQuietly({ tenantId: job.tenantId, userId: job.requestedByUserId, requestId: `job:${job.id}:${job.attempt}`, bookingId: f.id, source: 'supplier_job' })
   }
 
   private async markUnknown(job: Claimed, f: Facts, code: string, at: Date): Promise<void> {

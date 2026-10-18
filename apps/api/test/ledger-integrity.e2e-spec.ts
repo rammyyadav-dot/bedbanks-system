@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { hashPassword } from '../src/auth/utils/password'
+import { eraseLedger } from './ledger-erasure'
 
 jest.setTimeout(120_000)
 
@@ -106,7 +107,7 @@ describe('ledger integrity (PostgreSQL, HTTP, two tenants)', () => {
   afterAll(async () => {
     for (const tenantId of [tenantA, tenantB]) {
       await prisma.cancellation.deleteMany({ where: { booking: { tenantId } } })
-      await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+      await eraseLedger(prisma, { where: { tenantId } })
       await prisma.booking.deleteMany({ where: { tenantId } })
       await prisma.wallet.deleteMany({ where: { tenantId } })
       await prisma.agencyCreditLimit.deleteMany({ where: { tenantId } })
@@ -164,6 +165,20 @@ describe('ledger integrity (PostgreSQL, HTTP, two tenants)', () => {
     const relaxed = (await get('/finance/ledger-integrity?staleMinutes=600', 'reader').expect(200)).body.data
     expect(relaxed.staleReservationMinutes).toBe(600)
     expect(relaxed.counts.byCode.map((c: { code: string }) => c.code)).not.toContain('RESERVATION_STALE')
+  })
+
+  it('F4 the database itself enforces the ledger rules, for the owner too: sign, account tenant and currency, append-only', async () => {
+    const key = () => `${suffix}-guard-${++seq}`
+    const insert = (data: { tenantId: string; walletId: string; type: 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND'; amountMinor: bigint; currency: string }) =>
+      prisma.ledgerEntry.create({ data: { ...data, reference: null, idempotencyKey: key() } })
+    await expect(insert({ tenantId: tenantA, walletId: accountA, type: 'REFUND', amountMinor: -1n, currency: 'AED' })).rejects.toThrow(/LedgerEntry_sign_by_type/)
+    await expect(insert({ tenantId: tenantA, walletId: accountA, type: 'DEBIT', amountMinor: 0n, currency: 'AED' })).rejects.toThrow(/LedgerEntry_sign_by_type/)
+    await expect(insert({ tenantId: tenantA, walletId: accountA, type: 'CREDIT', amountMinor: 1n, currency: 'USD' })).rejects.toThrow(/currency differs/)
+    await expect(insert({ tenantId: tenantA, walletId: accountB, type: 'CREDIT', amountMinor: 1n, currency: 'AED' })).rejects.toThrow(/another tenant/)
+    const row = await prisma.ledgerEntry.findFirstOrThrow({ where: { tenantId: tenantA } })
+    await expect(prisma.ledgerEntry.update({ where: { id: row.id }, data: { amountMinor: row.amountMinor * 2n } })).rejects.toThrow(/append-only/)
+    await expect(prisma.ledgerEntry.delete({ where: { id: row.id } })).rejects.toThrow(/append-only/)
+    expect(await prisma.ledgerEntry.count({ where: { id: row.id } })).toBe(1)
   })
 
   it('F1 the finance dashboard uses the agency credit line: an agency account spending its approved credit is not overdrawn', async () => {

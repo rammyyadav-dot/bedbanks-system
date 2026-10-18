@@ -17,6 +17,7 @@ import { HotelQuickUpdateService } from '../src/hotel-setup/hotel-quick-update.s
 import { moveNight } from '../src/inventory/inventory-counters'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { eraseLedger } from './ledger-erasure'
 
 /**
  * Whole shared-pool lifecycle on PostgreSQL through the real services (no HTTP, no supplier, no payment provider):
@@ -87,7 +88,7 @@ describe('shared pool counter lifecycle (PostgreSQL)', () => {
   })
 
   afterAll(async () => {
-    for (const f of [() => prisma.auditEvent.deleteMany({ where: { tenantId } }), () => prisma.ledgerEntry.deleteMany({ where: { tenantId } }), () => prisma.supplierMutation.deleteMany({ where: { tenantId } }),
+    for (const f of [() => prisma.auditEvent.deleteMany({ where: { tenantId } }), () => eraseLedger(prisma, { where: { tenantId } }), () => prisma.supplierMutation.deleteMany({ where: { tenantId } }),
       () => prisma.cancellation.deleteMany({ where: { booking: { tenantId } } }), () => prisma.booking.deleteMany({ where: { tenantId } }), () => prisma.inventoryHoldNight.deleteMany({ where: { tenantId } }), () => prisma.inventoryHold.deleteMany({ where: { tenantId } }),
       () => prisma.wallet.deleteMany({ where: { tenantId } }), () => removeAgencyBookers(prisma, tenantId), () => prisma.dailyAvailability.deleteMany({ where: { tenantId } }), () => prisma.dailyRate.deleteMany({ where: { tenantId } }), () => prisma.ratePlan.deleteMany({ where: { tenantId } }),
       () => prisma.inventoryPoolDay.deleteMany({ where: { tenantId } }), () => prisma.inventoryPool.deleteMany({ where: { tenantId } }), () => prisma.cancellationPolicy.deleteMany({ where: { contractId } }), () => prisma.contract.deleteMany({ where: { tenantId } }),

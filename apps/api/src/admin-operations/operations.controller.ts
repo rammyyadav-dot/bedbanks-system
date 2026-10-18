@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuard
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
-import { departmentPermissions, operationsPermissions, type BookingAccessView, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
+import { departmentPermissions, operationsPermissions, type BookingAccessView, type CancellationSettlementRequest, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
@@ -14,6 +14,7 @@ import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
 import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
 import { OperationsSupplyService } from './operations-supply.service'
@@ -31,7 +32,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService, private readonly settlement: CancellationSettlementService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -189,6 +190,15 @@ export class OperationsController {
   /** Ledger integrity and sub-ledger reconciliation (ADR 0068). Read-only; posts, corrects and locks nothing. */
   @Get('finance/ledger-integrity') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   ledgerIntegrity(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.integrity.report(tenantId, query) }
+
+  /**
+   * Settles cancelled, charged bookings that have no refund yet (ADR 0069), per their effective penalty. The amounts are fixed by policy or by
+   * a recorded decision, never by this request; `dryRun` lists what would be settled. Idempotent, so it can be run as often as needed.
+   */
+  @Post('finance/cancellation-settlements') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  cancellationSettlements(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Body() body: CancellationSettlementRequest | undefined, @Req() req: Request) {
+    return this.settlement.sweep({ tenantId, userId: identity.user.id, requestId: requestIdOf(req), dryRun: body?.dryRun === true })
+  }
 
   @Get('audit/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   auditSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.auditSummary(tenantId, query) }

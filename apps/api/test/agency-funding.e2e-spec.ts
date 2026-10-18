@@ -5,6 +5,7 @@ import { AgentAuditService } from '../src/agent/audit.service'
 import { FundingService } from '../src/funding/funding.service'
 import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
 import { AgentFinanceService } from '../src/agent/finance.service'
+import { eraseLedger } from './ledger-erasure'
 
 // Launch policy (ADR 0029): AED only.
 process.env.SETTLEMENT_CURRENCIES = 'AED'
@@ -50,7 +51,7 @@ describe('agency funding receipts (ADR 0028 slice 2, PostgreSQL)', () => {
   afterAll(async () => {
     for (const tenantId of tenants) {
       await prisma.fundingReceipt.deleteMany({ where: { tenantId } })
-      await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+      await eraseLedger(prisma, { where: { tenantId } })
       await prisma.wallet.deleteMany({ where: { tenantId } })
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
       await prisma.agencyMember.deleteMany({ where: { tenantId } })

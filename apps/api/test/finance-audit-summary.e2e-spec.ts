@@ -12,6 +12,7 @@ import { PrismaService } from '../src/database/prisma.service'
 import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
 import { OperationsFinanceAuditService } from '../src/admin-operations/operations-finance-audit.service'
+import { eraseLedger } from './ledger-erasure'
 
 jest.setTimeout(120_000)
 
@@ -95,7 +96,7 @@ describe('finance and audit summaries (PostgreSQL, HTTP, two tenants)', () => {
     await app?.close()
     for (const tenantId of [tenantA, tenantB].filter(Boolean)) {
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
-      await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+      await eraseLedger(prisma, { where: { tenantId } })
       await prisma.wallet.deleteMany({ where: { tenantId } })
       await prisma.userRole.deleteMany({ where: { tenantId } })
       await prisma.rolePermission.deleteMany({ where: { role: { tenantId } } })

@@ -1,3 +1,4 @@
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { randomBytes, createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
@@ -21,7 +22,7 @@ const bad = (message: string, code: string) => new BadRequestException({ message
 /** Everything an Admin user can change on a booking (ADR 0039, Phase 2). Each public method is one transaction on the booking role and one audit event. */
 @Injectable()
 export class BookingActionsService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly quoter: BookingPenaltyQuoter) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly quoter: BookingPenaltyQuoter, private readonly settlement: CancellationSettlementService) {}
 
   static idempotencyKey(raw: unknown): string {
     if (typeof raw !== 'string' || !KEY.test(raw)) throw bad('An Idempotency-Key header of 8 to 128 letters, digits or . _ : - is required', 'IDEMPOTENCY_KEY_REQUIRED')
@@ -42,7 +43,7 @@ export class BookingActionsService {
 
     // The penalty is worked out once, when cancellation is requested, outside the write transaction, and stored on that request (fixed from then on).
     const penaltyQuote = action === 'requestCancellation' ? await this.quoter.quote(tenantId, bookingId, now) : undefined
-    return this.db.withTenantWrite(tenantId, async (tx) => {
+    const written = await this.db.withTenantWrite(tenantId, async (tx) => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, agencyId: true, isRefundable: true } })
       // An agency-scoped caller never learns another agency's booking exists.
       if (!booking || (level === 'AGENCY' && booking.agencyId !== access.agencyId)) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
@@ -62,6 +63,9 @@ export class BookingActionsService {
       }
       return outcome
     })
+    // ADR 0069: a cancelled booking's agency is credited per the effective penalty, on the API connection (this role has no ledger access).
+    if (written.status === 'CANCELLED') await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId: written.bookingId, source: `booking_action:${action}` })
+    return written
   }
 
   /** Add or correct the supplier / hotel / agent references. The status is untouched. */

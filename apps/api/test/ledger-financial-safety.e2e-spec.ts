@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { LedgerService } from '../src/agent/ledger.service'
 import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
+import { eraseLedger } from './ledger-erasure'
 
 describe('ledger financial safety on PostgreSQL', () => {
   const prisma = new PrismaService()
@@ -27,7 +28,7 @@ describe('ledger financial safety on PostgreSQL', () => {
   })
 
   afterAll(async () => {
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
+    await eraseLedger(prisma, { where: { tenantId: { in: [tenantA, tenantB] } } })
     await prisma.auditEvent.deleteMany({ where: { userId: userA } })
     await prisma.wallet.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await prisma.user.delete({ where: { id: userA } })
@@ -88,7 +89,7 @@ describe('ledger financial safety on PostgreSQL', () => {
 
 
   it('serializes 25 final-credit authorizations without overspending the wallet', async () => {
-    await prisma.ledgerEntry.deleteMany({ where: { walletId: walletA } })
+    await eraseLedger(prisma, { where: { walletId: walletA } })
     const wallet = await prisma.wallet.update({
       where: { id: walletA },
       data: { creditLimit: 10000n, cachedBalance: 0n },
@@ -137,7 +138,7 @@ describe('ledger financial safety on PostgreSQL', () => {
       expect((aggregate._sum.amountMinor ?? 0n) + wallet.creditLimit).toBe(4000n)
     } finally {
       await prisma.auditEvent.deleteMany({ where: { tenantId: tenantA, entityType: 'booking', entityId: { startsWith: 'booking-' } } })
-      await prisma.ledgerEntry.deleteMany({ where: { walletId: wallet.id } })
+      await eraseLedger(prisma, { where: { walletId: wallet.id } })
       await prisma.wallet.update({ where: { id: wallet.id }, data: { creditLimit: 0n, cachedBalance: 0n } })
     }
   })

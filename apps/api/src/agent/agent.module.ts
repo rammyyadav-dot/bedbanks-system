@@ -12,6 +12,7 @@ import { SUPPLIER_ADAPTER } from './supplier.port'
 import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { HoldExpirySweeper } from './hold-expiry-sweeper.service'
+import { CancellationSettlementService } from './cancellation-settlement.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
 import { AgentHotelImageService } from './agent-hotel-image.service'
@@ -48,6 +49,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     AgentHotelImageService,
     BookingPersistenceService,
     BookingFinancialAuthorizationService,
+    CancellationSettlementService,
     SupplierPrebookOrchestrationService,
     PrebookCompensationRecoveryService,
     BookingReconciliationService,
@@ -68,6 +70,6 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     },
     { provide: SUPPLIER_ADAPTER, useClass: ContractedInventoryAdapter },
   ],
-  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService],
+  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService, CancellationSettlementService],
 })
 export class AgentModule {}

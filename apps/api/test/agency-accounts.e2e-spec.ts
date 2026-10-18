@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentFinanceService } from '../src/agent/finance.service'
 import { OperationsTransactionsService } from '../src/admin-operations/operations-transactions.service'
+import { eraseLedger } from './ledger-erasure'
 
 // Launch policy (ADR 0029): only AED is enabled, so a not-opened agency lists exactly one AED position.
 process.env.SETTLEMENT_CURRENCIES = 'AED'
@@ -39,7 +40,7 @@ describe('agency accounts (ADR 0028 slice 1, PostgreSQL)', () => {
 
   afterAll(async () => {
     for (const tenantId of created) {
-      await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+      await eraseLedger(prisma, { where: { tenantId } })
       await prisma.wallet.deleteMany({ where: { tenantId } })
       await prisma.agency.deleteMany({ where: { tenantId } })
       await prisma.tenant.delete({ where: { id: tenantId } })

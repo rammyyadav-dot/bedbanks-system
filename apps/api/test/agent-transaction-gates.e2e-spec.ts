@@ -10,6 +10,7 @@ import { hashPassword } from '../src/auth/utils/password'
 import { SUPPLIER_ADAPTER } from '../src/agent/supplier.port'
 import { AGENT_PERMISSION_KEYS } from '../src/agent/agent-permissions'
 import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
+import { eraseLedger } from './ledger-erasure'
 
 const prisma = new PrismaClient()
 
@@ -145,7 +146,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
       await prisma.supplierMutation.deleteMany({ where: { tenantId: { in: tenantIds } } })
       await prisma.inventoryHoldNight.deleteMany({ where: { tenantId: { in: tenantIds } } })
       await prisma.inventoryHold.deleteMany({ where: { tenantId: { in: tenantIds } } })
-      await prisma.ledgerEntry.deleteMany({ where: { tenantId: { in: tenantIds } } })
+      await eraseLedger(prisma, { where: { tenantId: { in: tenantIds } } })
       await prisma.wallet.deleteMany({ where: { tenantId: { in: tenantIds } } })
       await prisma.auditEvent.deleteMany({ where: { OR: [{ tenantId: { in: tenantIds } }, { userId: { in: userIds } }] } })
       await prisma.dailyRate.deleteMany({ where: { tenantId: { in: tenantIds } } })

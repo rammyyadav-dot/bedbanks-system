@@ -20,6 +20,7 @@ import { EmailSendError, type EmailSender } from '../src/booking-ops/email/email
 import { provisionBookingOpsRole, BOOKING_OPS_LOGIN_ROLE } from '../src/database/booking-ops-role'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { eraseLedger } from './ledger-erasure'
 
 jest.setTimeout(120_000)
 
@@ -94,7 +95,7 @@ describe('booking checkout details and confirmation email (PostgreSQL)', () => {
   afterAll(async () => {
     await opsDb.onModuleDestroy()
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.bookingDocument.deleteMany({ where: { tenantId } })
     await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.cancellation.deleteMany({ where: { booking: { tenantId } } })

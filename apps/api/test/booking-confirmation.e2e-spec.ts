@@ -11,6 +11,7 @@ import { BookingConfirmationService } from '../src/agent/booking-confirmation.se
 import { BookingTransactionService } from '../src/agent/booking-transaction.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { eraseLedger } from './ledger-erasure'
 
 describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
   const prisma = new PrismaService()
@@ -56,7 +57,7 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
 
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })

@@ -14,7 +14,7 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', purpose: 'Dedicated restricted tenant authoring connection; always identity verified', url: 'TENANT_CONTROL_DATABASE_URL', runtime: true },
   { file: 'apps/api/src/database/certify-tenant-control.cli.ts', purpose: 'test-only: owner fixture provisioning on disposable loopback database', url: 'DATABASE_URL (owner in isolated CI)', runtime: false },
   { file: 'apps/api/src/database/provision-tenant-control-role.cli.ts', purpose: 'operator: provisions the dedicated tenant control role', url: 'PROVISION_DATABASE_URL', runtime: false },
-  { file: 'apps/api/src/database/prisma.service.ts', purpose: 'HTTP runtime client (also used for the booking, hold-expiry and rate plan lifecycle connections); identity-checked at startup', url: 'DATABASE_URL / BOOKING_OPS_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL / RATE_PLAN_OPS_DATABASE_URL', runtime: true },
+  { file: 'apps/api/src/database/prisma.service.ts', purpose: 'HTTP runtime client (also used for the booking, hold-expiry, ledger-integrity monitor and rate plan lifecycle connections); identity-checked at startup', url: 'DATABASE_URL / BOOKING_OPS_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL / LEDGER_INTEGRITY_DATABASE_URL / RATE_PLAN_OPS_DATABASE_URL', runtime: true },
   { file: 'apps/api/src/database/provision-api-runtime-role.cli.ts', purpose: 'operator: provisions the API login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-booking-ops-role.cli.ts', purpose: 'operator: provisions the booking login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-ops-role.cli.ts', purpose: 'operator: read-only certification of the rate plan lifecycle login, run as that login', url: 'RATE_PLAN_OPS_DATABASE_URL', runtime: false },
@@ -79,6 +79,7 @@ export function checkConfigText(file: string, text: string, opts: { disposable: 
 export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }> = [
   { file: 'apps/api/src/booking-ops/booking-ops-database.ts', url: 'BOOKING_OPS_DATABASE_URL' },
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
+  { file: 'apps/api/src/admin-operations/ledger-integrity-monitor.service.ts', url: 'LEDGER_INTEGRITY_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
   { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL' },
 ]
