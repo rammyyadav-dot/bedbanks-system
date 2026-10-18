@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 10
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+      minor-and-patch:
+        update-types: [minor, patch]
+    # Major bumps (eslint 10, nestjs/swagger 12, @types/node 26 ...) change behaviour and our pnpm.overrides assumptions: plan them
+    # deliberately. Security updates are not held back by this rule.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    # Runtime must match engines.node (24.x) and the Node version CI tests on; move all three together via an ADR.
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: terraform
+    directory: /infra/aws/terraform
+    schedule: { interval: weekly, day: monday }

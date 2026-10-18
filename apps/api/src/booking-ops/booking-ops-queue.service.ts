@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import type { Prisma } from '@prisma/client'
 import {
   answersFor, BOOKING_OPS_PAGE_SIZES, BOOKING_OPS_PRIORITIES, BOOKING_OPS_REASON_LABEL, BOOKING_OPS_REASONS, BOOKING_OPS_SCAN_CAP, BOOKING_OPS_SLA_STATES, BOOKING_OPS_TABS, bookingOpsTabIncludes, BOOKING_STATUSES,
-  compareBookingOps, evaluateBookingOps, parseBookingOpsSlaPolicy, type BookingAccessView, type BookingOperationsPanel, type BookingOpsCounts, type BookingOpsEvaluation, type BookingOpsFacts,
+  compareBookingOps, evaluateBookingOps, toUrgency, parseBookingOpsSlaPolicy, type BookingAccessView, type BookingOperationsPanel, type BookingOpsCounts, type BookingOpsEvaluation, type BookingUrgency, type BookingOpsFacts,
   type BookingOpsPriority, type BookingOpsQueueItem, type BookingOpsQueuePage, type BookingOpsReason, type BookingOpsSlaPolicy, type BookingOpsSlaState, type BookingOpsTab, type BookingOpsTimelineItem, type BookingStatus,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
@@ -145,6 +145,22 @@ export class BookingOpsQueueService {
       enteredAt: ev.enteredAt, assignee: ev.assigneeUserId ? { id: ev.assigneeUserId, name: names.users.get(ev.assigneeUserId) ?? 'Former user' } : null, assignedAt: ev.assignedAt, acknowledgedAt: ev.acknowledgedAt,
       lastSupplierActivityAt: e.facts.lastSupplierActivityAt, supplierCertainty: ev.supplierCertainty, safeAction: ev.safeAction, opsVersion: e.facts.ops?.version ?? 0, lastActivityAt: e.lastActivityAt,
     }
+  }
+
+  /**
+   * The urgency of the bookings on one list page (Phase 6F), by the queue's own ruleset, SLA policy and facts, in a fixed number of queries. Only for callers who may see the queue.
+   * Throws (invalid SLA policy, unreadable tables); the list catches it and says "unavailable" rather than failing or showing "not urgent".
+   */
+  async urgencyFor(tenantId: string, bookingIds: string[], now: Date): Promise<Map<string, BookingUrgency>> {
+    const out = new Map<string, BookingUrgency>()
+    if (bookingIds.length === 0) return out
+    const policy = slaPolicy()
+    return this.db.withTenant(tenantId, async (tx) => {
+      const rows = await tx.booking.findMany({ where: { tenantId, id: { in: bookingIds } }, select: OPS_BOOKING_SELECT })
+      const facts = await loadOpsFacts(tx, tenantId, rows, this.suppliers)
+      for (const row of rows) out.set(row.id, toUrgency(evaluateBookingOps(facts.get(row.id)!, now, policy)))
+      return out
+    })
   }
 
   /** One booking's evaluation, on the caller's own transaction. Used by the detail read and by the mutations, so they judge it identically. */

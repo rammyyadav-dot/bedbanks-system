@@ -1,4 +1,5 @@
 import {
+  BOOKING_OPS_REASON_LABEL, urgencyBadge, type BookingUrgency,
   BOOKING_COLUMN_IDS, BOOKING_DATE_TYPES, BOOKING_PAGE_SIZES, BOOKING_PAYMENT_MODES, BOOKING_PAYMENT_STATUSES, BOOKING_QUICK_SEARCHES, BOOKING_SORTS, BOOKING_STATUSES,
   type BookingColumnId, type BookingDateType, type BookingListQuery, type BookingQuickSearch, type BookingSort, type BookingStatus,
 } from '@bedbanks/contracts'
@@ -129,3 +130,13 @@ export function toggleColumn(columns: readonly BookingColumnId[], id: BookingCol
 }
 
 export type { BookingDateType, BookingSort }
+
+// ---- urgency (Phase 6F) ----------------------------------------------------------------------------------------------------
+/** The Urgent / Critical badge of a row, from the operations queue's own verdict. Null when there is nothing to show (not a case, not Urgent, or the caller cannot see the queue). */
+export function urgencyBadgeView(urgency: BookingUrgency | null | undefined): { text: 'Urgent' | 'Critical'; title: string } | null {
+  const level = urgencyBadge(urgency)
+  if (!level || !urgency) return null
+  const why = urgency.primaryReason ? BOOKING_OPS_REASON_LABEL[urgency.primaryReason] : 'Operations queue'
+  const sla = urgency.slaState === 'BREACHED' ? ' · SLA breached' : urgency.slaState === 'DUE_SOON' ? ' · SLA due soon' : ''
+  return { text: level === 'CRITICAL' ? 'Critical' : 'Urgent', title: `${why}${sla}. Computed by the operations queue rules, not set by hand; it clears itself when the rule stops being true.` }
+}

@@ -6,7 +6,7 @@ import { Money, Tag, bookingTone } from '@/components/ops/ops-ui'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { getOpsBookings } from '@/lib/data/operations'
-import { bookingHref, deadlineUrgency } from '@/lib/booking-ui'
+import { bookingHref, deadlineUrgency, urgencyBadgeView } from '@/lib/booking-ui'
 import { KANBAN_CARD_LIMIT, kanbanListQuery, kanbanOverflow, kanbanParams, kanbanTitle, visibleKanbanStatuses, type KanbanStatus } from '@/lib/booking-kanban-ui'
 
 const small: React.CSSProperties = { display: 'block', color: '#3f565c', fontSize: 10, marginTop: 2 }
@@ -57,6 +57,7 @@ function KanbanColumn({ status, query, now }: { status: KanbanStatus; query: Boo
 
 function KanbanCard({ row, now }: { row: BookingListRow; now: Date }) {
   const urgency = deadlineUrgency(row.cancelDeadline, now)
+  const urgent = urgencyBadgeView(row.urgency)
   return (
     <Link href={`/bookings/${row.id}`} data-testid="kanban-card" aria-label={`Open booking ${row.reference}`} style={{ display: 'block', background: '#fff', border: '1px solid #e1eaec', borderRadius: 5, padding: '8px 10px', color: 'inherit', textDecoration: 'none', fontSize: 11 }}>
       <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}><strong>{row.reference}</strong><Money minor={row.sellMinor} currency={row.currency} /></span>
@@ -64,6 +65,7 @@ function KanbanCard({ row, now }: { row: BookingListRow; now: Date }) {
       <span style={small}>{row.leadGuest ? row.leadGuest.name : '—'}{row.guests ? ` · ${row.guests.adults} AD${row.guests.children ? ` · ${row.guests.children} C` : ''}` : ''}</span>
       <span style={small}>{row.checkIn ? `Check-in ${row.checkIn}` : 'No stay dates'}{row.nights ? ` · ${row.nights}n` : ''}</span>
       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+        {urgent && <span title={urgent.title}><Tag tone="bad">{urgent.text}</Tag></span>}
         {row.missingSupplierRef && <Tag tone="bad">No supplier ref</Tag>}
         {row.isRefundable === false && <Tag tone="warn">NR</Tag>}
         {urgency === 'soon' && <Tag tone="bad">Deadline &lt; 48h</Tag>}

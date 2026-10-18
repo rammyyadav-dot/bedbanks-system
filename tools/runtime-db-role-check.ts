@@ -29,6 +29,7 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/reindex-hotel-search.cli.ts', purpose: 'operator: dry-run-first HotelSearchIndex population and reindex (ADR 0072)', url: 'MIGRATION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-preview-fixtures.cli.ts', purpose: 'operator: preview fixtures (refuses non-preview targets)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/bootstrap-first-admin.cli.ts', purpose: 'operator: first admin bootstrap', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'tools/load/hybrid-search-load.ts', purpose: 'operator: read-only hybrid retrieval load test run AS the strict runtime role (never writes; DATABASE_URL deliberately not read)', url: 'LOADTEST_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/hold-expiry-ops.cli.ts', purpose: 'operator: owner client plus restricted verification client', url: 'PROVISION_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/strict-role-rollout.cli.ts', purpose: 'operator: rollout status (owner) and verify (runtime login)', url: 'PROVISION_DATABASE_URL / API_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/inventory/pool-night-authoring.cli.ts', purpose: 'operator: pool night authoring', url: 'PROVISION_DATABASE_URL', runtime: false },
@@ -42,6 +43,8 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
  */
 export const APPROVED_TOOL_CLIENTS: ReadonlyArray<{ file: string; purpose: string }> = [
   { file: 'tools/certify-production-clone.mjs', purpose: 'operator: certifies a production clone (FBEDS_CERT_CLONE_DATABASE_URL, guarded by clone-certification-guard)' },
+  { file: 'tools/load/hybrid-search-load.ts', purpose: 'operator: read-only concurrency load test for hybrid hotel retrieval (LOADTEST_DATABASE_URL, strict runtime role, pooled endpoint)' },
+  { file: 'tools/hotel-search-smoke.ts', purpose: 'operator: disposable smoke test for hotel search indexes and hybrid retrieval (ADR 0072)' },
   { file: 'tools/admin-ops-verify/inventory-scale.ts', purpose: 'operator: inventory scale check; owner client plus optional runtime-login client' },
   { file: 'tools/admin-ops-verify/seed.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/seed-agent-images.ts', purpose: 'operator: disposable verification seed' },

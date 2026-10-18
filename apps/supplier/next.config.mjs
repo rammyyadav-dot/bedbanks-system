@@ -6,9 +6,25 @@ import { fileURLToPath } from 'node:url'
 // Container images (Dockerfile.web) build a self-contained server; Vercel and local builds are unchanged.
 const standalone = process.env.NEXT_OUTPUT === 'standalone'
 
+// Response hardening. Deliberately no script-src/img-src here: those need a per-app review (agent renders supplier hotel images).
+// frame-ancestors/object-src/base-uri/form-action cannot break page rendering and close clickjacking, plugin and base-tag injection.
+const isDev = process.env.NODE_ENV !== 'production'
+const securityHeaders = [
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'" },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+  ...(isDev ? [] : [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' }]),
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   ...(standalone ? { output: 'standalone', outputFileTracingRoot: path.join(path.dirname(fileURLToPath(import.meta.url)), '../..') } : {}),
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders }]
+  },
   async redirects() {
     return [
       ['/properties', '/hotels'],
