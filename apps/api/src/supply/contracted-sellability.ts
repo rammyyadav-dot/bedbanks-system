@@ -5,64 +5,11 @@ import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } 
 import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
- * Shared commercial gates for contracted inventory.
- * The single-night helper preserves the existing admin sellability reasons.
- * Stay evaluation is what Agent Search and recheck use for a full date range.
+ * Shared commercial gates for contracted inventory: the ONE evaluator Agent search, recheck, hold, Admin readiness, the hotel assessment, rate
+ * certification and the Sellability Inspector all use (ADR 0067, F-07).
  */
 
 const NIGHT_MS = 86_400_000
-
-export interface NightSellabilityPlan {
-  status: string
-  occupancy: number
-  currency: string
-  /** ADR 0057 sale window; null inherits the contract term. Required so a caller cannot omit it. */
-  validFrom: Date | null
-  validTo: Date | null
-  roomType: { isActive: boolean; maxOccupancy: number; hotelId: string; hotel: { contentStatus: string } }
-  boardBasis: { isActive: boolean }
-  contract: {
-    status: string
-    validFrom: Date
-    validTo: Date
-    supplier: { status: string }
-    supplierHotelMapping: { hotelId: string; status: string } | null
-  }
-  dailyRates: Array<{ amountMinor: bigint; currency: string; amountBasis: string | null }>
-  availability: Array<{ stopSell: boolean; allotment: number; sold: number; held: number }>
-}
-
-export function evaluateNightSellability(plan: NightSellabilityPlan | null, input: { stayDate: Date; occupancy: number }): string[] {
-  const reasons: string[] = []
-  if (!plan) {
-    reasons.push('RATE_PLAN_MISSING')
-    return reasons
-  }
-  if (['SUSPENDED', 'ARCHIVED'].includes(plan.roomType.hotel.contentStatus)) reasons.push('HOTEL_INACTIVE')
-  if (!plan.roomType.isActive) reasons.push('ROOM_TYPE_INACTIVE')
-  if (!plan.boardBasis.isActive) reasons.push('BOARD_BASIS_INACTIVE')
-  if (plan.contract.supplier.status !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE')
-  if (input.occupancy !== plan.occupancy || input.occupancy > plan.roomType.maxOccupancy) reasons.push('OCCUPANCY_UNSUPPORTED')
-  if (plan.contract.status !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
-  if (input.stayDate < plan.contract.validFrom || input.stayDate > plan.contract.validTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
-  if ((plan.validFrom && input.stayDate < plan.validFrom) || (plan.validTo && input.stayDate > plan.validTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
-  if (plan.contract.supplierHotelMapping && (plan.contract.supplierHotelMapping.hotelId !== plan.roomType.hotelId || plan.contract.supplierHotelMapping.status !== 'MAPPED')) {
-    reasons.push('SUPPLIER_MAPPING_INVALID')
-  }
-  if (plan.status !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE')
-  const dailyRate = plan.dailyRates[0]
-  if (!dailyRate || dailyRate.amountMinor <= 0n) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
-  else if (dailyRate.currency !== plan.currency) reasons.push('RATE_CURRENCY_MISMATCH')
-  else if (dailyRate.amountBasis === null) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
-  else if (dailyRate.amountBasis === 'NET') reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
-  const availability = plan.availability[0]
-  if (!availability) reasons.push('AVAILABILITY_MISSING')
-  else {
-    if (availability.stopSell) reasons.push('STOP_SELL')
-    if (availability.allotment - availability.sold - availability.held <= 0) reasons.push('NO_INVENTORY')
-  }
-  return reasons
-}
 
 export interface StayNightSnapshot {
   date: string
@@ -205,8 +152,12 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const extraPerNight = guestPricing.mode === 'LINES' ? guestPricing.extraMinorPerNight : 0n
   const guestBasis = guestPricing.mode === 'LINES' ? guestPricing.basis : null
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
-  if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
-  if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
+  // ADR 0067 F-06: validFrom and validTo are the first and last STAY NIGHTS (inclusive), as hotels write contract periods. Check-out may be the day after validTo.
+  const checkOutMs = Date.parse(`${request.checkOut}T00:00:00.000Z`)
+  // An unparseable check-out keeps itself as the bound, so a malformed request never widens validity (the night count rejects it anyway).
+  const lastNight = Number.isFinite(checkOutMs) ? new Date(checkOutMs - NIGHT_MS).toISOString().slice(0, 10) : request.checkOut
+  if (request.checkIn < snapshot.contractValidFrom || lastNight > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
+  if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && lastNight > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (snapshot.cancellationPolicyMissing) reasons.push('CANCELLATION_POLICY_MISSING')
   if (snapshot.derivedProblem !== null) reasons.push(snapshot.derivedProblem)
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {

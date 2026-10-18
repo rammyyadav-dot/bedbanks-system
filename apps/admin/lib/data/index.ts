@@ -50,7 +50,7 @@ export async function getContract(id: string) { return apiRequest<AdminContractD
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function createCancellationPolicy(contractId: string, input: { daysBeforeCheckin: number; penaltyPercent: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
-export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor?: string; currency?: string }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 // Contract lifecycle and maker-checker (ADR 0067). Routes come from @bedbanks/contracts.
 const cl = contractLifecycleRoutes

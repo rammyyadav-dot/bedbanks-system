@@ -1,3 +1,4 @@
+import { readLocalCharges } from '../supply/local-charges'
 import { BadRequestException, ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
@@ -77,6 +78,7 @@ export class HotelSetupService {
       operations: { checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null, notes: profile?.operationalNotes ?? null },
       contacts: includeContacts ? asContacts(profile?.contacts) : null,
       policies,
+      localCharges: readLocalCharges(profile?.localCharges),
       governance: { status: hotel.contentStatus as HotelProfileStatus, sourceSystem: profile?.sourceSystem ?? null, ownerUserId: profile?.ownerUserId ?? null, owner, approvedById: profile?.approvedById ?? null, approvedAt: iso(profile?.approvedAt), updatedById: profile?.updatedById ?? null, updatedAt: hotel.updatedAt.toISOString() },
       rooms: { active: activeRooms, total: totalRooms },
       completeness: assessCompleteness(this.current(hotel, profile, activeRooms, hasPrimaryImage)),
@@ -171,7 +173,7 @@ export class HotelSetupService {
         if (data.starVerified === true && (data.hotel.starRating !== undefined ? data.hotel.starRating : before.hotel.starRating) === null) throw new BadRequestException({ message: ['starVerified: record a star category before verifying it'], error: 'Bad Request' })
 
         await tx.hotel.update({ where: { id: before.hotel.id }, data: { ...data.hotel, latitude: data.hotel.latitude === undefined ? undefined : data.hotel.latitude === null ? null : new Prisma.Decimal(data.hotel.latitude), longitude: data.hotel.longitude === undefined ? undefined : data.hotel.longitude === null ? null : new Prisma.Decimal(data.hotel.longitude), updatedAt: now } })
-        const profileData = { ...data.profile, ...verification, contacts: data.profile.contacts as Prisma.InputJsonValue | undefined, policies: data.profile.policies as Prisma.InputJsonValue | undefined, updatedById: userId }
+        const profileData = { ...data.profile, ...verification, contacts: data.profile.contacts as Prisma.InputJsonValue | undefined, policies: data.profile.policies as Prisma.InputJsonValue | undefined, localCharges: data.profile.localCharges as Prisma.InputJsonValue | undefined, updatedById: userId }
         if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id }, data: { ...profileData, version: { increment: 1 } } })
         else await tx.hotelProfile.create({ data: { ...profileData, tenantId, hotelId: before.hotel.id, version: 1 } })
 

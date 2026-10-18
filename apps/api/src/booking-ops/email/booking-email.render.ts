@@ -1,4 +1,4 @@
-import { escapeHtml, formatMinor, renderBookingDocument } from '../../agent/booking-document.render'
+import { escapeHtml, formatMinor, payAtHotelLines, renderBookingDocument } from '../../agent/booking-document.render'
 import type { MimeAttachment } from './mime'
 
 export interface IssuedDocumentInput { number: string; issuedAt: string; payload: Record<string, any> }
@@ -33,6 +33,8 @@ export function renderConfirmationEmail(input: { voucher: IssuedDocumentInput; i
     ['Guests', guestsLine],
     ...(lead ? [['Lead guest', lead] as [string, string]] : []),
     ['Total charged', total],
+    // ADR 0067 F-04: disclosed, not charged.
+    ...payAtHotelLines(v).map((line) => ['Payable at the hotel (not included)', line] as [string, string]),
   ]
   const policyLines = policy.length === 0 ? ['No cancellation penalty is defined for this contract.'] : policy.map((rule) => `Within ${rule.daysBeforeCheckin} day(s) of check-in: ${rule.penalty}`)
 
