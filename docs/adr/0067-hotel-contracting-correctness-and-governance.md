@@ -71,3 +71,15 @@ An unusable hotel zone fails closed for whichever side is set. Because Agent sea
 **Decision.** The endpoint loads the plan through `assessPlanSelect`, the one select now shared with Admin hotel operations and rate certification, plus the hotel's star rating, the mappings and the active markup rules. Without stay context it judges the night with `evaluatePlanNight`, which leaves out stay-only rules exactly as the hotel assessment does. With `checkInDate` and `nights` it judges the whole stay with `evaluateContractedStay` and every stay rule. No buyer is named, so market, nationality and agency rules are not evaluated, and the screen says so. `evaluateNightSellability` and its types are removed. The response keeps its shape. `warnings` is now always empty: an unpublished hotel is the reason `HOTEL_INACTIVE`, and a pending room mapping is `SUPPLIER_MAPPING_INVALID`, as for the Agent. `occupancy` must be 1 to 20.
 
 **Tests.** The supply, golden-path and 100-hotel suites now arrange a published, rated, mapped hotel before expecting "eligible", and assert the Agent's reasons otherwise. The scale suite ends its contract on the last stay night and proves that night sells while the next is outside the contract.
+
+## F-04: Local charges paid at the hotel are disclosed
+
+**Problem.** Every contracted offer carried tax and fee 0, and the plan's "taxes included" and "fees included" flags never left the API. Charges such as Dubai's Tourism Dirham existed only as free text on the private hotel profile. Agents, vouchers and the confirmation email never mentioned them, so guests met an unannounced charge at the desk.
+
+**Decision.**
+- `HotelProfile.local_charges` (JSONB array, at most 10) holds structured charges: kind (TOURISM_DIRHAM, CITY_TAX, MUNICIPALITY_FEE, RESORT_FEE, OTHER), a label for agents, an amount in integer minor units, a currency, a basis (per room or per person, per night or per stay) and an optional night cap (Tourism Dirham: 30). Hotel Setup validates and replaces the whole set; the Policies tab has the editor.
+- Agent offers carry `priceIncludes { taxes, fees }` from the plan and `payAtHotel[]`, each with `estimatedTotalMinor` for the searched stay: nights (capped), rooms and every guest. They are never added to the total, and the totals invariants are unchanged. The domain validator copies both fields only after validating them.
+- The voucher and invoice show a "Payable at the hotel, not included in the price" section; the confirmation email lists each charge. The agent portal shows them under each rate and in the checkout summary, with what the price includes.
+- Agent search reads only the `localCharges` column of the profile; contacts stay private.
+
+**Not built.** Taxes are still not itemised inside the price (`taxAmountMinor` stays 0 for contracted inventory). A VAT breakdown on the invoice is a finance decision.

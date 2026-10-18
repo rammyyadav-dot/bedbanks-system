@@ -373,6 +373,19 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }
   })
 
+  it('discloses charges paid at the hotel with a stay estimate, never adding them to the price (ADR 0067, F-04)', async () => {
+    const dirham = { kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: '2000', currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', maxNights: 30 }
+    const profile = await prisma.hotelProfile.upsert({ where: { hotelId }, update: { localCharges: [dirham] }, create: { tenantId, hotelId, updatedById: 'fixture', localCharges: [dirham] } })
+    try {
+      const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
+      expect(rate.payAtHotel).toEqual([{ kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: 2000, currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', estimatedTotalMinor: 2000 * nights.length }])
+      expect(rate.priceIncludes).toEqual({ taxes: false, fees: false })
+      expect(rate.sellAmountMinor).toBe(nightMinor * nights.length)
+    } finally {
+      await prisma.hotelProfile.update({ where: { id: profile.id }, data: { localCharges: [] } })
+    }
+  })
+
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)
     await admin.post(`/api/v1/supply/mappings/hotels/${mappingId}/rooms/${roomMappingId}/reopen`).expect(201)

@@ -1,3 +1,4 @@
+import { payAtHotel } from '../supply/local-charges'
 import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'crypto'
@@ -260,7 +261,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       },
       include: {
         boardBasis: true,
-        roomType: { include: { hotel: true } },
+        // ADR 0067 F-04: only the structured local charges are read from the profile; contacts stay private.
+        roomType: { include: { hotel: { include: { profile: { select: { localCharges: true } } } } } },
         contract: {
           include: {
             supplier: true,
@@ -484,6 +486,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       markupAmountMinor: Number(decision.markupMinor ?? 0n),
       sellAmountMinor,
       paymentType: offerPaymentType(plan.paymentType),
+      // ADR 0067 F-04: what the price includes, as recorded on the plan, and the charges paid at the hotel with an estimate for this stay. Never added to the total.
+      priceIncludes: { taxes: plan.taxesIncluded, fees: plan.feesIncluded },
+      payAtHotel: payAtHotel(plan.roomType.hotel.profile?.localCharges, { nights: nights.length, rooms: criteria.rooms, guests: criteria.adults + criteria.children }),
       ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }

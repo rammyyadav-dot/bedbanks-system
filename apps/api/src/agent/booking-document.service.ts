@@ -1,3 +1,4 @@
+import { payAtHotel } from '../supply/local-charges'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { rulesForPlan } from '../supply/cancellation-rules'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
@@ -75,7 +76,7 @@ export class BookingDocumentService {
       tx.bookingGuest.findMany({ where: { bookingId: booking.id, tenantId }, orderBy: [{ roomNumber: 'asc' }, { isLead: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }], select: { roomNumber: true, title: true, firstName: true, lastName: true, type: true, age: true, isLead: true } }),
       booking.agencyId ? tx.agency.findFirst({ where: { id: booking.agencyId, tenantId }, select: { name: true } }) : Promise.resolve(null),
     ])
-    const profile = hotel ? await tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId }, select: { checkInTime: true, checkOutTime: true } }) : null
+    const profile = hotel ? await tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId }, select: { checkInTime: true, checkOutTime: true, localCharges: true } }) : null
     if (!hotel || !room || !board) throw new ConflictException('Booking content is incomplete')
     const nights = Math.round((Date.parse(`${s.checkOut}T00:00:00.000Z`) - Date.parse(`${s.checkIn}T00:00:00.000Z`)) / 86_400_000)
     const base = {
@@ -90,6 +91,8 @@ export class BookingDocumentService {
       ...(agency ? { agencyName: agency.name } : {}),
       hotelDetails: { address: hotel.address ?? null, checkInTime: profile?.checkInTime?.trim() || null, checkOutTime: profile?.checkOutTime?.trim() || null },
       guestsByRoom: guestRooms(guests),
+      // ADR 0067 F-04: charges paid at the hotel, with an estimate for this stay. Disclosed, never part of the amount charged.
+      payAtHotel: payAtHotel(profile?.localCharges, { nights, rooms: s.rooms, guests: (s.adults ?? 0) + (s.children ?? 0) }).map((c) => ({ ...c, amountMinor: String(c.amountMinor), estimatedTotalMinor: String(c.estimatedTotalMinor) })),
     }
     if (type === 'VOUCHER') {
       const requests = readSpecialRequests(booking.specialRequests)

@@ -1579,6 +1579,8 @@ model HotelProfile {
   contacts         Json     @default("{}")
   /// Hotel-level information only (children, extra beds, pets, accessibility, local charges). Never rate cancellation terms.
   policies         Json     @default("{}")
+  /// Structured charges paid at the hotel (ADR 0067, F-04): Tourism Dirham, city tax, resort fees. Disclosed to Agents and on documents, never priced in.
+  localCharges     Json     @default("[]") @map("local_charges")
   sourceSystem     String?  @map("source_system")
   ownerUserId      String?  @map("owner_user_id")
   starSource       String?  @map("star_source")

@@ -15,6 +15,7 @@ import { getContract, type AdminContractDetail } from '@/lib/data'
 import { formatMinorUnits } from '@/lib/minor-units'
 import { hotelHref } from '@/lib/hotel-ui'
 import { ScrollRegion, td, th, tableStyle } from '../ui'
+import { LocalChargesEditor } from './LocalChargesEditor'
 
 const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
 const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as const
@@ -34,6 +35,7 @@ export function PoliciesPanel({ hotelId, onChanged }: { hotelId: string; onChang
           <>
             {flash && <div role="status" data-testid="policies-flash" className="workspace-panel" style={{ padding: 12 }}><strong>{flash}</strong></div>}
             <HotelPolicies key={setup.concurrencyToken} hotelId={hotelId} setup={setup} onSaved={(t) => { setFlash(t); setVersion((v) => v + 1); onChanged?.() }} />
+            <LocalChargesEditor key={`charges-${setup.concurrencyToken}`} hotelId={hotelId} setup={setup} onSaved={(t) => { setFlash(t); setVersion((v) => v + 1); onChanged?.() }} />
           </>
         )}
       </OpsState>
