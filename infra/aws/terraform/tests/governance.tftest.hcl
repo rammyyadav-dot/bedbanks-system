@@ -276,3 +276,68 @@ run "empty_cost_tag_is_refused" {
   }
   expect_failures = [var.cost_owner]
 }
+
+# ---- Compliance export (ADR 0067 amendment 2) ----
+run "compliance_export_is_off_by_default" {
+  command = plan
+  variables {
+    environment          = "staging"
+    public_ingress_cidrs = ["203.0.113.0/24"]
+  }
+  assert {
+    condition     = length(aws_s3_bucket.compliance) == 0 && length(aws_ecs_task_definition.compliance) == 0 && length(aws_scheduler_schedule.compliance) == 0
+    error_message = "Compliance export must not be created unless compliance_export_enabled is set."
+  }
+}
+
+run "compliance_export_is_worm_least_privilege_and_monitored" {
+  command = plan
+  variables {
+    environment               = "staging"
+    public_ingress_cidrs      = ["203.0.113.0/24"]
+    compliance_export_enabled = true
+  }
+  assert {
+    condition     = aws_s3_bucket.compliance["enabled"].object_lock_enabled == true
+    error_message = "The compliance archive must be created with Object Lock."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_object_lock_configuration.compliance["enabled"].rule).default_retention[0].mode == "COMPLIANCE" && one(aws_s3_bucket_object_lock_configuration.compliance["enabled"].rule).default_retention[0].days == 2557
+    error_message = "Default retention must be COMPLIANCE mode for seven years."
+  }
+  assert {
+    condition     = alltrue([for s in data.aws_iam_policy_document.compliance_task["enabled"].statement : alltrue([for a in s.actions : !strcontains(lower(a), "delete") && !strcontains(a, "*") && !strcontains(a, "Bypass")])])
+    error_message = "The compliance task role must not delete, bypass retention or use wildcard actions."
+  }
+  assert {
+    condition     = contains([for s in data.aws_iam_policy_document.compliance_bucket["enabled"].statement : s.sid], "DenyDelete") && contains([for s in data.aws_iam_policy_document.compliance_bucket["enabled"].statement : s.sid], "DenyPutWithoutComplianceLock")
+    error_message = "The bucket policy must deny deletes and uploads without COMPLIANCE retention."
+  }
+  assert {
+    condition     = aws_scheduler_schedule.compliance["export"].schedule_expression == "rate(15 minutes)" && aws_scheduler_schedule.compliance["verify"].schedule_expression == "rate(1 hour)"
+    error_message = "Export runs every 15 minutes and verification hourly."
+  }
+  assert {
+    condition     = one(aws_scheduler_schedule.compliance["export"].target).ecs_parameters[0].network_configuration[0].assign_public_ip == false
+    error_message = "Compliance tasks run in private subnets without a public IP."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.compliance_heartbeat["export"].treat_missing_data == "breaching" && aws_cloudwatch_metric_alarm.compliance_heartbeat["verify"].treat_missing_data == "breaching"
+    error_message = "A missing compliance heartbeat must alarm."
+  }
+  assert {
+    condition     = aws_secretsmanager_secret.compliance_database_url["enabled"].name == "fbeds-staging/compliance/COMPLIANCE_DATABASE_URL" && length(data.aws_iam_policy_document.compliance_execution["enabled"].statement[0].resources) == 1
+    error_message = "Compliance tasks read only their own restricted database URL secret."
+  }
+}
+
+run "compliance_retention_below_one_year_is_refused" {
+  command = plan
+  variables {
+    environment               = "staging"
+    public_ingress_cidrs      = ["203.0.113.0/24"]
+    compliance_export_enabled = true
+    compliance_retention_days = 30
+  }
+  expect_failures = [var.compliance_retention_days]
+}

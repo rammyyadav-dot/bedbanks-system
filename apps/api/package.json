@@ -39,16 +39,20 @@
     "ops:provision-preview-fixtures": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-preview-fixtures.cli.ts",
     "ops:bootstrap-first-admin": "node --no-experimental-strip-types -r @swc-node/register src/database/bootstrap-first-admin.cli.ts",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
+    "test:security": "jest --config ./test/jest-e2e.json --runInBand security-certification.e2e-spec.ts",
     "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
     "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand",
     "ops:backfill-booking-supplier": "tsx src/database/backfill-booking-supplier.cli.ts",
     "ops:certify-tenant-control": "node --no-experimental-strip-types -r @swc-node/register src/database/certify-tenant-control.cli.ts",
+    "ops:compliance": "node --no-experimental-strip-types -r @swc-node/register src/compliance/compliance-ops.cli.ts",
     "ops:provision-tenant-control-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-tenant-control-role.cli.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1143.0",
+    "@aws-sdk/client-sesv2": "3.1143.0",
     "@bedbanks/connectors-core": "workspace:*",
     "@bedbanks/contracts": "workspace:*",
     "@bedbanks/domain": "workspace:*",
@@ -60,14 +64,14 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^8.1.0",
     "@prisma/client": "^6.2.1",
+    "@swc-node/register": "^1.12.1",
+    "@swc/core": "^1.16.13",
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
-    "@swc-node/register": "^1.12.1",
-    "@swc/core": "^1.16.13"
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",

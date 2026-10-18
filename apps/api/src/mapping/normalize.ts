@@ -1,4 +1,6 @@
 const GENERIC_TRAILING = new Set(['hotel', 'hotels', 'resort', 'resorts'])
+/** Words that carry no room identity. "Deluxe King Room" and "King Deluxe" are the same product. */
+const ROOM_FILLER = new Set(['room', 'rooms', 'the', 'a', 'an', 'with', 'and', 'of'])
 
 function fold(value: string): string {
   return value.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -79,7 +81,9 @@ function firstMatch(tokens: string[], vocabulary: string[]): string {
 }
 
 export function normalizeRoomIdentity(input: { name: string; bedType?: string | null; view?: string | null }): NormalizedRoom {
-  const parts = brandSpacing(tokens(input.name))
+  const allParts = brandSpacing(tokens(input.name))
+  const significant = allParts.filter((token) => !ROOM_FILLER.has(token))
+  const parts = significant.length > 0 ? significant : allParts
   const bed = firstMatch(tokens(input.bedType ?? ''), BEDS) || firstMatch(parts, BEDS)
   const viewWord = firstMatch(tokens(input.view ?? ''), VIEWS) || firstMatch(parts, VIEWS)
   const view = viewWord === 'ocean' || viewWord === 'beach' ? 'sea' : viewWord

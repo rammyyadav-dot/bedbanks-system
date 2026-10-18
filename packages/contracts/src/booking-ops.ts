@@ -110,6 +110,10 @@ export interface BookingListRow {
   checkIn: string | null
   checkOut: string | null
   nights: number | null
+  /** Frozen plan id from the booking snapshot. */
+  ratePlanId?: string | null
+  /** Nights multiplied by all booked room quantities. */
+  roomNights?: number | null
   createdAt: string
   cancelDeadline: string | null
   currency: string
@@ -166,7 +170,7 @@ export interface BookingTimelineItem {
 
 export interface BookingDetailView {
   access: BookingAccessView
-  booking: Omit<BookingListRow, 'attention' | 'leadGuest' | 'guests' | 'room'> & { hotelAddress: string | null; specialRequests: null }
+  booking: Omit<BookingListRow, 'attention' | 'leadGuest' | 'guests' | 'room'> & { hotelAddress: string | null; /** ADR 0066. The note reads '••••' without booking.pii.view. */ specialRequests: { codes: string[]; note?: string; arrivalTime?: string } | null }
   rooms: BookingRoomView[]
   guests: BookingGuestView[]
   pricing: {

@@ -37,10 +37,16 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `BoardBasis` | yes | - | - | - | forced tenant | read only |
 | `Booking` | cols (15) | - | - | - | forced tenant | SELECT (id, tenant_id, reference, supplier_id, hotel_id, status, currency, net_minor, check_in, check_out, nights, supplier_ref, hotel_confirmation_no, created_at, updated_at): supplier extranet bookings only (ADR 0061 Amendment 1): no sell price, markup, FX, agency, channel, payment or snapshot column; never written by this role |
 | `BookingGuest` | cols (6) | - | - | - | forced tenant | SELECT (id, tenant_id, booking_id, first_name, last_name, is_lead): supplier extranet bookings only: lead guest name; no contact detail, age or room link |
+| `BookingLeadTimeRule` | yes | - | - | - | forced tenant | search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02) |
 | `BookingRoom` | cols (10) | - | - | - | forced tenant | SELECT (id, tenant_id, booking_id, position, quantity, room_name, board_code, adults, children, net_minor): supplier extranet bookings only: room line and supplier net; no sell amount or rate key |
 | `CancellationPolicy` | yes | - | - | - | forced tenant | search and recheck include each contract's cancellation terms |
+| `ChildPolicy` | yes | - | - | - | forced tenant | search, recheck and hold price children from the contract child policy (ADR 0067, F-03) |
 | `CommercialMarkupRule` | yes | yes | yes | - | forced tenant | INSERT: CommercialMarkupService.create; POST /admin/commercial/markups; draft a markup rule / UPDATE: CommercialMarkupService.retire/execute; POST /admin/commercial/markups/:ruleId/retire, POST /admin/commercial/markups/approvals/:approvalId/execute; activate or retire a rule (rules are otherwise immutable) |
+| `ComplianceExportBatch` | yes | - | - | - | forced tenant | Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067) |
+| `ComplianceExportBatchRecord` | yes | - | - | - | forced tenant | Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067) |
+| `ComplianceRecord` | cols (13) | - | - | - | forced tenant | SELECT (id, tenant_id, category, action, entity_type, entity_id, actor_type, user_id, occurred_at, payload_sha256, origin_country, destination_country, cross_border): Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS |
 | `Contract` | yes | - | - | - | forced tenant | read only |
+| `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |
 | `DailyAvailability` | yes | - | - | - | forced tenant | read only |
 | `DailyRate` | yes | - | - | - | forced tenant | read only |
 | `DistributionRestriction` | yes | yes | yes | - | forced tenant | INSERT: DistributionService.create; POST /admin/distribution/restrictions; restrict a hotel or supplier for an agency / UPDATE: DistributionService.retire; POST /admin/distribution/restrictions/:restrictionId/retire; retire a restriction |
@@ -57,6 +63,8 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
+| `RatePlanGuestPrice` | yes | - | - | - | forced tenant | per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path |
+| `RatePlanPromotion` | yes | - | - | - | forced tenant | plan promotions (ADR 0058); search prices from them, authoring is a privileged supply path |
 | `Role` | yes | - | - | - | forced tenant | read only |
 | `RolePermission` | yes | - | - | - | forced tenant | read only |
 | `RoomAmenity` | yes | yes | cols (3) | yes | forced tenant | INSERT: HotelRoomsService.replaceAmenities; POST /admin/hotels/:hotelId/rooms, PATCH /admin/hotels/:hotelId/rooms/:roomId; record a room amenity / UPDATE (fee_type, updated_by_id, updated_at): HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; change an amenity fee type (upsert); the room it belongs to cannot be reassigned / DELETE: HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; remove an amenity from a room |
@@ -80,6 +88,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
 - `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
 - `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
+- `BookingEmail`: booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it
 - `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
 - `BookingFinanceEvent`: booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)
 - `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
@@ -92,7 +101,11 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
+- `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
+- `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
+- `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
 - `Contract`: supply authoring
+- `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update
 - `FundingReceipt`: finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)
@@ -109,6 +122,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `PlatformRoleAssignment`: platform administration
 - `PlatformRolePermission`: platform administration
 - `RatePlan`: supply authoring and pool membership/release
+- `RatePlanGuestPrice`: supply authoring (guest price lines)
+- `RatePlanPromotion`: supply authoring (promotions)
 - `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
 - `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
 - `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant

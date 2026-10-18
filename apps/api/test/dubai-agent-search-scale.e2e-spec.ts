@@ -9,6 +9,7 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
 import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 const prisma = new PrismaClient()
 jest.setTimeout(180000)
@@ -279,7 +280,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     const otherContract = await otherAdmin.post('/api/v1/supply/contracts').send({
       supplierId: otherSupplierId, supplierHotelMappingId: otherMapping.body.data.id, code: `${suffix}-other-C`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
-    await otherAdmin.patch(`/api/v1/supply/contracts/${otherContract.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, otherContract.body.data.id, 'ACTIVE')
     const otherPlan = await otherAdmin.post('/api/v1/supply/rate-plans').send({
       contractId: otherContract.body.data.id, roomTypeId: otherRoom.body.data.id, boardBasisId: otherBoard.body.data.id,
       code: `${suffix}-other-FLEX`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
@@ -329,7 +330,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     const contract = await admin.post('/api/v1/supply/contracts').send({
       supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${input.key}-C`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
-    await admin.patch(`/api/v1/supply/contracts/${contract.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contract.body.data.id, 'ACTIVE')
     const plan = await admin.post('/api/v1/supply/rate-plans').send({
       contractId: contract.body.data.id, roomTypeId: room.body.data.id, boardBasisId: input.boardId, code: `${suffix}-${input.key}-FLEX`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: input.minStay ?? 1, releaseDays: input.releaseDays ?? 0,
@@ -355,14 +356,14 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     const contract = await admin.post('/api/v1/supply/contracts').send({
       supplierId, supplierHotelMappingId: chain.mappingId, code: `${suffix}-${code}`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
-    await admin.patch(`/api/v1/supply/contracts/${contract.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contract.body.data.id, 'ACTIVE')
     const plan = await admin.post('/api/v1/supply/rate-plans').send({
       contractId: contract.body.data.id, roomTypeId: chain.roomId, boardBasisId: bbId, code: `${suffix}-${code}-P`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
     await setRatePlanStatusFixture(prisma, plan.body.data.id, 'ACTIVE')
     await writeInventory(admin, plan.body.data.id, nightMinor, 4, false)
-    await admin.patch(`/api/v1/supply/contracts/${contract.body.data.id}`).send({ status }).expect(200)
+    await setContractStatusFixture(prisma, contract.body.data.id, status)
     hiddenPlanIds.add(plan.body.data.id)
   }
 
@@ -581,7 +582,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
 
     const current = await search().expect(201)
     const h9 = current.body.data.hotels.find((hotel: { hotelId: string }) => hotel.hotelId === chains.h9.hotelId).rooms[0].rates[0]
-    await api(ownerCookie).patch(`/api/v1/supply/contracts/${chains.h9.contractId}`).send({ status: 'SUSPENDED' }).expect(200)
+    await setContractStatusFixture(prisma, chains.h9.contractId, 'SUSPENDED')
     const disabled = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
       offerId: h9.offerId, searchId: current.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: h9.sellAmountMinor,
     }).expect(409)
@@ -589,7 +590,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     const remaining = await search().expect(201)
     expect(remaining.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === chains.h1.hotelId)).toBe(true)
     expect(remaining.body.data.hotels.some((hotel: { hotelId: string }) => hotel.hotelId === chains.h9.hotelId)).toBe(false)
-    await api(ownerCookie).patch(`/api/v1/supply/contracts/${chains.h9.contractId}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, chains.h9.contractId, 'ACTIVE')
   })
 
   it('keeps a valid hotel when another hotel fails a commercial gate', async () => {

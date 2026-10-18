@@ -86,6 +86,15 @@ describe('booking documents (PostgreSQL)', () => {
   }
   const get = (bookingId: string, type: 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE', t = tenantId) => docs.get({ tenantId: t, userId, requestId: `doc-${Math.random()}`, bookingId, type })
 
+  it('F13: a voucher shows the cancellation terms frozen at booking, not the contract as it is later edited', async () => {
+    await prisma.cancellationPolicy.deleteMany({ where: { contractId } })
+    await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 7, penaltyPercent: 40 } })
+    const bookingId = await bookConfirmed(`${suffix}-frozen`)
+    await prisma.cancellationPolicy.deleteMany({ where: { contractId } })
+    await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 30, penaltyPercent: 100 } })
+    expect((await get(bookingId, 'VOUCHER')).payload).toMatchObject({ cancellationPolicy: [{ daysBeforeCheckin: 7, penalty: '40% of the booking total' }] })
+  })
+
   it('issues a voucher and invoice once, with deterministic numbers and a frozen snapshot', async () => {
     await prisma.cancellationPolicy.deleteMany({ where: { contractId } })
     await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 7, penaltyPercent: 100 } })

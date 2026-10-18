@@ -112,3 +112,16 @@ test('a hold refused for credit says so; a credit check that could not run is re
   const down = await service().hold('o1', 's1', 'AED', 5, 'k3', 't')
   assert.equal(down.ok, false); assert.equal(down.kind, 'error'); assert.match(down.message, /could not be checked/); assert.match(down.message, /Nothing was changed/)
 })
+
+test('a probable duplicate comes back with the existing references; acknowledging it is sent explicitly (ADR 0066 amendment 1)', async () => {
+  const match = { reference: 'FB-EXISTING', status: 'CONFIRMED', createdAt: '2026-10-01T10:00:00.000Z' }
+  globalThis.fetch = reply(409, { success: false, error: { code: 'DUPLICATE_BOOKING_SUSPECTED', message: 'Your agency already has a booking (FB-EXISTING).', details: [match] } })
+  assert.deepEqual(await service().prebook('h', guest, 't'), { ok: false, kind: 'conflict', message: 'Your agency already has a booking (FB-EXISTING).', duplicates: [match] })
+  // Any other conflict stays a plain conflict.
+  globalThis.fetch = reply(409, { success: false, error: { code: 'CONFLICT', message: 'Inventory hold is unavailable', details: [] } })
+  assert.equal((await service().prebook('h', guest, 't')).duplicates, undefined)
+  let body
+  globalThis.fetch = async (_url, init) => { body = JSON.parse(init.body); return new Response(JSON.stringify({ success: true, data: { status: 'prebooked', bookingId: 'b', bookingReference: 'FB-2' } }), { status: 201 }) }
+  await service().prebook('h', { ...guest, acknowledgeDuplicate: true, specialRequests: { codes: [], arrivalTime: '22:30' } }, 't')
+  assert.equal(body.acknowledgeDuplicate, true); assert.deepEqual(body.specialRequests, { codes: [], arrivalTime: '22:30' })
+})

@@ -1,3 +1,4 @@
+import { readSpecialRequests, type StoredSpecialRequests } from '../agent/special-requests'
 import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
@@ -32,6 +33,9 @@ const day = (d: Date | null | undefined): string | null => (d ? d.toISOString().
  * degrade explicitly: a name that cannot be read is null, and unreadable reconciliation evidence is `attention: null`, never "no flags".
  * Scope is applied here from the authenticated access (tenant, and agency for agency-scoped callers), never from a query parameter.
  */
+const maskRequests = (requests: StoredSpecialRequests | null, canViewPii: boolean): StoredSpecialRequests | null =>
+  !requests ? null : canViewPii || !requests.note ? requests : { ...requests, note: '••••' }
+
 @Injectable()
 export class OperationsBookingsService {
   /** Replaceable in tests so every date rule is deterministic. */
@@ -44,7 +48,7 @@ export class OperationsBookingsService {
     const filter = this.query.parse(rawQuery, access)
     const now = this.clock()
     const { where, orderBy } = await this.query.select(tenantId, access, filter, now)
-    const include = { rooms: { orderBy: { position: 'asc' as const }, take: 1 }, guests: { where: { isLead: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } }
+    const include = { rooms: { orderBy: { position: 'asc' as const } }, guests: { where: { isLead: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } }
 
     let rows: CoreRow[]; let total: number; let scanCapped = false
     let attention: Map<string, BookingAttention[]> | null = null
@@ -92,6 +96,8 @@ export class OperationsBookingsService {
     const hotel = names.hotels.get(b.hotelId)
     const room = b.rooms[0]
     const lead = b.guests[0]
+    const snapshot = b.searchSnapshot && typeof b.searchSnapshot === 'object' && !Array.isArray(b.searchSnapshot) ? b.searchSnapshot : {}
+    const ratePlanId = typeof snapshot.ratePlanId === 'string' && REFERENCE_PARAM.test(snapshot.ratePlanId) ? snapshot.ratePlanId : null
     const netKnown = access.canViewNet && b.netMinor !== null
     return {
       id: b.id, reference: b.reference, status: b.status, supplierStatus: b.supplierStatus,
@@ -102,7 +108,7 @@ export class OperationsBookingsService {
       guests: room ? { adults: room.adults * room.quantity, children: room.children * room.quantity } : null,
       hotel: { id: b.hotelId, name: hotel?.name ?? null, city: hotel?.city ?? null, timeZone: hotel?.timeZone ?? null },
       room: room ? { name: room.roomName, board: room.boardCode, quantity: room.quantity } : null,
-      checkIn: day(b.checkIn), checkOut: day(b.checkOut), nights: b.nights, createdAt: b.createdAt.toISOString(), cancelDeadline: iso(b.cancelDeadline),
+      checkIn: day(b.checkIn), checkOut: day(b.checkOut), nights: b.nights, ratePlanId, roomNights: b.nights === null || b.rooms.length === 0 ? null : b.nights * b.rooms.reduce((sum, r) => sum + r.quantity, 0), createdAt: b.createdAt.toISOString(), cancelDeadline: iso(b.cancelDeadline),
       currency: b.currency, sellMinor: b.totalMinor.toString(),
       netMinor: netKnown ? b.netMinor!.toString() : null,
       marginMinor: netKnown ? (b.totalMinor - b.netMinor!).toString() : null,
@@ -148,7 +154,8 @@ export class OperationsBookingsService {
     const { attention: _a, leadGuest: _l, guests: _g, room: _r, ...rest } = row
     return {
       access,
-      booking: { ...rest, hotelAddress: hotel?.address ?? null, specialRequests: null },
+      // ADR 0066: request codes are operational facts; the free-text note may carry personal data, so it follows the PII permission.
+      booking: { ...rest, hotelAddress: hotel?.address ?? null, specialRequests: maskRequests(readSpecialRequests(b.specialRequests), access.canViewPii) },
       rooms, guests,
       pricing: {
         currency: b.currency, sellMinor: b.totalMinor.toString(),

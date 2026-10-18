@@ -66,7 +66,7 @@ export class HotelQuickUpdateService {
     })
     const plans = new Map<string, PlanInfo>(); const refs = new Map<string, QuickUpdatePlanRef>()
     for (const p of found) {
-      plans.set(p.id, { id: p.id, status: p.status, currency: p.currency, occupancy: p.occupancy, contractFrom: day(p.contract.validFrom), contractTo: day(p.contract.validTo), poolId: p.inventoryPoolId })
+      plans.set(p.id, { id: p.id, status: p.status, currency: p.currency, occupancy: p.occupancy, contractFrom: day(p.contract.validFrom), contractTo: day(p.contract.validTo), poolId: p.inventoryPoolId, derived: p.derivedFromId !== null })
       refs.set(p.id, { id: p.id, code: p.code, roomName: p.roomType.name, boardCode: p.boardBasis.code.trim(), contractCode: p.contract.code, supplierName: p.contract.supplier.displayName, currency: p.currency, occupancy: p.occupancy, status: p.status })
     }
     const dates = [...new Set(value.ranges.flatMap((r) => [r.from, r.to]))].sort()

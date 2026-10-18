@@ -60,6 +60,14 @@ describe('auth HTTP integration', () => {
     await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', cookie).expect(401);
     await request(app.getHttpServer()).post('/api/v1/auth/logout').set('Origin', 'http://localhost:3001').set('Cookie', cookie).expect(200);
   });
+  it('throttles repeated failed sign-ins with 429 and Retry-After, even for the right password (CTO audit F08)', async () => {
+    const attempt = (password: string) => request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email: 'target@example.test', password });
+    for (let i = 0; i < 5; i++) await attempt('wrong-password').expect(401);
+    const blocked = await attempt('correct-password').expect(429);
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+    expect(blocked.headers['set-cookie']).toBeUndefined();
+    await login().expect(200); // a different account from the same address is unaffected
+  });
   it('rejects missing, forged and malformed cookies', async () => {
     await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
     await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', 'fbeds_session=forged').expect(401);

@@ -10,6 +10,7 @@ const RELEASE_SCRIPT = "if redis.call('get', KEYS[1]) == ARGV[1] then return red
 export class RedisCacheAdapter implements CachePort, CoordinationPort {
   private readonly url: URL
   private readonly timeoutMs: number
+  private current: RedisConnection | null = null
 
   constructor(redisUrl: string, timeoutMs = 1_000) {
     this.url = new URL(redisUrl)
@@ -49,69 +50,122 @@ export class RedisCacheAdapter implements CachePort, CoordinationPort {
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error('A bounded positive Redis TTL is required')
   }
 
+  /** Drops the shared connection. In-flight commands are rejected; the next command reconnects. */
+  close(): void {
+    const connection = this.current
+    this.current = null
+    connection?.fail(new Error('Redis adapter closed'))
+  }
+
   private async command(parts: string[]): Promise<RedisReply> {
-    const socket = await this.open()
-    try {
+    const connection = await this.connection()
+    return connection.send(parts)
+  }
+
+  /**
+   * One authenticated connection is shared by all callers and commands are pipelined on it. Reconnecting per command cost a TCP/TLS
+   * handshake plus AUTH and SELECT round trips, which dominated cache latency. A timeout or protocol fault destroys the connection
+   * because reply order can no longer be trusted; the next command opens a fresh one.
+   */
+  private connection(): Promise<RedisConnection> {
+    if (this.current) return this.current.ready
+    const connection = new RedisConnection(this.url, this.timeoutMs)
+    this.current = connection
+    connection.ready.catch(() => { if (this.current === connection) this.current = null })
+    connection.onClosed = () => { if (this.current === connection) this.current = null }
+    return connection.ready
+  }
+}
+
+interface PendingReply { resolve: (value: RedisReply) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
+type ParsedReply = { value: RedisReply; bytes: number } | { error: string; bytes: number }
+
+class RedisConnection {
+  readonly ready: Promise<RedisConnection>
+  onClosed: () => void = () => undefined
+  private socket: Socket | TLSSocket | null = null
+  private buffer: Buffer = Buffer.alloc(0)
+  private readonly pending: PendingReply[] = []
+  private dead: Error | null = null
+
+  constructor(private readonly url: URL, private readonly timeoutMs: number) {
+    this.ready = this.open().then(async () => {
       if (this.url.username || this.url.password) {
         const auth = this.url.username
           ? ['AUTH', decodeURIComponent(this.url.username), decodeURIComponent(this.url.password)]
           : ['AUTH', decodeURIComponent(this.url.password)]
-        const authenticated = await this.exchange(socket, auth)
-        if (authenticated !== 'OK') throw new Error('Redis authentication failed')
+        if (await this.send(auth) !== 'OK') throw new Error('Redis authentication failed')
       }
       const db = this.url.pathname.replace(/^\//, '')
-      if (db && db !== '0') {
-        const selected = await this.exchange(socket, ['SELECT', db])
-        if (selected !== 'OK') throw new Error('Redis database selection failed')
-      }
-      return await this.exchange(socket, parts)
-    } finally {
-      socket.destroy()
-    }
-  }
-
-  private open(): Promise<Socket | TLSSocket> {
-    const port = Number(this.url.port || 6379)
-    const host = this.url.hostname
-    return new Promise((resolve, reject) => {
-      const secure = this.url.protocol === 'rediss:'
-      const socket = secure
-        ? connectTls({ host, port, servername: host })
-        : connectTcp({ host, port })
-      const timer = setTimeout(() => socket.destroy(new Error('Redis connection timeout')), this.timeoutMs)
-      socket.once(secure ? 'secureConnect' : 'connect', () => { clearTimeout(timer); resolve(socket) })
-      socket.once('error', error => { clearTimeout(timer); reject(error) })
+      if (db && db !== '0' && await this.send(['SELECT', db]) !== 'OK') throw new Error('Redis database selection failed')
+      return this
+    }).catch((error: unknown) => {
+      const failure = error instanceof Error ? error : new Error('Redis connection failed')
+      this.fail(failure)
+      throw failure
     })
   }
 
-  private exchange(socket: Socket | TLSSocket, parts: string[]): Promise<RedisReply> {
+  send(parts: string[]): Promise<RedisReply> {
+    const socket = this.socket
+    if (this.dead || !socket) return Promise.reject(this.dead ?? new Error('Redis connection is not open'))
     const payload = `*${parts.length}\r\n${parts.map(part => `$${Buffer.byteLength(part)}\r\n${part}\r\n`).join('')}`
     return new Promise((resolve, reject) => {
-      let buffer = Buffer.alloc(0)
-      const timer = setTimeout(() => finish(new Error('Redis command timeout')), this.timeoutMs)
-      const finish = (error?: Error, value?: RedisReply) => {
-        clearTimeout(timer)
-        socket.off('data', onData)
-        socket.off('error', onError)
-        error ? reject(error) : resolve(value ?? null)
-      }
-      const onError = (error: Error) => finish(error)
-      const onData = (chunk: Buffer) => {
-        buffer = Buffer.concat([buffer, chunk])
-        try {
-          const parsed = this.parse(buffer)
-          if (parsed) finish(undefined, parsed.value)
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error('Invalid Redis response'))
-        }
-      }
-      socket.on('data', onData)
-      socket.once('error', onError)
+      const timer = setTimeout(() => this.fail(new Error('Redis command timeout')), this.timeoutMs)
+      this.pending.push({ resolve, reject, timer })
       socket.write(payload)
     })
   }
 
-  private parse(buffer: Buffer): { value: RedisReply; bytes: number } | null {
+  fail(error: Error): void {
+    if (this.dead) return
+    this.dead = error
+    this.socket?.destroy()
+    for (const entry of this.pending.splice(0)) { clearTimeout(entry.timer); entry.reject(error) }
+    this.onClosed()
+  }
+
+  private open(): Promise<void> {
+    const port = Number(this.url.port || 6379)
+    const host = this.url.hostname
+    return new Promise((resolve, reject) => {
+      const secure = this.url.protocol === 'rediss:'
+      const socket = secure ? connectTls({ host, port, servername: host }) : connectTcp({ host, port })
+      const timer = setTimeout(() => socket.destroy(new Error('Redis connection timeout')), this.timeoutMs)
+      socket.once(secure ? 'secureConnect' : 'connect', () => {
+        clearTimeout(timer)
+        socket.setNoDelay(true)
+        // An idle cache connection must not keep the process alive.
+        socket.unref()
+        this.socket = socket
+        socket.on('data', chunk => this.onData(chunk))
+        socket.on('error', error => this.fail(error))
+        socket.on('close', () => this.fail(new Error('Redis connection closed')))
+        resolve()
+      })
+      socket.once('error', error => { clearTimeout(timer); reject(error) })
+    })
+  }
+
+  private onData(chunk: Buffer): void {
+    this.buffer = Buffer.concat([this.buffer, chunk])
+    try {
+      for (;;) {
+        const parsed = this.parse(this.buffer)
+        if (!parsed) return
+        this.buffer = this.buffer.subarray(parsed.bytes)
+        const entry = this.pending.shift()
+        if (!entry) throw new Error('Unexpected Redis reply')
+        clearTimeout(entry.timer)
+        if ('error' in parsed) entry.reject(new Error(`Redis command rejected: ${parsed.error}`))
+        else entry.resolve(parsed.value)
+      }
+    } catch (error) {
+      this.fail(error instanceof Error ? error : new Error('Invalid Redis response'))
+    }
+  }
+
+  private parse(buffer: Buffer): ParsedReply | null {
     if (!buffer.length) return null
     const lineEnd = buffer.indexOf('\r\n')
     if (lineEnd < 0) return null
@@ -119,7 +173,7 @@ export class RedisCacheAdapter implements CachePort, CoordinationPort {
     const line = buffer.subarray(1, lineEnd).toString('utf8')
     if (prefix === '+') return { value: line, bytes: lineEnd + 2 }
     if (prefix === ':') return { value: Number(line), bytes: lineEnd + 2 }
-    if (prefix === '-') throw new Error(`Redis command rejected: ${line.split(' ')[0]}`)
+    if (prefix === '-') return { error: line.split(' ')[0], bytes: lineEnd + 2 }
     if (prefix === '$') {
       const length = Number(line)
       if (length === -1) return { value: null, bytes: lineEnd + 2 }

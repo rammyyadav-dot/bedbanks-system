@@ -15,7 +15,7 @@ test('keeps the approved entrance copy and verified contact email', () => {
   assert.doesNotMatch(marketplaceHome.title, /global/i)
   assert.doesNotMatch(marketplaceHome.supporting, /verified availability/i)
   assert.equal(marketplaceHome.currencyCode, 'AED')
-  assert.equal(marketplaceHome.searchCta, 'Search Hotels')
+  assert.equal(marketplaceHome.searchCta, 'Search')
   assert.equal(marketplaceHome.destinationPlaceholder, 'City or destination')
   assert.match(marketplaceHome.advancedNote, /stay total/)
   assert.equal(editorialPages.access.summary.includes('does not create an account'), true)

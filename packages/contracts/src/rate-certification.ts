@@ -180,6 +180,8 @@ export interface SimulateRequest {
   checkOut: string;
   adults: number;
   children?: number;
+  /** One age (0-17) per child; needed to price a rate plan that has child price lines. */
+  childAges?: number[];
   rooms?: number;
 }
 
@@ -187,6 +189,10 @@ export interface SimulatedNight {
   date: string;
   /** Stored amount in minor units, and what it means. */
   rateMinor: string | null;
+  /** Child and extra-adult lines for this night, added to the net before the markup (ADR 0057, S6). Null when the plan has none or the party adds nothing. */
+  guestMinor?: string | null;
+  /** What the plan's promotion took off this night's net before the markup (ADR 0058). Null when none applied. */
+  promotionMinor?: string | null;
   basis: 'NET' | 'SELL' | null;
   markupBasisPoints: number | null;
   markupMinor: string | null;
@@ -210,6 +216,8 @@ export interface SimulationResult {
   /** True when the evaluator total equals the independent per-night recomputation, or the stay is not eligible. */
   reconciles: boolean;
   rooms: number;
+  /** The one promotion that priced the stay, with its saving per room on the net (ADR 0058). Null when none applied. */
+  promotion?: { name: string; kind: string; savingMinor: string } | null;
   generatedAt: string;
 }
 

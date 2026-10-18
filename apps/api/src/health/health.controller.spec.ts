@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { HealthController, classifyReadiness } from './health.controller';
 import { PrismaService } from '../database/prisma.service';
+import { beginDraining, resetDrainingForTests } from '../common/lifecycle';
 
 describe('HealthController', () => {
   let controller: HealthController;
@@ -117,5 +118,16 @@ describe('HealthController', () => {
     expect(result.readiness).toBe('dependency_unavailable');
     expect(JSON.stringify(result)).not.toContain('DATABASE_URL');
     await expect(degraded.ready()).rejects.toThrow('A required dependency is not ready');
+  });
+
+  describe('shutdown drain', () => {
+    afterEach(() => resetDrainingForTests());
+
+    it('readiness fails with 503 once draining while liveness stays ok', async () => {
+      await expect(controller.ready()).resolves.toBeDefined();
+      beginDraining();
+      await expect(controller.ready()).rejects.toThrow('Shutting down');
+      await expect(controller.check()).resolves.toMatchObject({ status: 'ok' });
+    });
   });
 });

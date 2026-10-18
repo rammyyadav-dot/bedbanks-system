@@ -244,6 +244,18 @@ test('governance slices and pages read their own summary endpoints and do no ari
   assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', 'access-review', 'page.tsx'), 'utf8'), /password|passwordHash/i, 'no credential material is ever shown')
 })
 
+test('compliance evidence page is read-only, gated by audit.read, and never shows a payload', () => {
+  const src = readFileSync(join(root, 'app', '(dashboard)', 'compliance', 'page.tsx'), 'utf8')
+  for (const fn of ['getComplianceSummary', 'getComplianceRecords']) assert.match(src, new RegExp(fn))
+  assert.match(src, /OpsState/); assert.match(src, /state === 'unavailable'/, 'an unreadable export section is shown as unavailable, never zero')
+  assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed|\.reduce\(|method: 'POST'|\.payload\b/, 'no arithmetic, no mutation and no payload in the browser')
+  const panel = readFileSync(join(root, 'components', 'compliance', 'ComplianceReportPanel.tsx'), 'utf8')
+  assert.match(panel, /downloadComplianceReport/); assert.match(src, /<ComplianceReportPanel \/>/)
+  assert.doesNotMatch(panel, /Math\.|toFixed|\.reduce\(|createHash|sha256\(|method: 'POST'/, 'the report is built and attested by the API; the browser only saves the file')
+  const item = flatNav.find((i) => i.href === '/compliance')
+  assert.equal(item?.requires, 'audit.read')
+})
+
 test('markup page manages rules only: the API prices, the browser does no pricing arithmetic', () => {
   const page = readFileSync(join(root, 'app', '(dashboard)', 'commercial', 'markups', 'page.tsx'), 'utf8')
   assert.match(page, /getMarkupRules/); assert.match(page, /OpsState/)
@@ -314,4 +326,29 @@ test('breadcrumbs: a route that is itself a navigation entry has no duplicate tr
   assert.deepEqual(breadcrumbTrail('/hotels/abc123'), { label: 'Hotels', detail: 'abc123' })
   assert.deepEqual(breadcrumbTrail('/hotels/new'), { label: 'Hotels', detail: 'new' })
   assert.deepEqual(breadcrumbTrail(null), { label: 'Dashboard', detail: null })
+})
+
+import { isAllowed, loadingCapabilities } from './auth/capability-policy'
+test('capability policy fails closed while loading, on error, and across tenants', () => {
+  assert.equal(isAllowed(loadingCapabilities('t1'), 't1', 'supply.rates.manage'), false)
+  assert.equal(isAllowed({ status: 'error', tenantId: 't1', permissions: new Set() }, 't1', 'supply.rates.manage'), false)
+  const ready = { status: 'ready' as const, tenantId: 't1', permissions: new Set(['supply.rates.manage']) }
+  assert.equal(isAllowed(ready, 't1', 'supply.rates.manage'), true)
+  assert.equal(isAllowed(ready, 't1', 'supply.rates.read'), false)
+  assert.equal(isAllowed(ready, 't2', 'supply.rates.manage'), false)
+  assert.equal(isAllowed(ready, null, 'supply.rates.manage'), false)
+})
+
+import { requiredPermissionFor, resolveRouteAccess } from './auth/route-access'
+test('route guard resolves the permission from the catalogue and fails closed', () => {
+  const gated = '/rates/plans'
+  const required = requiredPermissionFor(gated)
+  assert.ok(required, 'rate plans route declares a permission')
+  assert.equal(requiredPermissionFor('/rates/plans/abc'), required)
+  assert.equal(requiredPermissionFor('/not-in-nav'), null)
+  assert.equal(resolveRouteAccess('/not-in-nav', 'loading', () => false), 'allow')
+  assert.equal(resolveRouteAccess(gated, 'loading', () => true), 'checking')
+  assert.equal(resolveRouteAccess(gated, 'error', () => true), 'unavailable')
+  assert.equal(resolveRouteAccess(gated, 'ready', () => false), 'denied')
+  assert.equal(resolveRouteAccess(gated, 'ready', () => true), 'allow')
 })

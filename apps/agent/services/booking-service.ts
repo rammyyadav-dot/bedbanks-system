@@ -1,17 +1,22 @@
 import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
+import { DUPLICATE_BOOKING_SUSPECTED, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts'
+import { duplicateMatches } from '../lib/checkout'
 
 /**
  * Typed client for the transactional booking API. Every call sends the active tenant header (validated server-side)
  * and the session cookie; none of it fabricates data: a failed call yields an explicit outcome the UI must show.
  */
-export type BookingFailure = { ok: false; kind: 'unavailable' | 'auth' | 'denied' | 'not_found' | 'conflict' | 'gone' | 'invalid' | 'error'; message: string }
+export type BookingFailure = { ok: false; kind: 'unavailable' | 'auth' | 'denied' | 'not_found' | 'conflict' | 'gone' | 'invalid' | 'error'; message: string
+  /** Set when the prebook was refused as a probable duplicate: the existing bookings (references only). */
+  duplicates?: DuplicateBookingMatch[] }
 export type BookingResult<T> = { ok: true; data: T } | BookingFailure
 
 export type HoldOutcome = { status: string; holdId?: string; expiresAt?: string; currency?: string; sellAmountMinor?: number }
 export type PrebookData = { status: 'prebooked'; bookingId: string; bookingReference: string }
-export type ConfirmData = { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean }
+/** ADR 0066: documents issued at confirmation (null when issuing failed) and the confirmation email's true state. Older servers omit both. */
+export type ConfirmData = { bookingId: string; reference: string; status: 'CONFIRMED'; alreadyConfirmed: boolean; documents?: { voucher: string | null; invoice: string | null }; email?: ConfirmationEmailState }
 export type BookingSummary = { id: string; reference: string; status: string; currency: string; totalMinor: string; createdAt: string; hotelName: string | null; checkIn: string | null; checkOut: string | null; rooms: number | null; leadGuest: string | null }
 export type BookingTimelineEvent = { type: 'recorded' | 'cancelled'; at: string }
 export type BookingPage = { items: BookingSummary[]; total: number; limit: number; offset: number }
@@ -26,7 +31,9 @@ export type BookingDetail = BookingSummary & {
 export type CancellationQuote = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; checkIn: string; evaluatedAt: string }
 export type CancellationData = CancellationQuote & { status: 'CANCELLED'; alreadyCancelled: boolean; cancellationId: string }
 export type DocumentType = 'voucher' | 'invoice' | 'credit-note'
-export type GuestInput = { adults: number; children: number; childAges: number[]; firstName: string; lastName: string }
+export type GuestInput = { adults: number; children: number; childAges: number[]; firstName: string; lastName: string
+  /** ADR 0066 checkout details. */
+  guests?: CheckoutGuest[]; agentRef?: string; specialRequests?: CheckoutSpecialRequests; termsAccepted?: boolean; acknowledgeDuplicate?: boolean }
 
 const MINOR = /^-?\d+$/
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -65,6 +72,10 @@ export class BookingService {
     const credit = result.status === 403 || result.status === 503 ? creditRefusal(result.body) : null
     if (credit) return { ok: false, kind: result.status === 403 ? 'denied' : 'error', message: credit.message }
     const message = isRecord(result.body) && isRecord(result.body.error) && typeof result.body.error.message === 'string' ? result.body.error.message : ''
+    if (result.status === 409 && isRecord(result.body) && isRecord(result.body.error) && result.body.error.code === DUPLICATE_BOOKING_SUSPECTED) {
+      const duplicates = duplicateMatches(result.body.error.details)
+      if (duplicates.length) return { ok: false, kind: 'conflict', message: message || 'A booking for this guest, hotel and dates already exists.', duplicates }
+    }
     return failureFor(result.status, message)
   }
 
@@ -92,13 +103,16 @@ export class BookingService {
   }
 
   async prebook(holdId: string, guest: GuestInput, tenantId: string): Promise<BookingResult<PrebookData>> {
-    const body = { inventoryHoldId: holdId, idempotencyKey: `prebook-${holdId}`, adults: guest.adults, children: guest.children, childAges: guest.childAges, leadGuest: { firstName: guest.firstName.trim(), lastName: guest.lastName.trim() } }
+    const body = { inventoryHoldId: holdId, idempotencyKey: `prebook-${holdId}`, adults: guest.adults, children: guest.children, childAges: guest.childAges, leadGuest: { firstName: guest.firstName.trim(), lastName: guest.lastName.trim() },
+      ...(guest.guests ? { guests: guest.guests } : {}), ...(guest.agentRef?.trim() ? { agentRef: guest.agentRef.trim() } : {}),
+      ...(guest.specialRequests && (guest.specialRequests.codes.length || guest.specialRequests.note?.trim() || guest.specialRequests.arrivalTime) ? { specialRequests: guest.specialRequests } : {}),
+      ...(guest.termsAccepted !== undefined ? { termsAccepted: guest.termsAccepted } : {}), ...(guest.acknowledgeDuplicate ? { acknowledgeDuplicate: true } : {}) }
     return this.parse(await this.call('/agent/prebook', tenantId, { method: 'POST', body: JSON.stringify(body) }),
       (data): data is PrebookData => isRecord(data) && data.status === 'prebooked' && typeof data.bookingId === 'string' && typeof data.bookingReference === 'string')
   }
 
-  async confirm(bookingId: string, tenantId: string): Promise<BookingResult<ConfirmData>> {
-    return this.parse(await this.call('/agent/bookings', tenantId, { method: 'POST', body: JSON.stringify({ bookingId }) }),
+  async confirm(bookingId: string, tenantId: string, ccEmails: string[] = []): Promise<BookingResult<ConfirmData>> {
+    return this.parse(await this.call('/agent/bookings', tenantId, { method: 'POST', body: JSON.stringify({ bookingId, ...(ccEmails.length ? { ccEmails } : {}) }) }),
       (data): data is ConfirmData => isRecord(data) && data.status === 'CONFIRMED' && typeof data.bookingId === 'string' && typeof data.reference === 'string')
   }
 

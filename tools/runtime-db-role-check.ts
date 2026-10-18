@@ -5,7 +5,7 @@ import { join, relative } from 'node:path'
 import { checkRuntimeUrl, describeDatabaseUrl, forbiddenUserReason } from '../apps/api/src/database/runtime-db-identity'
 
 /** Variables a deployed service reads at runtime. Their literal values must be the restricted logins. */
-export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'HOLD_EXPIRY_DATABASE_URL', 'LEDGER_AUDIT_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL'] as const
+export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'HOLD_EXPIRY_DATABASE_URL', 'LEDGER_AUDIT_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL', 'COMPLIANCE_DATABASE_URL'] as const
 /** Variables that carry owner or administrator credentials. They belong to release jobs and operators only, never to a service definition. */
 export const OWNER_ONLY_VARS = ['MIGRATION_DATABASE_URL', 'PROVISION_DATABASE_URL', 'OWNER_DATABASE_URL', 'DIRECT_URL', 'DATABASE_URL_UNPOOLED'] as const
 
@@ -31,6 +31,7 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/hold-expiry-ops.cli.ts', purpose: 'operator: owner client plus restricted verification client', url: 'PROVISION_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/strict-role-rollout.cli.ts', purpose: 'operator: rollout status (owner) and verify (runtime login)', url: 'PROVISION_DATABASE_URL / API_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/inventory/pool-night-authoring.cli.ts', purpose: 'operator: pool night authoring', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/compliance/compliance-ops.cli.ts', purpose: 'scheduled compliance export/verify AS the restricted compliance login (identity-checked), plus owner-run provisioning of that login (ADR 0067)', url: 'COMPLIANCE_DATABASE_URL / PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/prisma/seed.ts', purpose: 'developer seed (never run in a deployment)', url: 'DATABASE_URL', runtime: false },
 ]
 
@@ -73,9 +74,22 @@ export function checkConfigText(file: string, text: string, opts: { disposable: 
   return violations
 }
 
+/**
+ * ADR 0067: every `new PrismaService(...)` opens its own connection pool, so runtime code may construct one only in these process-wide holders
+ * (Nest singletons that create the client once, lazily). Anything else injects PrismaService or one of these holders instead.
+ */
+export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }> = [
+  { file: 'apps/api/src/booking-ops/booking-ops-database.ts', url: 'BOOKING_OPS_DATABASE_URL' },
+  { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
+  { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
+  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL' },
+]
+
 export function checkClientSource(file: string, text: string): string[] {
-  if (!/new\s+PrismaClient\s*\(|extends\s+PrismaClient\b/.test(text)) return []
-  return APPROVED_CLIENTS.some((c) => c.file === file) ? [] : [`${file}: constructs a PrismaClient that is not in the audited client list (tools/runtime-db-role-check.ts). Route it through PrismaService or add it with its purpose, URL source and role.`]
+  const violations: string[] = []
+  if (/new\s+PrismaClient\s*\(|extends\s+PrismaClient\b/.test(text) && !APPROVED_CLIENTS.some((c) => c.file === file)) violations.push(`${file}: constructs a PrismaClient that is not in the audited client list (tools/runtime-db-role-check.ts). Route it through PrismaService or add it with its purpose, URL source and role.`)
+  if (/new\s+PrismaService\s*\(/.test(text) && !APPROVED_POOL_HOLDERS.some((h) => h.file === file)) violations.push(`${file}: constructs a PrismaService, which opens a new connection pool. Inject PrismaService (or an existing role connection) instead; see ADR 0067.`)
+  return violations
 }
 
 export function scanRepository(root: string): { violations: string[]; clients: typeof APPROVED_CLIENTS; checked: number } {
@@ -112,5 +126,5 @@ export const describeForbidden = forbiddenUserReason
 if (process.argv[1] && /runtime-db-role-check\.ts$/.test(process.argv[1])) {
   const { violations, clients, checked } = scanRepository(process.cwd())
   if (violations.length) { console.error(violations.join('\n')); process.exit(1) }
-  console.log(`Runtime DB role check passed: ${checked} file(s) scanned; ${clients.length} audited database client site(s) (${clients.filter((c) => c.runtime).length} runtime).`)
+  console.log(`Runtime DB role check passed: ${checked} file(s) scanned; ${clients.length} audited database client site(s) (${clients.filter((c) => c.runtime).length} runtime); ${APPROVED_POOL_HOLDERS.length} connection pool holder(s).`)
 }

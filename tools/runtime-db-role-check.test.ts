@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { APPROVED_CLIENTS, checkClientSource, checkConfigText, scanRepository } from './runtime-db-role-check'
+import { APPROVED_CLIENTS, APPROVED_POOL_HOLDERS, checkClientSource, checkConfigText, scanRepository } from './runtime-db-role-check'
 
 const SECRET = 'S3cr3t-Pass_word'
 const service = { disposable: false, serviceDefinition: true }
@@ -35,7 +35,13 @@ test('an unlisted PrismaClient is a violation; the audited sites are not', () =>
   assert.equal(checkClientSource('apps/api/src/new/thing.ts', 'const p = new PrismaClient()').length, 1)
   assert.equal(checkClientSource('apps/api/src/new/thing.ts', 'class X extends PrismaClient {}').length, 1)
   assert.deepEqual(checkClientSource(APPROVED_CLIENTS[0].file, 'class X extends PrismaClient {}'), [])
-  assert.deepEqual(checkClientSource('apps/api/src/new/thing.ts', 'const p = new PrismaService()'), [])
+  assert.deepEqual(checkClientSource('apps/api/src/new/thing.ts', 'constructor(private readonly prisma: PrismaService) {}'), [])
+})
+
+test('a PrismaService constructed outside the audited pool holders is a violation (ADR 0067)', () => {
+  assert.equal(checkClientSource('apps/api/src/new/thing.ts', 'const p = new PrismaService()').length, 1)
+  assert.equal(checkClientSource('apps/api/src/new/thing.ts', 'this.db = new PrismaService({ datasourceUrl: url })').length, 1)
+  for (const holder of APPROVED_POOL_HOLDERS) assert.deepEqual(checkClientSource(holder.file, 'this.client ??= new PrismaService({ datasourceUrl: url })'), [])
 })
 
 test('scanning a repository finds an owner in render.yaml, a rogue client and a frontend prisma import', () => {

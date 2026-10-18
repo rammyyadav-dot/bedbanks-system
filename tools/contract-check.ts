@@ -11,7 +11,7 @@ for (const file of controllers) {
   const source = readFileSync(file, 'utf8');
   const controller = source.match(/@Controller\('([^']+)'\)/)?.[1];
   if (!controller) continue;
-  for (const match of source.matchAll(/@(Get|Post|Delete|Patch)\((?:'([^']*)')?\)/g)) {
+  for (const match of source.matchAll(/@(Get|Post|Put|Delete|Patch)\((?:'([^']*)')?\)/g)) {
     const path = `/${controller}${match[2] ? `/${match[2]}` : ''}`;
     if (!routeSource.includes(`'${path}'`)) missing.push(`${file.replace(`${root}/`, '')}: ${path}`);
   }

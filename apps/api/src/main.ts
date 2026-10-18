@@ -6,12 +6,23 @@ import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { beginDraining } from './common/lifecycle';
 import type { AppConfig } from './config/configuration';
 
 const logger = new Logger('Bootstrap');
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+
+  // Without this, SIGTERM kills the process immediately: in-flight bookings are cut off and the
+  // onModuleDestroy hooks (hold-expiry sweeper, supplier runner, database pool) never run.
+  app.enableShutdownHooks();
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      beginDraining();
+      logger.log(`${signal} received: reporting not-ready and draining`);
+    });
+  }
 
   const configService = app.get(ConfigService<AppConfig>);
   const apiPrefix = configService.get('api.prefix', { infer: true }) ?? 'api/v1';
@@ -55,21 +66,25 @@ async function bootstrap(): Promise<void> {
 
   // Swagger/OpenAPI (spec section 11). Chosen path: /api/docs — kept
   // outside the /api/v1 prefix so the docs URL doesn't change on every
-  // future API version bump.
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('FBEDS API')
-    .setDescription('B2B Hotel Bedbank API for wholesale hotel distribution.')
-    .setVersion('0.1.0')
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, swaggerDocument);
+  // future API version bump. Never served in production (CTO audit F09,
+  // ADR 0062): the API surface is not advertised to the public internet.
+  const docsEnabled = nodeEnv !== 'production';
+  if (docsEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('FBEDS API')
+      .setDescription('B2B Hotel Bedbank API for wholesale hotel distribution.')
+      .setVersion('0.1.0')
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, swaggerDocument);
+  }
 
   await app.listen(port, host);
 
   logger.log(`FBEDS API running in [${nodeEnv}] mode`);
   logger.log(`Listening on http://${host}:${port}/${apiPrefix}`);
   logger.log(`Health check: http://${host}:${port}/${apiPrefix}/health`);
-  logger.log(`Swagger docs: http://${host}:${port}/api/docs`);
+  if (docsEnabled) logger.log(`Swagger docs: http://${host}:${port}/api/docs`);
 }
 
 bootstrap().catch((error: unknown) => {

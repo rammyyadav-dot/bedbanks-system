@@ -83,6 +83,8 @@ jobs:
           strict-role-rollout.e2e-spec.ts
       - name: Sandbox staging strict-role acceptance (disposable PostgreSQL)
         run: pnpm --filter @bedbanks/api test:e2e -- sandbox-content-staging.e2e-spec.ts
+      - name: Tenant and database security certification (every restricted role, catalog, routes, cross-tenant, sessions, audit)
+        run: pnpm --filter @bedbanks/api test:security
       - run: pnpm --filter @bedbanks/api test:e2e
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - name: Re-certify strict login, protected columns and forced RLS after all suites
@@ -139,6 +141,56 @@ jobs:
       - run: pnpm -r --if-present lint
       - run: pnpm -r --if-present test
       - run: pnpm -r --if-present build
+
+  e2e-release-suite:
+    name: End-to-end release suite (Admin, Agent, Supplier)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bedbanks/api prisma:generate
+      - name: Build the three portals (production mode, as deployed)
+        run: |
+          pnpm --filter ./apps/agent build
+          pnpm --filter ./apps/admin build
+          pnpm --filter ./apps/supplier build
+      - run: pnpm --filter @bedbanks/e2e type-check
+      - run: pnpm --filter @bedbanks/e2e exec playwright install --with-deps chromium
+      - name: Run the suite against a disposable database, the API and the three portals
+        run: pnpm --filter @bedbanks/e2e e2e
+      - name: Upload report and service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-release-suite-report
+          path: |
+            e2e/.artifacts/report
+            e2e/.artifacts/results
+            e2e/.artifacts/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   website-production-checks:
     name: Website production checks

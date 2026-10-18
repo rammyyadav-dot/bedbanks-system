@@ -19,6 +19,7 @@ export function AgentHome({
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
   boards, propertyTypeOptions,   searching, searchFailed, tenantId, bookingEnabled, onOpenBookings, onSearch, onChange, onReplay,
+  clientMarkupBp, setClientMarkupBp,
 }: {
   userId: string
   destination: string
@@ -58,6 +59,7 @@ export function AgentHome({
   onSearch: () => void
   onChange: (action: () => void) => void
   onReplay: (search: RecentSearch) => void
+  clientMarkupBp?: number; setClientMarkupBp?: (basisPoints: number) => void
 }) {
   const [recent, setRecent] = useState<RecentSearch[]>([])
   const [showAll, setShowAll] = useState(false)
@@ -81,6 +83,7 @@ export function AgentHome({
         minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes}
         boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort}
         searching={searching} searchFailed={searchFailed} onSubmit={onSearch} onChange={onChange} tenantId={tenantId}
+        clientMarkupBp={clientMarkupBp} setClientMarkupBp={setClientMarkupBp}
       />
       <section className="market-recent" aria-label={marketplaceHome.recentTitle}>
         <div className="market-section-head"><h2>{marketplaceHome.recentTitle}</h2>{recent.length > 4 && <button type="button" className="portal-link" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show less' : 'View all'}</button>}</div>

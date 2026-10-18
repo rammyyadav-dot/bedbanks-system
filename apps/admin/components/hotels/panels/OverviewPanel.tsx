@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { Building2, Pencil } from 'lucide-react'
 import type { HotelCommercial360 } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
@@ -33,6 +34,12 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
   const recent = useOpsQuery(() => (showAudit ? getHotelAudit(data.hotel.id, { page: 1, pageSize: 5 }) : Promise.resolve(null)), [data.hotel.id, showAudit, data.hotel.updatedAt])
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      {canManage && <div className="hotel-profile-edit-action"><Link className="hotel-ui-button" href={hotelHref(data.hotel.id, 'setup')}><Pencil size={14} />Edit Profile</Link></div>}
+      <OpsState state={setup.state} onRetry={setup.reload}>{s => <section className="hotel-profile-overview" aria-label="Hotel Profile">
+        <h2><Building2 size={16} />Hotel Profile</h2><dl><div><dt>Hotel Name</dt><dd>{s.identity.name}</dd></div><div><dt>Description</dt><dd>{s.content.fullDescription || s.content.shortDescription || 'Not recorded'}</dd></div></dl>
+      </section>}</OpsState>
+      {setup.state.status === 'ready' && <details className="hotel-management-details"><summary>Full profile details</summary><HotelProfile setup={setup.state.data} canManage={canManage} /></details>}
+      <details className="hotel-management-details"><summary>Operational details &amp; history</summary>
       <div className={styles.grid}>
       <div className="workspace-panel" style={{ padding: 18 }}>
         <OpsState state={setup.state} onRetry={setup.reload}>
@@ -71,7 +78,6 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
       </div>
       </div>
       <HotelOperationalSummary data={data} />
-      {setup.state.status === 'ready' && <HotelProfile setup={setup.state.data} canManage={canManage} />}
       <div className={styles.grid}>
         <ProfileCard title="Hotel photos" hotelId={data.hotel.id} tab="images" action={canManage ? 'Manage' : 'View'}>
           <OpsState state={images.state} onRetry={images.reload}>
@@ -91,7 +97,7 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
           <p className={styles.note}>Unrecorded amenities do not mean the hotel lacks them. Room amenities are listed with each room.</p>
         </ProfileCard>
       </div>
-
+      </details>
     </div>
   )
 }
