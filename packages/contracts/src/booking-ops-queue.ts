@@ -139,6 +139,15 @@ export interface BookingOpsEvaluation {
   acknowledgedAt: string | null
 }
 
+/**
+ * What a list row shows about urgency (ADR 0039, Phase 6F). It is the operations queue's own evaluation, never a second rule: the same ruleset, SLA policy and clock decide it.
+ * Present only for callers who may see the queue (`booking.ops.view`, queue switched on). `inQueue: false` means the booking is evaluated and is not a case.
+ */
+export interface BookingUrgency { inQueue: boolean; priority: BookingOpsPriority; slaState: BookingOpsSlaState | null; primaryReason: BookingOpsReason | null }
+/** The badge a row carries: only a case that is Urgent or Critical, so the badge means the same thing everywhere and clears itself when the rule stops being true. */
+export const urgencyBadge = (u: BookingUrgency | null | undefined): 'URGENT' | 'CRITICAL' | null => (u && u.inQueue && (u.priority === 'URGENT' || u.priority === 'CRITICAL') ? u.priority : null)
+export const toUrgency = (e: Pick<BookingOpsEvaluation, 'inQueue' | 'priority' | 'slaState' | 'primaryReason'>): BookingUrgency => ({ inQueue: e.inQueue, priority: e.priority, slaState: e.slaState, primaryReason: e.primaryReason })
+
 const PENDING_LIKE: readonly BookingStatus[] = ['PENDING_SUPPLIER', 'ON_REQUEST', 'CANCEL_REQUESTED']
 const BASE_PRIORITY: Record<BookingOpsReason, BookingOpsPriority> = {
   SUPPLIER_UNKNOWN: 'URGENT', CANCELLATION_FAILED: 'URGENT', CANCEL_REQUESTED: 'HIGH', SUPPLIER_JOB_EXHAUSTED: 'HIGH', SUPPLIER_NOT_CONFIGURED: 'HIGH',

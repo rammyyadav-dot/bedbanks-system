@@ -7,7 +7,7 @@
  * caller holds `booking.view.net`. Agency-scoped callers only ever receive their own agency's bookings.
  */
 import type { BookingAction, BookingAvailableAction } from './booking-lifecycle'
-import type { BookingOperationsPanel } from './booking-ops-queue'
+import type { BookingOperationsPanel, BookingUrgency } from './booking-ops-queue'
 import type { BookingAttention, BookingOperations, BookingStatus, MinorString, SectionState } from './operations'
 
 export const BOOKING_QUICK_SEARCHES = ['needsAction', 'latest', 'checkInNext7', 'missingSupplierRef', 'deadline48h', 'failed', 'latestCancelled', 'onRequest', 'unpaid', 'noShowCandidates'] as const
@@ -132,6 +132,8 @@ export interface BookingListRow {
   amended: boolean
   /** Reconciliation flags from transaction evidence. Null when that evidence is not readable by the API database role: unknown, not "no flags". */
   attention: BookingAttention[] | null
+  /** The operations queue's verdict on this booking (Phase 6F). Absent or null when the caller cannot see the queue or it could not be evaluated: unknown, not "not urgent". */
+  urgency?: BookingUrgency | null
 }
 
 export interface BookingListPage {
@@ -145,6 +147,8 @@ export interface BookingListPage {
   applied: Array<{ key: string; label: string; value: string }>
   /** False when reconciliation flags could not be read (shown as unavailable, not as none). */
   attentionAvailable: boolean
+  /** True when every row's `urgency` was evaluated. False when the caller can see the queue but it could not be evaluated (shown as unavailable, never as none). Absent for callers who cannot see the queue. */
+  urgencyAvailable?: boolean
   /** True when the attention filter scanned the newest bookings only (the cap is part of the contract). */
   scanCapped: boolean
 }
