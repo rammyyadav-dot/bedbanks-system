@@ -84,7 +84,13 @@ describe('booking module database role (PostgreSQL)', () => {
     const someUser = (await owner.user.create({ data: { email: `bo-e04-${Date.now()}@example.test`, name: 'bo-e04' } })).id
     await asTenant(tenantA, (tx) => tx.auditEvent.createMany({ data: [{ tenantId: tenantA, userId: someUser, actorType: 'USER', action: 'booking.test', entityType: 'booking', entityId: first.id, payload: {} }] }))
     // denied: any other Booking column, deletes, updating the immutable log, writing supplier journals, reading audit
-    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { totalMinor: 1n } })))).toMatch(PD)
+    // ADR 0072: the stay, the price and the deadline are writable (an approved amendment, through one function, enforced by a source-scan test); the currency, the frozen terms and the payment are not.
+    await asTenant(tenantA, (tx) => tx.booking.updateMany({ where: { id: first.id }, data: { totalMinor: first.totalMinor, netMinor: first.netMinor, markupMinor: first.markupMinor, checkIn: first.checkIn, checkOut: first.checkOut, nights: first.nights, cancelDeadline: first.cancelDeadline } }))
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { currency: 'USD' } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { paymentStatus: 'PAID' } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { cancellationPolicy: {} } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingAmendment.updateMany({ data: { proposal: {} } })))).toMatch(PD)
+    expect(await denied(() => asTenant(tenantA, (tx) => tx.bookingAmendment.deleteMany()))).toMatch(PD)
     expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { reference: 'FB-HACK' } })))).toMatch(PD)
     expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ data: { agencyId: null } })))).toMatch(PD)
     expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.deleteMany()))).toMatch(PD)

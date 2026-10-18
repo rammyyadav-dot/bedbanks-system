@@ -78,3 +78,16 @@ test('the new filters round-trip through the URL and are validated before they a
   const parsed = q('destination=Dubai&source=MANUAL&currency=AED&amountMin=1000&amountMax=90000&opsOwner=unassigned&moneyEvent=CANCELLED&dateType=updated&from=2030-01-01')
   assert.equal(bookingQueryString(parsed), '?dateType=updated&from=2030-01-01&destination=Dubai&source=MANUAL&currency=AED&amountMin=1000&amountMax=90000&opsOwner=unassigned&moneyEvent=CANCELLED')
 })
+
+test('the Urgent badge shows only for an Urgent or Critical case, with the reason, and never when the verdict is unknown or not a case', async () => {
+  const { urgencyBadgeView } = await import('./booking-ui')
+  const u = (over: object) => ({ inQueue: true, priority: 'URGENT', slaState: 'BREACHED', primaryReason: 'SUPPLIER_UNKNOWN', ...over }) as never
+  assert.equal(urgencyBadgeView(u({}))?.text, 'Urgent')
+  assert.match(urgencyBadgeView(u({}))?.title ?? '', /Supplier answer unknown · SLA breached/)
+  assert.equal(urgencyBadgeView(u({ priority: 'CRITICAL', slaState: 'DUE_SOON' }))?.text, 'Critical')
+  assert.equal(urgencyBadgeView(u({ priority: 'HIGH' })), null)
+  assert.equal(urgencyBadgeView(u({ priority: 'NORMAL' })), null)
+  assert.equal(urgencyBadgeView(u({ inQueue: false })), null)
+  assert.equal(urgencyBadgeView(null), null)
+  assert.equal(urgencyBadgeView(undefined), null)
+})

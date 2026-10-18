@@ -4,6 +4,9 @@ on:
   pull_request:
     paths: ['apps/**', 'packages/contracts/**', 'tools/contract-check.ts']
 
+permissions:
+  contents: read
+
 jobs:
   contracts:
     runs-on: ubuntu-latest
