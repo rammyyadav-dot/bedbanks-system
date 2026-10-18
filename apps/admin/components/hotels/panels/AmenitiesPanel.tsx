@@ -1,5 +1,7 @@
 'use client'
 
+import { useUnsavedChanges } from '../useUnsavedChanges'
+
 import { useMemo, useRef, useState } from 'react'
 import type { AmenitySelection, HotelAmenitiesView } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
@@ -35,6 +37,7 @@ function AmenitiesForm({ hotelId, view, onSaved }: { hotelId: string; view: Hote
   const [busy, setBusy] = useState(false); const inFlight = useRef(false); const key = useRef<string | null>(null)
   const [error, setError] = useState<{ message: string; details: string[]; requestId: string | null } | null>(null)
   const dirty = useMemo(() => !sameAmenities(value, view.hotel), [value, view.hotel])
+  useUnsavedChanges(dirty)
   async function save() {
     if (inFlight.current || !dirty) return
     inFlight.current = true; setBusy(true); setError(null); key.current ??= crypto.randomUUID()

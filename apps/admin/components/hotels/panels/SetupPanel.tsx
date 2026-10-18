@@ -1,5 +1,7 @@
 'use client'
 
+import { useUnsavedChanges } from '../useUnsavedChanges'
+
 import { HotelLocationFields } from '../HotelLocationFields'
 
 import { useMemo, useRef, useState } from 'react'
@@ -132,6 +134,7 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
   const pendingKey = useRef<string | null>(null)
   const changes = useMemo(() => diff(initial, form, setup.contacts !== null), [initial, form, setup.contacts])
   const dirty = Object.keys(changes).length > 0
+  useUnsavedChanges(dirty)
   const set = <K extends keyof Form>(key: K, value: Form[K]) => { pendingKey.current = null; setForm((f) => ({ ...f, [key]: value })) }
   const ro = !canManage
 

@@ -36,7 +36,7 @@ function setup(overrides: { existing?: any; hold?: any; createError?: Error; age
       create: overrides.createError ? jest.fn().mockRejectedValue(overrides.createError) : jest.fn().mockResolvedValue(booking),
     },
     inventoryHold: { findFirst: jest.fn().mockResolvedValue(overrides.hold === undefined ? hold : overrides.hold) },
-    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { contract: { tenantId: 'tenant-a', supplierId: 'supplier-a' } } : overrides.plan) },
+    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
     agencyMember: { findUnique: jest.fn().mockResolvedValue(overrides.agencyId === null ? null : { agencyId: overrides.agencyId ?? 'agency-a' }) },
     roomType: { findFirst: jest.fn().mockResolvedValue({ name: 'Deluxe Sea View' }) },
     boardBasis: { findFirst: jest.fn().mockResolvedValue({ code: 'BB' }) },
@@ -55,6 +55,19 @@ describe('BookingPersistenceService', () => {
     expect(prisma.withTenant).toHaveBeenCalledTimes(1)
     expect(tx.ratePlan.findFirst).toHaveBeenCalledWith({ where: { id: 'plan-a', tenantId: 'tenant-a' }, select: { contract: { select: { tenantId: true, supplierId: true } } } })
     expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({ supplierId: 'supplier-a', supplier: 'PENDING_SUPPLIER' })
+  })
+
+  it('records supplier ownership and cancellation terms from their separate plan reads', async () => {
+    const { service, tx } = setup()
+    tx.ratePlan.findFirst
+      .mockResolvedValueOnce({ contract: { tenantId: 'tenant-a', supplierId: 'supplier-a' } })
+      .mockResolvedValueOnce({ cancellationPolicySet: null, contract: { cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 25, penaltyMinor: null, currency: null }] } })
+    await service.persistPending(command)
+    expect(tx.ratePlan.findFirst).toHaveBeenCalledTimes(2)
+    expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({
+      supplierId: 'supplier-a',
+      cancellationPolicy: { rules: [{ daysBeforeCheckin: 3, penaltyPercent: 25 }], source: 'CONTRACT_AT_BOOKING' },
+    })
   })
 
   it('refuses a command whose rate plan differs from the hold, before any ownership lookup', async () => {
@@ -130,6 +143,8 @@ describe('BookingPersistenceService', () => {
     expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({
       channel: 'PORTAL', agencyId: 'agency-a', agentUserId: 'user-a', agentRef: 'AG-REF-1', checkIn: new Date('2099-01-01T00:00:00.000Z'), checkOut: new Date('2099-01-03T00:00:00.000Z'), nights: 2,
     })
+    // Finding F13: the contract's cancellation terms are frozen onto the booking in the same transaction
+    expect(tx.booking.create.mock.calls[0][0].data.cancellationPolicy).toMatchObject({ rules: [{ daysBeforeCheckin: 7, penaltyPercent: 50 }], setName: null, source: 'CONTRACT_AT_BOOKING' })
     expect(tx.agencyMember.findUnique).toHaveBeenCalledWith({ where: { tenantId_userId: { tenantId: 'tenant-a', userId: 'user-a' } }, select: { agencyId: true } })
     expect(tx.bookingRoom.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'tenant-a', bookingId: 'booking-a', quantity: 2, roomName: 'Deluxe Sea View', boardCode: 'BB', adults: 2, children: 0, sellMinor: 125099n })
     expect(tx.bookingGuest.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'tenant-a', bookingId: 'booking-a', roomId: 'room-row-a', firstName: 'Test', lastName: 'Guest', isLead: true })

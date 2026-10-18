@@ -121,13 +121,26 @@ describe('Agent canonical search boundary', () => {
     expect(off.status).toHaveBeenCalledWith(503)
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unavailable', payload: { reason: 'booking_disabled' } }))
 
-    const tx = { prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
+    const duplicate = { reference: 'FB-EXISTING', status: 'CONFIRMED', createdAt: '2026-10-01T10:00:00.000Z' }
+    const tx = { findDuplicates: jest.fn().mockResolvedValue([]), prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
     const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService, {} as never)
     process.env.BOOKING_ENABLED = 'true'
     try {
-      await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
+      // ADR 0066: the terms must be accepted; nothing is prebooked without it.
+      await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).rejects.toMatchObject({ response: { code: 'TERMS_NOT_ACCEPTED' } })
+      expect(tx.prebook).not.toHaveBeenCalled()
+      await expect(enabled.prebook({ ...prebookBody, termsAccepted: true }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
       expect(tx.prebook).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', inventoryHoldId: 'hold-a' }))
-      await expect(enabled.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CONFIRMED' })
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.terms.accepted', entityId: 'booking-a' }))
+      // ADR 0066 amendment 1: a probable duplicate is refused with the existing reference until the agent books it anyway, which is audited.
+      tx.prebook.mockClear(); tx.findDuplicates.mockResolvedValue([duplicate])
+      await expect(enabled.prebook({ ...prebookBody, termsAccepted: true }, 'tenant-a', identity, request(), response())).rejects.toMatchObject({ status: 409, response: { code: 'DUPLICATE_BOOKING_SUSPECTED', details: [duplicate] } })
+      expect(tx.prebook).not.toHaveBeenCalled()
+      await expect(enabled.prebook({ ...prebookBody, termsAccepted: true, acknowledgeDuplicate: true }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'prebooked' })
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.duplicate.acknowledged', entityId: 'booking-a', payload: expect.objectContaining({ existingReferences: ['FB-EXISTING'] }) }))
+      tx.findDuplicates.mockResolvedValue([])
+      // Documents that cannot be issued are reported as null, never as a failed booking.
+      await expect(enabled.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CONFIRMED', documents: { voucher: null, invoice: null } })
     } finally { delete process.env.BOOKING_ENABLED }
   })
   it('keeps cancellation and its quote disabled unless BOOKING_ENABLED=true, then delegates', async () => {

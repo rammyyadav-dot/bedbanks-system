@@ -1,7 +1,7 @@
 export const routes = {
   auth: { login: '/auth/login', logout: '/auth/logout', me: '/auth/me' },
   agent: {
-    context: '/agent/context', destinations: '/agent/destinations', searchFacets: '/agent/search-facets', hotelImage: '/agent/hotels/:hotelId/images/:imageId/content', searchStatus: '/agent/search/status', search: '/agent/search', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', releaseHold: '/agent/holds/:holdId', prebook: '/agent/prebook',
+    context: '/agent/context', destinations: '/agent/destinations', searchFacets: '/agent/search-facets', hotelImage: '/agent/hotels/:hotelId/images/:imageId/content', searchStatus: '/agent/search/status', search: '/agent/search', smartSearchParse: '/agent/search/parse', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', releaseHold: '/agent/holds/:holdId', prebook: '/agent/prebook',
     bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', fundingReceipts: '/agent/funding/receipts', audit: '/agent/audit',
   },
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
@@ -60,6 +60,13 @@ export const routes = {
     verify: '/admin/funding/receipts/:receiptId/verify', clearCompliance: '/admin/funding/receipts/:receiptId/clear-compliance',
     post: '/admin/funding/receipts/:receiptId/post', reject: '/admin/funding/receipts/:receiptId/reject',
   },
+  // Supplier statement reconciliation and the dispute queue (ADR 0070). Writes need an `Idempotency-Key`-style `requestId` in the body.
+  adminFinanceReconciliation: {
+    statements: '/admin/finance/reconciliation/statements', statement: '/admin/finance/reconciliation/statements/:statementId',
+    run: '/admin/finance/reconciliation/statements/:statementId/runs',
+    exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
+    propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
+  },
   // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
   adminRateCertification: {
     summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',
@@ -70,6 +77,8 @@ export const routes = {
     capabilities: '/admin/operations/capabilities', readiness: '/admin/operations/readiness',
     hotels: '/admin/operations/hotels', suppliers: '/admin/operations/suppliers',
     hotelsSummary: '/admin/operations/hotels/summary', hotelsExport: '/admin/operations/hotels/export', searchMonitor: '/admin/operations/search-monitor', hotel: '/admin/operations/hotels/:hotelId',
+    hotelReports: '/admin/operations/hotels/:hotelId/reports',
+    hotelReportsExport: '/admin/operations/hotels/:hotelId/reports/export',
     hotelContracts: '/admin/operations/hotels/:hotelId/contracts', hotelMappings: '/admin/operations/hotels/:hotelId/mappings',
     hotelCalendar: '/admin/operations/hotels/:hotelId/calendar', hotelSellability: '/admin/operations/hotels/:hotelId/sellability',
     hotelAudit: '/admin/operations/hotels/:hotelId/audit', hotelDistribution: '/admin/operations/hotels/:hotelId/distribution', hotelReadiness: '/admin/operations/hotels/:hotelId/readiness', exceptions: '/admin/operations/exceptions',
@@ -88,6 +97,7 @@ export const routes = {
     wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', receivables: '/admin/operations/receivables', ledgerIntegrity: '/admin/operations/ledger-integrity', ledgerIntegrityRuns: '/admin/operations/ledger-integrity/runs', ledgerIntegrityRun: '/admin/operations/ledger-integrity/runs/:runId', supplierPayables: '/admin/operations/supplier-payables', creditNotes: '/admin/operations/credit-notes', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
     commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
+    complianceSummary: '/admin/operations/compliance/summary', complianceRecords: '/admin/operations/compliance/records', complianceReport: '/admin/operations/compliance/report',
     financeSummary: '/admin/operations/finance/summary', auditSummary: '/admin/operations/audit/summary',
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },
@@ -110,14 +120,17 @@ export const routes = {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',
   },
   supply: {
-    ratePlanPortfolio: '/supply/rate-plan-portfolio', calendarPreview: '/supply/calendar/preview', calendarApply: '/supply/calendar/apply',
+    ratePlanPortfolio: '/supply/rate-plan-portfolio', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
     hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',
     mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId',
     hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
     roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
     suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
     hotels: '/supply/hotels', hotel: '/supply/hotels/:hotelId', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId',
-    contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', ratePlanCapabilities: '/supply/rate-plans/capabilities', ratePlan: '/supply/rate-plans/:ratePlanId', ratePlanReadiness: '/supply/rate-plans/:ratePlanId/readiness', ratePlanActivate: '/supply/rate-plans/:ratePlanId/activate', ratePlanSuspend: '/supply/rate-plans/:ratePlanId/suspend', ratePlanClone: '/supply/rate-plans/:ratePlanId/clone', ratePlanActivationRequest: '/supply/rate-plans/:ratePlanId/activation-request', ratePlanActivationApproval: '/supply/rate-plans/:ratePlanId/activation-approval', ratePlanApprovalApprove: '/supply/rate-plan-approvals/:approvalId/approve', ratePlanApprovalReject: '/supply/rate-plan-approvals/:approvalId/reject', ratePlanApprovalCancel: '/supply/rate-plan-approvals/:approvalId/cancel', ratePlanApprovalExecute: '/supply/rate-plan-approvals/:approvalId/execute', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk',
+    contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', ratePlanCapabilities: '/supply/rate-plans/capabilities', ratePlan: '/supply/rate-plans/:ratePlanId', ratePlanReadiness: '/supply/rate-plans/:ratePlanId/readiness', ratePlanActivate: '/supply/rate-plans/:ratePlanId/activate', ratePlanSuspend: '/supply/rate-plans/:ratePlanId/suspend', ratePlanClone: '/supply/rate-plans/:ratePlanId/clone', ratePlanGuestPrices: '/supply/rate-plans/:ratePlanId/guest-prices', ratePlanPromotions: '/supply/rate-plans/:ratePlanId/promotions', ratePlanDerivation: '/supply/rate-plans/:ratePlanId/derivation', ratePlanActivationRequest: '/supply/rate-plans/:ratePlanId/activation-request', ratePlanActivationApproval: '/supply/rate-plans/:ratePlanId/activation-approval', ratePlanApprovalApprove: '/supply/rate-plan-approvals/:approvalId/approve', ratePlanApprovalReject: '/supply/rate-plan-approvals/:approvalId/reject', ratePlanApprovalCancel: '/supply/rate-plan-approvals/:approvalId/cancel', ratePlanApprovalExecute: '/supply/rate-plan-approvals/:approvalId/execute', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk',
+    contractLifecycle: '/supply/contracts/:contractId/lifecycle', contractSubmit: '/supply/contracts/:contractId/submit', contractReturnToDraft: '/supply/contracts/:contractId/return-to-draft', contractSuspend: '/supply/contracts/:contractId/suspend', contractActivationRequest: '/supply/contracts/:contractId/activation-request', contractAmendmentRequest: '/supply/contracts/:contractId/amendment-request',
+    contractApprovalApprove: '/supply/contract-approvals/:approvalId/approve', contractApprovalReject: '/supply/contract-approvals/:approvalId/reject', contractApprovalCancel: '/supply/contract-approvals/:approvalId/cancel', contractApprovalExecute: '/supply/contract-approvals/:approvalId/execute',
+    contractCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/:policyId', contractChildPolicy: '/supply/contracts/:contractId/policies/child/:policyId',
     availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability', capabilities: '/supply/capabilities',
   },
   partner: {},

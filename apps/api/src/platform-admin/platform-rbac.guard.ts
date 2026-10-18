@@ -15,7 +15,8 @@ export class PlatformRbacGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const required = this.reflector.getAllAndOverride<string>(PLATFORM_PERMISSION_KEY, [context.getHandler(), context.getClass()])
-    if (!required) return true
+    // Fail closed, like every other RBAC guard: a handler behind this guard must declare its permission.
+    if (!required) throw new ForbiddenException('Platform access denied')
     const request = context.switchToHttp().getRequest<Request>()
     const identity = (request as unknown as Record<string, unknown>)[REQUEST_USER_KEY] as AuthenticatedUser | undefined
     if (!identity?.user?.id) throw new ForbiddenException('Platform access denied')

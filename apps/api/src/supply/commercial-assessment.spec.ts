@@ -17,11 +17,11 @@ interface PlanOpts {
 function plan(o: PlanOpts = {}): AssessPlan {
   const id = o.id ?? 'plan-1'
   return {
-    id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, salesMarkets: [], nationalities: [], releaseDays: 0, refundable: true,
+    id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: 0, refundable: true,
     contractId: 'c1', roomTypeId: 'room-1', boardBasisId: 'b1',
     boardBasis: { code: 'BB', isActive: o.boardActive ?? true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: o.roomActive ?? true, maxAdults: o.maxAdults ?? 2, maxChildren: o.maxChildren ?? 0, maxOccupancy: 2, hotel: { contentStatus: o.hotelContent ?? 'COMPLETE', timeZone: 'Asia/Dubai' } },
-    contract: { cancellationPolicies: [], id: 'c1', code: 'C-1', status: o.contractStatus ?? 'ACTIVE', validFrom: at(o.validFrom ?? '2030-01-01'), validTo: at(o.validTo ?? '2031-01-01'), settlementCurrency: o.contractCurrency ?? 'AED', supplierId: 's1', supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: o.supplierStatus ?? 'ACTIVE', displayName: 'Supplier One' } },
+    contract: { cancellationPolicies: [], leadTimeRules: [], id: 'c1', code: 'C-1', status: o.contractStatus ?? 'ACTIVE', validFrom: at(o.validFrom ?? '2030-01-01'), validTo: at(o.validTo ?? '2031-01-01'), settlementCurrency: o.contractCurrency ?? 'AED', supplierId: 's1', supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: o.supplierStatus ?? 'ACTIVE', displayName: 'Supplier One' } },
     dailyRates: o.rate === false ? [] : dates.map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: o.rateCurrency ?? 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis, occupancy: o.occupancy ?? 2 })),
     availability: o.availability === false ? [] : dates.map((d) => ({ stayDate: at(d), allotment: o.allotment ?? 5, sold: o.sold ?? 0, held: o.held ?? 0, stopSell: o.stopSell ?? false, minStay: 1, closedToArrival: false })),
   }

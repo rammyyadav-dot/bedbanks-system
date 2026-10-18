@@ -1,6 +1,6 @@
 // Authoritative Admin API access. No mock or fallback data lives in this module.
 
-import { routes, supplyRoutes, type TenantSettingsView, type UpdateTenantSettingsRequest, type SellabilityRequest, type SellabilityResult, type SupplyCapabilities } from '@bedbanks/contracts'
+import { contractLifecycleRoutes, routes, supplyRoutes, type ContractActivationRequestInput, type ContractAmendmentRequestInput, type ContractApprovalExecuteResult, type ContractApprovalView, type ContractLifecycleView, type ContractTransitionInput, type TenantSettingsView, type UpdateTenantSettingsRequest, type SellabilityRequest, type SellabilityResult, type SupplyCapabilities } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
 
@@ -44,7 +44,7 @@ export interface CancellationPolicyRecord { id: string; policySet?: string | nul
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null }
-export interface ContractInput { supplierId: string; supplierHotelMappingId?: string | null; code: string; status?: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[] }
+export interface ContractInput { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[] }
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
@@ -52,6 +52,20 @@ export async function updateContract(id: string, input: Partial<ContractInput>) 
 export async function createCancellationPolicy(contractId: string, input: { daysBeforeCheckin: number; penaltyPercent: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+// Contract lifecycle and maker-checker (ADR 0067). Routes come from @bedbanks/contracts.
+const cl = contractLifecycleRoutes
+const withContract = (path: string, contractId: string) => path.replace(':contractId', encodeURIComponent(contractId))
+const withApproval = (path: string, approvalId: string) => path.replace(':approvalId', encodeURIComponent(approvalId))
+export async function getContractLifecycle(contractId: string) { return apiRequest<ContractLifecycleView>(withContract(cl.lifecycle, contractId)) }
+export async function transitionContract(contractId: string, action: 'submit' | 'returnToDraft' | 'suspend', input: ContractTransitionInput) { return apiRequest<{ contractId: string; status: string }>(withContract(cl[action], contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function requestContractActivation(contractId: string, input: ContractActivationRequestInput) { return apiRequest<ContractApprovalView>(withContract(cl.activationRequest, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function requestContractAmendment(contractId: string, input: ContractAmendmentRequestInput) { return apiRequest<ContractApprovalView>(withContract(cl.amendmentRequest, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function decideContractApproval(approvalId: string, decision: 'approve' | 'reject', reason: string) { return apiRequest<ContractApprovalView>(withApproval(cl[decision], approvalId), { method: 'POST', headers: json, body: JSON.stringify({ reason }) }) }
+export async function cancelContractApproval(approvalId: string) { return apiRequest<ContractApprovalView>(withApproval(cl.cancel, approvalId), { method: 'POST' }) }
+export async function executeContractApproval(approvalId: string) { return apiRequest<ContractApprovalExecuteResult>(withApproval(cl.execute, approvalId), { method: 'POST' }) }
+export async function deleteCancellationPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteCancellationPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
+export async function deleteChildPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteChildPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
+export async function deleteLeadTimeRule(contractId: string) { return apiRequest(withContract(cl.deleteLeadTimeRule, contractId), { method: 'DELETE' }) }
 export interface HotelMappingRecord { id: string; supplierId: string; hotelId: string; supplierHotelId: string; status: string }
 export async function getHotelMappings() { return apiRequest<HotelMappingRecord[]>('/supply/mappings/hotels'); }
 export async function getBoardBases() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases'); }
@@ -84,6 +98,8 @@ export interface AdminRatePlan {
   salesMarkets?: string[]; nationalities?: string[];
   /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
   inventoryPoolId?: string | null;
+  /** Set when the plan is derived from another plan (ADR 0058, S10b): it has no rates of its own. */
+  derivedFromId?: string | null;
   /** Row version: activate and suspend must echo it so a stale view cannot overwrite a concurrent change. */
   updatedAt?: string;
   contract: { id: string; code: string; supplier: { id: string; displayName: string }; status?: string; validFrom?: string; validTo?: string; salesMarkets?: unknown };
@@ -97,8 +113,10 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult } from '@bedbanks/contracts'
+import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
+export type { CalendarImportPreview } from '@bedbanks/contracts'
+export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const previewCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarApply, { method: 'POST', headers: json, body: JSON.stringify(input) })
 
@@ -117,6 +135,13 @@ export const activateRatePlan = (ratePlanId: string, expectedUpdatedAt: string) 
 export const suspendRatePlan = (ratePlanId: string, expectedUpdatedAt: string, reason: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanSuspend, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt, reason }) })
 // Four-eye activation (ADR 0057, S5). The API decides who may do what; these only carry the calls.
 const approvalPath = (path: string, approvalId: string) => path.replace(':approvalId', encodeURIComponent(approvalId))
+// Child and extra-adult price lines (ADR 0057, S6).
+export const getGuestPrices = (ratePlanId: string) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId))
+export const getDerivation = (ratePlanId: string) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId))
+export const replaceDerivation = (ratePlanId: string, input: RatePlanDerivationInput) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
+export const getPromotions = (ratePlanId: string) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId))
+export const replacePromotions = (ratePlanId: string, input: RatePlanPromotionsInput) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
+export const replaceGuestPrices = (ratePlanId: string, input: RatePlanGuestPricesInput) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const getActivationApproval = (ratePlanId: string) => apiRequest<RatePlanActivationApproval | null>(planPath(supplyRoutes.ratePlanActivationApproval, ratePlanId))
 export const requestRatePlanActivation = (ratePlanId: string, input: RatePlanActivationRequestInput) => apiRequest<RatePlanActivationApproval>(planPath(supplyRoutes.ratePlanActivationRequest, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const approveRatePlanActivation = (approvalId: string, reason: string) => apiRequest<RatePlanActivationApproval>(approvalPath(supplyRoutes.ratePlanApprovalApprove, approvalId), { method: 'POST', headers: json, body: JSON.stringify({ reason }) })

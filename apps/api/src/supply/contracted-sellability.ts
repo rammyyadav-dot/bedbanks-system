@@ -1,5 +1,8 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
-import { releaseAllows } from './zoned-time'
+import { releaseAllows, zonedLocalToUtc } from './zoned-time'
+import { hotelToday } from './rate-plan-expiry'
+import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } from './promotions'
+import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 /**
  * Shared commercial gates for contracted inventory.
@@ -108,8 +111,16 @@ export interface ContractedStaySnapshot {
   /** The plan's own sale window (ADR 0057), YYYY-MM-DD, or null when it inherits the contract term on that side. Required so a caller cannot omit it and skip the rule. */
   ratePlanValidFrom: string | null
   ratePlanValidTo: string | null
+  /** The plan's child and extra-adult lines (ADR 0057, S6). Empty keeps the flat-occupancy rule. Required so a caller cannot omit it and price a child as free. */
+  guestPrices: GuestPriceLine[]
+  /** Why a derived plan cannot be priced (ADR 0058, S10b), or null. Required so a caller cannot omit it. */
+  derivedProblem: string | null
+  /** The plan's promotions (ADR 0058, S10a). Empty means none. Required so a caller cannot omit them and skip a discount the buyer was promised. */
+  promotions: PromotionRule[]
   /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
   cancellationPolicyMissing: boolean
+  /** The contract's booking lead-time rule, or null when it has none (ADR 0067, F-02). Required so a caller cannot omit it and sell inside the cut-off. */
+  leadTimeRule: { minLeadHours: number; maxLeadDays: number | null } | null
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -134,6 +145,8 @@ export interface StayRequest {
   rooms: number
   adults: number
   children: number
+  /** Ages of the children in each room, needed to price a plan that has child lines. Ignored by a plan without them. */
+  childAges?: number[]
   currency: string
   /** The instant of evaluation. Freshness and the hotel-local release deadline are judged against it. */
   now: Date
@@ -157,6 +170,8 @@ export interface StayDecision {
   availabilityStatus: AvailabilityStatus
   /** Smallest remaining unit count across counted nights, or null when no night is counted (free sale / on request). */
   minRemaining: number | null
+  /** The one promotion that priced this stay (ADR 0058), with its saving on the net across all rooms; null when none applied. */
+  promotion?: (AppliedPromotion & { rooms: number }) | null
 }
 
 /** Fresh iff now < freshUntil. No expiry is allowed only for non-supplier sources; supplier data without an expiry is stale. */
@@ -178,19 +193,22 @@ export function stayDates(checkIn: string, checkOut: string): string[] {
 
 export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request: StayRequest): StayDecision {
   const reasons: string[] = []
-  const guests = request.adults + request.children
   const nightCount = stayNightCount(request.checkIn, request.checkOut)
   if (snapshot.hotelContentStatus !== 'COMPLETE') reasons.push('HOTEL_INACTIVE')
   if (!snapshot.roomActive) reasons.push('ROOM_TYPE_INACTIVE')
   if (!snapshot.boardActive) reasons.push('BOARD_BASIS_INACTIVE')
   if (snapshot.supplierStatus !== 'ACTIVE') reasons.push('SUPPLIER_INACTIVE')
-  if (request.rooms < 1 || guests !== snapshot.ratePlanOccupancy || request.adults > snapshot.maxAdults || request.children > snapshot.maxChildren || guests > snapshot.maxOccupancy) {
-    reasons.push('OCCUPANCY_UNSUPPORTED')
-  }
+  // ADR 0057, S6: a plan without guest price lines keeps the flat rule exactly; a plan with lines prices the party per night.
+  const guestPricing = resolveGuestPricing({ planOccupancy: snapshot.ratePlanOccupancy, currency: snapshot.ratePlanCurrency, adults: request.adults, children: request.children, childAges: request.childAges, lines: snapshot.guestPrices, limits: { maxAdults: snapshot.maxAdults, maxChildren: snapshot.maxChildren, maxOccupancy: snapshot.maxOccupancy } })
+  if (request.rooms < 1) reasons.push('OCCUPANCY_UNSUPPORTED')
+  reasons.push(...guestPricing.reasons)
+  const extraPerNight = guestPricing.mode === 'LINES' ? guestPricing.extraMinorPerNight : 0n
+  const guestBasis = guestPricing.mode === 'LINES' ? guestPricing.basis : null
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
   if (request.checkIn < snapshot.contractValidFrom || request.checkOut > snapshot.contractValidTo) reasons.push('OUTSIDE_CONTRACT_VALIDITY')
   if ((snapshot.ratePlanValidFrom !== null && request.checkIn < snapshot.ratePlanValidFrom) || (snapshot.ratePlanValidTo !== null && request.checkOut > snapshot.ratePlanValidTo)) reasons.push('OUTSIDE_RATE_PLAN_VALIDITY')
   if (snapshot.cancellationPolicyMissing) reasons.push('CANCELLATION_POLICY_MISSING')
+  if (snapshot.derivedProblem !== null) reasons.push(snapshot.derivedProblem)
   if (snapshot.hotelMappingStatus !== 'MAPPED' || snapshot.hotelMappingHotelId !== snapshot.canonicalHotelId || snapshot.roomMappingStatus !== 'MAPPED') {
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }
@@ -200,17 +218,19 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
   if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')
+  reasons.push(...leadTimeReasons(snapshot.leadTimeRule, request.now, request.checkIn, snapshot.hotelTimeZone ?? ''))
   if (request.buyer) {
     reasons.push(...marketReasons(snapshot.marketRules ?? { salesMarkets: [], nationalities: [] }, request.buyer))
     reasons.push(...planMarketReasons(snapshot.planMarketRules, request.buyer))
   }
 
-  let perRoom = 0n
-  let perRoomNet = 0n
+  // Per night: the net before any promotion (rate plus guest lines) and the markup in force for it. The promotion and the markup are applied after the loop.
+  const nightNets: Array<{ net: bigint; bp: number | null } | null> = []
   let sawRate = false
   let sawInvalidRate = false
   let sawCurrencyMismatch = false
   let sawUnverified = false
+  let sawGuestBasisMismatch = false
   let sawNet = false
   let sawMissingAvailability = false
   let sawStopSell = false
@@ -227,12 +247,13 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
       sawRate = true
       if (night.rateCurrency !== snapshot.ratePlanCurrency || night.rateCurrency !== request.currency) sawCurrencyMismatch = true
       else if (night.amountBasis === null) sawUnverified = true
+      else if (guestBasis !== null && guestBasis !== night.amountBasis) sawGuestBasisMismatch = true
       else if (night.amountBasis === 'NET') {
-        // NET sells only under a valid markup rule; anything else stays unsellable (fail closed).
+        // NET sells only under a valid markup rule; anything else stays unsellable (fail closed). Guest lines are added to the nightly net BEFORE the promotion and the markup.
         const bp = night.markupBasisPoints
         if (bp === null || bp === undefined || !Number.isSafeInteger(bp) || bp < 0 || bp > MAX_MARKUP_BASIS_POINTS) sawNet = true
-        else { perRoomNet += night.rateAmountMinor; perRoom += night.rateAmountMinor + markupMinor(night.rateAmountMinor, bp) }
-      } else { perRoomNet += night.rateAmountMinor; perRoom += night.rateAmountMinor }
+        else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp }
+      } else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp: null }
     }
     if (!night.availability) sawMissingAvailability = true
     else {
@@ -262,6 +283,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (!sawRate || sawInvalidRate || snapshot.nights.length !== nightCount) reasons.push('DAILY_RATE_MISSING_OR_INVALID')
   if (sawCurrencyMismatch) reasons.push('RATE_CURRENCY_MISMATCH')
   if (sawUnverified) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
+  if (sawGuestBasisMismatch) reasons.push('GUEST_PRICE_BASIS_MISMATCH')
   if (sawNet) reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
   if (sawMissingAvailability) reasons.push('AVAILABILITY_MISSING')
   if (sawStopSell) reasons.push('STOP_SELL')
@@ -272,12 +294,45 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (sawStale) reasons.push('INVENTORY_STALE')
   if (sawOnRequest) reasons.push('ON_REQUEST_ONLY')
 
+  // ADR 0058: order is rate + guest lines -> ONE promotion -> markup on the discounted net. Only a fully priced stay is discounted.
+  let perRoom = 0n
+  let perRoomNet = 0n
+  let promotion: StayDecision['promotion'] = null
+  const priced = snapshot.nights.length > 0 && nightNets.length === snapshot.nights.length && nightNets.every((entry) => entry !== undefined && entry !== null)
+  if (priced) {
+    const entries = nightNets as Array<{ net: bigint; bp: number | null }>
+    let nets = entries.map((entry) => entry.net)
+    const selected = snapshot.promotions.length === 0 ? null : selectPromotion(snapshot.promotions, { today: hotelToday(request.now, snapshot.hotelTimeZone), checkIn: request.checkIn, dates: snapshot.nights.map((night) => night.date) }, nets)
+    if (selected) { nets = selected.nets; promotion = { ...selected.applied, rooms: request.rooms } }
+    nets.forEach((net, i) => { perRoomNet += net; perRoom += net + (entries[i]!.bp === null ? 0n : markupMinor(net, entries[i]!.bp!)) })
+  }
+
   const unique = [...new Set(reasons)]
   const onRequestOnly = unique.length === 1 && unique[0] === 'ON_REQUEST_ONLY' && request.rooms >= 1
-  if ((unique.length > 0 && !onRequestOnly) || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null }
+  if ((unique.length > 0 && !onRequestOnly) || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
   const total = perRoom * BigInt(request.rooms)
   const net = perRoomNet * BigInt(request.rooms)
-  if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null }
-  if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null }
-  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining }
+  if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
+  if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion }
+  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion }
+}
+
+/**
+ * The contract's booking lead time (ADR 0067, F-02). `minLeadHours`: the booking must be made at least that many hours before the start of the
+ * check-in day in the hotel's zone (the stricter reading: a later check-in hour never shortens it). `maxLeadDays`: check-in may be at most that
+ * many hotel-local days ahead of today. An unusable zone fails closed for whichever side is set.
+ */
+export function leadTimeReasons(rule: { minLeadHours: number; maxLeadDays: number | null } | null, now: Date, checkIn: string, timeZone: string): string[] {
+  if (!rule) return []
+  const reasons: string[] = []
+  if (rule.minLeadHours > 0) {
+    let arrival: number | null = null
+    try { arrival = zonedLocalToUtc(checkIn, '00:00', timeZone).getTime() } catch { arrival = null }
+    if (arrival === null || arrival - now.getTime() < rule.minLeadHours * 3_600_000) reasons.push('LEAD_TIME_TOO_SHORT')
+  }
+  if (rule.maxLeadDays !== null) {
+    const today = hotelToday(now, timeZone)
+    if (today === null || leadDays(today, checkIn) > rule.maxLeadDays) reasons.push('LEAD_TIME_TOO_LONG')
+  }
+  return reasons
 }

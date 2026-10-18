@@ -80,7 +80,7 @@ export class PrismaService
    * this method; this method deliberately accepts a server-derived tenant ID,
    * never a raw client header.
    */
-  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel }): Promise<T> {
+  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; timeoutMs?: number }): Promise<T> {
     if (!tenantId || tenantId.trim() !== tenantId) {
       throw new Error('A normalized tenant context is required');
     }
@@ -88,7 +88,7 @@ export class PrismaService
     return this.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
       return work(tx);
-    }, options);
+    }, options && { isolationLevel: options.isolationLevel, timeout: options.timeoutMs });
   }
 
   /**

@@ -90,6 +90,8 @@ export interface SearchRateOffer {
   sellAmountMinor: number
   /** `unspecified` means the contracted plan has no recorded payment type. It is never defaulted to prepaid (ADR 0057). */
   paymentType: 'prepaid' | 'pay_at_hotel' | 'credit' | 'unspecified'
+  /** The hotel promotion already included in the price (ADR 0058). Informational: the total is final, nothing is deducted again. */
+  promotion?: { name: string; kind: 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS' }
   source: 'hotel_direct' | 'dmc' | 'bedbank' | 'channel_manager' | 'gds'
 }
 export interface SearchRoomOffer {
@@ -208,13 +210,11 @@ export interface BookingTransactionCommand {
     firstName: string
     lastName: string
   }
-  /** Non-commercial checkout notes. They do not change price, occupancy, or idempotency equality. */
+  /** Non-commercial checkout notes (ADR 0066). They do not change price, occupancy, or idempotency equality. */
   agencyReference?: string
-  specialRequests?: string
-  roomGuests?: {
-    roomIndex: number
-    guests: { type: 'adult' | 'child'; firstName: string; lastName: string }[]
-  }[]
+  specialRequests?: { codes: string[]; note?: string; arrivalTime?: string }
+  /** Every guest by room, validated against the held occupancy; the lead guest is room 1's first adult. */
+  guests?: { roomNumber: number; type: 'ADULT' | 'CHILD'; title: string | null; firstName: string; lastName: string; age: number | null; isLead: boolean }[]
 }
 
 /**
@@ -231,3 +231,4 @@ export type BookingTransactionState =
   | 'CONFIRMED'
   | 'FAILED'
   | 'UNKNOWN'
+export * from './smart-search'

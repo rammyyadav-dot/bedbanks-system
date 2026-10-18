@@ -93,6 +93,10 @@ describe('planQuickUpdate', () => {
     const m = normaliseQuickUpdate(req({ availability: { allotment: 3 } }, { ratePlanIds: ['p1', 'p2'] }) as never).value!
     expect(planQuickUpdate({ value: m, plans: new Map([['p1', plan()], ['p2', plan({ id: 'p2', currency: 'USD' })]]), rates: new Map(), avail: new Map(), today: '2026-10-01' }).errors).toEqual([])
   })
+  it('a derived plan takes no price from Quick Update but still takes availability (ADR 0058, S10b)', () => {
+    expect(run({ price: { amount: '10', basis: 'SELL' } }, { plans: [plan({ derived: true })] }).rows[0].problems.join(' ')).toMatch(/derived from another plan/)
+    expect(run({ availability: { allotment: 3 } }, { plans: [plan({ derived: true })] }).rows[0].problems).toEqual([])
+  })
   it('refuses plans that are not DRAFT or ACTIVE, unknown plans, empty selections and oversized batches', () => {
     expect(run({ price: { amount: '10', basis: 'SELL' } }, { plans: [plan({ status: 'EXPIRED' })] }).rows[0].problems.join(' ')).toMatch(/EXPIRED and cannot be changed/)
     const n = normaliseQuickUpdate(req({ price: { amount: '10', basis: 'SELL' } }, { ratePlanIds: ['other'] }) as never).value!

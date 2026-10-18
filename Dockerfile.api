@@ -14,4 +14,6 @@ RUN pnpm install --frozen-lockfile \
 ENV NODE_ENV=production API_HOST=0.0.0.0
 USER node
 EXPOSE 3002
-CMD ["sh", "-c", "API_PORT=\"${PORT:-${API_PORT:-3002}}\" exec pnpm --filter @bedbanks/api start:prod"]
+# exec node directly (same command as the start:prod script, same cwd): a pnpm wrapper process is one more hop SIGTERM must survive for the graceful drain.
+WORKDIR /app/apps/api
+CMD ["sh", "-c", "API_PORT=\"${PORT:-${API_PORT:-3002}}\" exec node --no-experimental-strip-types -r @swc-node/register src/main.ts"]

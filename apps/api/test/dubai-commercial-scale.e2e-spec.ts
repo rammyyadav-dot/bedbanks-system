@@ -9,6 +9,7 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
 import { SUPPLIER_ADAPTER, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRequestContext, type SupplierSearchContext } from '../src/agent/supplier.port'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -174,7 +175,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       const mappedRoom = await agent.post(`${mappingPath}/rooms`).send({ supplierRoomId: `${suffix}-${room.id}`, roomTypeId: room.id }).expect(201)
       await agent.post(`${mappingPath}/rooms/${mappedRoom.body.data.id}/approve`).expect(201)
       const bound = await agent.post('/api/v1/supply/contracts').send({ supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${room.id}`, validFrom: dateKeys[0], validTo: plusOne(dateKeys[6]), settlementCurrency: 'AED' }).expect(201)
-      await agent.patch(`/api/v1/supply/contracts/${bound.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+      await setContractStatusFixture(prisma, bound.body.data.id, 'ACTIVE')
       await agent.patch(`/api/v1/supply/rate-plans/${plan.id}`).send({ contractId: bound.body.data.id }).expect(200)
       canonicalOffers.push({
         hotelId: room.hotelId, name: hotels.find(value => value.id === room.hotelId)!.name, destination: 'Dubai', starRating: 5,

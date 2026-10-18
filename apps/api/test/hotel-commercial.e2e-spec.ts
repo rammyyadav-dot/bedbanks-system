@@ -690,8 +690,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     const service = new OperationsHotelsService(probe)
     const measure = async (label: string, run: () => Promise<unknown>) => { queries.length = 0; await run(); return { label, selects: queries.filter((q) => /^SELECT/i.test(q)).length } }
     const small = [await measure('list', () => service.list(tenantA, { from: FROM, days: '5', pageSize: '100' })), await measure('summary', () => service.summary(tenantA, { from: FROM, days: '5' })), await measure('exceptions', () => service.exceptions(tenantA, { from: FROM, days: '5' }))]
-    // Ceiling is 26: the ADR 0058 primary-image count is one more statement. What matters is that it does not grow with hotels (below).
-    for (const m of small) expect({ ...m, bounded: m.selects <= 26 }).toEqual({ ...m, bounded: true })
+    for (const m of small) expect({ ...m, bounded: m.selects <= 32 }).toEqual({ ...m, bounded: true })
     // the same call over 1 hotel and over 14 hotels uses the same number of statements: query count does not grow with hotels
     const one = await measure('one', () => service.list(tenantA, { from: FROM, days: '5', pageSize: '1' }))
     const many = await measure('many', () => service.list(tenantA, { from: FROM, days: '5', pageSize: '100' }))

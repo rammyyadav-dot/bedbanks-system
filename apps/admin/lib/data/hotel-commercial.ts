@@ -23,3 +23,5 @@ export const getCommercialExceptions = (p: Params) => apiRequest<ExceptionsPage>
 export const getHotelReadiness = (hotelId: string, p: Params) => apiRequest<HotelReadinessAssessment>(`${fill(ops.hotelReadiness, { hotelId })}${opsQuery(p)}`)
 export const downloadHotelsCsv = (p: Params) => apiDownload(`${ops.hotelsExport}${opsQuery(p)}`)
 export const getSearchMonitor = (p: Params = {}) => apiRequest<SearchMonitorView>(`${routes.adminOperations.searchMonitor}${opsQuery(p)}`)
+
+export const getHotelReport = (hotelId: string, p: Params) => apiRequest<import('@bedbanks/contracts').HotelReportView>(`${fill(ops.hotelReports, { hotelId })}${opsQuery(p)}`)

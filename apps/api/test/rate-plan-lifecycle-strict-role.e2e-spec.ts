@@ -9,6 +9,7 @@ import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter
 import { hashPassword } from '../src/auth/utils/password'
 import { provisionApiRuntimeRole, verifyApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
 import { provisionRatePlanOpsRole, verifyRatePlanOpsRole, RATE_PLAN_OPS_LOGIN_ROLE } from '../src/database/rate-plan-ops-role'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 /**
  * ADR 0041: rate plan lifecycle status is written only by the readiness-gated activate/suspend routes. Everything here runs
@@ -102,7 +103,7 @@ describe('Rate plan lifecycle on the strict runtime login (fbeds_api_login)', ()
     await api(operator).post(`/supply/mappings/hotels/${mappingId}/rooms/${roomMapping}/approve`).expect(201)
     contractId = (await api(operator).post('/supply/contracts', { supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-C1`, validFrom: iso(-30), validTo: iso(365), settlementCurrency: 'AED', salesMarkets: ['AE'], nationalities: [] }).expect(201)).body.data.id
     await api(operator).post(`/supply/contracts/${contractId}/policies/cancellation`, { daysBeforeCheckin: 7, penaltyPercent: 100 }).expect(201)
-    await api(operator).patch(`/supply/contracts/${contractId}`, { status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contractId, 'ACTIVE')
     // Arrange a complete DRAFT plan through the owner-connected API, then restart the API on the restricted login.
     planId = await newPlan(true)
     await app.close()

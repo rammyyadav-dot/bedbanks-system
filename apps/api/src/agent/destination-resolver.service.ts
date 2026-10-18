@@ -1,60 +1,87 @@
-import { Injectable } from '@nestjs/common'
-import type { DestinationResolution, SearchCriteria } from '@bedbanks/domain'
+import { Inject, Injectable } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+import { applyDestinationAlias, type DestinationResolution, type SearchCriteria } from '@bedbanks/domain'
 import { PrismaService } from '../database/prisma.service'
+import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
+import { CacheAside } from '../common/cache/cache-aside'
 import { cityDestinationId } from './search-offers'
 
 const QUERY_LIMIT = 8
+/** Boards and property types change only when staff edit the catalogue; a minute of staleness is acceptable and Redis absorbs agent traffic. */
+const FACETS_TTL_MS = 60_000
+/** Typeahead answers are static catalogue content: a minute of staleness after a publication is acceptable (ADR 0065). */
+const DESTINATIONS_TTL_MS = 60_000
+/** pg_trgm word similarity at which a misspelt word still matches ("Dubia" -> "Dubai"). Below it, results become noise. */
+const FUZZY_THRESHOLD = 0.35
+const isResolutions = (value: unknown): value is DestinationResolution[] => Array.isArray(value) && value.every((item) => !!item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string')
+
+type Facets = { boards: { id: string; name: string }[]; propertyTypes: string[] }
+const isFacets = (value: unknown): value is Facets => {
+  const candidate = value as Partial<Facets> | null
+  return !!candidate && Array.isArray(candidate.boards) && Array.isArray(candidate.propertyTypes)
+}
 
 @Injectable()
 export class DestinationResolverService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly staticContent: CacheAside
 
+  constructor(private readonly prisma: PrismaService, @Inject(CACHE_PORT) cache: CachePort = new NoopCache()) {
+    this.staticContent = new CacheAside(cache)
+  }
+
+  /**
+   * Typeahead over the tenant's published catalogue (ADR 0065). The query is rewritten through the reviewed alias table, then matched by
+   * substring or by trigram word similarity (typo tolerance), ranked by similarity. Results are real catalogue cities and hotels only.
+   */
   async search(tenantId: string, query: string): Promise<DestinationResolution[]> {
-    const trimmed = query.trim().replace(/\s+/g, ' ')
+    const trimmed = applyDestinationAlias(query.trim().replace(/\s+/g, ' '))
     if (trimmed.length < 2 || trimmed.length > 80) return []
-    const hotels = await this.prisma.withTenant(tenantId, (tx) => tx.hotel.findMany({
-      where: {
-        tenantId,
-        contentStatus: 'COMPLETE',
-        OR: [
-          { city: { contains: trimmed, mode: 'insensitive' } },
-          { name: { contains: trimmed, mode: 'insensitive' } },
-        ],
-      },
-      select: { id: true, name: true, city: true, countryCode: true },
-      orderBy: [{ city: 'asc' }, { name: 'asc' }],
-      take: 50,
-    }))
     const folded = trimmed.toLocaleLowerCase('en-US')
-    const cities: DestinationResolution[] = []
+    return this.staticContent.read(tenantCacheKey(tenantId, 'agent-destinations', folded), DESTINATIONS_TTL_MS, () => this.loadDestinations(tenantId, folded), { accept: isResolutions })
+  }
+
+  private async loadDestinations(tenantId: string, folded: string): Promise<DestinationResolution[]> {
+    const pattern = `%${folded.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    const hotels = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ id: string; name: string; city: string; countryCode: string; citySim: number; nameSim: number }>>(Prisma.sql`
+      SELECT "id", "name", "city", "country_code" AS "countryCode",
+             word_similarity(${folded}, lower("city"))::float8 AS "citySim",
+             word_similarity(${folded}, lower("name"))::float8 AS "nameSim"
+        FROM "Hotel"
+       WHERE "tenant_id" = ${tenantId} AND "content_status" = 'COMPLETE'
+         AND (lower("city") LIKE ${pattern} OR lower("name") LIKE ${pattern}
+              OR word_similarity(${folded}, lower("city")) >= ${FUZZY_THRESHOLD} OR word_similarity(${folded}, lower("name")) >= ${FUZZY_THRESHOLD})
+       ORDER BY GREATEST(word_similarity(${folded}, lower("city")), word_similarity(${folded}, lower("name"))) DESC, "city" ASC, "name" ASC
+       LIMIT 50`))
+    const matches = (value: string, similarity: number) => value.toLocaleLowerCase('en-US').includes(folded) || similarity >= FUZZY_THRESHOLD
+    // Substring hits lead, then the closest fuzzy hits; ties keep the database order.
+    const rank = (value: string, similarity: number) => (value.toLocaleLowerCase('en-US').startsWith(folded) ? 2 : value.toLocaleLowerCase('en-US').includes(folded) ? 1 : 0) + similarity
+    const cities: Array<DestinationResolution & { score: number }> = []
     const seen = new Set<string>()
-    for (const hotel of hotels) {
-      if (!hotel.city.toLocaleLowerCase('en-US').includes(folded)) continue
+    for (const hotel of [...hotels].sort((a, b) => rank(b.city, b.citySim) - rank(a.city, a.citySim))) {
+      if (!matches(hotel.city, hotel.citySim)) continue
       const id = cityDestinationId(hotel.countryCode, hotel.city)
       if (!id || seen.has(id)) continue
       seen.add(id)
-      cities.push({ type: 'city', id, name: hotel.city.trim(), countryCode: hotel.countryCode })
+      cities.push({ type: 'city', id, name: hotel.city.trim(), countryCode: hotel.countryCode, score: rank(hotel.city, hotel.citySim) })
       if (cities.length === QUERY_LIMIT) break
     }
     const properties: DestinationResolution[] = []
-    for (const hotel of hotels) {
-      if (!hotel.name.toLocaleLowerCase('en-US').includes(folded)) continue
+    for (const hotel of [...hotels].sort((a, b) => rank(b.name, b.nameSim) - rank(a.name, a.nameSim))) {
+      if (!matches(hotel.name, hotel.nameSim)) continue
       const cityId = cityDestinationId(hotel.countryCode, hotel.city)
       if (!cityId) continue
-      properties.push({
-        type: 'hotel',
-        id: hotel.id,
-        name: hotel.name,
-        cityId,
-        cityName: hotel.city.trim(),
-        countryCode: hotel.countryCode,
-      })
+      properties.push({ type: 'hotel', id: hotel.id, name: hotel.name, cityId, cityName: hotel.city.trim(), countryCode: hotel.countryCode })
       if (properties.length === QUERY_LIMIT) break
     }
-    return [...cities, ...properties]
+    return [...cities.map(({ score: _score, ...city }) => city as DestinationResolution), ...properties]
   }
 
-  async facets(tenantId: string): Promise<{ boards: { id: string; name: string }[]; propertyTypes: string[] }> {
+  /** Tenant-keyed static content (cache-aside). A cache fault falls through to the database; see CacheAside. */
+  async facets(tenantId: string): Promise<Facets> {
+    return this.staticContent.read(tenantCacheKey(tenantId, 'agent-facets', 'all'), FACETS_TTL_MS, () => this.loadFacets(tenantId), { accept: isFacets })
+  }
+
+  private async loadFacets(tenantId: string): Promise<Facets> {
     const [boards, hotels] = await Promise.all([
       this.prisma.withTenant(tenantId, (tx) => tx.boardBasis.findMany({
         where: { tenantId, isActive: true },

@@ -199,6 +199,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               rate.sellAmountMinor !== rate.totalAmountMinor + rate.markupAmountMinor ||
               rate.total.amountMinor !== rate.sellAmountMinor ||
               !['prepaid', 'pay_at_hotel', 'credit', 'unspecified'].includes(rate.paymentType) ||
+              (rate.promotion !== undefined && (!record(rate.promotion) || !id(rate.promotion.name) || !['EARLY_BIRD', 'LAST_MINUTE', 'LONG_STAY', 'FREE_NIGHTS'].includes(rate.promotion.kind))) ||
               !['hotel_direct', 'dmc', 'bedbank', 'channel_manager', 'gds'].includes(rate.source)) throw Error('rate')
           offerIds.add(rate.offerId)
           return {
@@ -220,7 +221,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
             netAmountMinor: rate.netAmountMinor, taxAmountMinor: rate.taxAmountMinor,
             feeAmountMinor: rate.feeAmountMinor, totalAmountMinor: rate.totalAmountMinor,
             markupAmountMinor: rate.markupAmountMinor, sellAmountMinor: rate.sellAmountMinor,
-            paymentType: rate.paymentType, source: rate.source,
+            paymentType: rate.paymentType, ...(rate.promotion === undefined ? {} : { promotion: { name: rate.promotion.name, kind: rate.promotion.kind } }), source: rate.source,
           }
         })
         return { roomTypeId: room.roomTypeId, name: room.name, supplierRoomId: room.supplierRoomId, rates }

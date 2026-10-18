@@ -1,3 +1,5 @@
+import { HotelReportsController } from './hotel-reports.controller'
+import { HotelReportsService } from './hotel-reports.service'
 import { Module } from '@nestjs/common'
 import { AgentModule } from '../agent/agent.module'
 import { AuthModule } from '../auth/auth.module'
@@ -10,6 +12,7 @@ import { LedgerIntegrityRunsService } from '../ledger/ledger-integrity-runs.serv
 import { LedgerIntegritySweeper } from '../ledger/ledger-integrity-sweeper.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
+import { OperationsComplianceService } from './operations-compliance.service'
 import { ApprovalsModule } from '../approvals/approvals.module'
 import { OperationsSupplyService } from './operations-supply.service'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -31,12 +34,15 @@ import { BookingOpsQueueService } from '../booking-ops/booking-ops-queue.service
 import { BookingOpsService } from '../booking-ops/booking-ops.service'
 import { BookingSupplierJobsService } from '../booking-ops/booking-supplier-jobs.service'
 import { BookingSupplierRunner } from '../booking-ops/booking-supplier-runner.service'
+import { BookingEmailDispatcher } from '../booking-ops/email/booking-email-dispatcher.service'
+import { SesEmailSender } from '../booking-ops/email/ses-email-sender'
+import { EMAIL_SENDER } from '../booking-ops/email/email-sender.port'
 import { BOOKING_SUPPLIER_RESOLVER } from '../booking-ops/supplier/booking-supplier.port'
 import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplier.registry'
 
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
-  controllers: [OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController, BookingBulkController],
-  providers: [BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, LedgerAuditDatabase, LedgerIntegrityRunsService, LedgerIntegritySweeper, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  controllers: [HotelReportsController, OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController, BookingBulkController],
+  providers: [HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsLedgerIntegrityService, LedgerAuditDatabase, LedgerIntegrityRunsService, LedgerIntegritySweeper, OperationsGovernanceService, OperationsComplianceService],
 })
 export class AdminOperationsModule {}

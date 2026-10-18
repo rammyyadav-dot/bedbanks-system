@@ -67,3 +67,4 @@ plan-out/
 **/plan.bin
 **/plan.json
 finance-evidence/
+e2e/.artifacts/

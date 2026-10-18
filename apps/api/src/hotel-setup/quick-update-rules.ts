@@ -115,7 +115,7 @@ export function dayInZone(now: Date, timeZone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-export interface PlanInfo { id: string; status: string; currency: string; occupancy: number; contractFrom: string; contractTo: string; /** Set when the plan draws its stock from a shared pool. */ poolId?: string | null }
+export interface PlanInfo { id: string; status: string; currency: string; occupancy: number; contractFrom: string; contractTo: string; /** Set when the plan draws its stock from a shared pool. */ poolId?: string | null; /** Set when the plan is derived from a parent plan (ADR 0058, S10b): its price is its parent's, never edited here. */ derived?: boolean }
 export interface RateState { amountMinor: bigint; basis: 'NET' | 'SELL' | null }
 export interface AvailState { allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; mode?: string }
 export interface PoolDayState { capacity: number; sold: number; held: number }
@@ -173,7 +173,8 @@ export function planQuickUpdate(input: {
       if (date < today) problems.push(`${date} is before today in the hotel's time zone`)
       if (date < plan.contractFrom || date > plan.contractTo) problems.push('the date is outside the contract validity')
 
-      if (priceChange) {
+      if (priceChange && plan.derived) problems.push('the rate plan is derived from another plan and has no rates of its own; change the parent plan or its adjustment')
+      else if (priceChange) {
         const p = priceFor(plan.currency)!
         if ('error' in p) problems.push(p.error)
         else {

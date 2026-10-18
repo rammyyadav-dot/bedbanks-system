@@ -1,5 +1,7 @@
 'use client'
 
+import { useUnsavedChanges } from '../useUnsavedChanges'
+
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { HOTEL_POLICY_KEYS, HOTEL_POLICY_LABELS, type HotelContractRow, type HotelPolicyKey, type HotelSetupView } from '@bedbanks/contracts'
@@ -21,7 +23,7 @@ const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as con
  * Hotel-level information policies, kept apart from rate-specific cancellation terms. The first are edited here (saved through the
  * Hotel Setup API); the second are shown read-only from each contract and are never overwritten by a hotel policy.
  */
-export function PoliciesPanel({ hotelId }: { hotelId: string }) {
+export function PoliciesPanel({ hotelId, onChanged }: { hotelId: string; onChanged?: () => void }) {
   const [version, setVersion] = useState(0)
   const [flash, setFlash] = useState<string | null>(null)
   const { state, reload } = useOpsQuery(() => getHotelSetup(hotelId), [hotelId, version])
@@ -31,7 +33,7 @@ export function PoliciesPanel({ hotelId }: { hotelId: string }) {
         {(setup) => (
           <>
             {flash && <div role="status" data-testid="policies-flash" className="workspace-panel" style={{ padding: 12 }}><strong>{flash}</strong></div>}
-            <HotelPolicies key={setup.concurrencyToken} hotelId={hotelId} setup={setup} onSaved={(t) => { setFlash(t); setVersion((v) => v + 1) }} />
+            <HotelPolicies key={setup.concurrencyToken} hotelId={hotelId} setup={setup} onSaved={(t) => { setFlash(t); setVersion((v) => v + 1); onChanged?.() }} />
           </>
         )}
       </OpsState>
@@ -47,6 +49,7 @@ function HotelPolicies({ hotelId, setup, onSaved }: { hotelId: string; setup: Ho
   const [busy, setBusy] = useState(false); const inFlight = useRef(false); const key = useRef<string | null>(null)
   const [error, setError] = useState<{ message: string; details: string[]; requestId: string | null; stale: boolean } | null>(null)
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
+  useUnsavedChanges(dirty)
   async function save() {
     if (inFlight.current || !dirty) return
     inFlight.current = true; setBusy(true); setError(null); key.current ??= crypto.randomUUID()

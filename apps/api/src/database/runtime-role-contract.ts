@@ -67,6 +67,9 @@ export const BOOKING_ROOM_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_i
 /** BookingGuest columns the extranet reads: the lead guest's name only. No title, age, type, room link or any contact detail. */
 export const BOOKING_GUEST_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'first_name', 'last_name', 'is_lead'] as const
 
+/** ComplianceRecord columns the Admin compliance evidence view reads (ADR 0067 amendment 1). Everything except the audit payload: the view shows its SHA-256 only. */
+export const COMPLIANCE_RECORD_READ_COLUMNS = ['id', 'tenant_id', 'category', 'action', 'entity_type', 'entity_id', 'actor_type', 'user_id', 'occurred_at', 'payload_sha256', 'origin_country', 'destination_country', 'cross_border'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -82,11 +85,18 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'SupplierRoomMapping', model: 'SupplierRoomMapping', rls: 'forced-tenant' },
   { table: 'supplier_memberships', model: 'SupplierMembership', rls: 'forced-tenant' },
   { table: 'Contract', model: 'Contract', rls: 'forced-tenant' },
+  { table: 'ContractVersion', model: 'ContractVersion', rls: 'forced-tenant', note: 'immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger)' },
   { table: 'RatePlan', model: 'RatePlan', rls: 'forced-tenant' },
   { table: 'DailyRate', model: 'DailyRate', rls: 'forced-tenant' },
+  { table: 'RatePlanPromotion', model: 'RatePlanPromotion', rls: 'forced-tenant', note: 'plan promotions (ADR 0058); search prices from them, authoring is a privileged supply path' },
+  { table: 'RatePlanGuestPrice', model: 'RatePlanGuestPrice', rls: 'forced-tenant', note: 'per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path' },
   { table: 'DailyAvailability', model: 'DailyAvailability', rls: 'forced-tenant' },
   { table: 'CancellationPolicy', model: 'CancellationPolicy', rls: 'forced-tenant', note: 'search and recheck include each contract\'s cancellation terms' },
+  { table: 'BookingLeadTimeRule', model: 'BookingLeadTimeRule', rls: 'forced-tenant', note: 'search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02)' },
+  { table: 'ChildPolicy', model: 'ChildPolicy', rls: 'forced-tenant', note: 'search, recheck and hold price children from the contract child policy (ADR 0067, F-03)' },
   { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
+  { table: 'ComplianceExportBatch', model: 'ComplianceExportBatch', rls: 'forced-tenant', note: 'Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067)' },
+  { table: 'ComplianceExportBatchRecord', model: 'ComplianceExportBatchRecord', rls: 'forced-tenant', note: 'Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067)' },
 ]
 
 /** Tables the runtime reads through named columns only, and never writes. */
@@ -95,6 +105,7 @@ const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
   { table: 'BookingRoom', model: 'BookingRoom', read: false, readColumns: BOOKING_ROOM_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: room line and supplier net; no sell amount or rate key' },
   { table: 'BookingGuest', model: 'BookingGuest', read: false, readColumns: BOOKING_GUEST_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: lead guest name; no contact detail, age or room link' },
   { table: 'InventoryHold', model: 'InventoryHold', read: false, readColumns: HOLD_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column' },
+  { table: 'ComplianceRecord', model: 'ComplianceRecord', read: false, readColumns: COMPLIANCE_RECORD_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS' },
   { table: 'InventoryHoldNight', model: 'InventoryHoldNight', read: false, readColumns: HOLD_NIGHT_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference' },
 ]
 
@@ -202,20 +213,29 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   SandboxContentLease: 'operator-only sandbox synchronization fencing; no API runtime grant',
   Hotel: 'DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted',
   BoardBasis: 'supply authoring',
-  Supplier: 'supply authoring', Contract: 'supply authoring', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update',
+  Supplier: 'supply authoring', Contract: 'supply authoring', ContractVersion: 'supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update', RatePlanGuestPrice: 'supply authoring (guest price lines)', RatePlanPromotion: 'supply authoring (promotions)',
   DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring',
   SupplierHotelMapping: 'mapping governance', SupplierRoomMapping: 'mapping governance',
   InventoryPool: 'pool authoring needs RatePlan and DailyAvailability writes', InventoryPoolDay: 'INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted',
   SupplierMutation: 'booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds',
   Booking: 'booking is disabled; finance-gated', BookingDocument: 'booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)', BookingBulkOperation: 'booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)', BookingBulkOperationItem: 'booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)', BookingSavedView: 'booking module only: a person\'s own saved booking views, written (and deleted) by the booking role; preferences, never policy (ADR 0039, Phase 6B)', BookingFinanceEvent: 'booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)',
+  BookingEmail: 'booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it',
   BookingRoom: 'booking is disabled; written with the booking in one transaction (ADR 0039)', BookingGuest: 'booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)', BookingOpsState: 'booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)', BookingSupplierJob: 'booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)', BookingSupplierCall: 'booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)', BookingEvent: 'booking is disabled; append-only lifecycle log written with the booking (ADR 0039)', InventoryHold: 'holds are gated; written by the booking path',
   InventoryHoldNight: 'holds are gated', LedgerEntry: 'finance-gated',
   LedgerIntegrityRun: 'nightly ledger integrity result: written only by the dedicated ledger-audit role (ADR 0064), append-only; the runtime role is never granted it', Cancellation: 'booking is disabled',
   Wallet: 'finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)',
   FundingReceipt: 'finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)',
+  SupplierStatement: 'finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)',
+  SupplierStatementLine: 'finance-gated: immutable statement lines (ADR 0070)',
+  ReconciliationRun: 'finance-gated: the reconciliation job queue; the API inserts QUEUED runs and the worker claims them (ADR 0070)',
+  ReconciliationFinding: 'finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)',
+  ReconciliationDecision: 'finance-gated: append-only history of dispute queue decisions (ADR 0070)',
   HotelSearchIndex: 'search-index maintenance (reindex) is an operator job; the runtime only reads the index',
   TenantControlProfile: 'dedicated tenant control authoring role only', Membership: 'dedicated tenant membership authoring role only', Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',
   User: 'identity provisioning (create user) is an operator action; the runtime only records the last sign-in',
+  ComplianceRecord: 'never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event\'s own transaction (ADR 0067)',
+  ComplianceExportBatch: 'compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)',
+  ComplianceExportBatchRecord: 'compliance export role only: append-only batch membership (ADR 0067)',
   PlatformRole: 'platform administration', PlatformRoleAssignment: 'platform administration', PlatformRolePermission: 'platform administration',
 }
 

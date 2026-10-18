@@ -56,7 +56,6 @@ export class InventoryAdminService {
 
   private requireText(value: unknown, field: string, min: number, max: number): string {
     const text = typeof value === 'string' ? value.trim() : ''
-    // eslint-disable-next-line no-control-regex
     if (text.length < min || text.length > max || /[\u0000-\u001f\u007f]/.test(text)) throw new BadRequestException(`${field} must be ${min}-${max} printable characters`)
     return text
   }
