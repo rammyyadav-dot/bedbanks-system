@@ -138,7 +138,7 @@ class RedisConnection {
         // An idle cache connection must not keep the process alive.
         socket.unref()
         this.socket = socket
-        socket.on('data', chunk => this.onData(chunk))
+        socket.on('data', (chunk: Buffer) => this.onData(chunk))
         socket.on('error', error => this.fail(error))
         socket.on('close', () => this.fail(new Error('Redis connection closed')))
         resolve()
