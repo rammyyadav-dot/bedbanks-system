@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, MappingStatus } from '@prisma/client'
-import { MAPPING_DUPLICATE_CONFLICT_CODE } from '@bedbanks/contracts'
+import { MAPPING_DUPLICATE_CONFLICT_CODE, type HotelMappingSuggestionQuery, type HotelMappingSuggestions } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { possibleDuplicatesFor } from '../hotel-setup/hotel-duplicate-lookup'
+import { matchSupplierHotel } from '../mapping/hybrid-match'
+import { retrieveHotelCandidates } from '../mapping/hotel-search-index'
 
 type Input = Record<string, unknown>
 type MappingKind = 'hotel' | 'room'
@@ -74,6 +76,44 @@ export class MappingService {
     return this.prisma.withTenant(tenantId, async tx => {
       const parent = await this.parent(tx, tenantId, mappingId)
       return tx.roomType.findMany({ where: { hotelId: parent.hotelId, isActive: true }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } })
+    })
+  }
+
+  /**
+   * Advisory canonical-hotel suggestions for a supplier hotel being mapped. The tenant's HotelSearchIndex shortlists candidates
+   * (vector + trigram), then the hybrid scorer ranks the shortlist. This never writes and never approves: a person still creates and
+   * approves the mapping (ADR 0004). An unpopulated index is reported as `indexReady: false`, not as "no match".
+   */
+  async suggestHotels(tenantId: string, userId: string, query: HotelMappingSuggestionQuery): Promise<HotelMappingSuggestions> {
+    await this.authorize(tenantId, userId, readPermission)
+    const text = (value: unknown, field: string, required = false, max = 200) => {
+      if (value === undefined || value === '') { if (required) throw new BadRequestException(`Invalid ${field}`); return undefined }
+      if (typeof value !== 'string' || value.trim().length < (required ? 2 : 1) || value.length > max) throw new BadRequestException(`Invalid ${field}`)
+      return value.trim()
+    }
+    const name = text(query?.name, 'name', true) as string
+    const address = text(query?.address, 'address')
+    const city = text(query?.city, 'city')
+    const country = text(query?.countryCode, 'countryCode', false, 2)
+    if (country !== undefined && !/^[A-Za-z]{2}$/.test(country)) throw new BadRequestException('Invalid countryCode')
+    const countryCode = country?.toUpperCase()
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const indexed = await tx.$queryRaw<Array<{ one: number }>>(Prisma.sql`SELECT 1 AS "one" FROM "HotelSearchIndex" WHERE "tenant_id" = ${tenantId} LIMIT 1`)
+      if (indexed.length === 0) return { indexReady: false, suggestions: [] }
+      const shortlist = await retrieveHotelCandidates(tx, tenantId, { name, address, city, countryCode })
+      if (shortlist.length === 0) return { indexReady: true, suggestions: [] }
+      const hotels = await tx.hotel.findMany({
+        where: { tenantId, id: { in: shortlist.map((row) => row.hotelId) } },
+        select: { id: true, name: true, address: true, city: true, countryCode: true, latitude: true, longitude: true },
+      })
+      const catalog = hotels.map((hotel) => ({ hotelId: hotel.id, name: hotel.name, address: hotel.address, city: hotel.city, countryCode: hotel.countryCode, latitude: hotel.latitude === null ? null : Number(hotel.latitude), longitude: hotel.longitude === null ? null : Number(hotel.longitude) }))
+      const byId = new Map(hotels.map((hotel) => [hotel.id, hotel]))
+      const suggestions = matchSupplierHotel({ supplierHotelId: 'suggestion-query', name, address, city, countryCode }, catalog).candidates
+        .flatMap((candidate) => {
+          const hotel = byId.get(candidate.canonicalHotelId)
+          return hotel && candidate.tier !== 'NO_MATCH' ? [{ hotelId: hotel.id, name: hotel.name, city: hotel.city, countryCode: hotel.countryCode, confidence: candidate.confidenceScore, tier: candidate.tier, reasons: candidate.matchingReasons }] : []
+        })
+      return { indexReady: true, suggestions }
     })
   }
 

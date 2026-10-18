@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { AdminLoadingState, AdminServiceUnavailable, AccessDenied, AuthRequired } from '@/components/auth/AuthorizationStates'
+import { HotelSuggestionPanel } from '@/components/mappings/HotelSuggestionPanel'
 import { apiRequest } from '@/lib/api/client'
 import { ApiResponseError } from '@/lib/api/errors'
 import type { HotelMappingRead, RoomMappingRead } from '@bedbanks/contracts'
@@ -79,6 +80,7 @@ export default function MappingsPage() {
       {notice && <p role="status" className="workspace-panel" style={{ padding: 14 }}>{notice}</p>}
       <section className="workspace-panel" style={{ padding: 20, marginBottom: 16 }}>
         <h2>New hotel mapping</h2>
+        <HotelSuggestionPanel onUse={item => { setHotelForm(form => ({ ...form, hotelId: item.hotelId, confidence: String(item.confidence) })); setNotice(`Selected ${item.name} (${item.city}). Review the form below, then create the pending mapping.`) }} />
         <form onSubmit={addHotel} style={{ display: 'grid', gap: 12, maxWidth: 720 }}>
           <label>Supplier<select className="input-wrap" required value={hotelForm.supplierId} onChange={event => setHotelForm({ ...hotelForm, supplierId: event.target.value })}><option value="">Select supplier</option>{options.suppliers.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
           <label>Canonical hotel<select className="input-wrap" required value={hotelForm.hotelId} onChange={event => setHotelForm({ ...hotelForm, hotelId: event.target.value })}><option value="">Select hotel</option>{options.hotels.map(item => <option key={item.id} value={item.id}>{item.name} · {item.city}</option>)}</select></label>

@@ -83,6 +83,13 @@ enum BookingFinanceEventType {
   CANCELLED
   PENALTY_DECIDED
   PENALTY_WAIVED
+  AMENDED
+}
+
+enum BookingAmendmentStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
 }
 
 enum BookingOpsPriority {
@@ -648,6 +655,7 @@ model Tenant {
   bookingEmails BookingEmail[]
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
+  bookingAmendments BookingAmendment[]
   bookingSavedViews BookingSavedView[]
   bookingBulkOperations BookingBulkOperation[]
   bookingBulkOperationItems BookingBulkOperationItem[]
@@ -721,6 +729,8 @@ model TenantSettings {
 model User {
   bookingSupplierJobs BookingSupplierJob[] @relation("BookingSupplierJobRequester")
   bookingFinanceActed BookingFinanceEvent[] @relation("BookingFinanceActor")
+  bookingAmendmentsRequested BookingAmendment[] @relation("BookingAmendmentRequester")
+  bookingAmendmentsDecided BookingAmendment[] @relation("BookingAmendmentDecider")
   bookingOpsAssigned BookingOpsState[] @relation("BookingOpsAssignee")
   bookingOpsAssignedBy BookingOpsState[] @relation("BookingOpsAssignedBy")
   bookingOpsAcknowledged BookingOpsState[] @relation("BookingOpsAcknowledgedBy")
@@ -964,6 +974,7 @@ model Booking {
   emails              BookingEmail[]
   opsState            BookingOpsState?
   financeEvents       BookingFinanceEvent[]
+  amendments          BookingAmendment[]
   /// The cancellation rules frozen with the booking (Phase 5): { rules: [{ daysBeforeCheckin, penaltyPercent | penaltyMinor }], frozenAt, source }. Written at creation only.
   cancellationPolicy  Json?                 @map("cancellation_policy")
   supplierCalls       BookingSupplierCall[]
@@ -1142,6 +1153,8 @@ model BookingFinanceEvent {
   netMinor      BigInt?                  @map("net_minor")
   penaltyMinor  BigInt?                  @map("penalty_minor")
   refundMinor   BigInt?                  @map("refund_minor")
+  /// Signed price difference of an AMENDED event (new sell minus old sell, integer minor units). Null for every other type. Recorded only: the module posts nothing to the ledger.
+  adjustmentMinor BigInt?                @map("adjustment_minor")
   paymentMode   BookingPaymentMode?      @map("payment_mode")
   actorUserId   String?                  @map("actor_user_id")
   actor         User?                    @relation("BookingFinanceActor", fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -1151,6 +1164,39 @@ model BookingFinanceEvent {
   @@unique([tenantId, bookingId, type, seq])
   @@index([tenantId, bookingId, createdAt])
   @@index([tenantId, type, createdAt])
+}
+
+/// A structured amendment of a Confirmed booking (ADR 0072): the requested change to stay dates and/or room occupancy, the booking as it was, and, once approved, the
+/// supplier-confirmed price and the signed difference. Dates and head counts only: no guest personal data. One open (REQUESTED) amendment per booking.
+model BookingAmendment {
+  id                     String                 @id @default(cuid())
+  tenantId               String                 @map("tenant_id")
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId              String                 @map("booking_id")
+  booking                Booking                @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  status                 BookingAmendmentStatus @default(REQUESTED)
+  /// The booking's version when the request was made.
+  fromVersion            Int                    @map("from_version")
+  proposal               Json
+  beforeState            Json                   @map("before_state")
+  approvedSellMinor      BigInt?                @map("approved_sell_minor")
+  approvedNetMinor       BigInt?                @map("approved_net_minor")
+  /// New sell minus old sell. Signed.
+  differenceMinor        BigInt?                @map("difference_minor")
+  approvedCancelDeadline DateTime?              @map("approved_cancel_deadline")
+  /// Document types already issued when this was approved; they are not reissued.
+  documentsNotReissued   String[]               @map("documents_not_reissued")
+  requestedByUserId      String?                @map("requested_by_user_id")
+  requestedBy            User?                  @relation("BookingAmendmentRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  decidedByUserId        String?                @map("decided_by_user_id")
+  decidedBy              User?                  @relation("BookingAmendmentDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  requestedAt            DateTime               @default(now()) @map("requested_at")
+  decidedAt              DateTime?              @map("decided_at")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, bookingId, createdAt])
 }
 
 /// Durable operational state of the booking operations queue (ADR 0039, Phase 4): owner, acknowledgement, a manual priority floor, a manual follow-up flag.

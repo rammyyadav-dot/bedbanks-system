@@ -40,10 +40,16 @@ export interface SellabilityRequest { ratePlanId: string; stayDate: SupplyDate; 
 export interface SupplyCapabilities { permissions: SupplyPermission[] }
 export interface SellabilityResult { eligible: boolean; status: 'ELIGIBLE_FOR_FUTURE_SEARCH' | 'NOT_ELIGIBLE'; reasons: string[]; /** Non-blocking notes, e.g. HOTEL_CONTENT_NOT_COMPLETE (sellable but not visible to agent search). */ warnings?: string[] }
 
+/** Query for ranked canonical-hotel suggestions. Advisory only: a suggestion never creates or approves a mapping (maker-checker, ADR 0004). */
+export interface HotelMappingSuggestionQuery { name: string; address?: string; city?: string; /** ISO 3166-1 alpha-2. */ countryCode?: string }
+export interface HotelMappingSuggestion { hotelId: string; name: string; city: string; countryCode: string; /** Integer 0..100. */ confidence: number; tier: 'EXACT' | 'HIGH_CONFIDENCE' | 'REVIEW_REQUIRED'; reasons: string[] }
+/** `indexReady: false` means the tenant's HotelSearchIndex has no rows yet (run the reindex job); it is never answered with an empty "no match". */
+export interface HotelMappingSuggestions { indexReady: boolean; suggestions: HotelMappingSuggestion[] }
+
 export const supplyRoutes = {
   ratePlanPortfolio: '/supply/rate-plan-portfolio', ratePlanCapabilities: '/supply/rate-plans/capabilities', ratePlanReadiness: '/supply/rate-plans/:ratePlanId/readiness', ratePlanActivate: '/supply/rate-plans/:ratePlanId/activate', ratePlanSuspend: '/supply/rate-plans/:ratePlanId/suspend', ratePlanClone: '/supply/rate-plans/:ratePlanId/clone', ratePlanGuestPrices: '/supply/rate-plans/:ratePlanId/guest-prices', ratePlanPromotions: '/supply/rate-plans/:ratePlanId/promotions', ratePlanDerivation: '/supply/rate-plans/:ratePlanId/derivation', ratePlanActivationRequest: '/supply/rate-plans/:ratePlanId/activation-request', ratePlanActivationApproval: '/supply/rate-plans/:ratePlanId/activation-approval', ratePlanApprovalApprove: '/supply/rate-plan-approvals/:approvalId/approve', ratePlanApprovalReject: '/supply/rate-plan-approvals/:approvalId/reject', ratePlanApprovalCancel: '/supply/rate-plan-approvals/:approvalId/cancel', ratePlanApprovalExecute: '/supply/rate-plan-approvals/:approvalId/execute', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
   hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',
-  mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId',
+  mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId', hotelMappingSuggestions: '/supply/mappings/hotels/suggestions',
   hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
   roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
   suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',

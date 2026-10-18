@@ -7,6 +7,7 @@
  * caller holds `booking.view.net`. Agency-scoped callers only ever receive their own agency's bookings.
  */
 import type { BookingAction, BookingAvailableAction } from './booking-lifecycle'
+import type { BookingAmendmentApproval, BookingAmendmentProposal, BookingAmendmentView } from './booking-amendment'
 import type { BookingOperationsPanel, BookingUrgency } from './booking-ops-queue'
 import type { BookingAttention, BookingOperations, BookingStatus, MinorString, SectionState } from './operations'
 
@@ -194,6 +195,8 @@ export interface BookingDetailView {
     netVisibility: 'VISIBLE' | 'HIDDEN_BY_PERMISSION' | 'NOT_RECORDED'
   }
   timeline: BookingTimelineItem[]
+  /** Structured amendments, newest first (ADR 0072). */
+  amendments?: BookingAmendmentView[]
   /** The existing transaction record: hold, finance, documents, reconciliation flags. Unavailable when the API database role cannot read it; null for an agency-scoped caller, who never sees internal finance or audit. */
   operationsRecord: SectionState<BookingOperations> | null
   /** What this caller may do next on this booking, from the same rules the API enforces. Empty for a closed booking. */
@@ -250,6 +253,10 @@ export interface BookingActionRequest {
   hotelConfirmationNo?: string
   supplierCancellationRef?: string
   confirmNonRefundable?: boolean
+  /** `requestAmendment` only (ADR 0072): the structured change (stay dates and/or room occupancy). Omitted: a free-text request (names, special requests), which changes nothing by itself. */
+  amendment?: BookingAmendmentProposal
+  /** `approveAmendment` only: the supplier-confirmed price. Required when the open amendment is structured; refused when it is not. */
+  approval?: BookingAmendmentApproval
 }
 /** `PATCH /admin/operations/bookings/:id/references`: add or correct references without changing the status. Omitted fields are untouched; null clears. */
 export interface BookingReferencesRequest { supplierRef?: string | null; hotelConfirmationNo?: string | null; agentRef?: string | null; reason: string }

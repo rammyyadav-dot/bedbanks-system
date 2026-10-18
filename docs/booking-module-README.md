@@ -117,6 +117,21 @@ Two actions on explicit booking ids, at most 100 per request: assign/change the 
 
 **Tests.** Unit: `booking-lifecycle-jobs.spec.ts`. E2E (disposable DB): `booking-lifecycle-jobs.e2e-spec.ts` (which bookings move, idempotency, the day boundary, two runners at once, the role boundary).
 
+## Amendments (ADR 0072)
+
+**What a person does.** On a Confirmed booking, **Request amendment** opens a form: new check-in and check-out, and adults, children and child ages per room. Only fields you change are sent. Change nothing and write the note, and it is a *free-text* request (guest names, special requests): the note goes to the supplier directly and approving it changes nothing by itself. A structured request moves the booking to **Amend requested**; the **Amendments** tab shows what was asked and the booking as it was.
+The approver asks the supplier, then **Approve amendment** asks for the price the supplier confirmed (new sell total; optional net; optional free-cancellation deadline) and shows the difference in words before confirming. Approving applies the dates, nights, occupancy, price and deadline together, returns the booking to Confirmed with a new version, and records the difference as an amount **awaiting Finance booking** (Finance & documents tab). **Reject** leaves the booking exactly as it was and it can be amended again.
+
+**What it does not do.** It charges and refunds nothing and posts nothing to the ledger. It does not reissue the voucher or invoice (the panel lists which were left as issued). It does not rename guests. The net and margin become unknown if the approver does not record them (or cannot see them), and the free-cancellation deadline becomes unknown if the dates moved and none was recorded.
+
+**The ledger rule.** If the agency ledger holds anything for the booking (it was held or charged through the Agent flow), a **price-changing** approval is refused with "needs a ledger adjustment that is not built yet", and nothing changes. Reject it and agree the change with Finance, or approve it only if the price stays the same. This protects the cancellation settlement (ADR 0069), which refunds from the booking total. Manual and other non-ledger bookings are fully supported.
+
+**Permissions** (unchanged, formal roles only): `booking.amend` (request, approve, reject), `booking.amend.request` (an agency user, own bookings, request only).
+
+**Deploying.** Run migrations `202611250001` to `202611250003`, then **re-run `ops:provision-booking-ops-role`**: the booking role gains narrow UPDATE grants on the stay and price columns and the amendment table, and EXECUTE on `fbeds_booking_has_ledger_entries`. Without the re-run, a structured request answers 503 (not readable) rather than doing anything broader. No new environment variable.
+
+**Tests.** Unit: `booking-amendment.spec.ts` (validation, integer money, deadline and net rules, idempotency fingerprint, the source-scan that confines the writes); Admin `booking-amendment-ui.test.ts`. E2E (disposable DB): `booking-amendment.e2e-spec.ts` (15 tests: request, approve increase and decrease, zero difference, reject, approval rules, free-text path, the ledger guard, invalid proposals, idempotency, concurrent approvals, permissions and agency scope, visibility of net, documents not reissued, the role boundary).
+
 ## Urgent badge on list rows (Phase 6F)
 
 Rows (and Kanban cards) show a red **Urgent** or **Critical** badge for a booking that is an Urgent or Critical case in the Operations queue, using the same rules, SLA policy and clock, so the list and the queue cannot disagree. Hover for the reason and the SLA state. It is computed on every read and clears itself; nobody sets it by hand. High and Normal cases carry no badge. Only people who can see the queue (`booking.ops.view` with `ADMIN_BOOKING_OPS_ENABLED=true`) see it. If the queue cannot be evaluated (for example an invalid `BOOKING_OPS_SLA_POLICY`), the list still works and says "Urgent badges are not shown", which is not the same as "nothing is urgent". There is no "Only urgent" filter on the list; use the Operations queue. No migration, no new permission, no new grant.

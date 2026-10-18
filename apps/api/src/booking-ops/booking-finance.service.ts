@@ -38,7 +38,7 @@ export class BookingFinanceService {
       const canNet = access.permissions.includes('booking.view.net')
       const events = state.rows.map((e): BookingFinanceEventView => ({
         id: e.id, type: e.type as BookingFinanceEventType, seq: e.seq, currency: e.currency, sellMinor: e.sellMinor.toString(), netMinor: canNet && e.netMinor !== null ? e.netMinor.toString() : null,
-        penaltyMinor: e.penaltyMinor === null ? null : e.penaltyMinor.toString(), refundMinor: e.refundMinor === null ? null : e.refundMinor.toString(), paymentMode: e.paymentMode, actorUserId: e.actorUserId, createdAt: e.createdAt.toISOString(),
+        penaltyMinor: e.penaltyMinor === null ? null : e.penaltyMinor.toString(), refundMinor: e.refundMinor === null ? null : e.refundMinor.toString(), adjustmentMinor: e.adjustmentMinor === null ? null : e.adjustmentMinor.toString(), paymentMode: e.paymentMode, actorUserId: e.actorUserId, createdAt: e.createdAt.toISOString(),
         note: typeof (e.payload as { note?: unknown })?.note === 'string' ? (e.payload as { note: string }).note : null,
       }))
       const frozen = b.cancellationPolicy as { frozenAt?: string; source?: string } | null
