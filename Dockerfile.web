@@ -4,7 +4,7 @@
 # ADR 0055: agent, admin and supplier are environment-neutral. Their /api/v1 proxy (proxy.ts) reads API_INTERNAL_URL, AUTH_API_ORIGIN, SUPPLIER_ORIGIN and
 # AUTH_COOKIE_NAME from the RUNTIME environment, so one image digest is promoted unchanged between environments. Only the website still bakes public,
 # non-secret URLs (canonical/SEO) at build time through the NEXT_PUBLIC_* arguments, so a website image serves one environment. Nothing secret may be a build argument.
-FROM node:26-slim AS build
+FROM node:24-slim AS build
 RUN npm install -g pnpm@10.4.1
 WORKDIR /app
 ARG APP
@@ -25,7 +25,7 @@ RUN test -n "$APP" && test -n "$PACKAGE" \
   && pnpm exec turbo run build --filter="$PACKAGE" \
   && mkdir -p "apps/$APP/public"
 
-FROM node:26-slim AS run
+FROM node:24-slim AS run
 ARG APP
 # PORTAL_HOSTED=1 makes the runtime proxy enforce the hosted rules (HTTPS, non-loopback, exact /api/v1); a container is always hosted.
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORTAL_HOSTED=1 APP_DIR=$APP PORT=3000 HOSTNAME=0.0.0.0
