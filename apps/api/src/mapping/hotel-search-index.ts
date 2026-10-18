@@ -35,7 +35,7 @@ export async function upsertHotelSearchIndex(tx: Prisma.TransactionClient, tenan
     ) VALUES (
       ${`hsi_${hotel.hotelId}`}, ${tenantId}, ${hotel.hotelId}, ${normalized.normalizedName}, ${normalized.normalizedAddress},
       ${normalized.normalizedCity}, ${normalized.normalizedCountryCode}, ${hotel.latitude ?? null}, ${hotel.longitude ?? null},
-      ${Prisma.raw(`'${literal}'::vector`)}, ${embedder.model}, CURRENT_TIMESTAMP
+      ${literal}::vector, ${embedder.model}, CURRENT_TIMESTAMP
     )
     ON CONFLICT ("tenant_id", "hotel_id") DO UPDATE SET
       "normalized_name" = EXCLUDED."normalized_name",
@@ -50,17 +50,29 @@ export async function upsertHotelSearchIndex(tx: Prisma.TransactionClient, tenan
   `
 }
 
+/**
+ * Shortlists a tenant's hotels for a supplier observation by exact cosine distance over the tenant's own rows.
+ *
+ * The scope is a MATERIALIZED CTE on purpose. Left as a plain WHERE, the planner orders by the HNSW index and filters afterwards, so
+ * with many tenants in one index the approximate scan returns other tenants' neighbours and the tenant gets fewer than LIMIT rows,
+ * or none (reproduced: 100 tenants, 0 of 20 returned). Reading the tenant first makes recall exact and independent of pgvector's
+ * version and of hnsw.ef_search. Cost grows with the tenant's own catalogue, not the cluster's (docs/adr/0073).
+ */
 export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tenantId: string, observation: { name: string; address?: string | null; city?: string | null; countryCode?: string | null }, embedder: MappingEmbeddingProvider = embeddings): Promise<Array<{ hotelId: string; vectorSimilarity: number; nameSimilarity: number }>> {
   const normalized = normalizeHotelIdentity(observation)
   const literal = vectorLiteral(embedder.embed(hotelEmbeddingText(normalized)))
   return tx.$queryRaw<Array<{ hotelId: string; vectorSimilarity: number; nameSimilarity: number }>>`
+    WITH "scoped" AS MATERIALIZED (
+      SELECT "hotel_id", "normalized_name", "embedding"
+        FROM "HotelSearchIndex"
+       WHERE "tenant_id" = ${tenantId}
+         AND (${normalized.normalizedCountryCode} = '' OR "normalized_country_code" = ${normalized.normalizedCountryCode})
+    )
     SELECT "hotel_id" AS "hotelId",
-           1 - ("embedding" <=> ${Prisma.raw(`'${literal}'::vector`)}) AS "vectorSimilarity",
-           similarity("normalized_name", ${normalized.normalizedName}) AS "nameSimilarity"
-      FROM "HotelSearchIndex"
-     WHERE "tenant_id" = ${tenantId}
-       AND (${normalized.normalizedCountryCode} = '' OR "normalized_country_code" = ${normalized.normalizedCountryCode})
-     ORDER BY "embedding" <=> ${Prisma.raw(`'${literal}'::vector`)}
+           (1 - ("embedding" <=> ${literal}::vector))::float8 AS "vectorSimilarity",
+           similarity("normalized_name", ${normalized.normalizedName})::float8 AS "nameSimilarity"
+      FROM "scoped"
+     ORDER BY "embedding" <=> ${literal}::vector
      LIMIT 20
   `
 }

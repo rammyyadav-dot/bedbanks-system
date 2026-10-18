@@ -54,3 +54,13 @@ Built instead: `GET /supply/mappings/hotels/suggestions?name=&address=&city=&cou
 Verified: 4 new unit tests (permission, unpopulated index, tenant-scoped ranking, input validation), full API unit suite (1589 passed), type-check, lint, `check:architecture`. **Not verified:** the live query against pgvector (needs a Neon branch), and no frontend consumes the route yet (contracts first, per invariant 4).
 
 Open: F4 (tenant filter after the HNSW scan) now affects a live route, so benchmark and fix it before the index is populated across many tenants. Index freshness after hotel edits is still the reindex job.
+
+## Update: F4 and F5 fixed (ADR 0073)
+pgvector 0.6 was installed in the scratch environment, which allowed a real reproduction and the first real-database verification.
+
+- **F4 reproduced:** 100 tenants, 50,000 index rows: the tenant-filtered HNSW query returned **0 of 20** rows. **Fixed** by scoping to the tenant in a `MATERIALIZED` CTE and ordering exactly (ADR 0073). Cost: 45 ms for a 33k-row scope, 92 ms for a 100k-row tenant.
+- **F5 fixed:** the vector is a bound parameter (`${literal}::vector`) in both the upsert and the retrieval.
+- **Now verified on PostgreSQL 16 + pgvector:** all 40+ repo migrations apply in order (including `202610180001`), `check-migration-drift.mjs` reports **No schema drift** (confirming the tolerance list), and `test/hotel-search-index.e2e-spec.ts` passes (4 tests, including the upsert, tenant isolation, RLS with the restricted role, and a new full-shortlist test).
+- **Limit of the new e2e test:** at that table size the planner never chooses HNSW, so it guards behaviour but would not catch a return to the old query. The reproduction above is the evidence for that.
+- **Reindex CLI verified end to end** on that database: dry run reported 2 stale and wrote nothing; apply wrote 2; a re-run found 0 stale; editing a hotel made exactly that hotel stale again and it was re-indexed. (A blank country code cannot reach the job: `Hotel_country_code_check` rejects it, so `skippedInvalid` is a defensive path only.)
+- **Still not verified:** Neon itself (extension version, `max_connections`, real latency over the network).
