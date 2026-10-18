@@ -235,3 +235,17 @@ Unknown refundability is treated as non-refundable. Owner membership implies non
 
 **Scope.** The same `BookingListRow.urgency` is shown on the list's Booking # cell and on Kanban cards (both read the list API). The export never carries it. An "Only urgent" filter is **not** built: it would need the queue evaluation over every matching booking rather than a page; the Operations queue's Urgent filters already answer that question.
 
+## Phase 6G decisions: close after the dispute window (2026-10-18)
+
+**The window is the owner's number.** The spec leaves "dispute window length before Closed" as an open question (it only gives "e.g. 30 days"). So the close pass of `BookingLifecycleJobs` does nothing unless `BOOKING_CLOSE_AFTER_DAYS` is set to a whole number of days from 1 to 365. Unset: nothing is ever closed, however old. A value that is set but not valid makes the job refuse to start; there is no default and no guess. It also needs the supplier resolver (always present in the app) to judge operations cases.
+
+**What "the window" means.** A booking in a closable status (Checked out, No-show, Cancelled, Rejected, Failed) whose row has not changed for that many days. Any change, including an edit of a reference, restarts the clock, which is what a dispute window is: a quiet period. It is counted on `Booking.updated_at`, so it needs no new column.
+
+**Nothing that still needs a person is locked.** Judged again under the booking's row lock, in its own transaction: (1) the booking is still open, in a closable status, and still unchanged since the cutoff; (2) it is not an Operations queue case, by the queue's own ruleset, SLA policy and facts (`evaluateBookingOps(...).inQueue`: a manual follow-up, an unresolved supplier answer, an active job and so on), so the job cannot drift from the queue; (3) a Cancelled booking's penalty is determined (quoted, decided or waived): a locked booking refuses actions, so an undecided penalty must be decided first. Anything else is skipped and looked at again next pass. An invalid SLA policy stops the pass (the queue will not guess, so neither does a close).
+
+**One writer, still.** `transitionBooking` stays the only writer of `status` and `closedAt`. Five new system-only actions (`systemCloseCheckedOut`, `...NoShow`, `...Cancelled`, `...Rejected`, `...Failed`) keep the status and set the lock; a rule has a single `from`, hence one per status. A rule flag `locks` replaces the old test for the literal action name `close`, so the operator's "Close as failed" and these share one path. The event is the record (actor SYSTEM, the reason "no change for N days"); no `AuditEvent` is written, for the reason given in Phase 6E. People are never offered these actions. Closing moves no money and emits no finance event, and the existing lock rules apply afterwards (409 `BOOKING_CLOSED`).
+
+**Finding tenants without a cross-tenant read.** Migration `202611260001`: `fbeds_booking_close_due_tenants(cutoff)`, SECURITY DEFINER, ids only, EXECUTE granted to the booking role by the owner-run provisioning script (re-run `ops:provision-booking-ops-role`), and a small partial index on `updated_at` for open bookings in a closable status. As in Phase 6E that index deliberately does not lead with `tenant_id` (its only reader is the ids-only function; recorded in the migration, with rollback). At most 200 bookings per tenant per pass.
+
+**Not decided here.** Reopening a closed booking, and finance adjustments after close (the spec allows them; none exists yet).
+

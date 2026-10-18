@@ -123,3 +123,15 @@ Rows (and Kanban cards) show a red **Urgent** or **Critical** badge for a bookin
 
 **Tests.** Unit: `booking-urgency.spec.ts`; Admin `booking-ui.test.ts`. E2E (disposable DB): `booking-urgency.e2e-spec.ts` (verdict per row, caller without the permission, invalid policy, queue switched off).
 
+## Close after the dispute window (Phase 6G)
+
+**Off until you choose the window.** Set `BOOKING_CLOSE_AFTER_DAYS` (a whole number of days, 1 to 365) next to the Phase 6E switches (`BOOKING_LIFECYCLE_JOB_ENABLED=true`, `BOOKING_OPS_DATABASE_URL`). Unset, nothing is ever closed. A bad value makes the job refuse to start.
+
+**What it does.** A Checked out, No-show, Cancelled, Rejected or Failed booking that has not changed for that many days is **locked** (it shows CLOSED, keeps its status, and its Timeline says "Closed automatically: no change for N days" by System). Any edit restarts its clock. A closed booking refuses further actions.
+
+**What it will not lock.** Anything that still needs a person: an Operations queue case (manual follow-up, unresolved supplier answer, an active job), or a Cancelled booking whose penalty nobody has decided (decide it, and it is closed on a later pass). It moves no money and sends nothing.
+
+**Deploying.** Run migration `202611260001`, then re-run `ops:provision-booking-ops-role` (new EXECUTE grant on `fbeds_booking_close_due_tenants`), then set the variable. Without the grant the job logs an access failure and closes nothing; it never falls back to another credential.
+
+**Tests.** Unit: `booking-lifecycle-jobs.spec.ts` (LJ-06 to LJ-09). E2E (disposable DB): `booking-lifecycle-jobs.e2e-spec.ts` (LJE-06 to LJE-10: each status, the window edge, the "still needs a person" skips, idempotency and two runners, off when unset).
+

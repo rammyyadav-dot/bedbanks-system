@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto'
 import { PrismaClient } from '@prisma/client'
 import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
 import { BookingLifecycleJobs } from '../src/booking-ops/booking-lifecycle-jobs.service'
+import { transitionBooking } from '../src/booking-ops/booking-transition'
 import { enableBookingOps } from './support/booking-ops'
 
 jest.setTimeout(240_000)
@@ -13,13 +14,14 @@ describe('Booking lifecycle jobs: Checked-out (PostgreSQL, booking role)', () =>
   let tenantA = '', tenantB = '', hotelA = '', hotelB = ''; let restore: () => void = () => undefined; let n = 0
   let database: BookingOpsDatabase; let job: BookingLifecycleJobs
   const NOW = new Date('2030-06-10T09:00:00.000Z')
+  const NOW_REAL = () => new Date()
   const day = (offset: number) => new Date(Date.UTC(2030, 5, 10 + offset))
 
-  async function booking(tenant: 'A' | 'B', over: { status?: string; checkOut?: Date | null; closedAt?: Date | null } = {}) {
+  async function booking(tenant: 'A' | 'B', over: { status?: string; checkOut?: Date | null; closedAt?: Date | string | null } = {}) {
     const tenantId = tenant === 'A' ? tenantA : tenantB; n += 1
     const out = over.checkOut === undefined ? day(-1) : over.checkOut
     const b = await owner.booking.create({ data: { tenantId, reference: `FB-${randomBytes(10).toString('hex').toUpperCase()}`, supplier: 'Supplier One', hotelId: tenant === 'A' ? hotelA : hotelB, status: (over.status ?? 'CONFIRMED') as never,
-      currency: 'AED', totalMinor: 100_000n, idempotencyKey: `${suffix}-${n}`, searchSnapshot: {}, supplierRef: `S-${n}`, hotelConfirmationNo: `H-${n}`, checkIn: out === null ? null : new Date(out.getTime() - 4 * 86_400_000), checkOut: out, nights: 4, closedAt: over.closedAt ?? null } })
+      currency: 'AED', totalMinor: 100_000n, idempotencyKey: `${suffix}-${n}`, searchSnapshot: {}, supplierRef: `S-${n}`, hotelConfirmationNo: `H-${n}`, checkIn: out === null ? null : new Date(out.getTime() - 4 * 86_400_000), checkOut: out, nights: 4, closedAt: over.closedAt === undefined || over.closedAt === null ? null : new Date(over.closedAt) } })
     await owner.bookingEvent.create({ data: { tenantId, bookingId: b.id, toStatus: (over.status ?? 'CONFIRMED') as never, actorType: 'SYSTEM', reason: 'fixture', payload: { backfill: true } } })
     return b.id
   }
@@ -88,5 +90,77 @@ describe('Booking lifecycle jobs: Checked-out (PostgreSQL, booking role)', () =>
     expect(tenants).toEqual(expect.arrayContaining([tenantB])); expect(tenants.every((t) => typeof t === 'string')).toBe(true)
     await expect(database.withTenant(tenantA, (tx) => tx.hotel.findMany({ take: 1 }))).rejects.toBeDefined()
     await expect(database.withTenantWrite(tenantA, (tx) => tx.booking.deleteMany({ where: { tenantId: tenantA } }))).rejects.toBeDefined()
+  })
+
+  // ---- close after the dispute window (Phase 6G) ----------------------------------------------------------------------------------
+  const closer = () => { const j = new BookingLifecycleJobs(database, { BOOKING_LIFECYCLE_JOB_ENABLED: 'true', BOOKING_LIFECYCLE_JOB_INTERVAL_MS: '3600000', BOOKING_CLOSE_AFTER_DAYS: '30' }, { resolve: () => null }); j.onModuleInit(); return j }
+  const aged = async (id: string, days: number) => { await owner.$executeRawUnsafe(`UPDATE "Booking" SET updated_at = now() - interval '${days} days' WHERE id = '${id}'`); return id }
+  const lock = async (id: string) => (await owner.booking.findUniqueOrThrow({ where: { id }, select: { status: true, closedAt: true } }))
+  const decidedPenalty = async (id: string, tenantId = tenantA) => { await owner.bookingFinanceEvent.create({ data: { tenantId, bookingId: id, type: 'PENALTY_DECIDED', seq: 1, currency: 'AED', sellMinor: 100_000n, penaltyMinor: 20_000n, refundMinor: 80_000n } }); return id }
+
+  it('LJE-06: with a 30-day window, each closable status is locked after 30 days of no change, keeps its status, and leaves a SYSTEM event; inside the window, other statuses and locked bookings are untouched', async () => {
+    const closable: Array<[string, string]> = []
+    for (const status of ['CHECKED_OUT', 'NO_SHOW', 'REJECTED', 'FAILED']) closable.push([status, await aged(await booking('A', { status }), 45)])
+    closable.push(['CANCELLED', await aged(await decidedPenalty(await booking('A', { status: 'CANCELLED' })), 45)])
+    const insideWindow = await aged(await booking('A', { status: 'FAILED' }), 29)
+    const confirmed = await aged(await booking('A', { status: 'CONFIRMED', checkOut: day(5) }), 90); const onRequest = await aged(await booking('A', { status: 'ON_REQUEST', checkOut: day(5) }), 90)
+    const alreadyClosed = await aged(await booking('A', { status: 'FAILED', closedAt: day(-40) }), 90)
+    const closerJob = closer()
+    try {
+      const result = await closerJob.runOnce(() => NOW_REAL())
+      expect(result).toMatchObject({ closed: 5, failed: 0 })
+      for (const [status, id] of closable) {
+        expect(await lock(id)).toMatchObject({ status, closedAt: expect.any(Date) })
+        const ev = await owner.bookingEvent.findMany({ where: { bookingId: id, action: { startsWith: 'systemClose' } } })
+        expect(ev).toHaveLength(1); expect(ev[0]).toMatchObject({ fromStatus: status, toStatus: status, actorType: 'SYSTEM', actorId: null }); expect(ev[0].payload).toMatchObject({ closed: true }); expect(ev[0].reason).toMatch(/no change for 30 days/)
+      }
+      for (const [id, status] of [[insideWindow, 'FAILED'], [confirmed, 'CONFIRMED'], [onRequest, 'ON_REQUEST']] as const) expect(await lock(id)).toMatchObject({ status, closedAt: null })
+      expect((await lock(alreadyClosed)).closedAt).not.toBeNull(); expect(await owner.bookingEvent.count({ where: { bookingId: alreadyClosed, action: { startsWith: 'systemClose' } } })).toBe(0)
+      expect(await owner.bookingFinanceEvent.count({ where: { bookingId: { in: closable.map(([, id]) => id) }, type: { not: 'PENALTY_DECIDED' } } })).toBe(0) // closing moves no money
+    } finally { closerJob.onModuleDestroy() }
+  })
+
+  it('LJE-07: the window edge: 29 days of quiet is not enough, 31 is; a recent change restarts the clock', async () => {
+    const a = await aged(await booking('A', { status: 'REJECTED' }), 29); const b = await aged(await booking('A', { status: 'REJECTED' }), 31)
+    const closerJob = closer()
+    try {
+      await closerJob.runOnce(() => NOW_REAL()); expect((await lock(a)).closedAt).toBeNull(); expect((await lock(b)).closedAt).not.toBeNull()
+      await owner.$executeRawUnsafe(`UPDATE "Booking" SET updated_at = now() - interval '40 days' WHERE id = '${a}'`); await owner.booking.update({ where: { id: a }, data: { agentRef: 'edited-today' } }) // an edit bumps updated_at
+      await closerJob.runOnce(() => NOW_REAL()); expect((await lock(a)).closedAt).toBeNull()
+    } finally { closerJob.onModuleDestroy() }
+  })
+
+  it('LJE-08: nothing that still needs a person is locked: an operations case (manual follow-up) and a Cancelled booking whose penalty nobody has decided are left, and are closed once resolved', async () => {
+    const followUp = await aged(await booking('A', { status: 'FAILED' }), 60)
+    await owner.bookingOpsState.create({ data: { tenantId: tenantA, bookingId: followUp, followUp: true, followUpAt: new Date(Date.now() - 3_600_000) } })
+    const undecided = await aged(await booking('A', { status: 'CANCELLED' }), 60)
+    const closerJob = closer()
+    try {
+      const first = await closerJob.runOnce(() => NOW_REAL())
+      expect(first.failed).toBe(0); expect((await lock(followUp)).closedAt).toBeNull(); expect((await lock(undecided)).closedAt).toBeNull()
+      await owner.bookingOpsState.update({ where: { tenantId_bookingId: { tenantId: tenantA, bookingId: followUp } }, data: { followUp: false, resolvedAt: new Date() } }); await aged(followUp, 60); await decidedPenalty(undecided); await aged(undecided, 60)
+      await closerJob.runOnce(() => NOW_REAL())
+      expect((await lock(followUp)).closedAt).not.toBeNull(); expect((await lock(undecided)).closedAt).not.toBeNull()
+    } finally { closerJob.onModuleDestroy() }
+  })
+
+  it('LJE-09: idempotent and race-safe: a second pass closes nothing; two runners at once close each booking once', async () => {
+    const ids = await Promise.all(Array.from({ length: 6 }, async () => aged(await booking('A', { status: 'NO_SHOW' }), 50)))
+    const one = closer(); const two = closer()
+    try {
+      const [a, b] = await Promise.all([one.runOnce(() => NOW_REAL()), two.runOnce(() => NOW_REAL())])
+      expect(a.failed + b.failed).toBe(0); expect(a.closed + b.closed).toBe(ids.length)
+      for (const id of ids) expect(await owner.bookingEvent.count({ where: { bookingId: id, action: 'systemCloseNoShow' } })).toBe(1)
+      expect((await one.runOnce(() => NOW_REAL())).closed).toBe(0)
+    } finally { one.onModuleDestroy(); two.onModuleDestroy() }
+  })
+
+  it('LJE-10: with no window set, nothing is ever closed, however old; a closed booking refuses further actions', async () => {
+    const old = await aged(await booking('A', { status: 'FAILED' }), 400)
+    expect((await job.runOnce(() => NOW_REAL())).closed).toBe(0); expect((await lock(old)).closedAt).toBeNull()
+    const closerJob = closer()
+    try { await closerJob.runOnce(() => NOW_REAL()) } finally { closerJob.onModuleDestroy() }
+    expect((await lock(old)).closedAt).not.toBeNull()
+    await expect(database.withTenantWrite(tenantA, (tx) => transitionBooking(tx, { tenantId: tenantA, bookingId: old, action: 'close', expectedStatus: 'FAILED', actor: { type: 'USER', id: 'someone' }, level: 'OPERATOR', reason: 'again', now: new Date() }))).rejects.toMatchObject({ response: { code: 'BOOKING_CLOSED' } })
   })
 })

@@ -86,7 +86,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   const needsSecond = Boolean(rule.secondConfirmationWhenNonRefundable) && (input.level === 'AGENCY' || booking.isRefundable !== true)
   if (needsSecond && input.confirmNonRefundable !== true) throw new UnprocessableEntityException({ message: 'This booking is not known to be refundable. Confirm a second time to continue.', code: 'CONFIRMATION_REQUIRED' })
 
-  const closing = input.action === 'close'
+  const closing = rule.locks === true
   const data: Prisma.BookingUpdateManyMutationInput = { status: rule.to }
   const writesRefs = input.action === 'recordConfirmed' || input.action === 'confirmOnRequest' || input.action === 'systemConfirm' || input.action === 'systemConfirmOnRequest'
   if (supplierRef !== undefined && writesRefs) data.supplierRef = supplierRef
