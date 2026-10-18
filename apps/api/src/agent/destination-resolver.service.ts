@@ -42,16 +42,21 @@ export class DestinationResolverService {
 
   private async loadDestinations(tenantId: string, folded: string): Promise<DestinationResolution[]> {
     const pattern = `%${folded.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
-    const hotels = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ id: string; name: string; city: string; countryCode: string; citySim: number; nameSim: number }>>(Prisma.sql`
+    // `term <% column` is word_similarity(term, column) >= pg_trgm.word_similarity_threshold. Unlike the function form it can use the
+    // Hotel_*_lower_trgm GIN indexes (migration 202610180001). The threshold is transaction-local, so it is safe behind a pooler.
+    const hotels = await this.prisma.withTenant(tenantId, async (tx) => {
+      await tx.$executeRaw`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(FUZZY_THRESHOLD)}, true)`
+      return tx.$queryRaw<Array<{ id: string; name: string; city: string; countryCode: string; citySim: number; nameSim: number }>>(Prisma.sql`
       SELECT "id", "name", "city", "country_code" AS "countryCode",
              word_similarity(${folded}, lower("city"))::float8 AS "citySim",
              word_similarity(${folded}, lower("name"))::float8 AS "nameSim"
         FROM "Hotel"
        WHERE "tenant_id" = ${tenantId} AND "content_status" = 'COMPLETE'
          AND (lower("city") LIKE ${pattern} OR lower("name") LIKE ${pattern}
-              OR word_similarity(${folded}, lower("city")) >= ${FUZZY_THRESHOLD} OR word_similarity(${folded}, lower("name")) >= ${FUZZY_THRESHOLD})
+              OR ${folded} <% lower("city") OR ${folded} <% lower("name"))
        ORDER BY GREATEST(word_similarity(${folded}, lower("city")), word_similarity(${folded}, lower("name"))) DESC, "city" ASC, "name" ASC
-       LIMIT 50`))
+       LIMIT 50`)
+    })
     const matches = (value: string, similarity: number) => value.toLocaleLowerCase('en-US').includes(folded) || similarity >= FUZZY_THRESHOLD
     // Substring hits lead, then the closest fuzzy hits; ties keep the database order.
     const rank = (value: string, similarity: number) => (value.toLocaleLowerCase('en-US').startsWith(folded) ? 2 : value.toLocaleLowerCase('en-US').includes(folded) ? 1 : 0) + similarity
