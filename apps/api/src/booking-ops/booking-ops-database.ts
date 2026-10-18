@@ -128,6 +128,19 @@ export class BookingOpsDatabase implements OnModuleDestroy {
     }
   }
 
+  /** Phase 6G: tenants with an open booking in a closable status that has not changed since `cutoff` (ids only), through the SECURITY DEFINER function. */
+  async closeDueTenants(cutoff: Date): Promise<string[]> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      const rows = await client.$queryRaw<Array<{ fbeds_booking_close_due_tenants: string }>>`SELECT "fbeds_booking_close_due_tenants"(${cutoff}::timestamp)`
+      return rows.map((r) => r.fbeds_booking_close_due_tenants)
+    } catch (error) {
+      if (isAccessFailure(error)) { this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`); throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED }) }
+      throw error
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.client?.$disconnect()
     this.client = null

@@ -23,7 +23,7 @@ The module is **not production-activatable** and must not be described as such, 
 | Amendment request / approve / reject | Built (ADR 0072): dates and occupancy applied with the supplier-confirmed price; no ledger adjustment, no reissued documents | `booking-amendment.ts` |
 | No-show within 7 days of check-in | Built (manual) | `NO_SHOW_WINDOW` rule |
 | Auto Checked-out | Built in Phase 6E (scheduled job, off by default) | `booking-lifecycle-jobs.service.ts` |
-| Close after dispute window | **Not built**: window length is an open owner question | ADR 0039 |
+| Close after dispute window | Built in Phase 6G, off until the owner sets `BOOKING_CLOSE_AFTER_DAYS` (no default: the length is still the owner's decision) | `booking-lifecycle-jobs.service.ts` |
 | Work queue, SLA, assignment, escalation | Built; one SLA policy per deployment | `booking-ops-queue.service.ts` |
 | Saved views, bulk assign/acknowledge | Built | Phase 6B/6C |
 | Export, print, board, header counter | **Built in this change** | section 5 |
@@ -40,7 +40,7 @@ The module is **not production-activatable** and must not be described as such, 
 | F2 | Medium | A CSV cell starting `=`, `+`, `-`, `@` (also after leading spaces or line breaks) runs as a formula in Excel. Guest names and supplier references are free text. | Fixed: neutralised; a unit test found and closed the leading-line-break variant |
 | F3 | Medium | The global `ResponseInterceptor` wraps any returned string in `{ "success": true, "data": … }`, which would have shipped a JSON-wrapped "CSV". Found only by running the route over HTTP against Postgres, not by unit tests. | Fixed: `@Res()` like the existing hotel and compliance exports |
 | F4 | Medium | Approved amendments changed status only; dates, room and occupancy were not applied or priced. | Built (ADR 0072, branch `claude/booking-amendments`): dates and occupancy, supplier-confirmed price recorded by the approver, applied atomically, difference recorded as a money fact. Not built: ledger adjustment (refused on ledger-charged bookings), re-pricing from the rate engine, revised documents, name changes |
-| F5 | Medium | Confirmed bookings never moved to Checked out automatically, and nothing closes terminal bookings after the dispute window (window length is still an open owner question). | Checked-out job built (Phase 6E, branch `claude/booking-scheduled-jobs`); close-after-dispute still open |
+| F5 | Medium | Confirmed bookings never moved to Checked out automatically, and nothing closes terminal bookings after the dispute window (window length is still an open owner question). | Checked-out job built (Phase 6E, merged); close-after-dispute built (Phase 6G, branch `claude/booking-close-job`), inert until the owner sets the window |
 | F6 | Medium | No production supplier adapter: only the mock (named tenants) and the XML connector kit. Unknown external outcomes must stay "pending investigation". | Open (release gate) |
 | F7 | Low | The list showed reconciliation attention tags but not the SLA "Urgent" badge the reference screen shows. | Built (Phase 6F, branch `claude/booking-urgent-badge`): the badge is the queue's own verdict; no "Only urgent" filter |
 | F8 | Low | One SLA policy per deployment; the spec wants per-tenant-contract overrides. | Open |

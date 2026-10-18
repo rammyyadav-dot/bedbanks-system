@@ -23,7 +23,7 @@ describe('booking lifecycle table (spec "Booking lifecycle")', () => {
   })
 
   it('LC-03: every named action is a legal move (or the close lock), and every legal move is reachable by some action', () => {
-    for (const a of BOOKING_ACTIONS) { const r = BOOKING_ACTION_RULES[a]; expect(a === 'close' ? r.from === r.to : isLegalMove(r.from, r.to)).toBe(true) }
+    for (const a of BOOKING_ACTIONS) { const r = BOOKING_ACTION_RULES[a]; expect(r.locks ? r.from === r.to : isLegalMove(r.from, r.to)).toBe(true) }
     for (const from of BOOKING_STATUSES) for (const to of BOOKING_TRANSITIONS[from]) expect(BOOKING_ACTIONS.some((a) => BOOKING_ACTION_RULES[a].from === from && BOOKING_ACTION_RULES[a].to === to)).toBe(true)
   })
 
