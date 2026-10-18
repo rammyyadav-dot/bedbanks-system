@@ -17,7 +17,7 @@ const offset = (days: number) => new Date(Date.now() + days * 86_400_000).toISOS
 /** Runs the Agent's own stay evaluator server-side for the requested party and dates. The browser only renders the verdict. */
 export function SellabilityPanel({ hotelId, rooms }: { hotelId: string; rooms: HotelCommercial360['rooms'] }) {
   const [checkIn, setCheckIn] = useState(offset(14)); const [checkOut, setCheckOut] = useState(offset(17))
-  const [adults, setAdults] = useState('2'); const [children, setChildren] = useState('0'); const [roomsCount, setRoomsCount] = useState('1'); const [roomTypeId, setRoomTypeId] = useState('')
+  const [adults, setAdults] = useState('2'); const [children, setChildren] = useState('0'); const [childAges, setChildAges] = useState(''); const [roomsCount, setRoomsCount] = useState('1'); const [roomTypeId, setRoomTypeId] = useState('')
   const can = useCan()
   const [agencyId, setAgencyId] = useState(''); const [nationality, setNationality] = useState('')
   const revision = useRef(0)
@@ -30,7 +30,7 @@ export function SellabilityPanel({ hotelId, rooms }: { hotelId: string; rooms: H
     const submittedRevision = revision.current
     inFlight.current = true; setRunning(true); setFailure(null); setResult(null)
     try {
-      const inspection = await inspectHotelSellability(hotelId, { checkIn, checkOut, adults, children, rooms: roomsCount, roomTypeId: roomTypeId || undefined, agencyId: agencyId || undefined, nationality: nationality || undefined, currency: 'AED' })
+      const inspection = await inspectHotelSellability(hotelId, { checkIn, checkOut, adults, children, childAges: childAges.split(',').map((a) => a.trim()).filter(Boolean).join(','), rooms: roomsCount, roomTypeId: roomTypeId || undefined, agencyId: agencyId || undefined, nationality: nationality || undefined, currency: 'AED' })
       if (revision.current === submittedRevision) setResult(inspection)
     } catch (error) {
       const kind = classifyOpsFailure(error)
@@ -43,12 +43,13 @@ export function SellabilityPanel({ hotelId, rooms }: { hotelId: string; rooms: H
 
   return (
     <div className="workspace-panel" style={{ padding: 18 }}>
-      <p>This is a diagnostic for the requested stay, not hosted Agent certification. Adults and children are per room; every room uses the same party. Child ages and child pricing policies are not assessed.</p>
+      <p>This is a diagnostic for the requested stay, not hosted Agent certification. Adults and children are per room; every room uses the same party. Each child needs an age: children are priced from the plan's own child prices or, when it has none, the contract child policy.</p>
       <form onChange={() => { revision.current += 1; setResult(null); setFailure(null) }} aria-label="Sellability inspector" onSubmit={(event) => { event.preventDefault(); void run() }} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Check-in</span><input type="date" required value={checkIn} onChange={(event) => setCheckIn(event.target.value)} /></label>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Check-out</span><input type="date" required value={checkOut} onChange={(event) => setCheckOut(event.target.value)} /></label>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Adults</span><input type="number" min={1} max={9} required value={adults} onChange={(event) => setAdults(event.target.value)} style={{ width: 70 }} /></label>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Children</span><input type="number" min={0} max={9} value={children} onChange={(event) => setChildren(event.target.value)} style={{ width: 70 }} /></label>
+        {Number(children) > 0 && <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Child ages (comma-separated)</span><input value={childAges} required placeholder="e.g. 4, 9" onChange={(event) => setChildAges(event.target.value)} style={{ width: 120 }} /></label>}
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Rooms</span><input type="number" min={1} max={9} value={roomsCount} onChange={(event) => setRoomsCount(event.target.value)} style={{ width: 70 }} /></label>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Room</span><select value={roomTypeId} onChange={(event) => setRoomTypeId(event.target.value)}><option value="">All rooms</option>{rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
         {can('agency.read') && <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Agency ID (optional)</span><input value={agencyId} maxLength={80} onChange={event => setAgencyId(event.target.value)} placeholder="From Agencies" /></label>}

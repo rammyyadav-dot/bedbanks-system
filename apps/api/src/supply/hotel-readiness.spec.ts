@@ -100,7 +100,7 @@ describe('unified hotel readiness (explicit criteria)', () => {
   it('HR-10: per-room occupancy is judged against the room and the plan; a mismatch fails CONTRACT', () => {
     const a = run({ c: { adults: 2, children: 1, childAges: [6] } })
     expect(gate(a, 'CONTRACT').blockers.map((b) => b.code)).toContain('OCCUPANCY_UNSUPPORTED')
-    expect(a.limitations.join(' ')).toMatch(/Child ages are recorded/)
+    expect(a.limitations.join(' ')).toMatch(/Children are priced by age \(6\)/) // ADR 0067 F-17
   })
 
   it('HR-11: an unapproved mapping fails MAPPING and links to the mappings tab', () => {

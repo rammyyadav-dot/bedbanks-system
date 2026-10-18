@@ -119,10 +119,10 @@ export function occupancySplit(plan: { occupancy: number; roomType: { maxAdults:
   return { adults, children: plan.occupancy - adults }
 }
 
-export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number }, markupRules: readonly MarkupRuleRow[] = [], now: Date = new Date()): string[] {
+export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number; childAges?: number[] }, markupRules: readonly MarkupRuleRow[] = [], now: Date = new Date()): string[] {
   const snapshot = buildStaySnapshot(plan, mapping, roomMapping, [date], markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId))
   const { adults, children } = guests ?? occupancySplit(plan)
-  const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, currency: plan.currency, now })
+  const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, childAges: guests?.childAges, currency: plan.currency, now })
   const reasons = decision.reasons.filter((reason) => !STAY_CONTEXT_REASONS.has(reason))
   if (!starRatingValid(hotelStarRating)) reasons.push(HOTEL_STAR_RATING_MISSING)
   return reasons

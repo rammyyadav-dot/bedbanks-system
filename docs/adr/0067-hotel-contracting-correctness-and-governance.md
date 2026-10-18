@@ -83,3 +83,9 @@ An unusable hotel zone fails closed for whichever side is set. Because Agent sea
 - Agent search reads only the `localCharges` column of the profile; contacts stay private.
 
 **Not built.** Taxes are still not itemised inside the price (`taxAmountMinor` stays 0 for contracted inventory). A VAT breakdown on the invoice is a finance decision.
+
+## F-17: Readiness judges children by age
+
+**Problem.** Hotel readiness accepted child ages but did not pass them to the evaluator, so every plan with child prices failed with `CHILD_AGES_REQUIRED`. Its note claimed "no per-age child pricing is modelled", which has not been true since ADR 0057 S6. The hotel stay diagnostic did not take ages at all and marked child policy "not assessed".
+
+**Decision.** Readiness, the hotel stay diagnostic and its per-night verdicts pass the child ages to the shared evaluator. The stay diagnostic now requires one age (0-17) per child, exactly as Agent search does. Children are judged by the plan's child lines or the contract child policy (F-03), so the diagnostic reports `childPolicyAssessed: true` and no longer adds `CHILD_POLICY_NOT_ASSESSED`. The readiness note states how children are priced and that extra-bed availability is not checked. The admin stay checker asks for child ages when children are entered.

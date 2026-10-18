@@ -272,7 +272,8 @@ export interface HotelStayReadiness {
   scope: 'STAY_DIAGNOSTIC_NOT_CERTIFICATION'
   buyer: { agencyId: string | null; market: string | null; nationality: string | null; assessed: boolean }
   requestedCurrency: 'AED' | null
-  occupancy: { uniformRooms: boolean; childPolicyAssessed: false }
+  /** Children are priced by age from plan lines or the contract child policy (ADR 0067, F-17). */
+  occupancy: { uniformRooms: boolean; childPolicyAssessed: boolean }
   plans: Array<{ ratePlanId: string; gates: HotelStayReadinessGate[] }>
   certification: 'NOT_VERIFIED'
 }

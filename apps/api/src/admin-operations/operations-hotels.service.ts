@@ -564,6 +564,9 @@ export class OperationsHotelsService {
     if (checkIn < this.today()) throw new BadRequestException('Check-in must not be in the past')
     const adults = intParam('adults', query.adults, 1, 9); const children = intParam('children', query.children, 0, 9) ?? 0; const rooms = intParam('rooms', query.rooms, 1, 9) ?? 1
     if (adults === undefined) throw new BadRequestException('adults is required')
+    // ADR 0067 F-17: child ages are required with children, exactly as the Agent requires them, so child prices and the contract child policy are judged.
+    const childAges = (typeof query.childAges === 'string' && query.childAges.length > 0 ? query.childAges.split(',') : []).map((age) => (/^\d{1,2}$/.test(age.trim()) ? Number(age) : NaN))
+    if (childAges.length !== children || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) throw new BadRequestException('childAges must list one age (0-17) for each child')
     const roomTypeId = idParam('roomTypeId', query.roomTypeId)
     const agencyId = idParam('agencyId', query.agencyId)
     const nationality = textParam('nationality', query.nationality, 2)?.toUpperCase() ?? null
@@ -594,14 +597,14 @@ export class OperationsHotelsService {
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
         const ownRates = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
-        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
+        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, childAges, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
         const reasons = [...decision.reasons]
         if (agencyId && agencyStatus === 'SUSPENDED') reasons.push('AGENCY_SUSPENDED')
         if (agencyId && restrictions.some(r => r.scope === 'HOTEL' ? r.hotelId === hotel.id : r.supplierId === plan.contract.supplierId)) reasons.push('DISTRIBUTION_RESTRICTED')
         if (!(input.hotel.starRating !== null && input.hotel.starRating >= 1 && input.hotel.starRating <= 5)) reasons.push('HOTEL_STAR_RATING_MISSING')
         const ratesByDate = new Map(ownRates.dailyRates.map((r) => [day(r.stayDate), r]))
         const nightVerdicts: NightVerdict[] = dates.map((date) => {
-          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules, now)
+          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms, childAges }, input.markupRules, now)
           const rate = ratesByDate.get(date)
           return { date, sellable: nightReasons.length === 0, reasons: nightReasons, rateMinor: rate ? rate.amountMinor.toString() : null, remaining: nightStock(plan, date).remaining }
         })

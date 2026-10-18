@@ -74,7 +74,7 @@ export function assessReadiness(input: ReadinessInput): HotelReadinessAssessment
     const { mapping, roomMapping } = mappingFor(plan, assess)
     const decision = evaluateContractedStay(
       buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(assess.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)),
-      { checkIn: criteria.checkIn, checkOut: criteria.checkOut, rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, currency: criteria.currency, now, buyer: { nationality: criteria.nationality, market: criteria.market } },
+      { checkIn: criteria.checkIn, checkOut: criteria.checkOut, rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: criteria.childAges, currency: criteria.currency, now, buyer: { nationality: criteria.nationality, market: criteria.market } },
     )
     const reasons = [...decision.reasons]
     if (!starOk) reasons.push(HOTEL_STAR_RATING_MISSING)
@@ -168,7 +168,7 @@ export function assessReadiness(input: ReadinessInput): HotelReadinessAssessment
   const limitations = [
     'Evaluated only for the criteria above. It does not imply availability on other dates, occupancies, nationalities, agencies or suppliers.',
     ...(noSinglePlan ? ['Each gate passes on some rate plan, but no single rate plan passes every gate for these criteria, so nothing would be offered.'] : []),
-    ...(criteria.children > 0 ? ['Child ages are recorded with the request, but the evaluator judges occupancy by head count against the room limits and the rate plan occupancy; no per-age child pricing or bed policy is modelled.'] : []),
+    ...(criteria.children > 0 ? [`Children are priced by age (${criteria.childAges.join(', ')}) from each plan's own child prices or, when it has none, the contract child policy (ADR 0067). Extra-bed availability is not checked.`] : []),
     `Prices are judged in ${criteria.currency} only; no currency conversion policy exists.`,
   ]
   return {

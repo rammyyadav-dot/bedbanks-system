@@ -18,10 +18,11 @@ describe('Hotel stay diagnostic boundaries', () => {
   it.each(['AGENCY_SUSPENDED', 'DISTRIBUTION_RESTRICTED', 'SOURCE_MARKET_NOT_ALLOWED', 'NATIONALITY_NOT_ALLOWED', 'CONTRACT_MARKET_RULE_INVALID'])('retains %s as a buyer blocker', reason => {
     expect(gates([reason]).find(g => g.key === 'distribution')).toMatchObject({ state: 'FAIL', reasons: [reason] })
   })
-  it('does not certify absent buyer/currency context or child policies', () => {
+  it('does not certify absent buyer or currency context; children are judged by the evaluator (ADR 0067, F-17)', () => {
     expect(gates([], { agencyId: null }).find(g => g.key === 'distribution')?.state).toBe('UNKNOWN')
     expect(gates([], { currency: null }).find(g => g.key === 'rate')?.state).toBe('UNKNOWN')
-    expect(gates([], { children: 1 }).find(g => g.key === 'inventory')?.state).toBe('UNKNOWN')
+    expect(gates([], { children: 1 }).find(g => g.key === 'inventory')?.state).toBe('PASS')
+    expect(gates(['CHILD_AGE_NOT_COVERED'], { children: 1 }).find(g => g.key === 'inventory')?.state).toBe('FAIL')
   })
   it('keeps failures and references per plan; a passing plan cannot mask another failure', () => {
     const result = buildHotelStayReadiness('hotel', [plan(), plan(['DAILY_RATE_MISSING_OR_INVALID'], 'other')], '2030-01-01T00:00:00Z', criteria)

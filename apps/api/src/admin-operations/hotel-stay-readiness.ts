@@ -12,7 +12,7 @@ const groups = [
 ] as const
 
 /** Presentation only: reasons are supplied by the canonical evaluator and the existing agency controls.
- * A gate is per plan and per request. It cannot certify search, recheck, child policies or a hosted deployment.
+ * A gate is per plan and per request. It cannot certify search, recheck or a hosted deployment.
  */
 export function buildHotelStayReadiness(hotelId: string, plans: SellabilityPlanResult[], evaluatedAt: string, criteria: Criteria): HotelStayReadiness {
   const buyerAssessed = Boolean(criteria.agencyId && criteria.market && criteria.nationality)
@@ -20,7 +20,8 @@ export function buildHotelStayReadiness(hotelId: string, plans: SellabilityPlanR
     scope: 'STAY_DIAGNOSTIC_NOT_CERTIFICATION',
     buyer: { agencyId: criteria.agencyId, market: criteria.market, nationality: criteria.nationality, assessed: buyerAssessed },
     requestedCurrency: criteria.currency,
-    occupancy: { uniformRooms: true, childPolicyAssessed: false },
+    // ADR 0067 F-17: child ages are required with children and priced by the evaluator (plan lines or the contract child policy).
+    occupancy: { uniformRooms: true, childPolicyAssessed: true },
     certification: 'NOT_VERIFIED',
     plans: plans.map(plan => {
       const entityRefs = { hotelId, roomTypeId: plan.roomTypeId, ratePlanId: plan.ratePlanId, contractId: plan.contractId ?? null, supplierId: plan.supplierId ?? null }
@@ -33,7 +34,6 @@ export function buildHotelStayReadiness(hotelId: string, plans: SellabilityPlanR
         let state: HotelStayReadinessGate['state'] = reasons.length ? 'FAIL' : 'PASS'
         if (group.key === 'distribution' && !buyerAssessed && !reasons.length) { state = 'UNKNOWN'; reasons.push('BUYER_CONTEXT_NOT_ASSESSED') }
         if (group.key === 'rate' && !criteria.currency && !reasons.length) { state = 'UNKNOWN'; reasons.push('REQUEST_CURRENCY_NOT_SPECIFIED') }
-        if (group.key === 'inventory' && criteria.children > 0 && !reasons.length) { state = 'UNKNOWN'; reasons.push('CHILD_POLICY_NOT_ASSESSED') }
         return { key: group.key, label: group.label, state, reasons, entityRefs, evaluatedAt, criteriaRef: 'request', action: { tab: group.tab, permission: group.permission } }
       })
       gates.push({ key: 'search_recheck', label: 'Agent search and authoritative recheck certification', state: 'UNKNOWN', reasons: ['SEARCH_RECHECK_NOT_CERTIFIED'], entityRefs, evaluatedAt, criteriaRef: 'request', action: null })
