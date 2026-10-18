@@ -19,6 +19,7 @@ export * from './hotel-images';
 export * from './hotel-inventory';
 export * from './rate-certification';
 export * from './booking-bulk';
+export * from './booking-export';
 export * from './booking-finance';
 export * from './booking-lifecycle';
 export * from './booking-query';

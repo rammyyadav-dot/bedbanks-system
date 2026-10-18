@@ -92,3 +92,16 @@ Breached SLA, check-in within 24 hours, or three or more failed supplier calls e
 ## Bulk actions (Phase 6C)
 
 Two actions on explicit booking ids, at most 100 per request: assign/change the operations owner and acknowledge. `POST /admin/operations/bookings/bulk-actions` (body `bookingIds`, `action`, `payload`, `idempotencyKey`), `GET /admin/operations/booking-bulk-actions/:id` (your own operations only). Permissions (formal roles only, granted to no role by the migration): `booking.bulk.assign`, `booking.bulk.acknowledge`, `booking.bulk.read`; each booking is still checked against `booking.ops.assign`. Bulk calls the single-booking services one booking at a time: a partial result is `PARTIAL` with a stable reason per booking, and retrying the same request (same key) returns the first result without applying anything twice. In the Bookings list, people with the capability see row checkboxes, a selected count, select-page, clear, a toolbar, a confirmation dialog and a result summary. No money, document or status change is possible, and there is no background job, export or notification. Deploying it: run the migration, re-run `ops:provision-booking-ops-role`, then grant the permissions to the right roles.
+
+## Export, print, board and counter (Phase 6D)
+
+**Export (Excel / CSV).** In the Bookings list, people with the permission see **Excel / CSV**. It downloads the current filtered list: the same rows, scope, masking and net visibility as the screen, at most **1,000 rows** (above that it tells you to narrow the filters; it never truncates). Permissions (formal roles only, granted to no role by the migration): `booking.export` (operator, all agencies) and `booking.export.agency` (own agency only). Every export is written to the audit log before the file is released (`booking.exported`; plus `booking.pii.exported` when guest names are unmasked); the log keeps which filters applied, not their values. Cells that would run as formulas in a spreadsheet are neutralised. The reconciliation-flag filter cannot be exported. After deploying, run the migration and grant the permissions to the right roles; no change to `ops:provision-booking-ops-role` is needed (the module reads the same tables as the list).
+
+**Print.** **Print** opens the browser print dialog on the page as shown (A4 landscape; menus and controls hidden; a heading with the time and the applied filters). It prints the current page of the list or the board.
+
+**Kanban.** The **Kanban** toggle (remembered per browser) shows one column per working status: On request, Pending supplier, Confirmed, Amend requested, Cancel requested, Failed. Your filters apply; a status filter narrows the columns. Each column shows its total and the first 25 (a link opens the full list for that status). Cards open the booking, where the action dialogs are. It is a read-only board: there is no drag-to-change-status.
+
+**Counter.** The "N need action" button in the header opens the Needs action list. If the count cannot be read it is not shown.
+
+**Tests.** Unit: `booking-export.spec.ts`; Admin `booking-export-ui.test.ts`, `booking-kanban-ui.test.ts`. E2E (disposable DB): `booking-export.e2e-spec.ts`. The screens themselves still need the browser harnesses in `tools/admin-ops-verify`.
+

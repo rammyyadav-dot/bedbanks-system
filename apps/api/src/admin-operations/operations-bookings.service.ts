@@ -1,8 +1,8 @@
 import { readSpecialRequests, type StoredSpecialRequests } from '../agent/special-requests'
-import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
-  availableActions,
+  availableActions, BOOKING_EXPORT_FAILURE, BOOKING_EXPORT_MAX_ROWS, bookingExportCsv, bookingExportFilename, bookingExportPermission,
   OPERATIONS_READ_DENIED,
   type BookingAccessView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingSupplierView, type BookingTimelineItem, type SectionState,
 } from '@bedbanks/contracts'
@@ -75,6 +75,29 @@ export class OperationsBookingsService {
     return {
       items, page: filter.page, pageSize: filter.pageSize, total, access, applied: describeApplied(filter), attentionAvailable: attention !== null, scanCapped,
     }
+  }
+
+  // ---- export -------------------------------------------------------------------------------------------------------------
+  /**
+   * The filtered list as a CSV file (ADR 0039, Phase 6D). Same grammar, same scope, same masking and same net visibility as the list: nothing here reads a column the list does
+   * not show. At most `BOOKING_EXPORT_MAX_ROWS` rows; more is refused (never truncated) so a file is always the whole answer to its query. The audit event is written BEFORE the
+   * file is returned, so an export that cannot be recorded does not happen. The query's values are not stored (a guest search text is personal data); only which filters applied.
+   */
+  async exportCsv(tenantId: string, userId: string, access: BookingAccessView, rawQuery: Record<string, unknown>, requestId: string): Promise<{ csv: string; filename: string; rowCount: number }> {
+    const permission = bookingExportPermission(access)
+    if (!access.permissions.includes(permission)) throw new ForbiddenException({ message: 'You do not have permission to export bookings', code: BOOKING_EXPORT_FAILURE.forbidden })
+    const filter = this.query.parse(rawQuery, access)
+    if (filter.attention) throw new BadRequestException({ message: 'The reconciliation-flag filter cannot be exported; remove it and export again', code: 'BOOKING_EXPORT_UNSUPPORTED_FILTER' })
+    const now = this.clock()
+    const { where, orderBy } = await this.query.select(tenantId, access, filter, now)
+    const include = { rooms: { orderBy: { position: 'asc' as const } }, guests: { where: { isLead: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } }
+    const rows = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where, orderBy, take: BOOKING_EXPORT_MAX_ROWS + 1, include }))
+    if (rows.length > BOOKING_EXPORT_MAX_ROWS) throw new UnprocessableEntityException({ message: `More than ${BOOKING_EXPORT_MAX_ROWS} bookings match. Narrow the filters (dates, agency, status) and export again.`, code: BOOKING_EXPORT_FAILURE.tooLarge, limit: BOOKING_EXPORT_MAX_ROWS })
+    const names = await this.names(tenantId, rows)
+    const items = rows.map((b) => this.row(b, names, access, null, false))
+    await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.exported', entityType: 'booking_export', entityId: requestId, payload: { requestId, rowCount: items.length, level: access.level, agencyId: access.agencyId, includesNet: access.canViewNet, guestNamesUnmasked: access.canViewPii, appliedFilters: describeApplied(filter).map((a) => a.key) } } }))
+    await this.auditUnmasked(tenantId, userId, access, rows, requestId, 'booking.pii.exported', 'booking_export', requestId)
+    return { csv: bookingExportCsv(items, access), filename: bookingExportFilename(now), rowCount: items.length }
   }
 
   private async names(tenantId: string, rows: Array<{ hotelId: string; agencyId: string | null; agentUserId: string | null; assignedToId: string | null }>) {

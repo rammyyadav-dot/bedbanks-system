@@ -3,11 +3,11 @@ import { GUARDS_METADATA } from '@nestjs/common/constants'
 import { operationsPermissions } from '@bedbanks/contracts'
 import { AgentRbacGuard, REQUIRED_PERMISSION } from '../agent/rbac.guard'
 import { OperationsController } from './operations.controller'
-import { BookingAccessGuard } from '../booking-ops/booking-access.guard'
+import { BookingAccessGuard, REQUIRED_BOOKING_ACTION } from '../booking-ops/booking-access.guard'
 import { REQUIRED_SUPPLY_PERMISSION, SupplyPermissionGuard } from './supply-permission.guard'
 
-/** The booking list and detail (ADR 0039) resolve operator-level `booking.read` or agency-scoped `booking.view.agency` inside one fail-closed guard. */
-const BOOKING_ACCESS_HANDLERS = ['bookings', 'booking']
+/** The booking list, detail and export (ADR 0039, Phase 6D) resolve operator-level `booking.read` or agency-scoped `booking.view.agency` inside one fail-closed guard. */
+const BOOKING_ACCESS_HANDLERS = ['bookings', 'booking', 'exportBookings']
 
 const proto = OperationsController.prototype as unknown as Record<string, unknown>
 const handlers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' && typeof proto[name] === 'function')
@@ -30,6 +30,10 @@ describe('OperationsController authorization wiring', () => {
     expect(guards(name)).toEqual([BookingAccessGuard])
     expect(meta(REQUIRED_PERMISSION, name)).toBeUndefined()
     expect(meta(REQUIRED_SUPPLY_PERMISSION, name)).toBeUndefined()
+  })
+
+  it('the booking export additionally requires a formal export permission (operator or agency), declared on the route', () => {
+    expect(Reflect.getMetadata(REQUIRED_BOOKING_ACTION, proto.exportBookings as object)).toEqual(['booking.export', 'booking.export.agency'])
   })
 
   it('hotel commercial endpoints use only the documented supply.* keys (export added by ADR 0051)', () => {

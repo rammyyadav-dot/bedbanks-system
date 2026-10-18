@@ -194,3 +194,20 @@ Unknown refundability is treated as non-refundable. Owner membership implies non
 **Database.** Forced RLS on both tables; the booking role gets INSERT/SELECT and UPDATE only on progress columns (status, counts, timestamps, error code); no DELETE; the strict API role has no access. Rollback notes are in the migration header. Deployment: re-run `ops:provision-booking-ops-role` (new grants) and grant the new permissions to roles deliberately; the migration grants them to no role.
 
 **Not in 6C.** Background jobs, export, print, reconciliation, notifications, ledger posting, bulk financial or status mutation, and `CancellationDatabase` (it does not exist and is not created).
+
+## Phase 6D decisions: export, print, board and counter (2026-10-18)
+
+**Export is the list as a file.** `GET /admin/operations/bookings/export` selects with `BookingQueryV1` through `OperationsBookingsService`, so scope (tenant, and agency for agency callers), masking and net visibility are the list's, not a second implementation. It needs `booking.export` (operator) or `booking.export.agency` (agency, own agency only) as a formal role, declared with `RequireBookingAction` and checked again in the service; the migration (`202611230001`, data only) grants them to no role. An agency caller who names another agency's id is refused (403), as in the list.
+
+**Bounded and whole.** At most 1,000 rows (`BOOKING_EXPORT_MAX_ROWS`). One more row than the limit is read to detect overflow, which is refused with 422 `BOOKING_EXPORT_TOO_LARGE`; a file is never a silent partial answer. The reconciliation-flag filter (`attention`) cannot be exported (400). The spec's asynchronous export above 1,000 rows with an emailed link is **not built**: it needs a background job and an email channel, which remain an owner decision (see Phase 5).
+
+**Audit before release.** The `booking.exported` audit event (row count, level, agency, whether net and unmasked names were included, the applied filter KEYS) is written before the file is returned, so an export that cannot be recorded does not happen. Filter values are not stored (a guest search is personal data). `booking.pii.exported` is added when names are unmasked. Denials are audited by the access guard.
+
+**File safety.** Money is integer minor units formatted with integer arithmetic and the currency's exponent; an unknown currency prints its minor units with a suffix instead of a guess. A cell that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`, tab, also after leading spaces or line breaks) is prefixed with an apostrophe. The response is sent with `@Res()` like the hotel and compliance exports, because the global `ResponseInterceptor` would otherwise wrap the file in the JSON envelope (found by the HTTP e2e test, not by unit tests).
+
+**Print** is the browser's print of the page as shown, with a print stylesheet (A4 landscape, chrome hidden). It adds no new data path: what is printed is what the list already returned to the caller.
+
+**Board.** A read-only Kanban of the spec's six working statuses, each column an independent call to the same list API with the person's filters (25 oldest first; Confirmed by soonest check-in). A failing column shows a failure, never an empty column. A card links to the booking; there is no drag-to-change-status, so the board cannot request a transition the API would refuse and adds no write path. The header counter reads the Needs action total and is hidden, not zero, when it cannot be read.
+
+**Not in 6D:** asynchronous export, drag-and-drop transitions, the reconciliation job, notifications, ledger posting, the nightly Checked-out and close-after-dispute jobs. See `docs/booking-module-audit-2026-10-18.md`.
+

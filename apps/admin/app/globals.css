@@ -307,3 +307,16 @@ dl code { overflow-wrap: anywhere; font-size: 11px; }
 .enterprise-topbar .breadcrumb { min-width: 0; flex-shrink: 1; overflow: hidden; }
 .enterprise-topbar .breadcrumb strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .enterprise-topbar .topbar-actions { flex-shrink: 0; }
+
+/* Print (ADR 0039, Phase 6D): the Bookings list prints as a clean A4 landscape sheet. Chrome, controls and paging are hidden; rows never split across pages. */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  .enterprise-sidebar, .enterprise-topbar, .enterprise-header, .no-print { display: none !important; }
+  .enterprise-shell, .enterprise-main, body { background: #fff !important; }
+  .enterprise-main { margin: 0 !important; }
+  .print-only { display: block !important; }
+  [data-testid="bookings-table"] tr { break-inside: avoid; }
+  [data-testid="bookings-table"] { font-size: 9px !important; }
+  a { color: inherit !important; text-decoration: none !important; }
+}
+.print-only { display: none; }
