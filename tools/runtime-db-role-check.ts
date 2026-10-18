@@ -26,6 +26,7 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/provision-rate-plan-clone-role.cli.ts', purpose: 'operator: provisions the rate plan clone login (DRAFT-only insert)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-hold-expiry-role.cli.ts', purpose: 'operator: provisions the hold-expiry login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/backfill-booking-supplier.cli.ts', purpose: 'operator: dry-run-first historical booking supplier attribution report (ADR 0061 Amendment 1)', url: 'MIGRATION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/reindex-hotel-search.cli.ts', purpose: 'operator: dry-run-first HotelSearchIndex population and reindex (ADR 0072)', url: 'MIGRATION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-preview-fixtures.cli.ts', purpose: 'operator: preview fixtures (refuses non-preview targets)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/bootstrap-first-admin.cli.ts', purpose: 'operator: first admin bootstrap', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'tools/load/hybrid-search-load.ts', purpose: 'operator: read-only hybrid retrieval load test run AS the strict runtime role (never writes; DATABASE_URL deliberately not read)', url: 'LOADTEST_DATABASE_URL', runtime: false },
