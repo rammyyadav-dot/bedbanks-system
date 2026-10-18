@@ -25,7 +25,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
   let api: PrismaService, apiSingle: PrismaService, hold: PrismaService
   const T: Record<'A' | 'B', { tenant: string; user: string; supplier: string; hotel: string; room: string; board: string; plan: string; pool: string; poolDays: string[] }> = { A: {} as never, B: {} as never }
 
-  const urlFor = (role: string, password: string, extra = '') => { const u = new URL(ownerUrl!); u.username = role; u.password = password; return `${u.toString()}${extra}` }
+  const urlFor = (role: string, password: string, connectionLimit?: number) => { const u = new URL(ownerUrl!); u.username = role; u.password = password; if (connectionLimit) u.searchParams.set('connection_limit', String(connectionLimit)); return u.toString() }
   const code = async (work: () => Promise<unknown>): Promise<string> => { try { await work(); return 'OK' } catch (e) { const m = e instanceof Error ? e.message : ''; return /42501|permission denied/i.test(m) ? '42501' : /23503|foreign key/i.test(m) ? '23503' : /row-level security|42501/i.test(m) ? 'RLS' : /23514|check/i.test(m) ? '23514' : /P2025|not found|No .* found/i.test(m) ? 'NOT_FOUND' : `ERR:${m.slice(0, 80)}` } }
 
   async function fixture(key: 'A' | 'B') {
@@ -53,7 +53,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
     await provisionApiRuntimeRole(owner, { password: apiPassword })
     await provisionHoldExpiryRole(owner, { loginRole: HOLD_LOGIN, password: holdPassword })
     api = new PrismaService({ datasourceUrl: urlFor(API_RUNTIME_LOGIN_ROLE, apiPassword) } as never)
-    apiSingle = new PrismaService({ datasourceUrl: urlFor(API_RUNTIME_LOGIN_ROLE, apiPassword, '&connection_limit=1') } as never)
+    apiSingle = new PrismaService({ datasourceUrl: urlFor(API_RUNTIME_LOGIN_ROLE, apiPassword, 1) } as never)
     hold = new PrismaService({ datasourceUrl: urlFor(HOLD_LOGIN, holdPassword) } as never)
     await Promise.all([api.$connect(), apiSingle.$connect(), hold.$connect()])
     await fixture('A'); await fixture('B')

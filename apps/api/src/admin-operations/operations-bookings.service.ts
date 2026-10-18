@@ -1,5 +1,5 @@
 import { readSpecialRequests, type StoredSpecialRequests } from '../agent/special-requests'
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
   availableActions, BOOKING_EXPORT_FAILURE, BOOKING_EXPORT_MAX_ROWS, bookingExportCsv, bookingExportFilename, bookingExportPermission,
@@ -53,6 +53,7 @@ const maskRequests = (requests: StoredSpecialRequests | null, canViewPii: boolea
 
 @Injectable()
 export class OperationsBookingsService {
+  private readonly logger = new Logger(OperationsBookingsService.name)
   /** Replaceable in tests so every date rule is deterministic. */
   clock: () => Date = () => new Date()
 
@@ -85,10 +86,12 @@ export class OperationsBookingsService {
     }
 
     const names = await this.names(tenantId, rows)
-    const items = rows.map((b) => this.row(b, names, access, attention?.get(b.id) ?? null, attention !== null))
+    const urgency = await this.urgency(tenantId, access, rows.map((b) => b.id), now)
+    const items = rows.map((b) => ({ ...this.row(b, names, access, attention?.get(b.id) ?? null, attention !== null), ...(urgency ? { urgency: urgency.get(b.id) ?? null } : {}) }))
     await this.auditUnmasked(tenantId, userId, access, rows, requestId, 'booking.pii.list_viewed', 'booking_list', requestId)
     return {
       items, page: filter.page, pageSize: filter.pageSize, total, access, applied: describeApplied(filter), attentionAvailable: attention !== null, scanCapped,
+      ...(access.opsQueue ? { urgencyAvailable: urgency !== null } : {}),
     }
   }
 
@@ -113,6 +116,16 @@ export class OperationsBookingsService {
     await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.exported', entityType: 'booking_export', entityId: requestId, payload: { requestId, rowCount: items.length, level: access.level, agencyId: access.agencyId, includesNet: access.canViewNet, guestNamesUnmasked: access.canViewPii, appliedFilters: describeApplied(filter).map((a) => a.key) } } }))
     await this.auditUnmasked(tenantId, userId, access, rows, requestId, 'booking.pii.exported', 'booking_export', requestId)
     return { csv: bookingExportCsv(items, access), filename: bookingExportFilename(now), rowCount: items.length }
+  }
+
+  /** Urgency for a page, only for callers who can see the queue. Null = not evaluated (not permitted, or it failed): the list still works and says so. */
+  private async urgency(tenantId: string, access: BookingAccessView, ids: string[], now: Date) {
+    if (!access.opsQueue) return null
+    try { return await this.opsQueue.urgencyFor(tenantId, ids, now) } catch (error) {
+      // Observable, not silent: the page says "unavailable" (urgencyAvailable: false) and the log names the failure class, never a detail.
+      this.logger.warn(`Urgency could not be evaluated for the booking list (${error instanceof Error ? error.name : 'unknown'})`)
+      return null
+    }
   }
 
   private async names(tenantId: string, rows: Array<{ hotelId: string; agencyId: string | null; agentUserId: string | null; assignedToId: string | null }>) {

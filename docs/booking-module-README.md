@@ -132,3 +132,9 @@ The approver asks the supplier, then **Approve amendment** asks for the price th
 
 **Tests.** Unit: `booking-amendment.spec.ts` (validation, integer money, deadline and net rules, idempotency fingerprint, the source-scan that confines the writes); Admin `booking-amendment-ui.test.ts`. E2E (disposable DB): `booking-amendment.e2e-spec.ts` (15 tests: request, approve increase and decrease, zero difference, reject, approval rules, free-text path, the ledger guard, invalid proposals, idempotency, concurrent approvals, permissions and agency scope, visibility of net, documents not reissued, the role boundary).
 
+## Urgent badge on list rows (Phase 6F)
+
+Rows (and Kanban cards) show a red **Urgent** or **Critical** badge for a booking that is an Urgent or Critical case in the Operations queue, using the same rules, SLA policy and clock, so the list and the queue cannot disagree. Hover for the reason and the SLA state. It is computed on every read and clears itself; nobody sets it by hand. High and Normal cases carry no badge. Only people who can see the queue (`booking.ops.view` with `ADMIN_BOOKING_OPS_ENABLED=true`) see it. If the queue cannot be evaluated (for example an invalid `BOOKING_OPS_SLA_POLICY`), the list still works and says "Urgent badges are not shown", which is not the same as "nothing is urgent". There is no "Only urgent" filter on the list; use the Operations queue. No migration, no new permission, no new grant.
+
+**Tests.** Unit: `booking-urgency.spec.ts`; Admin `booking-ui.test.ts`. E2E (disposable DB): `booking-urgency.e2e-spec.ts` (verdict per row, caller without the permission, invalid policy, queue switched off).
+

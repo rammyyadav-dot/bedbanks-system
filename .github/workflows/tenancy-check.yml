@@ -4,6 +4,9 @@ on:
   pull_request:
     paths: ['apps/api/**', 'e2e/tenancy-isolation.spec.ts', 'tools/tenant-filter-check*', 'package.json']
 
+permissions:
+  contents: read
+
 jobs:
   tenant-guard:
     runs-on: ubuntu-latest
