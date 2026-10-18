@@ -96,6 +96,10 @@ describe('nightly ledger integrity run (PostgreSQL, HTTP, restricted role, four 
 
     const a = await user('a', tenantA, ['finance.read']); const aNone = await user('anone', tenantA, [])
     const b = await user('b', tenantB, ['finance.read']); const c = await user('c', tenantC, ['finance.read']); const d = await user('d', tenantD, ['finance.read'])
+    // An agency account with a credit line (tenant D): the report must read credit lines through the restricted role too.
+    const agencyD = await prisma.agency.create({ data: { tenantId: tenantD, code: `CL-${randomBytes(3).toString("hex").toUpperCase()}`, name: 'Credit Line Travel', createdById: userIds[userIds.length - 1] } })
+    await prisma.wallet.create({ data: { tenantId: tenantD, agencyId: agencyD.id, currency: 'AED', creditLimit: 0n } })
+    await prisma.agencyCreditLimit.create({ data: { tenantId: tenantD, agencyId: agencyD.id, currency: 'AED', limitMinor: 100_000n, updatedById: userIds[userIds.length - 1] } })
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile()
     app = module.createNestApplication()
     app.use(cookieParser()); app.setGlobalPrefix('api/v1')
@@ -115,6 +119,8 @@ describe('nightly ledger integrity run (PostgreSQL, HTTP, restricted role, four 
     for (const tenantId of all) {
       await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
       await prisma.wallet.deleteMany({ where: { tenantId } })
+      await prisma.agencyCreditLimit.deleteMany({ where: { tenantId } })
+      await prisma.agency.deleteMany({ where: { tenantId } })
       await prisma.userRole.deleteMany({ where: { tenantId } })
       await prisma.rolePermission.deleteMany({ where: { role: { tenantId } } })
       await prisma.role.deleteMany({ where: { tenantId } })
@@ -250,7 +256,7 @@ describe('nightly ledger integrity run (PostgreSQL, HTTP, restricted role, four 
     expect(await sweeper.runOnce(NOW)).toBeGreaterThanOrEqual(1) // D, C (today has none) and any other active tenant in the shared test database
     const d = await getRuns('d')
     expect(d.schedule).toBe('OK')
-    expect(d.latest).toMatchObject({ status: 'PASS', runDate: TODAY })
+    expect(d.latest).toMatchObject({ status: 'PASS', runDate: TODAY, accountsScanned: 1 }) // the agency account with its credit line
     expect(await prisma.ledgerIntegrityRun.count({ where: { tenantId: tenantA } })).toBe(1) // A and B were already covered
     expect(await sweeper.runOnce(NOW)).toBe(0)
     const c = await getRuns('c')

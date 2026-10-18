@@ -34,8 +34,8 @@ export function ledgerAuditGrantStatements(group = LEDGER_AUDIT_GROUP_ROLE): str
     // The things the report reads. Read-only: no INSERT, UPDATE or DELETE on money, ever.
     `GRANT SELECT ON "Wallet" TO ${g}`,
     `GRANT SELECT ON "LedgerEntry" TO ${g}`,
-    // The credit line of an agency account: the agency, its currency and its limit. Not who approved it or why.
-    `GRANT SELECT ("tenant_id", "agency_id", "currency", "limit_minor") ON "AgencyCreditLimit" TO ${g}`,
+    // The credit line of an agency account: the agency, its currency and its limit (and the row id the query layer always reads). Not who approved it or why.
+    `GRANT SELECT ("id", "tenant_id", "agency_id", "currency", "limit_minor") ON "AgencyCreditLimit" TO ${g}`,
     // Its own result: append and read back. No UPDATE, no DELETE (a trigger also refuses both).
     `GRANT SELECT, INSERT ON "LedgerIntegrityRun" TO ${g}`,
     // The run's SYSTEM audit event (one narrow RLS policy allows only that action). INSERT ... RETURNING needs SELECT.

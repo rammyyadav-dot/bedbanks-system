@@ -41,7 +41,7 @@ Idempotent; re-running rotates the password. Generate the secret with `openssl r
 |---|---|
 | `tenants` | SELECT (`id`, `status`) only |
 | `Wallet`, `LedgerEntry` | SELECT only. No insert, update, delete or truncate. |
-| `AgencyCreditLimit` | SELECT (`tenant_id`, `agency_id`, `currency`, `limit_minor`) |
+| `AgencyCreditLimit` | SELECT (`id`, `tenant_id`, `agency_id`, `currency`, `limit_minor`); not who approved a limit or why |
 | `LedgerIntegrityRun` | SELECT, INSERT. A database trigger refuses UPDATE and DELETE for everyone, including the owner. |
 | `AuditEvent` | SELECT, INSERT. A policy permits one event only: SYSTEM, no user, action `finance.integrity.run`, the current tenant. |
 It has no access to bookings, guests, users, sessions, agencies, hotels, contracts, rates, holds or funding receipts. The verifier checks all of that in both directions.
