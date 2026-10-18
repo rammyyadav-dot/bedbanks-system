@@ -71,6 +71,13 @@ Missing data counts as breaching, so a stopped schedule or a task that never sta
 ## 4. Viewing evidence in Admin
 Risk & Compliance → **Compliance evidence** (`/compliance`, permission `audit.read`) shows each tenant's captured records, their export state (not yet exported / sealed / stored), and the head of its chain. That head is the same hash `ops:compliance verify` prints. After deploying ADR 0067 amendment 1, re-run `ops:provision-api-runtime-role` so the API role can read the compliance tables (column-level; never the payload).
 
+### Period reports
+Compliance evidence → **Period report** downloads every record of a period (at most 366 days and 20,000 records), as CSV or JSON, with counts, export coverage, booking corridors and an attestation:
+- `recordsSha256` is the SHA-256 of `<id>\t<payloadSha256>\n` per record, oldest first.
+- For stored records, the same lines come from the archived batch bodies (section 5), so an auditor can check the report against WORM storage.
+- Each download is audited as `compliance.report.exported` and captured as `DATA_EXPORT` evidence.
+- A larger period answers `COMPLIANCE_REPORT_TOO_LARGE`: choose a shorter one.
+
 ## 5. Archive format (for auditors)
 Keys: `compliance/v1/<scope>/<sequence, 10 digits>-<first 16 hex of batch hash>.ndjson` and the same key ending `.manifest.json`. `<scope>` is a tenant id or `platform`.
 
