@@ -1680,12 +1680,15 @@ model HotelSearchIndex {
   longitude              Decimal? @db.Decimal(9, 6)
   embedding              Unsupported("vector(64)")
   embeddingModel         String   @map("embedding_model")
+  /// Generated column (see migration 202611250001); never written by the application.
+  searchTsv              Unsupported("tsvector")? @map("search_tsv")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
   @@unique([tenantId, hotelId])
   @@index([tenantId, normalizedCountryCode, normalizedCity])
   @@index([normalizedName(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_name_trgm")
   @@index([normalizedAddress(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_address_trgm")
+  @@index([searchTsv], type: Gin, map: "HotelSearchIndex_search_tsv_idx")
 }
 
 model RoomType {
