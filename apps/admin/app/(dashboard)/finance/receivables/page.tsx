@@ -16,7 +16,7 @@ const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
 export default function ReceivablesPage() {
   const data = useOpsQuery(() => getOpsReceivables(), [])
   return (
-    <div>
+    <div className="admin-page">
       <PageHeader eyebrow="FINANCE" title="Receivables" description="Agencies with unpaid booking charges. From the notice threshold the agency is flagged; from the refusal threshold it cannot place new holds or bookings until a payment is posted." />
       <OpsState state={data.state} onRetry={data.reload}>
         {(d) => (

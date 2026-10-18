@@ -36,7 +36,7 @@ export default function FundingReceiptsPage() {
   }
 
   return (
-    <div>
+    <div className="admin-page">
       <PageHeader eyebrow="FINANCE" title="Funding receipts" description="Bank transfers an agency has sent. A receipt is declared, verified against the bank statement by a different person, cleared by compliance when it is cash or from a third party, then posted. Only posting adds money to the agency's account. Above AED 10,000 the poster must also differ from the verifier." />
       {message && <p role="status" data-testid="funding-message" style={{ fontSize: 12 }}>{message}</p>}
       {canManage && <Declare busy={busy} act={act} />}

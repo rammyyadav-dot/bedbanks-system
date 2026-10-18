@@ -202,3 +202,17 @@ node tools/admin-ops-verify/verify-rate-plans.cjs
 ## Admin blueprint features (ADR 0051, 0053, 0054 slice 1)
 
 `verify-admin-blueprint.cjs` checks the Business navigation group, Hotels saved views, summary profile-status tiles, CSV export, bulk owner assignment, the Search Monitor, Payables, breadcrumbs, and a read-only viewer who sees none of the new controls. After `seed-hotels.ts`, run `su postgres -c "bash tools/admin-ops-verify/grant-blueprint-perms.sh fbeds_ci"` (grants the seeded owner role `supply.hotels.export`, `audit.read`, `finance.read`; adds sample search events and a net amount), then the script. Re-seed before every run: bulk owner assignment changes the seeded hotels. The API in this check needs `NODE_ENV=test DB_RUNTIME_ROLE_GUARD=off` only because the local database user is the owner; never use that outside a disposable database.
+
+## Finance module capture (screenshots, video, trace)
+
+`seed-finance.ts` builds one realistic finance tenant using the real services: three agencies (one prepaid, two on credit), funding receipts in every state through the real funding workflow and its separation of duties, confirmed and cancelled bookings charged to agency accounts, a credit note, unpaid charges back-dated into the notice and refusal bands, supplier cost on confirmed bookings, and one deliberately broken booking chain (a refund larger than the charge) plus a stale hold for the integrity control to catch. Six earlier nightly records are fixtures; tonight's is taken by the real scheduler. `capture-finance.cjs` then logs in and walks every Finance page, writing full-page screenshots, `finance-walkthrough.webm` and a Playwright `trace.zip` (open with `npx playwright show-trace`).
+
+```bash
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/p01_finance?schema=public' MAPPING_DATABASE_URL="$DATABASE_URL" REDIS_URL=redis://127.0.0.1:6379
+pnpm --filter @bedbanks/api prisma:migrate:deploy
+(cd apps/api && NODE_ENV=test SEED_OUT=/tmp/seed-finance.json node --no-experimental-strip-types -r @swc-node/register ../../tools/admin-ops-verify/seed-finance.ts)
+# API as in the first section but NODE_ENV=test DB_RUNTIME_ROLE_GUARD=off FUNDING_ENABLED=true (owner login, local demo only). To see the nightly record taken by the
+# scheduler, also provision the ledger-audit role and set LEDGER_AUDIT_DATABASE_URL, LEDGER_INTEGRITY_SWEEP_ENABLED=true, LEDGER_INTEGRITY_CHECK_INTERVAL_MS=5000, LEDGER_INTEGRITY_RUN_HOUR_UTC=0.
+SEED_JSON=/tmp/seed-finance.json OUT_DIR=./finance-evidence node tools/admin-ops-verify/capture-finance.cjs
+```
+Booking 360 needs its own booking database account and is not part of this capture.

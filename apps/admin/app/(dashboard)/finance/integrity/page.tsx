@@ -24,7 +24,7 @@ export default function LedgerIntegrityPage() {
   const stored = useOpsQuery(() => (openRun ? getOpsLedgerIntegrityRun(openRun) : Promise.resolve(null)), [openRun])
   const live = useOpsQuery(() => getOpsLedgerIntegrity(), [])
   return (
-    <div>
+    <div className="admin-page">
       <PageHeader eyebrow="FINANCE" title="Ledger integrity" description="Daily control over the append-only ledger: account balances, each booking's hold, release, charge and refund chain, and totals per currency. It reports problems and changes nothing." />
       <div style={{ display: 'grid', gap: 16 }}>
         <section aria-labelledby="nightly-h" style={{ display: 'grid', gap: 8 }}>
@@ -79,7 +79,7 @@ export default function LedgerIntegrityPage() {
               <div style={{ display: 'grid', gap: 12 }}>
                 <p style={{ margin: 0 }} data-testid="integrity-verdict">
                   <Tag tone={VERDICT[d.status][0]}>{d.status}</Tag> <strong>{VERDICT[d.status][1]}.</strong>{' '}
-                  <span style={note}>Checked {d.scanned.accounts} accounts, {d.scanned.bookings} bookings and {d.scanned.entries} entries at {when(d.generatedAt)}. {d.counts.errors} errors, {d.counts.warnings} warnings.</span>
+                  <span style={note}>Checked {d.scanned.accounts} accounts, {d.scanned.bookings} bookings and {d.scanned.entries} entries at {when(d.generatedAt)}. {d.counts.errors} {d.counts.errors === 1 ? 'error' : 'errors'}, {d.counts.warnings} {d.counts.warnings === 1 ? 'warning' : 'warnings'}.</span>
                 </p>
                 <IntegrityReport d={d} />
               </div>
