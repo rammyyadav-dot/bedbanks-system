@@ -54,7 +54,7 @@ export class OperationsBookingsService {
     let attention: Map<string, BookingAttention[]> | null = null
     if (filter.attention) {
       // Reconciliation flags need the existing transaction evidence; evaluate them over the newest bookings and say when the cap was reached.
-      const scanned = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where, orderBy, take: BOOKING_ATTENTION_SCAN_CAP, include }))
+      const scanned = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where: { ...where, tenantId }, orderBy, take: BOOKING_ATTENTION_SCAN_CAP, include }))
       attention = await this.evidence.attentionByBooking(tenantId, scanned)
       if (attention === null) throw new ServiceUnavailableException({ message: 'Reconciliation flags are not readable by the API database role, so this filter cannot be applied. Grants must be reviewed by a human; see ADR 0039.', code: OPERATIONS_READ_DENIED })
       const flagged = scanned.filter((b) => (attention!.get(b.id) ?? []).length > 0)
@@ -62,8 +62,8 @@ export class OperationsBookingsService {
       rows = flagged.slice((filter.page - 1) * filter.pageSize, filter.page * filter.pageSize)
     } else {
       const [page, count] = await this.ops.withTenant(tenantId, (tx) => Promise.all([
-        tx.booking.findMany({ where, orderBy, skip: (filter.page - 1) * filter.pageSize, take: filter.pageSize, include }),
-        tx.booking.count({ where }),
+        tx.booking.findMany({ where: { ...where, tenantId }, orderBy, skip: (filter.page - 1) * filter.pageSize, take: filter.pageSize, include }),
+        tx.booking.count({ where: { ...where, tenantId } }),
       ]))
       rows = page; total = count
       attention = await this.evidence.attentionByBooking(tenantId, rows)

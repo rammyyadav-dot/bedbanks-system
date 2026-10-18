@@ -78,6 +78,7 @@ export async function bootstrapFirstAdmin(prisma: PrismaClient, input: Bootstrap
     })
     const ownerRole = await tx.role.upsert({ where: { tenantId_name: { tenantId: tenant.id, name: 'owner' } }, update: {}, create: { tenantId: tenant.id, name: 'owner' } })
     await tx.rolePermission.createMany({ data: permissions.map(({ id }) => ({ roleId: ownerRole.id, permissionId: id })), skipDuplicates: true })
+    // tenant-scope: first-admin bootstrap on the owner connection; the role was created for this tenant in the same transaction
     await tx.userRole.upsert({
       where: { userId_roleId: { userId: user.id, roleId: ownerRole.id } },
       update: { tenantId: tenant.id },

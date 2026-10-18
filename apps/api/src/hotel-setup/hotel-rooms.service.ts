@@ -111,7 +111,7 @@ export class HotelRoomsService {
 
   private async setAmenities(tx: Tx, tenantId: string, hotelId: string, roomId: string, userId: string, wanted: Array<{ code: string; feeType: 'FREE' | 'PAID' | 'UNKNOWN' }>) {
     await tx.roomAmenity.deleteMany({ where: { tenantId, roomTypeId: roomId, code: { notIn: wanted.map((w) => w.code) } } })
-    for (const w of wanted) await tx.roomAmenity.upsert({ where: { roomTypeId_code: { roomTypeId: roomId, code: w.code } }, create: { tenantId, hotelId, roomTypeId: roomId, code: w.code, feeType: w.feeType, updatedById: userId }, update: { feeType: w.feeType, updatedById: userId } })
+    for (const w of wanted) await tx.roomAmenity.upsert({ where: { roomTypeId_code: { roomTypeId: roomId, code: w.code }, tenantId }, create: { tenantId, hotelId, roomTypeId: roomId, code: w.code, feeType: w.feeType, updatedById: userId }, update: { feeType: w.feeType, updatedById: userId } })
   }
 
   async create(tenantId: string, userId: string, hotelIdRaw: string, body: RoomSave, requestId: string | null): Promise<RoomSaved> {

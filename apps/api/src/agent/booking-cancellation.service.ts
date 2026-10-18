@@ -63,7 +63,7 @@ export class BookingCancellationService {
         const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId } })
         if (nights.length === 0) throw new ConflictException('Booking has no inventory record')
         for (const night of nights) await moveNight(tx, tenantId, night, 'cancel')
-        await tx.inventoryHold.update({ where: { id: holdId }, data: { status: 'RELEASED', releasedAt: new Date() } })
+        await tx.inventoryHold.update({ where: { id: holdId, tenantId }, data: { status: 'RELEASED', releasedAt: new Date() } })
         if (refund > 0n) {
           await appendLedgerEntry(tx, { tenantId, walletId: debit.walletId, type: 'REFUND', amountMinor: refund, currency: booking.currency, reference: `booking:${bookingId}`, idempotencyKey: `booking:${bookingId}:cancel-refund` })
         }

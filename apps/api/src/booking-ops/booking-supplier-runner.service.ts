@@ -67,10 +67,10 @@ export class BookingSupplierRunner implements OnModuleInit, OnModuleDestroy {
         const job = await tx.bookingSupplierJob.findFirstOrThrow({ where: { id, tenantId } })
         if (job.attempt >= job.maxAttempts) {
           // A runner died during the last attempt: we cannot know what the supplier did.
-          await tx.bookingSupplierJob.update({ where: { id }, data: { status: 'UNKNOWN', lockedUntil: null, lastErrorCode: 'RUNNER_LOST' } })
+          await tx.bookingSupplierJob.update({ where: { id, tenantId }, data: { status: 'UNKNOWN', lockedUntil: null, lastErrorCode: 'RUNNER_LOST' } })
           continue
         }
-        await tx.bookingSupplierJob.update({ where: { id }, data: { status: 'RUNNING', attempt: { increment: 1 }, lockedUntil: new Date(now.getTime() + LOCK_SECONDS * 1000) } })
+        await tx.bookingSupplierJob.update({ where: { id, tenantId }, data: { status: 'RUNNING', attempt: { increment: 1 }, lockedUntil: new Date(now.getTime() + LOCK_SECONDS * 1000) } })
         out.push({ id, tenantId, bookingId: job.bookingId, kind: job.kind, attempt: job.attempt + 1, requestedByUserId: job.requestedByUserId })
       }
       return out

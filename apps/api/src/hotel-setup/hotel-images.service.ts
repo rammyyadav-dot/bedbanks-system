@@ -63,7 +63,7 @@ export class HotelImagesService {
       return await this.prisma.withTenant(tenantId, async (tx) => {
         const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
         await this.lock(tx, hotelId)
-        const existing = await tx.hotelImage.findFirst({ where: { hotelId, sha256 }, select: { id: true } })
+        const existing = await tx.hotelImage.findFirst({ where: { hotelId, sha256, tenantId }, select: { id: true } })
         if (existing) throw new ConflictException({ message: 'This image is already on the hotel.', code: HOTEL_IMAGE_ERROR_CODES.duplicate, details: { existingImageId: existing.id } })
         const agg = await tx.hotelImage.aggregate({ where: { tenantId, hotelId }, _count: true, _max: { sortOrder: true } })
         if (agg._count >= HOTEL_IMAGE_LIMITS.maxPerHotel) throw new ConflictException({ message: `A hotel can have at most ${HOTEL_IMAGE_LIMITS.maxPerHotel} images.`, code: HOTEL_IMAGE_ERROR_CODES.limitReached })
@@ -97,7 +97,7 @@ export class HotelImagesService {
       const current = await tx.hotelImage.findFirst({ where: { id: imageId, hotelId, tenantId }, select: { id: true } })
       if (!current) throw new NotFoundException('Image not found')
       if (body.isPrimary) await tx.hotelImage.updateMany({ where: { hotelId, tenantId, isPrimary: true, NOT: { id: imageId } }, data: { isPrimary: false } })
-      await tx.hotelImage.update({ where: { id: imageId }, data: { ...(alt !== undefined && { altText: alt }), ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }), ...(body.isPrimary && { isPrimary: true }) } })
+      await tx.hotelImage.update({ where: { id: imageId, tenantId }, data: { ...(alt !== undefined && { altText: alt }), ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }), ...(body.isPrimary && { isPrimary: true }) } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: UPDATED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId, fields: keys.sort() } as Prisma.InputJsonValue } })
       return this.listIn(tx, tenantId, hotelId)
     })
@@ -119,7 +119,7 @@ export class HotelImagesService {
       const current = await tx.hotelImage.findMany({ where: { tenantId, hotelId }, select: { id: true } })
       const have = new Set(current.map((c) => c.id))
       if (have.size !== ids.length || ids.some((v) => !have.has(v))) throw new ConflictException({ message: 'The hotel images changed. Reload and reorder again.', code: HOTEL_IMAGE_ERROR_CODES.orderMismatch })
-      for (const [position, id] of ids.entries()) await tx.hotelImage.update({ where: { id }, data: { sortOrder: position } })
+      for (const [position, id] of ids.entries()) await tx.hotelImage.update({ where: { id, tenantId }, data: { sortOrder: position } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: REORDERED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, count: ids.length } as Prisma.InputJsonValue } })
       return this.listIn(tx, tenantId, hotelId)
     })
@@ -136,11 +136,11 @@ export class HotelImagesService {
       // A published hotel must keep a primary image (ADR 0058), the same rule as every other publication requirement.
       const [status, remaining] = await Promise.all([tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { contentStatus: true } }), tx.hotelImage.count({ where: { hotelId, tenantId, NOT: { id: imageId } } })])
       if (status?.contentStatus === 'COMPLETE' && remaining === 0) throw new ConflictException({ message: 'A published hotel must keep at least one image. Add another image first, or change the hotel status.', code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST' })
-      await tx.hotelImage.delete({ where: { id: imageId } })
+      await tx.hotelImage.delete({ where: { id: imageId, tenantId } })
       let promoted: string | null = null
       if (current.isPrimary) {
         const next = await tx.hotelImage.findFirst({ where: { hotelId, tenantId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], select: { id: true } })
-        if (next) { await tx.hotelImage.update({ where: { id: next.id }, data: { isPrimary: true } }); promoted = next.id }
+        if (next) { await tx.hotelImage.update({ where: { id: next.id, tenantId }, data: { isPrimary: true } }); promoted = next.id }
       }
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: DELETED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId, wasPrimary: current.isPrimary, promotedImageId: promoted } as Prisma.InputJsonValue } })
       return this.listIn(tx, tenantId, hotelId)
