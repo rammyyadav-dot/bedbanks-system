@@ -42,6 +42,8 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
  */
 export const APPROVED_TOOL_CLIENTS: ReadonlyArray<{ file: string; purpose: string }> = [
   { file: 'tools/certify-production-clone.mjs', purpose: 'operator: certifies a production clone (FBEDS_CERT_CLONE_DATABASE_URL, guarded by clone-certification-guard)' },
+  { file: 'tools/load/hybrid-search-load.ts', purpose: 'operator: read-only concurrency load test for hybrid hotel retrieval (LOADTEST_DATABASE_URL, strict runtime role, pooled endpoint)' },
+  { file: 'tools/hotel-search-smoke.ts', purpose: 'operator: disposable smoke test for hotel search indexes and hybrid retrieval (ADR 0072)' },
   { file: 'tools/admin-ops-verify/inventory-scale.ts', purpose: 'operator: inventory scale check; owner client plus optional runtime-login client' },
   { file: 'tools/admin-ops-verify/seed.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/seed-agent-images.ts', purpose: 'operator: disposable verification seed' },
