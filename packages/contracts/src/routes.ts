@@ -60,6 +60,13 @@ export const routes = {
     verify: '/admin/funding/receipts/:receiptId/verify', clearCompliance: '/admin/funding/receipts/:receiptId/clear-compliance',
     post: '/admin/funding/receipts/:receiptId/post', reject: '/admin/funding/receipts/:receiptId/reject',
   },
+  // Supplier statement reconciliation and the dispute queue (ADR 0070). Writes need an `Idempotency-Key`-style `requestId` in the body.
+  adminFinanceReconciliation: {
+    statements: '/admin/finance/reconciliation/statements', statement: '/admin/finance/reconciliation/statements/:statementId',
+    run: '/admin/finance/reconciliation/statements/:statementId/runs',
+    exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
+    propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
+  },
   // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
   adminRateCertification: {
     summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',

@@ -124,6 +124,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `RatePlan`: supply authoring and pool membership/release
 - `RatePlanGuestPrice`: supply authoring (guest price lines)
 - `RatePlanPromotion`: supply authoring (promotions)
+- `ReconciliationDecision`: finance-gated: append-only history of dispute queue decisions (ADR 0070)
+- `ReconciliationFinding`: finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)
+- `ReconciliationRun`: finance-gated: the reconciliation job queue; the API inserts QUEUED runs and the worker claims them (ADR 0070)
 - `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
 - `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
 - `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant
@@ -131,6 +134,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierHotelMapping`: mapping governance
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierRoomMapping`: mapping governance
+- `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)
+- `SupplierStatementLine`: finance-gated: immutable statement lines (ADR 0070)
 - `Tenant`: tenant settings authoring
 - `TenantControlProfile`: dedicated tenant control authoring role only
 - `TenantSettings`: tenant settings authoring

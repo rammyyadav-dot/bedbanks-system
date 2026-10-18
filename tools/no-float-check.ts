@@ -11,6 +11,7 @@ const roots = [
   'apps/api/src/booking-ops',
   'apps/api/src/commercial',
   'apps/api/src/funding',
+  'apps/api/src/finance-reconciliation',
   'apps/api/src/supply',
 ];
 // Display-only text (never arithmetic) may opt out one line at a time with this marker.

@@ -636,6 +636,11 @@ enum ConnectorExecutionStatus {
 
 model Tenant {
   ledgerIntegrityRuns LedgerIntegrityRun[]
+  supplierStatements SupplierStatement[]
+  supplierStatementLines SupplierStatementLine[]
+  reconciliationRuns ReconciliationRun[]
+  reconciliationFindings ReconciliationFinding[]
+  reconciliationDecisions ReconciliationDecision[]
   bookingRooms BookingRoom[]
   bookingGuests BookingGuest[]
   bookingEvents BookingEvent[]
@@ -896,6 +901,7 @@ model PlatformRoleAssignment {
 
 model Booking {
   serviceCases ServiceCase[]
+  reconciliationFindings ReconciliationFinding[]
   id             String         @id @default(cuid())
   tenantId       String         @map("tenant_id")
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -1533,6 +1539,8 @@ model Supplier {
   memberships    SupplierMembership[]
   roomDrafts     SupplierRoomDraft[]
   bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
+  supplierStatements SupplierStatement[]
+  reconciliationFindings ReconciliationFinding[]
 
   @@unique([tenantId, legalName])
   @@unique([tenantId, id])
@@ -2341,4 +2349,183 @@ model ComplianceExportBatchRecord {
 
   @@id([batchId, position])
   @@index([tenantId, batchId])
+}
+
+// ---- Supplier statement reconciliation and the dispute queue (ADR 0070) ---------------------------------------------------------------------------
+// Finance-gated privileged path (ADR 0032): the runtime role gets no grant. Nothing here posts to LedgerEntry or Wallet. Statements and their lines are
+// immutable (database trigger); findings change only through the reconciliation service; decisions are append-only.
+
+enum StatementLineKind {
+  CHARGE
+  CREDIT
+  SURCHARGE
+}
+
+enum ReconRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ReconExceptionStatus {
+  OPEN
+  DISPUTED
+  PENDING_APPROVAL
+  RESOLVED
+}
+
+enum ReconFindingType {
+  MATCHED
+  ROUNDING_VARIANCE
+  AMOUNT_OVERCHARGE
+  AMOUNT_UNDERCHARGE
+  CURRENCY_MISMATCH
+  UNINVOICED_SURCHARGE
+  UNMATCHED_LINE
+  AMBIGUOUS_REFERENCE
+  DUPLICATE_LINE
+  NET_UNKNOWN
+  CHARGE_ON_CANCELLED
+  CREDIT_MATCHED
+  CREDIT_VARIANCE
+  CREDIT_WITHOUT_CANCELLATION
+  CREDIT_AMOUNT_UNKNOWN
+  MISSING_FROM_STATEMENT
+  CREDIT_NOT_RECEIVED
+}
+
+/// A supplier settlement statement, imported once and never edited. `contentSha256` covers the canonical lines, so the same statement cannot be imported twice under another number.
+model SupplierStatement {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierId    String   @map("supplier_id")
+  supplier      Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  statementRef  String   @map("statement_ref")
+  periodStart   DateTime @map("period_start") @db.Date
+  periodEnd     DateTime @map("period_end") @db.Date
+  lineCount     Int      @map("line_count")
+  contentSha256 String   @map("content_sha256") @db.Char(64)
+  requestId     String   @map("request_id")
+  importedById  String   @map("imported_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  lines         SupplierStatementLine[]
+  runs          ReconciliationRun[]
+  findings      ReconciliationFinding[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, supplierId, statementRef])
+  @@unique([tenantId, supplierId, contentSha256])
+  @@index([tenantId, supplierId, periodEnd])
+  @@index([tenantId, createdAt])
+}
+
+model SupplierStatementLine {
+  id          String            @id @default(cuid())
+  tenantId    String            @map("tenant_id")
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId String            @map("statement_id")
+  statement   SupplierStatement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  lineNo      Int               @map("line_no")
+  reference   String
+  kind        StatementLineKind
+  currency    String            @db.Char(3)
+  /// Positive magnitude in integer minor units; `kind` gives the direction.
+  amountMinor BigInt            @map("amount_minor")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([statementId, lineNo])
+  @@index([tenantId, statementId])
+  @@index([tenantId, reference])
+}
+
+/// The job queue: a run is QUEUED by the API and claimed by the worker with a conditional update. A stale RUNNING claim is re-driven up to three attempts.
+model ReconciliationRun {
+  id                    String            @id @default(cuid())
+  tenantId              String            @map("tenant_id")
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId           String            @map("statement_id")
+  statement             SupplierStatement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  status                ReconRunStatus    @default(QUEUED)
+  requestId             String            @map("request_id")
+  requestedById         String            @map("requested_by_id")
+  roundingToleranceMinor BigInt           @default(0) @map("rounding_tolerance_minor")
+  attempts              Int               @default(0)
+  claimedAt             DateTime?         @map("claimed_at")
+  startedAt             DateTime?         @map("started_at")
+  finishedAt            DateTime?         @map("finished_at")
+  /// A stable code only, never a raw message.
+  errorCode             String?           @map("error_code")
+  matchedCount          Int?              @map("matched_count")
+  exceptionCount        Int?              @map("exception_count")
+  createdAt             DateTime          @default(now()) @map("created_at")
+
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, statementId, createdAt])
+}
+
+/// One row per statement line (and per ledger-side gap): the result of matching plus the exception workflow. `isException` false rows are clean matches.
+model ReconciliationFinding {
+  id                 String               @id @default(cuid())
+  tenantId           String               @map("tenant_id")
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId        String               @map("statement_id")
+  statement          SupplierStatement    @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  supplierId         String               @map("supplier_id")
+  supplier           Supplier             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  /// The statement line id, or `ledger:<bookingId>:<type>` for a ledger-side gap. Unique per statement, so a re-run updates rather than duplicates.
+  findingKey         String               @map("finding_key")
+  lineId             String?              @map("line_id")
+  bookingId          String?              @map("booking_id")
+  booking            Booking?             @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  type               ReconFindingType
+  rule               String
+  isException        Boolean              @map("is_exception")
+  currency           String               @db.Char(3)
+  statementMinor     BigInt?              @map("statement_minor")
+  ledgerMinor        BigInt?              @map("ledger_minor")
+  /// statement - ledger, same currency only. Null: cannot be computed.
+  varianceMinor      BigInt?              @map("variance_minor")
+  status             ReconExceptionStatus @default(OPEN)
+  proposedAction     String?              @map("proposed_action")
+  proposedById       String?              @map("proposed_by_id")
+  proposedReason     String?              @map("proposed_reason")
+  secondApprovalRequired Boolean          @default(false) @map("second_approval_required")
+  resolution         String?
+  resolvedById       String?              @map("resolved_by_id")
+  resolvedAt         DateTime?            @map("resolved_at")
+  lastRunId          String               @map("last_run_id")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  decisions          ReconciliationDecision[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, statementId, findingKey])
+  @@index([tenantId, isException, status, createdAt])
+  @@index([tenantId, statementId, status])
+  @@index([tenantId, bookingId])
+  @@index([tenantId, supplierId, status])
+}
+
+/// Append-only history of every state change of a finding.
+model ReconciliationDecision {
+  id         String                @id @default(cuid())
+  tenantId   String                @map("tenant_id")
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  findingId  String                @map("finding_id")
+  finding    ReconciliationFinding @relation(fields: [tenantId, findingId], references: [tenantId, id], onDelete: Restrict)
+  action     String
+  fromStatus ReconExceptionStatus  @map("from_status")
+  toStatus   ReconExceptionStatus  @map("to_status")
+  resolution String?
+  reason     String?
+  /// Null: the reconciliation worker (a SYSTEM actor).
+  actorId    String?               @map("actor_id")
+  createdAt  DateTime              @default(now()) @map("created_at")
+
+  @@index([tenantId, findingId, createdAt])
 }

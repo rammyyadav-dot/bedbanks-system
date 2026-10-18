@@ -9,6 +9,8 @@ export const departmentPermissions = {
   caseRead: 'case.read', caseManage: 'case.manage',
   distributionRead: 'distribution.read', distributionManage: 'distribution.manage',
   fundingManage: 'funding.manage',
+  /** Supplier statement reconciliation (ADR 0070). Formal role assignments only. `run` imports a statement and runs matching; `resolve` proposes, approves and rejects exception decisions. */
+  financeReconcileRun: 'finance.reconcile.run', financeReconcileResolve: 'finance.reconcile.resolve',
   /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */
   bookingViewAgency: 'booking.view.agency', bookingViewNet: 'booking.view.net', bookingPiiView: 'booking.pii.view',
   /** Booking lifecycle actions (ADR 0039, Phase 2). Each authorises one named action in `booking-lifecycle.ts`; none is a generic "update status". */

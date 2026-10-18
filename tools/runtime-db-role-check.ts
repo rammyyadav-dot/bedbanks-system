@@ -18,6 +18,8 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/provision-api-runtime-role.cli.ts', purpose: 'operator: provisions the API login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-booking-ops-role.cli.ts', purpose: 'operator: provisions the booking login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-ops-role.cli.ts', purpose: 'operator: read-only certification of the rate plan lifecycle login, run as that login', url: 'RATE_PLAN_OPS_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/provision-reconciliation-role.cli.ts', purpose: 'operator: provisions the supplier statement reconciliation login (ADR 0070)', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/verify-reconciliation-role.cli.ts', purpose: 'operator: read-only certification run AS the reconciliation login (no owner credential)', url: 'FINANCE_RECONCILIATION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-rate-plan-ops-role.cli.ts', purpose: 'operator: provisions the rate plan lifecycle login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-ops-role.cli.ts', purpose: 'operator: read-only certification run AS the rate plan lifecycle login (no owner credential)', url: 'RATE_PLAN_OPS_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-clone-role.cli.ts', purpose: 'operator: read-only certification run AS the rate plan clone login (no owner credential)', url: 'RATE_PLAN_CLONE_DATABASE_URL', runtime: false },
@@ -82,7 +84,7 @@ export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }>
   { file: 'apps/api/src/booking-ops/booking-ops-database.ts', url: 'BOOKING_OPS_DATABASE_URL' },
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
-  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL' },
+  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL' },
 ]
 
 export function checkClientSource(file: string, text: string): string[] {

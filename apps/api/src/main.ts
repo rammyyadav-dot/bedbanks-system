@@ -8,6 +8,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { beginDraining } from './common/lifecycle';
 import type { AppConfig } from './config/configuration';
+import { configureJsonBodyLimits } from './finance-reconciliation/body-limit';
 
 const logger = new Logger('Bootstrap');
 
@@ -33,6 +34,9 @@ async function bootstrap(): Promise<void> {
 
   // Required to read the session cookie in SessionAuthGuard.
   app.use(cookieParser());
+
+  // Supplier statements are larger than the default body limit (ADR 0070); only their routes are raised. Also mounts the default JSON parser (see the note in body-limit.ts).
+  configureJsonBodyLimits(app, apiPrefix);
 
   // Credentialed CORS, restricted to exactly one explicit origin — a
   // wildcard origin combined with credentials: true would let any
