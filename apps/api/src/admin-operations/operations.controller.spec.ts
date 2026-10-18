@@ -46,9 +46,9 @@ describe('OperationsController authorization wiring', () => {
     expect(names).toEqual(['SessionAuthGuard', 'TenantContextGuard'])
   })
 
-  it('mutates only through reconciliation handlers, every one requiring booking.reconcile (the direct run plus the maker-checker path)', () => {
+  it('mutates only through reconciliation handlers, every one requiring booking.reconcile (the direct run, the maker-checker path and the cancellation settlement sweep, ADR 0069)', () => {
     const posts = handlers.filter(h => Reflect.getMetadata('method', proto[h] as object) === 1) // RequestMethod.POST
-    expect(posts.sort()).toEqual(['approveReconciliation', 'cancelReconciliationApproval', 'executeReconciliationApproval', 'reconcile', 'rejectReconciliation', 'requestReconciliationApproval'])
+    expect(posts.sort()).toEqual(['approveReconciliation', 'cancelReconciliationApproval', 'cancellationSettlements', 'executeReconciliationApproval', 'reconcile', 'rejectReconciliation', 'requestReconciliationApproval'])
     for (const h of posts) expect(meta(REQUIRED_PERMISSION, h)).toBe('booking.reconcile')
   })
 

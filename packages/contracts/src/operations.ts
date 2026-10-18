@@ -274,6 +274,18 @@ export interface LedgerIntegrityReport {
   definitions: Record<string, string>
 }
 
+// ---- Cancellation settlement (ADR 0069) -----------------------------------------------------------------------------------
+/**
+ * settled / topped_up: a refund was credited to the agency account. already_settled: nothing to do. awaiting_penalty_decision: the penalty is
+ * undetermined, so nothing is credited until a person decides it. review_required: the decision would refund less than already credited, or
+ * more than was charged; nothing is changed. not_ledger_charged: the agency was never charged on the ledger. would_settle: dry run.
+ */
+export type CancellationSettlementOutcome =
+  | 'settled' | 'topped_up' | 'already_settled' | 'awaiting_penalty_decision' | 'review_required' | 'not_ledger_charged' | 'not_cancelled' | 'not_found' | 'would_settle' | 'failed'
+export interface CancellationSettlementRequest { dryRun?: boolean }
+export interface CancellationSettlementItem { bookingId: string; outcome: CancellationSettlementOutcome; refundMinor: MinorString | null; postedMinor: MinorString | null }
+export interface CancellationSettlementRun { dryRun: boolean; examined: number; items: CancellationSettlementItem[] }
+
 export interface AuditSummary {
   generatedAt: string
   window: SummaryWindow

@@ -41,6 +41,8 @@ finance, credit and reconciliation code (docs/finance-cfo-audit-2026-10-17.md) a
    stay at a net charge of zero. Confirmation now refuses with 409 `Financial authorization was released` and changes nothing.
 
 ## Not done
+Items 1 to 3 below are resolved by ADR 0069 (decided as global bedbanks run them).
+
 - **Booking-ops cancellations post no refund** (audit finding F3). Operator `confirmCancellation` and the supplier runner's
   `systemCompleteCancellation` move a ledger-charged booking to CANCELLED without a cancellation record or a REFUND, so the agency stays
   charged and the charge keeps ageing towards the 30-day refusal. The lifecycle states this on purpose ("does not pay a refund or settle
