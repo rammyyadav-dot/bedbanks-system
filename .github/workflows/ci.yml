@@ -83,6 +83,8 @@ jobs:
           strict-role-rollout.e2e-spec.ts
       - name: Sandbox staging strict-role acceptance (disposable PostgreSQL)
         run: pnpm --filter @bedbanks/api test:e2e -- sandbox-content-staging.e2e-spec.ts
+      - name: Tenant and database security certification (every restricted role, catalog, routes, cross-tenant, sessions, audit)
+        run: pnpm --filter @bedbanks/api test:security
       - run: pnpm --filter @bedbanks/api test:e2e
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - name: Re-certify strict login, protected columns and forced RLS after all suites
