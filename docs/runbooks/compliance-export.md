@@ -78,6 +78,29 @@ Compliance evidence → **Period report** downloads every record of a period (at
 - Each download is audited as `compliance.report.exported` and captured as `DATA_EXPORT` evidence.
 - A larger period answers `COMPLIANCE_REPORT_TOO_LARGE`: choose a shorter one.
 
+### Signed checkpoints
+With `compliance_export_enabled`, the tasks receive `COMPLIANCE_SIGNING_KEY_ID`, the KMS key `alias/fbeds-<env>-compliance-signing`. After each export, a checkpoint of every scope's stored head is signed and archived under `compliance/checkpoints/v1/`, and `verify` checks all of them.
+
+| Message | Meaning | Action |
+| --- | --- | --- |
+| `checkpoint ...: signature is not valid` or `hash does not match its content` | a checkpoint object was altered | **security incident**, as for an altered batch |
+| `head <scope>#n is not in the archived chain` | a signed head is not what the archive holds | **security incident**: the chain was rebuilt after it was signed |
+| `head of <scope> moved back` | a later checkpoint commits to an older head | **security incident** |
+| `signed by an unexpected key` | a checkpoint was signed with a key other than the configured one | expected only after a key rotation; otherwise a security incident |
+| `signing is configured but the archive holds no checkpoint` | export has not run since signing was enabled, or it fails | check the export task and its `FAIL: checkpoint` lines |
+
+**Rotating the signing key.** Asymmetric KMS keys do not rotate automatically.
+1. Create a new key, and point the alias, or `COMPLIANCE_SIGNING_KEY_ID`, at it.
+2. The next export archives the new public key and signs with it.
+3. Until every checkpoint is signed by the new key, `verify` reports earlier ones as signed by an unexpected key. Record the old key's fingerprint in the change ticket.
+4. Keep the old key enabled for `GetPublicKey` only, or rely on the archived PEM.
+
+**Offline check by an auditor.** Recompute the SHA-256 of the canonical checkpoint body, which is `checkpointSha256`. Then verify `signature` (base64, DER ECDSA) over the same bytes with the archived PEM, for example:
+
+```sh
+openssl dgst -sha256 -verify key.pem -signature sig.der body.json
+```
+
 ## 5. Archive format (for auditors)
 Keys: `compliance/v1/<scope>/<sequence, 10 digits>-<first 16 hex of batch hash>.ndjson` and the same key ending `.manifest.json`. `<scope>` is a tenant id or `platform`.
 

@@ -7,6 +7,7 @@ import { FileSystemComplianceArchive, sha256Hex, type ArchiveObject, type Compli
 import { PLATFORM_SCOPE, dueScopes, exportScope, inScope, knownScopes, manifestKey, type BatchManifest } from '../src/compliance/compliance-export'
 import { deprovisionComplianceRole, provisionComplianceRole, verifyComplianceRole } from '../src/compliance/compliance-role'
 import { verifyArchiveChain, verifyArchivedBatch, verifyScope } from '../src/compliance/compliance-verify'
+import { LocalComplianceSigner, storedHeads, verifyCheckpoints, writeCheckpoint } from '../src/compliance/compliance-anchor'
 import { withCredentials } from '../src/database/ops-database-url'
 
 /**
@@ -211,5 +212,18 @@ describe('Compliance reporting hooks (ADR 0067)', () => {
     const body = await readFile(join(archiveDir, ...membership.batch.objectKey.split('/')))
     expect(verifyArchivedBatch(manifest, body, membership.batch.previousSha256, membership.batch.sequence).failures).toEqual([])
     expect(await knownScopes(compliance)).toEqual(expect.arrayContaining([PLATFORM_SCOPE, tenantId]))
+  })
+
+  it('signs a checkpoint of the stored chain heads read through the compliance role, verifiable against the archive (amendment 4)', async () => {
+    const heads = await storedHeads(compliance)
+    const mine = heads.find((h) => h.scope === tenantId)
+    const head = await owner.complianceExportBatch.findFirstOrThrow({ where: { scopeKey: tenantId, storageStatus: 'STORED' }, orderBy: { sequence: 'desc' } })
+    expect(mine).toEqual({ scope: tenantId, headSequence: head.sequence, headSha256: head.batchSha256 })
+    // Other suites share this database; sign this tenant's head only, against this test's archive.
+    const signer = new LocalComplianceSigner()
+    const checkpoint = await writeCheckpoint(archive, signer, [mine!], { retainUntil: new Date(Date.now() + 365 * 86_400_000) })
+    expect(checkpoint?.checkpoint.scopes).toEqual([mine])
+    const chain = await verifyArchiveChain(archive, tenantId)
+    expect(await verifyCheckpoints(archive, new Map([[tenantId, chain.hashes]]))).toMatchObject({ checkpoints: 1, failures: [] })
   })
 })

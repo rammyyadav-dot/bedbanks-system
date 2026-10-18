@@ -314,6 +314,14 @@ run "compliance_export_is_worm_least_privilege_and_monitored" {
     error_message = "The bucket policy must deny deletes and uploads without COMPLIANCE retention."
   }
   assert {
+    condition     = aws_kms_key.compliance_signing["enabled"].customer_master_key_spec == "ECC_NIST_P256" && aws_kms_key.compliance_signing["enabled"].key_usage == "SIGN_VERIFY"
+    error_message = "Checkpoints are signed with an asymmetric ECC_NIST_P256 SIGN_VERIFY key."
+  }
+  assert {
+    condition     = contains(flatten([for s in data.aws_iam_policy_document.compliance_task["enabled"].statement : s.actions]), "kms:Sign") && !contains(flatten([for s in data.aws_iam_policy_document.github_deploy.statement : s.actions]), "kms:Sign")
+    error_message = "Only the compliance task role may sign checkpoints; the deploy role must not."
+  }
+  assert {
     condition     = aws_scheduler_schedule.compliance["export"].schedule_expression == "rate(15 minutes)" && aws_scheduler_schedule.compliance["verify"].schedule_expression == "rate(1 hour)"
     error_message = "Export runs every 15 minutes and verification hourly."
   }

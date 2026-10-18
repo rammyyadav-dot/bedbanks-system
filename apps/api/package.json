@@ -49,6 +49,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "3.1143.0",
     "@aws-sdk/client-s3": "3.1143.0",
     "@aws-sdk/client-sesv2": "3.1143.0",
     "@bedbanks/connectors-core": "workspace:*",
