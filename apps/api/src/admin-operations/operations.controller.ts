@@ -9,7 +9,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
-import { BookingAccess, BookingAccessGuard } from '../booking-ops/booking-access.guard'
+import { BookingAccess, BookingAccessGuard, RequireBookingAction } from '../booking-ops/booking-access.guard'
 import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
@@ -109,6 +109,16 @@ export class OperationsController {
   hold(@ActiveTenant() tenantId: string, @Param('holdId') holdId: string) { return this.tx.hold(tenantId, holdId) }
 
   // Booking list and detail (ADR 0039): operator-level `booking.read`, or an agency-scoped `booking.view.agency`; see BookingAccessGuard.
+  // Declared before `bookings/:bookingId` so "export" is never read as a booking id. Needs booking.export (operator) or booking.export.agency (agency user) as a formal role.
+  @Get('bookings/export') @RequireBookingAction('booking.export', 'booking.export.agency') @UseGuards(BookingAccessGuard)
+  async exportBookings(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Query() query: Q, @Res() res: Response) {
+    const file = await this.bookingsRead.exportCsv(tenantId, identity.user.id, access, query, requestIdOf(req))
+    // @Res() takes over the response so the global { success, data } envelope never wraps the file; errors thrown above keep the normal JSON envelope.
+    res.status(200).set({
+      'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${file.filename}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Export-Row-Count': String(file.rowCount),
+    }).send(file.csv)
+  }
+
   @Get('bookings') @UseGuards(BookingAccessGuard)
   bookings(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Query() query: Q) { return this.bookingsRead.list(tenantId, identity.user.id, access, query, requestIdOf(req)) }
 

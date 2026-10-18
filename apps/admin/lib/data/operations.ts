@@ -17,6 +17,8 @@ export const getOpsHolds = (p: Params) => apiRequest<Paged<HoldRow>>(`${ops.hold
 export const getOpsHold = (holdId: string) => apiRequest<HoldDetail>(fill(ops.hold, { holdId }))
 /** Booking list and detail (ADR 0039). The detail takes the booking id or its FB- reference. */
 export const getOpsBookings = (p: Params) => apiRequest<BookingListPage>(`${ops.bookings}${opsQuery(p)}`)
+/** The filtered list as a CSV file (ADR 0039, Phase 6D). The API enforces the export permission and the row limit, and audits every download. */
+export const downloadBookingsCsv = (p: Params) => apiDownload(`${ops.bookingExport}${opsQuery(p)}`)
 export const getOpsBooking = (bookingIdOrReference: string) => apiRequest<BookingDetailView>(fill(ops.booking, { bookingId: bookingIdOrReference }))
 /**
  * Booking writes (ADR 0039, Phase 2). Each takes the Idempotency-Key the caller generated once per dialog, so a retry after a timeout replays instead of
