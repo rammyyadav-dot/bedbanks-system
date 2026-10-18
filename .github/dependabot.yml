@@ -10,9 +10,17 @@ updates:
         patterns: ['*']
       minor-and-patch:
         update-types: [minor, patch]
+    # Major bumps (eslint 10, nestjs/swagger 12, @types/node 26 ...) change behaviour and our pnpm.overrides assumptions: plan them
+    # deliberately. Security updates are not held back by this rule.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly, day: monday }
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly, day: monday }
