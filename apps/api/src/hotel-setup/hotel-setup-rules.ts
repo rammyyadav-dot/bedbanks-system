@@ -1,6 +1,7 @@
+import { normaliseLocalCharges } from '../supply/local-charges'
 import {
   EXTERNAL_IDENTIFIER_SCHEME_PATTERN, HOTEL_CONTACT_KINDS, HOTEL_POLICY_KEYS, HOTEL_PUBLICATION_REQUIREMENTS,
-  type HotelCompleteness, type HotelContact, type HotelContacts, type HotelPolicies, type HotelRequirementResult, type HotelSetupSave,
+  type HotelCompleteness, type HotelContact, type HotelContacts, type HotelPolicies, type HotelRequirementResult, type HotelSetupSave, type HotelLocalCharge,
 } from '@bedbanks/contracts'
 
 /**
@@ -77,7 +78,7 @@ export interface NormalisedSave {
   profile: {
     legalName?: string | null; chainName?: string | null; brandName?: string | null; area?: string | null; postalCode?: string | null
     shortDescription?: string | null; fullDescription?: string | null; languages?: string[]; checkInTime?: string | null; checkOutTime?: string | null
-    operationalNotes?: string | null; contacts?: HotelContacts; policies?: HotelPolicies; sourceSystem?: string | null; ownerUserId?: string | null; starSource?: string | null
+    operationalNotes?: string | null; contacts?: HotelContacts; policies?: HotelPolicies; localCharges?: HotelLocalCharge[]; sourceSystem?: string | null; ownerUserId?: string | null; starSource?: string | null
   }
   starVerified?: boolean
   externalIdentifiers?: Array<{ scheme: string; value: string }>
@@ -119,7 +120,7 @@ function contact(errors: Errors, kind: string, value: unknown): HotelContact | u
  */
 export function normaliseSave(body: Partial<HotelSetupSave>): { data: NormalisedSave; errors: Errors } {
   const errors: Errors = []
-  const allowed = new Set(['idempotencyKey', 'expectedToken', 'reason', 'name', 'propertyType', 'legalName', 'chainName', 'brandName', 'countryCode', 'city', 'area', 'address', 'postalCode', 'latitude', 'longitude', 'timeZone', 'starRating', 'starSource', 'starVerified', 'shortDescription', 'fullDescription', 'languages', 'checkInTime', 'checkOutTime', 'operationalNotes', 'contacts', 'policies', 'sourceSystem', 'ownerUserId', 'externalIdentifiers'])
+  const allowed = new Set(['idempotencyKey', 'expectedToken', 'reason', 'name', 'propertyType', 'legalName', 'chainName', 'brandName', 'countryCode', 'city', 'area', 'address', 'postalCode', 'latitude', 'longitude', 'timeZone', 'starRating', 'starSource', 'starVerified', 'shortDescription', 'fullDescription', 'languages', 'checkInTime', 'checkOutTime', 'operationalNotes', 'contacts', 'policies', 'sourceSystem', 'ownerUserId', 'externalIdentifiers', 'localCharges'])
   for (const key of Object.keys(body ?? {})) if (!allowed.has(key)) errors.push(`${key}: is not a supported field`)
   const b = (body ?? {}) as Record<string, unknown>
   const data: NormalisedSave = { hotel: {}, profile: {}, changed: [] }
@@ -205,6 +206,9 @@ export function normaliseSave(body: Partial<HotelSetupSave>): { data: Normalised
       set(p, 'policies', out, 'policies')
     }
   }
+
+  // ADR 0067 F-04: the structured local charges replace the stored set when sent.
+  set(p, 'localCharges', normaliseLocalCharges(b.localCharges, errors), 'localCharges')
 
   if (b.externalIdentifiers !== undefined) {
     if (!Array.isArray(b.externalIdentifiers) || b.externalIdentifiers.length > MAX.identifiers) errors.push(`externalIdentifiers: provide at most ${MAX.identifiers} entries`)

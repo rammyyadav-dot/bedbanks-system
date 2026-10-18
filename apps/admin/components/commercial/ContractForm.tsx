@@ -75,7 +75,7 @@ export function ContractForm({ contractId }: { contractId?: string }) {
     event.preventDefault()
     setMessage(null)
     if (!form.supplierId || !form.code.trim() || !form.validFrom || !form.validTo) return setMessage({ kind: 'error', text: 'Supplier, code and both validity dates are required.' })
-    if (form.validTo < form.validFrom) return setMessage({ kind: 'error', text: 'Valid to must be on or after valid from.' })
+    if (form.validTo < form.validFrom) return setMessage({ kind: 'error', text: 'The last stay night must be on or after the first.' })
     if (!/^[A-Za-z]{3}$/.test(form.settlementCurrency)) return setMessage({ kind: 'error', text: 'Settlement currency must be a 3-letter ISO-4217 code.' })
     const body = { supplierId: form.supplierId, supplierHotelMappingId: form.supplierHotelMappingId || null, code: form.code.trim(), validFrom: form.validFrom, validTo: form.validTo, settlementCurrency: form.settlementCurrency.toUpperCase(), salesMarkets: list(form.salesMarkets), nationalities: list(form.nationalities) }
     setSaving(true)
@@ -110,8 +110,8 @@ export function ContractForm({ contractId }: { contractId?: string }) {
             <FormField label="Supplier"><select value={form.supplierId} onChange={(e) => supplierChanged(e.target.value)} disabled={identityLocked} required><option value="">Select supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.displayName} ({supplier.status})</option>)}</select></FormField>
             <FormField label="Hotel mapping (approved only)"><select value={form.supplierHotelMappingId} onChange={(e) => set('supplierHotelMappingId', e.target.value)} disabled={identityLocked || !form.supplierId}><option value="">No hotel binding</option>{approvedMappings.map((mapping) => <option key={mapping.id} value={mapping.id}>{hotelName(mapping.hotelId)} · {mapping.supplierHotelId}</option>)}</select></FormField>
             <FormField label="Contract code"><input value={form.code} onChange={(e) => set('code', e.target.value)} disabled={locked} required maxLength={80} /></FormField>
-            <FormField label="Valid from"><input type="date" value={form.validFrom} onChange={(e) => set('validFrom', e.target.value)} disabled={locked} required /></FormField>
-            <FormField label="Valid to"><input type="date" value={form.validTo} onChange={(e) => set('validTo', e.target.value)} disabled={locked} required /></FormField>
+            <FormField label="First stay night (valid from)"><input type="date" value={form.validFrom} onChange={(e) => set('validFrom', e.target.value)} disabled={locked} required /></FormField>
+            <FormField label="Last stay night (valid to)"><input type="date" value={form.validTo} onChange={(e) => set('validTo', e.target.value)} disabled={locked} required /></FormField>
             <FormField label="Settlement currency (ISO-4217)"><input value={form.settlementCurrency} onChange={(e) => set('settlementCurrency', e.target.value.toUpperCase())} disabled={locked} required maxLength={3} /></FormField>
             <FormField label="Sales markets (ISO country codes, comma-separated)"><input value={form.salesMarkets} onChange={(e) => set('salesMarkets', e.target.value)} disabled={locked} placeholder="AE, SA" /></FormField>
             <FormField label="Nationality restrictions (ISO country codes, comma-separated)"><input value={form.nationalities} onChange={(e) => set('nationalities', e.target.value)} disabled={locked} placeholder="Leave empty for none" /></FormField>

@@ -9,6 +9,7 @@ import { formatCancellationDeadline, formatMinorAmount, formatStay } from '@/lib
 import { ARRIVAL_TIME_OPTIONS, buildRoster, isLead, parseCcEmails, rosterErrors, rosterPayload, stayNights, type GuestDraft } from '@/lib/checkout'
 import { averageNightlyMinor } from '@/lib/listing'
 import { guestMarketName } from '@/lib/guest-market'
+import { payAtHotelLines, priceIncludesText } from '@/lib/pay-at-hotel'
 
 type Phase = 'idle' | 'holding' | 'held' | 'booking' | 'done' | 'failed'
 const newKey = () => `hold-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
@@ -153,6 +154,8 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       <li><Users size={14} aria-hidden="true" />{request.rooms} room{request.rooms === 1 ? '' : 's'} · {request.adults} adult{request.adults === 1 ? '' : 's'}{request.children ? ` + ${request.children} child${request.children === 1 ? '' : 'ren'}` : ''} per room</li>
       <li><Globe size={14} aria-hidden="true" />{guestMarketName(request.nationality)} guests · rate valid for this nationality</li>
       {rate.promotion && <li><Tag size={14} aria-hidden="true" />{rate.promotion.name} · included in the price</li>}
+      {priceIncludesText(rate) && <li><Tag size={14} aria-hidden="true" />{priceIncludesText(rate)}</li>}
+      {payAtHotelLines(rate).map((line) => <li key={line} data-pay-at-hotel><Wallet size={14} aria-hidden="true" />Pay at hotel, not included: {line}</li>)}
     </ul>
     <p className={`ck-summary-policy${rate.cancellation.refundable ? '' : ' is-nonref'}`}>{deadline ? `Free cancellation until ${deadline}` : rate.cancellation.summary || (rate.cancellation.refundable ? 'Refundable' : 'Non-refundable')}</p>
     <div className="ck-summary-total"><span>Total charged</span><strong>{total}</strong><small>{perNight ? `avg. ${perNight} / night · ` : ''}rechecked price</small></div>

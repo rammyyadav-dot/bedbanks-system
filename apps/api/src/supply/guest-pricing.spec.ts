@@ -1,4 +1,4 @@
-import { EXTRA_ADULT_BAND, resolveGuestPricing, validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
+import { EXTRA_ADULT_BAND, effectiveGuestLines, resolveGuestPricing, validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
 
 const limits = { maxAdults: 3, maxChildren: 2, maxOccupancy: 4 }
 const child = (minAge: number, maxAge: number, amountMinor: bigint, basis: 'NET' | 'SELL' = 'SELL'): GuestPriceLine => ({ kind: 'CHILD', minAge, maxAge, amountMinor, basis, currency: 'AED' })
@@ -34,8 +34,14 @@ describe('guest pricing (ADR 0057, S6)', () => {
       const big = [child(0, 17, 9_007_199_254_740_993n)]
       expect(price({ lines: big, children: 1, childAges: [4] })).toMatchObject({ extraMinorPerNight: 9_007_199_254_740_993n })
     })
-    it('fewer adults than the base party is not sold', () => {
-      expect(price({ lines, adults: 1, children: 1, childAges: [5] }).reasons).toContain('OCCUPANCY_UNSUPPORTED')
+    it('a child fills a base place an adult leaves empty: 1 adult + 1 child pays the base rate (ADR 0067, F-03)', () => {
+      expect(price({ lines, adults: 1, children: 1, childAges: [5] })).toMatchObject({ reasons: [], extraMinorPerNight: 0n })
+      // The oldest child takes the base place; the younger one is charged by their band.
+      expect(price({ lines, adults: 1, children: 2, childAges: [4, 13] })).toMatchObject({ reasons: [], extraMinorPerNight: 15_000n })
+    })
+    it('the party must still fill the base and include an adult', () => {
+      expect(price({ lines, adults: 1 }).reasons).toContain('OCCUPANCY_UNSUPPORTED')
+      expect(price({ lines, adults: 0, children: 2, childAges: [10, 12] }).reasons).toContain('OCCUPANCY_UNSUPPORTED')
     })
     it('a child no band covers, a missing or wrong number of ages, or a bad age is refused, never priced as free', () => {
       expect(price({ lines: [child(3, 11, 1n)], children: 1, childAges: [1] }).reasons).toEqual(['CHILD_AGE_NOT_COVERED'])
@@ -76,6 +82,26 @@ describe('guest pricing (ADR 0057, S6)', () => {
     it('rejects an unknown kind and a child band past 17', () => {
       expect(validateGuestPriceLines([{ kind: 'PET', amountMinor: 1n }], 'AED')[0]!.code).toBe('GUEST_PRICE_KIND_INVALID')
       expect(validateGuestPriceLines([child(0, 18, 1n)], 'AED').map((i) => i.code)).toContain('GUEST_PRICE_AGE_BAND_INVALID')
+    })
+  })
+
+  describe('one child policy: the contract bands govern a plan without its own child lines (ADR 0067, F-03)', () => {
+    const bands = [{ minAge: 0, maxAge: 5, supplementMinor: 0n, currency: null }, { minAge: 6, maxAge: 11, supplementMinor: 9_000n, currency: 'AED' }, { minAge: 12, maxAge: 17, supplementMinor: null, currency: null }]
+    it('inherits the bands with basis INHERIT and the plan currency when the band names none', () => {
+      expect(effectiveGuestLines([adult(30_000n)], bands, 'AED')).toEqual([adult(30_000n), { kind: 'CHILD', minAge: 0, maxAge: 5, amountMinor: 0n, basis: 'INHERIT', currency: 'AED' }, { kind: 'CHILD', minAge: 6, maxAge: 11, amountMinor: 9_000n, basis: 'INHERIT', currency: 'AED' }, { kind: 'CHILD', minAge: 12, maxAge: 17, amountMinor: null, basis: 'INHERIT', currency: 'AED' }])
+    })
+    it('a plan with its own child lines ignores the contract bands', () => {
+      expect(effectiveGuestLines([child(0, 17, 1n)], bands, 'AED')).toEqual([child(0, 17, 1n)])
+    })
+    it('prices extra children from inherited bands on the rate basis (no basis of its own), and refuses a band with no supplement', () => {
+      const lines = effectiveGuestLines([], bands, 'AED')
+      expect(price({ lines, children: 2, childAges: [3, 8] })).toMatchObject({ reasons: [], extraMinorPerNight: 9_000n, basis: null })
+      expect(price({ lines, children: 1, childAges: [14] }).reasons).toEqual(['CHILD_PRICE_MISSING'])
+      // A child in the unpriced band who fills a base place needs no price.
+      expect(price({ lines, adults: 1, children: 1, childAges: [14] }).reasons).toEqual([])
+    })
+    it('a band in another currency is refused, never converted', () => {
+      expect(price({ lines: effectiveGuestLines([], [{ minAge: 0, maxAge: 17, supplementMinor: 1n, currency: 'USD' }], 'AED'), children: 1, childAges: [5] }).reasons).toContain('GUEST_PRICE_CURRENCY_MISMATCH')
     })
   })
 })

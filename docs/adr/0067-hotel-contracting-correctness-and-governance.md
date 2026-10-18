@@ -39,3 +39,47 @@ Constraints that apply throughout: tenant identity only from the session (1); a 
 An unusable hotel zone fails closed for whichever side is set. Because Agent search, recheck, hold, Admin readiness, the commercial assessment and rate certification all use this one evaluator, they all enforce it. The strict runtime role gains SELECT on `BookingLeadTimeRule` (and on `ChildPolicy`, for F-03); both tables keep their contract-joined RLS.
 
 **Tests.** Unit: both bounds at the minute in Dubai time, no rule, and an invalid zone. End to end: Agent search hides the hotel while either rule blocks the stay and shows it again once the rule is removed.
+
+## F-03: One child policy
+
+**Problem.** A contract child policy (age band, extra bed, supplement) was stored and shown, but pricing read only the rate plan's own child lines. A dead `evaluateCommercialRules` function priced contract child bands and mandatory supplements but was never called. Children could therefore be refused, or sold on terms other than the contract's.
+
+**Decision.**
+- A rate plan's own CHILD lines govern it. A plan with no CHILD line inherits the contract's child bands (`effectiveGuestLines`). An inherited band is charged per child per night on the same basis (NET or SELL) as that night's rate, in the band's currency or the plan's when none is set. A band whose contract recorded no supplement cannot price a child who must be charged (`CHILD_PRICE_MISSING`): never priced as free.
+- Children may fill base places that adults leave empty. The oldest children take those places at no extra charge, and only the remaining children are priced by band. So 1 adult + 1 child in a double pays the double rate, which is common practice. A party must still have at least one adult and fill the base occupancy.
+- Agent search pre-selects a plan whose base occupancy is within the whole party when it has guest lines or its contract has child bands; the evaluator decides. The rate certification simulator uses the same effective lines, so its independent recomputation still agrees.
+- `evaluateCommercialRules` and its types are removed. Compulsory supplements are designed in Phase 2.
+
+**Admin.** The child band form now takes the supplement per child per night in the settlement currency (0 for free) and explains which plans it governs. The guest-price panel says whether its own lines or the contract policy apply.
+
+**Tests.** Unit: inheritance, plan override, the INHERIT basis, the unpriced band, currency mismatch, and base places filled by the oldest child. End to end: Agent search prices an extra child aged 8 from the contract band, a child aged 3 free, 1 adult + 1 child at the double rate, and returns nothing for an age no band covers.
+
+## F-06: One date convention: "valid to" is the last stay night
+
+**Problem.** Agent search, recheck and hold read `Contract.validTo` and `RatePlan.validTo` as the last check-out date, while markups, promotions, rate and availability loading, the calendar import and the Sellability Inspector read the same field as the last night. Hotels write contract periods as stay nights (01 Nov – 31 Oct), so a contract keyed as written never sold its last night, yet the import accepted rates for it.
+
+**Decision.** `validFrom` and `validTo` of contracts and rate plans are the first and last stay nights, inclusive, everywhere. The stay evaluator compares the stay's last night (check-out minus one day) with `validTo`. The Agent candidate query and the hold double-check bound `validTo` by the last night. Expiry, rate loading, import, markups and promotions already used this meaning. The admin labels now read "First stay night (valid from)" and "Last stay night (valid to)", and the rate plan's window "Last stay night on sale".
+
+**Data.** Migration `202611200002_valid_to_is_last_night` moves every stored `validTo` back one day, so each contract and plan sells exactly the nights it sold before. It lifts forced RLS for its own transaction only, because the table owner would otherwise update no row. A row whose `validTo` equals `validFrom` sold nothing under the old meaning and is left unchanged; it now covers that one night. Operators can list such rows with `SELECT id, code FROM "Contract" WHERE valid_to = valid_from`. `ContractVersion` snapshots taken before the migration keep the reviewed value under the old meaning. The migration also changes the term fingerprint of every contract it touches, so any request open at release time can no longer be approved and must be filed again.
+
+**Also fixed.** The hold double-check required a plan occupancy of at least the whole party, which contradicted guest-line pricing (ADR 0057 S6) and F-03. It now requires a base occupancy within the party, and the evaluator decides the rest.
+
+## F-07: The Sellability Inspector uses the shared evaluator
+
+**Problem.** `POST /supply/sellability`, behind the admin Sellability Inspector, ran an older single-night function, `evaluateNightSellability`. Compared with the Agent evaluator it marked NET rates unsellable even when a markup rule existed, read minimum stay from the arrival night only, ignored the release time, skipped markets, closed to arrival and departure, freshness, inventory mode and pools, treated `validTo` as a night, and reported an unpublished hotel only as a warning. Staff got a different answer from the one agents got.
+
+**Decision.** The endpoint loads the plan through `assessPlanSelect`, the one select now shared with Admin hotel operations and rate certification, plus the hotel's star rating, the mappings and the active markup rules. Without stay context it judges the night with `evaluatePlanNight`, which leaves out stay-only rules exactly as the hotel assessment does. With `checkInDate` and `nights` it judges the whole stay with `evaluateContractedStay` and every stay rule. No buyer is named, so market, nationality and agency rules are not evaluated, and the screen says so. `evaluateNightSellability` and its types are removed. The response keeps its shape. `warnings` is now always empty: an unpublished hotel is the reason `HOTEL_INACTIVE`, and a pending room mapping is `SUPPLIER_MAPPING_INVALID`, as for the Agent. `occupancy` must be 1 to 20.
+
+**Tests.** The supply, golden-path and 100-hotel suites now arrange a published, rated, mapped hotel before expecting "eligible", and assert the Agent's reasons otherwise. The scale suite ends its contract on the last stay night and proves that night sells while the next is outside the contract.
+
+## F-04: Local charges paid at the hotel are disclosed
+
+**Problem.** Every contracted offer carried tax and fee 0, and the plan's "taxes included" and "fees included" flags never left the API. Charges such as Dubai's Tourism Dirham existed only as free text on the private hotel profile. Agents, vouchers and the confirmation email never mentioned them, so guests met an unannounced charge at the desk.
+
+**Decision.**
+- `HotelProfile.local_charges` (JSONB array, at most 10) holds structured charges: kind (TOURISM_DIRHAM, CITY_TAX, MUNICIPALITY_FEE, RESORT_FEE, OTHER), a label for agents, an amount in integer minor units, a currency, a basis (per room or per person, per night or per stay) and an optional night cap (Tourism Dirham: 30). Hotel Setup validates and replaces the whole set; the Policies tab has the editor.
+- Agent offers carry `priceIncludes { taxes, fees }` from the plan and `payAtHotel[]`, each with `estimatedTotalMinor` for the searched stay: nights (capped), rooms and every guest. They are never added to the total, and the totals invariants are unchanged. The domain validator copies both fields only after validating them.
+- The voucher and invoice show a "Payable at the hotel, not included in the price" section; the confirmation email lists each charge. The agent portal shows them under each rate and in the checkout summary, with what the price includes.
+- Agent search reads only the `localCharges` column of the profile; contacts stay private.
+
+**Not built.** Taxes are still not itemised inside the price (`taxAmountMinor` stays 0 for contracted inventory). A VAT breakdown on the invoice is a finance decision.

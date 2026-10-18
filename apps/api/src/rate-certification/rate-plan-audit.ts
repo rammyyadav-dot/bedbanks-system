@@ -1,4 +1,4 @@
-import { resolveGuestPricing, type GuestPriceLine } from '../supply/guest-pricing'
+import { effectiveGuestLines, resolveGuestPricing, type GuestPriceLine } from '../supply/guest-pricing'
 import type {
   CertificationStatus, HotelCertification, HotelDistributionStatus, MarkupRuleAuditRow, RateFinding, RateFindingCode, RateFindingSeverity, RatePlanAuditDetail, RatePlanAuditRow,
   RateRowClass, RateRowClassCounts, RemediationItem, RemediationPriority, SimulatedNight, SimulationResult,
@@ -313,7 +313,7 @@ export function simulateStay(input: SimulateInput): Omit<SimulationResult, 'gene
   const decision = evaluateContractedStay(buildStaySnapshot(own, input.mapping, input.roomMapping, input.dates, resolver), { checkIn: input.checkIn, checkOut: input.checkOut, rooms: input.rooms, adults: input.adults, children: input.children, childAges: input.childAges, currency: plan.currency, now: input.now })
   const rates = new Map(own.dailyRates.map((r) => [dayOf(r.stayDate), r]))
   // Child and extra-adult lines (ADR 0057, S6) are added to each night's net before the markup, exactly as the evaluator does; the per-night arithmetic below stays independent.
-  const guest = resolveGuestPricing({ planOccupancy: plan.occupancy, currency: plan.currency, adults: input.adults, children: input.children, childAges: input.childAges, lines: plan.guestPrices.map((l) => ({ kind: l.kind as GuestPriceLine['kind'], minAge: l.minAge, maxAge: l.maxAge, amountMinor: l.amountMinor, basis: l.amountBasis as GuestPriceLine['basis'], currency: l.currency })), limits: { maxAdults: plan.roomType.maxAdults, maxChildren: plan.roomType.maxChildren, maxOccupancy: plan.roomType.maxOccupancy } })
+  const guest = resolveGuestPricing({ planOccupancy: plan.occupancy, currency: plan.currency, adults: input.adults, children: input.children, childAges: input.childAges, lines: effectiveGuestLines(plan.guestPrices.map((l) => ({ kind: l.kind as GuestPriceLine['kind'], minAge: l.minAge, maxAge: l.maxAge, amountMinor: l.amountMinor, basis: l.amountBasis as GuestPriceLine['basis'], currency: l.currency })), plan.contract.childPolicies, plan.currency), limits: { maxAdults: plan.roomType.maxAdults, maxChildren: plan.roomType.maxChildren, maxOccupancy: plan.roomType.maxOccupancy } })
   const extra = guest.mode === 'LINES' && guest.reasons.length === 0 ? guest.extraMinorPerNight : 0n
   // Pass 1: the net of each night before any promotion. Pass 2: the one promotion (ADR 0058), then the markup on the discounted net.
   const gross = input.dates.map((date) => {

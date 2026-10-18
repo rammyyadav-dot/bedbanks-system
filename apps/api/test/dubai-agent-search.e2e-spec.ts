@@ -356,6 +356,36 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }
   }, 40_000) // eleven cases, each a supply write plus two searches; it ran within ~10% of the 5s default (same on origin/main), so the limit is explicit
 
+  it('prices children from the contract child policy when the plan has no child lines (ADR 0067, F-03)', async () => {
+    await prisma.roomType.update({ where: { id: roomId }, data: { maxChildren: 2, maxOccupancy: 3 } })
+    await prisma.childPolicy.createMany({ data: [{ contractId, minAge: 0, maxAge: 5, supplementMinor: 0n, currency: 'AED' }, { contractId, minAge: 6, maxAge: 11, supplementMinor: 5000n, currency: 'AED' }] })
+    try {
+      const priced = (body: Record<string, unknown>) => search(agentCookie, body).expect(201).then((r) => r.body.data.hotels.map((h: { rooms: Array<{ rates: Array<{ sellAmountMinor: number }> }> }) => h.rooms[0].rates[0].sellAmountMinor))
+      // An extra child aged 8 pays the 6-11 band per night; a child aged 3 is free; 1 adult + 1 child fills the double at the base rate.
+      expect(await priced({ adults: 2, children: 1, childAges: [8] })).toEqual([(nightMinor + 5000) * nights.length])
+      expect(await priced({ adults: 2, children: 1, childAges: [3] })).toEqual([nightMinor * nights.length])
+      expect(await priced({ adults: 1, children: 1, childAges: [8] })).toEqual([nightMinor * nights.length])
+      // No band covers age 14: never priced as free.
+      expect(await priced({ adults: 2, children: 1, childAges: [14] })).toEqual([])
+    } finally {
+      await prisma.childPolicy.deleteMany({ where: { contractId } })
+      await prisma.roomType.update({ where: { id: roomId }, data: { maxChildren: 0, maxOccupancy: 2 } })
+    }
+  })
+
+  it('discloses charges paid at the hotel with a stay estimate, never adding them to the price (ADR 0067, F-04)', async () => {
+    const dirham = { kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: '2000', currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', maxNights: 30 }
+    const profile = await prisma.hotelProfile.upsert({ where: { hotelId }, update: { localCharges: [dirham] }, create: { tenantId, hotelId, updatedById: 'fixture', localCharges: [dirham] } })
+    try {
+      const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
+      expect(rate.payAtHotel).toEqual([{ kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: 2000, currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', estimatedTotalMinor: 2000 * nights.length }])
+      expect(rate.priceIncludes).toEqual({ taxes: false, fees: false })
+      expect(rate.sellAmountMinor).toBe(nightMinor * nights.length)
+    } finally {
+      await prisma.hotelProfile.update({ where: { id: profile.id }, data: { localCharges: [] } })
+    }
+  })
+
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)
     await admin.post(`/api/v1/supply/mappings/hotels/${mappingId}/rooms/${roomMappingId}/reopen`).expect(201)
