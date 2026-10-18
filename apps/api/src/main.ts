@@ -7,6 +7,7 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { beginDraining } from './common/lifecycle';
+import { securityHeaders } from './common/security-headers';
 import type { AppConfig } from './config/configuration';
 import { configureJsonBodyLimits } from './finance-reconciliation/body-limit';
 
@@ -31,6 +32,8 @@ async function bootstrap(): Promise<void> {
   const host = configService.get('api.host', { infer: true }) ?? '0.0.0.0';
   const nodeEnv = configService.get('nodeEnv', { infer: true }) ?? 'development';
   const adminOrigin = configService.get('adminOrigin', { infer: true }) ?? 'http://localhost:3001';
+
+  app.use(securityHeaders(nodeEnv === 'production'));
 
   // Required to read the session cookie in SessionAuthGuard.
   app.use(cookieParser());

@@ -1,0 +1,17 @@
+title = "fBeds gitleaks config"
+
+[extend]
+useDefault = true
+
+# Reviewed 2026-10-18: the only default-rule hits in history are idempotencyKey literals and test-only SECRET constants in these files.
+# Path-scoped on purpose: production code and configuration are never exempt.
+[allowlist]
+description = "Test and verification fixtures (idempotency keys, test signing constants)"
+paths = [
+  '''packages/connectors/core/test/xml-connector\.test\.mjs''',
+  '''apps/api/src/agent/agent-search\.contract\.spec\.ts''',
+  '''apps/api/src/booking-ops/booking-bulk\.spec\.ts''',
+  '''apps/website/tests/leads\.test\.ts''',
+  '''apps/website/tests/lead-security\.test\.ts''',
+  '''tools/admin-ops-verify/verify-inventory\.cjs''',
+]

@@ -42,8 +42,9 @@ export class DestinationResolverService {
 
   private async loadDestinations(tenantId: string, folded: string): Promise<DestinationResolution[]> {
     const pattern = `%${folded.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    // `term <% column` is word_similarity(term, column) >= pg_trgm.word_similarity_threshold. Unlike the function form it can use the
+    // Hotel_*_lower_trgm GIN indexes (migration 202610180001). The threshold is transaction-local, so it is safe behind a pooler.
     const hotels = await this.prisma.withTenant(tenantId, async (tx) => {
-      // `<%` is the index-assisted form of word_similarity(...) >= threshold; the threshold is transaction-local (ADR 0072).
       await tx.$executeRaw`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(FUZZY_THRESHOLD)}, true)`
       return tx.$queryRaw<Array<{ id: string; name: string; city: string; countryCode: string; citySim: number; nameSim: number }>>(Prisma.sql`
       SELECT "id", "name", "city", "country_code" AS "countryCode",

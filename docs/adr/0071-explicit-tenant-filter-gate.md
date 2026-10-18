@@ -40,6 +40,9 @@ An audit of the 303 non-test API source files found 119 Prisma calls on the 69 t
 ## Rollback
 Remove `check:tenant-filter` from `check:architecture` and the two workflow steps. The predicate changes are independent and each narrows a query; reverting one restores the previous RLS-only behaviour for it.
 
+## Evidence the second wall holds without RLS
+`apps/api/test/tenant-second-wall.e2e-spec.ts` runs the real services on the schema-owner connection, where RLS does not apply, as a tenant-A member against tenant-B ids. A control proves the connection bypasses RLS (a raw read inside `withTenant(A)` still sees B). It then shows that list endpoints return only A's rows, that hotel and mapping reads and updates by B's id find nothing and change nothing, that image edits and deletes by B's image id are refused under either hotel, and that a ledger post cannot reach B's wallet or return B's entry on an idempotency-key replay. Each refusal is paired with a positive control on A's own data. Removing the tenant predicate from the hotel-image lookups makes the cross-tenant image test fail; the other five stay green, which shows the suite detects the regression it exists for. It runs with the rest of `test:e2e` in the Prisma migration certification job.
+
 ## Not done / next
-- A negative-control e2e that runs the services on an RLS-bypassing connection against another tenant's ids, to prove the second wall independently of the first. The unit tests prove the gate; they do not execute the services without RLS.
-- Relation filters inside `include`/`select`/`some`/`every` and Prisma `$extends` middleware that injects the tenant, if the team prefers a structural guarantee to a lint-style one.
+- Relation filters inside `include`/`select`/`some`/`every`, and Prisma `$extends` middleware that injects the tenant, if the team prefers a structural guarantee to a lint-style one.
+- The suite covers hotel, mapping, image and ledger paths. Booking, funding and reconciliation mutations are covered by the syntactic gate and by their own e2e suites, not by an RLS-off cross-tenant case.

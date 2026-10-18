@@ -1,9 +1,14 @@
 // Fails when the migrated database differs from prisma/schema.prisma.
-// Prisma 6 cannot declare pgvector HNSW indexes, so the one index created by
-// migration 202610010003_hotel_search_index is the only tolerated difference.
+// Prisma 6 cannot declare pgvector HNSW indexes or expression indexes. The HNSW index from
+// migration 202610010003_hotel_search_index and the Hotel lower() trigram indexes from
+// 202610180001_hotel_trigram_search are the only tolerated differences.
 import { spawnSync } from 'node:child_process'
 
-const TOLERATED = new Set(['DROP INDEX "HotelSearchIndex_embedding_hnsw";'])
+const TOLERATED = new Set([
+  'DROP INDEX "HotelSearchIndex_embedding_hnsw";',
+  'DROP INDEX "Hotel_city_lower_trgm";',
+  'DROP INDEX "Hotel_name_lower_trgm";',
+])
 
 const diff = spawnSync(
   'pnpm',
