@@ -17,5 +17,5 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: echo "Deployment is manual and provider-managed. For AWS use the "AWS images" then "AWS deploy" workflows (docs/runbooks/aws-ecs-deployment.md); complete docs/runbooks/deploy.md first."

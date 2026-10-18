@@ -53,7 +53,7 @@ jobs:
       EXPECTED_PENDING: 202609280001_hold_expiry_system_audit_policy
       NODE_ENV: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
