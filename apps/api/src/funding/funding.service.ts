@@ -201,7 +201,7 @@ export class FundingService {
     return this.step(tenantId, me, receiptId, 'funding.verified', async (tx, r) => {
       if (r.status === 'VERIFIED' && r.verifiedById === me) return null
       const refusal = duties.verify(r, me); if (refusal) refuse(refusal)
-      return tx.fundingReceipt.update({ where: { id: r.id }, data: { status: 'VERIFIED', verifiedById: me, verifiedAt: new Date(), verificationNote: text }, include: { agency: AGENCY } })
+      return tx.fundingReceipt.update({ where: { id: r.id, tenantId }, data: { status: 'VERIFIED', verifiedById: me, verifiedAt: new Date(), verificationNote: text }, include: { agency: AGENCY } })
     })
   }
 
@@ -210,7 +210,7 @@ export class FundingService {
     return this.step(tenantId, me, receiptId, 'funding.compliance_cleared', async (tx, r) => {
       if (r.complianceClearedById === me) return null
       const refusal = duties.clearCompliance(r, me); if (refusal) refuse(refusal)
-      return tx.fundingReceipt.update({ where: { id: r.id }, data: { complianceClearedById: me, complianceClearedAt: new Date(), complianceNote: text }, include: { agency: AGENCY } })
+      return tx.fundingReceipt.update({ where: { id: r.id, tenantId }, data: { complianceClearedById: me, complianceClearedAt: new Date(), complianceNote: text }, include: { agency: AGENCY } })
     })
   }
 
@@ -219,7 +219,7 @@ export class FundingService {
     return this.step(tenantId, me, receiptId, 'funding.rejected', async (tx, r) => {
       if (r.status === 'REJECTED' && r.rejectedById === me) return null
       const refusal = duties.reject(r); if (refusal) refuse(refusal)
-      return tx.fundingReceipt.update({ where: { id: r.id }, data: { status: 'REJECTED', rejectedById: me, rejectedAt: new Date(), rejectionReason: reason }, include: { agency: AGENCY } })
+      return tx.fundingReceipt.update({ where: { id: r.id, tenantId }, data: { status: 'REJECTED', rejectedById: me, rejectedAt: new Date(), rejectionReason: reason }, include: { agency: AGENCY } })
     })
   }
 
@@ -237,7 +237,7 @@ export class FundingService {
       const entry = await appendLedgerEntry(tx, {
         tenantId, walletId: account.id, type: 'CREDIT', amountMinor: r.amountMinor, currency: r.currency, idempotencyKey: ledgerKey(r.id), reference: ledgerKey(r.id),
       })
-      return tx.fundingReceipt.update({ where: { id: r.id }, data: { status: 'POSTED', postedById: me, postedAt: new Date(), walletId: account.id, ledgerEntryId: entry.id }, include: { agency: AGENCY } })
+      return tx.fundingReceipt.update({ where: { id: r.id, tenantId }, data: { status: 'POSTED', postedById: me, postedAt: new Date(), walletId: account.id, ledgerEntryId: entry.id }, include: { agency: AGENCY } })
     })
   }
 }

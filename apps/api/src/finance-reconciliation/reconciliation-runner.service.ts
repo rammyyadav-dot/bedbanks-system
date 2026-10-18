@@ -128,13 +128,13 @@ export class ReconciliationRunner {
         const data: Prisma.ReconciliationFindingUncheckedUpdateInput = { ...factsOf(op.finding), lastRunId: run.id }
         if (op.autoResolve) Object.assign(data, { status: 'RESOLVED', resolution: RECON_AUTO_RESOLUTION, resolvedAt: now })
         else if (op.reopen) Object.assign(data, { status: 'OPEN', proposedAction: null, proposedById: null, proposedReason: null, secondApprovalRequired: false })
-        await tx.reconciliationFinding.update({ where: { id: op.id }, data })
+        await tx.reconciliationFinding.update({ where: { id: op.id, tenantId }, data })
         counts.refreshed += 1
         if (op.autoResolve) { counts.autoResolved += 1; decisions.push({ tenantId, findingId: op.id, action: 'AUTO_RESOLVED', fromStatus: before.status, toStatus: 'RESOLVED', resolution: RECON_AUTO_RESOLUTION, reason: 'The difference no longer exists after re-matching', actorId: null }) }
         else if (op.reopen) { counts.reopened += 1; decisions.push({ tenantId, findingId: op.id, action: 'REOPENED_FACTS_CHANGED', fromStatus: before.status, toStatus: 'OPEN', reason: 'The facts changed after the decision was proposed', actorId: null }) }
       } else if (op.op === 'autoResolve') {
         const before = rowById.get(op.id)!
-        await tx.reconciliationFinding.update({ where: { id: op.id }, data: { status: 'RESOLVED', resolution: RECON_AUTO_RESOLUTION, resolvedAt: now, lastRunId: run.id } })
+        await tx.reconciliationFinding.update({ where: { id: op.id, tenantId }, data: { status: 'RESOLVED', resolution: RECON_AUTO_RESOLUTION, resolvedAt: now, lastRunId: run.id } })
         counts.autoResolved += 1
         decisions.push({ tenantId, findingId: op.id, action: 'AUTO_RESOLVED', fromStatus: before.status, toStatus: 'RESOLVED', resolution: RECON_AUTO_RESOLUTION, reason: 'No longer applies after re-matching', actorId: null })
       }

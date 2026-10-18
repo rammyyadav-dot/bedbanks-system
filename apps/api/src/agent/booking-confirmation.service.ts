@@ -66,7 +66,7 @@ export class BookingConfirmationService {
       const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId } })
       if (nights.length === 0) throw new ConflictException('Inventory hold has no nights')
       for (const night of nights) await moveNight(tx, tenantId, night, 'confirm')
-      await tx.inventoryHold.update({ where: { id: holdId }, data: { status: 'CONFIRMED' } })
+      await tx.inventoryHold.update({ where: { id: holdId, tenantId }, data: { status: 'CONFIRMED' } })
 
       // The reservation becomes a final charge: reverse the HOLD, then DEBIT the same amount (net balance unchanged).
       const reference = `booking:${bookingId}`
@@ -75,7 +75,7 @@ export class BookingConfirmationService {
 
       // The one writer of Booking.status (ADR 0039): records the move and its immutable event. `supplier` is not part of the lifecycle.
       await transitionBooking(tx, { tenantId, bookingId, action: 'systemConfirm', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'USER', id: userId }, level: 'SYSTEM', idempotencyKey: `confirm:${bookingId}`, now: new Date() })
-      await tx.booking.update({ where: { id: bookingId }, data: { supplier: 'contracted-inventory' } })
+      await tx.booking.update({ where: { id: bookingId, tenantId }, data: { supplier: 'contracted-inventory' } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.confirmed', entityType: 'booking', entityId: bookingId,
         payload: { requestId, inventoryHoldId: holdId, walletId: reservation.walletId, currency: booking.currency, amountMinor: amountMinor.toString() } } })
       // ADR 0066 transactional outbox: the confirmation email is queued in this same transaction, once per booking (unique), or not at all.

@@ -138,9 +138,11 @@ export async function inScope<T>(db: PrismaClient, scope: string, work: (tx: Tx)
 
 const tenantOf = (scope: string) => (scope === PLATFORM_SCOPE ? null : scope)
 
-async function batchRecords(tx: Tx, batchId: string): Promise<ComplianceRecordRow[]> {
+async function batchRecords(tx: Tx, scope: string, batchId: string): Promise<ComplianceRecordRow[]> {
+  const tenantFilter = scope === PLATFORM_SCOPE ? 'r."tenant_id" IS NULL' : 'r."tenant_id" = $2'
+  const params: unknown[] = scope === PLATFORM_SCOPE ? [batchId] : [batchId, scope]
   return tx.$queryRawUnsafe<ComplianceRecordRow[]>(
-    `SELECT ${RECORD_COLUMNS} FROM "ComplianceExportBatchRecord" m JOIN "ComplianceRecord" r ON r."id" = m."record_id" WHERE m."batch_id" = $1 ORDER BY m."position"`, batchId)
+    `SELECT ${RECORD_COLUMNS} FROM "ComplianceExportBatchRecord" m JOIN "ComplianceRecord" r ON r."id" = m."record_id" WHERE m."batch_id" = $1 AND ${tenantFilter} ORDER BY m."position"`, ...params)
 }
 
 async function nextRecords(tx: Tx, scope: string, since: Date | null, limit: number): Promise<ComplianceRecordRow[]> {
@@ -161,7 +163,7 @@ const BATCH_SELECT = { id: true, tenantId: true, scopeKey: true, sequence: true,
 /** Phase 1: returns the oldest SEALED batch, or seals a new one, or null when the scope has nothing to do. */
 async function sealOrResume(tx: Tx, scope: string, opts: Required<Omit<ComplianceExportOptions, 'archive'>>): Promise<{ batch: BatchRow; records: ComplianceRecordRow[] } | null> {
   const pending = await tx.complianceExportBatch.findFirst({ where: { scopeKey: scope, storageStatus: 'SEALED' }, orderBy: { sequence: 'asc' }, select: BATCH_SELECT })
-  if (pending) return { batch: pending, records: await batchRecords(tx, pending.id) }
+  if (pending) return { batch: pending, records: await batchRecords(tx, scope, pending.id) }
   const last = await tx.complianceExportBatch.findFirst({ where: { scopeKey: scope }, orderBy: { sequence: 'desc' }, select: { sequence: true, batchSha256: true, lastOccurredAt: true } })
   const since = last ? horizonStart(last.lastOccurredAt, opts.horizonHours) : null
   const records = await nextRecords(tx, scope, since, opts.batchSize)
@@ -224,7 +226,7 @@ export async function exportScope(db: PrismaClient, scope: string, opts: Complia
     const next = await inScope(db, scope, (tx) => sealOrResume(tx, scope, o))
     if (!next) break
     const versionId = await store(opts.archive, next.batch, next.records)
-    await inScope(db, scope, (tx) => tx.complianceExportBatch.updateMany({ where: { id: next.batch.id, storageStatus: 'SEALED' }, data: { storageStatus: 'STORED', storedAt: o.now(), objectVersionId: versionId } }))
+    await inScope(db, scope, (tx) => tx.complianceExportBatch.updateMany({ where: { id: next.batch.id, scopeKey: scope, storageStatus: 'SEALED' }, data: { storageStatus: 'STORED', storedAt: o.now(), objectVersionId: versionId } }))
     result.stored.push({ sequence: next.batch.sequence, recordCount: next.batch.recordCount, batchSha256: next.batch.batchSha256, objectKey: next.batch.objectKey })
   }
   return result

@@ -54,6 +54,7 @@ export class AuthService {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.auth_audit', 'true', true)`
         // createMany issues INSERT without RETURNING: tenantless rows have no SELECT policy, and RETURNING would be rejected by it.
+        // tenant-scope: tenantless authentication audit event (no tenant exists before login), allowed only under app.auth_audit
         await tx.auditEvent.createMany({
           data: [{ actorType: userId ? 'USER' : 'SYSTEM', action, entityType: 'auth', entityId: userId ?? 'anonymous', payload, userId }],
         })
@@ -67,6 +68,7 @@ export class AuthService {
     if (!userId || userId.trim() !== userId) throw new Error('A normalized user context is required')
     const memberships = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`
+      // tenant-scope: login-time lookup of the caller's own memberships across tenants, keyed by userId under app.current_user_id
       return tx.membership.findMany({
         where: { userId, revokedAt: null, tenant: { status: 'ACTIVE' } },
         include: { tenant: true },
@@ -82,6 +84,7 @@ export class AuthService {
   private async loadServicingMemberships(userId: string): Promise<MembershipSummary[]> {
     return this.prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`
+      // tenant-scope: login-time lookup of the caller's own memberships across tenants, keyed by userId under app.current_user_id
       const rows = await tx.membership.findMany({ where: { userId, revokedAt: null, tenant: { status: 'SUSPENDED' } }, include: { tenant: true } })
       return rows.filter(row => row.tenant.status === 'SUSPENDED').map(row => ({ tenantId: row.tenantId, tenantName: row.tenant.name, role: row.role }))
     })

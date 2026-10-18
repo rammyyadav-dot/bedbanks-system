@@ -15,7 +15,7 @@ export class LedgerService {
     assertSupportedSettlementCurrency(input.currency)
     assertValidAppend(input)
 
-    const key = { walletId_idempotencyKey: { walletId: input.walletId, idempotencyKey: input.idempotencyKey } }
+    const key = { walletId_idempotencyKey: { walletId: input.walletId, idempotencyKey: input.idempotencyKey }, tenantId: input.tenantId }
 
     try {
       return await this.prisma.withTenant(input.tenantId, async (tx) => {

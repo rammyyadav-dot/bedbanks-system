@@ -143,8 +143,8 @@ export class CommercialMarkupService {
         }
         const now = new Date()
         const replaced = await tx.commercialMarkupRule.findFirst({ where: { tenantId, status: 'ACTIVE', scope: rule.scope, supplierId: rule.supplierId, hotelId: rule.hotelId }, select: { id: true } })
-        if (replaced) await tx.commercialMarkupRule.update({ where: { id: replaced.id }, data: { status: 'RETIRED', retiredAt: now } })
-        const activated = await tx.commercialMarkupRule.update({ where: { id: rule.id }, data: { status: 'ACTIVE', activatedAt: now }, include: INCLUDE })
+        if (replaced) await tx.commercialMarkupRule.update({ where: { id: replaced.id, tenantId }, data: { status: 'RETIRED', retiredAt: now } })
+        const activated = await tx.commercialMarkupRule.update({ where: { id: rule.id, tenantId }, data: { status: 'ACTIVE', activatedAt: now }, include: INCLUDE })
         return { activated, replacedRuleId: replaced?.id ?? null }
       }).catch((error: { code?: string }) => { if (error?.code === 'P2002') throw new ConflictException('Another rule became active for this target'); throw error })
     })

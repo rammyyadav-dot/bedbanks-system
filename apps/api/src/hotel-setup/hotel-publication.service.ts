@@ -118,7 +118,7 @@ export class HotelPublicationService {
         if (moved.count !== 1) this.setup.stale()
         // The approver is the checker of record: approvedById names who decided, not who pressed apply.
         const stamp = { approvedById: approval.decidedById, approvedAt: now, updatedById: userId, version: { increment: 1 } }
-        if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id }, data: stamp })
+        if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id, tenantId }, data: stamp })
         else await tx.hotelProfile.create({ data: { tenantId, hotelId: before.hotel.id, approvedById: approval.decidedById, approvedAt: now, updatedById: userId, version: 1 } })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: STATUS_CHANGED, entityType: 'hotel', entityId: before.hotel.id, payload: { outcome: 'allowed', requestId, approvalId, approvedById: approval.decidedById, from: before.hotel.contentStatus, to: 'COMPLETE', fromVersion: before.profile?.version ?? 0, toVersion: (before.profile?.version ?? 0) + 1 } as Prisma.InputJsonValue } })
       })

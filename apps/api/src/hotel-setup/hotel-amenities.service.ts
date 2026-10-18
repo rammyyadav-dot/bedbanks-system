@@ -46,7 +46,7 @@ export class HotelAmenitiesService {
       if (body.expectedToken !== before.concurrencyToken) throw new ConflictException({ message: 'This hotel changed after you loaded it. Reload to see the latest version, then re-apply your change.', code: 'HOTEL_SETUP_STALE' })
       const list = wanted!
       await tx.hotelAmenity.deleteMany({ where: { tenantId, hotelId: before.hotelId, code: { notIn: list.map((a) => a.code) } } })
-      for (const a of list) await tx.hotelAmenity.upsert({ where: { hotelId_code: { hotelId: before.hotelId, code: a.code } }, create: { tenantId, hotelId: before.hotelId, code: a.code, feeType: a.feeType, updatedById: userId }, update: { feeType: a.feeType, updatedById: userId } })
+      for (const a of list) await tx.hotelAmenity.upsert({ where: { hotelId_code: { hotelId: before.hotelId, code: a.code }, tenantId }, create: { tenantId, hotelId: before.hotelId, code: a.code, feeType: a.feeType, updatedById: userId }, update: { feeType: a.feeType, updatedById: userId } })
       await touchSetup(tx, tenantId, before.hotelId, userId, new Date())
       const was = new Map(before.hotel.map((a) => [a.code, a.feeType])); const now = new Map(list.map((a) => [a.code, a.feeType]))
       const added = [...now.keys()].filter((c) => !was.has(c)); const removed = [...was.keys()].filter((c) => !now.has(c)); const feeChanged = [...now.keys()].filter((c) => was.has(c) && was.get(c) !== now.get(c))

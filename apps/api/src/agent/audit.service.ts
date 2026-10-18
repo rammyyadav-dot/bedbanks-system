@@ -11,6 +11,7 @@ export class AgentAuditService {
     const payload = sanitizeAuditPayload(input.payload)
     const actorUserId = input.user?.user.id ?? input.userId
     if (!input.tenantId) {
+      // tenant-scope: tenantless SYSTEM audit event; no tenant context exists for this record
       return this.prisma.auditEvent.create({
         data: {
           userId: actorUserId,
