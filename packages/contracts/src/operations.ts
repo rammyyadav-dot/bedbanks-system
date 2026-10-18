@@ -216,6 +216,26 @@ export interface LedgerIntegrityView {
   }>
   staleAuthorizationHours: number
 }
+/**
+ * Nightly ledger integrity runs (ADR 0064). One immutable snapshot per tenant per UTC date, taken by a restricted background role.
+ * `schedule` is whether the history is current: NEVER_RUN (nothing stored), OK, or OVERDUE (the expected night's run is missing).
+ */
+export type LedgerIntegritySchedule = 'NEVER_RUN' | 'OK' | 'OVERDUE'
+export interface LedgerIntegrityRunSummary {
+  id: string; runDate: string; status: LedgerIntegrityStatus; errors: number; warnings: number; truncated: boolean
+  accountsScanned: number; bookingsScanned: number; entriesScanned: number; createdAt: string
+}
+export interface LedgerIntegrityRunsView {
+  /** Whether this deployment has the nightly run switched on, and when it runs (UTC hour). Off is a normal, explicit state, never an empty list pretending to be a clean history. */
+  scheduler: { enabled: boolean; runHourUtc: number; overdueAfterHours: number }
+  schedule: LedgerIntegritySchedule
+  /** The most recent run date that should exist by now. */
+  expectedRunDate: string
+  latest: LedgerIntegrityRunSummary | null
+  /** Newest first, at most 60. */
+  runs: LedgerIntegrityRunSummary[]
+}
+export interface LedgerIntegrityRunDetail { run: LedgerIntegrityRunSummary; report: LedgerIntegrityView }
 export interface AgencyAccountView {
   agency: AccountAgencyRef & { status: string }
   accounts: AgencyAccountPosition[]

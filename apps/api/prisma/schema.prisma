@@ -568,6 +568,7 @@ enum ConnectorExecutionStatus {
 }
 
 model Tenant {
+  ledgerIntegrityRuns LedgerIntegrityRun[]
   bookingRooms BookingRoom[]
   bookingGuests BookingGuest[]
   bookingEvents BookingEvent[]
@@ -1350,6 +1351,28 @@ model LedgerEntry {
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])
+}
+
+/// Nightly ledger integrity result (ADR 0064): one immutable snapshot per tenant per UTC date. Written only by the restricted ledger-audit role.
+model LedgerIntegrityRun {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The UTC calendar date this run belongs to. With the tenant it is the idempotency key: a second run for the same date is refused.
+  runDate          DateTime @map("run_date") @db.Date
+  trigger          String   @default("SCHEDULED")
+  status           String
+  errors           Int
+  warnings         Int
+  truncated        Boolean  @default(false)
+  accountsScanned  Int      @map("accounts_scanned")
+  bookingsScanned  Int      @map("bookings_scanned")
+  entriesScanned   Int      @map("entries_scanned")
+  /// The full report as it was at run time (LedgerIntegrityView). Amounts are integer strings; it holds no guest or agency personal data.
+  report           Json
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, runDate])
 }
 
 model AuditEvent {

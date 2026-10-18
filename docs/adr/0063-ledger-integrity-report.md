@@ -19,7 +19,7 @@ Findings link to the booking. **Download CSV** builds a file in the browser from
 
 ## Deliberately not done
 - It never repairs, posts or reverses anything. A finding is for a person to investigate. Corrections need the maker-checker adjustment path that ADR 0028 and ADR 0054 leave undecided.
-- It reads at most 20,000 bookings per call and says `truncated` when there are more; a truncated result is not a clearance. A scheduled, stored run with history and alerting is the next step and needs a reviewed migration.
+- It reads at most 20,000 bookings per call and says `truncated` when there are more; a truncated result is not a clearance. A scheduled, stored run with history is built in ADR 0064; alert routing to a person is still an owner decision.
 - Supplier payables, bank-statement matching and refund-to-source reconciliation (ADR 0028 slice 6) are separate work and not claimed here.
 - Under the ordinary API runtime role the ledger is not readable, so the endpoint answers with the explicit `OPERATIONS_READ_DENIED` error rather than an empty report.
 

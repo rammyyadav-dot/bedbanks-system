@@ -10,7 +10,7 @@ import { AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
 import { availableMinor } from '@bedbanks/money'
 import { totalsOf, walletBalanceMinor, walletTotals } from '../ledger/ledger-core'
 import { enabledSettlementCurrencies } from '../agent/currency'
-import { accountAging, overdueView } from '../agent/agency-account'
+import { accountAging, accountCreditLinesMinor, overdueView } from '../agent/agency-account'
 import { BookingReconciliationService } from '../agent/booking-reconciliation.service'
 import { documentKindFromRoute } from '../agent/booking-document.service'
 import { renderBookingDocument } from '../agent/booking-document.render'
@@ -314,16 +314,10 @@ export class OperationsTransactionsService {
       ])
       const totals = await walletTotals(tx, tenantId, wallets.map(w => w.id))
       // ADR 0028 slice 3: an agency account's credit line is its agency's approved limit in the same currency (else zero).
-      const agencyIds = [...new Set(wallets.flatMap(w => (w.agencyId ? [w.agencyId] : [])))]
-      const limits = agencyIds.length ? await tx.agencyCreditLimit.findMany({ where: { tenantId, agencyId: { in: agencyIds } }, select: { agencyId: true, currency: true, limitMinor: true } }) : []
-      const line = (w: { agencyId: string | null; currency: string; creditLimit: bigint }) => {
-        if (!w.agencyId) return w.creditLimit
-        const l = limits.find(x => x.agencyId === w.agencyId)
-        return l && l.currency === w.currency ? l.limitMinor : 0n
-      }
+      const lines = await accountCreditLinesMinor(tx, tenantId, wallets)
       return paged(wallets.map(w => {
         const { balanceMinor: sum, entryCount } = totalsOf(totals, w.id)
-        const creditLine = line(w)
+        const creditLine = lines.get(w.id) ?? 0n
         // Same formula as the authorization (ledger core): available credit = credit line + SUM(all ledger entries).
         return {
           id: w.id, tenantId: w.tenantId, owner: w.agencyId ? 'AGENCY' as const : 'HOUSE' as const, agency: w.agency ? { id: w.agency.id, code: w.agency.code, name: w.agency.name } : null,

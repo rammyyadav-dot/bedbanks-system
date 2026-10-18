@@ -1,4 +1,4 @@
-import { bookingFacts } from './operations-ledger-integrity.service'
+import { bookingFacts } from './ledger-integrity-report'
 
 const now = new Date('2026-10-13T12:00:00Z')
 const g = (type: 'HOLD' | 'RELEASE' | 'DEBIT' | 'REFUND', sumMinor: bigint, entries = 1, oldestAt: Date | null = null, currency = 'AED') => ({ bookingRef: 'booking:b1', currency, type, sumMinor, entries, oldestAt })

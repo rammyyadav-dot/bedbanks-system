@@ -1,85 +1,92 @@
 'use client'
 
-import Link from 'next/link'
+import { useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
-import { Money, Tag, when } from '@/components/ops/ops-ui'
+import { Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
-import { getOpsLedgerIntegrity } from '@/lib/data/operations'
-import { downloadText } from '@/lib/rate-certification-ui'
-import { ledgerIntegrityCsv, ledgerIntegrityFilename } from '@/lib/ledger-integrity-csv'
+import { IntegrityReport, note } from '@/components/finance/IntegrityReport'
+import { getOpsLedgerIntegrity, getOpsLedgerIntegrityRun, getOpsLedgerIntegrityRuns } from '@/lib/data/operations'
+import { scheduleBanner } from '@/lib/ledger-integrity-schedule-ui'
 
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
 const VERDICT = { PASS: ['ok', 'Ledger is consistent'], WARN: ['warn', 'Needs attention'], FAIL: ['bad', 'Ledger has errors'] } as const
+const TONE = { PASS: 'ok', WARN: 'warn', FAIL: 'bad' } as const
 
 /**
- * Ledger integrity (ADR 0063). The daily finance control: does every account add up, and does every booking's hold, release, charge and
- * refund chain follow the rules. Read-only: it finds problems for a person to investigate and corrects nothing.
+ * Ledger integrity (ADR 0063, ADR 0064). The daily finance control: does every account add up, and does every booking's hold, release, charge and
+ * refund chain follow the rules. The nightly record keeps one unchangeable result per night; the live check runs the same rules now.
+ * Read-only: it finds problems for a person to investigate and corrects nothing.
  */
 export default function LedgerIntegrityPage() {
-  const data = useOpsQuery(() => getOpsLedgerIntegrity(), [])
+  const [openRun, setOpenRun] = useState<string | null>(null)
+  const history = useOpsQuery(() => getOpsLedgerIntegrityRuns(), [])
+  const stored = useOpsQuery(() => (openRun ? getOpsLedgerIntegrityRun(openRun) : Promise.resolve(null)), [openRun])
+  const live = useOpsQuery(() => getOpsLedgerIntegrity(), [])
   return (
     <div>
       <PageHeader eyebrow="FINANCE" title="Ledger integrity" description="Daily control over the append-only ledger: account balances, each booking's hold, release, charge and refund chain, and totals per currency. It reports problems and changes nothing." />
-      <OpsState state={data.state} onRetry={data.reload}>
-        {(d) => (
-          <div style={{ display: 'grid', gap: 12 }}>
-            <p style={{ margin: 0 }} data-testid="integrity-verdict">
-              <Tag tone={VERDICT[d.status][0]}>{d.status}</Tag> <strong>{VERDICT[d.status][1]}.</strong>{' '}
-              <span style={note}>Checked {d.scanned.accounts} accounts, {d.scanned.bookings} bookings and {d.scanned.entries} entries at {when(d.generatedAt)}. {d.counts.errors} errors, {d.counts.warnings} warnings.</span>
-            </p>
-            <div><button type="button" className="admin-btn" data-testid="integrity-export" onClick={() => downloadText(ledgerIntegrityFilename(d), 'text/csv', ledgerIntegrityCsv(d))}>Download CSV</button> <span style={note}>For accountants and auditors. Built in your browser from this report; nothing is uploaded.</span></div>
-            {d.truncated && <p style={{ ...note, color: '#8a5a00' }} data-testid="integrity-truncated">This ledger is larger than one report examines. Only the first part was checked, so a clean result here is not a full clearance.</p>}
-
-            <div className="workspace-panel">
-              <h2 style={{ fontSize: 13, margin: '0 0 6px' }}>Control totals by currency</h2>
-              <p style={note}>Each currency stands alone; nothing is converted or added across currencies.</p>
-              {d.control.length === 0 ? <p style={note}>No accounts exist yet.</p> : (
-                <ScrollRegion label="Control totals">
-                  <table style={tableStyle}>
-                    <thead><tr>{['Currency', 'Accounts', 'Balance', 'Credit lines', 'Available', 'Overdrawn'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
-                    <tbody>{d.control.map(c => (
-                      <tr key={c.currency} data-testid={`integrity-control-${c.currency}`}>
-                        <td style={td}><strong>{c.currency}</strong></td>
-                        <td style={{ ...td, textAlign: 'right' }}>{c.accounts}</td>
-                        <td style={{ ...td, textAlign: 'right' }}><Money minor={c.balanceMinor} currency={c.currency} /></td>
-                        <td style={{ ...td, textAlign: 'right' }}><Money minor={c.creditLineMinor} currency={c.currency} /></td>
-                        <td style={{ ...td, textAlign: 'right' }}><Money minor={c.availableMinor} currency={c.currency} /></td>
-                        <td style={{ ...td, textAlign: 'right' }}>{c.overdrawnAccounts === 0 ? '0' : <Tag tone="bad">{String(c.overdrawnAccounts)}</Tag>}</td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </ScrollRegion>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <section aria-labelledby="nightly-h" style={{ display: 'grid', gap: 8 }}>
+          <h2 id="nightly-h" style={{ fontSize: 14, margin: 0 }}>Nightly record</h2>
+          <OpsState state={history.state} onRetry={history.reload}>
+            {(h) => {
+              const banner = scheduleBanner(h)
+              return (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <p style={{ margin: 0 }} data-testid="nightly-banner" data-tone={banner.tone}><Tag tone={banner.tone}>{banner.label}</Tag> <span style={note}>{banner.detail}</span></p>
+                  {h.runs.length > 0 && (
+                    <div className="workspace-panel">
+                      <ScrollRegion label="Nightly runs">
+                        <table style={tableStyle}>
+                          <thead><tr>{['Night (UTC)', 'Result', 'Errors', 'Warnings', 'Accounts', 'Bookings', 'Taken', ''].map(c => <th key={c} scope="col" style={th}>{c}</th>)}</tr></thead>
+                          <tbody>{h.runs.map(r => (
+                            <tr key={r.id} data-testid={`nightly-run-${r.runDate}`} data-status={r.status}>
+                              <td style={td}><strong>{r.runDate}</strong></td>
+                              <td style={td}><Tag tone={TONE[r.status]}>{r.status}</Tag>{r.truncated && <> <Tag tone="warn">partial</Tag></>}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{r.errors}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{r.warnings}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{r.accountsScanned}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{r.bookingsScanned}</td>
+                              <td style={td}>{when(r.createdAt)}</td>
+                              <td style={td}><button type="button" className="admin-btn" aria-pressed={openRun === r.id} onClick={() => setOpenRun(openRun === r.id ? null : r.id)}>{openRun === r.id ? 'Hide' : 'View'}</button></td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </ScrollRegion>
+                    </div>
+                  )}
+                </div>
+              )
+            }}
+          </OpsState>
+          {openRun && (
+            <OpsState state={stored.state} onRetry={stored.reload}>
+              {(s) => s && (
+                <div style={{ display: 'grid', gap: 8 }} data-testid="stored-run">
+                  <p style={{ margin: 0 }}><Tag tone={TONE[s.run.status]}>{s.run.status}</Tag> <strong>Night of {s.run.runDate}.</strong> <span style={note}>Exactly as it was recorded at {when(s.report.generatedAt)}; it cannot be edited.</span></p>
+                  <IntegrityReport d={s.report} />
+                </div>
               )}
-            </div>
+            </OpsState>
+          )}
+        </section>
 
-            <div className="workspace-panel">
-              <h2 style={{ fontSize: 13, margin: '0 0 6px' }}>Findings</h2>
-              {d.findings.length === 0 ? <p style={note} data-testid="integrity-clean">No findings.</p> : (
-                <>
-                  <p style={note}>{d.counts.byCode.map(c => `${c.code.replace(/_/g, ' ').toLowerCase()}: ${c.count}`).join(' · ')}. Showing up to {d.findings.length} of {d.counts.errors + d.counts.warnings}. Holds open longer than {d.staleAuthorizationHours} hours are warnings.</p>
-                  <ScrollRegion label="Findings">
-                    <table style={tableStyle}>
-                      <thead><tr>{['Severity', 'Finding', 'Booking / account', 'Held', 'Released', 'Charged', 'Refunded'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
-                      <tbody>{d.findings.map((f, i) => (
-                        <tr key={`${f.code}-${f.bookingId ?? f.accountId}-${i}`} data-testid={`integrity-finding-${f.code}`}>
-                          <td style={td}><Tag tone={f.severity === 'ERROR' ? 'bad' : 'warn'}>{f.severity.toLowerCase()}</Tag></td>
-                          <td style={td}><strong>{f.code.replace(/_/g, ' ').toLowerCase()}</strong><div style={note}>{f.message}</div></td>
-                          <td style={td}>{f.bookingId ? <Link href={`/bookings/${encodeURIComponent(f.bookingId)}`}><code>{f.bookingId}</code></Link> : <code>{f.accountId}</code>}</td>
-                          {(['heldMinor', 'releasedMinor', 'chargedMinor', 'refundedMinor'] as const).map(k => (
-                            <td key={k} style={{ ...td, textAlign: 'right' }}>{f.amountsMinor[k] !== undefined && f.currency ? <Money minor={f.amountsMinor[k]} currency={f.currency} /> : '—'}</td>
-                          ))}
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </ScrollRegion>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </OpsState>
+        <section aria-labelledby="live-h" style={{ display: 'grid', gap: 8 }}>
+          <h2 id="live-h" style={{ fontSize: 14, margin: 0 }}>Live check</h2>
+          <OpsState state={live.state} onRetry={live.reload}>
+            {(d) => (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <p style={{ margin: 0 }} data-testid="integrity-verdict">
+                  <Tag tone={VERDICT[d.status][0]}>{d.status}</Tag> <strong>{VERDICT[d.status][1]}.</strong>{' '}
+                  <span style={note}>Checked {d.scanned.accounts} accounts, {d.scanned.bookings} bookings and {d.scanned.entries} entries at {when(d.generatedAt)}. {d.counts.errors} errors, {d.counts.warnings} warnings.</span>
+                </p>
+                <IntegrityReport d={d} />
+              </div>
+            )}
+          </OpsState>
+        </section>
+      </div>
     </div>
   )
 }

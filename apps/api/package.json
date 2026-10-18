@@ -25,6 +25,7 @@
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",
     "ops:provision-hold-expiry-role": "tsx src/database/provision-hold-expiry-role.cli.ts",
+    "ops:provision-ledger-audit-role": "tsx src/database/provision-ledger-audit-role.cli.ts",
     "ops:provision-booking-ops-role": "tsx src/database/provision-booking-ops-role.cli.ts",
     "ops:provision-rate-plan-ops-role": "tsx src/database/provision-rate-plan-ops-role.cli.ts",
     "ops:verify-rate-plan-ops-role": "tsx src/database/verify-rate-plan-ops-role.cli.ts",

@@ -103,6 +103,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
 - `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
 - `LedgerEntry`: finance-gated
+- `LedgerIntegrityRun`: nightly ledger integrity result: written only by the dedicated ledger-audit role (ADR 0064), append-only; the runtime role is never granted it
 - `Membership`: dedicated tenant membership authoring role only
 - `PlatformRole`: platform administration
 - `PlatformRoleAssignment`: platform administration

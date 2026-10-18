@@ -5,7 +5,7 @@ import { join, relative } from 'node:path'
 import { checkRuntimeUrl, describeDatabaseUrl, forbiddenUserReason } from '../apps/api/src/database/runtime-db-identity'
 
 /** Variables a deployed service reads at runtime. Their literal values must be the restricted logins. */
-export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'HOLD_EXPIRY_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL'] as const
+export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'HOLD_EXPIRY_DATABASE_URL', 'LEDGER_AUDIT_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL'] as const
 /** Variables that carry owner or administrator credentials. They belong to release jobs and operators only, never to a service definition. */
 export const OWNER_ONLY_VARS = ['MIGRATION_DATABASE_URL', 'PROVISION_DATABASE_URL', 'OWNER_DATABASE_URL', 'DIRECT_URL', 'DATABASE_URL_UNPOOLED'] as const
 
@@ -22,10 +22,12 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/verify-rate-plan-ops-role.cli.ts', purpose: 'operator: read-only certification run AS the rate plan lifecycle login (no owner credential)', url: 'RATE_PLAN_OPS_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-clone-role.cli.ts', purpose: 'operator: read-only certification run AS the rate plan clone login (no owner credential)', url: 'RATE_PLAN_CLONE_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-rate-plan-clone-role.cli.ts', purpose: 'operator: provisions the rate plan clone login (DRAFT-only insert)', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/provision-ledger-audit-role.cli.ts', purpose: 'operator: provisions the nightly ledger integrity login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-hold-expiry-role.cli.ts', purpose: 'operator: provisions the hold-expiry login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/backfill-booking-supplier.cli.ts', purpose: 'operator: dry-run-first historical booking supplier attribution report (ADR 0061 Amendment 1)', url: 'MIGRATION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-preview-fixtures.cli.ts', purpose: 'operator: preview fixtures (refuses non-preview targets)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/bootstrap-first-admin.cli.ts', purpose: 'operator: first admin bootstrap', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/ledger-audit-ops.cli.ts', purpose: 'operator: owner client plus restricted verification client', url: 'OWNER_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/hold-expiry-ops.cli.ts', purpose: 'operator: owner client plus restricted verification client', url: 'PROVISION_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/strict-role-rollout.cli.ts', purpose: 'operator: rollout status (owner) and verify (runtime login)', url: 'PROVISION_DATABASE_URL / API_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/inventory/pool-night-authoring.cli.ts', purpose: 'operator: pool night authoring', url: 'PROVISION_DATABASE_URL', runtime: false },
