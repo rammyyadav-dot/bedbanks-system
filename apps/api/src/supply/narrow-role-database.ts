@@ -49,10 +49,10 @@ export abstract class NarrowRoleDatabase implements OnModuleDestroy {
   }
 
   /** Tenant-scoped. Caller must have authenticated the user and checked the permission before calling. */
-  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>, call?: { timeoutMs?: number }): Promise<T> {
     const client = await this.connection()
     try {
-      return await client.withTenant(tenantId, work, this.options.isolation ? { isolationLevel: this.options.isolation } : undefined)
+      return await client.withTenant(tenantId, work, this.options.isolation || call?.timeoutMs ? { isolationLevel: this.options.isolation, timeoutMs: call?.timeoutMs } : undefined)
     } catch (error) {
       if (isAccessFailure(error)) {
         this.logger.error(`${this.options.label} connection refused or lacks a grant (${databaseErrorCode(error)})`)

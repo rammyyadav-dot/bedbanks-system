@@ -10,6 +10,7 @@ export * from './admin-departments';
 export * from './commercial';
 export * from './departments';
 export * from './funding';
+export * from './finance-reconciliation';
 export * from './hotel-setup';
 export * from './hotel-quality';
 export * from './hotel-rooms';
