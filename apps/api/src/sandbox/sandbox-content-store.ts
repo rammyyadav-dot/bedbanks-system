@@ -129,7 +129,7 @@ export class SandboxContentStore {
       const run = await tx.sandboxContentRun.findFirst({ where: { id: runId, tenantId: scope.tenantId, connectorId: scope.connectorId, supplierId: scope.supplierId } })
       if (!run || run.parameterHash !== hash) fail('PARAMETER_CONFLICT')
       if (run.status === 'QUARANTINED' || run.attemptCount >= 5) fail('QUARANTINED')
-      await tx.sandboxContentRun.update({ where: { id: run.id }, data: { attemptCount: { increment: 1 }, status: 'PROCESSING', lastAttemptAt: new Date(), errorClassification: null } })
+      await tx.sandboxContentRun.update({ where: { id: run.id, tenantId: scope.tenantId }, data: { attemptCount: { increment: 1 }, status: 'PROCESSING', lastAttemptAt: new Date(), errorClassification: null } })
       await this.audit(tx, scope, 'attempted', runId, { nextFrom: run.nextFrom, attempt: run.attemptCount + 1 })
       return run.nextFrom
     })
@@ -171,7 +171,7 @@ export class SandboxContentStore {
       await tx.$queryRaw`SELECT "id" FROM "SandboxContentRun" WHERE "id" = ${input.runId} AND "tenant_id" = ${scope.tenantId} FOR UPDATE`
       const run = await tx.sandboxContentRun.findFirst({ where: { id: input.runId, tenantId: scope.tenantId, connectorId: scope.connectorId, supplierId: scope.supplierId } })
       if (!run || run.parameterHash !== parameters) fail('PARAMETER_CONFLICT')
-      const existing = await tx.sandboxContentPage.findUnique({ where: { runId_from: { runId: run.id, from: input.expectedFrom } } })
+      const existing = await tx.sandboxContentPage.findUnique({ where: { runId_from: { runId: run.id, from: input.expectedFrom }, tenantId: scope.tenantId } })
       if (existing) {
         if (existing.payloadHash !== payload.payloadHash || existing.nextFrom !== input.nextFrom) fail('PAGE_CONFLICT')
         return // Same committed page replays without another checkpoint advance or audit.
@@ -179,7 +179,7 @@ export class SandboxContentStore {
       if (run.status !== 'PROCESSING' || run.nextFrom !== input.expectedFrom) fail('CHECKPOINT_CONFLICT')
       await tx.sandboxContentPage.create({ data: { id: randomUUID(), tenantId: scope.tenantId, runId: run.id, from: input.expectedFrom, nextFrom: input.nextFrom,
         payloadHash: payload.payloadHash, hotels: payload.hotels, receivedAt: new Date(input.receivedAt) } })
-      await tx.sandboxContentRun.update({ where: { id: run.id }, data: { nextFrom: input.nextFrom, pageCount: { increment: 1 }, lastSuccessAt: new Date(), errorClassification: null } })
+      await tx.sandboxContentRun.update({ where: { id: run.id, tenantId: scope.tenantId }, data: { nextFrom: input.nextFrom, pageCount: { increment: 1 }, lastSuccessAt: new Date(), errorClassification: null } })
       await this.audit(tx, scope, 'page_staged', run.id, { from: input.expectedFrom, nextFrom: input.nextFrom, records: input.hotels.length, payloadHash: payload.payloadHash })
       const stillHeld = await tx.$queryRaw<Array<{ n: number }>>`SELECT 1 AS n FROM "SandboxContentLease" WHERE "tenant_id" = ${scope.tenantId}
         AND "connector_id" = ${scope.connectorId} AND "token" = ${input.leaseToken} AND "expires_at" > clock_timestamp()`
@@ -205,7 +205,7 @@ export class SandboxContentStore {
       const run = await tx.sandboxContentRun.findFirst({ where: { id: runId, tenantId: scope.tenantId, connectorId: scope.connectorId, supplierId: scope.supplierId } })
       if (!run) fail('SCOPE_DENIED')
       const status = run.attemptCount >= 5 ? 'QUARANTINED' : 'FAILED'
-      await tx.sandboxContentRun.update({ where: { id: run.id }, data: { status, errorClassification: classification } })
+      await tx.sandboxContentRun.update({ where: { id: run.id, tenantId: scope.tenantId }, data: { status, errorClassification: classification } })
       await this.audit(tx, scope, 'failed', runId, { classification, status })
     })
   }

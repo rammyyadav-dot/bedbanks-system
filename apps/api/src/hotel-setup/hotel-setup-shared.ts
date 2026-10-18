@@ -21,8 +21,8 @@ export const setupToken = (hotel: { updatedAt: Date }, profile: { version: numbe
  * and the profile version, creating the profile row if the hotel has none, so every open Setup form becomes stale.
  */
 export async function touchSetup(tx: Prisma.TransactionClient, tenantId: string, hotelId: string, userId: string, now: Date): Promise<void> {
-  await tx.hotel.update({ where: { id: hotelId }, data: { updatedAt: now } })
+  await tx.hotel.update({ where: { id: hotelId, tenantId }, data: { updatedAt: now } })
   const profile = await tx.hotelProfile.findFirst({ where: { hotelId, tenantId }, select: { id: true } })
-  if (profile) await tx.hotelProfile.update({ where: { id: profile.id }, data: { updatedById: userId, version: { increment: 1 } } })
+  if (profile) await tx.hotelProfile.update({ where: { id: profile.id, tenantId }, data: { updatedById: userId, version: { increment: 1 } } })
   else await tx.hotelProfile.create({ data: { tenantId, hotelId, updatedById: userId, version: 1 } })
 }

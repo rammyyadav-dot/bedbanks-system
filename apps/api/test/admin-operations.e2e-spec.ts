@@ -30,6 +30,7 @@ import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
 import { provisionBookingOpsRole, BOOKING_OPS_LOGIN_ROLE } from '../src/database/booking-ops-role'
 import type { BookingAccessView } from '@bedbanks/contracts'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { eraseLedger } from './ledger-erasure'
 
 const ownerUrl = process.env.DATABASE_URL
 if (!ownerUrl) throw new Error('DATABASE_URL is required')
@@ -92,7 +93,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     await prisma.connectorCredentialReference.deleteMany({ where: { connector: { tenantId } } })
     await prisma.connectorDefinition.deleteMany({ where: { tenantId } })
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.bookingDocument.deleteMany({ where: { tenantId } })
     await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })

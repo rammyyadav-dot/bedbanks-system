@@ -5,6 +5,7 @@ import { OperationsTransactionsService } from '../src/admin-operations/operation
 import { AgentFinanceService } from '../src/agent/finance.service'
 import { assertAgencyCredit } from '../src/agent/agency-credit'
 import { bookingAccountFor } from '../src/agent/agency-account'
+import { eraseLedger } from './ledger-erasure'
 
 process.env.SETTLEMENT_CURRENCIES = 'AED'
 
@@ -35,7 +36,7 @@ describe('agency overdue controls (ADR 0028 slice 4, PostgreSQL)', () => {
   })
 
   afterAll(async () => {
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.wallet.deleteMany({ where: { tenantId } })
     await prisma.agencyCreditLimit.deleteMany({ where: { tenantId } })
     await prisma.agencyMember.deleteMany({ where: { tenantId } })

@@ -1,3 +1,4 @@
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
@@ -35,7 +36,7 @@ interface Ctx { tx: Tx; tenantId: string; userId: string; row: OpsBookingRow; ke
  */
 @Injectable()
 export class BookingOpsService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly queue: BookingOpsQueueService) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly queue: BookingOpsQueueService, private readonly settlement: CancellationSettlementService) {}
 
   // ---- who can own a case ---------------------------------------------------------------------------------------------
   /** Staff of THIS tenant who may work the queue (formal `booking.ops.view` and operator-level read). Never anyone from another tenant; no emails. */
@@ -186,7 +187,7 @@ export class BookingOpsService {
     const reason = text(body.reason, 'reason', BOOKING_OPS_REASON_MIN, BOOKING_REASON_MAX)
     const supplierRef = optionalRef(body.supplierRef, 'supplierRef'); const hotelConfirmationNo = optionalRef(body.hotelConfirmationNo, 'hotelConfirmationNo'); const supplierCancellationRef = optionalRef(body.supplierCancellationRef, 'supplierCancellationRef')
     const evidenceRef = optionalRef(body.evidenceRef, 'evidenceRef', 160)
-    return this.run(tenantId, userId, access, bookingId, 'booking.ops.resolve', rawKey, ['answer', bookingId, answer, body.expectedStatus, reason, supplierRef ?? null, hotelConfirmationNo ?? null, supplierCancellationRef ?? null, evidenceRef ?? null], requestId, now, async (c) => {
+    const written = await this.run(tenantId, userId, access, bookingId, 'booking.ops.resolve', rawKey, ['answer', bookingId, answer, body.expectedStatus, reason, supplierRef ?? null, hotelConfirmationNo ?? null, supplierCancellationRef ?? null, evidenceRef ?? null], requestId, now, async (c) => {
       const row = c.row; const status = row.status as BookingStatus
       if (row.closedAt) throw invalid('This booking is closed and locked')
       if (status !== body.expectedStatus) throw conflict(`The booking is now ${status}, not ${body.expectedStatus}. Reload and try again.`, 'BOOKING_OPS_CONFLICT', { currentStatus: status })
@@ -219,5 +220,8 @@ export class BookingOpsService {
       await this.record(c, 'opsAnswer', 'booking.ops.answer_recorded', { answer, from: status, to, evidence: evidenceRef ?? null }, reason, { answer, from: status, to, evidenceGiven: Boolean(evidenceRef), reasonGiven: true })
       return this.result(c, to, c.row.opsState?.version ?? 0)
     })
+    // ADR 0069: "the supplier cancelled it" credits the agency per the effective penalty.
+    if (answer === 'SUPPLIER_CANCELLED' && written.status === 'CANCELLED') await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId, source: 'ops_answer:SUPPLIER_CANCELLED' })
+    return written
   }
 }

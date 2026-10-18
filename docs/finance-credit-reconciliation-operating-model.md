@@ -16,7 +16,7 @@ immutable audit events (8); nothing shown as capability that is not built (10). 
 | # | Rule | Status |
 |---|---|---|
 | P1 | The ledger is the only book of record for agency money. A balance is the sum of its entries; any cached figure is never authority. | BUILT (ADR 0062) |
-| P2 | Append-only. A mistake is corrected by a new, reasoned entry, never by editing or deleting one. | PARTIAL: enforced for the runtime roles by RLS; no database trigger yet (audit F4) |
+| P2 | Append-only. A mistake is corrected by a new, reasoned entry, never by editing or deleting one. | BUILT: database CHECK and triggers for every role, the owner included (ADR 0069) |
 | P3 | One currency per account. Currencies are never converted, added or netted; every report has one row per currency. Launch currency AED; net rates are tax-inclusive. | BUILT (ADR 0028, 0029) |
 | P4 | Every posting has an idempotency key and a business reference (`booking:<id>`, `funding:<receipt id>`). A replayed key with different intent is refused. | BUILT |
 | P5 | Money controls fail closed: if a position cannot be read, the spend is refused. | BUILT |
@@ -52,8 +52,8 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | Stalled attempt reconciled | RELEASE +X (`…:authorize:release`) | 0 | BUILT |
 | Booking confirmed | RELEASE +X (`…:settle-release`), DEBIT -X (`…:settle-debit`) | stays -X, now a charge | BUILT; a released reservation can no longer be settled (ADR 0068 F2) |
 | Cancelled, agent path | REFUND +R (`booking:<id>:cancel-refund`), R = total - penalty from the frozen terms | +R | BUILT |
-| Cancelled, operator or supplier path | none | charge stays | GAP (audit F3): refund must be decided and posted |
-| Penalty waived | none on the ledger today; the waiver changes the booking finance record | | PARTIAL |
+| Cancelled, operator or supplier path | REFUND +R (`booking:<id>:cancel-refund`), R = total - effective penalty; nothing while the penalty is undecided | +R | BUILT (ADR 0069) |
+| Penalty waived after settlement | REFUND +difference (`…:cancel-refund:<new total>`); a higher decision is never clawed back | +diff | BUILT (ADR 0069) |
 | Goodwill refund, correction | ADJUSTMENT with reason, two people | +/- | PROPOSED |
 | Payment reversed | REVERSAL linked to the receipt; may take the account negative and triggers review | -X | PROPOSED |
 
@@ -81,7 +81,8 @@ charges age FIFO -> notice at 7 days -> new holds refused at 30 days -> payment 
 5. **Documents**: voucher, invoice `INV-<ref>`, credit note `CN-<ref>`, frozen at issue. BUILT. Gapless yearly numbering and tax lines
    are PROPOSED (ADR 0054).
 6. **Cancellation**: penalty from the terms frozen at booking; unreadable terms go to manual review, never treated as free; the stay
-   must not have started. BUILT for the agent path; GAP for operator and supplier paths (F3).
+   must not have started. BUILT for the agent path. Operator and supplier cancellations credit the agency automatically per the effective
+   penalty; an undecided penalty waits for a person's decision, then settles (ADR 0069).
 7. **Aging**: FIFO over settled money only. A DEBIT is a charge dated when posted; a CREDIT pays the oldest charges; a REFUND first pays
    its own booking. HOLD and RELEASE are not aged. BUILT (ADR 0028 slice 4).
 8. **Collection**: the agency pays by bank transfer and declares it (section 6).
@@ -134,7 +135,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | Step | Status |
 |---|---|
 | Accrual: recorded net cost of CONFIRMED and CHECKED_OUT bookings per supplier and currency; unknown net counted apart, never as zero | BUILT read-only (ADR 0054) |
-| Supplier invoice capture and three-way match (booking, supplier statement, invoice) | PROPOSED |
+| Supplier statement matching to bookings by reference and exact net; typed findings and a dispute queue | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070); posting and payment not built |
 | Supplier payment terms (contract has no field today), payment runs, virtual cards | PROPOSED |
 | Cancellation penalties charged by the supplier | PROPOSED |
 | Gross margin per booking (sell - net), per currency | PROPOSED (data exists; `booking.view.net` gates net) |
@@ -143,13 +144,13 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 
 | Reconciliation | What ties to what | Cadence | Status |
 |---|---|---|---|
-| R1 Ledger integrity | Every entry obeys sign, currency and account rules | Daily and before close | BUILT (ADR 0068) |
+| R1 Ledger integrity | Every entry obeys sign, currency and account rules | Daily and before close | BUILT (ADR 0068); enforced at insert by the database (ADR 0069); daily run by the monitor (ADR 0069) |
 | R2 Ledger to bookings | Reserved and charged amount = booking total; charged states charged; nothing reserved on closed bookings | Daily | BUILT (ADR 0068) |
 | R3 Ledger to cancellations | Charged cancellations carry exactly their recorded refund | Daily | BUILT (ADR 0068) |
 | R4 Ledger to funding receipts | Each POSTED receipt has its CREDIT and each funding CREDIT its receipt | Daily | BUILT (ADR 0068) |
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
 | R6 Receipts to bank statement | Every POSTED receipt appears on the bank statement; every statement credit is a receipt or in suspense | Daily | PROPOSED |
-| R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Monthly | PROPOSED |
+| R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
 | R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
 
 **Reading the R1 to R4 report** (`GET /admin/operations/finance/ledger-integrity`, `finance.read`):
@@ -157,8 +158,8 @@ verdict CLEAN, WARNINGS (credit-control or timing only), ISSUES (a critical brea
 per-currency roll-forward is `balance = funding + other credits + refunds - charges - open reservations`, with posted receipts beside
 funding credits. Each finding carries its rule, account, agency, booking or receipt, and the amounts.
 
-**Break handling** (PROPOSED as a written procedure; the detection is built):
-1. Detect: the report runs daily; ISSUES blocks the period close.
+**Break handling** (PROPOSED as a written procedure; detection and the daily run are built):
+1. Detect: `LedgerIntegrityMonitor` runs R1 to R4 for every tenant daily and logs ISSUES at error level (the alarm); ISSUES blocks the period close.
 2. Triage within one business day: owner by code. Booking codes go to booking operations; receipt codes to the funding desk; entry codes
    to engineering (they mean a rule was bypassed).
 3. Resolve with a new, reasoned entry or by finishing the missing step (for example post the refund for `CANCELLED_REFUND_NOT_POSTED`),
@@ -185,11 +186,13 @@ period locked so a new entry dated inside it is refused (entries are never backd
 
 ## 11. Decisions needed from the owner
 
-1. **Operator and supplier cancellations (F3):** who posts the refund, from which penalty, and with whose approval.
-2. **Database guards (F4):** approve the reviewed migration for sign CHECK, same-tenant same-currency trigger and an immutability trigger.
-3. **ADJUSTMENT and REVERSAL** entry kinds, threshold for a second approver.
-4. **Scheduled reconciliation:** which database role may run R1 to R5 unattended (the background role has no ledger access by design).
-5. **Per-agency terms**, temporary increases, review dates, security.
-6. **Chart of accounts and GL export** format; gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
-7. **Bank statement import** (format, bank) to build R6, and the suspense process for unmatched credits.
-8. **Supplier settlement:** payment terms source, invoice matching, payment method.
+Decided 2026-10-18 "as per global bedbanks workflow and functioning" and built in ADR 0069: automatic cancellation credits per the
+effective penalty (F3), database ledger guards (F4), and a daily read-only reconciliation run. Still open:
+
+1. **Provision the monitor's read-only login** (`LEDGER_INTEGRITY_DATABASE_URL`) and the log alarm on its error lines.
+2. **ADJUSTMENT and REVERSAL** entry kinds (goodwill refunds, corrections, payment recalls), threshold for a second approver.
+3. **Scheduling R5** (stalled attempts) unattended: it writes SYSTEM audit events, which needs a governed role.
+4. **Per-agency terms**, temporary increases, review dates, security.
+5. **Chart of accounts and GL export** format; gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
+6. **Bank statement import** (format, bank) to build R6, and the suspense process for unmatched credits.
+7. **Supplier settlement:** payment terms source, posting of agreed statements, payment method (statement matching is built, ADR 0070).

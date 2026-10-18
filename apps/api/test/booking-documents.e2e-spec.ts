@@ -16,6 +16,7 @@ import { renderBookingDocument } from '../src/agent/booking-document.render'
 import { BookingQueryService } from '../src/agent/booking-query.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { eraseLedger } from './ledger-erasure'
 
 describe('booking documents (PostgreSQL)', () => {
   const prisma = new PrismaService()
@@ -55,7 +56,7 @@ describe('booking documents (PostgreSQL)', () => {
 
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.bookingDocument.deleteMany({ where: { tenantId } })
     await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })

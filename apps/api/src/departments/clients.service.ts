@@ -93,7 +93,7 @@ export class ClientsService {
       data.status = status; changed.push('status')
     }
     if (changed.length === 0) return this.view(current)
-    const row = await this.prisma.withTenant(tenantId, (tx) => tx.agency.update({ where: { id: current.id }, data, include: INCLUDE }))
+    const row = await this.prisma.withTenant(tenantId, (tx) => tx.agency.update({ where: { id: current.id, tenantId }, data, include: INCLUDE }))
     await this.audit.record({ tenantId, userId, action: 'agency.updated', entityType: 'agency', entityId: row.id, payload: { fields: changed, ...(changed.includes('status') ? { status: row.status } : {}) } })
     return this.view(row)
   }

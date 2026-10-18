@@ -85,7 +85,7 @@ export class MappingService {
     await this.authorize(tenantId, userId, readPermission)
     return this.prisma.withTenant(tenantId, async tx => {
       await this.parent(tx, tenantId, mappingId)
-      return tx.supplierHotelMapping.findUnique({ where: { id: mappingId }, include: { supplier: true, hotel: true } })
+      return tx.supplierHotelMapping.findUnique({ where: { id: mappingId, tenantId }, include: { supplier: true, hotel: true } })
     })
   }
   /**
@@ -127,7 +127,7 @@ export class MappingService {
     const data = { ...(input.confidence !== undefined ? { confidence: confidence(input.confidence) } : {}), ...(input.sourceMetadata !== undefined ? { sourceMetadata: metadata(input.sourceMetadata) } : {}) }
     return this.write(tenantId, userId, requestId, 'updated', 'hotel', async tx => {
       const prior = await this.parent(tx, tenantId, mappingId)
-      const value = await tx.supplierHotelMapping.update({ where: { id: mappingId }, data })
+      const value = await tx.supplierHotelMapping.update({ where: { id: mappingId, tenantId }, data })
       return { id: mappingId, value, payload: { supplierId: prior.supplierId, supplierHotelId: prior.supplierHotelId, hotelId: prior.hotelId, previousStatus: prior.status, newStatus: value.status, confidence: value.confidence } }
     })
   }
@@ -166,7 +166,7 @@ export class MappingService {
       const parent = await this.parent(tx, tenantId, mappingId)
       const prior = await tx.supplierRoomMapping.findFirst({ where: { id: roomMappingId, tenantId, supplierHotelMappingId: mappingId } })
       if (!prior) throw new NotFoundException('Mapping not found')
-      const value = await tx.supplierRoomMapping.update({ where: { id: roomMappingId }, data })
+      const value = await tx.supplierRoomMapping.update({ where: { id: roomMappingId, tenantId }, data })
       return { id: roomMappingId, value, payload: { supplierId: parent.supplierId, supplierHotelId: parent.supplierHotelId, supplierRoomId: prior.supplierRoomId, hotelId: parent.hotelId, roomTypeId: prior.roomTypeId, previousStatus: prior.status, newStatus: value.status, confidence: value.confidence } }
     })
   }
@@ -187,7 +187,7 @@ export class MappingService {
       if ((decision === 'reopen') === (prior.status === 'PENDING')) throw new BadRequestException('Invalid mapping transition')
       if (kind === 'room' && decision === 'approve' && parent!.status !== 'MAPPED') throw new BadRequestException('Approve the hotel mapping first')
       if (kind === 'hotel' && decision !== 'approve') {
-        const approvedRooms = await tx.supplierRoomMapping.count({ where: { supplierHotelMappingId: mappingId, status: 'MAPPED' } })
+        const approvedRooms = await tx.supplierRoomMapping.count({ where: { supplierHotelMappingId: mappingId, status: 'MAPPED', tenantId } })
         if (approvedRooms) throw new BadRequestException('Reopen approved room mappings first')
       }
       // A supplier already MAPPED to a likely duplicate of this canonical hotel would sell the same inventory under two identities (ADR 0059).
@@ -214,8 +214,8 @@ export class MappingService {
         : await tx.supplierRoomMapping.updateMany({ where: { id: mappingId, tenantId, supplierHotelMappingId: parentId, status: prior.status }, data: { status } })
       if (changed.count !== 1) throw new BadRequestException('Mapping status changed; retry the decision')
       const value = kind === 'hotel'
-        ? await tx.supplierHotelMapping.findUniqueOrThrow({ where: { id: mappingId } })
-        : await tx.supplierRoomMapping.findUniqueOrThrow({ where: { id: mappingId } })
+        ? await tx.supplierHotelMapping.findUniqueOrThrow({ where: { id: mappingId, tenantId } })
+        : await tx.supplierRoomMapping.findUniqueOrThrow({ where: { id: mappingId, tenantId } })
       return { id: mappingId, value, payload: { supplierId: kind === 'hotel' ? (prior as { supplierId: string }).supplierId : parent!.supplierId,
         hotelId: prior.hotelId, supplierHotelId: kind === 'hotel' ? (prior as { supplierHotelId: string }).supplierHotelId : parent!.supplierHotelId,
         ...(kind === 'room' ? { supplierRoomId: (prior as { supplierRoomId: string }).supplierRoomId, roomTypeId: (prior as { roomTypeId: string }).roomTypeId } : {}),

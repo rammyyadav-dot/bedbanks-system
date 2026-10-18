@@ -98,7 +98,7 @@ export const routes = {
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
     commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
     complianceSummary: '/admin/operations/compliance/summary', complianceRecords: '/admin/operations/compliance/records', complianceReport: '/admin/operations/compliance/report',
-    financeSummary: '/admin/operations/finance/summary', ledgerIntegrity: '/admin/operations/finance/ledger-integrity', auditSummary: '/admin/operations/audit/summary',
+    financeSummary: '/admin/operations/finance/summary', ledgerIntegrity: '/admin/operations/finance/ledger-integrity', cancellationSettlements: '/admin/operations/finance/cancellation-settlements', auditSummary: '/admin/operations/audit/summary',
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },
   platform: {

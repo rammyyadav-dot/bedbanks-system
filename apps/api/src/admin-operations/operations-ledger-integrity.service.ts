@@ -49,10 +49,11 @@ export class OperationsLedgerIntegrityService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async report(tenantId: string, query: Record<string, unknown>): Promise<LedgerIntegrityReport> {
+  /** `db` defaults to the request connection; the scheduled monitor passes its own read-only connection. */
+  async report(tenantId: string, query: Record<string, unknown>, db: PrismaService = this.prisma): Promise<LedgerIntegrityReport> {
     const staleReservationMinutes = intParam('staleMinutes', query.staleMinutes, 5, 7 * 24 * 60) ?? LEDGER_INTEGRITY_STALE_MINUTES_DEFAULT
     const now = this.clock()
-    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
+    return guardedRead(() => db.withTenant(tenantId, async tx => {
       const [wallets, entries, receipts] = await Promise.all([
         tx.wallet.findMany({ where: { tenantId }, select: { id: true, agencyId: true, currency: true, creditLimit: true } }),
         tx.ledgerEntry.findMany({ where: { tenantId }, orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }], take: LEDGER_INTEGRITY_ENTRY_LIMIT + 1,

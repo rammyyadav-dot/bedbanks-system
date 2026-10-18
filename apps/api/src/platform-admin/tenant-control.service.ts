@@ -84,6 +84,7 @@ export class TenantControlService {
       const [rows, total, all, active, suspended, newThisMonth, pendingReview, incomplete] = await Promise.all([
         tx.tenant.findMany({ where, select: { ...tenantSelect, ...(configured ? { controlProfile: { select: { classification: true, country: true, stage: true } } } : {}) }, orderBy: [{ [query.sort ?? 'name']: query.order ?? 'asc' }, { id: 'asc' }], skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
         tx.tenant.count({ where }), tx.tenant.count(), tx.tenant.count({ where: { status: 'ACTIVE' } }), tx.tenant.count({ where: { status: 'SUSPENDED' } }), tx.tenant.count({ where: { createdAt: { gte: start } } }),
+        // tenant-scope: platform operator directory is cross-tenant by design (withPlatform + PlatformRbacGuard)
         configured ? tx.tenantControlProfile.count({ where: { stage: 'REVIEW' } }) : Promise.resolve(null),
         configured ? tx.tenant.count({ where: { OR: [{ controlProfile: { is: null } }, { controlProfile: { is: { stage: 'DRAFT' } } }] } }) : Promise.resolve(null),
       ])
@@ -140,6 +141,7 @@ export class TenantControlService {
       if (!admin || admin.status !== 'ACTIVE' || !admin.lastLoginAt) throw new BadRequestException('Use an existing verified administrator. Secure email invitations are not configured.')
       if (admin.id === operator) throw new ForbiddenException('Operators cannot grant themselves tenant ownership')
       if (await tx.tenant.findUnique({ where: { slug: input.slug }, select: { id: true } })) throw new ConflictException('Tenant slug already exists')
+      // tenant-scope: registration keys are unique across all tenants by design; read on the platform tenant-control role
       const duplicate = await tx.tenantControlProfile.findUnique({ where: { registrationKey: registrationKey(business) }, select: { tenantId: true } })
       if (duplicate) throw new ConflictException('Company registration already exists in this country')
       const tenant = await tx.tenant.create({ data: { id: randomUUID(), name: business.name, slug: input.slug, status: 'SUSPENDED' }, select: { id: true } })
@@ -182,8 +184,8 @@ export class TenantControlService {
       if (current?.role === 'owner' && !current.revokedAt && input.role !== 'owner' && owners <= 1) throw new ConflictException('The final tenant administrator cannot be removed')
       if (input.role === 'revoke') {
         if (!current) throw new NotFoundException('Membership not found')
-        await tx.membership.update({ where: { id: current.id }, data: { revokedAt: new Date() } })
-      } else if (current) await tx.membership.update({ where: { id: current.id }, data: { role: input.role, revokedAt: null } })
+        await tx.membership.update({ where: { id: current.id, tenantId }, data: { revokedAt: new Date() } })
+      } else if (current) await tx.membership.update({ where: { id: current.id, tenantId }, data: { role: input.role, revokedAt: null } })
       else await tx.membership.create({ data: { tenantId, userId: user.id, role: input.role } })
       await tx.tenantControlProfile.updateMany({ where: { tenantId }, data: { version: { increment: 1 } } })
       await this.audit(tx, operator, tenantId, 'tenant.membership.changed', tenantId, { idempotencyKey: key, fingerprint, targetUserId: user.id, role: input.role })

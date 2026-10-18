@@ -14,7 +14,7 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', purpose: 'Dedicated restricted tenant authoring connection; always identity verified', url: 'TENANT_CONTROL_DATABASE_URL', runtime: true },
   { file: 'apps/api/src/database/certify-tenant-control.cli.ts', purpose: 'test-only: owner fixture provisioning on disposable loopback database', url: 'DATABASE_URL (owner in isolated CI)', runtime: false },
   { file: 'apps/api/src/database/provision-tenant-control-role.cli.ts', purpose: 'operator: provisions the dedicated tenant control role', url: 'PROVISION_DATABASE_URL', runtime: false },
-  { file: 'apps/api/src/database/prisma.service.ts', purpose: 'HTTP runtime client (also used for the booking, hold-expiry and rate plan lifecycle connections); identity-checked at startup', url: 'DATABASE_URL / BOOKING_OPS_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL / RATE_PLAN_OPS_DATABASE_URL', runtime: true },
+  { file: 'apps/api/src/database/prisma.service.ts', purpose: 'HTTP runtime client (also used for the booking, hold-expiry, ledger-integrity monitor and rate plan lifecycle connections); identity-checked at startup', url: 'DATABASE_URL / BOOKING_OPS_DATABASE_URL / HOLD_EXPIRY_DATABASE_URL / LEDGER_INTEGRITY_DATABASE_URL / RATE_PLAN_OPS_DATABASE_URL', runtime: true },
   { file: 'apps/api/src/database/provision-api-runtime-role.cli.ts', purpose: 'operator: provisions the API login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-booking-ops-role.cli.ts', purpose: 'operator: provisions the booking login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-ops-role.cli.ts', purpose: 'operator: read-only certification of the rate plan lifecycle login, run as that login', url: 'RATE_PLAN_OPS_DATABASE_URL', runtime: false },
@@ -35,6 +35,28 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/prisma/seed.ts', purpose: 'developer seed (never run in a deployment)', url: 'DATABASE_URL', runtime: false },
 ]
 
+/**
+ * Operator and verification scripts under tools/. They are one-shot processes that open their own client and exit, never part of a deployed service,
+ * but an unlisted one is still a violation so a new script cannot quietly start opening pools or using owner credentials.
+ */
+export const APPROVED_TOOL_CLIENTS: ReadonlyArray<{ file: string; purpose: string }> = [
+  { file: 'tools/certify-production-clone.mjs', purpose: 'operator: certifies a production clone (FBEDS_CERT_CLONE_DATABASE_URL, guarded by clone-certification-guard)' },
+  { file: 'tools/admin-ops-verify/inventory-scale.ts', purpose: 'operator: inventory scale check; owner client plus optional runtime-login client' },
+  { file: 'tools/admin-ops-verify/seed.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-agent-images.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-agent-mvp.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-bookings.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-credit.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-hotel-journey.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-hotels.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-inventory.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-pool-capacity.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-rate-certification.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/verify-rate-plans.cjs', purpose: 'operator: rate plan verification script' },
+  { file: 'tools/admin-ops-verify/verify-rate-plans-strict.cjs', purpose: 'operator: strict-role rate plan verification script' },
+]
+
+const GUARD_FILE = 'tools/runtime-db-role-check.ts'
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', '.turbo', '.git', 'coverage'])
 function walk(dir: string, accept: (path: string) => boolean, found: string[] = []): string[] {
   if (!existsSync(dir)) return found
@@ -81,14 +103,15 @@ export function checkConfigText(file: string, text: string, opts: { disposable: 
 export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }> = [
   { file: 'apps/api/src/booking-ops/booking-ops-database.ts', url: 'BOOKING_OPS_DATABASE_URL' },
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
+  { file: 'apps/api/src/admin-operations/ledger-integrity-monitor.service.ts', url: 'LEDGER_INTEGRITY_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
   { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL' },
 ]
 
 export function checkClientSource(file: string, text: string): string[] {
   const violations: string[] = []
-  if (/new\s+PrismaClient\s*\(|extends\s+PrismaClient\b/.test(text) && !APPROVED_CLIENTS.some((c) => c.file === file)) violations.push(`${file}: constructs a PrismaClient that is not in the audited client list (tools/runtime-db-role-check.ts). Route it through PrismaService or add it with its purpose, URL source and role.`)
-  if (/new\s+PrismaService\s*\(/.test(text) && !APPROVED_POOL_HOLDERS.some((h) => h.file === file)) violations.push(`${file}: constructs a PrismaService, which opens a new connection pool. Inject PrismaService (or an existing role connection) instead; see ADR 0067.`)
+  if (/new\s+PrismaClient\s*\(|extends\s+PrismaClient\b/.test(text) && !APPROVED_CLIENTS.some((c) => c.file === file) && !APPROVED_TOOL_CLIENTS.some((c) => c.file === file)) violations.push(`${file}: constructs a PrismaClient that is not in the audited client list (tools/runtime-db-role-check.ts). Route it through PrismaService or add it with its purpose, URL source and role.`)
+  if (/new\s+PrismaService\s*\(/.test(text) && !APPROVED_POOL_HOLDERS.some((h) => h.file === file) && !APPROVED_TOOL_CLIENTS.some((c) => c.file === file)) violations.push(`${file}: constructs a PrismaService, which opens a new connection pool. Inject PrismaService (or an existing role connection) instead; see ADR 0067.`)
   return violations
 }
 
@@ -109,12 +132,13 @@ export function scanRepository(root: string): { violations: string[]; clients: t
     violations.push(...checkConfigText(rel(file), readFileSync(file, 'utf8'), { disposable: true, serviceDefinition: false }))
   }
   // Database clients in application source.
-  for (const base of ['apps/api/src', 'apps/api/prisma', 'apps/admin', 'apps/agent', 'apps/supplier', 'apps/website', 'packages']) {
+  for (const base of ['apps/api/src', 'apps/api/prisma', 'apps/admin', 'apps/agent', 'apps/supplier', 'apps/website', 'packages', 'tools']) {
     for (const file of walk(join(root, base), (p) => /\.(ts|tsx|js|mjs|cjs)$/.test(p) && !/\.(spec|test|e2e-spec)\./.test(p) && !p.includes('/test/') && !p.includes('/migrations/'))) {
+      if (rel(file) === GUARD_FILE) continue // this file names the patterns it searches for
       const text = readFileSync(file, 'utf8')
       checked += 1
       violations.push(...checkClientSource(rel(file), text))
-      if (!base.startsWith('apps/api') && /from\s+['"]@prisma\/client['"]/.test(text)) violations.push(`${rel(file)}: only the API may import @prisma/client`)
+      if (base !== 'tools' && !base.startsWith('apps/api') && /from\s+['"]@prisma\/client['"]/.test(text)) violations.push(`${rel(file)}: only the API may import @prisma/client`)
     }
   }
   return { violations, clients: APPROVED_CLIENTS, checked }
@@ -126,5 +150,5 @@ export const describeForbidden = forbiddenUserReason
 if (process.argv[1] && /runtime-db-role-check\.ts$/.test(process.argv[1])) {
   const { violations, clients, checked } = scanRepository(process.cwd())
   if (violations.length) { console.error(violations.join('\n')); process.exit(1) }
-  console.log(`Runtime DB role check passed: ${checked} file(s) scanned; ${clients.length} audited database client site(s) (${clients.filter((c) => c.runtime).length} runtime); ${APPROVED_POOL_HOLDERS.length} connection pool holder(s).`)
+  console.log(`Runtime DB role check passed: ${checked} file(s) scanned; ${clients.length} audited database client site(s) (${clients.filter((c) => c.runtime).length} runtime); ${APPROVED_POOL_HOLDERS.length} connection pool holder(s); ${APPROVED_TOOL_CLIENTS.length} tools script(s).`)
 }

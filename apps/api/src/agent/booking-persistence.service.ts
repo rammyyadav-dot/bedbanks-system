@@ -183,7 +183,7 @@ export class BookingPersistenceService {
         ...(record.code ? { code: record.code } : {}),
       }
       await tx.booking.update({
-        where: { id: bookingId },
+        where: { id: bookingId, tenantId },
         data: { searchSnapshot: { ...(snapshot as Prisma.JsonObject), supplierPrebook } },
       })
     })
