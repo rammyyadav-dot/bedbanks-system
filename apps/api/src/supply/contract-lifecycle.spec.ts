@@ -1,5 +1,5 @@
 import {
-  activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
+  EMPTY_HEADER, normaliseHeader, activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
   type ContractTerms, type PlanFacts,
 } from './contract-lifecycle'
 
@@ -8,7 +8,7 @@ const terms = (over: Partial<ContractTerms> = {}): ContractTerms => ({
   salesMarkets: [], nationalities: [], paymentPolicyRef: null,
   cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, currency: null }],
   childPolicies: [{ minAge: 0, maxAge: 5, extraBedAllowed: false, supplementMinor: '0', currency: 'AED' }],
-  leadTimeRule: null, ...over,
+  leadTimeRule: null, header: EMPTY_HEADER, ...over,
 })
 const plan = (over: Partial<PlanFacts> = {}): PlanFacts => ({ code: 'P1', status: 'DRAFT', currency: 'AED', refundable: true, cancellationPolicySet: null, validFrom: null, validTo: null, ...over })
 const facts = (over: Partial<Parameters<typeof assessContractActivation>[0]> = {}) => ({ today: '2026-10-17', status: 'REVIEW', terms: terms(), supplierStatus: 'ACTIVE', mappingStatus: 'MAPPED', plans: [plan()], ...over })
@@ -53,6 +53,9 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
     expect(normaliseAmendment({ supplierId: 'x' }).errors[0]).toMatch(/identify a contract/)
     expect(normaliseAmendment({ status: 'ACTIVE' }).errors[0]).toMatch(/never changes status/)
     expect(normaliseAmendment({ foo: 1 }).errors[0]).toMatch(/not an amendable term/)
+    // A stored amendment round-trips: its nested header parses to the same changes (ADR 0067, F-20).
+    const filed = normaliseAmendment({ rateType: 'COMMISSIONABLE', commissionBp: 1000, minStayMode: 'ARRIVAL' }).changes!
+    expect(normaliseAmendment(JSON.parse(JSON.stringify(filed))).changes).toEqual(filed)
     expect(normaliseAmendment({}).errors[0]).toMatch(/at least one/)
     expect(normaliseAmendment({ validTo: '2027-02-30' }).errors).toHaveLength(1)
     expect(normaliseAmendment({ cancellationPolicies: [{ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: '100' }] }).errors[0]).toMatch(/exactly one/)
@@ -74,5 +77,27 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
     expect(nextVersion(1, { version: 1, fingerprint: 'a' }, 'a', 'ACTIVATION')).toBe(1)
     expect(nextVersion(1, { version: 1, fingerprint: 'a' }, 'b', 'ACTIVATION')).toBe(2)
     expect(nextVersion(2, { version: 2, fingerprint: 'b' }, 'c', 'AMENDMENT')).toBe(3)
+  })
+
+  it('validates the commercial header and its combination (ADR 0067, F-20/F-15)', () => {
+    const errors: string[] = []
+    expect(normaliseHeader({ rateType: 'COMMISSIONABLE', commissionBp: 1000, paymentTermsDays: 30, signedAt: '2026-10-01', allotmentType: 'GUARANTEED', minStayMode: 'ARRIVAL' }, EMPTY_HEADER, errors))
+      .toEqual({ rateType: 'COMMISSIONABLE', commissionBp: 1000, paymentTermsDays: 30, signedAt: '2026-10-01', signedDocumentRef: null, allotmentType: 'GUARANTEED', minStayMode: 'ARRIVAL' })
+    expect(errors).toEqual([])
+    const bad: string[] = []
+    normaliseHeader({ rateType: 'COMMISSIONABLE', paymentTermsDays: 400, minStayMode: 'NIGHTLY', signedAt: '2026-02-30' }, EMPTY_HEADER, bad)
+    expect(new Set(bad.map((e) => e.split(':')[0]))).toEqual(new Set(['signedAt', 'paymentTermsDays', 'minStayMode', 'commissionBp']))
+    const net: string[] = []
+    normaliseHeader({ rateType: 'NET', commissionBp: 500 }, EMPTY_HEADER, net)
+    expect(net).toEqual([expect.stringMatching(/only a commissionable contract/)])
+  })
+
+  it('amends header terms, raises the fingerprint, and refuses an inconsistent combination', () => {
+    const before = terms()
+    expect(normaliseAmendment({ minStayMode: 'ARRIVAL', paymentTermsDays: 14 }).changes).toEqual({ header: { minStayMode: 'ARRIVAL', paymentTermsDays: 14 } })
+    const after = applyAmendment(before, { header: { minStayMode: 'ARRIVAL' } })
+    expect(after.header.minStayMode).toBe('ARRIVAL')
+    expect(termsFingerprint(after)).not.toBe(termsFingerprint(before))
+    expect(amendmentProblems(before, applyAmendment(before, { header: { rateType: 'COMMISSIONABLE' } }), [])).toEqual([expect.stringMatching(/needs its commission/)])
   })
 })

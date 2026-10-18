@@ -22,7 +22,12 @@ export interface BoardBasisWrite { code: string; name: string; description?: str
 export interface BoardBasisUpdate { name?: string; description?: string | null; isActive?: boolean }
 export interface BoardBasisRead { id: string; tenantId: string; code: string; name: string; description: string | null; isActive: boolean }
 export type ContractStatus = 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
-export interface ContractWrite { supplierId: string; supplierHotelMappingId?: string | null; code: string; status?: ContractStatus; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; paymentPolicyRef?: string | null }
+export interface ContractWrite { supplierId: string; supplierHotelMappingId?: string | null; code: string; status?: ContractStatus; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; paymentPolicyRef?: string | null
+  /** ADR 0067 F-20/F-15. Editable while DRAFT, REVIEW or SUSPENDED; amended on an ACTIVE contract. */
+  rateType?: 'NET' | 'COMMISSIONABLE' | null; commissionBp?: number | null; paymentTermsDays?: number | null; signedAt?: SupplyDate | null; signedDocumentRef?: string | null
+  allotmentType?: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null; minStayMode?: 'STAY_THROUGH' | 'ARRIVAL'
+  /** Governance (not reviewed terms): editable unless EXPIRED. The owner must be a member of the tenant. */
+  ownerUserId?: string | null; renewalReminderDays?: number }
 export interface ContractUpdate extends Partial<ContractWrite> {}
 export interface CancellationPolicyWrite { daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string; currency?: string }
 export interface ChildPolicyWrite { minAge: number; maxAge: number; extraBedAllowed?: boolean; supplementMinor?: string; currency?: string }

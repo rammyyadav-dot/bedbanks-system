@@ -5,7 +5,7 @@ import { ApprovalService, type ApprovalView } from '../approvals/approval.servic
 import { PrismaService } from '../database/prisma.service'
 import { SupplyService } from './supply.service'
 import {
-  activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
+  headerOf, activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
   type ContractAmendment, type ContractLifecycleAction, type ContractTerms, type PlanFacts,
 } from './contract-lifecycle'
 
@@ -39,8 +39,10 @@ export function termsOf(c: LoadedContract): ContractTerms {
     cancellationPolicies: c.cancellationPolicies.map((p) => ({ policySet: p.policySet, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor?.toString() ?? null, currency: p.currency })),
     childPolicies: c.childPolicies.map((p) => ({ minAge: p.minAge, maxAge: p.maxAge, extraBedAllowed: p.extraBedAllowed, supplementMinor: p.supplementMinor?.toString() ?? null, currency: p.currency })),
     leadTimeRule: lead ? { minLeadHours: lead.minLeadHours, maxLeadDays: lead.maxLeadDays } : null,
+    header: headerOf(c),
   }
 }
+
 const plansOf = (c: LoadedContract): PlanFacts[] => c.ratePlans.map((p) => ({ code: p.code, status: p.status, currency: p.currency, refundable: p.refundable, cancellationPolicySet: p.cancellationPolicySet, validFrom: day(p.validFrom), validTo: day(p.validTo) }))
 
 /**
@@ -241,6 +243,10 @@ export class ContractApprovalService {
     if (changes.salesMarkets !== undefined) header.salesMarkets = after.salesMarkets
     if (changes.nationalities !== undefined) header.nationalities = after.nationalities
     if (changes.paymentPolicyRef !== undefined) header.paymentPolicyRef = after.paymentPolicyRef
+    if (changes.header !== undefined) {
+      const h = after.header
+      Object.assign(header, { rateType: h.rateType, commissionBp: h.commissionBp, paymentTermsDays: h.paymentTermsDays, signedAt: h.signedAt === null ? null : new Date(`${h.signedAt}T00:00:00.000Z`), signedDocumentRef: h.signedDocumentRef, allotmentType: h.allotmentType, minStayMode: h.minStayMode })
+    }
     if (changes.cancellationPolicies !== undefined) {
       await tx.cancellationPolicy.deleteMany({ where: { contractId: contract.id } })
       if (after.cancellationPolicies.length) await tx.cancellationPolicy.createMany({ data: after.cancellationPolicies.map((p) => ({ contractId: contract.id, policySet: p.policySet, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor === null ? null : BigInt(p.penaltyMinor), currency: p.currency })) })

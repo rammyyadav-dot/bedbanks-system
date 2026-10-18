@@ -6,6 +6,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { getHotelContracts } from '@/lib/data/hotel-commercial'
 import { ContractChip, Chip, GateChip, ReadinessChip, ScrollRegion, td, th, tableStyle } from '../ui'
+import { bpToPercent } from '@/lib/contract-lifecycle-ui'
 
 /** Contract status is not sellability: the chain below shows each downstream gate with the API's own verdict. */
 const CHAIN: Array<{ key: string; label: string }> = [
@@ -35,10 +36,10 @@ export function ContractsPanel({ hotelId, gates }: { hotelId: string; gates: Hot
                 <thead><tr>{['Contract', 'Supplier', 'Status', 'Valid from', 'Valid to', 'Expiry', 'Currency', 'Markets', 'Rate plans', 'Policies', 'Updated'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                 <tbody>{data.contracts.map((c) => (
                   <tr key={c.id}>
-                    <td style={td}><Link href={`/contracts/${c.id}`} style={{ fontWeight: 600 }}>{c.code}</Link><div style={{ fontSize: 10, color: '#3f565c' }}>v{c.version} · {c.link === 'MAPPING' ? 'via hotel mapping' : 'via rate plan only'}</div></td>
+                    <td style={td}><Link href={`/contracts/${c.id}`} style={{ fontWeight: 600 }}>{c.code}</Link><div style={{ fontSize: 10, color: '#3f565c' }}>v{c.version} · {c.link === 'MAPPING' ? 'via hotel mapping' : 'via rate plan only'}</div><div style={{ fontSize: 10, color: '#3f565c' }}>{c.rateType ? (c.rateType === 'COMMISSIONABLE' && c.commissionBp !== null ? `Commissionable ${bpToPercent(c.commissionBp)}%` : 'Net') : 'Rate type not stated'}{c.allotmentType ? ` · ${c.allotmentType.replace('_', '-').toLowerCase()}` : ''}{c.minStayMode === 'ARRIVAL' ? ' · min stay on arrival' : ''}</div></td>
                     <td style={td}>{c.supplierName}</td><td style={td}><Chip tone={c.status === 'ACTIVE' ? 'ok' : 'neutral'}>{c.status}</Chip></td>
                     <td style={td}>{c.validFrom}</td><td style={td}>{c.validTo}</td>
-                    <td style={td}><ContractChip value={c.state} days={c.daysToExpiry} /> <span style={{ fontSize: 10 }}>{c.state === 'EXPIRED' ? `${Math.abs(c.daysToExpiry)}d ago` : `${c.daysToExpiry}d`}</span></td>
+                    <td style={td}><ContractChip value={c.state} days={c.daysToExpiry} /> <span style={{ fontSize: 10 }}>{c.state === 'EXPIRED' ? `${Math.abs(c.daysToExpiry)}d ago` : `${c.daysToExpiry}d`}</span>{c.renewalDue ? <> <Chip tone="warn" title={`Within the ${c.renewalReminderDays}-day renewal reminder${c.ownerUserId ? '' : '; no owner assigned'}`}>RENEW</Chip></> : null}</td>
                     <td style={td}>{c.currency}</td><td style={td} title="Sold only to these buyer markets (agency country) and guest nationalities. Agent search, recheck and hold enforce them; this Admin readiness view is buyer-independent.">{c.salesMarkets.length || c.nationalities.length ? <>{c.salesMarkets.length ? `Markets: ${c.salesMarkets.join(', ')}` : ''}{c.nationalities.length ? ` Nationalities: ${c.nationalities.join(', ')}` : ''}<div style={{ fontSize: 10, color: '#3f565c' }}>enforced by Agent search</div></> : <span style={{ color: '#3f565c' }}>None recorded</span>}</td><td style={td}>{c.ratePlans.active} active / {c.ratePlans.total}</td>
                     <td style={td}>{c.policies ? `${c.policies.cancellation} cancellation · ${c.policies.child} child · ${c.policies.leadTime} lead-time` : <Chip tone="neutral" title="The API database role cannot read the policy tables">UNAVAILABLE</Chip>}</td>
                     <td style={td}>{new Date(c.updatedAt).toLocaleDateString()}</td>

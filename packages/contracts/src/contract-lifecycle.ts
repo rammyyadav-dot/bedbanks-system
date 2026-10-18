@@ -13,13 +13,31 @@ export type ContractApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANC
 export interface ContractCancellationTerm { policySet: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
 export interface ContractChildTerm { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface ContractLeadTimeTerm { minLeadHours: number; maxLeadDays: number | null }
+/** Commercial header terms (ADR 0067, F-20) and how a night's minimum stay is read (F-15). Reviewed terms: changed on an ACTIVE contract only by amendment. */
+export interface ContractHeaderTerms {
+  rateType: 'NET' | 'COMMISSIONABLE' | null
+  /** Basis points of the sell price; required for COMMISSIONABLE and absent otherwise. */
+  commissionBp: number | null
+  paymentTermsDays: number | null
+  signedAt: string | null
+  signedDocumentRef: string | null
+  allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null
+  /** STAY_THROUGH: every night's minimum stay applies. ARRIVAL: only the check-in night's. */
+  minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+}
+export const CONTRACT_RATE_TYPES = ['NET', 'COMMISSIONABLE'] as const
+export const CONTRACT_ALLOTMENT_TYPES = ['GUARANTEED', 'NON_GUARANTEED', 'FREE_SALE'] as const
+export const CONTRACT_MIN_STAY_MODES = ['STAY_THROUGH', 'ARRIVAL'] as const
 export interface ContractTermsView {
   code: string; supplierId: string; supplierHotelMappingId: string | null; validFrom: string; validTo: string; settlementCurrency: string
   salesMarkets: string[]; nationalities: string[]; paymentPolicyRef: string | null
   cancellationPolicies: ContractCancellationTerm[]; childPolicies: ContractChildTerm[]; leadTimeRule: ContractLeadTimeTerm | null
+  header: ContractHeaderTerms
 }
 /** The terms an amendment may change. Supplier and hotel binding are identity and never amendable. Policy lists replace the whole set. */
-export type ContractAmendmentChanges = Partial<Pick<ContractTermsView, 'code' | 'validFrom' | 'validTo' | 'settlementCurrency' | 'salesMarkets' | 'nationalities' | 'paymentPolicyRef' | 'cancellationPolicies' | 'childPolicies' | 'leadTimeRule'>>
+export type ContractAmendmentChanges = Partial<Pick<ContractTermsView, 'code' | 'validFrom' | 'validTo' | 'settlementCurrency' | 'salesMarkets' | 'nationalities' | 'paymentPolicyRef' | 'cancellationPolicies' | 'childPolicies' | 'leadTimeRule'>> & { header?: Partial<ContractHeaderTerms> }
+/** As sent to `amendment-request`: header terms are top-level keys of `changes`. */
+export type ContractAmendmentInputChanges = Omit<ContractAmendmentChanges, 'header'> & Partial<ContractHeaderTerms>
 
 export interface ContractCheckView { code: string; label: string; ok: boolean; message: string }
 export interface ContractApprovalView {
@@ -44,7 +62,7 @@ export interface ContractLifecycleView {
 }
 export interface ContractTransitionInput { expectedUpdatedAt: string; reason?: string }
 export interface ContractActivationRequestInput { requestId: string; reason: string; expectedFingerprint: string }
-export interface ContractAmendmentRequestInput extends ContractActivationRequestInput { changes: ContractAmendmentChanges }
+export interface ContractAmendmentRequestInput extends ContractActivationRequestInput { changes: ContractAmendmentInputChanges }
 export interface ContractApprovalDecisionInput { reason: string }
 export interface ContractApprovalExecuteResult { approval: ContractApprovalView; contractId: string; status: string; version: number }
 

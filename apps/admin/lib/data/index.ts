@@ -44,7 +44,7 @@ export interface CancellationPolicyRecord { id: string; policySet?: string | nul
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null }
-export interface ContractInput { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[] }
+export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }

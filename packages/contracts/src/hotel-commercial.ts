@@ -194,6 +194,11 @@ export interface HotelContractRow {
   /** Sales markets (buyer agency country) and guest nationalities the contract is sold to. Empty means unrestricted. Agent search, recheck and hold enforce them (ADR 0035); Admin readiness is buyer-independent and does not. */
   salesMarkets: string[]
   nationalities: string[]
+  /** ADR 0067 F-20/F-15 header terms; null where the contract does not state them. */
+  rateType: 'NET' | 'COMMISSIONABLE' | null; commissionBp: number | null; allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null; minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  ownerUserId: string | null; renewalReminderDays: number
+  /** True from `renewalReminderDays` before the last stay night until expiry: the owner should be renegotiating. */
+  renewalDue: boolean
 }
 export interface HotelRatePlanRow {
   id: string; code: string; status: string; contractId: string; contractCode: string

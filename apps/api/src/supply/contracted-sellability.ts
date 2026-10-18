@@ -68,6 +68,8 @@ export interface ContractedStaySnapshot {
   cancellationPolicyMissing: boolean
   /** The contract's booking lead-time rule, or null when it has none (ADR 0067, F-02). Required so a caller cannot omit it and sell inside the cut-off. */
   leadTimeRule: { minLeadHours: number; maxLeadDays: number | null } | null
+  /** How a night's minimum stay is read (ADR 0067, F-15): STAY_THROUGH applies every night's value, ARRIVAL only the check-in night's. Required. */
+  minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -165,7 +167,8 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   }
   if (snapshot.ratePlanStatus !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE')
   if (snapshot.contractCurrency !== request.currency || snapshot.ratePlanCurrency !== request.currency) reasons.push('RATE_CURRENCY_MISMATCH')
-  if (nightCount < snapshot.ratePlanMinStay || snapshot.nights.some((night) => (night.availability?.minStay ?? 1) > nightCount)) reasons.push('MIN_STAY_NOT_MET')
+  const minStayNights = snapshot.minStayMode === 'ARRIVAL' ? snapshot.nights.slice(0, 1) : snapshot.nights
+  if (nightCount < snapshot.ratePlanMinStay || minStayNights.some((night) => (night.availability?.minStay ?? 1) > nightCount)) reasons.push('MIN_STAY_NOT_MET')
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
   if (!releaseAllows(request.now, request.checkIn, snapshot.ratePlanReleaseDays, snapshot.ratePlanReleaseTimeLocal ?? '00:00', snapshot.hotelTimeZone ?? '')) reasons.push('RELEASE_DAYS_NOT_MET')
   if (snapshot.departureClosed) reasons.push('CLOSED_TO_DEPARTURE')

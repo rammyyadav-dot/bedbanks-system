@@ -1809,6 +1809,22 @@ model SupplierRoomDraft {
   @@map("supplier_room_drafts")
 }
 
+enum ContractRateType {
+  NET
+  COMMISSIONABLE
+}
+
+enum ContractAllotmentType {
+  GUARANTEED
+  NON_GUARANTEED
+  FREE_SALE
+}
+
+enum MinStayMode {
+  STAY_THROUGH
+  ARRIVAL
+}
+
 model Contract {
   id                  String         @id @default(cuid())
   tenantId            String         @map("tenant_id")
@@ -1825,6 +1841,20 @@ model Contract {
   salesMarkets        Json           @default("[]") @map("sales_markets")
   nationalities       Json           @default("[]")
   paymentPolicyRef    String?        @map("payment_policy_ref")
+  /// Commercial header (ADR 0067, F-20). Null means not recorded; never defaulted.
+  rateType            ContractRateType?      @map("rate_type")
+  /// Basis points of the sell price paid as commission; only for COMMISSIONABLE (database check).
+  commissionBp        Int?                   @map("commission_bp")
+  paymentTermsDays    Int?                   @map("payment_terms_days")
+  signedAt            DateTime?              @map("signed_at") @db.Date
+  /// Reference to the signed contract in the document store; never the document itself.
+  signedDocumentRef   String?                @map("signed_document_ref") @db.VarChar(200)
+  allotmentType       ContractAllotmentType? @map("allotment_type")
+  /// How a night's minimum stay applies (ADR 0067, F-15): to every stay through that night, or only to stays arriving on it.
+  minStayMode         MinStayMode            @default(STAY_THROUGH) @map("min_stay_mode")
+  /// Governance, not commercial terms: editable while ACTIVE. The owner is a tenant member id (no foreign key, like other actor ids).
+  ownerUserId         String?                @map("owner_user_id")
+  renewalReminderDays Int                    @default(60) @map("renewal_reminder_days")
   sourceMetadata      Json           @default("{}") @map("source_metadata")
   version             Int            @default(1)
   createdAt           DateTime       @default(now()) @map("created_at")

@@ -414,7 +414,7 @@ export class OperationsHotelsService {
       const contractIds = new Set<string>([...input.contracts.map((c) => c.id), ...input.plans.map((p) => p.contract.id)])
       const rows = await tx.contract.findMany({
         where: { tenantId, id: { in: [...contractIds] } },
-        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
+        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, rateType: true, commissionBp: true, allotmentType: true, minStayMode: true, ownerUserId: true, renewalReminderDays: true, supplier: { select: { displayName: true } } },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       })
       const viaMapping = new Set(input.contracts.map((c) => c.id))
@@ -427,6 +427,9 @@ export class OperationsHotelsService {
           ratePlans: { total: plans.length, active: plans.filter((p) => p.status === 'ACTIVE').length },
           policies: policyCounts ? (policyCounts.get(c.id) ?? { cancellation: 0, child: 0, leadTime: 0 }) : null,
           link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId, salesMarkets: stringList(c.salesMarkets), nationalities: stringList(c.nationalities),
+          rateType: c.rateType, commissionBp: c.commissionBp, allotmentType: c.allotmentType, minStayMode: c.minStayMode, ownerUserId: c.ownerUserId, renewalReminderDays: c.renewalReminderDays,
+          // ADR 0067 F-20: flagged from the reminder window before the last stay night until expiry, only while the contract is live.
+          renewalDue: (c.status === 'ACTIVE' || c.status === 'SUSPENDED') && daysToExpiry >= 0 && daysToExpiry <= c.renewalReminderDays,
         }
       })
       const assessedById = new Map(a.plans.map((p) => [p.plan.id, p]))

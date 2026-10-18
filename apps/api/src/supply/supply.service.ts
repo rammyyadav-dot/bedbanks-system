@@ -27,7 +27,7 @@ import { planFingerprint } from './rate-plan-fingerprint'
 import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
 import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived-rates'
 import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
-import { termsEditable } from './contract-lifecycle'
+import { EMPTY_HEADER, GOVERNANCE_KEYS, HEADER_KEYS, headerOf, normaliseHeader, termsEditable, type ContractHeader } from './contract-lifecycle'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
@@ -102,10 +102,37 @@ export class SupplyService {
    * Locks the contract row for the rest of the transaction and refuses when its terms are locked (ADR 0067): an ACTIVE contract changes only
    * through an approved amendment and an EXPIRED one not at all. The lock serializes direct edits with an approval being applied.
    */
-  private async lockEditableContract(tx: Prisma.TransactionClient, tenantId: string, contractId: string) {
+  private async lockContract(tx: Prisma.TransactionClient, tenantId: string, contractId: string) {
     await tx.$queryRaw`SELECT id FROM "Contract" WHERE id = ${contractId} AND tenant_id = ${tenantId} FOR UPDATE`
     const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } })
     if (!contract) throw new NotFoundException('Contract not found')
+    return contract
+  }
+  /** Header terms present in the body, validated against the stored header (ADR 0067, F-20/F-15). Typed 400; nothing written on a problem. */
+  private contractHeaderData(input: any, current: ContractHeader) {
+    const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+    if (!HEADER_KEYS.some((k) => k in raw)) return {}
+    const errors: string[] = []
+    const h = normaliseHeader(raw, current, errors)
+    if (errors.length) throw new BadRequestException({ code: 'CONTRACT_HEADER_INVALID', message: 'The contract header is not valid.', details: errors })
+    return { rateType: h.rateType, commissionBp: h.commissionBp, paymentTermsDays: h.paymentTermsDays, signedAt: h.signedAt === null ? null : new Date(`${h.signedAt}T00:00:00.000Z`), signedDocumentRef: h.signedDocumentRef, allotmentType: h.allotmentType, minStayMode: h.minStayMode }
+  }
+  /** Owner (a member of this tenant, or null) and renewal reminder (1-365 days). */
+  private async contractGovernanceData(tx: Prisma.TransactionClient, tenantId: string, input: any) {
+    const out: { ownerUserId?: string | null; renewalReminderDays?: number } = {}
+    if (input?.ownerUserId !== undefined) {
+      if (input.ownerUserId === null || input.ownerUserId === '') out.ownerUserId = null
+      else if (typeof input.ownerUserId !== 'string' || !(await tx.membership.findFirst({ where: { tenantId, userId: input.ownerUserId }, select: { id: true } }))) throw new BadRequestException({ code: 'CONTRACT_OWNER_INVALID', message: 'The owner must be a member of this tenant.' })
+      else out.ownerUserId = input.ownerUserId
+    }
+    if (input?.renewalReminderDays !== undefined) {
+      if (!Number.isInteger(input.renewalReminderDays) || input.renewalReminderDays < 1 || input.renewalReminderDays > 365) throw new BadRequestException({ code: 'CONTRACT_RENEWAL_REMINDER_INVALID', message: 'renewalReminderDays must be a whole number from 1 to 365.' })
+      out.renewalReminderDays = input.renewalReminderDays
+    }
+    return out
+  }
+  private async lockEditableContract(tx: Prisma.TransactionClient, tenantId: string, contractId: string) {
+    const contract = await this.lockContract(tx, tenantId, contractId)
     if (!termsEditable(contract.status)) throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: contract.status === 'ACTIVE' ? 'This contract is ACTIVE. Its terms change only through an amendment a second person approves.' : `A ${contract.status} contract cannot be changed.` })
     return contract
   }
@@ -334,18 +361,24 @@ export class SupplyService {
   async boardBases(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId, isActive: true }, orderBy: { code: 'asc' } })) }
   async contracts(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); return this.prisma.withTenant(tenantId, tx => tx.contract.findMany({ where: { tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } } }, orderBy: { validFrom: 'desc' } })) }
   async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true } })); if (!value) throw new NotFoundException('Contract not found'); return value }
-  async createContract(tenantId: string, userId: string, input: any, requestId?: string) { if (input?.status !== undefined && input.status !== 'DRAFT') throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'A contract is created in DRAFT. Activation needs a second approver (ADR 0067).' }); const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
+  async createContract(tenantId: string, userId: string, input: any, requestId?: string) { if (input?.status !== undefined && input.status !== 'DRAFT') throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'A contract is created in DRAFT. Activation needs a second approver (ADR 0067).' }); const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { ...this.contractHeaderData(input, EMPTY_HEADER), ...(await this.contractGovernanceData(tx, tenantId, input)), tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
   async updateContract(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
     // ADR 0067: status moves only through the lifecycle routes (activation needs a second approver); terms of an ACTIVE contract change only by amendment.
     if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'status')) throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'Contract status cannot be set here. Submit for review, request activation (a second person approves) or suspend instead.' })
     return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.updated', 'contract', requestId, async tx => {
-      const current = await this.lockEditableContract(tx, tenantId, contractId)
+      // Owner and renewal reminder are governance, not terms (ADR 0067, F-20): they may change on an ACTIVE contract. Anything else needs editable terms.
+      const keys = Object.keys(input && typeof input === 'object' ? input : {})
+      const governanceOnly = keys.length > 0 && keys.every((k) => (GOVERNANCE_KEYS as readonly string[]).includes(k))
+      const current = governanceOnly ? await this.lockContract(tx, tenantId, contractId) : await this.lockEditableContract(tx, tenantId, contractId)
+      if (governanceOnly && current.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
+      const extra = { ...this.contractHeaderData(input, headerOf(current)), ...(await this.contractGovernanceData(tx, tenantId, input)) }
+      if (governanceOnly) { const value = await tx.contract.update({ where: { id: contractId }, data: extra }); return { id: value.id, value } }
       const validFrom = input.validFrom === undefined ? current.validFrom : date(input.validFrom), validTo = input.validTo === undefined ? current.validTo : date(input.validTo)
       if (validTo < validFrom) throw new BadRequestException('Invalid contract validity')
       const supplierId = input.supplierId ?? current.supplierId; const supplier = await tx.supplier.findFirst({ where: { id: supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant')
       const mappingId = input.supplierHotelMappingId === undefined ? current.supplierHotelMappingId : input.supplierHotelMappingId
       if (mappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: mappingId, tenantId, supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') }
-      const value = await tx.contract.update({ where: { id: contractId }, data: { ...(input.supplierId !== undefined ? { supplierId } : {}), ...(input.supplierHotelMappingId !== undefined ? { supplierHotelMappingId: mappingId } : {}), ...(input.code !== undefined ? { code: clean(input.code) } : {}), validFrom, validTo, ...(input.settlementCurrency !== undefined ? { settlementCurrency: enabledCurrency(input.settlementCurrency) } : {}), ...(input.salesMarkets !== undefined ? { salesMarkets: marketList('salesMarkets', input.salesMarkets) } : {}), ...(input.nationalities !== undefined ? { nationalities: marketList('nationalities', input.nationalities) } : {}), ...(input.paymentPolicyRef !== undefined ? { paymentPolicyRef: input.paymentPolicyRef == null ? null : clean(input.paymentPolicyRef) } : {}) } })
+      const value = await tx.contract.update({ where: { id: contractId }, data: { ...extra, ...(input.supplierId !== undefined ? { supplierId } : {}), ...(input.supplierHotelMappingId !== undefined ? { supplierHotelMappingId: mappingId } : {}), ...(input.code !== undefined ? { code: clean(input.code) } : {}), validFrom, validTo, ...(input.settlementCurrency !== undefined ? { settlementCurrency: enabledCurrency(input.settlementCurrency) } : {}), ...(input.salesMarkets !== undefined ? { salesMarkets: marketList('salesMarkets', input.salesMarkets) } : {}), ...(input.nationalities !== undefined ? { nationalities: marketList('nationalities', input.nationalities) } : {}), ...(input.paymentPolicyRef !== undefined ? { paymentPolicyRef: input.paymentPolicyRef == null ? null : clean(input.paymentPolicyRef) } : {}) } })
       return { id: value.id, value }
     })
   }

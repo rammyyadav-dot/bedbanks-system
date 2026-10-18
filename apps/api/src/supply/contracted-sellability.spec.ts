@@ -31,6 +31,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     guestPrices: [], promotions: [], derivedProblem: null,
     cancellationPolicyMissing: false,
     leadTimeRule: null,
+    minStayMode: 'STAY_THROUGH',
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
@@ -133,6 +134,15 @@ describe('contracted stay sellability', () => {
     expect(evaluateContractedStay(snapshot({ nights: [night('2026-10-15', { availability: { allotment: 4, sold: 0, held: 0, stopSell: true, minStay: 1, closedToArrival: false } }), night('2026-10-16'), night('2026-10-17')] }), request).reasons).toContain('STOP_SELL')
     expect(evaluateContractedStay(snapshot({ ratePlanMinStay: 5 }), request).reasons).toContain('MIN_STAY_NOT_MET')
     expect(evaluateContractedStay(snapshot({ ratePlanReleaseDays: 30 }), request).reasons).toContain('RELEASE_DAYS_NOT_MET')
+  })
+
+  it('reads a night minimum stay through the stay or only on arrival (ADR 0067, F-15)', () => {
+    const nights = [night('2026-10-15'), night('2026-10-16', { availability: { allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 5, closedToArrival: false } }), night('2026-10-17')]
+    expect(evaluateContractedStay(snapshot({ nights }), request).reasons).toContain('MIN_STAY_NOT_MET')
+    expect(evaluateContractedStay(snapshot({ nights, minStayMode: 'ARRIVAL' }), request).reasons).not.toContain('MIN_STAY_NOT_MET')
+    const arrival = [night('2026-10-15', { availability: { allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 4, closedToArrival: false } }), night('2026-10-16'), night('2026-10-17')]
+    expect(evaluateContractedStay(snapshot({ nights: arrival, minStayMode: 'ARRIVAL' }), request).reasons).toContain('MIN_STAY_NOT_MET')
+    expect(evaluateContractedStay(snapshot({ minStayMode: 'ARRIVAL', ratePlanMinStay: 5 }), request).reasons).toContain('MIN_STAY_NOT_MET')
   })
 
   describe('NET rates and markup (ADR 0018)', () => {
