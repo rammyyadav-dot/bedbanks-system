@@ -24,11 +24,11 @@ const list = (value: string) => value.split(',').map((item) => item.trim().toUpp
 interface FormState {
   supplierId: string; supplierHotelMappingId: string; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets: string; nationalities: string
   // ADR 0067 F-20/F-15 header terms, as typed.
-  rateType: string; commissionPercent: string; paymentTermsDays: string; signedAt: string; signedDocumentRef: string; allotmentType: string; minStayMode: string
+  rateType: string; commissionPercent: string; paymentTermsDays: string; signedAt: string; signedDocumentRef: string; allotmentType: string; minStayMode: string; clientBufferDays: string
   // Governance: editable while ACTIVE, without an amendment.
   ownerUserId: string; renewalReminderDays: string
 }
-const blank: FormState = { supplierId: '', supplierHotelMappingId: '', code: '', validFrom: '', validTo: '', settlementCurrency: 'AED', salesMarkets: '', nationalities: '', rateType: '', commissionPercent: '', paymentTermsDays: '', signedAt: '', signedDocumentRef: '', allotmentType: '', minStayMode: 'STAY_THROUGH', ownerUserId: '', renewalReminderDays: '60' }
+const blank: FormState = { supplierId: '', supplierHotelMappingId: '', code: '', validFrom: '', validTo: '', settlementCurrency: 'AED', salesMarkets: '', nationalities: '', rateType: '', commissionPercent: '', paymentTermsDays: '', signedAt: '', signedDocumentRef: '', allotmentType: '', minStayMode: 'STAY_THROUGH', clientBufferDays: '0', ownerUserId: '', renewalReminderDays: '60' }
 const RATE_TYPE_LABEL: Record<(typeof CONTRACT_RATE_TYPES)[number], string> = { NET: 'Net (we add markup)', COMMISSIONABLE: 'Commissionable (hotel pays commission)' }
 const ALLOTMENT_LABEL: Record<(typeof CONTRACT_ALLOTMENT_TYPES)[number], string> = { GUARANTEED: 'Guaranteed (we pay unsold rooms)', NON_GUARANTEED: 'Non-guaranteed (release applies)', FREE_SALE: 'Free sale (sell until stopped)' }
 const MIN_STAY_LABEL: Record<(typeof CONTRACT_MIN_STAY_MODES)[number], string> = { STAY_THROUGH: 'Stay-through: every night’s minimum applies', ARRIVAL: 'On arrival: only the check-in night’s minimum applies' }
@@ -38,7 +38,7 @@ function formOf(contract: AdminContractDetail): FormState {
   const raw = contract as unknown as { ownerUserId?: string | null; renewalReminderDays?: number }
   return {
     supplierId: contract.supplierId, supplierHotelMappingId: contract.supplierHotelMappingId ?? '', code: contract.code, validFrom: contract.validFrom.slice(0, 10), validTo: contract.validTo.slice(0, 10), settlementCurrency: contract.settlementCurrency, salesMarkets: (contract.salesMarkets ?? []).join(', '), nationalities: (contract.nationalities ?? []).join(', '),
-    rateType: h.rateType ?? '', commissionPercent: bpToPercent(h.commissionBp), paymentTermsDays: h.paymentTermsDays === null ? '' : String(h.paymentTermsDays), signedAt: h.signedAt ?? '', signedDocumentRef: h.signedDocumentRef ?? '', allotmentType: h.allotmentType ?? '', minStayMode: h.minStayMode,
+    rateType: h.rateType ?? '', commissionPercent: bpToPercent(h.commissionBp), paymentTermsDays: h.paymentTermsDays === null ? '' : String(h.paymentTermsDays), signedAt: h.signedAt ?? '', signedDocumentRef: h.signedDocumentRef ?? '', allotmentType: h.allotmentType ?? '', minStayMode: h.minStayMode, clientBufferDays: String(h.clientBufferDays),
     ownerUserId: raw.ownerUserId ?? '', renewalReminderDays: String(raw.renewalReminderDays ?? 60),
   }
 }
@@ -51,7 +51,10 @@ function headerOfForm(form: FormState): ContractHeaderTerms | string {
   if (form.rateType !== 'COMMISSIONABLE' && commissionBp !== null) return 'Only a commissionable contract carries a commission.'
   const days = form.paymentTermsDays.trim()
   if (days !== '' && !/^\d{1,3}$/.test(days)) return 'Payment terms: a whole number of days.'
+  const buffer = form.clientBufferDays.trim()
+  if (!/^\d{1,2}$/.test(buffer) || Number(buffer) > 30) return 'Client cancellation buffer: a whole number of days from 0 to 30.'
   return {
+    clientBufferDays: Number(buffer),
     rateType: (form.rateType || null) as ContractHeaderTerms['rateType'], commissionBp, paymentTermsDays: days === '' ? null : Number(days), signedAt: form.signedAt || null, signedDocumentRef: form.signedDocumentRef.trim() || null,
     allotmentType: (form.allotmentType || null) as ContractHeaderTerms['allotmentType'], minStayMode: form.minStayMode === 'ARRIVAL' ? 'ARRIVAL' : 'STAY_THROUGH',
   }
@@ -165,6 +168,7 @@ export function ContractForm({ contractId }: { contractId?: string }) {
             <FormField label="Payment terms (days after check-out)"><input inputMode="numeric" value={form.paymentTermsDays} onChange={(e) => set('paymentTermsDays', e.target.value)} disabled={locked} placeholder="e.g. 30" /></FormField>
             <FormField label="Allotment type"><select value={form.allotmentType} onChange={(e) => set('allotmentType', e.target.value)} disabled={locked}><option value="">Not stated</option>{CONTRACT_ALLOTMENT_TYPES.map((t) => <option key={t} value={t}>{ALLOTMENT_LABEL[t]}</option>)}</select></FormField>
             <FormField label="Minimum stay reading"><select value={form.minStayMode} onChange={(e) => set('minStayMode', e.target.value)} disabled={locked}>{CONTRACT_MIN_STAY_MODES.map((m) => <option key={m} value={m}>{MIN_STAY_LABEL[m]}</option>)}</select></FormField>
+            <FormField label="Client cancellation buffer (days the buyer's deadlines start before the hotel's)"><input inputMode="numeric" value={form.clientBufferDays} onChange={(e) => set('clientBufferDays', e.target.value)} disabled={locked} /></FormField>
             <FormField label="Signed on"><input type="date" value={form.signedAt} onChange={(e) => set('signedAt', e.target.value)} disabled={locked} /></FormField>
             <FormField label="Signed document reference"><input value={form.signedDocumentRef} onChange={(e) => set('signedDocumentRef', e.target.value)} disabled={locked} maxLength={200} placeholder="e.g. DMS-2026-0412" /></FormField>
             <h3 style={{ fontSize: 13, margin: '10px 0 0' }}>Ownership and renewal</h3>

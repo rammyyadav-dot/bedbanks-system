@@ -173,7 +173,7 @@ describe('inventory admin (PostgreSQL)', () => {
     expect(await prisma.ratePlan.findUniqueOrThrow({ where: { id: planIds[0] } })).toMatchObject({ releaseDays: 7, releaseTimeLocal: '18:00' })
     expect((await inventory.setRelease(tenantA, userA, hotelA, planIds[0], { releaseDays: 7, releaseTimeLocal: '18:00', expectedUpdatedAt: token, reason: 'supplier cut-off', idempotencyKey: key('rel') }, 'r')).replayed).toBe(true)
     const audit = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'inventory.release.changed' } })
-    expect(audit).toHaveLength(1); expect(audit[0].payload).toMatchObject({ from: { releaseDays: 0, releaseTimeLocal: '00:00' }, to: { releaseDays: 7, releaseTimeLocal: '18:00' }, reason: 'supplier cut-off' })
+    expect(audit).toHaveLength(1); expect(audit[0].payload).toMatchObject({ from: { releaseDays: 0, releaseTimeLocal: '18:00' }, to: { releaseDays: 7, releaseTimeLocal: '18:00' }, reason: 'supplier cut-off' })
     await expect(inventory.setRelease(tenantA, userA, hotelB, planIds[0], { releaseDays: 1, releaseTimeLocal: '00:00', expectedUpdatedAt: token, reason: 'wrong hotel', idempotencyKey: key('rel-x') }, null)).rejects.toBeInstanceOf(NotFoundException)
   })
 

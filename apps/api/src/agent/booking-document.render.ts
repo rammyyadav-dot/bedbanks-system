@@ -73,6 +73,7 @@ export function renderBookingDocument(doc: RenderableDocument): string {
     const rules: Array<{ daysBeforeCheckin: number; penalty: string }> = p.cancellationPolicy ?? []
     body = `<h2>Cancellation policy</h2>${rules.length === 0 ? '<p>No cancellation penalty is defined for this contract.</p>'
       : `<ul>${rules.map((rule) => `<li>Within ${escapeHtml(rule.daysBeforeCheckin)} day(s) of check-in: ${escapeHtml(rule.penalty)}</li>`).join('')}</ul>`}
+      ${p.noShowPenalty ? `<p><strong>No-show:</strong> ${escapeHtml(p.noShowPenalty)}</p>` : ''}
       ${p.nonRefundable ? '<p><strong>Non-refundable:</strong> the full amount is retained if this booking is cancelled.</p>' : ''}
       ${p.specialRequests ? `<h2>Special requests</h2><div class="box"><p><strong>Not guaranteed:</strong> subject to availability at check-in.</p>${Array.isArray(p.specialRequests.items) && p.specialRequests.items.length ? `<ul>${p.specialRequests.items.map((item: string) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}${p.specialRequests.note ? `<p>${escapeHtml(p.specialRequests.note)}</p>` : ''}</div>` : ''}
       ${payAtHotelHtml(p)}

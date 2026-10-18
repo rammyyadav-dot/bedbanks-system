@@ -1,4 +1,4 @@
-import { rulesForPlan } from '../supply/cancellation-rules'
+import { cancellationTiers, rulesForPlan } from '../supply/cancellation-rules'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { transitionBooking } from '../booking-ops/booking-transition'
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
@@ -7,7 +7,7 @@ import { PrismaService } from '../database/prisma.service'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { AgentAuditService } from './audit.service'
-import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
+import { CancellationPolicyService, buyerRules, penaltyStartsAt, type CancellationRule } from './cancellation-policy.service'
 import { LedgerService } from './ledger.service'
 
 export interface CancellationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; reason?: string; now?: Date }
@@ -20,6 +20,12 @@ export type CancellationResult = CancellationQuoteView & { status: 'CANCELLED'; 
  * (409, nothing changed) when the policy is missing, ambiguous or cannot be evaluated, or the stay has started.
  * The penalty is simply the part of the original DEBIT that is not refunded.
  */
+const nightsBetween = (checkIn: string, checkOut: string | undefined): number | null => {
+  if (!checkOut) return null
+  const nights = Math.round((Date.parse(`${checkOut}T00:00:00.000Z`) - Date.parse(`${checkIn}T00:00:00.000Z`)) / 86_400_000)
+  return Number.isInteger(nights) && nights > 0 ? nights : null
+}
+
 @Injectable()
 export class BookingCancellationService {
   constructor(
@@ -85,7 +91,7 @@ export class BookingCancellationService {
   }
 
   private async evaluate(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; currency: string; totalMinor: bigint; searchSnapshot: Prisma.JsonValue; cancellationPolicy: Prisma.JsonValue | null }, now: Date) {
-    const snapshot = booking.searchSnapshot as { checkIn?: string; inventoryHoldId?: string; ratePlanId?: string; canonicalHotelId?: string }
+    const snapshot = booking.searchSnapshot as { checkIn?: string; checkOut?: string; inventoryHoldId?: string; ratePlanId?: string; canonicalHotelId?: string }
     if (!snapshot.checkIn || !snapshot.inventoryHoldId || !snapshot.ratePlanId) throw new ConflictException('Booking snapshot is incomplete')
     const plan = await tx.ratePlan.findFirst({ where: { id: snapshot.ratePlanId, tenantId }, include: { contract: { include: { cancellationPolicies: true } }, roomType: { include: { hotel: true } } } })
     if (!plan) throw new ConflictException('Rate plan is unavailable')
@@ -93,14 +99,18 @@ export class BookingCancellationService {
     // Finding F13: the terms frozen at booking govern. Only a booking made before they were frozen reads the plan's live rules; unreadable frozen terms are never treated as free.
     const frozen = readFrozenTerms(booking.cancellationPolicy)
     if (frozen.kind === 'invalid') throw new ConflictException('Cancellation requires manual review: the frozen cancellation terms are unreadable')
-    const rules: CancellationRule[] = frozen.kind === 'frozen' ? frozen.rules : rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map(rule => ({
+    // A legacy booking reads the live tiers as the buyer is sold them (after the client buffer); the no-show rule never prices a cancellation (ADR 0067, F-10).
+    const rules: CancellationRule[] = frozen.kind === 'frozen' ? frozen.rules : buyerRules(cancellationTiers(rulesForPlan(plan, plan.contract.cancellationPolicies).rules).map(rule => ({
       daysBeforeCheckin: rule.daysBeforeCheckin, ...(rule.penaltyPercent !== null ? { penaltyPercent: rule.penaltyPercent } : {}),
-      ...(rule.penaltyMinor !== null ? { penaltyMinor: rule.penaltyMinor } : {}), ...(rule.currency ? { currency: rule.currency } : {}),
-    }))
+      ...(rule.penaltyMinor !== null ? { penaltyMinor: rule.penaltyMinor } : {}), ...(rule.penaltyNights !== null ? { penaltyNights: rule.penaltyNights } : {}), ...(rule.currency ? { currency: rule.currency } : {}),
+    })), plan.contract.clientBufferDays)
+    const stayNights = (frozen.kind === 'frozen' ? frozen.stayNights : null) ?? nightsBetween(snapshot.checkIn, snapshot.checkOut)
     const requestedAt = now.toISOString()
-    const quote = this.policy.quote({ cancellableAmountMinor: booking.totalMinor, currency: booking.currency, checkIn: snapshot.checkIn, requestedAt, rules, propertyTimeZone: timeZone })
+    const quote = this.policy.quote({ cancellableAmountMinor: booking.totalMinor, currency: booking.currency, checkIn: snapshot.checkIn, requestedAt, rules, propertyTimeZone: timeZone, ...(stayNights ? { stayNights } : {}) })
     if (quote.status !== 'quotable') throw new ConflictException(`Cancellation requires manual review: ${quote.reason}`)
-    if (now.getTime() >= Date.parse(`${snapshot.checkIn}T00:00:00.000Z`)) throw new ConflictException('Stay has already started')
+    // The stay starts at hotel-local midnight of check-in: the same instant the penalty tiers are measured from.
+    const starts = penaltyStartsAt(snapshot.checkIn, 0, timeZone)
+    if (starts === undefined || now.getTime() >= starts) throw new ConflictException('Stay has already started')
     return {
       holdId: snapshot.inventoryHoldId, penalty: quote.penaltyMinor, refund: quote.refundMinor,
       view: { bookingId: booking.id, currency: booking.currency, totalMinor: booking.totalMinor.toString(), penaltyMinor: quote.penaltyMinor.toString(), refundMinor: quote.refundMinor.toString(), checkIn: snapshot.checkIn, evaluatedAt: requestedAt },

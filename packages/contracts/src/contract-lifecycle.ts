@@ -10,7 +10,8 @@ export type ContractLifecycleStatus = 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'EXPIRED' 
 export type ContractApprovalKind = 'ACTIVATE' | 'AMEND'
 export type ContractApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
 
-export interface ContractCancellationTerm { policySet: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
+/** ADR 0067 F-10: exactly one of percent, amount or nights. A NO_SHOW rule (days 0, one per set) applies when the guest does not arrive. `kind` defaults to CANCELLATION when sent. */
+export interface ContractCancellationTerm { policySet: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }
 export interface ContractChildTerm { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface ContractLeadTimeTerm { minLeadHours: number; maxLeadDays: number | null }
 /** Commercial header terms (ADR 0067, F-20) and how a night's minimum stay is read (F-15). Reviewed terms: changed on an ACTIVE contract only by amendment. */
@@ -24,6 +25,8 @@ export interface ContractHeaderTerms {
   allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null
   /** STAY_THROUGH: every night's minimum stay applies. ARRIVAL: only the check-in night's. */
   minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  /** Days the buyer's cancellation tiers start before the hotel's (ADR 0067, F-10), 0-30. */
+  clientBufferDays: number
 }
 export const CONTRACT_RATE_TYPES = ['NET', 'COMMISSIONABLE'] as const
 export const CONTRACT_ALLOTMENT_TYPES = ['GUARANTEED', 'NON_GUARANTEED', 'FREE_SALE'] as const

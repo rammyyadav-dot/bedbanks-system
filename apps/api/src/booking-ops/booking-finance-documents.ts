@@ -1,5 +1,13 @@
 import { parseFrozenRules, type BookingDocumentType, type EffectivePenalty, type StoredPenaltyQuote } from '@bedbanks/contracts'
 import { formatMinor } from '../agent/booking-document.render'
+import { readFrozenTerms } from '../agent/booking-cancellation-terms'
+import { describePenalty } from '../agent/cancellation-policy.service'
+
+/** The frozen no-show rule as a buyer reads it (ADR 0067, F-10), or null. */
+const noShowOf = (stored: unknown, currency: string): string | null => {
+  const frozen = readFrozenTerms(stored)
+  return frozen.kind === 'frozen' && frozen.noShow ? describePenalty(frozen.noShow, (minor) => formatMinor(minor, currency)) : null
+}
 
 /**
  * The frozen content of an Admin booking document (ADR 0039, Phase 5). Pure. Money is integer minor units as decimal strings; the amounts shown are the ones the
@@ -33,7 +41,8 @@ export function buildDocumentPayload(type: BookingDocumentType, input: { booking
   if (type === 'VOUCHER') {
     const rules = parseFrozenRules(b.cancellationPolicy)
     return { ...base, guests: b.guests.map((g) => `${g.firstName} ${g.lastName}`), nonRefundable: b.isRefundable === false,
-      cancellationPolicy: (rules ?? []).map((r) => ({ daysBeforeCheckin: r.daysBeforeCheckin, penalty: r.penaltyPercent !== undefined ? `${r.penaltyPercent}% of the booking total` : formatMinor(r.penaltyMinor as string, b.currency) })) }
+      cancellationPolicy: (rules ?? []).map((r) => ({ daysBeforeCheckin: r.daysBeforeCheckin, penalty: describePenalty(r, (minor) => formatMinor(minor, b.currency)) })),
+      ...(noShowOf(b.cancellationPolicy, b.currency) ? { noShowPenalty: noShowOf(b.cancellationPolicy, b.currency) } : {}) }
   }
   if (type === 'INVOICE') {
     const description = `Accommodation${first?.roomName ? ` — ${first.roomName}` : ''}${first?.boardCode ? `, ${first.boardCode}` : ''}${b.nights ? `, ${b.nights} night${b.nights === 1 ? '' : 's'}` : ''}${b.rooms.length > 1 ? ` × ${b.rooms.length} rooms` : ''}`

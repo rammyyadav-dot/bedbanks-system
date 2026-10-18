@@ -14,9 +14,10 @@ import { CommercialControlUnavailableError, logCommercialControlFailure } from '
 import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
 import { loadBuyerMarket } from '../supply/buyer-market'
 import { normalizeCountry, parseMarketRules, type BuyerContext } from '../supply/market-rules'
-import { rulesForPlan } from '../supply/cancellation-rules'
+import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
 import { offerPaymentType } from './offer-payment-type'
-import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
+import { CancellationPolicyService, buyerRules, describePenalty, type CancellationRule } from './cancellation-policy.service'
+import { formatMinor } from './booking-document.render'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
 const OFFER_PREFIX = 'ci_'
@@ -396,13 +397,18 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   }
 
   private cancellationSummary(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], checkIn: string): SearchRateOffer['cancellation'] {
-    const summary = plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'
-    const rules: CancellationRule[] = rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map((rule) => ({
+    const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies).rules
+    // ADR 0067 F-10: the buyer is sold the hotel's tiers moved earlier by the contract's client buffer; the no-show rule is disclosed, never a deadline.
+    const rules: CancellationRule[] = buyerRules(cancellationTiers(resolved).map((rule) => ({
       daysBeforeCheckin: rule.daysBeforeCheckin,
       ...(rule.penaltyPercent != null ? { penaltyPercent: rule.penaltyPercent } : {}),
       ...(rule.penaltyMinor != null ? { penaltyMinor: rule.penaltyMinor } : {}),
+      ...(rule.penaltyNights != null ? { penaltyNights: rule.penaltyNights } : {}),
       ...(rule.currency ? { currency: rule.currency } : {}),
-    }))
+    })), plan.contract.clientBufferDays)
+    const noShow = noShowRule(resolved)
+    const noShowText = noShow ? `; no-show: ${describePenalty(noShow, (minor) => formatMinor(minor, noShow.currency ?? plan.currency))}` : ''
+    const summary = `${plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'}${noShowText}`
     const deadline = this.cancellation.freeCancellationDeadline({ refundable: plan.refundable, checkIn, timeZone: plan.roomType.hotel.timeZone, rules })
     return { refundable: plan.refundable, summary, ...(deadline ? { deadline } : {}) }
   }

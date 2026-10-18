@@ -25,7 +25,7 @@ test('an amendment carries only the header terms that changed', () => {
 })
 
 test('header terms read from a contract record with API defaults', () => {
-  assert.deepEqual(headerTermsOf({ signedAt: '2026-09-30T00:00:00.000Z', rateType: 'NET' }), { rateType: 'NET', commissionBp: null, paymentTermsDays: null, signedAt: '2026-09-30', signedDocumentRef: null, allotmentType: null, minStayMode: 'STAY_THROUGH' })
+  assert.deepEqual(headerTermsOf({ signedAt: '2026-09-30T00:00:00.000Z', rateType: 'NET' }), { rateType: 'NET', commissionBp: null, paymentTermsDays: null, signedAt: '2026-09-30', signedDocumentRef: null, allotmentType: null, minStayMode: 'STAY_THROUGH', clientBufferDays: 0 })
 })
 
 test('changes are described for the approver with the value they replace', () => {

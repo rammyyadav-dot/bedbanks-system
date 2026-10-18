@@ -20,3 +20,7 @@ export function rulesForPlan<T extends RuleLike>(plan: { cancellationPolicySet: 
 
 /** Distinct named sets on a contract, sorted. The contract default is not a name. */
 export const policySetNames = (contractRules: readonly RuleLike[]): string[] => [...new Set(contractRules.map((rule) => rule.policySet).filter((name): name is string => name !== null))].sort()
+
+/** ADR 0067 F-10: a set holds cancellation tiers and at most one NO_SHOW rule. Tiers decide deadlines and cancellation penalties; the no-show rule never does. */
+export const cancellationTiers = <T extends { kind?: string | null }>(rules: readonly T[]): T[] => rules.filter((rule) => rule.kind !== 'NO_SHOW')
+export const noShowRule = <T extends { kind?: string | null }>(rules: readonly T[]): T | null => rules.find((rule) => rule.kind === 'NO_SHOW') ?? null

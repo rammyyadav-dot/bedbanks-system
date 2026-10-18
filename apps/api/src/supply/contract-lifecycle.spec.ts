@@ -6,7 +6,7 @@ import {
 const terms = (over: Partial<ContractTerms> = {}): ContractTerms => ({
   code: 'DXB-2027', supplierId: 's1', supplierHotelMappingId: 'm1', validFrom: '2026-11-01', validTo: '2027-10-31', settlementCurrency: 'AED',
   salesMarkets: [], nationalities: [], paymentPolicyRef: null,
-  cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, currency: null }],
+  cancellationPolicies: [{ policySet: null, kind: 'CANCELLATION' as const, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, penaltyNights: null, currency: null }],
   childPolicies: [{ minAge: 0, maxAge: 5, extraBedAllowed: false, supplementMinor: '0', currency: 'AED' }],
   leadTimeRule: null, header: EMPTY_HEADER, ...over,
 })
@@ -30,7 +30,7 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
   })
 
   it('fingerprints the terms independent of row order, and changes on any policy edit', () => {
-    const a = terms({ cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, currency: null }, { policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] })
+    const a = terms({ cancellationPolicies: [{ policySet: null, kind: 'CANCELLATION' as const, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, penaltyNights: null, currency: null }, { policySet: null, kind: 'CANCELLATION' as const, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, penaltyNights: null, currency: null }] })
     const b = terms({ cancellationPolicies: [...a.cancellationPolicies].reverse() })
     expect(termsFingerprint(a)).toBe(termsFingerprint(b))
     expect(termsFingerprint(a)).toMatch(/^[0-9a-f]{64}$/)
@@ -59,6 +59,12 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
     expect(normaliseAmendment({}).errors[0]).toMatch(/at least one/)
     expect(normaliseAmendment({ validTo: '2027-02-30' }).errors).toHaveLength(1)
     expect(normaliseAmendment({ cancellationPolicies: [{ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: '100' }] }).errors[0]).toMatch(/exactly one/)
+    // ADR 0067 F-10: nights penalties, no-show rules on arrival, and the client buffer as a header term.
+    expect(normaliseAmendment({ cancellationPolicies: [{ daysBeforeCheckin: 3, penaltyNights: 1 }, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }] }).changes!.cancellationPolicies!.map((p) => [p.kind, p.penaltyNights])).toEqual([['CANCELLATION', 1], ['NO_SHOW', null]])
+    expect(normaliseAmendment({ cancellationPolicies: [{ kind: 'NO_SHOW', daysBeforeCheckin: 2, penaltyPercent: 100 }] }).errors.join(' ')).toMatch(/applies on arrival/)
+    expect(normaliseAmendment({ cancellationPolicies: [{ daysBeforeCheckin: 3, penaltyNights: 31 }] }).errors.join(' ')).toMatch(/1 to 30/)
+    expect(normaliseAmendment({ clientBufferDays: 2 }).changes).toEqual({ header: { clientBufferDays: 2 } })
+    expect(normaliseAmendment({ clientBufferDays: 31 }).errors.join(' ')).toMatch(/clientBufferDays/)
     expect(normaliseAmendment({ childPolicies: [{ minAge: 0, maxAge: 5 }, { minAge: 5, maxAge: 11 }] }).errors[0]).toMatch(/overlap/)
     expect(normaliseAmendment({ leadTimeRule: { minLeadHours: 48, maxLeadDays: 365 } }).changes).toEqual({ leadTimeRule: { minLeadHours: 48, maxLeadDays: 365 } })
   })
@@ -68,6 +74,8 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
     expect(amendmentProblems(before, before, [])).toEqual(['The amendment changes nothing.'])
     expect(amendmentProblems(before, applyAmendment(before, { settlementCurrency: 'USD' }), [plan()])).toEqual([expect.stringMatching(/child band is in AED/), expect.stringMatching(/another currency than USD/)])
     expect(amendmentProblems(before, applyAmendment(before, { validTo: '2027-03-31' }), [plan({ validTo: '2027-06-30' })])[0]).toMatch(/outside 2026-11-01 to 2027-03-31/)
+    const noShow = { policySet: null, kind: 'NO_SHOW' as const, daysBeforeCheckin: 0, penaltyPercent: 100, penaltyMinor: null, penaltyNights: null, currency: null }
+    expect(amendmentProblems(before, applyAmendment(before, { cancellationPolicies: [...before.cancellationPolicies, noShow, noShow] }), [])).toContain('Cancellation set default has more than one no-show rule.')
     expect(amendmentProblems(before, applyAmendment(before, { cancellationPolicies: [] }), [plan({ cancellationPolicySet: 'FLEX' })])).toEqual(expect.arrayContaining([expect.stringMatching(/cancellation set/)]))
     expect(amendmentProblems(before, applyAmendment(before, { validTo: '2027-12-31' }), [plan({ status: 'EXPIRED', currency: 'USD' })])).toEqual([])
   })
@@ -82,7 +90,7 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
   it('validates the commercial header and its combination (ADR 0067, F-20/F-15)', () => {
     const errors: string[] = []
     expect(normaliseHeader({ rateType: 'COMMISSIONABLE', commissionBp: 1000, paymentTermsDays: 30, signedAt: '2026-10-01', allotmentType: 'GUARANTEED', minStayMode: 'ARRIVAL' }, EMPTY_HEADER, errors))
-      .toEqual({ rateType: 'COMMISSIONABLE', commissionBp: 1000, paymentTermsDays: 30, signedAt: '2026-10-01', signedDocumentRef: null, allotmentType: 'GUARANTEED', minStayMode: 'ARRIVAL' })
+      .toEqual({ rateType: 'COMMISSIONABLE', commissionBp: 1000, paymentTermsDays: 30, signedAt: '2026-10-01', signedDocumentRef: null, allotmentType: 'GUARANTEED', minStayMode: 'ARRIVAL', clientBufferDays: 0 })
     expect(errors).toEqual([])
     const bad: string[] = []
     normaliseHeader({ rateType: 'COMMISSIONABLE', paymentTermsDays: 400, minStayMode: 'NIGHTLY', signedAt: '2026-02-30' }, EMPTY_HEADER, bad)

@@ -85,7 +85,7 @@ describe('inventory foundation integrity (PostgreSQL)', () => {
     await prisma.$executeRawUnsafe(`UPDATE "RatePlan" SET "release_time_local" = '18:30', "release_days" = 3 WHERE "id" = '${plans.a1}'`)
     await rejects(prisma.$executeRawUnsafe(`UPDATE "RatePlan" SET "release_days" = -1 WHERE "id" = '${plans.a1}'`), /check constraint|violat/i)
     const rows = await prisma.$queryRawUnsafe<Array<{ release_time_local: string }>>(`SELECT "release_time_local" FROM "RatePlan" WHERE "id" = '${plans.a2}'`)
-    expect(rows[0].release_time_local).toBe('00:00') // the default keeps prior behaviour
+    expect(rows[0].release_time_local).toBe('18:00') // ADR 0067 F-08: new plans release at 18:00 hotel time
   })
 
   it('II-04 existing and new availability rows default to ALLOTMENT, ADMIN source and never expire', async () => {

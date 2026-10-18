@@ -23,7 +23,8 @@ export const MAX_CANCELLATION_RULES = 12
 export const PENALTY_REASON_MAX = 500
 
 /** One rule, in the shape the CancellationPolicyService evaluates, with the fixed amount as a decimal string of minor units. */
-export interface FrozenCancellationRule { daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string }
+/** Exactly one of percent, amount (minor units) or nights (ADR 0067, F-10: pro rata of the booking total, 1-30). */
+export interface FrozenCancellationRule { daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string; penaltyNights?: number }
 export interface FrozenCancellationPolicy { rules: FrozenCancellationRule[]; frozenAt: string; source: 'MANUAL_ENTRY' | 'CONTRACT_AT_BOOKING' }
 
 const MINOR = /^\d{1,24}$/
@@ -44,8 +45,12 @@ export function parseFrozenRules(value: unknown): FrozenCancellationRule[] | nul
     if (typeof r.daysBeforeCheckin !== 'number' || !Number.isInteger(r.daysBeforeCheckin) || r.daysBeforeCheckin < 0 || r.daysBeforeCheckin > 100_000) return null
     const hasPercent = r.penaltyPercent !== undefined && r.penaltyPercent !== null
     const hasFixed = r.penaltyMinor !== undefined && r.penaltyMinor !== null
-    if (hasPercent === hasFixed) return null
-    if (hasPercent) {
+    const hasNights = r.penaltyNights !== undefined && r.penaltyNights !== null
+    if (Number(hasPercent) + Number(hasFixed) + Number(hasNights) !== 1) return null
+    if (hasNights) {
+      if (typeof r.penaltyNights !== 'number' || !Number.isInteger(r.penaltyNights) || r.penaltyNights < 1 || r.penaltyNights > 30) return null
+      rules.push({ daysBeforeCheckin: r.daysBeforeCheckin, penaltyNights: r.penaltyNights })
+    } else if (hasPercent) {
       if (typeof r.penaltyPercent !== 'number' || !Number.isInteger(r.penaltyPercent) || r.penaltyPercent < 0 || r.penaltyPercent > 100) return null
       rules.push({ daysBeforeCheckin: r.daysBeforeCheckin, penaltyPercent: r.penaltyPercent })
     } else {

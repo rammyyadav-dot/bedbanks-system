@@ -36,7 +36,7 @@ export function termsOf(c: LoadedContract): ContractTerms {
     code: c.code, supplierId: c.supplierId, supplierHotelMappingId: c.supplierHotelMappingId, validFrom: day(c.validFrom)!, validTo: day(c.validTo)!,
     settlementCurrency: c.settlementCurrency, salesMarkets: Array.isArray(c.salesMarkets) ? (c.salesMarkets as string[]) : [], nationalities: Array.isArray(c.nationalities) ? (c.nationalities as string[]) : [],
     paymentPolicyRef: c.paymentPolicyRef,
-    cancellationPolicies: c.cancellationPolicies.map((p) => ({ policySet: p.policySet, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor?.toString() ?? null, currency: p.currency })),
+    cancellationPolicies: c.cancellationPolicies.map((p) => ({ policySet: p.policySet, kind: p.kind, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor?.toString() ?? null, penaltyNights: p.penaltyNights, currency: p.currency })),
     childPolicies: c.childPolicies.map((p) => ({ minAge: p.minAge, maxAge: p.maxAge, extraBedAllowed: p.extraBedAllowed, supplementMinor: p.supplementMinor?.toString() ?? null, currency: p.currency })),
     leadTimeRule: lead ? { minLeadHours: lead.minLeadHours, maxLeadDays: lead.maxLeadDays } : null,
     header: headerOf(c),
@@ -245,11 +245,11 @@ export class ContractApprovalService {
     if (changes.paymentPolicyRef !== undefined) header.paymentPolicyRef = after.paymentPolicyRef
     if (changes.header !== undefined) {
       const h = after.header
-      Object.assign(header, { rateType: h.rateType, commissionBp: h.commissionBp, paymentTermsDays: h.paymentTermsDays, signedAt: h.signedAt === null ? null : new Date(`${h.signedAt}T00:00:00.000Z`), signedDocumentRef: h.signedDocumentRef, allotmentType: h.allotmentType, minStayMode: h.minStayMode })
+      Object.assign(header, { rateType: h.rateType, commissionBp: h.commissionBp, paymentTermsDays: h.paymentTermsDays, signedAt: h.signedAt === null ? null : new Date(`${h.signedAt}T00:00:00.000Z`), signedDocumentRef: h.signedDocumentRef, allotmentType: h.allotmentType, minStayMode: h.minStayMode, clientBufferDays: h.clientBufferDays })
     }
     if (changes.cancellationPolicies !== undefined) {
       await tx.cancellationPolicy.deleteMany({ where: { contractId: contract.id } })
-      if (after.cancellationPolicies.length) await tx.cancellationPolicy.createMany({ data: after.cancellationPolicies.map((p) => ({ contractId: contract.id, policySet: p.policySet, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor === null ? null : BigInt(p.penaltyMinor), currency: p.currency })) })
+      if (after.cancellationPolicies.length) await tx.cancellationPolicy.createMany({ data: after.cancellationPolicies.map((p) => ({ contractId: contract.id, policySet: p.policySet, kind: p.kind, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor === null ? null : BigInt(p.penaltyMinor), penaltyNights: p.penaltyNights, currency: p.currency })) })
     }
     if (changes.childPolicies !== undefined) {
       await tx.childPolicy.deleteMany({ where: { contractId: contract.id } })

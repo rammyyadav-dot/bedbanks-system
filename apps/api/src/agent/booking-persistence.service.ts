@@ -104,7 +104,9 @@ export class BookingPersistenceService {
         if (!plan) throw new ConflictException('Rate plan is unavailable')
         const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies)
         if (resolved.missing) throw new ConflictException('The rate plan names a cancellation rule set that has no rules')
-        const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date())
+        // ADR 0067 F-10: the buyer's tiers (after the contract's client buffer) and the stay length a nights penalty counts against.
+        const stayNights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
+        const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights })
         if (frozenTerms === null) throw new ConflictException('The cancellation terms of this rate plan cannot be recorded on the booking')
         const created = await tx.booking.create({
           data: {

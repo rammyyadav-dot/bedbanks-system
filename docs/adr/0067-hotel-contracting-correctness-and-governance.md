@@ -113,3 +113,24 @@ An unusable hotel zone fails closed for whichever side is set. Because Agent sea
 - New rate plans default to an 18:00 release time. Existing plans keep their stored time.
 
 Migration `202611200005_release_per_night` adds the nullable column with a range check and changes the default. No stored behaviour changes.
+
+## F-10: Cancellation by nights, no-show rules, a client buffer and one deadline instant
+
+**Problem.**
+- A cancellation tier could only charge a percent or a fixed amount. Hotel contracts usually say "1 night" or "2 nights".
+- There was no no-show term.
+- The DMC sold the hotel's own deadlines, so it had no time left to cancel with the hotel inside the free window.
+- The offer's deadline was hotel-local midnight, while the quote measured whole 24-hour days back from check-in. Across a DST change the two could disagree.
+- "Stay has started" used UTC midnight.
+
+**Decision.**
+- **Penalty forms.** A rule charges exactly one of `penaltyPercent`, `penaltyMinor` or `penaltyNights` (1-30). A nights penalty is the cancellable amount × min(nights, stay nights) / stay nights, in integer minor units, rounded down.
+- **No-show.** `kind` is CANCELLATION (a tier) or NO_SHOW. A no-show rule has `daysBeforeCheckin` 0, and there is at most one per set; the database and both authoring paths enforce this. It never decides a deadline or a cancellation penalty. It is disclosed in the offer summary, and on the voucher and the confirmation email as "No-show: …".
+- **Client buffer.** `Contract.clientBufferDays` (0-30, a reviewed header term) moves every tier the buyer is sold that many days earlier. Offer deadlines, frozen terms and legacy bookings all use the buyer's tiers. A buffer added later does not reach bookings already made.
+- **Frozen terms.** A booking freezes the buyer's tiers, the no-show rule, the stay length and the buffer. A frozen nights rule with an unknown stay length is manual review, never free. The Admin booking penalty quote reads the same terms.
+- **One deadline instant.** `penaltyStartsAt(checkIn, days, timeZone)` is hotel-local 00:00 on the day `days` before check-in. The offer deadline, the cancellation quote and the "stay has started" cut-off all use it.
+- **Authoring.** The create endpoint and amendments share one validator (400 `CANCELLATION_POLICY_INVALID`; 409 `CANCELLATION_NO_SHOW_EXISTS`). Admin adds a rule kind and a percent-or-nights choice, and the contract form takes the buffer.
+
+Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns with checks; every existing rule is a CANCELLATION tier and every contract has a buffer of 0.
+
+**Not built.** Marking a booking NO_SHOW does not yet post the no-show penalty: the booking-ops action records the status only, as before. Nights are charged pro rata of the total, not at each night's own price.

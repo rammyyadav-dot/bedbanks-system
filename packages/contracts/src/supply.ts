@@ -25,7 +25,7 @@ export type ContractStatus = 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'EXPIRED' | 'SUSPEN
 export interface ContractWrite { supplierId: string; supplierHotelMappingId?: string | null; code: string; status?: ContractStatus; validFrom: SupplyDate; validTo: SupplyDate; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; paymentPolicyRef?: string | null
   /** ADR 0067 F-20/F-15. Editable while DRAFT, REVIEW or SUSPENDED; amended on an ACTIVE contract. */
   rateType?: 'NET' | 'COMMISSIONABLE' | null; commissionBp?: number | null; paymentTermsDays?: number | null; signedAt?: SupplyDate | null; signedDocumentRef?: string | null
-  allotmentType?: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null; minStayMode?: 'STAY_THROUGH' | 'ARRIVAL'
+  allotmentType?: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null; minStayMode?: 'STAY_THROUGH' | 'ARRIVAL'; clientBufferDays?: number
   /** Governance (not reviewed terms): editable unless EXPIRED. The owner must be a member of the tenant. */
   ownerUserId?: string | null; renewalReminderDays?: number }
 export interface ContractUpdate extends Partial<ContractWrite> {}

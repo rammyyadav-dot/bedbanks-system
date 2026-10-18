@@ -23,14 +23,14 @@ export const CONTRACT_STAGE_TITLE: Record<ContractStage, string> = {
 /** Header terms the contract form edits, in the shape an amendment sends. */
 export interface HeaderForm extends ContractHeaderTerms { code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets: string[]; nationalities: string[] }
 
-export const HEADER_TERM_KEYS = ['rateType', 'commissionBp', 'paymentTermsDays', 'signedAt', 'signedDocumentRef', 'allotmentType', 'minStayMode'] as const satisfies ReadonlyArray<keyof ContractHeaderTerms>
+export const HEADER_TERM_KEYS = ['rateType', 'commissionBp', 'paymentTermsDays', 'signedAt', 'signedDocumentRef', 'allotmentType', 'minStayMode', 'clientBufferDays'] as const satisfies ReadonlyArray<keyof ContractHeaderTerms>
 
 /** Header terms as the contract record returns them (dates as ISO instants), with the API defaults for a record that predates them. */
 export function headerTermsOf(c: Partial<Record<keyof ContractHeaderTerms, unknown>>): ContractHeaderTerms {
   return {
     rateType: (c.rateType as ContractHeaderTerms['rateType']) ?? null, commissionBp: (c.commissionBp as number | null) ?? null, paymentTermsDays: (c.paymentTermsDays as number | null) ?? null,
     signedAt: typeof c.signedAt === 'string' ? c.signedAt.slice(0, 10) : null, signedDocumentRef: (c.signedDocumentRef as string | null) ?? null,
-    allotmentType: (c.allotmentType as ContractHeaderTerms['allotmentType']) ?? null, minStayMode: c.minStayMode === 'ARRIVAL' ? 'ARRIVAL' : 'STAY_THROUGH',
+    allotmentType: (c.allotmentType as ContractHeaderTerms['allotmentType']) ?? null, minStayMode: c.minStayMode === 'ARRIVAL' ? 'ARRIVAL' : 'STAY_THROUGH', clientBufferDays: typeof c.clientBufferDays === 'number' ? c.clientBufferDays : 0,
   }
 }
 
@@ -52,7 +52,7 @@ export function headerAmendment(current: HeaderForm, form: HeaderForm): Contract
 type TermKey = Exclude<keyof ContractAmendmentChanges, 'header'> | keyof ContractHeaderTerms
 const TERM_LABEL: Record<TermKey, string> = {
   rateType: 'Rate type', commissionBp: 'Commission (basis points)', paymentTermsDays: 'Payment terms (days)', signedAt: 'Signed on', signedDocumentRef: 'Signed document',
-  allotmentType: 'Allotment type', minStayMode: 'Minimum stay reading',
+  allotmentType: 'Allotment type', minStayMode: 'Minimum stay reading', clientBufferDays: 'Client cancellation buffer (days)',
   code: 'Code', validFrom: 'Valid from', validTo: 'Valid to', settlementCurrency: 'Settlement currency', salesMarkets: 'Sales markets', nationalities: 'Nationalities',
   paymentPolicyRef: 'Payment terms', cancellationPolicies: 'Cancellation rules', childPolicies: 'Child policy', leadTimeRule: 'Booking lead time',
 }

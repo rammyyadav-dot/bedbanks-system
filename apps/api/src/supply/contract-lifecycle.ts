@@ -26,7 +26,8 @@ export function lifecycleTarget(action: ContractLifecycleAction, from: string): 
 }
 export const activationAllowedFrom = (status: string): boolean => status === 'DRAFT' || status === 'REVIEW' || status === 'SUSPENDED'
 
-export interface CancellationTerm { policySet: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
+/** ADR 0067 F-10: `kind` NO_SHOW (days 0, at most one per set) and `penaltyNights` (1-30, exclusive with percent and amount). */
+export interface CancellationTerm { policySet: string | null; kind: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights: number | null; currency: string | null }
 export interface ChildTerm { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeTerm { minLeadHours: number; maxLeadDays: number | null }
 
@@ -58,13 +59,15 @@ export interface ContractHeader {
   signedDocumentRef: string | null
   allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null
   minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  /** Days the buyer's cancellation tiers start before the hotel's (ADR 0067, F-10), 0-30. */
+  clientBufferDays: number
 }
 /** The header columns of a contract row as reviewed terms. */
-export const headerOf = (c: { rateType: ContractHeader['rateType']; commissionBp: number | null; paymentTermsDays: number | null; signedAt: Date | null; signedDocumentRef: string | null; allotmentType: ContractHeader['allotmentType']; minStayMode: ContractHeader['minStayMode'] }): ContractHeader => ({
-  rateType: c.rateType, commissionBp: c.commissionBp, paymentTermsDays: c.paymentTermsDays, signedAt: c.signedAt ? c.signedAt.toISOString().slice(0, 10) : null, signedDocumentRef: c.signedDocumentRef, allotmentType: c.allotmentType, minStayMode: c.minStayMode,
+export const headerOf = (c: { rateType: ContractHeader['rateType']; commissionBp: number | null; paymentTermsDays: number | null; signedAt: Date | null; signedDocumentRef: string | null; allotmentType: ContractHeader['allotmentType']; minStayMode: ContractHeader['minStayMode']; clientBufferDays: number }): ContractHeader => ({
+  rateType: c.rateType, commissionBp: c.commissionBp, paymentTermsDays: c.paymentTermsDays, signedAt: c.signedAt ? c.signedAt.toISOString().slice(0, 10) : null, signedDocumentRef: c.signedDocumentRef, allotmentType: c.allotmentType, minStayMode: c.minStayMode, clientBufferDays: c.clientBufferDays,
 })
-export const EMPTY_HEADER: ContractHeader = { rateType: null, commissionBp: null, paymentTermsDays: null, signedAt: null, signedDocumentRef: null, allotmentType: null, minStayMode: 'STAY_THROUGH' }
-export const HEADER_KEYS = ['rateType', 'commissionBp', 'paymentTermsDays', 'signedAt', 'signedDocumentRef', 'allotmentType', 'minStayMode'] as const
+export const EMPTY_HEADER: ContractHeader = { rateType: null, commissionBp: null, paymentTermsDays: null, signedAt: null, signedDocumentRef: null, allotmentType: null, minStayMode: 'STAY_THROUGH', clientBufferDays: 0 }
+export const HEADER_KEYS = ['rateType', 'commissionBp', 'paymentTermsDays', 'signedAt', 'signedDocumentRef', 'allotmentType', 'minStayMode', 'clientBufferDays'] as const
 /** Governance fields: who owns the contract and when renewal is flagged. Not commercial terms, so editable while the contract is ACTIVE. */
 export const GOVERNANCE_KEYS = ['ownerUserId', 'renewalReminderDays'] as const
 
@@ -81,13 +84,14 @@ export function normaliseHeader(raw: Record<string, unknown>, current: ContractH
   if (has('signedAt')) { const v = raw.signedAt; if (v === null || v === '') out.signedAt = null; else if (isDay(v)) out.signedAt = v; else errors.push('signedAt: a real calendar day (YYYY-MM-DD), or null.') }
   if (has('signedDocumentRef')) { const v = raw.signedDocumentRef; if (v === null || v === '') out.signedDocumentRef = null; else if (typeof v === 'string' && v.trim().length <= 200 && !/[\u0000-\u001f]/.test(v)) out.signedDocumentRef = v.trim(); else errors.push('signedDocumentRef: up to 200 characters, or null.') }
   if (has('allotmentType')) { const v = raw.allotmentType; if (v === null || v === 'GUARANTEED' || v === 'NON_GUARANTEED' || v === 'FREE_SALE') out.allotmentType = v; else errors.push('allotmentType: GUARANTEED, NON_GUARANTEED, FREE_SALE or null.') }
+  if (has('clientBufferDays')) { const v = raw.clientBufferDays; if (whole(v, 0, 30)) out.clientBufferDays = v; else errors.push('clientBufferDays: a whole number of days from 0 to 30.') }
   if (has('minStayMode')) { const v = raw.minStayMode; if (v === 'STAY_THROUGH' || v === 'ARRIVAL') out.minStayMode = v; else errors.push('minStayMode: STAY_THROUGH or ARRIVAL.') }
   if (out.rateType === 'COMMISSIONABLE' && out.commissionBp === null) errors.push('commissionBp: a commissionable contract needs its commission.')
   if (out.rateType !== 'COMMISSIONABLE' && out.commissionBp !== null) errors.push('commissionBp: only a commissionable contract carries a commission.')
   return out
 }
 
-const byCancellation = (a: CancellationTerm, b: CancellationTerm) => (a.policySet ?? '').localeCompare(b.policySet ?? '') || b.daysBeforeCheckin - a.daysBeforeCheckin || (a.penaltyPercent ?? -1) - (b.penaltyPercent ?? -1) || (a.penaltyMinor ?? '').localeCompare(b.penaltyMinor ?? '')
+const byCancellation = (a: CancellationTerm, b: CancellationTerm) => (a.policySet ?? '').localeCompare(b.policySet ?? '') || a.kind.localeCompare(b.kind) || (a.penaltyNights ?? -1) - (b.penaltyNights ?? -1) || b.daysBeforeCheckin - a.daysBeforeCheckin || (a.penaltyPercent ?? -1) - (b.penaltyPercent ?? -1) || (a.penaltyMinor ?? '').localeCompare(b.penaltyMinor ?? '')
 const byChild = (a: ChildTerm, b: ChildTerm) => a.minAge - b.minAge || a.maxAge - b.maxAge
 
 /** Canonical form: policies sorted, lists sorted, so the same terms always give the same fingerprint whatever order the rows came in. */
@@ -105,7 +109,7 @@ export function termsFingerprint(terms: ContractTerms): string {
   const ordered = {
     code: c.code, supplierId: c.supplierId, supplierHotelMappingId: c.supplierHotelMappingId, validFrom: c.validFrom, validTo: c.validTo,
     settlementCurrency: c.settlementCurrency, salesMarkets: c.salesMarkets, nationalities: c.nationalities, paymentPolicyRef: c.paymentPolicyRef,
-    cancellationPolicies: c.cancellationPolicies.map((p) => [p.policySet, p.daysBeforeCheckin, p.penaltyPercent, p.penaltyMinor, p.currency]),
+    cancellationPolicies: c.cancellationPolicies.map((p) => [p.policySet, p.kind, p.daysBeforeCheckin, p.penaltyPercent, p.penaltyMinor, p.penaltyNights, p.currency]),
     childPolicies: c.childPolicies.map((p) => [p.minAge, p.maxAge, p.extraBedAllowed, p.supplementMinor, p.currency]),
     leadTimeRule: c.leadTimeRule ? [c.leadTimeRule.minLeadHours, c.leadTimeRule.maxLeadDays] : null,
     header: HEADER_KEYS.map((k) => c.header[k]),
@@ -179,16 +183,28 @@ export function cancellationTerm(raw: unknown, at: string, errors: string[]): Ca
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const hasPercent = r.penaltyPercent !== undefined && r.penaltyPercent !== null
   const hasMinor = r.penaltyMinor !== undefined && r.penaltyMinor !== null
+  const hasNights = r.penaltyNights !== undefined && r.penaltyNights !== null
+  const kind = r.kind === undefined || r.kind === null ? 'CANCELLATION' : r.kind
+  if (kind !== 'CANCELLATION' && kind !== 'NO_SHOW') errors.push(`${at}: kind must be CANCELLATION or NO_SHOW.`)
   if (!whole(r.daysBeforeCheckin, 0, 3650)) errors.push(`${at}: daysBeforeCheckin must be a whole number of days, 0 or more.`)
-  if (hasPercent === hasMinor) errors.push(`${at}: give exactly one of penaltyPercent or penaltyMinor.`)
+  else if (kind === 'NO_SHOW' && r.daysBeforeCheckin !== 0) errors.push(`${at}: a no-show rule applies on arrival; daysBeforeCheckin must be 0.`)
+  if (Number(hasPercent) + Number(hasMinor) + Number(hasNights) !== 1) errors.push(`${at}: give exactly one of penaltyPercent, penaltyMinor or penaltyNights.`)
   if (hasPercent && !whole(r.penaltyPercent, 0, 100)) errors.push(`${at}: penaltyPercent must be a whole number from 0 to 100.`)
+  if (hasNights && !whole(r.penaltyNights, 1, 30)) errors.push(`${at}: penaltyNights must be a whole number of nights from 1 to 30.`)
   const minor = hasMinor ? minorText(r.penaltyMinor) : null
   if (hasMinor && minor === null) errors.push(`${at}: penaltyMinor must be a whole number of minor units, 0 or more.`)
   const currency = currencyOf(r.currency)
   if (currency === undefined) errors.push(`${at}: currency must be a 3-letter ISO-4217 code.`)
   const set = r.policySet === undefined || r.policySet === null || r.policySet === '' ? null : r.policySet
   if (set !== null && !isValidPolicySetName(set)) errors.push(`${at}: policySet must be 1-80 characters: letters, digits, space, dot, dash or underscore.`)
-  return { policySet: set as string | null, daysBeforeCheckin: r.daysBeforeCheckin as number, penaltyPercent: hasPercent ? (r.penaltyPercent as number) : null, penaltyMinor: minor, currency: currency ?? null }
+  return { policySet: set as string | null, kind: kind as CancellationTerm['kind'], daysBeforeCheckin: r.daysBeforeCheckin as number, penaltyPercent: hasPercent ? (r.penaltyPercent as number) : null, penaltyMinor: minor, penaltyNights: hasNights ? (r.penaltyNights as number) : null, currency: currency ?? null }
+}
+
+/** Sets that hold more than one no-show rule (ADR 0067, F-10). The default set is reported as "default". */
+export function duplicateNoShowSets(rules: readonly Pick<CancellationTerm, 'policySet' | 'kind'>[]): string[] {
+  const seen = new Map<string, number>()
+  for (const r of rules) if (r.kind === 'NO_SHOW') seen.set(r.policySet ?? 'default', (seen.get(r.policySet ?? 'default') ?? 0) + 1)
+  return [...seen].filter(([, n]) => n > 1).map(([set]) => set)
 }
 
 export function childTerm(raw: unknown, at: string, errors: string[]): ChildTerm | null {
@@ -270,6 +286,7 @@ export function amendmentProblems(before: ContractTerms, after: ContractTerms, p
   const headerErrors: string[] = []
   normaliseHeader({}, after.header, headerErrors)
   problems.push(...headerErrors)
+  for (const set of duplicateNoShowSets(after.cancellationPolicies)) problems.push(`Cancellation set ${set} has more than one no-show rule.`)
   for (const p of after.cancellationPolicies) if (p.currency !== null && p.currency !== after.settlementCurrency) { problems.push(`A cancellation rule is in ${p.currency}, not the settlement currency ${after.settlementCurrency}.`); break }
   for (const p of after.childPolicies) if (p.currency !== null && p.currency !== after.settlementCurrency) { problems.push(`A child band is in ${p.currency}, not the settlement currency ${after.settlementCurrency}.`); break }
   problems.push(...planConflicts(after, plans))

@@ -270,6 +270,19 @@ describe('Contract maker-checker and versioning (ADR 0067)', () => {
     expect(((await lifecycle()).versions[0]!.terms as unknown as { header: object }).header).toMatchObject({ rateType: 'COMMISSIONABLE', commissionBp: 1000, minStayMode: 'ARRIVAL' })
   })
 
+  it('authors nights penalties and one no-show rule per set through the API (ADR 0067, F-10)', async () => {
+    const draft = expectStatus(await api(maker).post('/supply/contracts', { supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-NS`, validFrom: iso(-1), validTo: iso(60), settlementCurrency: 'AED', clientBufferDays: 2 }), 201).body.data
+    expect(draft.clientBufferDays).toBe(2)
+    const path = `/supply/contracts/${draft.id}/policies/cancellation`
+    expect(expectStatus(await api(maker).post(path, { daysBeforeCheckin: 3, penaltyNights: 1 }), 201).body.data).toMatchObject({ kind: 'CANCELLATION', penaltyNights: 1, penaltyPercent: null })
+    expectStatus(await api(maker).post(path, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }), 201)
+    expect(expectStatus(await api(maker).post(path, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyNights: 1 }), 409).body.error.code).toBe('CANCELLATION_NO_SHOW_EXISTS')
+    for (const bad of [{ daysBeforeCheckin: 3, penaltyNights: 1, penaltyPercent: 10 }, { daysBeforeCheckin: 3, penaltyNights: 0 }, { kind: 'NO_SHOW', daysBeforeCheckin: 2, penaltyPercent: 100 }, { kind: 'LATE', daysBeforeCheckin: 1, penaltyPercent: 5 }]) {
+      expect(expectStatus(await api(maker).post(path, bad), 400).body.error.code).toBe('CANCELLATION_POLICY_INVALID')
+    }
+    expect(expectStatus(await api(maker).patch(`/supply/contracts/${draft.id}`, { clientBufferDays: 31 }), 400).body.error.code).toBe('CONTRACT_HEADER_INVALID')
+  })
+
   it('history rows are immutable even for the database owner', async () => {
     const row = await prisma.contractVersion.findFirstOrThrow({ where: { contractId, version: 1 } })
     await expect(prisma.contractVersion.update({ where: { id: row.id }, data: { reason: 'rewritten' } })).rejects.toThrow(/immutable/)

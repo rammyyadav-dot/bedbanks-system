@@ -40,7 +40,7 @@ export interface AdminContract {
   supplier: { id: string; displayName: string };
   supplierHotelMapping?: { id: string; hotelId: string; status: string } | null;
 }
-export interface CancellationPolicyRecord { id: string; policySet?: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
+export interface CancellationPolicyRecord { id: string; policySet?: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null }
@@ -49,7 +49,7 @@ export async function getContracts() { return apiRequest<AdminContract[]>('/supp
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
-export async function createCancellationPolicy(contractId: string, input: { daysBeforeCheckin: number; penaltyPercent: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function createCancellationPolicy(contractId: string, input: { kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyNights?: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor?: string; currency?: string }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 // Contract lifecycle and maker-checker (ADR 0067). Routes come from @bedbanks/contracts.
