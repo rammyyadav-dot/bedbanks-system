@@ -12,18 +12,18 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@base-ui/react": "^1.5.0",
+    "@base-ui/react": "^1.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^3.3.1",
-    "lucide-react": "^1.16.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "tailwind-merge": "^3.7.0",
+    "lucide-react": "^1.57.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
-    "typescript": "^5.7.3"
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "react": ">=19.0.0",
