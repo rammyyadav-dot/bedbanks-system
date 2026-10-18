@@ -11,8 +11,11 @@
  *   COMPLIANCE_ARCHIVE_BUCKET=<S3 bucket with Object Lock> (AWS_REGION; credentials from the task role), or
  *   COMPLIANCE_ARCHIVE_DIR=<directory>  local development only: refused unless the database host is local.
  * Optional: COMPLIANCE_RETENTION_DAYS (default 2557, minimum 365), COMPLIANCE_BATCH_SIZE (default 1000), COMPLIANCE_MAX_LAG_HOURS (default 24).
+ * Signed checkpoints (ADR 0067 amendment 4): COMPLIANCE_SIGNING_KEY_ID=<KMS ECC_NIST_P256 SIGN_VERIFY key> makes `export` sign a checkpoint of every
+ * scope's chain head and `verify` require that key; COMPLIANCE_LOCAL_SIGNER=true uses an in-memory key, local databases only.
  * Never prints a URL, password, payload or raw error message.
  */
+import { KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { PrismaClient } from '@prisma/client'
 import { assertRuntimeDbIdentity } from '../database/runtime-db-identity'
@@ -21,6 +24,7 @@ import { checkTarget } from '../database/provision-hold-expiry-role.cli'
 import { FileSystemComplianceArchive, S3ObjectLockComplianceArchive, type ComplianceArchive } from './compliance-archive'
 import { ARCHIVE_ROOT, DEFAULT_BATCH_SIZE, DEFAULT_RETENTION_DAYS, PLATFORM_SCOPE, exportDue, knownScopes } from './compliance-export'
 import { COMPLIANCE_GROUP_ROLE, COMPLIANCE_LOGIN_ROLE, assertComplianceRoleInput, describePasswordProblems, provisionComplianceRole, verifyComplianceRole } from './compliance-role'
+import { KmsComplianceSigner, LocalComplianceSigner, keyFingerprint, storedHeads, verifyCheckpoints, writeCheckpoint, type ComplianceSigner } from './compliance-anchor'
 import { verifyScope } from './compliance-verify'
 
 const integer = (name: string, fallback: number): number => {
@@ -38,6 +42,16 @@ export function archiveFromEnv(env: Record<string, string | undefined>, database
     return new FileSystemComplianceArchive(env.COMPLIANCE_ARCHIVE_DIR)
   }
   throw new Error('No compliance archive configured: set COMPLIANCE_ARCHIVE_BUCKET')
+}
+
+export function signerFromEnv(env: Record<string, string | undefined>, databaseIsLocal: boolean): ComplianceSigner | null {
+  if (env.COMPLIANCE_SIGNING_KEY_ID && env.COMPLIANCE_LOCAL_SIGNER === 'true') throw new Error('Set either COMPLIANCE_SIGNING_KEY_ID or COMPLIANCE_LOCAL_SIGNER, not both')
+  if (env.COMPLIANCE_SIGNING_KEY_ID) return new KmsComplianceSigner(new KMSClient({ region: env.AWS_REGION }), env.COMPLIANCE_SIGNING_KEY_ID)
+  if (env.COMPLIANCE_LOCAL_SIGNER === 'true') {
+    if (!databaseIsLocal) throw new Error('COMPLIANCE_LOCAL_SIGNER is for local development only: its private key is not protected. Use COMPLIANCE_SIGNING_KEY_ID')
+    return new LocalComplianceSigner()
+  }
+  return null
 }
 
 async function withComplianceDb<T>(work: (db: PrismaClient, local: boolean) => Promise<T>): Promise<T> {
@@ -91,6 +105,16 @@ async function main(command: string | undefined): Promise<number> {
         for (const scope of exported) for (const b of scope.stored) console.log(`stored ${scope.scope}#${b.sequence} records=${b.recordCount} sha256=${b.batchSha256} key=${b.objectKey}`)
         for (const f of failed) console.log(`FAIL: scope ${f.scope}: ${f.error}`)
         console.log(`Compliance export to ${archive.description}: ${exported.reduce((n, s) => n + s.stored.length, 0)} batch(es) stored, ${failed.length} scope(s) failed.`)
+        const signer = signerFromEnv(process.env, local)
+        if (!signer) { console.log('Checkpoint: signing is not configured (COMPLIANCE_SIGNING_KEY_ID).'); return failed.length ? 1 : 0 }
+        try {
+          const retainUntil = new Date(Date.now() + integer('COMPLIANCE_RETENTION_DAYS', DEFAULT_RETENTION_DAYS) * 86_400_000)
+          const checkpoint = await writeCheckpoint(archive, signer, await storedHeads(db), { retainUntil })
+          console.log(checkpoint ? `Checkpoint #${checkpoint.checkpoint.sequence} signed: sha256=${checkpoint.checkpointSha256} scopes=${checkpoint.checkpoint.scopes.length} key=${checkpoint.checkpoint.keyFingerprint}` : 'Checkpoint unchanged: no chain head moved.')
+        } catch (error) {
+          console.log(`FAIL: checkpoint: ${error instanceof Error ? error.name : 'Error'}${error instanceof Error && /^(Checkpoint|Archive object|The compliance signing key)/.test(error.message) ? ` (${error.message})` : ''}`)
+          return 1
+        }
         return failed.length ? 1 : 0
       })
     case 'verify':
@@ -99,12 +123,21 @@ async function main(command: string | undefined): Promise<number> {
         const scopes = new Set<string>([PLATFORM_SCOPE, ...await knownScopes(db)])
         for (const key of await archive.list(ARCHIVE_ROOT)) scopes.add(key.slice(ARCHIVE_ROOT.length).split('/')[0])
         let failures = 0
+        const chains = new Map<string, Map<number, string>>()
         for (const scope of [...scopes].sort()) {
           const report = await verifyScope(db, archive, scope, { maxLagHours: integer('COMPLIANCE_MAX_LAG_HOURS', 24) })
           for (const failure of report.failures) console.log(`FAIL: ${failure}`)
           failures += report.failures.length
+          chains.set(scope, report.hashes)
           console.log(`${scope}: ${report.batches} batch(es), ${report.records} record(s), head ${report.headSha256}, ${report.sealedNotStored} sealed not stored`)
         }
+        const signer = signerFromEnv(process.env, local)
+        const expectedKeyFingerprint = signer?.managed ? keyFingerprint(await signer.publicKeyPem()) : undefined
+        const checkpoints = await verifyCheckpoints(archive, chains, { expectedKeyFingerprint })
+        for (const failure of checkpoints.failures) console.log(`FAIL: ${failure}`)
+        failures += checkpoints.failures.length
+        if (signer?.managed && checkpoints.checkpoints === 0) { console.log('FAIL: signing is configured but the archive holds no checkpoint'); failures += 1 }
+        console.log(checkpoints.latest ? `checkpoints: ${checkpoints.checkpoints}, latest #${checkpoints.latest.checkpoint.sequence} ${checkpoints.latest.checkpointSha256} (${checkpoints.latest.checkpoint.createdAt})` : 'checkpoints: none')
         console.log(failures ? `Compliance verification failed: ${failures} problem(s).` : 'Compliance archive verified.')
         return failures ? 1 : 0
       })

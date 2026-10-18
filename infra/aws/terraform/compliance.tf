@@ -4,6 +4,7 @@
 #  - Least privilege: a task role that can put/read/list this bucket only (never delete), an execution role that can read only
 #    COMPLIANCE_DATABASE_URL (the restricted fbeds_compliance_export login, never the owner), a security group that reaches only Postgres and HTTPS.
 #  - Alarms: any FAIL line, or no successful export (45 min) / verification (2 h), pages the existing alarm topic.
+#  - Signed checkpoints (amendment 4): an asymmetric KMS key the task role may only Sign with; export signs every chain head, verify checks them.
 # Teardown note: objects under COMPLIANCE retention cannot be deleted by anyone, root included, until their retain-until date. Enabling this in an
 # environment means its bucket outlives `terraform destroy` for the retention period. Use the minimum retention (365 days) only where that is acceptable.
 
@@ -50,6 +51,23 @@ data "aws_iam_policy_document" "kms_compliance" {
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.this.account_id}:root"]
     }
   }
+}
+
+# ---- checkpoint signing key (ADR 0067 amendment 4): asymmetric, the private key never leaves KMS; only the compliance task role may sign ----
+# Asymmetric KMS keys do not support automatic rotation. A rotation is a new key: checkpoints name the key fingerprint, the archive keeps every
+# public key, and the verifier checks each checkpoint against the key it names (docs/runbooks/compliance-export.md).
+resource "aws_kms_key" "compliance_signing" {
+  for_each                 = local.compliance
+  description              = "${local.name} compliance checkpoint signing (ECDSA P-256)"
+  customer_master_key_spec = "ECC_NIST_P256"
+  key_usage                = "SIGN_VERIFY"
+  deletion_window_in_days  = 30
+  policy                   = data.aws_iam_policy_document.kms_compliance.json
+}
+resource "aws_kms_alias" "compliance_signing" {
+  for_each      = local.compliance
+  name          = "alias/${local.name}-compliance-signing"
+  target_key_id = aws_kms_key.compliance_signing[each.key].key_id
 }
 
 # ---- WORM archive ----
@@ -227,6 +245,11 @@ data "aws_iam_policy_document" "compliance_task" {
     actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
     resources = [aws_kms_key.compliance[each.key].arn]
   }
+  # Sign checkpoints and read the public key to archive it. No kms:Verify needed (verification uses the archived public key).
+  statement {
+    actions   = ["kms:Sign", "kms:GetPublicKey"]
+    resources = [aws_kms_key.compliance_signing[each.key].arn]
+  }
 }
 resource "aws_iam_role_policy" "compliance_task" {
   for_each = local.compliance
@@ -259,6 +282,7 @@ resource "aws_ecs_task_definition" "compliance" {
       { name = "AWS_REGION", value = var.region },
       { name = "COMPLIANCE_ARCHIVE_BUCKET", value = aws_s3_bucket.compliance["enabled"].bucket },
       { name = "COMPLIANCE_RETENTION_DAYS", value = tostring(var.compliance_retention_days) },
+      { name = "COMPLIANCE_SIGNING_KEY_ID", value = aws_kms_key.compliance_signing["enabled"].arn },
     ]
     secrets         = [{ name = "COMPLIANCE_DATABASE_URL", valueFrom = aws_secretsmanager_secret.compliance_database_url["enabled"].arn }]
     linuxParameters = { initProcessEnabled = true }
@@ -404,4 +428,5 @@ resource "aws_cloudwatch_metric_alarm" "compliance_heartbeat" {
 
 output "compliance_archive_bucket" { value = var.compliance_export_enabled ? aws_s3_bucket.compliance["enabled"].bucket : null }
 output "compliance_task_families" { value = [for t in aws_ecs_task_definition.compliance : t.family] }
+output "compliance_signing_key_arn" { value = var.compliance_export_enabled ? aws_kms_key.compliance_signing["enabled"].arn : null }
 output "compliance_database_url_secret_arn" { value = var.compliance_export_enabled ? aws_secretsmanager_secret.compliance_database_url["enabled"].arn : null }

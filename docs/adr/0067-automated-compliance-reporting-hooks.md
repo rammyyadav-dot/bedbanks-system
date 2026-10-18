@@ -57,7 +57,7 @@ Forward migration, reviewed before use, while the exporter is stopped; listed in
 
 **Rollout.** Re-run `ops:provision-api-runtime-role` (owner) after deploying, so the role receives the three read grants. Until then, the summary answers with its export section `unavailable` and the list answers `503 OPERATIONS_READ_DENIED`. Neither shows an empty result.
 
-**Still not built:** external anchoring of the chain head. Terraform is in amendment 2; per-period reports are in amendment 3.
+Terraform is in amendment 2, per-period reports in amendment 3, signed checkpoints in amendment 4.
 
 ## Amendment 2: AWS infrastructure (Terraform)
 **Decision.** `infra/aws/terraform/compliance.tf` provisions the archive and the schedule behind `compliance_export_enabled` (default `false`), so no environment changes until an owner opts in.
@@ -101,4 +101,32 @@ Forward migration, reviewed before use, while the exporter is stopped; listed in
   - period validation, and the 403;
   - the 422 above the cap, with nothing audited.
 - The Admin guard test, plus a browser check of the download.
+
+## Amendment 4: signed checkpoints of the chain heads
+**Context.** Object Lock stops anyone from altering an archived batch, and each batch hash covers its predecessor. What it does not stop is someone with database owner rights, or with the compliance login's password, sealing an *alternative* history before it is stored, or claiming afterwards that a different chain was the real one. Without an independent commitment to "this was the head at that time", that cannot be told apart.
+
+**Decision.** After every export run, `ops:compliance export` writes a **checkpoint** to the WORM archive (`compliance/checkpoints/v1/<sequence>.json`, write-once):
+- **Contents:** the stored chain head (sequence and batch hash) of every scope, the previous checkpoint's hash, the creation time, and the signing key's id and fingerprint.
+- **Signature:** canonical JSON bytes, signed with ECDSA P-256 (`ECDSA_SHA_256`) by an **AWS KMS asymmetric key**. Only the 32-byte digest is sent to KMS (`MessageType: DIGEST`). The private key never leaves KMS, and only the compliance task role may use it (`kms:Sign`, `kms:GetPublicKey`). The database owner, the deploy role and the API role cannot.
+- **Public key:** stored once per key in the archive (`keys/<fingerprint>.pem`), so verification needs nothing but the archive.
+- **Frequency:** a checkpoint is written only when a head moved, so an idle platform does not grow the archive. Concurrent writers fail on the write-once key; the chain does not fork.
+- **No database change.** The checkpoint chain lives in the archive; its sequence is the archive's own.
+
+`ops:compliance verify` additionally checks every checkpoint:
+- the signature, against the archived public key and, when a KMS key is configured, that it is the expected key;
+- sequence continuity and links;
+- that every signed head is the batch at that sequence in the scope's archived chain;
+- that no head ever moves back.
+
+It also fails when signing is configured but no checkpoint exists.
+
+**Infrastructure.** `compliance.tf` adds `aws_kms_key.compliance_signing` (`ECC_NIST_P256`, `SIGN_VERIFY`, alias `alias/fbeds-<env>-compliance-signing`), grants the task role `kms:Sign` and `kms:GetPublicKey` on it, and passes `COMPLIANCE_SIGNING_KEY_ID` to both tasks. Asymmetric KMS keys do not rotate automatically. Rotation is a new key: checkpoints name their key fingerprint, the archive keeps every public key, and the verifier checks each checkpoint against the key it names.
+
+**Local development.** `COMPLIANCE_LOCAL_SIGNER=true` signs with an in-memory key and is refused for a non-local database.
+
+**Evidence.**
+- `compliance-anchor.spec.ts`: real ECDSA signing and verification. It covers linking, no-op when nothing moved, altered content, forged signature, missing checkpoint, foreign key, heads absent from the chain or moving back, an unreadable last checkpoint, the exact KMS request (digest only), refusal of a non-P-256 key, and CLI signer selection.
+- `compliance-reporting.e2e-spec.ts`: heads read through the restricted compliance role match the database, and a checkpoint of them verifies against the archive.
+- A CLI smoke run: export signed checkpoint #1, a second export reported it unchanged, and verify passed.
+- Terraform plan tests assert the key spec and that only the compliance task role, not the deploy role, can sign. checkov passes with no new exception.
 
