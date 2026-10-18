@@ -56,7 +56,7 @@ finance, credit and reconciliation code (docs/finance-cfo-audit-2026-10-17.md) a
 `@bedbanks/money` tests (21, of which 11 new), API unit suite (1423 passed, 3 skipped), type-check, lint, `check:architecture`, and against a
 local PostgreSQL 16 with every migration applied: new e2e `ledger-integrity` (5: every seeded break and only those, roll-forward, tenant
 isolation with a clean verdict, RBAC and input, F1) and a new F2 case in `booking-confirmation`; both new tests were shown to fail with their
-fix removed. The 15 finance-related e2e suites pass (102 tests). Not run: browser, CI.
+fix removed. The 15 finance-related e2e suites pass (102 tests). Full e2e: 86 of 92 suites pass (883 tests, 18 skipped); the 5 that fail (`booking-ops-queue`, `booking-ops-role`, `hotel-search-index`, `rate-plan-clone-role`, `sandbox-content-staging`) fail on `main` without this change too, and need CI-only settings here (`MAPPING_DATABASE_URL`, a database named `fbeds_ci`, separate role credentials). Not run: browser, CI.
 
 ## Rollback
 Revert the commit. Nothing is stored, so there is nothing to migrate back.

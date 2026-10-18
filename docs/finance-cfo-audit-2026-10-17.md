@@ -52,4 +52,4 @@ keeps the migration safe on existing data.
 
 ## Tests run
 Money package 21/21. API unit 1423 passed, 3 skipped. Type-check, lint, `check:architecture`: pass. PostgreSQL e2e, finance scope: 15
-suites, 102 tests, all pass, including the new `ledger-integrity` suite and the F2 case. Not run: browser, CI.
+suites, 102 tests, all pass, including the new `ledger-integrity` suite and the F2 case. Full e2e: 86 of 92 suites pass (883 tests, 18 skipped); the 5 that fail (`booking-ops-queue`, `booking-ops-role`, `hotel-search-index`, `rate-plan-clone-role`, `sandbox-content-staging`) fail on `main` without this change too, and need CI-only settings here (`MAPPING_DATABASE_URL`, a database named `fbeds_ci`, separate role credentials). Not run: browser, CI.
