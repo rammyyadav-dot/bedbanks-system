@@ -26,6 +26,7 @@ export * from './booking-ops-queue';
 export * from './rate-calendar';
 export * from './tenant-control';
 export * from './rate-plan-lifecycle';
+export * from './contract-lifecycle';
 export * from './supplier-extranet';
 
 export * from './hotel-reports'

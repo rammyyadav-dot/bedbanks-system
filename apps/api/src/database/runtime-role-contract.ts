@@ -67,6 +67,9 @@ export const BOOKING_ROOM_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_i
 /** BookingGuest columns the extranet reads: the lead guest's name only. No title, age, type, room link or any contact detail. */
 export const BOOKING_GUEST_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'first_name', 'last_name', 'is_lead'] as const
 
+/** ComplianceRecord columns the Admin compliance evidence view reads (ADR 0067 amendment 1). Everything except the audit payload: the view shows its SHA-256 only. */
+export const COMPLIANCE_RECORD_READ_COLUMNS = ['id', 'tenant_id', 'category', 'action', 'entity_type', 'entity_id', 'actor_type', 'user_id', 'occurred_at', 'payload_sha256', 'origin_country', 'destination_country', 'cross_border'] as const
+
 /** Tables the runtime reads and never writes. */
 const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
   { table: 'tenants', model: 'Tenant', rls: 'none' },
@@ -82,13 +85,18 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'SupplierRoomMapping', model: 'SupplierRoomMapping', rls: 'forced-tenant' },
   { table: 'supplier_memberships', model: 'SupplierMembership', rls: 'forced-tenant' },
   { table: 'Contract', model: 'Contract', rls: 'forced-tenant' },
+  { table: 'ContractVersion', model: 'ContractVersion', rls: 'forced-tenant', note: 'immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger)' },
   { table: 'RatePlan', model: 'RatePlan', rls: 'forced-tenant' },
   { table: 'DailyRate', model: 'DailyRate', rls: 'forced-tenant' },
   { table: 'RatePlanPromotion', model: 'RatePlanPromotion', rls: 'forced-tenant', note: 'plan promotions (ADR 0058); search prices from them, authoring is a privileged supply path' },
   { table: 'RatePlanGuestPrice', model: 'RatePlanGuestPrice', rls: 'forced-tenant', note: 'per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path' },
   { table: 'DailyAvailability', model: 'DailyAvailability', rls: 'forced-tenant' },
   { table: 'CancellationPolicy', model: 'CancellationPolicy', rls: 'forced-tenant', note: 'search and recheck include each contract\'s cancellation terms' },
+  { table: 'BookingLeadTimeRule', model: 'BookingLeadTimeRule', rls: 'forced-tenant', note: 'search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02)' },
+  { table: 'ChildPolicy', model: 'ChildPolicy', rls: 'forced-tenant', note: 'search, recheck and hold price children from the contract child policy (ADR 0067, F-03)' },
   { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
+  { table: 'ComplianceExportBatch', model: 'ComplianceExportBatch', rls: 'forced-tenant', note: 'Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067)' },
+  { table: 'ComplianceExportBatchRecord', model: 'ComplianceExportBatchRecord', rls: 'forced-tenant', note: 'Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067)' },
 ]
 
 /** Tables the runtime reads through named columns only, and never writes. */
@@ -97,6 +105,7 @@ const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
   { table: 'BookingRoom', model: 'BookingRoom', read: false, readColumns: BOOKING_ROOM_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: room line and supplier net; no sell amount or rate key' },
   { table: 'BookingGuest', model: 'BookingGuest', read: false, readColumns: BOOKING_GUEST_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: lead guest name; no contact detail, age or room link' },
   { table: 'InventoryHold', model: 'InventoryHold', read: false, readColumns: HOLD_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column' },
+  { table: 'ComplianceRecord', model: 'ComplianceRecord', read: false, readColumns: COMPLIANCE_RECORD_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS' },
   { table: 'InventoryHoldNight', model: 'InventoryHoldNight', read: false, readColumns: HOLD_NIGHT_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference' },
 ]
 
@@ -204,7 +213,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   SandboxContentLease: 'operator-only sandbox synchronization fencing; no API runtime grant',
   Hotel: 'DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted',
   BoardBasis: 'supply authoring',
-  Supplier: 'supply authoring', Contract: 'supply authoring', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update', RatePlanGuestPrice: 'supply authoring (guest price lines)', RatePlanPromotion: 'supply authoring (promotions)',
+  Supplier: 'supply authoring', Contract: 'supply authoring', ContractVersion: 'supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update', RatePlanGuestPrice: 'supply authoring (guest price lines)', RatePlanPromotion: 'supply authoring (promotions)',
   DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring',
   SupplierHotelMapping: 'mapping governance', SupplierRoomMapping: 'mapping governance',
   InventoryPool: 'pool authoring needs RatePlan and DailyAvailability writes', InventoryPoolDay: 'INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted',

@@ -34,7 +34,8 @@ export interface StayPlanInput {
   inventoryPool?: { name?: string; days: PoolDayInput[] } | null
   roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; hotel: { contentStatus: string; timeZone?: string } }
   boardBasis: { isActive: boolean }
-  contract: { cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
+  /** ADR 0067 F-02: the contract's booking lead-time rule (zero or one row). Required so a loader that forgot it fails type-check instead of selling inside the cut-off. */
+  contract: { leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
   dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
@@ -65,6 +66,7 @@ export function buildStaySnapshot(
   if (plan.guestPrices === undefined) throw new Error('RATE_PLAN_GUEST_PRICES_NOT_LOADED')
   if (plan.derivedProblem === undefined) throw new Error('RATE_PLAN_DERIVED_NOT_RESOLVED')
   if (plan.promotions === undefined) throw new Error('RATE_PLAN_PROMOTIONS_NOT_LOADED')
+  if (plan.contract.leadTimeRules === undefined) throw new Error('CONTRACT_LEAD_TIME_NOT_LOADED')
   // A loader may bring several occupancies (ADR 0057, S6); only the plan's own occupancy prices a night (finding F12).
   const rates = new Map(plan.dailyRates.filter((rate) => rate.occupancy === undefined || rate.occupancy === plan.occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
@@ -106,6 +108,7 @@ export function buildStaySnapshot(
     derivedProblem: plan.derivedProblem,
     promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null })),
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
+    leadTimeRule: plan.contract.leadTimeRules[0] ? { minLeadHours: plan.contract.leadTimeRules[0].minLeadHours, maxLeadDays: plan.contract.leadTimeRules[0].maxLeadDays } : null,
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),

@@ -10,6 +10,7 @@ import { hashPassword } from '../src/auth/utils/password'
 import { SUPPLIER_ADAPTER } from '../src/agent/supplier.port'
 import { AGENT_PERMISSION_KEYS } from '../src/agent/agent-permissions'
 import { setRatePlanStatusFixture } from './rate-plan-status-fixture'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -215,7 +216,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
     const contract = await admin.post('/api/v1/supply/contracts').send({
       supplierId: supplier.body.data.id, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-C`.slice(0, 40), validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
-    await admin.patch(`/api/v1/supply/contracts/${contract.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, contract.body.data.id, 'ACTIVE')
     const plan = await admin.post('/api/v1/supply/rate-plans').send({
       contractId: contract.body.data.id, roomTypeId: room.body.data.id, boardBasisId: board.body.data.id, code: `${suffix}-FLEX`.slice(0, 40), occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
