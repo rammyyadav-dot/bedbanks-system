@@ -36,6 +36,18 @@ export function formatMinor(amountMinor: string, currency: string): string {
 const TITLES: Record<BookingDocumentKind, string> = { VOUCHER: 'Hotel Voucher', INVOICE: 'Tax Invoice', CREDIT_NOTE: 'Credit Note', CANCELLATION_NOTE: 'Cancellation Note' }
 const row = (label: string, value: unknown) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`
 
+const BASIS_TEXT: Record<string, string> = { PER_ROOM_PER_NIGHT: 'per room per night', PER_PERSON_PER_NIGHT: 'per person per night', PER_ROOM_PER_STAY: 'per room per stay', PER_PERSON_PER_STAY: 'per person per stay' }
+type PayAtHotelLine = { label: string; amountMinor: string; currency: string; basis: string; estimatedTotalMinor: string }
+/** One line per local charge paid at the hotel (ADR 0067, F-04). Empty when the hotel recorded none. */
+export function payAtHotelLines(payload: { payAtHotel?: unknown }): string[] {
+  const charges: PayAtHotelLine[] = Array.isArray(payload.payAtHotel) ? payload.payAtHotel as PayAtHotelLine[] : []
+  return charges.map((c) => `${c.label}: ${formatMinor(c.amountMinor, c.currency)} ${BASIS_TEXT[c.basis] ?? ''} (about ${formatMinor(c.estimatedTotalMinor, c.currency)} for this stay)`)
+}
+const payAtHotelHtml = (payload: { payAtHotel?: unknown }): string => {
+  const lines = payAtHotelLines(payload)
+  return lines.length ? `<h2>Payable at the hotel</h2><div class="box"><p><strong>Not included in the price.</strong> The guest pays these directly to the hotel at check-in or check-out.</p><ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul></div>` : ''
+}
+
 export function renderBookingDocument(doc: RenderableDocument): string {
   const p = doc.payload
   const stay = p.stay ?? {}
@@ -63,13 +75,14 @@ export function renderBookingDocument(doc: RenderableDocument): string {
       : `<ul>${rules.map((rule) => `<li>Within ${escapeHtml(rule.daysBeforeCheckin)} day(s) of check-in: ${escapeHtml(rule.penalty)}</li>`).join('')}</ul>`}
       ${p.nonRefundable ? '<p><strong>Non-refundable:</strong> the full amount is retained if this booking is cancelled.</p>' : ''}
       ${p.specialRequests ? `<h2>Special requests</h2><div class="box"><p><strong>Not guaranteed:</strong> subject to availability at check-in.</p>${Array.isArray(p.specialRequests.items) && p.specialRequests.items.length ? `<ul>${p.specialRequests.items.map((item: string) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}${p.specialRequests.note ? `<p>${escapeHtml(p.specialRequests.note)}</p>` : ''}</div>` : ''}
+      ${payAtHotelHtml(p)}
       <h2>Important information</h2><ul class="info"><li>Present this voucher and a valid photo ID for every guest at check-in.</li><li>The hotel may ask for a credit card or a deposit for incidentals.</li><li>Local taxes or fees payable at the hotel, if any, are the guest's responsibility.</li></ul>
       <p class="note">Present this voucher at check-in. It carries no rate information.</p>`
   } else if (doc.type === 'INVOICE') {
     const lines: Array<{ description: string; amountMinor: string }> = p.lines ?? []
     body = `<h2>Charges</h2><table class="lines">${lines.map((line) => `<tr><td>${escapeHtml(line.description)}</td><td class="amt">${escapeHtml(formatMinor(line.amountMinor, p.currency))}</td></tr>`).join('')}
       <tr class="total"><td>Total</td><td class="amt">${escapeHtml(formatMinor(p.totalMinor, p.currency))}</td></tr></table>
-      <p>${p.payment?.text ? escapeHtml(p.payment.text) : `Paid from wallet. Status: ${escapeHtml(p.payment?.status ?? '')}`}.</p>`
+      <p>${p.payment?.text ? escapeHtml(p.payment.text) : `Paid from wallet. Status: ${escapeHtml(p.payment?.status ?? '')}`}.</p>${payAtHotelHtml(p)}`
   } else if (doc.type === 'CANCELLATION_NOTE') {
     const basis = p.penaltyState === 'QUOTED' ? (p.basis === 'NON_REFUNDABLE' ? 'Non-refundable booking: the full amount is retained.' : p.ruleDaysBeforeCheckin === null ? 'Cancelled before any penalty applied.' : `Cancellation terms: within ${p.ruleDaysBeforeCheckin} day(s) of check-in.`) : p.penaltyState === 'WAIVED' ? `Penalty reduced by approval from ${formatMinor(p.quotedPenaltyMinor ?? '0', p.currency)}.` : 'Penalty decided by the operator.'
     body = `<h2>Cancellation</h2><table class="lines">

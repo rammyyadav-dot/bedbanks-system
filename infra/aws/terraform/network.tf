@@ -92,6 +92,7 @@ locals {
     alb_internal = "alb-internal"
     api          = "api"
     data         = "data"
+    compliance   = "compliance" # scheduled compliance export/verify tasks (compliance.tf): Postgres and HTTPS only, no ingress
   }
   # Rules between two groups: from -> to on a TCP port.
   sg_links = {
@@ -100,6 +101,7 @@ locals {
     alb_internal_to_api    = { from = "alb_internal", to = "api", port = 3002 }
     api_to_data_postgres   = { from = "api", to = "data", port = 5432 }
     api_to_data_redis      = { from = "api", to = "data", port = 6379 }
+    compliance_to_data     = { from = "compliance", to = "data", port = 5432 }
   }
   # Ingress to the public ALB: one rule per (CIDR, port). Staging must not be 0.0.0.0/0 (ADR 0055; enforced by a precondition below).
   # With CloudFront the world-facing rules disappear: the ALB admits only the CloudFront origin-facing prefix list on 443 (edge.tf).
@@ -140,9 +142,10 @@ resource "aws_vpc_security_group_ingress_rule" "public" {
   to_port           = each.value.port
   description       = each.value.port == 80 ? "redirect to 443 only" : "HTTPS"
 }
-# Tasks reach ECR, CloudWatch, Secrets Manager (via NAT), the internal API ALB (portal) and suppliers (api) over HTTPS only.
+# Tasks reach ECR, CloudWatch, Secrets Manager (via NAT), the internal API ALB (portal), suppliers (api) and KMS (compliance) over HTTPS only.
+# The compliance archive itself is reached through the S3 gateway endpoint.
 resource "aws_vpc_security_group_egress_rule" "https_out" {
-  for_each          = toset(["portal", "api"])
+  for_each          = toset(["portal", "api", "compliance"])
   security_group_id = aws_security_group.this[each.key].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"

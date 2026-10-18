@@ -48,7 +48,8 @@ export function verifyArchivedBatch(manifest: BatchManifest, body: Buffer | null
   return { sequence: manifest.sequence, objectKey: manifest.objectKey, recordCount: lines.length, failures }
 }
 
-export interface ChainReport { scope: string; batches: number; records: number; headSha256: string; failures: string[] }
+/** `hashes`: the archived batch hash at each sequence, for checking signed checkpoints against the chain. */
+export interface ChainReport { scope: string; batches: number; records: number; headSha256: string; hashes: Map<number, string>; failures: string[] }
 
 /** Walks one scope's chain in the archive, from the genesis batch to the head. */
 export async function verifyArchiveChain(archive: ComplianceArchive, scope: string): Promise<ChainReport> {
@@ -61,14 +62,16 @@ export async function verifyArchiveChain(archive: ComplianceArchive, scope: stri
   manifests.sort((a, b) => a.sequence - b.sequence)
   let previous = GENESIS_SHA256
   let records = 0
+  const hashes = new Map<number, string>()
   for (const [index, manifest] of manifests.entries()) {
+    hashes.set(manifest.sequence, manifest.batchSha256)
     if (manifest.scope !== scope) failures.push(`${scope}#${manifest.sequence}: manifest names scope ${manifest.scope}`)
     const check = verifyArchivedBatch(manifest, await archive.get(manifest.objectKey), previous, index + 1)
     failures.push(...check.failures)
     records += check.recordCount
     previous = manifest.batchSha256
   }
-  return { scope, batches: manifests.length, records, headSha256: previous, failures }
+  return { scope, batches: manifests.length, records, headSha256: previous, hashes, failures }
 }
 
 export interface ScopeReport extends ChainReport { databaseBatches: number; sealedNotStored: number; skippedBehindChain: number; overdue: number }

@@ -223,9 +223,9 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'availability', label: 'Availability', reasons: ['AVAILABILITY_MISSING'] },
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
   { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },
-  { key: 'occupancy', label: 'Occupancy and guest prices', reasons: ['OCCUPANCY_UNSUPPORTED', 'CHILD_AGES_REQUIRED', 'CHILD_AGE_NOT_COVERED', 'CHILD_PRICE_AMBIGUOUS', 'EXTRA_ADULT_PRICE_MISSING', 'GUEST_PRICE_BASIS_MIXED', 'GUEST_PRICE_BASIS_MISMATCH', 'GUEST_PRICE_CURRENCY_MISMATCH'] },
+  { key: 'occupancy', label: 'Occupancy and guest prices', reasons: ['OCCUPANCY_UNSUPPORTED', 'CHILD_AGES_REQUIRED', 'CHILD_AGE_NOT_COVERED', 'CHILD_PRICE_MISSING', 'CHILD_PRICE_AMBIGUOUS', 'EXTRA_ADULT_PRICE_MISSING', 'GUEST_PRICE_BASIS_MIXED', 'GUEST_PRICE_BASIS_MISMATCH', 'GUEST_PRICE_CURRENCY_MISMATCH'] },
   { key: 'buyer', label: 'Buyer eligibility', reasons: ['AGENCY_SUSPENDED', 'DISTRIBUTION_RESTRICTED', 'CONTRACT_MARKET_RULE_INVALID', 'NATIONALITY_NOT_ALLOWED', 'SOURCE_MARKET_NOT_ALLOWED', 'RATE_PLAN_MARKET_RULE_INVALID', 'RATE_PLAN_NATIONALITY_NOT_ALLOWED', 'RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED'] },
-  { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE'] },
+  { key: 'stay', label: 'Stay rules', reasons: ['MIN_STAY_NOT_MET', 'MAX_STAY_EXCEEDED', 'RELEASE_DAYS_NOT_MET', 'CLOSED_TO_DEPARTURE', 'LEAD_TIME_TOO_SHORT', 'LEAD_TIME_TOO_LONG'] },
 ]
 export function gateResults(reasons: string[]): Array<{ key: string; label: string; state: 'PASS' | 'FAIL' }> {
   return SELLABILITY_GATES.map((gate) => ({ key: gate.key, label: gate.label, state: gate.reasons.some((reason) => reasons.includes(reason)) ? 'FAIL' as const : 'PASS' as const }))

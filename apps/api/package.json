@@ -30,6 +30,8 @@
     "ops:verify-rate-plan-ops-role": "tsx src/database/verify-rate-plan-ops-role.cli.ts",
     "ops:provision-rate-plan-clone-role": "tsx src/database/provision-rate-plan-clone-role.cli.ts",
     "ops:verify-rate-plan-clone-role": "tsx src/database/verify-rate-plan-clone-role.cli.ts",
+    "ops:provision-reconciliation-role": "tsx src/database/provision-reconciliation-role.cli.ts",
+    "ops:verify-reconciliation-role": "tsx src/database/verify-reconciliation-role.cli.ts",
     "ops:strict-role-boot-smoke": "node scripts/strict-role-boot-smoke.cjs",
     "ops:render-runtime-role-doc": "tsx src/database/render-runtime-role-doc.cli.ts",
     "ops:provision-api-runtime-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-api-runtime-role.cli.ts",
@@ -38,6 +40,7 @@
     "ops:provision-preview-fixtures": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-preview-fixtures.cli.ts",
     "ops:bootstrap-first-admin": "node --no-experimental-strip-types -r @swc-node/register src/database/bootstrap-first-admin.cli.ts",
     "prisma:validate": "prisma validate --schema=prisma/schema.prisma",
+    "test:security": "jest --config ./test/jest-e2e.json --runInBand security-certification.e2e-spec.ts",
     "test:auth:http": "jest --config ./test/jest-e2e.json --runInBand auth.e2e-spec.ts",
     "test:auth:admin": "jest --config ./test/admin-auth.jest.cjs --runInBand",
     "ops:backfill-booking-supplier": "tsx src/database/backfill-booking-supplier.cli.ts",
@@ -49,6 +52,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "3.1143.0",
     "@aws-sdk/client-s3": "3.1143.0",
     "@aws-sdk/client-sesv2": "3.1143.0",
     "@bedbanks/connectors-core": "workspace:*",
@@ -68,6 +72,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
+    "express": "5.2.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

@@ -155,6 +155,21 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     await api('get', setupPath(id), 'anon').expect(401)
   })
 
+  it('HS-LC local charges paid at the hotel are saved as a structured set, validated, replaced whole and cleared (ADR 0067, F-04)', async () => {
+    const id = await newDraft('local-charges')
+    const first = await load(id)
+    expect(first.localCharges).toEqual([])
+    const dirham = { kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: '2000', currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', maxNights: 30 }
+    const saved = (await save(id, first.concurrencyToken, { localCharges: [dirham] }).expect(200)).body.data.setup
+    expect(saved.localCharges).toEqual([dirham])
+    expect((await load(id)).localCharges).toEqual([dirham])
+    const refused = await save(id, saved.concurrencyToken, { localCharges: [{ ...dirham, amountMinor: '-5' }] }).expect(400)
+    expect(JSON.stringify(refused.body)).toContain('localCharges[0].amountMinor')
+    expect((await load(id)).localCharges).toEqual([dirham])
+    const cleared = (await save(id, saved.concurrencyToken, { localCharges: [] }).expect(200)).body.data.setup
+    expect(cleared.localCharges).toEqual([])
+  })
+
   it('HS-02 a save persists across reloads, bumps the version, and a stale token fails visibly', async () => {
     const id = await newDraft('persist')
     const first = await load(id)

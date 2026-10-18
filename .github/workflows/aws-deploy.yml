@@ -103,4 +103,15 @@ jobs:
             read -r running desired deployments < <(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" --query 'services[0].[runningCount,desiredCount,length(deployments)]' --output text)
             { [ "$running" = "$desired" ] && [ "$deployments" = 1 ]; } || { echo "$svc not fully rolled: running=$running desired=$desired deployments=$deployments" >&2; exit 1; }
             echo "$svc -> $image (commit $SHA)" >> "$GITHUB_STEP_SUMMARY"
+            # The scheduled compliance tasks (ADR 0067) run the API image: register a matching revision. The schedules always use the latest
+            # revision, so nothing else changes. Absent when compliance export is not enabled in this environment.
+            if [ "$svc" = api ]; then
+              for job in export verify; do
+                cfamily="$CLUSTER-compliance-$job"
+                aws ecs describe-task-definition --task-definition "$cfamily" --query taskDefinition > ctd.json 2>/dev/null || { echo "no $cfamily (compliance export not enabled)"; continue; }
+                jq --arg img "$image" 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | (.containerDefinitions[] | select(.name=="compliance") | .image) = $img' ctd.json > ctd-new.json
+                carn=$(aws ecs register-task-definition --cli-input-json file://ctd-new.json --query taskDefinition.taskDefinitionArn --output text)
+                echo "$cfamily -> $carn" >> "$GITHUB_STEP_SUMMARY"
+              done
+            fi
           done

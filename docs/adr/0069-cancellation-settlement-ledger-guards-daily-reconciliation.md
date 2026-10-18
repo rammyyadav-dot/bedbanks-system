@@ -2,7 +2,7 @@
 
 Status: **Built.** Resolves the three decisions ADR 0068 left open (audit findings F3 and F4, and scheduling). The owner's instruction was to
 decide them "as per global bedbanks workflow and functioning"; each decision below states the bedbank practice it follows.
-Migration `202611210001_ledger_integrity_guards` applied only to disposable local databases.
+Migration `202611230001_ledger_integrity_guards` applied only to disposable local databases.
 
 ## 1. Cancellation settlement (F3)
 
@@ -38,7 +38,7 @@ client is a separate, approved debit.
 **Bedbank practice.** The book of record is immutable at the storage layer for everyone, administrators included; corrections are new
 entries; retention erasure is a governed, explicit operation.
 
-**Decisions** (migration `202611210001`):
+**Decisions** (migration `202611230001`):
 1. `LedgerEntry_sign_by_type`: CREDIT, RELEASE, REFUND positive; DEBIT, HOLD negative; never zero. Added NOT VALID and validated in the same
    migration, so existing bad data stops the migration instead of being accepted silently.
 2. `LedgerEntry_account_guard` (before insert): the wallet belongs to the entry's tenant and has the entry's currency.

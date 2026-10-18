@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 /**
  * One-hotel Admin commercial golden path, driven only through the authoritative HTTP API the Admin UI uses:
@@ -137,7 +138,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
     expect(contract.body.data).toMatchObject({ status: 'DRAFT', supplierId: ids.supplier, supplierHotelMappingId: ids.hotelMapping, settlementCurrency: 'AED' })
     await api(operator).post(`/supply/contracts/${ids.contract}/policies/cancellation`, { daysBeforeCheckin: 7, penaltyPercent: 100 }).expect(201)
     await api(operator).post(`/supply/contracts/${ids.contract}/policies/lead-time`, { minLeadHours: 24 }).expect(201)
-    await api(operator).patch(`/supply/contracts/${ids.contract}`, { status: 'ACTIVE' }).expect(200)
+    await setContractStatusFixture(prisma, ids.contract, 'ACTIVE')
 
     const plan = await api(operator).post('/supply/rate-plans', { contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, code: 'DLX-BB-2A', occupancy: 2, currency: 'AED', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: 1, releaseDays: 0 }).expect(201)
     ids.ratePlan = plan.body.data.id
@@ -169,7 +170,8 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
 
   it('reaches SELLABLE for every night of the seven-night stay', async () => {
     // A DRAFT hotel passes every commercial check but is flagged as invisible to agent search.
-    for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [], warnings: ['HOTEL_CONTENT_NOT_COMPLETE'] })
+    // ADR 0067 F-07: the inspector is the Agent's evaluator, so an unpublished hotel is not sellable (it used to be a warning only).
+    for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: false, status: 'NOT_ELIGIBLE', reasons: ['HOTEL_INACTIVE'], warnings: [] })
     await prisma.hotel.update({ where: { id: ids.hotel }, data: { contentStatus: 'COMPLETE' } }) // fixture: publication is maker-checker (ADR 0022)
     for (const stayDate of nights) expect(await sellable({ stayDate, checkInDate: start, nights: 7 })).toEqual({ eligible: true, status: 'ELIGIBLE_FOR_FUTURE_SEARCH', reasons: [], warnings: [] })
     // AED amounts are read back as integer minor-unit strings, never floats.
@@ -219,7 +221,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       const pending = await prisma.supplierHotelMapping.findFirstOrThrow({ where: { tenantId, supplierHotelId: 'SUP-PENDING' } })
       await api(operator).post('/supply/contracts', { supplierId: ids.supplier, supplierHotelMappingId: pending.id, code: `${suffix}-PENDING`, validFrom: iso(0), validTo: iso(10), settlementCurrency: 'AED' }).expect(400)
       await prisma.supplierRoomMapping.update({ where: { id: ids.roomMapping }, data: { status: 'PENDING' } })
-      expect((await sellable({})).reasons).toContain('ROOM_MAPPING_UNAPPROVED')
+      expect((await sellable({})).reasons).toContain('SUPPLIER_MAPPING_INVALID') // a pending room mapping: the Agent's single mapping reason
       await prisma.supplierHotelMapping.update({ where: { id: ids.hotelMapping }, data: { status: 'PENDING' } })
       expect((await sellable({})).reasons).toContain('SUPPLIER_MAPPING_INVALID')
     })

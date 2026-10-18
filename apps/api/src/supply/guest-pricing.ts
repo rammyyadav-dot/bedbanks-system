@@ -11,7 +11,11 @@
  * explicit free guest; it is never what a missing line means.
  */
 export type GuestPriceKind = 'CHILD' | 'EXTRA_ADULT'
-export interface GuestPriceLine { kind: GuestPriceKind; minAge: number; maxAge: number; amountMinor: bigint; basis: 'NET' | 'SELL'; currency: string }
+/**
+ * One price line. `basis` INHERIT marks a band inherited from the contract child policy (ADR 0067, F-03): it is charged on the same basis as the
+ * night's rate. `amountMinor` null marks an inherited band whose contract recorded no supplement: a child who must be charged by it is refused.
+ */
+export interface GuestPriceLine { kind: GuestPriceKind; minAge: number; maxAge: number; amountMinor: bigint | null; basis: 'NET' | 'SELL' | 'INHERIT'; currency: string }
 export interface GuestRoomLimits { maxAdults: number; maxChildren: number; maxOccupancy: number }
 
 /** The sentinel band stored for the single EXTRA_ADULT line, so the database can keep one per plan with an ordinary unique key. */
@@ -38,30 +42,46 @@ export function resolveGuestPricing(input: GuestPricingInput): GuestPricing {
   }
   const reasons = new Set<string>()
   const guests = input.adults + input.children
-  if (!Number.isInteger(input.adults) || !Number.isInteger(input.children) || input.adults < input.planOccupancy || input.children < 0
+  // The base rate is for `planOccupancy` guests. Children may fill base places adults leave empty (1 adult + 1 child in a double pays the double
+  // rate, ADR 0067 F-03); the party must still fill the base and fit the room, with at least one adult.
+  if (!Number.isInteger(input.adults) || !Number.isInteger(input.children) || input.adults < 1 || input.children < 0 || guests < input.planOccupancy
     || input.adults > limits.maxAdults || input.children > limits.maxChildren || guests > limits.maxOccupancy) reasons.add('OCCUPANCY_UNSUPPORTED')
   if (lines.some((line) => line.currency !== input.currency)) reasons.add('GUEST_PRICE_CURRENCY_MISMATCH')
 
   let extra = 0n
   const used = new Set<'NET' | 'SELL'>()
+  const charge = (line: GuestPriceLine, units = 1n) => { if (line.amountMinor === null) { reasons.add('CHILD_PRICE_MISSING'); return } extra += line.amountMinor * units; if (line.basis !== 'INHERIT') used.add(line.basis) }
   const extraAdults = input.adults - input.planOccupancy
   if (extraAdults > 0) {
     const adultLines = lines.filter((line) => line.kind === 'EXTRA_ADULT')
     if (adultLines.length !== 1) reasons.add('EXTRA_ADULT_PRICE_MISSING')
-    else { extra += adultLines[0]!.amountMinor * BigInt(extraAdults); used.add(adultLines[0]!.basis) }
+    else charge(adultLines[0]!, BigInt(extraAdults))
   }
   if (input.children > 0) {
     const ages = input.childAges ?? []
     if (ages.length !== input.children || ages.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) reasons.add('CHILD_AGES_REQUIRED')
-    else for (const age of ages) {
-      const matches = lines.filter((line) => line.kind === 'CHILD' && age >= line.minAge && age <= line.maxAge)
-      if (matches.length === 0) reasons.add('CHILD_AGE_NOT_COVERED')
-      else if (matches.length > 1) reasons.add('CHILD_PRICE_AMBIGUOUS')
-      else { extra += matches[0]!.amountMinor; used.add(matches[0]!.basis) }
+    else {
+      // The oldest children take the base places left by adults; only the rest are charged as extra guests.
+      const basePlaces = Math.max(0, input.planOccupancy - input.adults)
+      for (const age of [...ages].sort((a, b) => b - a).slice(basePlaces)) {
+        const matches = lines.filter((line) => line.kind === 'CHILD' && age >= line.minAge && age <= line.maxAge)
+        if (matches.length === 0) reasons.add('CHILD_AGE_NOT_COVERED')
+        else if (matches.length > 1) reasons.add('CHILD_PRICE_AMBIGUOUS')
+        else charge(matches[0]!)
+      }
     }
   }
   if (used.size > 1) reasons.add('GUEST_PRICE_BASIS_MIXED')
   return { mode: 'LINES', reasons: [...reasons], extraMinorPerNight: reasons.size ? 0n : extra, basis: used.size === 1 ? [...used][0]! : null }
+}
+
+/**
+ * The lines that price a plan's party (ADR 0067, F-03): the plan's own lines; and when the plan has no CHILD line of its own, the contract's child
+ * bands, inherited with basis INHERIT. One child policy therefore governs a plan: its own when it has one, the contract's otherwise.
+ */
+export function effectiveGuestLines(planLines: readonly GuestPriceLine[], contractBands: ReadonlyArray<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>, planCurrency: string): GuestPriceLine[] {
+  if (planLines.some((line) => line.kind === 'CHILD')) return [...planLines]
+  return [...planLines, ...contractBands.map((band): GuestPriceLine => ({ kind: 'CHILD', minAge: band.minAge, maxAge: band.maxAge, amountMinor: band.supplementMinor, basis: 'INHERIT', currency: band.currency ?? planCurrency }))]
 }
 
 export interface GuestPriceLineIssue { code: string; message: string }

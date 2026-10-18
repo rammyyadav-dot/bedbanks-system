@@ -7,22 +7,6 @@ export type CancellationRule = {
   currency?: string
 }
 
-export type ChildPolicyRule = {
-  minAge: number
-  maxAge: number
-  supplementMinor?: bigint
-  currency?: string
-}
-
-export type MandatorySupplementRule = {
-  id: string
-  kind: 'gala' | 'meal' | 'mandatory'
-  applicableDate: string
-  basis: 'per_person' | 'per_adult' | 'per_child' | 'per_room' | 'once_per_stay'
-  amountMinor: bigint
-  currency: string
-}
-
 export type CancellationQuote =
   | { status: 'quotable'; currency: string; cancellableAmountMinor: bigint; penaltyMinor: bigint; refundMinor: bigint; effectiveRule: CancellationRule | null; evaluatedAt: string }
   | { status: 'manual_review_required' | 'policy_unavailable'; reason: string; evaluatedAt: string }
@@ -36,10 +20,6 @@ export type CancellationQuoteInput = {
   propertyTimeZone?: string
   checkInLocalTime?: string
 }
-
-export type CommercialRuleResult =
-  | { status: 'evaluated'; currency: string; childSupplementMinor: bigint; mandatorySupplementMinor: bigint; totalSupplementMinor: bigint }
-  | { status: 'manual_review_required' | 'policy_unavailable'; reason: string }
 
 const DAY_MS = 86_400_000
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -134,43 +114,5 @@ export class CancellationPolicyService {
     if (penaltyMinor > input.cancellableAmountMinor) penaltyMinor = input.cancellableAmountMinor
     return { status: 'quotable', currency: input.currency, cancellableAmountMinor: input.cancellableAmountMinor, penaltyMinor,
       refundMinor: input.cancellableAmountMinor - penaltyMinor, effectiveRule: rule, evaluatedAt }
-  }
-
-  evaluateCommercialRules(input: { currency: string; childAges: number[]; adults: number; rooms: number; checkIn: string; checkOut: string;
-    childPolicies: ChildPolicyRule[]; supplements: MandatorySupplementRule[] }): CommercialRuleResult {
-    if (!ISO_DATE.test(input.checkIn) || !ISO_DATE.test(input.checkOut) || input.checkOut <= input.checkIn ||
-      !Number.isInteger(input.adults) || input.adults < 1 || !Number.isInteger(input.rooms) || input.rooms < 1 ||
-      input.childAges.some(age => !Number.isInteger(age) || age < 0 || age > 17)) {
-      return { status: 'manual_review_required', reason: 'invalid_occupancy_or_stay' }
-    }
-
-    let childSupplementMinor = 0n
-    for (const age of input.childAges) {
-      const matches = input.childPolicies.filter(policy => age >= policy.minAge && age <= policy.maxAge)
-      if (matches.length !== 1) return { status: matches.length ? 'manual_review_required' : 'policy_unavailable', reason: matches.length ? 'overlapping_child_policy' : 'missing_child_policy' }
-      const policy = matches[0]
-      if (policy.minAge < 0 || policy.maxAge < policy.minAge || policy.maxAge > 17 || (policy.currency && policy.currency !== input.currency) || (policy.supplementMinor ?? 0n) < 0n) {
-        return { status: 'manual_review_required', reason: 'invalid_child_policy' }
-      }
-      childSupplementMinor += policy.supplementMinor ?? 0n
-    }
-
-    let mandatorySupplementMinor = 0n
-    const seen = new Set<string>()
-    for (const supplement of input.supplements) {
-      if (seen.has(supplement.id)) continue
-      seen.add(supplement.id)
-      if (!supplement.id.trim() || !ISO_DATE.test(supplement.applicableDate) || supplement.amountMinor < 0n || supplement.currency !== input.currency) {
-        return { status: 'manual_review_required', reason: 'invalid_mandatory_supplement' }
-      }
-      if (supplement.applicableDate < input.checkIn || supplement.applicableDate >= input.checkOut) continue
-      const units = supplement.basis === 'per_person' ? input.adults + input.childAges.length
-        : supplement.basis === 'per_adult' ? input.adults
-        : supplement.basis === 'per_child' ? input.childAges.length
-        : supplement.basis === 'per_room' ? input.rooms : 1
-      mandatorySupplementMinor += supplement.amountMinor * BigInt(units)
-    }
-    return { status: 'evaluated', currency: input.currency, childSupplementMinor, mandatorySupplementMinor,
-      totalSupplementMinor: childSupplementMinor + mandatorySupplementMinor }
   }
 }

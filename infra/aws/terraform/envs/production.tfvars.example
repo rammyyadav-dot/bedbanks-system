@@ -15,3 +15,8 @@ create_portal_records = false
 # A production apply is refused until that exists or the exception is approved and referenced here.
 # production_edge_exception_ref = "ADR-0055-exception-<ticket>"
 # dns_cutover_authorization_ref = "<recorded CTO GO>"   # required before create_portal_records = true
+
+# Compliance WORM archive and scheduled export (ADR 0067 amendment 2). Off until the owner provisions fbeds_compliance_export.
+# Archived objects cannot be deleted by anyone until their retention ends; the bucket outlives terraform destroy for that long.
+# compliance_export_enabled = true
+# compliance_retention_days = 2557

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/comm
 import type { Request } from 'express'
 import type { RatePlanActivationRequestInput, RatePlanApprovalDecisionInput } from '@bedbanks/contracts'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
+import { RequireSupplyPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { TenantContextGuard, ACTIVE_TENANT_REQUEST_KEY } from '../agent/tenant-context.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { RatePlanApprovalService } from './rate-plan-approval.service'
@@ -15,10 +16,10 @@ export class RatePlanApprovalController {
     const user = (req as unknown as { user: AuthenticatedUser }).user
     return { tenantId: (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY], userId: user.user.id, requestId: (req as unknown as { requestId?: string }).requestId ?? req.header('x-request-id') ?? undefined }
   }
-  @Get('rate-plans/:ratePlanId/activation-approval') latest(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.approvals.latest(c.tenantId, c.userId, ratePlanId) }
-  @Post('rate-plans/:ratePlanId/activation-request') request(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: RatePlanActivationRequestInput) { const c = this.context(req); return this.approvals.request(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
-  @Post('rate-plan-approvals/:approvalId/approve') approve(@Req() req: Request, @Param('approvalId') approvalId: string, @Body() body: RatePlanApprovalDecisionInput) { const c = this.context(req); return this.approvals.decide(c.tenantId, c.userId, approvalId, 'APPROVED', body) }
-  @Post('rate-plan-approvals/:approvalId/reject') reject(@Req() req: Request, @Param('approvalId') approvalId: string, @Body() body: RatePlanApprovalDecisionInput) { const c = this.context(req); return this.approvals.decide(c.tenantId, c.userId, approvalId, 'REJECTED', body) }
-  @Post('rate-plan-approvals/:approvalId/cancel') cancel(@Req() req: Request, @Param('approvalId') approvalId: string) { const c = this.context(req); return this.approvals.cancel(c.tenantId, c.userId, approvalId) }
-  @Post('rate-plan-approvals/:approvalId/execute') execute(@Req() req: Request, @Param('approvalId') approvalId: string) { const c = this.context(req); return this.approvals.execute(c.tenantId, c.userId, approvalId, c.requestId) }
+  @Get('rate-plans/:ratePlanId/activation-approval') @RequireSupplyPermission('supply.rates.read') @UseGuards(SupplyPermissionGuard) latest(@Req() req: Request, @Param('ratePlanId') ratePlanId: string) { const c = this.context(req); return this.approvals.latest(c.tenantId, c.userId, ratePlanId) }
+  @Post('rate-plans/:ratePlanId/activation-request') @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard) request(@Req() req: Request, @Param('ratePlanId') ratePlanId: string, @Body() body: RatePlanActivationRequestInput) { const c = this.context(req); return this.approvals.request(c.tenantId, c.userId, ratePlanId, body, c.requestId) }
+  @Post('rate-plan-approvals/:approvalId/approve') @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard) approve(@Req() req: Request, @Param('approvalId') approvalId: string, @Body() body: RatePlanApprovalDecisionInput) { const c = this.context(req); return this.approvals.decide(c.tenantId, c.userId, approvalId, 'APPROVED', body) }
+  @Post('rate-plan-approvals/:approvalId/reject') @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard) reject(@Req() req: Request, @Param('approvalId') approvalId: string, @Body() body: RatePlanApprovalDecisionInput) { const c = this.context(req); return this.approvals.decide(c.tenantId, c.userId, approvalId, 'REJECTED', body) }
+  @Post('rate-plan-approvals/:approvalId/cancel') @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard) cancel(@Req() req: Request, @Param('approvalId') approvalId: string) { const c = this.context(req); return this.approvals.cancel(c.tenantId, c.userId, approvalId) }
+  @Post('rate-plan-approvals/:approvalId/execute') @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard) execute(@Req() req: Request, @Param('approvalId') approvalId: string) { const c = this.context(req); return this.approvals.execute(c.tenantId, c.userId, approvalId, c.requestId) }
 }

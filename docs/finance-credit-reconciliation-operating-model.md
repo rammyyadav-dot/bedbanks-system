@@ -135,7 +135,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | Step | Status |
 |---|---|
 | Accrual: recorded net cost of CONFIRMED and CHECKED_OUT bookings per supplier and currency; unknown net counted apart, never as zero | BUILT read-only (ADR 0054) |
-| Supplier invoice capture and three-way match (booking, supplier statement, invoice) | PROPOSED |
+| Supplier statement matching to bookings by reference and exact net; typed findings and a dispute queue | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070); posting and payment not built |
 | Supplier payment terms (contract has no field today), payment runs, virtual cards | PROPOSED |
 | Cancellation penalties charged by the supplier | PROPOSED |
 | Gross margin per booking (sell - net), per currency | PROPOSED (data exists; `booking.view.net` gates net) |
@@ -150,7 +150,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | R4 Ledger to funding receipts | Each POSTED receipt has its CREDIT and each funding CREDIT its receipt | Daily | BUILT (ADR 0068) |
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
 | R6 Receipts to bank statement | Every POSTED receipt appears on the bank statement; every statement credit is a receipt or in suspense | Daily | PROPOSED |
-| R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Monthly | PROPOSED |
+| R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
 | R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
 
 **Reading the R1 to R4 report** (`GET /admin/operations/finance/ledger-integrity`, `finance.read`):
@@ -195,4 +195,4 @@ effective penalty (F3), database ledger guards (F4), and a daily read-only recon
 4. **Per-agency terms**, temporary increases, review dates, security.
 5. **Chart of accounts and GL export** format; gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
 6. **Bank statement import** (format, bank) to build R6, and the suspense process for unmatched credits.
-7. **Supplier settlement:** payment terms source, invoice matching, payment method.
+7. **Supplier settlement:** payment terms source, posting of agreed statements, payment method (statement matching is built, ADR 0070).

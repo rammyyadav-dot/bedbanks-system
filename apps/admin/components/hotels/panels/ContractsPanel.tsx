@@ -43,7 +43,7 @@ export function ContractsPanel({ hotelId, gates }: { hotelId: string; gates: Hot
                     <td style={td}>{c.policies ? `${c.policies.cancellation} cancellation · ${c.policies.child} child · ${c.policies.leadTime} lead-time` : <Chip tone="neutral" title="The API database role cannot read the policy tables">UNAVAILABLE</Chip>}</td>
                     <td style={td}>{new Date(c.updatedAt).toLocaleDateString()}</td>
                   </tr>))}</tbody></table></ScrollRegion>
-              <p style={{ color: '#3f565c', fontSize: 11 }}>EXPIRING means ACTIVE and ending within {data.expiringDays} days. validTo is the last check-out date.</p>
+              <p style={{ color: '#3f565c', fontSize: 11 }}>EXPIRING means ACTIVE and ending within {data.expiringDays} days. Valid to is the last stay night; check-out may be the next day.</p>
             </div>
             <div className="workspace-panel" style={{ padding: 18 }}>
               <h2 style={{ fontSize: 14, margin: '0 0 8px' }}>Rate plans ({data.ratePlans.length})</h2>

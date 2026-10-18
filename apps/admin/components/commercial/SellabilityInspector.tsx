@@ -52,7 +52,7 @@ export function SellabilityInspector({ initialRatePlanId = '', initialCheckIn = 
   const summary = report?.summary
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="COMMERCIAL · SELLABILITY" title="Sellability inspector" description="Diagnostic only. Each night is evaluated by the API; reason codes below are exactly what it returned. Booking is not enabled." />
+      <PageHeader eyebrow="COMMERCIAL · SELLABILITY" title="Sellability inspector" description="Diagnostic only. Each night, or the whole stay, is judged by the same evaluator Agent search, recheck and hold use, so the answer here is the answer agents get (buyer markets and agency restrictions aside). Reason codes are exactly what the API returned." />
       {loadingPlans ? <LoadingState rows={3} /> : planError ? <ErrorState title="Rate plans unavailable" description={`${planError} No fallback data is shown.`} /> : (
         <>
           <section className="admin-filter-bar" aria-label="Sellability criteria">
