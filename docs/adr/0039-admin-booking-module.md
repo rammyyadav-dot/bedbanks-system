@@ -211,3 +211,17 @@ Unknown refundability is treated as non-refundable. Owner membership implies non
 
 **Not in 6D:** asynchronous export, drag-and-drop transitions, the reconciliation job, notifications, ledger posting, the nightly Checked-out and close-after-dispute jobs. See `docs/booking-module-audit-2026-10-18.md`.
 
+## Phase 6E decisions: the scheduled Checked-out job (2026-10-18)
+
+**What.** Spec workflow G: from the day after check-out, a Confirmed booking becomes Checked out. `BookingLifecycleJobs` (`booking-ops`) runs it. It is off unless `BOOKING_LIFECYCLE_JOB_ENABLED=true`, needs the booking module's own credential (`BOOKING_OPS_DATABASE_URL`, a different one from `DATABASE_URL`) and refuses to start without it; the interval is `BOOKING_LIFECYCLE_JOB_INTERVAL_MS` (default one hour, minimum 60 s).
+
+**One writer, nothing forced.** Every move goes through `transitionBooking` as the existing system-only action `markCheckedOut`, so it is compare-and-set, leaves an immutable `BookingEvent` (actor SYSTEM) and is idempotent per booking (`lifecycle:checkout:<id>`). A booking a person moved or locked between the read and the move is a stale status and is skipped, never forced. One transaction per booking, at most 200 per tenant per pass (the rest wait for the next pass), and a tenant's failure never stops another's. The source-scan test that forbids other status writers still holds.
+
+**Day rule.** A booking is due when its check-out date is before the current UTC day. For a hotel west of UTC that can be a few hours before its local next day, but check-out itself has already happened; there is no earlier effect than the label change.
+
+**Finding tenants without a cross-tenant read.** Migration `202611240001` adds `fbeds_booking_checkout_due_tenants(date)`: SECURITY DEFINER, returns tenant ids only, EXECUTE granted to the booking role by the owner-run provisioning script (re-run `ops:provision-booking-ops-role` after deploying), the same pattern as the supplier and email functions. It adds a small partial index on `check_out` for Confirmed open bookings. That index deliberately does not lead with `tenant_id`, because its only reader is that ids-only function (recorded in the migration). Rollback is two statements, in the file.
+
+**Money and audit.** Checked out moves no money and emits no finance event. No `AuditEvent` is written: the row-level policy refuses SYSTEM-actor audit rows to this role (only the hold-expiry role has that policy, ADR 0005), and the immutable `BookingEvent` is the record of a non-privileged, non-financial platform move. Widening that policy was not warranted for this.
+
+**Not built: close after the dispute window.** The spec leaves the window length as an open owner question, and "Closed" today exists only as the operator's Failed lock. No default is invented. When the owner sets the window, closing is a second pass in the same job through `transitionBooking`.
+

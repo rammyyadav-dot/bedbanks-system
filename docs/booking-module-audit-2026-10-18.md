@@ -22,7 +22,8 @@ The module is **not production-activatable** and must not be described as such, 
 | Cancellation with frozen policy, penalty fixed at request time, non-refundable second confirmation | Built | `booking-penalty-quote.ts`, `booking-transition.ts` |
 | Amendment request / approve / reject | Status only: an approved amendment does **not** re-price or change booking data | ADR 0039 Phase 2 |
 | No-show within 7 days of check-in | Built (manual) | `NO_SHOW_WINDOW` rule |
-| Auto Checked-out, close after dispute window | **Not built**: `markCheckedOut` exists, nothing schedules it | ADR 0039 |
+| Auto Checked-out | Built in Phase 6E (scheduled job, off by default) | `booking-lifecycle-jobs.service.ts` |
+| Close after dispute window | **Not built**: window length is an open owner question | ADR 0039 |
 | Work queue, SLA, assignment, escalation | Built; one SLA policy per deployment | `booking-ops-queue.service.ts` |
 | Saved views, bulk assign/acknowledge | Built | Phase 6B/6C |
 | Export, print, board, header counter | **Built in this change** | section 5 |
@@ -39,7 +40,7 @@ The module is **not production-activatable** and must not be described as such, 
 | F2 | Medium | A CSV cell starting `=`, `+`, `-`, `@` (also after leading spaces or line breaks) runs as a formula in Excel. Guest names and supplier references are free text. | Fixed: neutralised; a unit test found and closed the leading-line-break variant |
 | F3 | Medium | The global `ResponseInterceptor` wraps any returned string in `{ "success": true, "data": … }`, which would have shipped a JSON-wrapped "CSV". Found only by running the route over HTTP against Postgres, not by unit tests. | Fixed: `@Res()` like the existing hotel and compliance exports |
 | F4 | Medium | Approved amendments change status only; dates, room and occupancy are not re-priced or applied. Do not present amendments as a capability. | Open |
-| F5 | Medium | Confirmed bookings never move to Checked out automatically, and nothing closes terminal bookings after the dispute window (window length is still an open owner question). | Open |
+| F5 | Medium | Confirmed bookings never moved to Checked out automatically, and nothing closes terminal bookings after the dispute window (window length is still an open owner question). | Checked-out job built (Phase 6E, branch `claude/booking-scheduled-jobs`); close-after-dispute still open |
 | F6 | Medium | No production supplier adapter: only the mock (named tenants) and the XML connector kit. Unknown external outcomes must stay "pending investigation". | Open (release gate) |
 | F7 | Low | The list shows reconciliation attention tags but not the SLA "Urgent" badge the reference screen shows; Urgent is computed only in the operations queue. | Open |
 | F8 | Low | One SLA policy per deployment; the spec wants per-tenant-contract overrides. | Open |
