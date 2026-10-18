@@ -105,3 +105,15 @@ Two actions on explicit booking ids, at most 100 per request: assign/change the 
 
 **Tests.** Unit: `booking-export.spec.ts`; Admin `booking-export-ui.test.ts`, `booking-kanban-ui.test.ts`. E2E (disposable DB): `booking-export.e2e-spec.ts`. The screens themselves still need the browser harnesses in `tools/admin-ops-verify`.
 
+## Scheduled Checked-out job (Phase 6E)
+
+**What it does.** From the day after check-out, Confirmed bookings move to **Checked out** automatically (a Timeline entry by "System"). It never touches Cancelled, On request, Cancel requested, Amend requested, closed (locked) bookings, or a Confirmed booking with no check-out date, and it moves no money and sends nothing. If a person changes a booking at the same moment, theirs wins and the job skips it.
+
+**Switches.** `BOOKING_LIFECYCLE_JOB_ENABLED=true` (default off) and `BOOKING_OPS_DATABASE_URL` (required; the job refuses to start without it). `BOOKING_LIFECYCLE_JOB_INTERVAL_MS` (default 3,600,000; minimum 60,000). Run it on one API instance or several: the move is compare-and-set, so two instances cannot move a booking twice.
+
+**Deploying.** Run the migration, then re-run `ops:provision-booking-ops-role` (new EXECUTE grant on `fbeds_booking_checkout_due_tenants`), then set the two variables. Without the grant the job logs an access failure and moves nothing; it never falls back to another credential.
+
+**Not built:** closing terminal bookings after the dispute window (the length is an open owner decision).
+
+**Tests.** Unit: `booking-lifecycle-jobs.spec.ts`. E2E (disposable DB): `booking-lifecycle-jobs.e2e-spec.ts` (which bookings move, idempotency, the day boundary, two runners at once, the role boundary).
+
