@@ -421,7 +421,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     if (starRating === null || starRating < 1 || starRating > 5) return null
     if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
     if (criteria.filters?.refundableOnly && !plan.refundable) return null
-    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId))
+    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId), { adults: criteria.adults })
     const decision = evaluateContractedStay(snapshot, {
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,

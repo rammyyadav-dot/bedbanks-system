@@ -37,7 +37,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
   const [ranges, setRanges] = useState([{ from: '', to: '' }])
   const [weekdays, setWeekdays] = useState<QuickUpdateWeekday[]>([])
   const [panels, setPanels] = useState<Panels>({ price: false, availability: false, restrictions: false })
-  const [amount, setAmount] = useState(''); const [basis, setBasis] = useState<'NET' | 'SELL'>('SELL')
+  const [amount, setAmount] = useState(''); const [basis, setBasis] = useState<'NET' | 'SELL'>('SELL'); const [priceOccupancy, setPriceOccupancy] = useState('')
   const [allotment, setAllotment] = useState(''); const [stopSell, setStopSell] = useState<Flag>(''); const [mode, setMode] = useState<'' | InventoryMode>('')
   const [minStay, setMinStay] = useState(''); const [release, setRelease] = useState(''); const [cta, setCta] = useState<Flag>(''); const [ctd, setCtd] = useState<Flag>('')
   const [reason, setReason] = useState('')
@@ -51,7 +51,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
 
   function build(): QuickUpdateRequest {
     const changes: QuickUpdateChanges = {}
-    if (panels.price && amount.trim() !== '') changes.price = { amount: amount.trim(), basis }
+    if (panels.price && amount.trim() !== '') changes.price = { amount: amount.trim(), basis, ...(priceOccupancy !== '' ? { occupancy: Number(priceOccupancy) } : {}) }
     if (panels.availability) { const a: NonNullable<QuickUpdateChanges['availability']> = {}; if (allotment.trim() !== '') a.allotment = Number(allotment); if (stopSell) a.stopSell = stopSell; if (mode) a.mode = mode; if (Object.keys(a).length) changes.availability = a }
     if (panels.restrictions) { const r: NonNullable<QuickUpdateChanges['restrictions']> = {}; if (minStay.trim() !== '') r.minStay = Number(minStay); if (release.trim().toLowerCase() === 'plan') r.releaseDays = null; else if (release.trim() !== '') r.releaseDays = Number(release); if (cta) r.closedToArrival = cta; if (ctd) r.closedToDeparture = ctd; if (Object.keys(r).length) changes.restrictions = r }
     return { scope: { ratePlanIds: selected, ranges: ranges.filter((r) => r.from || r.to).map((r) => ({ from: r.from, to: r.to || r.from })), ...(weekdays.length ? { weekdays } : {}) }, changes }
@@ -135,6 +135,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
           {panelBox('price', 'Price', canRates, <>
             <label style={field}>Amount per night{currencies.length === 1 ? ` (${currencies[0]})` : ''}<input className="input-wrap" inputMode="decimal" value={amount} onChange={(e) => edited(() => setAmount(e.target.value))} placeholder="450.50" /></label>
             <label style={field}>Amount basis<select className="input-wrap" value={basis} onChange={(e) => edited(() => setBasis(e.target.value as 'NET' | 'SELL'))}><option value="SELL">SELL</option><option value="NET">NET</option></select></label>
+            <label style={field} title="ADR 0067 F-05: price another occupancy of the selected plans, such as single use. A stay uses it only when every night has that rate.">Occupancy priced<select className="input-wrap" value={priceOccupancy} onChange={(e) => edited(() => setPriceOccupancy(e.target.value))}><option value="">Each plan's own</option>{[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={String(n)}>{n} {n === 1 ? 'adult (single)' : 'adults'}</option>)}</select></label>
             <p style={note}>Entered in the plan&apos;s own currency and stored as integer minor units. Applies to each plan&apos;s occupancy.</p>
           </>, 'You need the rates permission to change prices.')}
           {panelBox('availability', 'Availability', canAvail, <>

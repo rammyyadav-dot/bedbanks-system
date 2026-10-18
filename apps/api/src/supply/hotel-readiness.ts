@@ -68,17 +68,16 @@ export function assessReadiness(input: ReadinessInput): HotelReadinessAssessment
   const hotelRef: ReadinessEntityRef = { type: 'HOTEL', id: assess.hotel.id, label: assess.hotel.name }
   const starOk = assess.hotel.starRating !== null && assess.hotel.starRating >= 1 && assess.hotel.starRating <= 5
 
-  // One evaluation per plan, with the buyer, exactly as Agent search would run it. Rates are the plan's own occupancy only.
-  const outcomes: PlanOutcome[] = assess.plans.map((loaded) => {
-    const plan = { ...loaded, dailyRates: loaded.dailyRates.filter((rate) => rate.occupancy === loaded.occupancy) }
+  // One evaluation per plan, with the buyer, exactly as Agent search would run it, including its occupancy choice (ADR 0067, F-05).
+  const outcomes: PlanOutcome[] = assess.plans.map((plan) => {
     const { mapping, roomMapping } = mappingFor(plan, assess)
     const decision = evaluateContractedStay(
-      buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(assess.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)),
+      buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(assess.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId), { adults: criteria.adults }),
       { checkIn: criteria.checkIn, checkOut: criteria.checkOut, rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: criteria.childAges, currency: criteria.currency, now, buyer: { nationality: criteria.nationality, market: criteria.market } },
     )
     const reasons = [...decision.reasons]
     if (!starOk) reasons.push(HOTEL_STAR_RATING_MISSING)
-    return { plan: loaded, reasons, eligible: decision.eligible, offer: reasons.length === 0 && decision.eligible }
+    return { plan, reasons, eligible: decision.eligible, offer: reasons.length === 0 && decision.eligible }
   })
 
   // Agency controls remove plans the buyer could never be shown; they are a distribution matter, not a rate matter.

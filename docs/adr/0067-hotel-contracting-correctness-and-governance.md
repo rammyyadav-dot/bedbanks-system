@@ -134,3 +134,16 @@ Migration `202611200005_release_per_night` adds the nullable column with a range
 Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns with checks; every existing rule is a CANCELLATION tier and every contract has a buffer of 0.
 
 **Not built.** Marking a booking NO_SHOW does not yet post the no-show penalty: the booking-ops action records the status only, as before. Nights are charged pro rata of the total, not at each night's own price.
+
+## F-05: Rates per occupancy (single, double, triple)
+
+**Problem.** A plan priced one occupancy. Hotel contracts quote single, double and triple rates for the same room and board, so operators cloned a plan per occupancy. A single traveller could not book a double plan at all (fewer guests than the base occupancy), and a derived plan dropped every occupancy but its own.
+
+**Decision.**
+- **No schema change.** `DailyRate` was already keyed by occupancy. A plan may now carry a rate for any occupancy from 1 to the room's `maxOccupancy`.
+- **Writes.** The calendar edit and apply routes accept such rows (400 above the room's capacity). The calendar import accepts an `occupancy` column within the same range. Quick Update's price change takes an optional `occupancy`, so "single use" is priced across a selection in one step.
+- **Choosing the occupancy.** The shared snapshot builder takes the party and picks the occupancy that prices the stay with `pricedOccupancy`: the party's adult count when every night has a rate for exactly that many adults, otherwise the plan's own occupancy. Guest lines and the contract child policy apply on top as before. One stay never mixes occupancies.
+- **Same choice everywhere.** Agent search, recheck and hold, the Sellability Inspector's stay check, the hotel stay diagnostic and readiness all use this choice, so Admin and Agent agree. A single-night verdict and rate certification still judge the plan's own occupancy.
+- **Derived plans.** A derived plan derives every occupancy of its parent.
+
+**Not built.** The hotel calendar grid shows the plan's own occupancy only; other occupancies are visible through import and export and the inspector. Activation still requires rates for the plan's own occupancy, which stays the base the plan is certified on.

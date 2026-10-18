@@ -62,11 +62,11 @@ export class HotelQuickUpdateService {
     if (!hotel) throw new NotFoundException('Hotel not found')
     const found = await tx.ratePlan.findMany({
       where: { id: { in: value.ratePlanIds }, tenantId, roomType: { hotelId: hotel.id } },
-      include: { roomType: { select: { name: true } }, boardBasis: { select: { code: true } }, contract: { select: { code: true, validFrom: true, validTo: true, supplier: { select: { displayName: true } } } } },
+      include: { roomType: { select: { name: true, maxOccupancy: true } }, boardBasis: { select: { code: true } }, contract: { select: { code: true, validFrom: true, validTo: true, supplier: { select: { displayName: true } } } } },
     })
     const plans = new Map<string, PlanInfo>(); const refs = new Map<string, QuickUpdatePlanRef>()
     for (const p of found) {
-      plans.set(p.id, { id: p.id, status: p.status, currency: p.currency, occupancy: p.occupancy, contractFrom: day(p.contract.validFrom), contractTo: day(p.contract.validTo), poolId: p.inventoryPoolId, derived: p.derivedFromId !== null })
+      plans.set(p.id, { id: p.id, status: p.status, currency: p.currency, occupancy: p.occupancy, maxOccupancy: p.roomType.maxOccupancy, contractFrom: day(p.contract.validFrom), contractTo: day(p.contract.validTo), poolId: p.inventoryPoolId, derived: p.derivedFromId !== null })
       refs.set(p.id, { id: p.id, code: p.code, roomName: p.roomType.name, boardCode: p.boardBasis.code.trim(), contractCode: p.contract.code, supplierName: p.contract.supplier.displayName, currency: p.currency, occupancy: p.occupancy, status: p.status })
     }
     const dates = [...new Set(value.ranges.flatMap((r) => [r.from, r.to]))].sort()
@@ -86,9 +86,10 @@ export class HotelQuickUpdateService {
       lines.push(`D|${d.poolId}|${day(d.stayDate)}|${d.capacity}|${d.sold}|${d.held}|${d.updatedAt.getTime()}`)
     }
     for (const r of rateRows) {
-      if (r.occupancy !== plans.get(r.ratePlanId)!.occupancy) continue
+      // ADR 0067 F-05: the rates of the occupancy being priced (the plan's own unless the change names one).
+      if (r.occupancy !== (value.changes.price?.occupancy ?? plans.get(r.ratePlanId)!.occupancy)) continue
       rates.set(`${r.ratePlanId}:${day(r.stayDate)}`, { amountMinor: r.amountMinor, basis: r.amountBasis === 'NET' || r.amountBasis === 'SELL' ? r.amountBasis : null })
-      lines.push(`R|${r.ratePlanId}|${day(r.stayDate)}|${r.amountMinor}|${r.amountBasis ?? ''}|${r.updatedAt.getTime()}`)
+      lines.push(`R|${r.ratePlanId}|${day(r.stayDate)}|${r.occupancy}|${r.amountMinor}|${r.amountBasis ?? ''}|${r.updatedAt.getTime()}`)
     }
     for (const a of availRows) {
       avail.set(`${a.ratePlanId}:${day(a.stayDate)}`, { allotment: a.allotment, sold: a.sold, held: a.held, stopSell: a.stopSell, minStay: a.minStay, closedToArrival: a.closedToArrival, closedToDeparture: a.closedToDeparture, releaseDays: a.releaseDays, mode: a.inventoryMode })
@@ -179,8 +180,9 @@ export class HotelQuickUpdateService {
       const plan = loaded.plans.get(row.ratePlanId)!
       const stayDate = toDate(row.date)
       if (row.nextRate) {
-        if (loaded.rates.has(`${row.ratePlanId}:${row.date}`)) await tx.dailyRate.update({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate, occupancy: plan.occupancy } }, data: { amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency } })
-        else newRates.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, occupancy: plan.occupancy, amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency })
+        const occupancy = row.nextRate.occupancy
+        if (loaded.rates.has(`${row.ratePlanId}:${row.date}`)) await tx.dailyRate.update({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate, occupancy } }, data: { amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency } })
+        else newRates.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, occupancy, amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency })
         rates++
       }
       if (row.nextAvail) {

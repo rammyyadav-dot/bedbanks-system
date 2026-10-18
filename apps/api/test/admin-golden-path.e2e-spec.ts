@@ -279,6 +279,18 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       await restore()
       await api(operator).post('/supply/sellability', { ratePlanId: ids.ratePlan, stayDate: start, occupancy: 2, nights: 2 }).expect(400)
     })
+
+    it('ADR 0067 F-05: a single rate loaded through the calendar sells to one adult; the double rate stays for two', async () => {
+      expect((await sellable({ occupancy: 1, checkInDate: start, nights: 2 })).reasons).toContain('OCCUPANCY_UNSUPPORTED')
+      const second = new Date(new Date(`${start}T00:00:00.000Z`).getTime() + 86_400_000).toISOString().slice(0, 10)
+      const rates = [start, second].map((stayDate) => ({ ratePlanId: ids.ratePlan, stayDate, occupancy: 1, amountMinor: '38000', amountBasis: 'SELL', currency: 'AED', expectedUpdatedAt: null }))
+      await api(operator).post('/supply/calendar/apply', { rates }).expect(201)
+      expect((await sellable({ occupancy: 1, checkInDate: start, nights: 2 })).eligible).toBe(true)
+      expect((await sellable({ occupancy: 2, checkInDate: start, nights: 2 })).eligible).toBe(true)
+      const four = await api(operator).post('/supply/calendar/apply', { rates: [{ ...rates[0], occupancy: 4 }] })
+      expect(four.status).toBe(400)
+      await prisma.dailyRate.deleteMany({ where: { ratePlanId: ids.ratePlan, occupancy: 1 } })
+    })
   })
 
   it('keeps booking fail-closed: no booking surface was enabled by the commercial setup', async () => {

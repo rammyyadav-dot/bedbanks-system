@@ -7,7 +7,7 @@ const availability = (extra = {}) => ({ ratePlanId: 'plan', stayDate: '2030-01-0
 function setup() {
   const tx = {
     userRole: { findMany: jest.fn().mockResolvedValue([{ role: { permissions: ['supply.rates.manage', 'supply.availability.manage', 'supply.rates.read'].map(key => ({ permission: { key } })) } }]) },
-    ratePlan: { groupBy: jest.fn().mockResolvedValue([{ status: 'DRAFT', _count: { _all: 51 } }, { status: 'ACTIVE', _count: { _all: 4 } }]), findMany: jest.fn().mockResolvedValue([{ id: 'plan', occupancy: 2, currency: 'AED', inventoryPoolId: null, contract: { settlementCurrency: 'AED', validFrom: at, validTo: new Date('2030-12-31') } }]), count: jest.fn().mockResolvedValue(51) },
+    ratePlan: { groupBy: jest.fn().mockResolvedValue([{ status: 'DRAFT', _count: { _all: 51 } }, { status: 'ACTIVE', _count: { _all: 4 } }]), findMany: jest.fn().mockResolvedValue([{ id: 'plan', occupancy: 2, currency: 'AED', inventoryPoolId: null, roomType: { maxOccupancy: 3 }, contract: { settlementCurrency: 'AED', validFrom: at, validTo: new Date('2030-12-31') } }]), count: jest.fn().mockResolvedValue(51) },
     dailyRate: { findUnique: jest.fn().mockResolvedValue({ id: 'rate', amountMinor: 12000n, amountBasis: 'SELL', currency: 'AED', updatedAt: at }), upsert: jest.fn().mockResolvedValue({ id: 'rate', amountMinor: 15000n }) },
     dailyAvailability: { findUnique: jest.fn().mockResolvedValue({ id: 'availability', allotment: 10, sold: 2, held: 1, stopSell: true, minStay: 3, updatedAt: at }), upsert: jest.fn().mockResolvedValue({ id: 'availability' }) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
@@ -64,9 +64,9 @@ describe('calendar transaction orchestration', () => {
     const { service, tx } = setup(); const denied = { code: 'P2010', meta: { code: '42501' } }; tx.dailyRate.upsert.mockRejectedValue(denied)
     await expect(service.editCalendar('tenant', 'user', { rates: [rate()] })).rejects.toBe(denied)
   })
-  it('rejects other occupancy and outside-contract rates', async () => {
+  it('rejects an occupancy the room cannot sleep and outside-contract rates', async () => {
     const { service } = setup()
-    await expect(service.editCalendar('tenant', 'user', { rates: [rate({ occupancy: 3 })] })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.editCalendar('tenant', 'user', { rates: [rate({ occupancy: 4 })] })).rejects.toBeInstanceOf(BadRequestException)
     await expect(service.editCalendar('tenant', 'user', { rates: [rate({ stayDate: '2031-01-01' })] })).rejects.toBeInstanceOf(BadRequestException)
   })
 })

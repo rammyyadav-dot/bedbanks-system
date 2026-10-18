@@ -56,9 +56,9 @@ describe('derived rates (ADR 0058, S10b)', () => {
       expect(out.derivedProblem).toBeNull()
       expect(out.dailyRates.map((r) => [r.stayDate.toISOString().slice(0, 10), r.amountMinor, r.amountBasis, r.currency])).toEqual([['2030-06-01', 27_004n, 'NET', 'AED'], ['2030-06-02', 9_000n, 'NET', 'AED']])
     })
-    it("uses only the parent's rows of the plan's own occupancy", () => {
+    it("derives every occupancy of the parent (ADR 0067, F-05), each adjusted", () => {
       const out = withDerivedRates(plan({}, { dailyRates: [row('2030-06-01', 10_000n), { ...row('2030-06-01', 99_999n), occupancy: 3 }] }))
-      expect(out.dailyRates.map((r) => r.amountMinor)).toEqual([9_000n])
+      expect(out.dailyRates.map((r) => [r.occupancy, r.amountMinor])).toEqual([[2, 9_000n], [3, 89_999n]])
     })
     it('a night adjusted to zero or below is a zero rate, never a negative or free sale', () => {
       const out = withDerivedRates(plan({ derivedMode: 'FIXED_MINOR', derivedAdjustment: -10_000 }))

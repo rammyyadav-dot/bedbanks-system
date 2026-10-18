@@ -19,6 +19,8 @@ type Column = (typeof COLUMNS)[number]
 
 export interface ImportPlan {
   id: string; code: string; currency: string; occupancy: number; inventoryPoolId: string | null
+  /** ADR 0067 F-05: a rate may be loaded for any occupancy from 1 to what the room sleeps. Absent: only the plan's own occupancy. */
+  maxOccupancy?: number
   /** An EXPIRED plan is final (ADR 0041); its calendar is not edited. */
   expired?: boolean
   /** Contract term, YYYY-MM-DD. A cell outside it is never accepted. */
@@ -138,7 +140,7 @@ export function buildCalendarImport(csv: string, lookups: ImportLookups): Import
     const occRaw = col(row, 'occupancy')
     const occupancy = occRaw === '' ? plan!.occupancy : INT.test(occRaw) ? Number(occRaw) : NaN
     if (!Number.isInteger(occupancy) || occupancy < 1) return fail(line, 'OCCUPANCY_INVALID', 'occupancy must be a whole number of 1 or more.', 'occupancy')
-    if (occupancy !== plan!.occupancy) return fail(line, 'OCCUPANCY_MISMATCH', `This plan is for ${plan!.occupancy} guests, not ${occupancy}.`, 'occupancy')
+    if (occupancy !== plan!.occupancy && (plan!.maxOccupancy === undefined || occupancy > plan!.maxOccupancy)) return fail(line, 'OCCUPANCY_MISMATCH', plan!.maxOccupancy === undefined ? `This plan is for ${plan!.occupancy} guests, not ${occupancy}.` : `The room sleeps at most ${plan!.maxOccupancy}; occupancy ${occupancy} cannot be priced.`, 'occupancy')
 
     let rate: ParsedRow['rate'] = null
     const amountRaw = col(row, 'amount')

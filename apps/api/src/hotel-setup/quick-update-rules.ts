@@ -70,10 +70,11 @@ export function normaliseQuickUpdate(body: Partial<QuickUpdateRequest> | undefin
   for (const key of Object.keys(changes!)) if (!['price', 'availability', 'restrictions'].includes(key)) errors.push(`changes.${key}: is not a supported change`)
   const price = changes!.price as Record<string, unknown> | undefined
   if (price !== undefined) {
-    for (const key of Object.keys(price ?? {})) if (!['amount', 'basis'].includes(key)) errors.push(`changes.price.${key}: is not a supported field`)
+    for (const key of Object.keys(price ?? {})) if (!['amount', 'basis', 'occupancy'].includes(key)) errors.push(`changes.price.${key}: is not a supported field`)
     if (typeof price?.amount !== 'string' || price.amount.trim() === '') errors.push('changes.price.amount: enter an amount, or leave the price panel untouched')
     else if (price.basis !== 'NET' && price.basis !== 'SELL') errors.push('changes.price.basis: choose NET or SELL')
-    else out.price = { amount: price.amount.trim(), basis: price.basis }
+    else if (price.occupancy !== undefined && !(Number.isInteger(price.occupancy) && (price.occupancy as number) >= 1 && (price.occupancy as number) <= 9)) errors.push('changes.price.occupancy: a whole number of guests from 1 to 9, or omit it for each plan\'s own occupancy')
+    else out.price = { amount: price.amount.trim(), basis: price.basis, ...(price.occupancy !== undefined ? { occupancy: price.occupancy as number } : {}) }
   }
   const availability = changes!.availability as Record<string, unknown> | undefined
   if (availability !== undefined) {
@@ -116,13 +117,13 @@ export function dayInZone(now: Date, timeZone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-export interface PlanInfo { id: string; status: string; currency: string; occupancy: number; contractFrom: string; contractTo: string; /** Set when the plan draws its stock from a shared pool. */ poolId?: string | null; /** Set when the plan is derived from a parent plan (ADR 0058, S10b): its price is its parent's, never edited here. */ derived?: boolean }
+export interface PlanInfo { id: string; status: string; currency: string; occupancy: number; /** ADR 0067 F-05: what the room sleeps; a price for a higher occupancy is refused. */ maxOccupancy?: number; contractFrom: string; contractTo: string; /** Set when the plan draws its stock from a shared pool. */ poolId?: string | null; /** Set when the plan is derived from a parent plan (ADR 0058, S10b): its price is its parent's, never edited here. */ derived?: boolean }
 export interface RateState { amountMinor: bigint; basis: 'NET' | 'SELL' | null }
 export interface AvailState { allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; releaseDays?: number | null; mode?: string }
 export interface PoolDayState { capacity: number; sold: number; held: number }
 export interface PlannedRow extends QuickUpdateRow {
   /** The values to write when the outcome is CHANGE. */
-  nextRate: { amountMinor: bigint; basis: 'NET' | 'SELL' } | null
+  nextRate: { amountMinor: bigint; basis: 'NET' | 'SELL'; occupancy: number } | null
   nextAvail: { create: boolean; allotment: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture: boolean; releaseDays: number | null; mode: string } | null
   /** Pool capacity to write for this plan's pool night. The same pool night appears on every pooled plan in scope and is written once. */
   nextPool: { poolId: string; create: boolean; capacity: number } | null
@@ -175,13 +176,14 @@ export function planQuickUpdate(input: {
       if (date < plan.contractFrom || date > plan.contractTo) problems.push('the date is outside the contract validity')
 
       if (priceChange && plan.derived) problems.push('the rate plan is derived from another plan and has no rates of its own; change the parent plan or its adjustment')
+      else if (priceChange && priceChange.occupancy !== undefined && plan.maxOccupancy !== undefined && priceChange.occupancy > plan.maxOccupancy) problems.push(`the room sleeps at most ${plan.maxOccupancy}; occupancy ${priceChange.occupancy} cannot be priced`)
       else if (priceChange) {
         const p = priceFor(plan.currency)!
         if ('error' in p) problems.push(p.error)
         else {
           const cur = rates.get(key)
           if (!cur || cur.amountMinor !== p.minor || cur.basis !== priceChange.basis) {
-            nextRate = { amountMinor: p.minor, basis: priceChange.basis }
+            nextRate = { amountMinor: p.minor, basis: priceChange.basis, occupancy: priceChange.occupancy ?? plan.occupancy }
             changes.push({ field: 'price', from: cur ? cur.amountMinor.toString() : null, to: p.minor.toString(), currency: plan.currency })
           }
         }

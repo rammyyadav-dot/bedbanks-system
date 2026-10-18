@@ -1,5 +1,5 @@
 import { evaluateContractedStay, rowIsFresh, type ContractedStaySnapshot, type StayRequest } from './contracted-sellability'
-import { buildStaySnapshot, nightStock, type StayPlanInput } from './stay-snapshot'
+import { buildStaySnapshot, nightStock, pricedOccupancy, type StayPlanInput } from './stay-snapshot'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')
 const base: StayRequest = { checkIn: '2026-10-15', checkOut: '2026-10-18', rooms: 1, adults: 2, children: 0, currency: 'AED', now: NOW }
@@ -209,3 +209,21 @@ describe('boundary and coverage rules', () => {
   })
 })
 
+
+describe('per-occupancy rates (ADR 0067, F-05)', () => {
+  const single = (dates: string[]) => dates.map((d) => ({ stayDate: at(d), occupancy: 1, amountMinor: 22_000n, currency: 'AED', amountBasis: 'SELL' }))
+  const withSingle = (dates: string[]): StayPlanInput => { const p = plan(); return { ...p, dailyRates: [...p.dailyRates.map((r) => ({ ...r, occupancy: 2 })), ...single(dates)] } }
+  const priced = (p: StayPlanInput, adults: number) => evaluateContractedStay(buildStaySnapshot(p, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES, undefined, { adults }), { ...base, adults })
+  it('a single traveller pays the single rate when every night has one', () => {
+    expect(pricedOccupancy(withSingle(DATES), DATES, { adults: 1 })).toBe(1)
+    expect(priced(withSingle(DATES), 1)).toMatchObject({ eligible: true, totalMinor: 66_000n })
+  })
+  it('never mixes occupancies: one night without a single rate leaves the stay on the base occupancy, which one adult cannot fill', () => {
+    expect(pricedOccupancy(withSingle(DATES.slice(1)), DATES, { adults: 1 })).toBe(2)
+    expect(priced(withSingle(DATES.slice(1)), 1)).toMatchObject({ eligible: false, totalMinor: null })
+    expect(priced(withSingle(DATES.slice(1)), 1).reasons).toContain('OCCUPANCY_UNSUPPORTED')
+  })
+  it('two adults keep the double rate', () => {
+    expect(priced(withSingle(DATES), 2)).toMatchObject({ eligible: true, totalMinor: 90_000n })
+  })
+})

@@ -79,6 +79,13 @@ describe('planQuickUpdate', () => {
     const r = run({ restrictions: { closedToArrival: 'SET' } }, { avail: { 'p1:2026-11-02': A({ stopSell: true, minStay: 3, allotment: 9 }) }, scope: { weekdays: ['MON'] } })
     expect(r.rows).toHaveLength(1); expect(r.rows[0].nextAvail).toEqual({ create: false, allotment: 9, stopSell: true, minStay: 3, closedToArrival: true, closedToDeparture: false, releaseDays: null, mode: 'ALLOTMENT' })
   })
+  it('prices another occupancy, up to what the room sleeps (ADR 0067, F-05)', () => {
+    const single = run({ price: { amount: '380', basis: 'SELL', occupancy: 1 } }, { plans: [plan({ maxOccupancy: 3 })], scope: { weekdays: ['MON'] } })
+    expect(single.rows[0]).toMatchObject({ outcome: 'CHANGE', nextRate: { amountMinor: 38000n, basis: 'SELL', occupancy: 1 } })
+    expect(run({ price: { amount: '380', basis: 'SELL', occupancy: 4 } }, { plans: [plan({ maxOccupancy: 3 })] }).rows.every((r) => r.outcome === 'INVALID')).toBe(true)
+    expect(run({ price: { amount: '380', basis: 'SELL' } }, { scope: { weekdays: ['MON'] } }).rows[0].nextRate).toMatchObject({ occupancy: 2 })
+    expect(() => run({ price: { amount: '380', basis: 'SELL', occupancy: 0 } })).toThrow(/changes.price.occupancy/)
+  })
   it('sets and clears a release override per night (ADR 0067, F-08)', () => {
     const peak = run({ restrictions: { releaseDays: 14 } }, { avail: { 'p1:2026-11-02': A() }, scope: { weekdays: ['MON'] } })
     expect(peak.rows[0]).toMatchObject({ outcome: 'CHANGE', changes: [{ field: 'releaseDays', from: null, to: 14 }] })

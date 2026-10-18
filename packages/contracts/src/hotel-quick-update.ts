@@ -23,7 +23,8 @@ export interface QuickUpdateScope {
 
 export type QuickUpdateFlag = 'SET' | 'CLEAR';
 export interface QuickUpdateChanges {
-  price?: { amount: string; basis: 'NET' | 'SELL' }
+  /** `occupancy` (ADR 0067, F-05) prices that occupancy of each plan (e.g. single use); omitted is each plan's own occupancy. */
+  price?: { amount: string; basis: 'NET' | 'SELL'; occupancy?: number }
   /** `allotment` is the plan's own count, or the shared pool's capacity when the plan belongs to a pool (written once per pool night). */
   availability?: { allotment?: number; stopSell?: QuickUpdateFlag; mode?: InventoryMode }
   /** `closedToDeparture` applies to the DEPARTURE date: a stay may not end on a night where it is set. */

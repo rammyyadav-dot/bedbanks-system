@@ -66,6 +66,9 @@ describe('calendar import (ADR 0057, S7)', () => {
     const r = buildCalendarImport(csv(H, 'BB-DBL,2026-02-30,450,SELL', 'BB-DBL,2027-01-02,450,SELL', 'NOPE,2026-11-01,450,SELL', 'DUP,2026-11-01,450,SELL'), lookups([plan(), ...two]))
     expect(r.errors.map((e) => e.code)).toEqual(['DATE_INVALID', 'DATE_OUTSIDE_CONTRACT', 'PLAN_NOT_FOUND', 'PLAN_AMBIGUOUS'])
     expect(buildCalendarImport(csv('plan_code,date,occupancy,amount,basis', 'BB-DBL,2026-11-01,3,450,SELL'), lookups()).errors[0]).toMatchObject({ code: 'OCCUPANCY_MISMATCH' })
+    // ADR 0067 F-05: another occupancy up to what the room sleeps is a rate of its own.
+    expect(buildCalendarImport(csv('plan_code,date,occupancy,amount,basis', 'BB-DBL,2026-11-01,1,380,SELL'), lookups([plan({ maxOccupancy: 3 })])).rates[0]).toMatchObject({ occupancy: 1, amountMinor: '38000' })
+    expect(buildCalendarImport(csv('plan_code,date,occupancy,amount,basis', 'BB-DBL,2026-11-01,4,380,SELL'), lookups([plan({ maxOccupancy: 3 })])).errors[0]).toMatchObject({ code: 'OCCUPANCY_MISMATCH' })
   })
   it('keeps going after a bad row: good rows are accepted and every bad row is reported with its true line', () => {
     const r = buildCalendarImport(csv(H, 'BB-DBL,2026-11-01,450,SELL', '', 'BB-DBL,bad,450,SELL', 'BB-DBL,2026-11-03,460,SELL'), lookups())

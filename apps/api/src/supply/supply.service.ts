@@ -832,7 +832,7 @@ export class SupplyService {
     const loaded = await this.prisma.withTenant(tenantId, async tx => {
       const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { id: true } })
       if (!hotel) throw new NotFoundException('Hotel not found')
-      const plans = await tx.ratePlan.findMany({ where: { tenantId, roomType: { hotelId, hotel: { tenantId } } }, select: { id: true, code: true, currency: true, occupancy: true, inventoryPoolId: true, status: true, contract: { select: { validFrom: true, validTo: true } } }, orderBy: { id: 'asc' }, take: 2001 })
+      const plans = await tx.ratePlan.findMany({ where: { tenantId, roomType: { hotelId, hotel: { tenantId } } }, select: { id: true, code: true, currency: true, occupancy: true, inventoryPoolId: true, status: true, roomType: { select: { maxOccupancy: true } }, contract: { select: { validFrom: true, validTo: true } } }, orderBy: { id: 'asc' }, take: 2001 })
       if (plans.length > 2000) throw new BadRequestException('This hotel has too many rate plans to import against in one file; contact support.')
       const referenced = plans.filter(plan => refs.planKeys.includes(plan.id) || refs.planKeys.includes(plan.code))
       const planIds = referenced.map(plan => plan.id)
@@ -846,7 +846,7 @@ export class SupplyService {
       return { plans, rates, availability }
     })
     const day = (value: Date) => value.toISOString().slice(0, 10)
-    const importPlans: ImportPlan[] = loaded.plans.map(plan => ({ id: plan.id, code: plan.code, currency: plan.currency, occupancy: plan.occupancy, inventoryPoolId: plan.inventoryPoolId, expired: plan.status === 'EXPIRED', contractValidFrom: day(plan.contract.validFrom), contractValidTo: day(plan.contract.validTo) }))
+    const importPlans: ImportPlan[] = loaded.plans.map(plan => ({ id: plan.id, code: plan.code, currency: plan.currency, occupancy: plan.occupancy, maxOccupancy: plan.roomType.maxOccupancy, inventoryPoolId: plan.inventoryPoolId, expired: plan.status === 'EXPIRED', contractValidFrom: day(plan.contract.validFrom), contractValidTo: day(plan.contract.validTo) }))
     const plansByCode = new Map<string, ImportPlan[]>()
     for (const plan of importPlans) plansByCode.set(plan.code, [...(plansByCode.get(plan.code) ?? []), plan])
     const rateIndex = new Map<string, ExistingRate>(loaded.rates.map(row => [`${row.ratePlanId}|${day(row.stayDate)}|${row.occupancy}`, { updatedAt: row.updatedAt.toISOString() }]))
@@ -875,7 +875,7 @@ export class SupplyService {
     try {
       return await this.prisma.withTenant(tenantId, async tx => {
         const ids = [...new Set([...rates, ...availability].map(row => row.ratePlanId))].sort()
-        const plans = await tx.ratePlan.findMany({ where: { tenantId, id: { in: ids } }, include: { contract: true } })
+        const plans = await tx.ratePlan.findMany({ where: { tenantId, id: { in: ids } }, include: { contract: true, roomType: { select: { maxOccupancy: true } } } })
         if (plans.length !== ids.length) throw new BadRequestException('Rate plan unavailable in this tenant')
         // ADR 0058, S10b: a derived plan's price is its parent's. The database refuses the row as well; this answers with a typed reason first.
         const derivedTarget = plans.find(plan => typeof plan.derivedFromId === 'string' && rates.some(row => row.ratePlanId === plan.id))
@@ -887,7 +887,8 @@ export class SupplyService {
         const availabilityChanges = []
         for (const row of rates) {
           const plan = plans.find(plan => plan.id === row.ratePlanId)!
-          if (plan.currency !== row.currency || plan.contract.settlementCurrency !== row.currency || plan.occupancy !== row.occupancy) throw new BadRequestException('Rate currency or occupancy does not match the plan and contract')
+          // ADR 0067 F-05: a plan may carry a rate per occupancy (single, double, triple) up to what the room sleeps.
+          if (plan.currency !== row.currency || plan.contract.settlementCurrency !== row.currency || row.occupancy < 1 || row.occupancy > plan.roomType.maxOccupancy) throw new BadRequestException('Rate currency or occupancy does not match the plan, room and contract')
           if (row.stayDate < plan.contract.validFrom || row.stayDate > plan.contract.validTo) throw new BadRequestException('Rate date is outside the contract')
           const before = await tx.dailyRate.findUnique({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy } } })
           checkVersion(row.expectedUpdatedAt, before)
@@ -955,7 +956,9 @@ export class SupplyService {
       const raw = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, select: assessPlanSelect(tenantId, { gte: checkIn, lte: new Date(checkIn.getTime() + (nights - 1) * 86_400_000) }) })
       if (!raw) return { eligible: false, status: 'NOT_ELIGIBLE' as const, reasons: ['RATE_PLAN_MISSING'], warnings: [] as string[] }
       const derived = withDerivedRates(raw) as unknown as AssessPlan
-      const plan: AssessPlan = { ...derived, dailyRates: derived.dailyRates.filter((rate) => rate.occupancy === derived.occupancy) }
+      // A single night is judged at the plan's own occupancy; a stay uses the Agent's occupancy choice (ADR 0067, F-05), so it gets every occupancy.
+      const plan: AssessPlan = derived
+      const own: AssessPlan = { ...derived, dailyRates: derived.dailyRates.filter((rate) => rate.occupancy === derived.occupancy) }
       const [hotel, mapping, markupRules] = await Promise.all([
         tx.hotel.findFirst({ where: { id: plan.roomType.hotelId, tenantId }, select: { starRating: true } }),
         plan.contract.supplierHotelMappingId ? tx.supplierHotelMapping.findFirst({ where: { id: plan.contract.supplierHotelMappingId, tenantId }, select: { id: true, status: true, hotelId: true } }) : Promise.resolve(null),
@@ -964,10 +967,10 @@ export class SupplyService {
       const roomMapping = mapping ? await tx.supplierRoomMapping.findFirst({ where: { tenantId, supplierHotelMappingId: mapping.id, roomTypeId: plan.roomTypeId }, select: { status: true } }) : null
       const guests = occupancySplit({ occupancy: input.occupancy, roomType: plan.roomType })
       let reasons: string[]
-      if (!hasStay) reasons = evaluatePlanNight(plan, mapping, roomMapping, dayOfDate(stayDate), hotel?.starRating ?? null, guests, markupRules, now)
+      if (!hasStay) reasons = evaluatePlanNight(own, mapping, roomMapping, dayOfDate(stayDate), hotel?.starRating ?? null, guests, markupRules, now)
       else {
         const checkOut = dayOfDate(new Date(checkIn.getTime() + nights * 86_400_000))
-        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId)),
+        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId), { adults: guests.adults }),
           { checkIn: first, checkOut, rooms: 1, adults: guests.adults, children: guests.children, currency: plan.currency, now })
         reasons = [...decision.reasons]
         if (!starRatingValid(hotel?.starRating ?? null)) reasons.push(HOTEL_STAR_RATING_MISSING)

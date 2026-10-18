@@ -52,6 +52,14 @@ const nextDay = (day: string): string => new Date(Date.parse(`${day}T00:00:00.00
  * so a hotel's Admin readiness and its Agent offers cannot drift apart. A missing mapping is passed as `null`; the evaluator then
  * reports SUPPLIER_MAPPING_INVALID exactly as it would for an unapproved one.
  */
+/** The occupancy whose rates price this stay: the party's adults when every night has such a rate, else the plan's own occupancy. */
+export function pricedOccupancy(plan: Pick<StayPlanInput, 'occupancy' | 'dailyRates'>, nights: readonly string[], party?: { adults: number }): number {
+  const adults = party?.adults
+  if (adults === undefined || adults === plan.occupancy || !Number.isInteger(adults) || adults < 1 || nights.length === 0) return plan.occupancy
+  const covered = new Set(plan.dailyRates.filter((rate) => rate.occupancy === adults).map((rate) => dayKey(rate.stayDate)))
+  return nights.every((night) => covered.has(night)) ? adults : plan.occupancy
+}
+
 export function buildStaySnapshot(
   plan: StayPlanInput,
   mapping: { status: string; hotelId: string } | null,
@@ -59,6 +67,8 @@ export function buildStaySnapshot(
   nights: string[],
   /** Markup basis points in force for a night, or null. Omitted means no markup rule (NET rates stay unsellable). */
   markupFor?: (date: string) => number | null,
+  /** The party being priced (ADR 0067, F-05). When every night has a rate for exactly this many adults, that occupancy prices the stay. */
+  party?: { adults: number },
 ): ContractedStaySnapshot {
   // A loader that forgot the plan window would silently skip the rule (fail open). Refuse loudly instead.
   if (plan.validFrom === undefined || plan.validTo === undefined) throw new Error('RATE_PLAN_WINDOW_NOT_LOADED')
@@ -70,8 +80,11 @@ export function buildStaySnapshot(
   if (plan.contract.leadTimeRules === undefined) throw new Error('CONTRACT_LEAD_TIME_NOT_LOADED')
   if (plan.contract.childPolicies === undefined) throw new Error('CONTRACT_CHILD_POLICY_NOT_LOADED')
   if (plan.contract.minStayMode !== 'STAY_THROUGH' && plan.contract.minStayMode !== 'ARRIVAL') throw new Error('CONTRACT_MIN_STAY_MODE_NOT_LOADED')
-  // A loader may bring several occupancies (ADR 0057, S6); only the plan's own occupancy prices a night (finding F12).
-  const rates = new Map(plan.dailyRates.filter((rate) => rate.occupancy === undefined || rate.occupancy === plan.occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
+  // A loader may bring several occupancies (ADR 0057, S6). ADR 0067 F-05: a plan may be contracted per occupancy (single, double, triple). The
+  // party's adult count prices the stay when EVERY night has a rate for it; otherwise the plan's base occupancy does, with guest lines on top
+  // (finding F12). Never a mix of occupancies within one stay.
+  const occupancy = pricedOccupancy(plan, nights, party)
+  const rates = new Map(plan.dailyRates.filter((rate) => (rate.occupancy ?? plan.occupancy) === occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
   const pools = new Map((plan.inventoryPool?.days ?? []).map((day) => [dayKey(day.stayDate), day]))
@@ -118,7 +131,7 @@ export function buildStaySnapshot(
     marketRules: parseMarketRules(plan.contract),
     planMarketRules: parseMarketRules(plan),
     ratePlanStatus: plan.status,
-    ratePlanOccupancy: plan.occupancy,
+    ratePlanOccupancy: occupancy,
     ratePlanCurrency: plan.currency,
     ratePlanMinStay: plan.minStay,
     ratePlanMaxStay: plan.maxStay,

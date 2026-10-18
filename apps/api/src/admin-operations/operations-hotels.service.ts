@@ -16,7 +16,7 @@ import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { rowIsFresh, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { CommercialControlUnavailableError, controlReadFailure } from '../supply/commercial-controls'
 import { buildHotelStayReadiness } from './hotel-stay-readiness'
-import { buildStaySnapshot, nightStock } from '../supply/stay-snapshot'
+import { buildStaySnapshot, nightStock, pricedOccupancy } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
 import { markupMinor } from '@bedbanks/pricing'
 import { loadActiveMarkupRulesInTx } from '../supply/markup-rules.loader'
@@ -599,13 +599,14 @@ export class OperationsHotelsService {
       const results: SellabilityPlanResult[] = []
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
-        const ownRates = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
-        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, childAges, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
+        // ADR 0067 F-05: the same occupancy choice as Agent search (the party's adults when every night has that rate).
+        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId), { adults }), { checkIn, checkOut, rooms, adults, children, childAges, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
         const reasons = [...decision.reasons]
         if (agencyId && agencyStatus === 'SUSPENDED') reasons.push('AGENCY_SUSPENDED')
         if (agencyId && restrictions.some(r => r.scope === 'HOTEL' ? r.hotelId === hotel.id : r.supplierId === plan.contract.supplierId)) reasons.push('DISTRIBUTION_RESTRICTED')
         if (!(input.hotel.starRating !== null && input.hotel.starRating >= 1 && input.hotel.starRating <= 5)) reasons.push('HOTEL_STAR_RATING_MISSING')
-        const ratesByDate = new Map(ownRates.dailyRates.map((r) => [day(r.stayDate), r]))
+        const occupancy = pricedOccupancy(plan, dates, { adults })
+        const ratesByDate = new Map(plan.dailyRates.filter((r) => r.occupancy === occupancy).map((r) => [day(r.stayDate), r]))
         const nightVerdicts: NightVerdict[] = dates.map((date) => {
           const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms, childAges }, input.markupRules, now)
           const rate = ratesByDate.get(date)
