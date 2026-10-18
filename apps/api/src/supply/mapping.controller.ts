@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import type { Request } from 'express'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { RequireSupplyPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { ACTIVE_TENANT_REQUEST_KEY, TenantContextGuard } from '../agent/tenant-context.guard'
-import type { HotelMappingApproveBody } from '@bedbanks/contracts'
+import type { HotelMappingApproveBody, HotelMappingSuggestionQuery } from '@bedbanks/contracts'
 import { MappingService } from './mapping.service'
 
 @Controller('supply/mappings')
@@ -17,6 +17,8 @@ export class MappingController {
   }
   @Get('options') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) options(@Req() req: Request) { const c = this.context(req); return this.mapping.options(c.tenantId, c.userId) }
   @Get('options/rooms/:mappingId') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) roomOptions(@Req() req: Request, @Param('mappingId') mappingId: string) { const c = this.context(req); return this.mapping.roomOptions(c.tenantId, c.userId, mappingId) }
+  // Declared before hotels/:mappingId so the literal segment is not captured as a mapping id.
+  @Get('hotels/suggestions') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) suggestHotels(@Req() req: Request, @Query() query: HotelMappingSuggestionQuery) { const c = this.context(req); return this.mapping.suggestHotels(c.tenantId, c.userId, query) }
   @Get('hotels') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) hotels(@Req() req: Request) { const c = this.context(req); return this.mapping.hotels(c.tenantId, c.userId) }
   @Get('hotels/:mappingId') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) hotel(@Req() req: Request, @Param('mappingId') mappingId: string) { const c = this.context(req); return this.mapping.hotel(c.tenantId, c.userId, mappingId) }
   @Post('hotels') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) createHotel(@Req() req: Request, @Body() input: Record<string, unknown>) { const c = this.context(req); return this.mapping.createHotel(c.tenantId, c.userId, input, c.requestId) }

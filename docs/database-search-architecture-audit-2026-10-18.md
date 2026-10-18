@@ -45,3 +45,12 @@ Built `pnpm --filter @bedbanks/api ops:reindex-hotel-search` (`mapping/hotel-sea
 - Verified: unit tests (dry run writes nothing, multi-batch apply, invalid skipped), type-check, lint, `check:architecture`, and the stale-selection SQL against PostgreSQL 16 (missing row and old model selected, current row skipped). **Not verified:** the upsert itself and HNSW (needs pgvector; the existing `hotel-search-index.e2e-spec.ts` covers it on a Neon branch).
 
 **Still open:** keeping the index current after hotel edits (needs either scheduled reindex runs or a decision to give a write-capable role the `INSERT/UPDATE` grant on `HotelSearchIndex`, which the migration currently withholds), and wiring `mapping-pipeline` to `retrieveHotelCandidates`. Run the reindex after each deploy until that is decided.
+
+## Update: wiring (plan item 2, second half)
+Correction to F1: `mapSupplierHotels` / `matchSupplierHotel` also had no production caller. Supplier hotel mappings are created by staff through `MappingService` (maker-checker, ADR 0004), so there was nothing to hand a shortlist to. Wiring it into an automatic pipeline would be new product behaviour, so it was not done.
+
+Built instead: `GET /supply/mappings/hotels/suggestions?name=&address=&city=&countryCode=` (contract `hotelMappingSuggestions`, permission `supply.mappings.read`, tenant from the session). `MappingService.suggestHotels` shortlists with `retrieveHotelCandidates` (tenant `HotelSearchIndex`, vector + trigram), then ranks the shortlist with `matchSupplierHotel`. It is read-only and advisory: it returns tier, confidence and reasons, never an auto-map flag, and creates or approves nothing. An unpopulated index returns `indexReady: false` rather than an empty "no match" (invariant 5). The route is declared before `hotels/:mappingId` so the literal segment is not captured.
+
+Verified: 4 new unit tests (permission, unpopulated index, tenant-scoped ranking, input validation), full API unit suite (1589 passed), type-check, lint, `check:architecture`. **Not verified:** the live query against pgvector (needs a Neon branch), and no frontend consumes the route yet (contracts first, per invariant 4).
+
+Open: F4 (tenant filter after the HNSW scan) now affects a live route, so benchmark and fix it before the index is populated across many tenants. Index freshness after hotel edits is still the reindex job.
