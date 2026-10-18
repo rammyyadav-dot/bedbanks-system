@@ -91,7 +91,7 @@ export class OperationsBookingsService {
     const now = this.clock()
     const { where, orderBy } = await this.query.select(tenantId, access, filter, now)
     const include = { rooms: { orderBy: { position: 'asc' as const } }, guests: { where: { isLead: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } }
-    const rows = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where, orderBy, take: BOOKING_EXPORT_MAX_ROWS + 1, include }))
+    const rows = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where: { ...where, tenantId }, orderBy, take: BOOKING_EXPORT_MAX_ROWS + 1, include }))
     if (rows.length > BOOKING_EXPORT_MAX_ROWS) throw new UnprocessableEntityException({ message: `More than ${BOOKING_EXPORT_MAX_ROWS} bookings match. Narrow the filters (dates, agency, status) and export again.`, code: BOOKING_EXPORT_FAILURE.tooLarge, limit: BOOKING_EXPORT_MAX_ROWS })
     const names = await this.names(tenantId, rows)
     const items = rows.map((b) => this.row(b, names, access, null, false))
