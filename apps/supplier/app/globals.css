@@ -151,3 +151,11 @@ button { cursor: pointer; }
 .draft-note textarea { min-height: 84px; }
 .context-switcher select { width: 100%; color: #e5e7eb; background: #1b2534; }
 .sidebar-footer .btn { color: #e5e7eb; background: transparent; }
+
+.skip-link { position: absolute; left: 8px; top: -48px; z-index: 100; padding: 8px 12px; border-radius: 4px; color: white; background: #1f2937; font-size: 12px; }
+.skip-link:focus { top: 8px; }
+:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+main:focus { outline: none; }
+.supplier-nav a.is-unavailable { opacity: .62; }
+.nav-tag { margin-left: auto; padding: 1px 5px; border: 1px solid #3a475b; border-radius: 3px; color: #8a97ab; font-size: 8px; letter-spacing: .3px; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

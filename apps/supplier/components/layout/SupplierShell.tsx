@@ -22,11 +22,12 @@ export function SupplierShell({
 
   return (
     <div className="supplier-shell">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userLabel={userLabel} userDetail={userDetail} organizations={organizations} active={active} />
       {mobileOpen && <button className="supplier-overlay" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
       <div className="supplier-main">
         <Topbar onMenuClick={() => setMobileOpen(true)} initials={initials} />
-        <main>{children}</main>
+        <main id="main-content" tabIndex={-1}>{children}</main>
       </div>
     </div>
   )

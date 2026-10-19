@@ -20,7 +20,7 @@ export default async function HotelsPage() {
         <PageHeader eyebrow="Mapped hotels" title="Hotels" description="Hotels shown here are mapped to your organization. Adding a hotel, publishing content, and opening inventory are unavailable." />
         <section className="panel">
           <div className="table-wrap">
-            <table className="data-table">
+            <table className="data-table"><caption className="sr-only">Mapped hotels</caption>
               <thead><tr><th>Hotel</th><th>Location</th><th>Content status</th><th>Mapping</th></tr></thead>
               <tbody>
                 {hotels.length === 0 && <tr><td colSpan={4}>No mapped hotels.</td></tr>}
