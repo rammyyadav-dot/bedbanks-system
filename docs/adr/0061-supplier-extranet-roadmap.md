@@ -77,3 +77,42 @@ Cross-organization booking returns 404; null-supplier booking invisible; update 
 | Permission | `supplier.extranet.bookings.read` (granted to no role by the migration) | e2e: 403 without it |
 | DTO minimality | `@bedbanks/contracts` `ExtranetBooking*`; column grants | e2e leak assertion over list, detail and error bodies; `runtime-role-contract.spec` forbidden-column test; 26 live privilege probes |
 | Portal list, filters, detail, "Not recorded" | `apps/supplier/app/(portal)/bookings` | unit tests (format, filters), type-check, lint, `next build` |
+
+## Amendment 2 (proposed): supplier booking answers (slice 3)
+
+Status: **Proposed. No code until accepted.** Drafted 2026-10-19 from the code on `main` at `5cd7600`.
+
+### What the code does today (verified in source)
+- `POST /admin/operations/booking-queue/:bookingId/supplier-answer` (`BookingOpsService.answer`) is an **operator** recording what a supplier told them. It requires `booking.ops.resolve`, an idempotency key, a compare-and-set `expectedStatus`, a reason of at least `BOOKING_OPS_REASON_MIN` characters, and writes an ops record. It "calls no supplier".
+- Its confirm, reject and cancel answers call `transitionBooking(... level: 'SYSTEM', emitFinance: true)`. Confirmation and rejection emit finance events. `SUPPLIER_CANCELLED` also triggers agency settlement (ADR 0069).
+- The extranet database role has **no write** on any booking table (Amendment 1). `Booking.supplierId` is immutable and frozen at creation.
+
+### Decision to take
+A supplier user answering their own booking is a different actor from an operator, and the answer moves money-relevant state. Three options:
+
+| Option | Description | Verdict |
+|---|---|---|
+| A. Direct, limited | Supplier may answer `SUPPLIER_CONFIRMED`, `SUPPLIER_ON_REQUEST`, `SUPPLIER_REJECTED` only, for bookings in `PENDING` or `ON_REQUEST`. Applied through the existing transition with actor type supplier user. | **Recommended** |
+| B. Proposal queue | Supplier submits an answer; an operator acknowledges it before it applies. | Safe but defeats the purpose (operators stay in the loop for every booking) |
+| C. Full parity | Supplier may also record cancellations, "no booking exists" and refused cancellations. | **Rejected.** These carry agency credit and unknown-outcome recovery, and need evidence only fBeds can weigh |
+
+### Proposed rules (option A)
+1. **Route:** `POST /supplier/extranet/bookings/:bookingId/answer`, permission `supplier.extranet.bookings.answer`, granted to no role by the migration.
+2. **Ownership:** the booking's frozen `supplierId` must equal the caller's active organization. Otherwise 404, never 403, so existence is not revealed.
+3. **Input:** `answer` (one of the three), `expectedStatus` (compare-and-set), `Idempotency-Key` header (required), `supplierRef` (required for confirm), `hotelConfirmationNo` (optional), `reason` (required for reject).
+4. **Idempotency and concurrency:** same key and same body replays the stored result; same key and different body is 409. A changed status is 409 with the current status.
+5. **Audit:** an immutable audit event per answer with actor type `SUPPLIER_USER`, answer, from and to status, request id. No guest data in the payload.
+6. **Finance:** confirm and reject keep the existing finance emission. No new finance behaviour is introduced.
+7. **Database access:** the extranet role stays read-only. The write goes through the booking role path in a service the extranet controller calls, so the extranet role gains no booking write. This needs an entry in `runtime-role-contract.ts` for the new caller and endpoint.
+8. **SLA:** out of scope here. The portal shows booking age; timers come with notifications (slice 7).
+
+### Risks and open questions
+- Does a supplier answer need four-eye review for high-value bookings? Proposed: not in this slice; add a configurable threshold later.
+- A supplier can answer wrongly. Recovery is the existing operator path, which can still override.
+- Rate limiting per organization on this route is required before launch.
+
+### Required tests before merge
+Cross-organization booking returns 404; replay with the same key returns the same result; same key with a different body returns 409; stale `expectedStatus` returns 409; each of the three answers produces the right status and finance event; cancellation and no-booking answers are refused; missing permission returns 403; audit event exists and has no guest data; extranet role still has no booking write (privilege probe).
+
+### Rollback
+Remove the route and the permission row by forward migration. Answers already recorded remain valid booking history.

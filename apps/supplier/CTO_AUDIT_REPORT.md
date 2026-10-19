@@ -1,14 +1,14 @@
 # fBeds Supplier Extranet: CTO Audit, Gap Analysis and Roadmap
 
 **Date:** 2026-10-19 · **Scope:** `apps/supplier` plus the `apps/api` surface it consumes
-**Supersedes:** the 2026-09-19 report. That report described a mock-adapter prototype that no longer exists.
+**Supersedes:** the 2026-09-19 report (a mock-adapter prototype that no longer exists). **Builds on** `docs/supplier-extranet-cto-audit-2026-10-12.md` and ADR 0061, which hold the accepted roadmap. Where this report differs, those documents win.
 **Verified this session:** `type-check`, `lint`, `test` (12/12), `next build`, `check:architecture` all pass.
 
 ## 1. Executive summary
 
 The extranet is **secure and honest, but thin**. Authentication, tenant isolation, supplier-organization scoping, permission gating and fail-closed data handling are production-grade. Only four modules are live and all four are read-only: dashboard, hotels and rooms, contracts, bookings. The other 15 or so nav entries render an explicit "unavailable" state.
 
-The platform backend is far ahead of the extranet. `apps/api` has about 115 supply routes (contracts, rate plans, daily rates, availability, calendar import, promotions, cancellation and child policies, approvals), plus a ledger, supplier statements, a dispute queue and connector tables. The supplier-facing API exposes **9 routes** of that.
+The platform backend is far ahead of the extranet, which is already known to the team (see the 2026-10-12 audit). `apps/api` has about 115 supply routes (contracts, rate plans, daily rates, availability, calendar import, promotions, cancellation and child policies, approvals), plus a ledger, supplier statements, a dispute queue and connector tables. The supplier-facing API exposes **9 routes** of that.
 
 **Honest completion estimate: about 20% of a global-bedbank supplier extranet** (5 of about 25 capability areas live, all read-only). The main gap is not frontend polish. It is a missing supplier-scoped API layer over capabilities that already exist, which means sequenced backend work.
 
@@ -29,7 +29,7 @@ The platform backend is far ahead of the extranet. `apps/api` has about 115 supp
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
-| F1 | High | The extranet exposes 9 of the supplier-relevant capabilities; no rates, availability, restrictions, promotions, statements or onboarding | Open, see roadmap |
+| F1 | High | The extranet exposes 9 routes; no booking answers, change sets, statements or onboarding | Open, see roadmap |
 | F2 | Med | No `error.tsx`, `global-error.tsx`, `not-found.tsx` or portal `loading.tsx`, so an unhandled render error showed the framework default | **Fixed** |
 | F3 | Med | The nav presented about 15 unavailable modules as if live | **Fixed**: only `live` routes are unmarked; the rest show "Not available" |
 | F4 | Med | Dead mock code remained in the repo (`adapter.ts`, `mock-data.ts` with fabricated AED/OMR figures, `module-data.ts`) | **Fixed**: deleted, along with the test that asserted the adapter threw |
@@ -67,20 +67,21 @@ Reference set: Hotelbeds, WebBeds, RateHawk, TBO and the Expedia/Booking.com par
 
 ## 5. Roadmap to completion
 
-Every item must follow the constitution: contracts first in `@bedbanks/contracts`, a permission declared on each controller, idempotency on mutations, immutable audit events, tenant-index review for schema changes, and an ADR for architectural choices. Suppliers author **Draft** submissions only. Approval and publication stay with fBeds staff, as the README states.
+The accepted order is ADR 0061 and the 2026-10-12 audit. Slices 1 (contracts) and 2 (bookings read) are done. Remaining slices, each needing an accepted ADR amendment before code:
 
-| Phase | Deliverable | Needs |
+| Slice | Deliverable | State |
 |---|---|---|
-| P1 (read-only parity) | Extranet reads for rate plans and daily-rate calendar, availability and allotments, restrictions, promotions, cancellation policies | New supplier-scoped controllers over existing services; DB-backed tests |
-| P2 | Statements, invoices, payment status, dispute view | Supplier-scoped read over `SupplierStatement`; finance review |
-| P3 | Booking responses (confirm/reject with hotel confirmation number) | Idempotent mutation, audit event, ADR |
-| P4 | Draft authoring: rates, availability, restrictions via calendar import preview, then submit for review | Existing `calendar/preview` and `import/preview` logic; approval workflow reuse |
-| P5 | Onboarding state machine and document upload | Schema migration, storage decision (ADR) |
-| P6 | Team management, 2FA, notifications, supplier-visible audit log | Auth work |
-| P7 | Connectivity self-service (channel manager) | Connector and credential-reference work; security review |
-| Cross-cutting | Readable type sizes (F6), e2e in CI, component tests, i18n | Design and QA |
+| 3 | Supplier booking answers: confirm, on-request, reject, idempotent and audited | **Amendment 2 drafted in ADR 0061, awaiting acceptance** |
+| 4 | Supplier change sets (stop-sale, availability, rate lines) into admin review, applied through existing supply services; needs pagination first | ADR needed |
+| 5 | Calendar UI and CSV upload with a row-level error report | After 4 |
+| 6 | Vouchers, rooming list, statements and invoices (read, integer minor units) | After finance model; fix the `number` money wire type (M8) first |
+| 7 | Membership management, invitations, MFA, API credentials | Audit event design |
+| 8 | Onboarding and content submission | Reuse ADR 0025/0027 |
+| 9 | Channel-manager connectivity on the ADR 0060 connector kit | After 4 |
 
-Phases P1 to P2 are the biggest value for the least risk. They only read data that already exists.
+Direct supplier reads of rate amounts are deliberately **not** scheduled. ADR 0061 returns no amounts, and suppliers never write commercial data directly (decision 3). Rates reach suppliers only through slices 4 and 6.
+
+Cross-cutting: readable type sizes (F6), browser tests in CI (F7), parser migration to shared contract types (F8).
 
 ## 6. Delivered in this change
 
@@ -91,6 +92,6 @@ Phases P1 to P2 are the biggest value for the least risk. They only read data th
 
 ## 7. Not done, and why
 
-- **Full 100%**: the remaining capabilities need new API endpoints, migrations and approval workflows. These cannot be verified without Postgres and the API, and they carry financial and security impact that needs review per the constitution.
+- **Full 100%**: each remaining slice needs an accepted ADR amendment, migrations, and database-backed tests. No Postgres server was run in this session.
 - **e2e run**: needs the database and API stack.
 - **Type-size fix (F6)**: a visual redesign decision.
