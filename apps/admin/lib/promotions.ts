@@ -6,12 +6,14 @@ import type { PromotionKind, RatePlanPromotion, RatePlanPromotionsInput } from '
  */
 export interface PromotionDraft {
   kind: PromotionKind; name: string; percent: string; minLeadDays: string; maxLeadDays: string; minNights: string; freeNights: string
+  /** ADR 0067 F-09 */
+  combinable: boolean; partialStay: boolean; roomOnly: boolean
   bookFrom: string; bookTo: string; stayFrom: string; stayTo: string
 }
 
 export const KIND_LABELS: Record<PromotionKind, string> = { EARLY_BIRD: 'Early bird', LAST_MINUTE: 'Last minute', LONG_STAY: 'Long stay', FREE_NIGHTS: 'Free nights' }
 
-export const blankPromotion = (kind: PromotionKind = 'EARLY_BIRD'): PromotionDraft => ({ kind, name: '', percent: '', minLeadDays: '', maxLeadDays: '', minNights: '', freeNights: '', bookFrom: '', bookTo: '', stayFrom: '', stayTo: '' })
+export const blankPromotion = (kind: PromotionKind = 'EARLY_BIRD'): PromotionDraft => ({ kind, name: '', percent: '', minLeadDays: '', maxLeadDays: '', minNights: '', freeNights: '', bookFrom: '', bookTo: '', stayFrom: '', stayTo: '', combinable: false, partialStay: false, roomOnly: false })
 
 /** "12.5" -> 1250 basis points; null when it is not a plain percent with at most two decimals. */
 export function percentToBasisPoints(text: string): number | null {
@@ -26,6 +28,7 @@ export const draftFromPromotions = (rows: readonly RatePlanPromotion[]): Promoti
   minLeadDays: row.minLeadDays === null ? '' : String(row.minLeadDays), maxLeadDays: row.maxLeadDays === null ? '' : String(row.maxLeadDays),
   minNights: row.minNights === null ? '' : String(row.minNights), freeNights: row.freeNights === null ? '' : String(row.freeNights),
   bookFrom: row.bookFrom ?? '', bookTo: row.bookTo ?? '', stayFrom: row.stayFrom ?? '', stayTo: row.stayTo ?? '',
+  combinable: row.combinable ?? false, partialStay: row.stayWindowMode === 'NIGHTS_IN_WINDOW', roomOnly: row.discountBase === 'ROOM_ONLY',
 }))
 
 const whole = (text: string, min: number, max: number): number | null => (/^\d{1,4}$/.test(text.trim()) && Number(text) >= min && Number(text) <= max ? Number(text) : null)
@@ -57,7 +60,8 @@ export function buildPromotionsInput(drafts: readonly PromotionDraft[], expected
     for (const [key, value] of Object.entries(dates)) if (value === undefined) problems.push(`${at}: ${key} must be a real date (YYYY-MM-DD) or empty.`)
     if (dates.bookFrom && dates.bookTo && dates.bookTo < dates.bookFrom) problems.push(`${at}: the booking window ends before it starts.`)
     if (dates.stayFrom && dates.stayTo && dates.stayTo < dates.stayFrom) problems.push(`${at}: the stay window ends before it starts.`)
-    promotions.push({ kind: draft.kind, name, percentBp, minLeadDays, maxLeadDays, minNights, freeNights, bookFrom: dates.bookFrom ?? null, bookTo: dates.bookTo ?? null, stayFrom: dates.stayFrom ?? null, stayTo: dates.stayTo ?? null })
+    if (draft.partialStay && !dates.stayFrom && !dates.stayTo) problems.push(`${at}: discounting only the nights in the window needs a stay window.`)
+    promotions.push({ kind: draft.kind, name, percentBp, minLeadDays, maxLeadDays, minNights, freeNights, bookFrom: dates.bookFrom ?? null, bookTo: dates.bookTo ?? null, stayFrom: dates.stayFrom ?? null, stayTo: dates.stayTo ?? null, combinable: draft.combinable, stayWindowMode: draft.partialStay ? 'NIGHTS_IN_WINDOW' : 'WHOLE_STAY', discountBase: draft.roomOnly ? 'ROOM_ONLY' : 'ROOM_AND_GUESTS' })
   })
   return problems.length ? { input: null, problems } : { input: { expectedUpdatedAt, promotions }, problems: [] }
 }

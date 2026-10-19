@@ -119,10 +119,10 @@ export function occupancySplit(plan: { occupancy: number; roomType: { maxAdults:
   return { adults, children: plan.occupancy - adults }
 }
 
-export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number }, markupRules: readonly MarkupRuleRow[] = [], now: Date = new Date()): string[] {
+export function evaluatePlanNight(plan: AssessPlan, mapping: { status: string; hotelId: string } | null, roomMapping: { status: string } | null, date: string, hotelStarRating: number | null, guests?: { adults: number; children: number; rooms?: number; childAges?: number[] }, markupRules: readonly MarkupRuleRow[] = [], now: Date = new Date()): string[] {
   const snapshot = buildStaySnapshot(plan, mapping, roomMapping, [date], markupResolverFor(markupRules, plan.contract.supplierId, plan.roomType.hotelId))
   const { adults, children } = guests ?? occupancySplit(plan)
-  const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, currency: plan.currency, now })
+  const decision = evaluateContractedStay(snapshot, { checkIn: date, checkOut: addDays(date, 1), rooms: guests?.rooms ?? 1, adults, children, childAges: guests?.childAges, currency: plan.currency, now })
   const reasons = decision.reasons.filter((reason) => !STAY_CONTEXT_REASONS.has(reason))
   if (!starRatingValid(hotelStarRating)) reasons.push(HOTEL_STAR_RATING_MISSING)
   return reasons
@@ -195,7 +195,7 @@ export function categoryOfReason(reason: string, context: ReasonContext): Commer
     case 'SUPPLIER_MAPPING_INVALID': return context.hotelMappingOk ? 'UNMAPPED_ROOM' : 'UNMAPPED_HOTEL'
     case 'OCCUPANCY_UNSUPPORTED': case 'CHILD_AGES_REQUIRED': case 'CHILD_AGE_NOT_COVERED': case 'CHILD_PRICE_AMBIGUOUS': case 'EXTRA_ADULT_PRICE_MISSING': case 'GUEST_PRICE_BASIS_MIXED': case 'GUEST_PRICE_BASIS_MISMATCH': case 'GUEST_PRICE_CURRENCY_MISMATCH': return 'OCCUPANCY_UNSUPPORTED'
     case 'DAILY_RATE_MISSING_OR_INVALID': return context.hasRate ? 'RATE_INVALID' : 'RATE_MISSING'
-    case 'RATE_CURRENCY_MISMATCH': case 'RATE_AMOUNT_BASIS_UNVERIFIED': case 'NET_RATE_MARKUP_UNAVAILABLE': return 'CURRENCY_OR_BASIS'
+    case 'RATE_CURRENCY_MISMATCH': case 'SUPPLEMENT_CURRENCY_MISMATCH': case 'RATE_AMOUNT_BASIS_UNVERIFIED': case 'NET_RATE_MARKUP_UNAVAILABLE': return 'CURRENCY_OR_BASIS'
     case 'AVAILABILITY_MISSING': return 'AVAILABILITY_MISSING'
     case 'STOP_SELL': return 'STOP_SELL'
     case 'NO_INVENTORY': case 'POOL_EXHAUSTED': return 'INVENTORY_EXHAUSTED'
@@ -219,7 +219,7 @@ export const SELLABILITY_GATES: Array<{ key: string; label: string; reasons: str
   { key: 'room', label: 'Room', reasons: ['ROOM_TYPE_INACTIVE', 'BOARD_BASIS_INACTIVE'] },
   { key: 'contract', label: 'Contract', reasons: ['CONTRACT_INACTIVE', 'OUTSIDE_CONTRACT_VALIDITY'] },
   { key: 'plan', label: 'Rate plan', reasons: ['RATE_PLAN_INACTIVE', 'RATE_PLAN_MISSING', 'OUTSIDE_RATE_PLAN_VALIDITY', 'CANCELLATION_POLICY_MISSING', 'DERIVED_TERMS_INVALID', 'DERIVED_PARENT_MISSING', 'DERIVED_PARENT_IS_DERIVED', 'DERIVED_PARENT_MISMATCH', 'DERIVED_PARENT_INACTIVE'] },
-  { key: 'rate', label: 'Daily rate', reasons: ['DAILY_RATE_MISSING_OR_INVALID', 'RATE_CURRENCY_MISMATCH', 'RATE_AMOUNT_BASIS_UNVERIFIED', 'NET_RATE_MARKUP_UNAVAILABLE'] },
+  { key: 'rate', label: 'Daily rate', reasons: ['DAILY_RATE_MISSING_OR_INVALID', 'RATE_CURRENCY_MISMATCH', 'RATE_AMOUNT_BASIS_UNVERIFIED', 'NET_RATE_MARKUP_UNAVAILABLE', 'SUPPLEMENT_CURRENCY_MISMATCH'] },
   { key: 'availability', label: 'Availability', reasons: ['AVAILABILITY_MISSING'] },
   { key: 'stopSell', label: 'Stop sell', reasons: ['STOP_SELL', 'CLOSED_TO_ARRIVAL'] },
   { key: 'inventory', label: 'Inventory', reasons: ['NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'ON_REQUEST_ONLY'] },

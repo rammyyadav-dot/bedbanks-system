@@ -1,6 +1,6 @@
 import { majorUnitsToMinor } from '@bedbanks/money'
 import {
-  INVENTORY_MODES, QUICK_UPDATE_LIMITS, QUICK_UPDATE_WEEKDAYS,
+  INVENTORY_LIMITS, INVENTORY_MODES, QUICK_UPDATE_LIMITS, QUICK_UPDATE_WEEKDAYS,
   type QuickUpdateChanges, type QuickUpdateFieldChange, type QuickUpdateRequest, type QuickUpdateRow, type QuickUpdateWeekday,
 } from '@bedbanks/contracts'
 
@@ -70,10 +70,11 @@ export function normaliseQuickUpdate(body: Partial<QuickUpdateRequest> | undefin
   for (const key of Object.keys(changes!)) if (!['price', 'availability', 'restrictions'].includes(key)) errors.push(`changes.${key}: is not a supported change`)
   const price = changes!.price as Record<string, unknown> | undefined
   if (price !== undefined) {
-    for (const key of Object.keys(price ?? {})) if (!['amount', 'basis'].includes(key)) errors.push(`changes.price.${key}: is not a supported field`)
+    for (const key of Object.keys(price ?? {})) if (!['amount', 'basis', 'occupancy'].includes(key)) errors.push(`changes.price.${key}: is not a supported field`)
     if (typeof price?.amount !== 'string' || price.amount.trim() === '') errors.push('changes.price.amount: enter an amount, or leave the price panel untouched')
     else if (price.basis !== 'NET' && price.basis !== 'SELL') errors.push('changes.price.basis: choose NET or SELL')
-    else out.price = { amount: price.amount.trim(), basis: price.basis }
+    else if (price.occupancy !== undefined && !(Number.isInteger(price.occupancy) && (price.occupancy as number) >= 1 && (price.occupancy as number) <= 9)) errors.push('changes.price.occupancy: a whole number of guests from 1 to 9, or omit it for each plan\'s own occupancy')
+    else out.price = { amount: price.amount.trim(), basis: price.basis, ...(price.occupancy !== undefined ? { occupancy: price.occupancy as number } : {}) }
   }
   const availability = changes!.availability as Record<string, unknown> | undefined
   if (availability !== undefined) {
@@ -87,9 +88,10 @@ export function normaliseQuickUpdate(body: Partial<QuickUpdateRequest> | undefin
   const restrictions = changes!.restrictions as Record<string, unknown> | undefined
   if (restrictions !== undefined) {
     const r: NonNullable<QuickUpdateChanges['restrictions']> = {}
-    for (const key of Object.keys(restrictions ?? {})) if (!['minStay', 'closedToArrival', 'closedToDeparture'].includes(key)) errors.push(`changes.restrictions.${key}: is not a supported field`)
+    for (const key of Object.keys(restrictions ?? {})) if (!['minStay', 'closedToArrival', 'closedToDeparture', 'releaseDays'].includes(key)) errors.push(`changes.restrictions.${key}: is not a supported field`)
     if (restrictions?.minStay !== undefined) { if (!Number.isInteger(restrictions.minStay) || (restrictions.minStay as number) < 1 || (restrictions.minStay as number) > MAX_MIN_STAY) errors.push(`changes.restrictions.minStay: a whole number from 1 to ${MAX_MIN_STAY}`); else r.minStay = restrictions.minStay as number }
     if (restrictions?.closedToArrival !== undefined) { if (restrictions.closedToArrival !== 'SET' && restrictions.closedToArrival !== 'CLEAR') errors.push('changes.restrictions.closedToArrival: SET or CLEAR'); else r.closedToArrival = restrictions.closedToArrival }
+    if (restrictions?.releaseDays !== undefined) { const v = restrictions.releaseDays; if (v === null) r.releaseDays = null; else if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > INVENTORY_LIMITS.releaseDaysMax) errors.push(`changes.restrictions.releaseDays: a whole number of days from 0 to ${INVENTORY_LIMITS.releaseDaysMax}, or null to use the plan's release`); else r.releaseDays = v as number }
     if (restrictions?.closedToDeparture !== undefined) { if (restrictions.closedToDeparture !== 'SET' && restrictions.closedToDeparture !== 'CLEAR') errors.push('changes.restrictions.closedToDeparture: SET or CLEAR'); else r.closedToDeparture = restrictions.closedToDeparture }
     if (Object.keys(r).length) out.restrictions = r
   }
@@ -115,14 +117,14 @@ export function dayInZone(now: Date, timeZone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-export interface PlanInfo { id: string; status: string; currency: string; occupancy: number; contractFrom: string; contractTo: string; /** Set when the plan draws its stock from a shared pool. */ poolId?: string | null; /** Set when the plan is derived from a parent plan (ADR 0058, S10b): its price is its parent's, never edited here. */ derived?: boolean }
+export interface PlanInfo { id: string; status: string; currency: string; occupancy: number; /** ADR 0067 F-05: what the room sleeps; a price for a higher occupancy is refused. */ maxOccupancy?: number; contractFrom: string; contractTo: string; /** Set when the plan draws its stock from a shared pool. */ poolId?: string | null; /** Set when the plan is derived from a parent plan (ADR 0058, S10b): its price is its parent's, never edited here. */ derived?: boolean }
 export interface RateState { amountMinor: bigint; basis: 'NET' | 'SELL' | null }
-export interface AvailState { allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; mode?: string }
+export interface AvailState { allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; releaseDays?: number | null; mode?: string }
 export interface PoolDayState { capacity: number; sold: number; held: number }
 export interface PlannedRow extends QuickUpdateRow {
   /** The values to write when the outcome is CHANGE. */
-  nextRate: { amountMinor: bigint; basis: 'NET' | 'SELL' } | null
-  nextAvail: { create: boolean; allotment: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture: boolean; mode: string } | null
+  nextRate: { amountMinor: bigint; basis: 'NET' | 'SELL'; occupancy: number } | null
+  nextAvail: { create: boolean; allotment: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture: boolean; releaseDays: number | null; mode: string } | null
   /** Pool capacity to write for this plan's pool night. The same pool night appears on every pooled plan in scope and is written once. */
   nextPool: { poolId: string; create: boolean; capacity: number } | null
 }
@@ -174,13 +176,14 @@ export function planQuickUpdate(input: {
       if (date < plan.contractFrom || date > plan.contractTo) problems.push('the date is outside the contract validity')
 
       if (priceChange && plan.derived) problems.push('the rate plan is derived from another plan and has no rates of its own; change the parent plan or its adjustment')
+      else if (priceChange && priceChange.occupancy !== undefined && plan.maxOccupancy !== undefined && priceChange.occupancy > plan.maxOccupancy) problems.push(`the room sleeps at most ${plan.maxOccupancy}; occupancy ${priceChange.occupancy} cannot be priced`)
       else if (priceChange) {
         const p = priceFor(plan.currency)!
         if ('error' in p) problems.push(p.error)
         else {
           const cur = rates.get(key)
           if (!cur || cur.amountMinor !== p.minor || cur.basis !== priceChange.basis) {
-            nextRate = { amountMinor: p.minor, basis: priceChange.basis }
+            nextRate = { amountMinor: p.minor, basis: priceChange.basis, occupancy: priceChange.occupancy ?? plan.occupancy }
             changes.push({ field: 'price', from: cur ? cur.amountMinor.toString() : null, to: p.minor.toString(), currency: plan.currency })
           }
         }
@@ -192,7 +195,7 @@ export function planQuickUpdate(input: {
         const wantsAllotment = a?.allotment !== undefined
         if (!cur && !wantsAllotment) problems.push('no inventory row exists for this night, so a stop-sell or restriction cannot be set; set an allotment first (missing inventory means unknown, not zero)')
         else {
-          const next = { create: !cur, allotment: cur?.allotment ?? 0, stopSell: cur?.stopSell ?? false, minStay: cur?.minStay ?? 1, closedToArrival: cur?.closedToArrival ?? false, closedToDeparture: cur?.closedToDeparture ?? false, mode: cur?.mode ?? 'ALLOTMENT' }
+          const next = { create: !cur, allotment: cur?.allotment ?? 0, stopSell: cur?.stopSell ?? false, minStay: cur?.minStay ?? 1, closedToArrival: cur?.closedToArrival ?? false, closedToDeparture: cur?.closedToDeparture ?? false, releaseDays: cur?.releaseDays ?? null, mode: cur?.mode ?? 'ALLOTMENT' }
           if (wantsAllotment && plan.poolId) {
             // A pooled plan has no count of its own: the value is the pool's capacity for the night.
             const poolDay = pools.get(`${plan.poolId}:${date}`)
@@ -210,6 +213,7 @@ export function planQuickUpdate(input: {
           if (r?.minStay !== undefined) { if (!cur || cur.minStay !== r.minStay) changes.push({ field: 'minStay', from: cur ? cur.minStay : null, to: r.minStay }); next.minStay = r.minStay }
           if (r?.closedToArrival) { const to = r.closedToArrival === 'SET'; if (!cur || cur.closedToArrival !== to) changes.push({ field: 'closedToArrival', from: cur ? cur.closedToArrival : null, to }); next.closedToArrival = to }
           if (r?.closedToDeparture) { const to = r.closedToDeparture === 'SET'; if (!cur || (cur.closedToDeparture ?? false) !== to) changes.push({ field: 'closedToDeparture', from: cur ? cur.closedToDeparture ?? false : null, to }); next.closedToDeparture = to }
+          if (r?.releaseDays !== undefined) { const was = cur ? cur.releaseDays ?? null : null; if (was !== r.releaseDays) changes.push({ field: 'releaseDays', from: was, to: r.releaseDays }); next.releaseDays = r.releaseDays }
           // The plan row is written when a row-level field changed, or when the row does not exist yet (a pooled plan still needs its row for restrictions and mode).
           if (changes.some((c) => c.field !== 'price' && c.field !== 'poolCapacity') || (!cur && changes.some((c) => c.field === 'poolCapacity'))) nextAvail = next
         }

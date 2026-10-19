@@ -46,6 +46,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `ComplianceExportBatchRecord` | yes | - | - | - | forced tenant | Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067) |
 | `ComplianceRecord` | cols (13) | - | - | - | forced tenant | SELECT (id, tenant_id, category, action, entity_type, entity_id, actor_type, user_id, occurred_at, payload_sha256, origin_country, destination_country, cross_border): Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS |
 | `Contract` | yes | - | - | - | forced tenant | read only |
+| `ContractSupplement` | yes | - | - | - | forced tenant | search, recheck and hold add board and compulsory supplements to the price (ADR 0067) |
 | `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |
 | `DailyAvailability` | yes | - | - | - | forced tenant | read only |
 | `DailyRate` | yes | - | - | - | forced tenant | read only |
@@ -106,6 +107,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
 - `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
 - `Contract`: supply authoring
+- `ContractSupplement`: supply authoring
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update

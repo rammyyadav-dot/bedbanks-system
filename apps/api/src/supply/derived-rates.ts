@@ -68,7 +68,8 @@ export function withDerivedRates<T extends DerivablePlan>(plan: T): T & { derive
   if (problem !== null) return { ...plan, dailyRates: [], derivedProblem: problem }
   const mode = plan.derivedMode as DerivedRateMode
   const adjustment = plan.derivedAdjustment as number
-  const rows = plan.derivedFrom!.dailyRates.filter((row) => row.occupancy === undefined || row.occupancy === plan.occupancy).map((row): RateRowLike => {
+  // ADR 0067 F-05: every occupancy of the parent is derived, so a per-occupancy parent yields a per-occupancy child.
+  const rows = plan.derivedFrom!.dailyRates.map((row): RateRowLike => {
     const amount = deriveNightly(row.amountMinor, mode, adjustment)
     return { ...row, amountMinor: amount < 1n ? 0n : amount }
   })

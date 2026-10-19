@@ -31,6 +31,8 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     guestPrices: [], promotions: [], derivedProblem: null,
     cancellationPolicyMissing: false,
     leadTimeRule: null,
+    minStayMode: 'STAY_THROUGH',
+    supplements: [],
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
@@ -133,6 +135,34 @@ describe('contracted stay sellability', () => {
     expect(evaluateContractedStay(snapshot({ nights: [night('2026-10-15', { availability: { allotment: 4, sold: 0, held: 0, stopSell: true, minStay: 1, closedToArrival: false } }), night('2026-10-16'), night('2026-10-17')] }), request).reasons).toContain('STOP_SELL')
     expect(evaluateContractedStay(snapshot({ ratePlanMinStay: 5 }), request).reasons).toContain('MIN_STAY_NOT_MET')
     expect(evaluateContractedStay(snapshot({ ratePlanReleaseDays: 30 }), request).reasons).toContain('RELEASE_DAYS_NOT_MET')
+  })
+
+  it('reads a night minimum stay through the stay or only on arrival (ADR 0067, F-15)', () => {
+    const nights = [night('2026-10-15'), night('2026-10-16', { availability: { allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 5, closedToArrival: false } }), night('2026-10-17')]
+    expect(evaluateContractedStay(snapshot({ nights }), request).reasons).toContain('MIN_STAY_NOT_MET')
+    expect(evaluateContractedStay(snapshot({ nights, minStayMode: 'ARRIVAL' }), request).reasons).not.toContain('MIN_STAY_NOT_MET')
+    const arrival = [night('2026-10-15', { availability: { allotment: 4, sold: 0, held: 0, stopSell: false, minStay: 4, closedToArrival: false } }), night('2026-10-16'), night('2026-10-17')]
+    expect(evaluateContractedStay(snapshot({ nights: arrival, minStayMode: 'ARRIVAL' }), request).reasons).toContain('MIN_STAY_NOT_MET')
+    expect(evaluateContractedStay(snapshot({ minStayMode: 'ARRIVAL', ratePlanMinStay: 5 }), request).reasons).toContain('MIN_STAY_NOT_MET')
+  })
+
+  describe('board and compulsory supplements (ADR 0067)', () => {
+    const gala = { name: 'Gala dinner', kind: 'COMPULSORY' as const, basis: 'PER_PERSON' as const, frequency: 'PER_STAY' as const, amountMinor: 10_000n, currency: 'AED', stayFrom: '2026-10-16', stayTo: '2026-10-16' }
+    const halfBoard = { name: 'Half board', kind: 'BOARD' as const, basis: 'PER_ADULT' as const, frequency: 'PER_NIGHT' as const, amountMinor: 5_000n, currency: 'AED', stayFrom: null, stayTo: null }
+    it('adds them to the total per room, once per stay or per night, and names them', () => {
+      const decision = evaluateContractedStay(snapshot({ supplements: [gala, halfBoard] }), request)
+      expect(decision).toMatchObject({ eligible: true, totalMinor: 89_700n + 20_000n + 30_000n, supplements: [{ name: 'Gala dinner', amountMinor: 20_000n }, { name: 'Half board', amountMinor: 30_000n }] })
+      expect(evaluateContractedStay(snapshot({ supplements: [halfBoard] }), { ...request, rooms: 2 })).toMatchObject({ totalMinor: (89_700n + 30_000n) * 2n, supplements: [{ amountMinor: 60_000n }] })
+    })
+    it('skips a supplement whose window misses the stay or that counts nobody', () => {
+      const outside = { ...gala, stayFrom: '2026-12-31', stayTo: '2026-12-31' }
+      const children = { ...halfBoard, basis: 'PER_CHILD' as const }
+      const decision = evaluateContractedStay(snapshot({ supplements: [outside, children] }), request)
+      expect(decision.totalMinor).toBe(89_700n); expect(decision.supplements).toBeUndefined()
+    })
+    it('never prices a supplement in another currency', () => {
+      expect(evaluateContractedStay(snapshot({ supplements: [{ ...gala, currency: 'USD' }] }), request).reasons).toContain('SUPPLEMENT_CURRENCY_MISMATCH')
+    })
   })
 
   describe('NET rates and markup (ADR 0018)', () => {

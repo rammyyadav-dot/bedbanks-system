@@ -84,7 +84,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
   const cancel = (bookingId: string, extra: object = {}) => cancellations.cancel({ tenantId, userId, requestId: `cancel-${Math.random()}`, bookingId, reason: 'guest request', ...extra })
   const sold = () => prisma.dailyAvailability.findMany({ where: { ratePlanId }, orderBy: { stayDate: 'asc' }, select: { held: true, sold: true } })
   const types = (bookingId: string) => prisma.ledgerEntry.findMany({ where: { walletId, reference: `booking:${bookingId}` }, orderBy: { immutableAt: 'asc' }, select: { type: true, amountMinor: true } })
-  const setPolicy = async (rules: Array<{ daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: bigint; currency?: string }>) => {
+  const setPolicy = async (rules: Array<{ kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: bigint; penaltyNights?: number; currency?: string }>) => {
     await prisma.cancellationPolicy.deleteMany({ where: { contractId } })
     for (const rule of rules) await prisma.cancellationPolicy.create({ data: { contractId, ...rule } })
   }
@@ -150,6 +150,30 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     await prisma.booking.update({ where: { id: broken.bookingId }, data: { cancellationPolicy: Prisma.JsonNull } })
     await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 40 }])
     expect(await cancel(broken.bookingId)).toMatchObject({ penaltyMinor: '50039' }) // floor(125099*40/100)
+  })
+
+  it('ADR 0067 F-10: nights penalties, the client buffer and the no-show rule are frozen and applied as the buyer was sold them', async () => {
+    // One night of a two-night stay, pro rata: floor(125099 * 1 / 2) = 62549.
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyNights: 1 }, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }])
+    const nightsBooking = await bookConfirmed(`${suffix}-nights`)
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: nightsBooking.bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: 50_000, penaltyNights: 1 }], noShow: { penaltyPercent: 100 }, stayNights: 2, bufferDays: 0 } })
+    expect(await cancel(nightsBooking.bookingId)).toMatchObject({ penaltyMinor: '62549', refundMinor: '62550' })
+
+    // The hotel's tier starts in 5 days, so the hotel would still cancel free; with a 10-day client buffer the buyer's tier has already started.
+    const daysToCheckIn = Math.floor((Date.parse('2099-03-01T00:00:00.000Z') - Date.now()) / 86_400_000)
+    await setPolicy([{ daysBeforeCheckin: daysToCheckIn - 5, penaltyPercent: 50 }])
+    const hotelOnly = await bookConfirmed(`${suffix}-nobuffer`)
+    expect(await cancellations.quote({ tenantId, userId, requestId: 'q-nobuffer', bookingId: hotelOnly.bookingId })).toMatchObject({ penaltyMinor: '0' })
+    await prisma.contract.update({ where: { id: contractId }, data: { clientBufferDays: 10 } })
+    try {
+      const buffered = await bookConfirmed(`${suffix}-buffer`)
+      expect(await prisma.booking.findUniqueOrThrow({ where: { id: buffered.bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: daysToCheckIn + 5, penaltyPercent: 50 }], bufferDays: 10 } })
+      expect(await cancel(buffered.bookingId)).toMatchObject({ penaltyMinor: '62549', refundMinor: '62550' })
+      // The earlier booking keeps the terms it was sold: the buffer added later does not reach it.
+      expect(await cancel(hotelOnly.bookingId)).toMatchObject({ penaltyMinor: '0' })
+    } finally {
+      await prisma.contract.update({ where: { id: contractId }, data: { clientBufferDays: 0 } })
+    }
   })
 
   it('converges 25 simultaneous cancellations on one refund', async () => {

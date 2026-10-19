@@ -507,7 +507,9 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     // validation
     for (const bad2 of [`/hotels/${hotels.alpha.id}/sellability?checkIn=${day(10)}&checkOut=${day(10)}&adults=2`, `/hotels/${hotels.alpha.id}/sellability?checkIn=${day(10)}&checkOut=${day(60)}&adults=2`, `/hotels/${hotels.alpha.id}/sellability?checkIn=${day(-3)}&checkOut=${day(-1)}&adults=2`, `/hotels/${hotels.alpha.id}/sellability?checkIn=${day(10)}&checkOut=${day(12)}`, `/hotels/${hotels.alpha.id}/sellability?checkIn=2026-02-31&checkOut=${day(12)}&adults=2`]) await get(bad2).expect(400)
     // an occupancy no plan supports is explained, not hidden
-    const tri = (await get(q('alpha', 10, 12, 1)).expect(200)).body.data
+    // ADR 0067 F-17: children need ages, as for the Agent; with an age the evaluator judges the party.
+    await get(q('alpha', 10, 12, 1)).expect(400)
+    const tri = (await get(`${q('alpha', 10, 12, 1)}&childAges=7`).expect(200)).body.data
     expect(tri.sellable).toBe(false); expect(tri.plans[0].reasons).toContain('OCCUPANCY_UNSUPPORTED')
   })
 

@@ -39,7 +39,15 @@ describe('calendar import (ADR 0057, S7)', () => {
   it('builds availability cells, filling what the row omits from the existing cell', () => {
     const existing = { updatedAt: '2026-10-01T00:00:00.000Z', allotment: 7, sold: 1, held: 0, stopSell: false, minStay: 2 }
     const r = buildCalendarImport(csv('plan_code,date,stop_sell', 'BB-DBL,2026-11-01,yes'), lookups([plan()], { availability: () => existing }))
-    expect(r.availability).toEqual([{ ratePlanId: 'p1', stayDate: '2026-11-01', allotment: 7, stopSell: true, minStay: 2, expectedUpdatedAt: existing.updatedAt }])
+    expect(r.availability).toEqual([{ ratePlanId: 'p1', stayDate: '2026-11-01', allotment: 7, stopSell: true, minStay: 2, releaseDays: null, expectedUpdatedAt: existing.updatedAt }])
+  })
+  it('sets, keeps and clears a per-night release (ADR 0067, F-08)', () => {
+    const existing = { updatedAt: '2026-10-01T00:00:00.000Z', allotment: 7, sold: 0, held: 0, stopSell: false, minStay: 1, releaseDays: 10 }
+    const r = buildCalendarImport(csv('plan_code,date,release_days', 'BB-DBL,2026-11-01,21', 'BB-DBL,2026-11-02,plan', 'BB-DBL,2026-11-03,'), lookups([plan()], { availability: () => existing }))
+    expect(r.availability.map((c) => c.releaseDays)).toEqual([21, null])
+    expect(r.errors.map((e) => e.code)).toEqual(['ROW_EMPTY'])
+    expect(buildCalendarImport(csv('plan_code,date,allotment,release_days', 'BB-DBL,2026-11-01,3,400'), lookups()).errors[0]).toMatchObject({ code: 'RELEASE_DAYS_INVALID', field: 'release_days' })
+    expect(buildCalendarImport(csv('plan_code,date,allotment,stop_sell', 'BB-DBL,2026-11-01,3,no'), lookups([plan()], { availability: () => existing })).availability[0]!.releaseDays).toBe(10)
   })
   it('never invents a basis, a currency or a stock figure', () => {
     expect(buildCalendarImport(csv('plan_code,date,amount', 'BB-DBL,2026-11-01,450'), lookups()).fatal[0]).toMatchObject({ code: 'MISSING_COLUMN', field: 'basis' })
@@ -58,6 +66,9 @@ describe('calendar import (ADR 0057, S7)', () => {
     const r = buildCalendarImport(csv(H, 'BB-DBL,2026-02-30,450,SELL', 'BB-DBL,2027-01-02,450,SELL', 'NOPE,2026-11-01,450,SELL', 'DUP,2026-11-01,450,SELL'), lookups([plan(), ...two]))
     expect(r.errors.map((e) => e.code)).toEqual(['DATE_INVALID', 'DATE_OUTSIDE_CONTRACT', 'PLAN_NOT_FOUND', 'PLAN_AMBIGUOUS'])
     expect(buildCalendarImport(csv('plan_code,date,occupancy,amount,basis', 'BB-DBL,2026-11-01,3,450,SELL'), lookups()).errors[0]).toMatchObject({ code: 'OCCUPANCY_MISMATCH' })
+    // ADR 0067 F-05: another occupancy up to what the room sleeps is a rate of its own.
+    expect(buildCalendarImport(csv('plan_code,date,occupancy,amount,basis', 'BB-DBL,2026-11-01,1,380,SELL'), lookups([plan({ maxOccupancy: 3 })])).rates[0]).toMatchObject({ occupancy: 1, amountMinor: '38000' })
+    expect(buildCalendarImport(csv('plan_code,date,occupancy,amount,basis', 'BB-DBL,2026-11-01,4,380,SELL'), lookups([plan({ maxOccupancy: 3 })])).errors[0]).toMatchObject({ code: 'OCCUPANCY_MISMATCH' })
   })
   it('keeps going after a bad row: good rows are accepted and every bad row is reported with its true line', () => {
     const r = buildCalendarImport(csv(H, 'BB-DBL,2026-11-01,450,SELL', '', 'BB-DBL,bad,450,SELL', 'BB-DBL,2026-11-03,460,SELL'), lookups())

@@ -1,5 +1,5 @@
 import { evaluateContractedStay, rowIsFresh, type ContractedStaySnapshot, type StayRequest } from './contracted-sellability'
-import { buildStaySnapshot, nightStock, type StayPlanInput } from './stay-snapshot'
+import { buildStaySnapshot, nightStock, pricedOccupancy, type StayPlanInput } from './stay-snapshot'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')
 const base: StayRequest = { checkIn: '2026-10-15', checkOut: '2026-10-18', rooms: 1, adults: 2, children: 0, currency: 'AED', now: NOW }
@@ -8,15 +8,15 @@ const DATES = ['2026-10-15', '2026-10-16', '2026-10-17']
 
 type Row = StayPlanInput['availability'][number]
 function row(date: string, patch: Partial<Row> = {}): Row {
-  return { stayDate: at(date), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, closedToDeparture: false, inventoryMode: 'ALLOTMENT', source: 'ADMIN', freshUntil: null, ...patch }
+  return { stayDate: at(date), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, releaseDays: null, closedToDeparture: false, inventoryMode: 'ALLOTMENT', source: 'ADMIN', freshUntil: null, ...patch }
 }
 function plan(o: { rows?: Row[]; pool?: StayPlanInput['inventoryPool']; poolId?: string | null; releaseDays?: number; releaseTime?: string } = {}): StayPlanInput {
   return {
-    status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: o.releaseDays ?? 0, releaseTimeLocal: o.releaseTime ?? '00:00',
+    id: 'p1', boardBasisId: 'bb', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: o.releaseDays ?? 0, releaseTimeLocal: o.releaseTime ?? '00:00',
     inventoryPoolId: o.poolId ?? null, inventoryPool: o.pool ?? null,
     roomType: { hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
     boardBasis: { isActive: true },
-    contract: { cancellationPolicies: [], leadTimeRules: [], childPolicies: [], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
+    contract: { cancellationPolicies: [], leadTimeRules: [], minStayMode: 'STAY_THROUGH', supplements: [], childPolicies: [], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
     dailyRates: [...DATES, '2026-10-18'].map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: 'AED', amountBasis: 'SELL' })),
     availability: o.rows ?? [...DATES, '2026-10-18'].map((d) => row(d)),
   }
@@ -133,6 +133,16 @@ describe('hotel-local release deadline', () => {
   it('sells one millisecond before the deadline', () => expect(decide(p, { now: new Date('2026-10-12T13:59:59.999Z') }).eligible).toBe(true))
   it('does not sell at the deadline', () => expect(decide(p, { now: new Date('2026-10-12T14:00:00.000Z') }).reasons).toContain('RELEASE_DAYS_NOT_MET'))
   it('does not sell after the deadline', () => expect(decide(p, { now: new Date('2026-10-13T00:00:00.000Z') }).reasons).toContain('RELEASE_DAYS_NOT_MET'))
+  it('the check-in night can carry its own release; other nights and a null override keep the plan release (ADR 0067, F-08)', () => {
+    const at10 = { now: new Date('2026-10-10T10:00:00.000Z') }
+    const peak = plan({ releaseDays: 3, releaseTime: '18:00', rows: rowsWith((x) => (x === '2026-10-15' ? { releaseDays: 7 } : {})) })
+    expect(decide(peak, at10).reasons).toContain('RELEASE_DAYS_NOT_MET')
+    const midStay = plan({ releaseDays: 3, releaseTime: '18:00', rows: rowsWith((x) => (x === '2026-10-16' ? { releaseDays: 30 } : {})) })
+    expect(decide(midStay, at10).eligible).toBe(true)
+    const relaxed = plan({ releaseDays: 3, releaseTime: '18:00', rows: rowsWith((x) => (x === '2026-10-15' ? { releaseDays: 0 } : {})) })
+    expect(decide(relaxed, { now: new Date('2026-10-14T10:00:00.000Z') }).eligible).toBe(true)
+    expect(decide(p, { now: new Date('2026-10-14T10:00:00.000Z') }).reasons).toContain('RELEASE_DAYS_NOT_MET')
+  })
   it('a missing hotel time zone fails closed', () => {
     const snap: ContractedStaySnapshot = { ...buildStaySnapshot(plan(), { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES), hotelTimeZone: '' }
     expect(evaluateContractedStay(snap, base).reasons).toContain('RELEASE_DAYS_NOT_MET')
@@ -199,3 +209,21 @@ describe('boundary and coverage rules', () => {
   })
 })
 
+
+describe('per-occupancy rates (ADR 0067, F-05)', () => {
+  const single = (dates: string[]) => dates.map((d) => ({ stayDate: at(d), occupancy: 1, amountMinor: 22_000n, currency: 'AED', amountBasis: 'SELL' }))
+  const withSingle = (dates: string[]): StayPlanInput => { const p = plan(); return { ...p, dailyRates: [...p.dailyRates.map((r) => ({ ...r, occupancy: 2 })), ...single(dates)] } }
+  const priced = (p: StayPlanInput, adults: number) => evaluateContractedStay(buildStaySnapshot(p, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, DATES, undefined, { adults }), { ...base, adults })
+  it('a single traveller pays the single rate when every night has one', () => {
+    expect(pricedOccupancy(withSingle(DATES), DATES, { adults: 1 })).toBe(1)
+    expect(priced(withSingle(DATES), 1)).toMatchObject({ eligible: true, totalMinor: 66_000n })
+  })
+  it('never mixes occupancies: one night without a single rate leaves the stay on the base occupancy, which one adult cannot fill', () => {
+    expect(pricedOccupancy(withSingle(DATES.slice(1)), DATES, { adults: 1 })).toBe(2)
+    expect(priced(withSingle(DATES.slice(1)), 1)).toMatchObject({ eligible: false, totalMinor: null })
+    expect(priced(withSingle(DATES.slice(1)), 1).reasons).toContain('OCCUPANCY_UNSUPPORTED')
+  })
+  it('two adults keep the double rate', () => {
+    expect(priced(withSingle(DATES), 2)).toMatchObject({ eligible: true, totalMinor: 90_000n })
+  })
+})

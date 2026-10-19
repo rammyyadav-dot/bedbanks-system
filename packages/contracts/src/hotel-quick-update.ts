@@ -23,20 +23,23 @@ export interface QuickUpdateScope {
 
 export type QuickUpdateFlag = 'SET' | 'CLEAR';
 export interface QuickUpdateChanges {
-  price?: { amount: string; basis: 'NET' | 'SELL' }
+  /** `occupancy` (ADR 0067, F-05) prices that occupancy of each plan (e.g. single use); omitted is each plan's own occupancy. */
+  price?: { amount: string; basis: 'NET' | 'SELL'; occupancy?: number }
   /** `allotment` is the plan's own count, or the shared pool's capacity when the plan belongs to a pool (written once per pool night). */
   availability?: { allotment?: number; stopSell?: QuickUpdateFlag; mode?: InventoryMode }
   /** `closedToDeparture` applies to the DEPARTURE date: a stay may not end on a night where it is set. */
-  restrictions?: { minStay?: number; closedToArrival?: QuickUpdateFlag; closedToDeparture?: QuickUpdateFlag }
+  /** `releaseDays` (ADR 0067, F-08) is the release for a check-in on the night, overriding the plan's; null clears the override. */
+  restrictions?: { minStay?: number; closedToArrival?: QuickUpdateFlag; closedToDeparture?: QuickUpdateFlag; releaseDays?: number | null }
 }
 export interface QuickUpdateRequest { scope: QuickUpdateScope; changes: QuickUpdateChanges }
 
-export type QuickUpdateField = 'price' | 'allotment' | 'poolCapacity' | 'stopSell' | 'inventoryMode' | 'minStay' | 'closedToArrival' | 'closedToDeparture';
+export type QuickUpdateField = 'price' | 'allotment' | 'poolCapacity' | 'stopSell' | 'inventoryMode' | 'minStay' | 'closedToArrival' | 'closedToDeparture' | 'releaseDays';
 export interface QuickUpdateFieldChange {
   field: QuickUpdateField
   /** price: integer minor units as a string. allotment, poolCapacity and minStay: whole numbers. inventoryMode: a mode name. flags: booleans. null: no stored value. */
   from: string | number | boolean | null
-  to: string | number | boolean
+  /** releaseDays: null clears the night's override, so the plan's release applies. */
+  to: string | number | boolean | null
   currency?: string
 }
 export type QuickUpdateOutcome = 'CHANGE' | 'NO_CHANGE' | 'INVALID';

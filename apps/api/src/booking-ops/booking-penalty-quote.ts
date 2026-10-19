@@ -4,7 +4,7 @@ import { CancellationPolicyService, type CancellationRule } from '../agent/cance
 import { PrismaService } from '../database/prisma.service'
 import { BookingOpsDatabase } from './booking-ops-database'
 
-export interface PenaltyQuoteInput { sellMinor: bigint; currency: string; isRefundable: boolean | null; checkIn: string | null; rules: unknown; requestedAt: Date; timeZone: string }
+export interface PenaltyQuoteInput { sellMinor: bigint; currency: string; isRefundable: boolean | null; checkIn: string | null; checkOut?: string | null; rules: unknown; requestedAt: Date; timeZone: string }
 
 /**
  * The cancellation penalty for a booking at a moment, from the rules frozen with it (ADR 0039, Phase 5). Pure and BigInt-only; the rule maths is the one
@@ -18,8 +18,12 @@ export function buildPenaltyQuote(input: PenaltyQuoteInput, policy = new Cancell
   const frozen = parseFrozenRules(input.rules)
   if (!frozen) return { status: 'needs_decision', reason: 'policy_unavailable', detail: 'No readable cancellation terms were stored with this booking.', evaluatedAt }
   if (!input.checkIn) return { status: 'needs_decision', reason: 'manual_review_required', detail: 'The check-in date is not known.', evaluatedAt }
-  const rules: CancellationRule[] = frozen.map((r) => r.penaltyPercent !== undefined ? { daysBeforeCheckin: r.daysBeforeCheckin, penaltyPercent: r.penaltyPercent } : { daysBeforeCheckin: r.daysBeforeCheckin, penaltyMinor: BigInt(r.penaltyMinor as string), currency: input.currency })
-  const quote = policy.quote({ cancellableAmountMinor: input.sellMinor, currency: input.currency, checkIn: input.checkIn, requestedAt: evaluatedAt, rules, propertyTimeZone: input.timeZone })
+  const rules: CancellationRule[] = frozen.map((r) => r.penaltyNights !== undefined ? { daysBeforeCheckin: r.daysBeforeCheckin, penaltyNights: r.penaltyNights } : r.penaltyPercent !== undefined ? { daysBeforeCheckin: r.daysBeforeCheckin, penaltyPercent: r.penaltyPercent } : { daysBeforeCheckin: r.daysBeforeCheckin, penaltyMinor: BigInt(r.penaltyMinor as string), currency: input.currency })
+  // ADR 0067 F-10: a nights penalty counts against the stay length frozen with the terms, else the booking's own dates.
+  const stored = (input.rules as { stayNights?: unknown } | null)?.stayNights
+  const fromDates = input.checkOut ? Math.round((Date.parse(`${input.checkOut}T00:00:00.000Z`) - Date.parse(`${input.checkIn}T00:00:00.000Z`)) / 86_400_000) : NaN
+  const stayNights = typeof stored === 'number' && Number.isInteger(stored) && stored > 0 ? stored : Number.isInteger(fromDates) && fromDates > 0 ? fromDates : undefined
+  const quote = policy.quote({ cancellableAmountMinor: input.sellMinor, currency: input.currency, checkIn: input.checkIn, requestedAt: evaluatedAt, rules, propertyTimeZone: input.timeZone, ...(stayNights ? { stayNights } : {}) })
   if (quote.status !== 'quotable') return { status: 'needs_decision', reason: quote.status, detail: `The cancellation terms could not be applied (${quote.reason}).`, evaluatedAt }
   return { status: 'quotable', currency: quote.currency, sellMinor: sell, penaltyMinor: quote.penaltyMinor.toString(), refundMinor: quote.refundMinor.toString(), ruleDaysBeforeCheckin: quote.effectiveRule?.daysBeforeCheckin ?? null, basis: 'RULE', evaluatedAt }
 }
@@ -30,9 +34,9 @@ export class BookingPenaltyQuoter {
 
   /** Reads the booking as the booking role and the hotel's time zone as the API role (the booking role cannot read hotels), then evaluates. Runs outside any write transaction. */
   async quote(tenantId: string, bookingId: string, now: Date): Promise<StoredPenaltyQuote> {
-    const booking = await this.db.withTenant(tenantId, (tx) => tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { totalMinor: true, currency: true, isRefundable: true, checkIn: true, hotelId: true, cancellationPolicy: true } }))
+    const booking = await this.db.withTenant(tenantId, (tx) => tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { totalMinor: true, currency: true, isRefundable: true, checkIn: true, checkOut: true, hotelId: true, cancellationPolicy: true } }))
     if (!booking) return { status: 'needs_decision', reason: 'manual_review_required', detail: 'Booking not found.', evaluatedAt: now.toISOString() }
     const hotel = await this.prisma.withTenant(tenantId, (t) => t.hotel.findFirst({ where: { id: booking.hotelId, tenantId }, select: { timeZone: true } }))
-    return buildPenaltyQuote({ sellMinor: booking.totalMinor, currency: booking.currency, isRefundable: booking.isRefundable, checkIn: booking.checkIn ? booking.checkIn.toISOString().slice(0, 10) : null, rules: booking.cancellationPolicy, requestedAt: now, timeZone: hotel?.timeZone ?? 'UTC' })
+    return buildPenaltyQuote({ sellMinor: booking.totalMinor, currency: booking.currency, isRefundable: booking.isRefundable, checkIn: booking.checkIn ? booking.checkIn.toISOString().slice(0, 10) : null, checkOut: booking.checkOut ? booking.checkOut.toISOString().slice(0, 10) : null, rules: booking.cancellationPolicy, requestedAt: now, timeZone: hotel?.timeZone ?? 'UTC' })
   }
 }

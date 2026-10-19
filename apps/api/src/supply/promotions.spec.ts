@@ -110,3 +110,46 @@ describe('promotions (ADR 0058, S10a)', () => {
     })
   })
 })
+
+describe('combinable, partial-stay and room-only promotions (ADR 0067, F-09)', () => {
+  const nets = [10_000n, 10_000n, 10_000n]
+  const early = rule({ id: 'a', name: 'Early bird', kind: 'EARLY_BIRD', percentBp: 1000, minLeadDays: 10 })
+  const long = rule({ id: 'b', name: 'Long stay', kind: 'LONG_STAY', percentBp: 500, minNights: 3 })
+  it('without combinable flags the single best promotion applies, never both', () => {
+    expect(selectPromotion([early, long], ctx(), nets)).toMatchObject({ applied: { id: 'a', savingMinor: 3_000n }, nets: [9_000n, 9_000n, 9_000n] })
+  })
+  it('combinable promotions stack, each on what the previous left, when that saves more', () => {
+    const out = selectPromotion([{ ...early, combinable: true }, { ...long, combinable: true }], ctx(), nets)!
+    expect(out.nets).toEqual([8_550n, 8_550n, 8_550n]) // 10_000 -10% = 9_000, then -5% (450) = 8_550
+    expect(out.applied).toMatchObject({ name: 'Early bird + Long stay', savingMinor: 4_350n, combined: [{ id: 'a' }, { id: 'b' }] })
+    // Only one combinable promotion applies: no stack, the single best stands.
+    expect(selectPromotion([{ ...early, combinable: true }, long], ctx(), nets)!.applied.combined).toBeUndefined()
+  })
+  it('free nights stack first, then percentages on the paid nights', () => {
+    const free = rule({ id: 'z', name: '3 for 2', kind: 'FREE_NIGHTS', minNights: 3, freeNights: 1, combinable: true })
+    const out = selectPromotion([{ ...early, combinable: true }, free], ctx(), [10_000n, 12_000n, 10_000n])!
+    expect(out.nets).toEqual([9_000n, 10_800n, 0n]) // the later of the two cheapest nights is free, then 10% off the paid nights
+    expect(out.applied.combined!.map((c) => c.id)).toEqual(['z', 'a'])
+    expect(out.applied.savingMinor).toBe(12_200n)
+  })
+  it('NIGHTS_IN_WINDOW discounts only the nights inside the window; WHOLE_STAY needs every night inside it', () => {
+    const window = { stayFrom: '2026-11-11', stayTo: '2026-11-30' }
+    expect(promotionApplies({ ...long, ...window }, ctx())).toBe(false)
+    const partial = { ...long, ...window, stayWindowMode: 'NIGHTS_IN_WINDOW' as const }
+    expect(promotionApplies(partial, ctx())).toBe(true)
+    expect(discountedNets(partial, nets, dates)).toEqual([10_000n, 9_500n, 9_500n])
+    expect(promotionApplies({ ...partial, stayFrom: '2026-12-01', stayTo: '2026-12-31' }, ctx())).toBe(false)
+  })
+  it('ROOM_ONLY leaves the extra-guest part of each night undiscounted', () => {
+    const roomOnly = { ...early, discountBase: 'ROOM_ONLY' as const }
+    expect(discountedNets(roomOnly, [12_000n, 12_000n, 12_000n], dates, [10_000n, 10_000n, 10_000n])).toEqual([11_000n, 11_000n, 11_000n])
+    expect(discountedNets(early, [12_000n, 12_000n, 12_000n], dates, [10_000n, 10_000n, 10_000n])).toEqual([10_800n, 10_800n, 10_800n])
+  })
+  it('validates the new fields', () => {
+    const base = { kind: 'LONG_STAY', name: 'L', percentBp: 500, minNights: 3 }
+    expect(validatePromotions([{ ...base, stayWindowMode: 'NIGHTS_IN_WINDOW' }]).map((i) => i.code)).toContain('PROMOTION_WINDOW_INVALID')
+    expect(validatePromotions([{ ...base, discountBase: 'GUESTS' }]).map((i) => i.code)).toContain('PROMOTION_BASE_INVALID')
+    expect(validatePromotions([{ ...base, combinable: 'yes' }]).map((i) => i.code)).toContain('PROMOTION_COMBINABLE_INVALID')
+    expect(validatePromotions([{ ...base, combinable: true, stayWindowMode: 'NIGHTS_IN_WINDOW', stayFrom: '2026-11-01', discountBase: 'ROOM_ONLY' }])).toEqual([])
+  })
+})

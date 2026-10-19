@@ -10,16 +10,45 @@ export type ContractLifecycleStatus = 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'EXPIRED' 
 export type ContractApprovalKind = 'ACTIVATE' | 'AMEND'
 export type ContractApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
 
-export interface ContractCancellationTerm { policySet: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
+/** ADR 0067 F-10: exactly one of percent, amount or nights. A NO_SHOW rule (days 0, one per set) applies when the guest does not arrive. `kind` defaults to CANCELLATION when sent. */
+export interface ContractCancellationTerm { policySet: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }
 export interface ContractChildTerm { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface ContractLeadTimeTerm { minLeadHours: number; maxLeadDays: number | null }
+/** Commercial header terms (ADR 0067, F-20) and how a night's minimum stay is read (F-15). Reviewed terms: changed on an ACTIVE contract only by amendment. */
+export interface ContractHeaderTerms {
+  rateType: 'NET' | 'COMMISSIONABLE' | null
+  /** Basis points of the sell price; required for COMMISSIONABLE and absent otherwise. */
+  commissionBp: number | null
+  paymentTermsDays: number | null
+  signedAt: string | null
+  signedDocumentRef: string | null
+  allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null
+  /** STAY_THROUGH: every night's minimum stay applies. ARRIVAL: only the check-in night's. */
+  minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  /** Days the buyer's cancellation tiers start before the hotel's (ADR 0067, F-10), 0-30. */
+  clientBufferDays: number
+}
+export const CONTRACT_RATE_TYPES = ['NET', 'COMMISSIONABLE'] as const
+export const CONTRACT_ALLOTMENT_TYPES = ['GUARANTEED', 'NON_GUARANTEED', 'FREE_SALE'] as const
+export const CONTRACT_MIN_STAY_MODES = ['STAY_THROUGH', 'ARRIVAL'] as const
+/** A board or compulsory supplement (ADR 0067). Amounts are minor units as strings; dates are stay nights, inclusive; null is open. */
+export interface ContractSupplementTerm {
+  kind: 'BOARD' | 'COMPULSORY'; name: string; boardBasisId: string | null; ratePlanId: string | null
+  basis: 'PER_ADULT' | 'PER_CHILD' | 'PER_PERSON' | 'PER_ROOM'; frequency: 'PER_NIGHT' | 'PER_STAY'; amountMinor: string; currency: string; stayFrom: string | null; stayTo: string | null
+}
+export const SUPPLEMENT_BASIS_LABELS: Record<ContractSupplementTerm['basis'], string> = { PER_ADULT: 'per adult', PER_CHILD: 'per child', PER_PERSON: 'per person', PER_ROOM: 'per room' }
+export const SUPPLEMENT_FREQUENCY_LABELS: Record<ContractSupplementTerm['frequency'], string> = { PER_NIGHT: 'per night', PER_STAY: 'once per stay' }
 export interface ContractTermsView {
   code: string; supplierId: string; supplierHotelMappingId: string | null; validFrom: string; validTo: string; settlementCurrency: string
   salesMarkets: string[]; nationalities: string[]; paymentPolicyRef: string | null
   cancellationPolicies: ContractCancellationTerm[]; childPolicies: ContractChildTerm[]; leadTimeRule: ContractLeadTimeTerm | null
+  supplements: ContractSupplementTerm[]
+  header: ContractHeaderTerms
 }
 /** The terms an amendment may change. Supplier and hotel binding are identity and never amendable. Policy lists replace the whole set. */
-export type ContractAmendmentChanges = Partial<Pick<ContractTermsView, 'code' | 'validFrom' | 'validTo' | 'settlementCurrency' | 'salesMarkets' | 'nationalities' | 'paymentPolicyRef' | 'cancellationPolicies' | 'childPolicies' | 'leadTimeRule'>>
+export type ContractAmendmentChanges = Partial<Pick<ContractTermsView, 'code' | 'validFrom' | 'validTo' | 'settlementCurrency' | 'salesMarkets' | 'nationalities' | 'paymentPolicyRef' | 'cancellationPolicies' | 'childPolicies' | 'leadTimeRule' | 'supplements'>> & { header?: Partial<ContractHeaderTerms> }
+/** As sent to `amendment-request`: header terms are top-level keys of `changes`. */
+export type ContractAmendmentInputChanges = Omit<ContractAmendmentChanges, 'header'> & Partial<ContractHeaderTerms>
 
 export interface ContractCheckView { code: string; label: string; ok: boolean; message: string }
 export interface ContractApprovalView {
@@ -44,7 +73,7 @@ export interface ContractLifecycleView {
 }
 export interface ContractTransitionInput { expectedUpdatedAt: string; reason?: string }
 export interface ContractActivationRequestInput { requestId: string; reason: string; expectedFingerprint: string }
-export interface ContractAmendmentRequestInput extends ContractActivationRequestInput { changes: ContractAmendmentChanges }
+export interface ContractAmendmentRequestInput extends ContractActivationRequestInput { changes: ContractAmendmentInputChanges }
 export interface ContractApprovalDecisionInput { reason: string }
 export interface ContractApprovalExecuteResult { approval: ContractApprovalView; contractId: string; status: string; version: number }
 
@@ -61,5 +90,7 @@ export const contractLifecycleRoutes = {
   execute: '/supply/contract-approvals/:approvalId/execute',
   deleteCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/:policyId',
   deleteChildPolicy: '/supply/contracts/:contractId/policies/child/:policyId',
+  supplements: '/supply/contracts/:contractId/supplements',
+  deleteSupplement: '/supply/contracts/:contractId/supplements/:supplementId',
   deleteLeadTimeRule: '/supply/contracts/:contractId/policies/lead-time',
 } as const

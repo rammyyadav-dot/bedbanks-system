@@ -386,6 +386,39 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }
   })
 
+  it('prices board and compulsory supplements into the total and names them on the offer (ADR 0067)', async () => {
+    const at = (d: string) => new Date(`${d}T00:00:00.000Z`)
+    const rows = await prisma.$transaction([
+      prisma.contractSupplement.create({ data: { contractId, kind: 'COMPULSORY', name: 'Gala dinner', basis: 'PER_PERSON', frequency: 'PER_STAY', amountMinor: 10_000n, currency: 'AED', stayFrom: at(nights[1]!), stayTo: at(nights[1]!) } }),
+      prisma.contractSupplement.create({ data: { contractId, kind: 'BOARD', name: 'Board supplement', boardBasisId: boardId, basis: 'PER_ADULT', frequency: 'PER_NIGHT', amountMinor: 3_000n, currency: 'AED' } }),
+      prisma.contractSupplement.create({ data: { contractId, kind: 'COMPULSORY', name: 'Outside the stay', basis: 'PER_ROOM', frequency: 'PER_STAY', amountMinor: 99_000n, currency: 'AED', stayFrom: at(day(200)), stayTo: at(day(200)) } }),
+    ])
+    try {
+      const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
+      expect(rate.sellAmountMinor).toBe(nightMinor * nights.length + 2 * 10_000 + 2 * 3_000 * nights.length)
+      expect(rate.supplements).toEqual([{ name: 'Gala dinner', kind: 'COMPULSORY', amountMinor: 20_000 }, { name: 'Board supplement', kind: 'BOARD', amountMinor: 18_000 }])
+    } finally {
+      await prisma.contractSupplement.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } })
+    }
+  })
+
+  it('stacks combinable promotions when that saves more than the best one alone (ADR 0067, F-09)', async () => {
+    const base = { tenantId, ratePlanId, percentBp: null, minLeadDays: null, maxLeadDays: null, minNights: null, freeNights: null, combinable: true }
+    const rows = await prisma.$transaction([
+      prisma.ratePlanPromotion.create({ data: { ...base, kind: 'EARLY_BIRD', name: 'Early bird', nameKey: 'early bird', percentBp: 1000, minLeadDays: 1 } }),
+      prisma.ratePlanPromotion.create({ data: { ...base, kind: 'LONG_STAY', name: 'Long stay', nameKey: 'long stay', percentBp: 500, minNights: 3 } }),
+    ])
+    try {
+      const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
+      const afterEarly = nightMinor - Math.floor((nightMinor * 1000 + 5000) / 10000)
+      const afterBoth = afterEarly - Math.floor((afterEarly * 500 + 5000) / 10000)
+      expect(rate.sellAmountMinor).toBe(afterBoth * nights.length)
+      expect(rate.promotion).toEqual({ name: 'Early bird + Long stay', kind: 'EARLY_BIRD' })
+    } finally {
+      await prisma.ratePlanPromotion.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } })
+    }
+  })
+
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)
     await admin.post(`/api/v1/supply/mappings/hotels/${mappingId}/rooms/${roomMappingId}/reopen`).expect(201)

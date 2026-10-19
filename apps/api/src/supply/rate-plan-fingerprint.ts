@@ -17,7 +17,7 @@ export interface FingerprintPlan {
   derivedFromId?: string | null; derivedMode?: string | null; derivedAdjustment?: number | null
 }
 export interface FingerprintGuestLine { kind: string; minAge: number; maxAge: number; amountMinor: bigint; amountBasis: string; currency: string }
-export interface FingerprintPromotion { kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null }
+export interface FingerprintPromotion { kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null; combinable?: boolean; stayWindowMode?: string; discountBase?: string }
 export interface FingerprintRate { stayDate: Date; occupancy: number; amountMinor: bigint; amountBasis: string | null; currency: string }
 
 const day = (value: Date | null): string | null => (value ? value.toISOString().slice(0, 10) : null)
@@ -37,7 +37,9 @@ export function canonicalPlanContent(plan: FingerprintPlan, rates: readonly Fing
     },
     guest: guestLines.map((line) => [line.kind, line.minAge, line.maxAge, line.amountMinor.toString(), line.amountBasis, line.currency]).sort((a, b) => String(a[0]).localeCompare(String(b[0])) || Number(a[1]) - Number(b[1]) || Number(a[2]) - Number(b[2])),
     // ADR 0058: present only when the plan has promotions, so a plan without them keeps the fingerprint an approval was already filed under.
-    ...(promotions.length === 0 ? {} : { promotions: promotions.map((promo) => [promo.kind, promo.name, promo.percentBp, promo.minLeadDays, promo.maxLeadDays, promo.minNights, promo.freeNights, day(promo.bookFrom), day(promo.bookTo), day(promo.stayFrom), day(promo.stayTo)]).sort((a, b) => String(a[1]).localeCompare(String(b[1]))) }),
+    ...(promotions.length === 0 ? {} : { promotions: promotions.map((promo) => [promo.kind, promo.name, promo.percentBp, promo.minLeadDays, promo.maxLeadDays, promo.minNights, promo.freeNights, day(promo.bookFrom), day(promo.bookTo), day(promo.stayFrom), day(promo.stayTo),
+      // ADR 0067 F-09: only non-default values join, so the fingerprint of an unchanged promotion (and an approval bound to it) is stable.
+      ...(promo.combinable ? ['combinable'] : []), ...(promo.stayWindowMode && promo.stayWindowMode !== 'WHOLE_STAY' ? [promo.stayWindowMode] : []), ...(promo.discountBase && promo.discountBase !== 'ROOM_AND_GUESTS' ? [promo.discountBase] : [])]).sort((a, b) => String(a[1]).localeCompare(String(b[1]))) }),
     rates: rates.filter((row) => day(row.stayDate)! >= asOf)
       .map((row) => [day(row.stayDate), row.occupancy, row.amountMinor.toString(), row.amountBasis, row.currency])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])) || Number(a[1]) - Number(b[1])),

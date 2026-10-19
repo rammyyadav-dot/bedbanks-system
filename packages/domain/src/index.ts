@@ -96,6 +96,8 @@ export interface SearchRateOffer {
   payAtHotel?: PayAtHotelCharge[]
   /** The hotel promotion already included in the price (ADR 0058). Informational: the total is final, nothing is deducted again. */
   promotion?: { name: string; kind: 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS' }
+  /** Board and compulsory supplements already included in the total (ADR 0067), each for all rooms of the stay. Informational. */
+  supplements?: Array<{ name: string; kind: 'BOARD' | 'COMPULSORY'; amountMinor: number }>
   source: 'hotel_direct' | 'dmc' | 'bedbank' | 'channel_manager' | 'gds'
 }
 /** A local charge paid at the hotel (Tourism Dirham, city tax, resort fee). Integer minor units; `estimatedTotalMinor` is for the stay searched. */

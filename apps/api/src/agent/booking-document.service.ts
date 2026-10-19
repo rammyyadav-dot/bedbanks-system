@@ -1,6 +1,8 @@
 import { payAtHotel } from '../supply/local-charges'
 import { readFrozenTerms } from './booking-cancellation-terms'
-import { rulesForPlan } from '../supply/cancellation-rules'
+import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
+import { buyerRules, describePenalty } from './cancellation-policy.service'
+import { formatMinor } from './booking-document.render'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
@@ -100,11 +102,14 @@ export class BookingDocumentService {
       // Finding F13: the voucher shows the terms frozen at booking; only a booking made before they were frozen reads the plan's live rules.
       const frozen = readFrozenTerms(booking.cancellationPolicy)
       if (frozen.kind === 'invalid') throw new ConflictException('The frozen cancellation terms are unreadable')
-      if (frozen.kind === 'frozen') return { ...base, ...voucherExtra, cancellationPolicy: frozen.rules.map(rule => ({ daysBeforeCheckin: rule.daysBeforeCheckin, penalty: rule.penaltyPercent !== undefined ? `${rule.penaltyPercent}% of the booking total` : `${booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)` })) }
-      return { ...base, ...voucherExtra, cancellationPolicy: (plan ? rulesForPlan(plan, plan.contract.cancellationPolicies).rules : []).map(rule => ({
-        daysBeforeCheckin: rule.daysBeforeCheckin,
-        penalty: rule.penaltyPercent !== null ? `${rule.penaltyPercent}% of the booking total` : `${rule.currency ?? booking.currency} ${rule.penaltyMinor?.toString() ?? '0'} (minor units)`,
-      })) }
+      const money = (minor: string) => formatMinor(minor, booking.currency)
+      // ADR 0067 F-10: nights penalties and the no-show rule read as the buyer was sold them.
+      if (frozen.kind === 'frozen') return { ...base, ...voucherExtra, cancellationPolicy: frozen.rules.map(rule => ({ daysBeforeCheckin: rule.daysBeforeCheckin, penalty: describePenalty(rule, money) })), ...(frozen.noShow ? { noShowPenalty: describePenalty(frozen.noShow, money) } : {}) }
+      const live = plan ? rulesForPlan(plan, plan.contract.cancellationPolicies).rules : []
+      const legacyNoShow = noShowRule(live)
+      return { ...base, ...voucherExtra, cancellationPolicy: buyerRules(cancellationTiers(live), plan?.contract.clientBufferDays ?? 0).map(rule => ({
+        daysBeforeCheckin: rule.daysBeforeCheckin, penalty: describePenalty(rule, (minor) => formatMinor(minor, rule.currency ?? booking.currency)),
+      })), ...(legacyNoShow ? { noShowPenalty: describePenalty(legacyNoShow, (minor) => formatMinor(minor, legacyNoShow.currency ?? booking.currency)) } : {}) }
     }
     const total = booking.totalMinor.toString()
     if (type === 'INVOICE') {

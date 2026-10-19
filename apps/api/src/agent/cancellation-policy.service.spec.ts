@@ -1,4 +1,4 @@
-import { CancellationPolicyService } from './cancellation-policy.service'
+import { CancellationPolicyService, buyerRules, describePenalty, nightsPenalty, penaltyStartsAt } from './cancellation-policy.service'
 
 describe('CancellationPolicyService', () => {
   const service = new CancellationPolicyService()
@@ -45,7 +45,7 @@ describe('CancellationPolicyService', () => {
 
   it('uses Dubai hotel-local midnight as the cancellation deadline authority', () => {
     const input = { cancellableAmountMinor: 10000n, currency: 'AED', checkIn: '2026-12-31',
-      propertyTimeZone: 'Asia/Dubai', checkInLocalTime: '00:00', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 100 }] }
+      propertyTimeZone: 'Asia/Dubai', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 100 }] }
     expect(service.quote({ ...input, requestedAt: '2026-12-27T19:59:59.999Z' })).toMatchObject({ status: 'quotable', penaltyMinor: 0n })
     expect(service.quote({ ...input, requestedAt: '2026-12-27T20:00:00.000Z' })).toMatchObject({ status: 'quotable', penaltyMinor: 10000n })
     expect(service.quote({ ...input, requestedAt: '2026-12-27T20:00:00.001Z' })).toMatchObject({ status: 'quotable', penaltyMinor: 10000n })
@@ -53,7 +53,7 @@ describe('CancellationPolicyService', () => {
 
   it('uses Kolkata local time and handles year rollover deterministically', () => {
     expect(service.quote({ cancellableAmountMinor: 10000n, currency: 'INR', checkIn: '2027-01-01',
-      propertyTimeZone: 'Asia/Kolkata', checkInLocalTime: '00:00', requestedAt: '2026-12-28T18:30:00.000Z',
+      propertyTimeZone: 'Asia/Kolkata', requestedAt: '2026-12-28T18:30:00.000Z',
       rules: [{ daysBeforeCheckin: 3, penaltyPercent: 50 }] })).toMatchObject({ status: 'quotable', penaltyMinor: 5000n })
   })
 
@@ -72,4 +72,32 @@ describe('CancellationPolicyService', () => {
     expect(service.freeCancellationDeadline({ refundable: true, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: 1n }] })).toBeUndefined()
   })
 
+  describe('nights, buffer and one deadline instant (ADR 0067, F-10)', () => {
+    it('charges a nights penalty pro rata of the stay, rounded down and capped at the stay', () => {
+      expect(nightsPenalty(10001n, 1, 3)).toBe(3333n)
+      expect(nightsPenalty(10001n, 5, 3)).toBe(10001n)
+      expect(service.quote({ ...base, stayNights: 4, rules: [{ daysBeforeCheckin: 3, penaltyNights: 1 }] })).toMatchObject({ status: 'quotable', penaltyMinor: 2500n, refundMinor: 7501n })
+    })
+    it('never treats a nights rule as free when the stay length is unknown, or a rule with two forms as valid', () => {
+      expect(service.quote({ ...base, rules: [{ daysBeforeCheckin: 3, penaltyNights: 1 }] })).toMatchObject({ status: 'manual_review_required', reason: 'stay_nights_unknown' })
+      expect(service.quote({ ...base, stayNights: 2, rules: [{ daysBeforeCheckin: 3, penaltyNights: 1, penaltyPercent: 10 }] })).toMatchObject({ status: 'manual_review_required', reason: 'ambiguous_penalty_rule' })
+    })
+    it('the offer deadline and the quote switch at the same hotel-local instant', () => {
+      const rules = [{ daysBeforeCheckin: 2, penaltyNights: 1 }]
+      const deadline = service.freeCancellationDeadline({ refundable: true, checkIn: '2026-12-31', timeZone: 'Asia/Dubai', rules })!
+      expect(deadline).toBe('2026-12-28T20:00:00.000Z')
+      expect(new Date(penaltyStartsAt('2026-12-31', 2, 'Asia/Dubai')!).toISOString()).toBe(deadline)
+      const at = (ms: number) => service.quote({ ...base, propertyTimeZone: 'Asia/Dubai', stayNights: 2, requestedAt: new Date(Date.parse(deadline) + ms).toISOString(), rules })
+      expect(at(-1)).toMatchObject({ penaltyMinor: 0n }); expect(at(0)).toMatchObject({ penaltyMinor: 5000n })
+    })
+    it('a client buffer starts every tier earlier for the buyer', () => {
+      expect(buyerRules([{ daysBeforeCheckin: 3, penaltyPercent: 50 }, { daysBeforeCheckin: 0, penaltyPercent: 100 }], 2)).toEqual([{ daysBeforeCheckin: 5, penaltyPercent: 50 }, { daysBeforeCheckin: 2, penaltyPercent: 100 }])
+      expect(service.freeCancellationDeadline({ refundable: true, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: buyerRules([{ daysBeforeCheckin: 3, penaltyPercent: 100 }], 2) })).toBe('2026-10-06T20:00:00.000Z')
+    })
+    it('describes each penalty form for documents', () => {
+      expect(describePenalty({ penaltyNights: 1 }, String)).toBe('1 night (pro rata of the booking total)')
+      expect(describePenalty({ penaltyPercent: 50 }, String)).toBe('50% of the booking total')
+      expect(describePenalty({ penaltyMinor: 1200n }, (m) => `AED ${m}`)).toBe('AED 1200')
+    })
+  })
 })

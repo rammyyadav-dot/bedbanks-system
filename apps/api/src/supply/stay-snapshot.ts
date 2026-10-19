@@ -1,13 +1,17 @@
 import { parseMarketRules } from './market-rules'
 import { rulesForPlan } from './cancellation-rules'
 import { effectiveGuestLines, type GuestPriceLine } from './guest-pricing'
-import type { PromotionKind, PromotionRule } from './promotions'
+import type { DiscountBase, PromotionKind, PromotionRule, StayWindowMode } from './promotions'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
+import { supplementsForPlan } from './supplements'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
 
 /** Structural shape of a rate plan with the relations the canonical stay evaluator needs. Prisma payloads satisfy it. */
 export interface StayPlanInput {
+  /** ADR 0067: the plan and its board pick the contract supplements that apply. */
+  id: string
+  boardBasisId: string
   status: string
   occupancy: number
   currency: string
@@ -25,7 +29,7 @@ export interface StayPlanInput {
   /** ADR 0058 S10b. Null for a plan that is not derived; otherwise why the derived plan cannot be priced (see `withDerivedRates`). Required so a loader that skipped it cannot sell a derived plan from nothing. */
   derivedProblem: string | null
   /** ADR 0058 S10a promotions. Required: a loader that forgot them would silently sell at full price a plan the hotel discounted. */
-  promotions: Array<{ id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null }>
+  promotions: Array<{ id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null; combinable: boolean; stayWindowMode: string; discountBase: string }>
   /** ADR 0057 S3 allow-lists. Required (any JSON) so a loader that forgot them fails loudly rather than reading as unrestricted. */
   salesMarkets: unknown
   nationalities: unknown
@@ -36,9 +40,9 @@ export interface StayPlanInput {
   boardBasis: { isActive: boolean }
   /** ADR 0067 F-02: the contract's booking lead-time rule (zero or one row). Required so a loader that forgot it fails type-check instead of selling inside the cut-off. */
   /** ADR 0067 F-03: the contract child bands, inherited by a plan without CHILD lines of its own. Required for the same reason. */
-  contract: { childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
+  contract: { minStayMode: string; supplements: Array<{ kind: string; name: string; boardBasisId: string | null; ratePlanId: string | null; basis: string; frequency: string; amountMinor: bigint; currency: string; stayFrom: Date | null; stayTo: Date | null }>; childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
   dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
-  availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
+  availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; releaseDays: number | null; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
 
 /** One night of a shared pool's stock. Loaded for the plan's pool only; tenant, hotel and supplier isolation is enforced by the loader and the DB. */
@@ -52,6 +56,14 @@ const nextDay = (day: string): string => new Date(Date.parse(`${day}T00:00:00.00
  * so a hotel's Admin readiness and its Agent offers cannot drift apart. A missing mapping is passed as `null`; the evaluator then
  * reports SUPPLIER_MAPPING_INVALID exactly as it would for an unapproved one.
  */
+/** The occupancy whose rates price this stay: the party's adults when every night has such a rate, else the plan's own occupancy. */
+export function pricedOccupancy(plan: Pick<StayPlanInput, 'occupancy' | 'dailyRates'>, nights: readonly string[], party?: { adults: number }): number {
+  const adults = party?.adults
+  if (adults === undefined || adults === plan.occupancy || !Number.isInteger(adults) || adults < 1 || nights.length === 0) return plan.occupancy
+  const covered = new Set(plan.dailyRates.filter((rate) => rate.occupancy === adults).map((rate) => dayKey(rate.stayDate)))
+  return nights.every((night) => covered.has(night)) ? adults : plan.occupancy
+}
+
 export function buildStaySnapshot(
   plan: StayPlanInput,
   mapping: { status: string; hotelId: string } | null,
@@ -59,6 +71,8 @@ export function buildStaySnapshot(
   nights: string[],
   /** Markup basis points in force for a night, or null. Omitted means no markup rule (NET rates stay unsellable). */
   markupFor?: (date: string) => number | null,
+  /** The party being priced (ADR 0067, F-05). When every night has a rate for exactly this many adults, that occupancy prices the stay. */
+  party?: { adults: number },
 ): ContractedStaySnapshot {
   // A loader that forgot the plan window would silently skip the rule (fail open). Refuse loudly instead.
   if (plan.validFrom === undefined || plan.validTo === undefined) throw new Error('RATE_PLAN_WINDOW_NOT_LOADED')
@@ -69,8 +83,13 @@ export function buildStaySnapshot(
   if (plan.promotions === undefined) throw new Error('RATE_PLAN_PROMOTIONS_NOT_LOADED')
   if (plan.contract.leadTimeRules === undefined) throw new Error('CONTRACT_LEAD_TIME_NOT_LOADED')
   if (plan.contract.childPolicies === undefined) throw new Error('CONTRACT_CHILD_POLICY_NOT_LOADED')
-  // A loader may bring several occupancies (ADR 0057, S6); only the plan's own occupancy prices a night (finding F12).
-  const rates = new Map(plan.dailyRates.filter((rate) => rate.occupancy === undefined || rate.occupancy === plan.occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
+  if (plan.contract.supplements === undefined) throw new Error('CONTRACT_SUPPLEMENTS_NOT_LOADED')
+  if (plan.contract.minStayMode !== 'STAY_THROUGH' && plan.contract.minStayMode !== 'ARRIVAL') throw new Error('CONTRACT_MIN_STAY_MODE_NOT_LOADED')
+  // A loader may bring several occupancies (ADR 0057, S6). ADR 0067 F-05: a plan may be contracted per occupancy (single, double, triple). The
+  // party's adult count prices the stay when EVERY night has a rate for it; otherwise the plan's base occupancy does, with guest lines on top
+  // (finding F12). Never a mix of occupancies within one stay.
+  const occupancy = pricedOccupancy(plan, nights, party)
+  const rates = new Map(plan.dailyRates.filter((rate) => (rate.occupancy ?? plan.occupancy) === occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
   const pools = new Map((plan.inventoryPool?.days ?? []).map((day) => [dayKey(day.stayDate), day]))
@@ -85,7 +104,7 @@ export function buildStaySnapshot(
       amountBasis: rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null,
       markupBasisPoints: rate?.amountBasis === 'NET' && markupFor ? markupFor(date) : null,
       availability: row ? {
-        allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, closedToArrival: row.closedToArrival,
+        allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, closedToArrival: row.closedToArrival, releaseDays: row.releaseDays,
         mode: toMode(row.inventoryMode),
         source: row.source ?? 'ADMIN',
         freshUntil: isoOrNull(row.freshUntil),
@@ -108,15 +127,17 @@ export function buildStaySnapshot(
     contractCurrency: plan.contract.settlementCurrency,
     guestPrices: effectiveGuestLines(plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })), plan.contract.childPolicies, plan.currency),
     derivedProblem: plan.derivedProblem,
-    promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null })),
+    promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null , combinable: promo.combinable, stayWindowMode: promo.stayWindowMode as StayWindowMode, discountBase: promo.discountBase as DiscountBase})),
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     leadTimeRule: plan.contract.leadTimeRules[0] ? { minLeadHours: plan.contract.leadTimeRules[0].minLeadHours, maxLeadDays: plan.contract.leadTimeRules[0].maxLeadDays } : null,
+    minStayMode: plan.contract.minStayMode,
+    supplements: supplementsForPlan({ id: plan.id, boardBasisId: plan.boardBasisId }, plan.contract.supplements),
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),
     planMarketRules: parseMarketRules(plan),
     ratePlanStatus: plan.status,
-    ratePlanOccupancy: plan.occupancy,
+    ratePlanOccupancy: occupancy,
     ratePlanCurrency: plan.currency,
     ratePlanMinStay: plan.minStay,
     ratePlanMaxStay: plan.maxStay,

@@ -14,9 +14,10 @@ import { CommercialControlUnavailableError, logCommercialControlFailure } from '
 import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
 import { loadBuyerMarket } from '../supply/buyer-market'
 import { normalizeCountry, parseMarketRules, type BuyerContext } from '../supply/market-rules'
-import { rulesForPlan } from '../supply/cancellation-rules'
+import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
 import { offerPaymentType } from './offer-payment-type'
-import { CancellationPolicyService, type CancellationRule } from './cancellation-policy.service'
+import { CancellationPolicyService, buyerRules, describePenalty, type CancellationRule } from './cancellation-policy.service'
+import { formatMinor } from './booking-document.render'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
 const OFFER_PREFIX = 'ci_'
@@ -268,6 +269,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             supplier: true,
             cancellationPolicies: true,
             leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
+            supplements: true,
             childPolicies: { select: { minAge: true, maxAge: true, supplementMinor: true, currency: true } },
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
@@ -396,13 +398,18 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   }
 
   private cancellationSummary(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], checkIn: string): SearchRateOffer['cancellation'] {
-    const summary = plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'
-    const rules: CancellationRule[] = rulesForPlan(plan, plan.contract.cancellationPolicies).rules.map((rule) => ({
+    const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies).rules
+    // ADR 0067 F-10: the buyer is sold the hotel's tiers moved earlier by the contract's client buffer; the no-show rule is disclosed, never a deadline.
+    const rules: CancellationRule[] = buyerRules(cancellationTiers(resolved).map((rule) => ({
       daysBeforeCheckin: rule.daysBeforeCheckin,
       ...(rule.penaltyPercent != null ? { penaltyPercent: rule.penaltyPercent } : {}),
       ...(rule.penaltyMinor != null ? { penaltyMinor: rule.penaltyMinor } : {}),
+      ...(rule.penaltyNights != null ? { penaltyNights: rule.penaltyNights } : {}),
       ...(rule.currency ? { currency: rule.currency } : {}),
-    }))
+    })), plan.contract.clientBufferDays)
+    const noShow = noShowRule(resolved)
+    const noShowText = noShow ? `; no-show: ${describePenalty(noShow, (minor) => formatMinor(minor, noShow.currency ?? plan.currency))}` : ''
+    const summary = `${plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'}${noShowText}`
     const deadline = this.cancellation.freeCancellationDeadline({ refundable: plan.refundable, checkIn, timeZone: plan.roomType.hotel.timeZone, rules })
     return { refundable: plan.refundable, summary, ...(deadline ? { deadline } : {}) }
   }
@@ -415,7 +422,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     if (starRating === null || starRating < 1 || starRating > 5) return null
     if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
     if (criteria.filters?.refundableOnly && !plan.refundable) return null
-    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId))
+    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId), { adults: criteria.adults })
     const decision = evaluateContractedStay(snapshot, {
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,
@@ -490,6 +497,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       priceIncludes: { taxes: plan.taxesIncluded, fees: plan.feesIncluded },
       payAtHotel: payAtHotel(plan.roomType.hotel.profile?.localCharges, { nights: nights.length, rooms: criteria.rooms, guests: criteria.adults + criteria.children }),
       ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
+      // ADR 0067: supplements are inside the total; the offer names them so the agent can tell the guest what is included.
+      ...(decision.supplements?.length ? { supplements: decision.supplements.map((item) => ({ name: item.name, kind: item.kind, amountMinor: Number(item.amountMinor) })) } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }
     const latitude = decimalText(plan.roomType.hotel.latitude)

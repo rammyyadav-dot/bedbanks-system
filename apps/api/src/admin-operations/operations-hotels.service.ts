@@ -16,7 +16,7 @@ import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { rowIsFresh, evaluateContractedStay, stayDates, stayNightCount } from '../supply/contracted-sellability'
 import { CommercialControlUnavailableError, controlReadFailure } from '../supply/commercial-controls'
 import { buildHotelStayReadiness } from './hotel-stay-readiness'
-import { buildStaySnapshot, nightStock } from '../supply/stay-snapshot'
+import { buildStaySnapshot, nightStock, pricedOccupancy } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
 import { markupMinor } from '@bedbanks/pricing'
 import { loadActiveMarkupRulesInTx } from '../supply/markup-rules.loader'
@@ -414,7 +414,7 @@ export class OperationsHotelsService {
       const contractIds = new Set<string>([...input.contracts.map((c) => c.id), ...input.plans.map((p) => p.contract.id)])
       const rows = await tx.contract.findMany({
         where: { tenantId, id: { in: [...contractIds] } },
-        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { displayName: true } } },
+        select: { id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true, salesMarkets: true, nationalities: true, version: true, updatedAt: true, supplierId: true, supplierHotelMappingId: true, rateType: true, commissionBp: true, allotmentType: true, minStayMode: true, ownerUserId: true, renewalReminderDays: true, supplier: { select: { displayName: true } } },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       })
       const viaMapping = new Set(input.contracts.map((c) => c.id))
@@ -427,6 +427,9 @@ export class OperationsHotelsService {
           ratePlans: { total: plans.length, active: plans.filter((p) => p.status === 'ACTIVE').length },
           policies: policyCounts ? (policyCounts.get(c.id) ?? { cancellation: 0, child: 0, leadTime: 0 }) : null,
           link: viaMapping.has(c.id) ? 'MAPPING' : 'RATE_PLAN', mappingId: c.supplierHotelMappingId, salesMarkets: stringList(c.salesMarkets), nationalities: stringList(c.nationalities),
+          rateType: c.rateType, commissionBp: c.commissionBp, allotmentType: c.allotmentType, minStayMode: c.minStayMode, ownerUserId: c.ownerUserId, renewalReminderDays: c.renewalReminderDays,
+          // ADR 0067 F-20: flagged from the reminder window before the last stay night until expiry, only while the contract is live.
+          renewalDue: (c.status === 'ACTIVE' || c.status === 'SUSPENDED') && daysToExpiry >= 0 && daysToExpiry <= c.renewalReminderDays,
         }
       })
       const assessedById = new Map(a.plans.map((p) => [p.plan.id, p]))
@@ -494,7 +497,7 @@ export class OperationsHotelsService {
             ...poolCells(plan, date),
             source: row?.source ?? null, freshUntil: iso(row?.freshUntil), stale: row ? !rowIsFresh(row.source ?? 'ADMIN', row.freshUntil ? row.freshUntil.toISOString() : null, this.clock()) : false,
             stopSell: row ? row.stopSell : null, closedToArrival: row ? row.closedToArrival : null, minStay: row ? row.minStay : null, sellable: reasons.length === 0, reasons,
-            closedToDeparture: row ? row.closedToDeparture ?? false : null,
+            closedToDeparture: row ? row.closedToDeparture ?? false : null, releaseDays: row?.releaseDays ?? null,
             rateSourceUpdatedAt: iso(rateExtra.get(`${plan.id}:${date}:${plan.occupancy}`)?.sourceUpdatedAt), availabilitySourceUpdatedAt: iso(availExtra.get(`${plan.id}:${date}`)?.sourceUpdatedAt),
           }
         })
@@ -564,6 +567,9 @@ export class OperationsHotelsService {
     if (checkIn < this.today()) throw new BadRequestException('Check-in must not be in the past')
     const adults = intParam('adults', query.adults, 1, 9); const children = intParam('children', query.children, 0, 9) ?? 0; const rooms = intParam('rooms', query.rooms, 1, 9) ?? 1
     if (adults === undefined) throw new BadRequestException('adults is required')
+    // ADR 0067 F-17: child ages are required with children, exactly as the Agent requires them, so child prices and the contract child policy are judged.
+    const childAges = (typeof query.childAges === 'string' && query.childAges.length > 0 ? query.childAges.split(',') : []).map((age) => (/^\d{1,2}$/.test(age.trim()) ? Number(age) : NaN))
+    if (childAges.length !== children || childAges.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) throw new BadRequestException('childAges must list one age (0-17) for each child')
     const roomTypeId = idParam('roomTypeId', query.roomTypeId)
     const agencyId = idParam('agencyId', query.agencyId)
     const nationality = textParam('nationality', query.nationality, 2)?.toUpperCase() ?? null
@@ -593,15 +599,16 @@ export class OperationsHotelsService {
       const results: SellabilityPlanResult[] = []
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
-        const ownRates = { ...plan, dailyRates: plan.dailyRates.filter((r) => r.occupancy === plan.occupancy) }
-        const decision = evaluateContractedStay(buildStaySnapshot(ownRates, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId)), { checkIn, checkOut, rooms, adults, children, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
+        // ADR 0067 F-05: the same occupancy choice as Agent search (the party's adults when every night has that rate).
+        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId), { adults }), { checkIn, checkOut, rooms, adults, children, childAges, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
         const reasons = [...decision.reasons]
         if (agencyId && agencyStatus === 'SUSPENDED') reasons.push('AGENCY_SUSPENDED')
         if (agencyId && restrictions.some(r => r.scope === 'HOTEL' ? r.hotelId === hotel.id : r.supplierId === plan.contract.supplierId)) reasons.push('DISTRIBUTION_RESTRICTED')
         if (!(input.hotel.starRating !== null && input.hotel.starRating >= 1 && input.hotel.starRating <= 5)) reasons.push('HOTEL_STAR_RATING_MISSING')
-        const ratesByDate = new Map(ownRates.dailyRates.map((r) => [day(r.stayDate), r]))
+        const occupancy = pricedOccupancy(plan, dates, { adults })
+        const ratesByDate = new Map(plan.dailyRates.filter((r) => r.occupancy === occupancy).map((r) => [day(r.stayDate), r]))
         const nightVerdicts: NightVerdict[] = dates.map((date) => {
-          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms }, input.markupRules, now)
+          const nightReasons = evaluatePlanNight(plan, mapping, roomMapping, date, input.hotel.starRating, { adults, children, rooms, childAges }, input.markupRules, now)
           const rate = ratesByDate.get(date)
           return { date, sellable: nightReasons.length === 0, reasons: nightReasons, rateMinor: rate ? rate.amountMinor.toString() : null, remaining: nightStock(plan, date).remaining }
         })

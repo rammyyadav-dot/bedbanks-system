@@ -225,4 +225,38 @@ describe('Rate plan promotions (ADR 0058, S10a)', () => {
       expect(new Date(after.updatedAt).getTime()).toBeGreaterThan(new Date(before).getTime())
     })
   })
+
+  describe('hotel-wide offers and F-09 terms (ADR 0067)', () => {
+    const bulk = (body: object, cookie = operator, hotel = hotelId, tenant = tenantId) => api(cookie, tenant).post(`/supply/hotels/${hotel}/promotions/bulk-apply`, body)
+    const summer = { ...none, kind: 'LONG_STAY', name: 'Summer stay', percentBp: 1500, minNights: 3, stayFrom: iso(30), stayTo: iso(120), combinable: true, stayWindowMode: 'NIGHTS_IN_WINDOW', discountBase: 'ROOM_ONLY' }
+    it('stores and returns combinable, nights-in-window and room-only on a plan', async () => {
+      const id = await newPlan(false)
+      const saved = (await put(id, [summer]).then((r) => expectStatus(r, 200))).body.data.promotions[0]
+      expect(saved).toMatchObject({ combinable: true, stayWindowMode: 'NIGHTS_IN_WINDOW', discountBase: 'ROOM_ONLY' })
+      expect((await put(id, [{ ...summer, stayFrom: null, stayTo: null }]).then((r) => expectStatus(r, 400))).body.error.code).toBe('PROMOTION_WINDOW_INVALID')
+    })
+    it('adds one promotion to several plans atomically, is idempotent, and refuses the whole request if any plan cannot take it', async () => {
+      const [a, b, c] = [await newPlan(false), await newPlan(false), await newPlan(false)]
+      await put(c, [{ ...early('Summer stay') }]).then((r) => expectStatus(r, 200))
+      const refused = await bulk({ idempotencyKey: `${suffix}-bulk-1`, ratePlanIds: [a, b, c], promotion: summer }).then((r) => expectStatus(r, 400))
+      expect(refused.body.error.code).toBe('PROMOTION_BULK_REFUSED')
+      expect(refused.body.error.details.join(' ')).toMatch(/used twice/)
+      expect([...(await stored(a)), ...(await stored(b))]).toEqual([])
+      const before = await version(a)
+      const done = (await bulk({ idempotencyKey: `${suffix}-bulk-2`, ratePlanIds: [a, b], promotion: summer }).then((r) => expectStatus(r, 201))).body.data
+      expect(done).toMatchObject({ applied: 2, replayed: false, promotion: 'Summer stay' })
+      expect((await stored(a)).map((p) => [p.name, p.combinable, p.stayWindowMode, p.discountBase])).toEqual([['Summer stay', true, 'NIGHTS_IN_WINDOW', 'ROOM_ONLY']])
+      expect(new Date(await version(a)).getTime()).toBeGreaterThan(new Date(before).getTime())
+      expect((await bulk({ idempotencyKey: `${suffix}-bulk-2`, ratePlanIds: [a, b], promotion: summer }).then((r) => expectStatus(r, 201))).body.data).toMatchObject({ applied: 2, replayed: true })
+      expect(await stored(b)).toHaveLength(1)
+      expect(await prisma.auditEvent.count({ where: { tenantId, action: 'supply.rate_plan.promotions_changed', entityId: { in: [a, b] } } })).toBe(2)
+    })
+    it('is refused for read-only users, other tenants and plans of another hotel', async () => {
+      const id = await newPlan(false)
+      await bulk({ idempotencyKey: `${suffix}-bulk-ro`, ratePlanIds: [id], promotion: summer }, readOnly).then((r) => expectStatus(r, 403))
+      await bulk({ idempotencyKey: `${suffix}-bulk-x`, ratePlanIds: [id], promotion: summer }, outsider, hotelId, otherTenantId).then((r) => expectStatus(r, 404))
+      await bulk({ idempotencyKey: `${suffix}-bulk-y`, ratePlanIds: ['not-a-plan'], promotion: summer }).then((r) => expectStatus(r, 400))
+      expect(await stored(id)).toEqual([])
+    })
+  })
 })

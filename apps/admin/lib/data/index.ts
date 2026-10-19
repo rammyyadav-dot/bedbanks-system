@@ -40,16 +40,17 @@ export interface AdminContract {
   supplier: { id: string; displayName: string };
   supplierHotelMapping?: { id: string; hotelId: string; status: string } | null;
 }
-export interface CancellationPolicyRecord { id: string; policySet?: string | null; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; currency: string | null }
+export interface CancellationPolicyRecord { id: string; policySet?: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
-export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null }
-export interface ContractInput { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[] }
+export interface SupplementRecord extends Omit<import('@bedbanks/contracts').ContractSupplementTerm, 'stayFrom' | 'stayTo'> { id: string; stayFrom: string | null; stayTo: string | null }
+export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
+export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
-export async function createCancellationPolicy(contractId: string, input: { daysBeforeCheckin: number; penaltyPercent: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function createCancellationPolicy(contractId: string, input: { kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyNights?: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor?: string; currency?: string }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 // Contract lifecycle and maker-checker (ADR 0067). Routes come from @bedbanks/contracts.
@@ -65,6 +66,8 @@ export async function cancelContractApproval(approvalId: string) { return apiReq
 export async function executeContractApproval(approvalId: string) { return apiRequest<ContractApprovalExecuteResult>(withApproval(cl.execute, approvalId), { method: 'POST' }) }
 export async function deleteCancellationPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteCancellationPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
 export async function deleteChildPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteChildPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
+export async function createSupplement(contractId: string, input: import('@bedbanks/contracts').ContractSupplementTerm) { return apiRequest(withContract(cl.supplements, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function deleteSupplement(contractId: string, supplementId: string) { return apiRequest(withContract(cl.deleteSupplement, contractId).replace(':supplementId', encodeURIComponent(supplementId)), { method: 'DELETE' }) }
 export async function deleteLeadTimeRule(contractId: string) { return apiRequest(withContract(cl.deleteLeadTimeRule, contractId), { method: 'DELETE' }) }
 export interface HotelMappingRecord { id: string; supplierId: string; hotelId: string; supplierHotelId: string; status: string }
 export async function getHotelMappings() { return apiRequest<HotelMappingRecord[]>('/supply/mappings/hotels'); }
@@ -113,7 +116,7 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
+import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, HotelPromotionBulkApplyInput, HotelPromotionBulkApplyResult, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
 export type { CalendarImportPreview } from '@bedbanks/contracts'
 export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
@@ -140,6 +143,7 @@ export const getGuestPrices = (ratePlanId: string) => apiRequest<RatePlanGuestPr
 export const getDerivation = (ratePlanId: string) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId))
 export const replaceDerivation = (ratePlanId: string, input: RatePlanDerivationInput) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const getPromotions = (ratePlanId: string) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId))
+export const bulkApplyPromotion = (hotelId: string, input: HotelPromotionBulkApplyInput) => apiRequest<HotelPromotionBulkApplyResult>(supplyRoutes.hotelPromotionsBulkApply.replace(':hotelId', encodeURIComponent(hotelId)), { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const replacePromotions = (ratePlanId: string, input: RatePlanPromotionsInput) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const replaceGuestPrices = (ratePlanId: string, input: RatePlanGuestPricesInput) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const getActivationApproval = (ratePlanId: string) => apiRequest<RatePlanActivationApproval | null>(planPath(supplyRoutes.ratePlanActivationApproval, ratePlanId))

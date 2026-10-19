@@ -41,7 +41,7 @@ export function CalendarImport({ hotelId, planCodeById, onApplied }: { hotelId: 
 
   return (
     <section aria-label="Import rates from a CSV file" style={{ display: 'grid', gap: 8 }}>
-      <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>Columns: <code>plan_code</code> (or <code>plan_id</code>), <code>date</code>, <code>amount</code> + <code>basis</code> (NET or SELL, never assumed), optional <code>allotment</code>, <code>stop_sell</code>, <code>min_stay</code>, <code>occupancy</code>, <code>currency</code>. Amounts are plain major units, no separators or symbols.{' '}
+      <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>Columns: <code>plan_code</code> (or <code>plan_id</code>), <code>date</code>, <code>amount</code> + <code>basis</code> (NET or SELL, never assumed), optional <code>allotment</code>, <code>stop_sell</code>, <code>min_stay</code>, <code>release_days</code> (a check-in release for that night, or <code>plan</code> to use the plan release), <code>occupancy</code>, <code>currency</code>. Amounts are plain major units, no separators or symbols.{' '}
         <button type="button" className="admin-btn" onClick={() => download('rate-import-template.csv', IMPORT_TEMPLATE)}>Download template</button></p>
       <label style={{ fontSize: 11 }}>CSV file <input type="file" accept=".csv,text/csv" aria-label="CSV file" onChange={(e) => void pick(e.target.files?.[0])} /></label>
       <label style={{ fontSize: 11 }}>…or paste the file contents <textarea aria-label="CSV text" rows={4} value={csv} onChange={(e) => { setCsv(e.target.value); setFileName(null); setResult(null); setAck(false) }} style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }} /></label>

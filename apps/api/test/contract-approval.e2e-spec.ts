@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 /**
  * ADR 0067 (F-01): a contract goes live only through an approved, single-use request decided by a second person and bound to the exact terms
@@ -235,6 +236,63 @@ describe('Contract maker-checker and versioning (ADR 0067)', () => {
     const filed = expectStatus(await requestActivation(), 201).body.data
     expectStatus(await api(checker).post(`/supply/contract-approvals/${filed.id}/approve`, { reason: 'Child policy confirmed' }), 201)
     expect(expectStatus(await api(maker).post(`/supply/contract-approvals/${filed.id}/execute`), 201).body.data).toMatchObject({ status: 'ACTIVE', version: 3 })
+  })
+
+  it('header terms are validated, locked while ACTIVE and changed only by amendment; ownership is governance (ADR 0067, F-20/F-15)', async () => {
+    const base = { supplierId, supplierHotelMappingId: mappingId, validFrom: iso(-1), validTo: iso(30), settlementCurrency: 'AED' }
+    const noCommission = await api(maker).post('/supply/contracts', { ...base, code: `${suffix}-H0`, rateType: 'COMMISSIONABLE' })
+    expect(expectStatus(noCommission, 400).body.error.code).toBe('CONTRACT_HEADER_INVALID')
+    const foreignOwner = await api(maker).post('/supply/contracts', { ...base, code: `${suffix}-H0`, ownerUserId: userIds[3] })
+    expect(expectStatus(foreignOwner, 400).body.error.code).toBe('CONTRACT_OWNER_INVALID')
+    const header = { rateType: 'COMMISSIONABLE', commissionBp: 1250, paymentTermsDays: 30, signedAt: iso(-10), signedDocumentRef: 'DMS-2026-0412', allotmentType: 'NON_GUARANTEED', minStayMode: 'ARRIVAL' }
+    const created = expectStatus(await api(maker).post('/supply/contracts', { ...base, code: `${suffix}-H1`, ...header, ownerUserId: userIds[0], renewalReminderDays: 45 }), 201).body.data
+    expect(created).toMatchObject({ rateType: 'COMMISSIONABLE', commissionBp: 1250, allotmentType: 'NON_GUARANTEED', minStayMode: 'ARRIVAL', ownerUserId: userIds[0], renewalReminderDays: 45 })
+    expectStatus(await api(maker).patch(`/supply/contracts/${created.id}`, { rateType: 'NET', commissionBp: null }), 200)
+    await setContractStatusFixture(prisma, created.id, 'ACTIVE')
+    const rows = (await api(maker).get(`/admin/operations/hotels/${hotelId}/contracts`).expect(200)).body.data.contracts as Array<{ id: string; renewalDue: boolean; rateType: string | null; minStayMode: string }>
+    expect(rows.find((r) => r.id === created.id)).toMatchObject({ renewalDue: true, rateType: 'NET', minStayMode: 'ARRIVAL' })
+    expect(rows.find((r) => r.id === contractId)).toMatchObject({ renewalDue: false })
+
+    // The long-running contract is ACTIVE: header terms are locked, governance is not.
+    expect(expectStatus(await api(maker).patch(`/supply/contracts/${contractId}`, { minStayMode: 'ARRIVAL' }), 409).body.error.code).toBe('CONTRACT_TERMS_LOCKED')
+    expect(expectStatus(await api(maker).patch(`/supply/contracts/${contractId}`, { ownerUserId: userIds[3] }), 400).body.error.code).toBe('CONTRACT_OWNER_INVALID')
+    expectStatus(await api(maker).patch(`/supply/contracts/${contractId}`, { ownerUserId: userIds[1], renewalReminderDays: 90 }), 200)
+    const before = await lifecycle()
+    expect(before.status).toBe('ACTIVE')
+    const bad = await api(maker).post(`/supply/contracts/${contractId}/amendment-request`, { requestId: rid(), reason: 'r', expectedFingerprint: before.fingerprint, changes: { rateType: 'COMMISSIONABLE' } })
+    expect(expectStatus(bad, 409).body.error.code).toBe('CONTRACT_AMENDMENT_CONFLICT')
+    const filed = expectStatus(await api(maker).post(`/supply/contracts/${contractId}/amendment-request`, { requestId: rid(), reason: 'Addendum: commissionable at 10%, minimum stay on arrival', expectedFingerprint: before.fingerprint, changes: { rateType: 'COMMISSIONABLE', commissionBp: 1000, minStayMode: 'ARRIVAL' } }), 201).body.data
+    expect(filed.changes).toMatchObject({ header: { rateType: 'COMMISSIONABLE', commissionBp: 1000, minStayMode: 'ARRIVAL' } })
+    expectStatus(await api(checker).post(`/supply/contract-approvals/${filed.id}/approve`, { reason: 'Matches the addendum' }), 201)
+    expect(expectStatus(await api(maker).post(`/supply/contract-approvals/${filed.id}/execute`), 201).body.data).toMatchObject({ version: before.version + 1 })
+    const stored = await prisma.contract.findUniqueOrThrow({ where: { id: contractId } })
+    expect(stored).toMatchObject({ rateType: 'COMMISSIONABLE', commissionBp: 1000, minStayMode: 'ARRIVAL', ownerUserId: userIds[1], renewalReminderDays: 90 })
+    expect(((await lifecycle()).versions[0]!.terms as unknown as { header: object }).header).toMatchObject({ rateType: 'COMMISSIONABLE', commissionBp: 1000, minStayMode: 'ARRIVAL' })
+  })
+
+  it('authors nights penalties and one no-show rule per set through the API (ADR 0067, F-10)', async () => {
+    const draft = expectStatus(await api(maker).post('/supply/contracts', { supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-NS`, validFrom: iso(-1), validTo: iso(60), settlementCurrency: 'AED', clientBufferDays: 2 }), 201).body.data
+    expect(draft.clientBufferDays).toBe(2)
+    const path = `/supply/contracts/${draft.id}/policies/cancellation`
+    expect(expectStatus(await api(maker).post(path, { daysBeforeCheckin: 3, penaltyNights: 1 }), 201).body.data).toMatchObject({ kind: 'CANCELLATION', penaltyNights: 1, penaltyPercent: null })
+    expectStatus(await api(maker).post(path, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }), 201)
+    expect(expectStatus(await api(maker).post(path, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyNights: 1 }), 409).body.error.code).toBe('CANCELLATION_NO_SHOW_EXISTS')
+    for (const bad of [{ daysBeforeCheckin: 3, penaltyNights: 1, penaltyPercent: 10 }, { daysBeforeCheckin: 3, penaltyNights: 0 }, { kind: 'NO_SHOW', daysBeforeCheckin: 2, penaltyPercent: 100 }, { kind: 'LATE', daysBeforeCheckin: 1, penaltyPercent: 5 }]) {
+      expect(expectStatus(await api(maker).post(path, bad), 400).body.error.code).toBe('CANCELLATION_POLICY_INVALID')
+    }
+    expect(expectStatus(await api(maker).patch(`/supply/contracts/${draft.id}`, { clientBufferDays: 31 }), 400).body.error.code).toBe('CONTRACT_HEADER_INVALID')
+
+    // ADR 0067 supplements: authored on an editable contract, checked against this tenant's boards and this contract's plans.
+    const sup = `/supply/contracts/${draft.id}/supplements`
+    const gala = { kind: 'COMPULSORY', name: 'Gala dinner', basis: 'PER_PERSON', frequency: 'PER_STAY', amountMinor: '25000', currency: 'AED', stayFrom: iso(30), stayTo: iso(30) }
+    const created = expectStatus(await api(maker).post(sup, gala), 201).body.data
+    expect(created).toMatchObject({ kind: 'COMPULSORY', amountMinor: '25000' })
+    for (const bad of [{ ...gala, amountMinor: '0' }, { ...gala, kind: 'BOARD' }, { ...gala, currency: 'USD' }, { ...gala, boardBasisId: 'x' }, { ...gala, kind: 'BOARD', boardBasisId: 'not-a-board' }, { ...gala, stayTo: iso(29) }]) {
+      expect(expectStatus(await api(maker).post(sup, bad), 400).body.error.code).toBe('CONTRACT_SUPPLEMENT_INVALID')
+    }
+    expect((await api(maker).get(`/supply/contracts/${draft.id}`).expect(200)).body.data.supplements).toEqual([expect.objectContaining({ id: created.id, name: 'Gala dinner' })])
+    expectStatus(await api(maker).delete(`${sup}/${created.id}`), 200)
+    expectStatus(await api(maker).post(sup, { ...gala, kind: 'BOARD', boardBasisId: boardId }), 201)
   })
 
   it('history rows are immutable even for the database owner', async () => {

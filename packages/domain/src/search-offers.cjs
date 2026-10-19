@@ -200,6 +200,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               rate.total.amountMinor !== rate.sellAmountMinor ||
               !['prepaid', 'pay_at_hotel', 'credit', 'unspecified'].includes(rate.paymentType) ||
               (rate.promotion !== undefined && (!record(rate.promotion) || !id(rate.promotion.name) || !['EARLY_BIRD', 'LAST_MINUTE', 'LONG_STAY', 'FREE_NIGHTS'].includes(rate.promotion.kind))) ||
+              (rate.supplements !== undefined && (!Array.isArray(rate.supplements) || rate.supplements.length > 30 || rate.supplements.some((x) => !record(x) || !id(x.name) || !['BOARD', 'COMPULSORY'].includes(x.kind) || !natural(x.amountMinor, 1)))) ||
               (rate.priceIncludes !== undefined && (!record(rate.priceIncludes) || typeof rate.priceIncludes.taxes !== 'boolean' || typeof rate.priceIncludes.fees !== 'boolean')) ||
               (rate.payAtHotel !== undefined && (!Array.isArray(rate.payAtHotel) || rate.payAtHotel.length > 10 || rate.payAtHotel.some((c) => !record(c) || !id(c.kind) || !id(c.label) ||
                 !natural(c.amountMinor, 0) || !natural(c.estimatedTotalMinor, 0) || !/^[A-Z]{3}$/.test(c.currency) ||
@@ -226,6 +227,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
             feeAmountMinor: rate.feeAmountMinor, totalAmountMinor: rate.totalAmountMinor,
             markupAmountMinor: rate.markupAmountMinor, sellAmountMinor: rate.sellAmountMinor,
             paymentType: rate.paymentType, ...(rate.promotion === undefined ? {} : { promotion: { name: rate.promotion.name, kind: rate.promotion.kind } }),
+            ...(rate.supplements === undefined ? {} : { supplements: rate.supplements.map((x) => ({ name: x.name, kind: x.kind, amountMinor: x.amountMinor })) }),
             ...(rate.priceIncludes === undefined ? {} : { priceIncludes: { taxes: rate.priceIncludes.taxes, fees: rate.priceIncludes.fees } }),
             ...(rate.payAtHotel === undefined ? {} : { payAtHotel: rate.payAtHotel.map((c) => ({ kind: c.kind, label: c.label, amountMinor: c.amountMinor, currency: c.currency, basis: c.basis, estimatedTotalMinor: c.estimatedTotalMinor })) }),
             source: rate.source,

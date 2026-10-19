@@ -4,8 +4,13 @@ export type CancellationRule = {
   daysBeforeCheckin: number
   penaltyPercent?: number
   penaltyMinor?: bigint
+  /** ADR 0067 F-10: a number of the stay's nights, charged pro rata of the cancellable amount. Exactly one of percent, amount or nights. */
+  penaltyNights?: number
   currency?: string
 }
+
+/** A no-show penalty: what is charged when the guest does not arrive (ADR 0067, F-10). Exactly one form. */
+export type NoShowPenalty = { penaltyPercent: number } | { penaltyMinor: bigint } | { penaltyNights: number }
 
 export type CancellationQuote =
   | { status: 'quotable'; currency: string; cancellableAmountMinor: bigint; penaltyMinor: bigint; refundMinor: bigint; effectiveRule: CancellationRule | null; evaluatedAt: string }
@@ -18,10 +23,10 @@ export type CancellationQuoteInput = {
   requestedAt: string
   rules: CancellationRule[]
   propertyTimeZone?: string
-  checkInLocalTime?: string
+  /** Nights in the stay. Required for a nights penalty; without it such a rule is manual review, never free. */
+  stayNights?: number
 }
 
-const DAY_MS = 86_400_000
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const LOCAL_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/
 
@@ -52,6 +57,39 @@ const zonedLocalToUtc = (date: string, time: string, timeZone: string): number |
   } catch { return undefined }
 }
 
+const MAX_PENALTY_NIGHTS = 30
+const penaltyForms = (rule: { penaltyPercent?: unknown; penaltyMinor?: unknown; penaltyNights?: unknown }) => [rule.penaltyPercent, rule.penaltyMinor, rule.penaltyNights].filter((v) => v !== undefined).length
+
+/**
+ * The one deadline instant (ADR 0067, F-10): a tier of `days` starts at 00:00 hotel-local time on the day `days` before check-in. The offer's free
+ * cancellation deadline, the cancellation quote and the "stay has started" cut-off all use it, so they cannot disagree. Undefined fails closed.
+ */
+export function penaltyStartsAt(checkIn: string, days: number, timeZone: string): number | undefined {
+  if (!ISO_DATE.test(checkIn) || !Number.isInteger(days) || days < 0) return undefined
+  const [year, month, day] = checkIn.split('-').map(Number)
+  const start = new Date(Date.UTC(year, month - 1, day))
+  if (Number.isNaN(start.getTime())) return undefined
+  start.setUTCDate(start.getUTCDate() - days)
+  return zonedLocalToUtc(start.toISOString().slice(0, 10), '00:00', timeZone)
+}
+
+/** The tiers a buyer is sold: the hotel's, each starting `bufferDays` earlier (ADR 0067, F-10). A buffer of 0 returns the rules unchanged. */
+export function buyerRules<T extends { daysBeforeCheckin: number }>(rules: readonly T[], bufferDays: number): T[] {
+  return bufferDays > 0 ? rules.map((rule) => ({ ...rule, daysBeforeCheckin: rule.daysBeforeCheckin + bufferDays })) : [...rules]
+}
+
+/** Penalty in minor units for `nights` of a stay of `stayNights`, pro rata of `amount`, rounded down; capped at the whole stay. */
+export function nightsPenalty(amount: bigint, nights: number, stayNights: number): bigint {
+  return (amount * BigInt(Math.min(nights, stayNights))) / BigInt(stayNights)
+}
+
+/** "1 night", "50% of the booking total", "AED 120.00": how a penalty reads to a buyer. */
+export function describePenalty(rule: { penaltyPercent?: number | null; penaltyMinor?: bigint | string | null; penaltyNights?: number | null }, money: (minor: string) => string): string {
+  if (rule.penaltyNights != null) return `${rule.penaltyNights} night${rule.penaltyNights === 1 ? '' : 's'} (pro rata of the booking total)`
+  if (rule.penaltyPercent != null) return `${rule.penaltyPercent}% of the booking total`
+  return money(String(rule.penaltyMinor ?? '0'))
+}
+
 @Injectable()
 export class CancellationPolicyService {
   /**
@@ -65,40 +103,38 @@ export class CancellationPolicyService {
       if (!Number.isInteger(rule.daysBeforeCheckin) || rule.daysBeforeCheckin < 0) return undefined
       const hasPercent = rule.penaltyPercent !== undefined
       const hasFixed = rule.penaltyMinor !== undefined
-      if (hasPercent === hasFixed) return undefined
+      const hasNights = rule.penaltyNights !== undefined
+      if (penaltyForms(rule) !== 1) return undefined
       if (hasPercent && (!Number.isInteger(rule.penaltyPercent) || rule.penaltyPercent! < 0 || rule.penaltyPercent! > 100)) return undefined
       if (hasFixed && rule.penaltyMinor! < 0n) return undefined
-      const penalises = (hasPercent && rule.penaltyPercent! > 0) || (hasFixed && rule.penaltyMinor! > 0n)
+      if (hasNights && (!Number.isInteger(rule.penaltyNights) || rule.penaltyNights! < 1 || rule.penaltyNights! > MAX_PENALTY_NIGHTS)) return undefined
+      const penalises = (hasPercent && rule.penaltyPercent! > 0) || (hasFixed && rule.penaltyMinor! > 0n) || hasNights
       if (!penalises) continue
       if (earliestDays === undefined || rule.daysBeforeCheckin > earliestDays) earliestDays = rule.daysBeforeCheckin
     }
     if (earliestDays === undefined) return undefined
-    const [year, month, day] = input.checkIn.split('-').map(Number)
-    const start = new Date(Date.UTC(year, month - 1, day))
-    start.setUTCDate(start.getUTCDate() - earliestDays)
-    const instant = zonedLocalToUtc(start.toISOString().slice(0, 10), '00:00', input.timeZone)
+    const instant = penaltyStartsAt(input.checkIn, earliestDays, input.timeZone)
     return instant === undefined ? undefined : new Date(instant).toISOString()
   }
 
   quote(input: CancellationQuoteInput): CancellationQuote {
     const evaluatedAt = input.requestedAt
     if (input.cancellableAmountMinor < 0n) return { status: 'manual_review_required', reason: 'negative_cancellable_amount', evaluatedAt }
-    const checkIn = input.propertyTimeZone
-      ? zonedLocalToUtc(input.checkIn, input.checkInLocalTime ?? '00:00', input.propertyTimeZone)
-      : Date.parse(`${input.checkIn}T00:00:00.000Z`)
+    const timeZone = input.propertyTimeZone ?? 'UTC'
+    const checkIn = penaltyStartsAt(input.checkIn, 0, timeZone)
     const requestedAt = Date.parse(input.requestedAt)
     if (checkIn === undefined || !Number.isFinite(checkIn) || !Number.isFinite(requestedAt)) return { status: 'manual_review_required', reason: 'invalid_timestamp_or_timezone', evaluatedAt }
     if (!input.rules.length) return { status: 'policy_unavailable', reason: 'missing_cancellation_policy', evaluatedAt }
 
+    // The same instant as the offer's deadline: hotel-local midnight of the tier's first day.
     const applicable = input.rules
-      .filter(rule => Number.isInteger(rule.daysBeforeCheckin) && rule.daysBeforeCheckin >= 0 && requestedAt >= checkIn - rule.daysBeforeCheckin * DAY_MS)
+      .filter(rule => { const starts = penaltyStartsAt(input.checkIn, rule.daysBeforeCheckin, timeZone); return starts !== undefined && requestedAt >= starts })
       .sort((a, b) => a.daysBeforeCheckin - b.daysBeforeCheckin)
     const rule = applicable[0]
     if (!rule) return { status: 'quotable', currency: input.currency, cancellableAmountMinor: input.cancellableAmountMinor, penaltyMinor: 0n, refundMinor: input.cancellableAmountMinor, effectiveRule: null, evaluatedAt }
 
     const hasPercent = rule.penaltyPercent !== undefined
-    const hasFixed = rule.penaltyMinor !== undefined
-    if (hasPercent === hasFixed) return { status: 'manual_review_required', reason: 'ambiguous_penalty_rule', evaluatedAt }
+    if (penaltyForms(rule) !== 1) return { status: 'manual_review_required', reason: 'ambiguous_penalty_rule', evaluatedAt }
     if (rule.currency && rule.currency !== input.currency) return { status: 'manual_review_required', reason: 'penalty_currency_mismatch', evaluatedAt }
 
     let penaltyMinor: bigint
@@ -107,6 +143,10 @@ export class CancellationPolicyService {
         return { status: 'manual_review_required', reason: 'invalid_penalty_percent', evaluatedAt }
       }
       penaltyMinor = (input.cancellableAmountMinor * BigInt(rule.penaltyPercent!)) / 100n
+    } else if (rule.penaltyNights !== undefined) {
+      if (!Number.isInteger(rule.penaltyNights) || rule.penaltyNights < 1 || rule.penaltyNights > MAX_PENALTY_NIGHTS) return { status: 'manual_review_required', reason: 'invalid_penalty_nights', evaluatedAt }
+      if (!Number.isInteger(input.stayNights) || input.stayNights! < 1) return { status: 'manual_review_required', reason: 'stay_nights_unknown', evaluatedAt }
+      penaltyMinor = nightsPenalty(input.cancellableAmountMinor, rule.penaltyNights, input.stayNights!)
     } else {
       if (rule.penaltyMinor! < 0n) return { status: 'manual_review_required', reason: 'negative_penalty', evaluatedAt }
       penaltyMinor = rule.penaltyMinor!

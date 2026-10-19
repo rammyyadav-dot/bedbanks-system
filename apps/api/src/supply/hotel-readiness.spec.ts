@@ -15,9 +15,9 @@ function plan(o: PlanOpts = {}): AssessPlan {
     id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: 0, refundable: true, contractId: `c-${id}`, roomTypeId: 'room-1', boardBasisId: 'b1',
     boardBasis: { code: 'BB', isActive: true },
     roomType: { id: 'room-1', name: 'Deluxe', code: 'DLX', hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 1, maxOccupancy: 3, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
-    contract: { cancellationPolicies: [], leadTimeRules: [], childPolicies: [], id: `c-${id}`, code: `C-${id}`, status: 'ACTIVE', validFrom: at('2030-01-01'), validTo: at('2031-01-01'), settlementCurrency: 'AED', supplierId, supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: 'ACTIVE', displayName: `Supplier ${supplierId}` }, nationalities: o.nationalities, salesMarkets: o.salesMarkets },
+    contract: { cancellationPolicies: [], leadTimeRules: [], minStayMode: 'STAY_THROUGH', supplements: [], childPolicies: [], id: `c-${id}`, code: `C-${id}`, status: 'ACTIVE', validFrom: at('2030-01-01'), validTo: at('2031-01-01'), settlementCurrency: 'AED', supplierId, supplierHotelMappingId: o.mappingId === undefined ? 'm1' : o.mappingId, supplier: { status: 'ACTIVE', displayName: `Supplier ${supplierId}` }, nationalities: o.nationalities, salesMarkets: o.salesMarkets },
     dailyRates: o.rate === false ? [] : dates.map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis, occupancy: o.occupancy ?? 2 })),
-    availability: o.availability === false ? [] : dates.map((d) => ({ stayDate: at(d), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, inventoryMode: o.mode })),
+    availability: o.availability === false ? [] : dates.map((d) => ({ stayDate: at(d), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, releaseDays: null, inventoryMode: o.mode })),
   }
 }
 const assess = (o: { plans?: AssessPlan[]; mappingStatus?: string; stars?: number | null; content?: string } = {}): AssessHotelInput => ({
@@ -100,7 +100,7 @@ describe('unified hotel readiness (explicit criteria)', () => {
   it('HR-10: per-room occupancy is judged against the room and the plan; a mismatch fails CONTRACT', () => {
     const a = run({ c: { adults: 2, children: 1, childAges: [6] } })
     expect(gate(a, 'CONTRACT').blockers.map((b) => b.code)).toContain('OCCUPANCY_UNSUPPORTED')
-    expect(a.limitations.join(' ')).toMatch(/Child ages are recorded/)
+    expect(a.limitations.join(' ')).toMatch(/Children are priced by age \(6\)/) // ADR 0067 F-17
   })
 
   it('HR-11: an unapproved mapping fails MAPPING and links to the mappings tab', () => {

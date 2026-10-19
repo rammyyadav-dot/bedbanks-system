@@ -46,7 +46,7 @@ export const COMMERCIAL_REASON_TEXT: Record<string, string> = {
   NATIONALITY_NOT_ALLOWED: 'The contract does not accept this guest nationality', SOURCE_MARKET_NOT_ALLOWED: 'The contract is not sold to this buyer market', RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED: 'The rate plan is not sold to this buyer market', RATE_PLAN_NATIONALITY_NOT_ALLOWED: 'The rate plan does not accept this guest nationality', RATE_PLAN_MARKET_RULE_INVALID: 'The rate plan sales-market or nationality list is malformed, so it is not sold', CONTRACT_MARKET_RULE_INVALID: 'The contract sales-market or nationality list is malformed, so it is not sold',
   RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity', OUTSIDE_RATE_PLAN_VALIDITY: 'Date is outside the rate plan sale window', CANCELLATION_POLICY_MISSING: 'The rate plan names a cancellation rule set that has no rules', DERIVED_TERMS_INVALID: 'The derived rate plan has no valid price adjustment', DERIVED_PARENT_MISSING: 'The derived rate plan has no parent plan', DERIVED_PARENT_IS_DERIVED: 'The parent of this derived plan is itself derived', DERIVED_PARENT_MISMATCH: 'The parent plan has a different contract, hotel, currency or occupancy', DERIVED_PARENT_INACTIVE: 'The parent plan is not active, so this derived plan has no price',
   SUPPLIER_MAPPING_INVALID: 'Supplier mapping is missing or not approved', OCCUPANCY_UNSUPPORTED: 'Rate plan occupancy exceeds what the room supports', CHILD_AGES_REQUIRED: "A child price plan needs one age (0-17) per child", CHILD_AGE_NOT_COVERED: "No child price line covers this child's age", CHILD_PRICE_MISSING: "The contract child band for this child's age has no supplement recorded", CHILD_PRICE_AMBIGUOUS: "More than one child price line covers this child's age", EXTRA_ADULT_PRICE_MISSING: "The party has an extra adult but the plan has no extra-adult price", GUEST_PRICE_BASIS_MIXED: "The guest price lines used mix NET and SELL", GUEST_PRICE_BASIS_MISMATCH: "A guest price line has a different basis (NET or SELL) than the nightly rate", GUEST_PRICE_CURRENCY_MISMATCH: "A guest price line is in a different currency than the plan",
-  DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency',
+  DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency', SUPPLEMENT_CURRENCY_MISMATCH: 'A contract supplement is in another currency than the plan',
   RATE_AMOUNT_BASIS_UNVERIFIED: 'Rate amount basis is not verified', NET_RATE_MARKUP_UNAVAILABLE: 'Net rate has no markup rule, so no sell price exists',
   AVAILABILITY_MISSING: 'No availability row is loaded', STOP_SELL: 'Stop-sell is active', NO_INVENTORY: 'No inventory remains (allotment - sold - held = 0)',
   MIN_STAY_NOT_MET: 'Minimum stay is not met', MAX_STAY_EXCEEDED: 'Maximum stay is exceeded', RELEASE_DAYS_NOT_MET: 'Past the release deadline (hotel local time)', LEAD_TIME_TOO_SHORT: "Inside the contract's minimum booking lead time", LEAD_TIME_TOO_LONG: "Beyond the contract's maximum booking window", CLOSED_TO_ARRIVAL: 'Closed to arrival on the check-in date',
@@ -194,6 +194,11 @@ export interface HotelContractRow {
   /** Sales markets (buyer agency country) and guest nationalities the contract is sold to. Empty means unrestricted. Agent search, recheck and hold enforce them (ADR 0035); Admin readiness is buyer-independent and does not. */
   salesMarkets: string[]
   nationalities: string[]
+  /** ADR 0067 F-20/F-15 header terms; null where the contract does not state them. */
+  rateType: 'NET' | 'COMMISSIONABLE' | null; commissionBp: number | null; allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null; minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  ownerUserId: string | null; renewalReminderDays: number
+  /** True from `renewalReminderDays` before the last stay night until expiry: the owner should be renegotiating. */
+  renewalDue: boolean
 }
 export interface HotelRatePlanRow {
   id: string; code: string; status: string; contractId: string; contractCode: string
@@ -228,6 +233,8 @@ export interface CalendarCell {
   stopSell: boolean | null; closedToArrival: boolean | null; minStay: number | null
   /** Applied to the DEPARTURE date: a stay may not end on a night where this is set. A missing row is not closed. */
   closedToDeparture: boolean | null
+  /** Release for a check-in on this night when it overrides the plan's (ADR 0067, F-08); null uses the plan's release. */
+  releaseDays: number | null
   /** When the supplier last updated this night's rate and availability, if the source recorded it. A missing value means unknown, not fresh. */
   rateSourceUpdatedAt: string | null; availabilitySourceUpdatedAt: string | null
   sellable: boolean
@@ -272,7 +279,8 @@ export interface HotelStayReadiness {
   scope: 'STAY_DIAGNOSTIC_NOT_CERTIFICATION'
   buyer: { agencyId: string | null; market: string | null; nationality: string | null; assessed: boolean }
   requestedCurrency: 'AED' | null
-  occupancy: { uniformRooms: boolean; childPolicyAssessed: false }
+  /** Children are priced by age from plan lines or the contract child policy (ADR 0067, F-17). */
+  occupancy: { uniformRooms: boolean; childPolicyAssessed: boolean }
   plans: Array<{ ratePlanId: string; gates: HotelStayReadinessGate[] }>
   certification: 'NOT_VERIFIED'
 }

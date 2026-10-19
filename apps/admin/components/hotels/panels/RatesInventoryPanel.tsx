@@ -49,7 +49,7 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
                   <p style={{ margin: '4px 0 8px', fontSize: 11 }}>This view is read-only. <Link href={`/rates?ratePlanId=${encodeURIComponent(row.ratePlanId)}`}>Edit rates, allotment and stop-sell in the Rates &amp; Inventory workbench</Link>, which applies the existing validation and audit.</p>
                   <ScrollRegion label={`Calendar for ${row.ratePlanCode}`} maxHeight={420}>
                     <table style={tableStyle} aria-label={`Rates and inventory for ${row.ratePlanCode}`}>
-                      <thead><tr>{['Date', 'Rate', 'Basis', 'Mode', 'Stock from', 'Allotment / capacity', 'Sold', 'Held', 'Remaining', 'Fresh', 'Stop sell', 'Min stay', 'Closed to arrival', 'Closed to departure', 'Source updated', 'Sellability'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                      <thead><tr>{['Date', 'Rate', 'Basis', 'Mode', 'Stock from', 'Allotment / capacity', 'Sold', 'Held', 'Remaining', 'Fresh', 'Stop sell', 'Min stay', 'Closed to arrival', 'Closed to departure', 'Release', 'Source updated', 'Sellability'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                       <tbody>
                         {row.cells.map((cell) => (
                           <tr key={cell.date} data-date={cell.date} data-sellable={cell.sellable}>
@@ -75,6 +75,7 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
                             <td style={td}>{cell.minStay ?? '—'}</td>
                             <td style={td}>{cell.closedToArrival === null ? '—' : cell.closedToArrival ? <Chip tone="warn">CLOSED</Chip> : 'No'}</td>
                             <td style={td} title="Applied to the check-out date: a stay may not end on this night.">{cell.closedToDeparture === null ? '—' : cell.closedToDeparture ? <Chip tone="warn">CLOSED</Chip> : 'No'}</td>
+                            <td style={td} title="Release for a check-in on this night. Plan: the rate plan's release applies.">{cell.releaseDays === null ? 'Plan' : `${cell.releaseDays}d`}</td>
                             <td style={td}>{cell.rateSourceUpdatedAt || cell.availabilitySourceUpdatedAt ? <span title="Rate / availability source stamps">{cell.rateSourceUpdatedAt ? new Date(cell.rateSourceUpdatedAt).toLocaleDateString() : 'rate unknown'} / {cell.availabilitySourceUpdatedAt ? new Date(cell.availabilitySourceUpdatedAt).toLocaleDateString() : 'avail. unknown'}</span> : 'unknown'}</td>
                             <td style={td}>{cell.sellable ? <Tag tone="ok">SELLABLE</Tag> : <span><Tag tone="bad">NOT SELLABLE</Tag>{cell.reasons.map((r) => <div key={r} title={reasonText(r)}><code>{r}</code></div>)}</span>}</td>
                           </tr>

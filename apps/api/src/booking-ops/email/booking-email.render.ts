@@ -36,7 +36,7 @@ export function renderConfirmationEmail(input: { voucher: IssuedDocumentInput; i
     // ADR 0067 F-04: disclosed, not charged.
     ...payAtHotelLines(v).map((line) => ['Payable at the hotel (not included)', line] as [string, string]),
   ]
-  const policyLines = policy.length === 0 ? ['No cancellation penalty is defined for this contract.'] : policy.map((rule) => `Within ${rule.daysBeforeCheckin} day(s) of check-in: ${rule.penalty}`)
+  const policyLines = [...(policy.length === 0 ? ['No cancellation penalty is defined for this contract.'] : policy.map((rule) => `Within ${rule.daysBeforeCheckin} day(s) of check-in: ${rule.penalty}`)), ...(typeof v.noShowPenalty === 'string' ? [`No-show: ${v.noShowPenalty}`] : [])]
 
   const subject = `Booking confirmed: ${hotel.name ?? 'Hotel'} · ${stay.checkIn ?? ''} · ${v.bookingReference}`
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head>

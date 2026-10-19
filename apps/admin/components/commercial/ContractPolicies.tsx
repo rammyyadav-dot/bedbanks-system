@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { describeApiError } from '@/lib/api/describe-error'
-import { groupRules, setFromInput } from '@/lib/cancellation-sets'
+import { describeRule, groupRules, penaltyFromInput, setFromInput } from '@/lib/cancellation-sets'
 import { formatMinorUnits, parseMajorToMinor } from '@/lib/minor-units'
 import { createCancellationPolicy, createChildPolicy, deleteCancellationPolicy, deleteChildPolicy, deleteLeadTimeRule, setLeadTimeRule, type AdminContractDetail } from '@/lib/data'
 
@@ -12,7 +12,7 @@ import { createCancellationPolicy, createChildPolicy, deleteCancellationPolicy, 
  */
 export function ContractPolicies({ contract, canManage, editable, onChanged }: { contract: AdminContractDetail; canManage: boolean; editable: boolean; onChanged: () => void }) {
   const canEdit = canManage && editable
-  const [cancel, setCancel] = useState({ days: '', percent: '', set: '' })
+  const [cancel, setCancel] = useState<{ days: string; percent: string; set: string; form: 'PERCENT' | 'NIGHTS'; kind: 'CANCELLATION' | 'NO_SHOW' }>({ days: '', percent: '', set: '', form: 'PERCENT', kind: 'CANCELLATION' })
   const [child, setChild] = useState({ min: '', max: '', extraBed: false, supplement: '' })
   const [lead, setLead] = useState({ hours: '', days: '' })
   const [message, setMessage] = useState<string | null>(null)
@@ -22,7 +22,13 @@ export function ContractPolicies({ contract, canManage, editable, onChanged }: {
     setMessage(null)
     try { await work(); setMessage(done); onChanged() } catch (error) { setMessage(describeApiError(error, 'save the policy')) }
   }
-  const submitCancel = (event: FormEvent) => { event.preventDefault(); void run(() => createCancellationPolicy(contract.id, { daysBeforeCheckin: Number(cancel.days), penaltyPercent: Number(cancel.percent), policySet: setFromInput(cancel.set) }), 'Cancellation policy added.') }
+  const submitCancel = (event: FormEvent) => {
+    event.preventDefault()
+    const penalty = penaltyFromInput(cancel.form, cancel.percent)
+    if (!penalty) { setMessage(cancel.form === 'NIGHTS' ? 'Enter the penalty as a whole number of nights.' : 'Enter the penalty as a whole percent.'); return }
+    // ADR 0067 F-10: a no-show rule applies on arrival, so it has no days before check-in.
+    void run(() => createCancellationPolicy(contract.id, { kind: cancel.kind, daysBeforeCheckin: cancel.kind === 'NO_SHOW' ? 0 : Number(cancel.days), ...penalty, policySet: setFromInput(cancel.set) }), cancel.kind === 'NO_SHOW' ? 'No-show rule added.' : 'Cancellation policy added.')
+  }
   const submitChild = (event: FormEvent) => {
     event.preventDefault()
     const supplementMinor = parseMajorToMinor(child.supplement, contract.settlementCurrency)
@@ -35,8 +41,8 @@ export function ContractPolicies({ contract, canManage, editable, onChanged }: {
     <section className="workspace-panel" style={{ maxWidth: 760, padding: 22, marginTop: 16 }} aria-label="Commercial policies">
       <h2 style={{ fontSize: 14, marginBottom: 10 }}>Commercial policies</h2>
       <h3 style={{ fontSize: 12 }}>Cancellation</h3>
-      {contract.cancellationPolicies.length === 0 ? <p style={{ fontSize: 12 }}>No cancellation policy defined.</p> : groupRules(contract.cancellationPolicies).map((group) => <div key={group.set ?? 'default'}><h4 style={{ fontSize: 12, margin: '8px 0 2px' }}>{group.label}</h4><ul style={{ fontSize: 12 }}>{group.rules.map((policy) => <li key={policy.id}>{policy.daysBeforeCheckin}+ days before check-in: {policy.penaltyPercent != null ? `${policy.penaltyPercent}% penalty` : policy.penaltyMinor != null && policy.currency ? `${formatMinorUnits(policy.penaltyMinor, policy.currency)} penalty` : 'penalty unspecified'}{canEdit ? <> <button type="button" className="admin-btn" aria-label={`Remove rule ${policy.daysBeforeCheckin} days`} onClick={() => void run(() => deleteCancellationPolicy(contract.id, policy.id), 'Cancellation rule removed.')}>Remove</button></> : null}</li>)}</ul></div>)}
-      {canEdit ? <form onSubmit={submitCancel} className="admin-filter-bar"><input className="admin-filter-select" aria-label="Rule set name (blank = contract default)" placeholder="Set (blank = contract default)" maxLength={80} value={cancel.set} onChange={(e) => setCancel({ ...cancel, set: e.target.value })} /><input className="admin-filter-select" aria-label="Days before check-in" inputMode="numeric" placeholder="Days before check-in" value={cancel.days} onChange={(e) => setCancel({ ...cancel, days: e.target.value })} required /><input className="admin-filter-select" aria-label="Penalty percent" inputMode="numeric" placeholder="Penalty %" value={cancel.percent} onChange={(e) => setCancel({ ...cancel, percent: e.target.value })} required /><button type="submit" className="admin-btn">Add cancellation tier</button></form> : null}
+      {contract.cancellationPolicies.length === 0 ? <p style={{ fontSize: 12 }}>No cancellation policy defined.</p> : groupRules(contract.cancellationPolicies).map((group) => <div key={group.set ?? 'default'}><h4 style={{ fontSize: 12, margin: '8px 0 2px' }}>{group.label}</h4><ul style={{ fontSize: 12 }}>{group.rules.map((policy) => <li key={policy.id}>{describeRule(policy, formatMinorUnits)}{canEdit ? <> <button type="button" className="admin-btn" aria-label={`Remove rule ${policy.daysBeforeCheckin} days`} onClick={() => void run(() => deleteCancellationPolicy(contract.id, policy.id), 'Cancellation rule removed.')}>Remove</button></> : null}</li>)}</ul></div>)}
+      {canEdit ? <form onSubmit={submitCancel} className="admin-filter-bar"><input className="admin-filter-select" aria-label="Rule set name (blank = contract default)" placeholder="Set (blank = contract default)" maxLength={80} value={cancel.set} onChange={(e) => setCancel({ ...cancel, set: e.target.value })} /><select className="admin-filter-select" aria-label="Rule kind" value={cancel.kind} onChange={(e) => setCancel({ ...cancel, kind: e.target.value as 'CANCELLATION' | 'NO_SHOW' })}><option value="CANCELLATION">Cancellation tier</option><option value="NO_SHOW">No-show</option></select>{cancel.kind === 'CANCELLATION' ? <input className="admin-filter-select" aria-label="Days before check-in" inputMode="numeric" placeholder="Days before check-in" value={cancel.days} onChange={(e) => setCancel({ ...cancel, days: e.target.value })} required /> : null}<select className="admin-filter-select" aria-label="Penalty form" value={cancel.form} onChange={(e) => setCancel({ ...cancel, form: e.target.value as 'PERCENT' | 'NIGHTS' })}><option value="PERCENT">Percent of total</option><option value="NIGHTS">Nights</option></select><input className="admin-filter-select" aria-label={cancel.form === 'NIGHTS' ? 'Penalty nights' : 'Penalty percent'} inputMode="numeric" placeholder={cancel.form === 'NIGHTS' ? 'Nights' : 'Penalty %'} value={cancel.percent} onChange={(e) => setCancel({ ...cancel, percent: e.target.value })} required /><button type="submit" className="admin-btn">{cancel.kind === 'NO_SHOW' ? 'Add no-show rule' : 'Add cancellation tier'}</button></form> : null}
       <h3 style={{ fontSize: 12 }}>Child</h3>
       <p style={{ fontSize: 11, color: '#3f565c', margin: 0 }}>Priced per child per night on the rate's basis, for every rate plan of this contract that has no child prices of its own. A child who fills a base place an adult leaves empty is not charged. A band without a supplement cannot price an extra child.</p>
       {contract.childPolicies.length === 0 ? <p style={{ fontSize: 12 }}>No child policy defined.</p> : <ul style={{ fontSize: 12 }}>{contract.childPolicies.map((policy) => <li key={policy.id}>Ages {policy.minAge}–{policy.maxAge}{policy.extraBedAllowed ? ', extra bed allowed' : ''}{policy.supplementMinor != null && policy.currency ? `, supplement ${formatMinorUnits(policy.supplementMinor, policy.currency)}` : ''}{canEdit ? <> <button type="button" className="admin-btn" aria-label={`Remove child band ${policy.minAge} to ${policy.maxAge}`} onClick={() => void run(() => deleteChildPolicy(contract.id, policy.id), 'Child band removed.')}>Remove</button></> : null}</li>)}</ul>}

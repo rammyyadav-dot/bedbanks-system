@@ -587,6 +587,16 @@ enum PromotionKind {
 
 /// A promotion on one rate plan (ADR 0058, S10a): a percentage off every night (EARLY_BIRD, LAST_MINUTE, LONG_STAY) or the cheapest nights free
 /// (FREE_NIGHTS), under booking-lead, length-of-stay and date-window conditions. Applied by the one stay evaluator to the nightly net before the markup.
+enum PromotionStayWindowMode {
+  WHOLE_STAY
+  NIGHTS_IN_WINDOW
+}
+
+enum PromotionDiscountBase {
+  ROOM_AND_GUESTS
+  ROOM_ONLY
+}
+
 model RatePlanPromotion {
   id          String        @id @default(cuid())
   tenantId    String        @map("tenant_id")
@@ -604,6 +614,12 @@ model RatePlanPromotion {
   bookTo      DateTime?     @map("book_to") @db.Date
   stayFrom    DateTime?     @map("stay_from") @db.Date
   stayTo      DateTime?     @map("stay_to") @db.Date
+  /// ADR 0067 F-09: may stack with other combinable promotions of the plan.
+  combinable  Boolean       @default(false)
+  /// WHOLE_STAY: every night inside the stay window. NIGHTS_IN_WINDOW: applies to the nights inside it.
+  stayWindowMode PromotionStayWindowMode @default(WHOLE_STAY) @map("stay_window_mode")
+  /// ROOM_ONLY: the extra-guest lines are not discounted.
+  discountBase PromotionDiscountBase @default(ROOM_AND_GUESTS) @map("discount_base")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
@@ -1772,6 +1788,7 @@ model BoardBasis {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  supplements ContractSupplement[]
   ratePlans RatePlan[]
 
   @@unique([tenantId, code])
@@ -1866,6 +1883,22 @@ model SupplierRoomDraft {
   @@map("supplier_room_drafts")
 }
 
+enum ContractRateType {
+  NET
+  COMMISSIONABLE
+}
+
+enum ContractAllotmentType {
+  GUARANTEED
+  NON_GUARANTEED
+  FREE_SALE
+}
+
+enum MinStayMode {
+  STAY_THROUGH
+  ARRIVAL
+}
+
 model Contract {
   id                  String         @id @default(cuid())
   tenantId            String         @map("tenant_id")
@@ -1882,6 +1915,22 @@ model Contract {
   salesMarkets        Json           @default("[]") @map("sales_markets")
   nationalities       Json           @default("[]")
   paymentPolicyRef    String?        @map("payment_policy_ref")
+  /// Commercial header (ADR 0067, F-20). Null means not recorded; never defaulted.
+  rateType            ContractRateType?      @map("rate_type")
+  /// Basis points of the sell price paid as commission; only for COMMISSIONABLE (database check).
+  commissionBp        Int?                   @map("commission_bp")
+  paymentTermsDays    Int?                   @map("payment_terms_days")
+  signedAt            DateTime?              @map("signed_at") @db.Date
+  /// Reference to the signed contract in the document store; never the document itself.
+  signedDocumentRef   String?                @map("signed_document_ref") @db.VarChar(200)
+  allotmentType       ContractAllotmentType? @map("allotment_type")
+  /// How a night's minimum stay applies (ADR 0067, F-15): to every stay through that night, or only to stays arriving on it.
+  minStayMode         MinStayMode            @default(STAY_THROUGH) @map("min_stay_mode")
+  /// Governance, not commercial terms: editable while ACTIVE. The owner is a tenant member id (no foreign key, like other actor ids).
+  ownerUserId         String?                @map("owner_user_id")
+  renewalReminderDays Int                    @default(60) @map("renewal_reminder_days")
+  /// Days the buyer's cancellation tiers start before the hotel's (ADR 0067, F-10), 0-30. A reviewed term.
+  clientBufferDays    Int                    @default(0) @map("client_buffer_days")
   sourceMetadata      Json           @default("{}") @map("source_metadata")
   version             Int            @default(1)
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -1892,6 +1941,7 @@ model Contract {
   childPolicies         ChildPolicy[]
   leadTimeRules         BookingLeadTimeRule[]
   versions              ContractVersion[]
+  supplements           ContractSupplement[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
@@ -1945,7 +1995,7 @@ model RatePlan {
   maxStay           Int?           @map("max_stay")
   releaseDays       Int            @default(0) @map("release_days")
   /// Hotel-local time of day (HH:MM) at which the release deadline falls, `releaseDays` before the check-in date (ADR 0030).
-  releaseTimeLocal  String         @default("00:00") @map("release_time_local") @db.Char(5)
+  releaseTimeLocal  String         @default("18:00") @map("release_time_local") @db.Char(5)
   /// Optional sale window of this plan (ADR 0057). Null inherits the contract term on that side. A stay must fit inside both; the window never extends the contract.
   validFrom         DateTime?      @map("valid_from") @db.Date
   validTo           DateTime?      @map("valid_to") @db.Date
@@ -1972,6 +2022,7 @@ model RatePlan {
   availability DailyAvailability[]
   dailyRates   DailyRate[]
   guestPrices  RatePlanGuestPrice[]
+  supplements  ContractSupplement[]
   promotions   RatePlanPromotion[]
 
   @@unique([contractId, code])
@@ -1981,20 +2032,72 @@ model RatePlan {
   @@index([tenantId, inventoryPoolId])
 }
 
+enum CancellationRuleKind {
+  CANCELLATION
+  NO_SHOW
+}
+
 model CancellationPolicy {
   id              String   @id @default(cuid())
   contractId      String   @map("contract_id")
   contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
   /// Named set within the contract (ADR 0057). Null is the contract default, which a plan with no `cancellationPolicySet` uses.
   policySet       String?  @map("policy_set") @db.VarChar(80)
+  /// CANCELLATION applies from `daysBeforeCheckin`; NO_SHOW (days 0) applies when the guest does not arrive (ADR 0067, F-10).
+  kind            CancellationRuleKind @default(CANCELLATION)
   daysBeforeCheckin Int    @map("days_before_checkin")
   penaltyPercent  Int?     @map("penalty_percent")
   penaltyMinor    BigInt?  @map("penalty_minor")
+  /// Penalty as a number of the stay's nights (1-30), charged pro rata of the booking total. Exclusive with percent and amount.
+  penaltyNights   Int?     @map("penalty_nights")
   currency        String?  @db.Char(3)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@index([contractId])
   @@index([contractId, policySet])
+}
+
+enum SupplementKind {
+  BOARD
+  COMPULSORY
+}
+
+enum SupplementBasis {
+  PER_ADULT
+  PER_CHILD
+  PER_PERSON
+  PER_ROOM
+}
+
+enum SupplementFrequency {
+  PER_NIGHT
+  PER_STAY
+}
+
+/// A charge the contract adds to the room rate (ADR 0067): a BOARD supplement for plans sold on that board (e.g. half board on a BB rate),
+/// or a COMPULSORY one such as a gala dinner. Added after the promotion and before the markup, in the plan's basis. A reviewed contract term.
+model ContractSupplement {
+  id           String              @id @default(cuid())
+  contractId   String              @map("contract_id")
+  contract     Contract            @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  kind         SupplementKind
+  name         String              @db.VarChar(80)
+  /// BOARD: the board the supplement prices. Required for BOARD, absent for COMPULSORY.
+  boardBasisId String?             @map("board_basis_id")
+  boardBasis   BoardBasis?         @relation(fields: [boardBasisId], references: [id], onDelete: Restrict)
+  /// Optional: only this plan of the contract. Null applies to every plan (of the board, for BOARD).
+  ratePlanId   String?             @map("rate_plan_id")
+  ratePlan     RatePlan?           @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  basis        SupplementBasis
+  frequency    SupplementFrequency
+  amountMinor  BigInt              @map("amount_minor")
+  currency     String              @db.Char(3)
+  /// Stay nights it applies to (inclusive). Null on both sides: every night.
+  stayFrom     DateTime?           @map("stay_from") @db.Date
+  stayTo       DateTime?           @map("stay_to") @db.Date
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@index([contractId])
 }
 
 model ChildPolicy {
@@ -2084,6 +2187,8 @@ model DailyAvailability {
   minStay            Int      @default(1) @map("min_stay")
   closedToArrival    Boolean  @default(false) @map("closed_to_arrival")
   closedToDeparture  Boolean  @default(false) @map("closed_to_departure")
+  /// Release for a check-in on this night, in days (ADR 0067, F-08). Null uses the plan's release. The plan's release time applies.
+  releaseDays        Int?     @map("release_days")
   /// ALLOTMENT uses the plan row's counters, or the pool day when the plan belongs to a pool. FREE_SALE needs no stock. ON_REQUEST is never instant. CLOSED is never sold.
   inventoryMode      InventoryMode @default(ALLOTMENT) @map("inventory_mode")
   source             InventorySource @default(ADMIN)
