@@ -35,6 +35,17 @@ export type ReconSort = 'newest' | 'oldest'
 export const RECONCILIATION_DISABLED_CODE = 'FINANCE_RECONCILIATION_DISABLED'
 /** Largest statement accepted in one import. */
 export const STATEMENT_MAX_LINES = 5000
+/**
+ * Streamed import (ADR 0074): `POST statements/stream`, `Content-Type: application/x-ndjson`. Line 1 is the statement header
+ * (`supplierId`, `statementRef`, `periodStart`, `periodEnd`, `requestId`), every further line is one `StatementLineRequest`. Same validation, same
+ * idempotency and the same content hash as the JSON import, so a statement cannot be imported twice by switching channels. The line limit is the same
+ * as the JSON import's until the reconciliation run has been load-tested above it.
+ */
+export const STATEMENT_STREAM_CONTENT_TYPE = 'application/x-ndjson'
+/** Ceiling on the whole upload. 5,000 lines of long references are under 1 MB; this leaves headroom and still bounds a hostile client. */
+export const STATEMENT_STREAM_MAX_BYTES = 4 * 1024 * 1024
+/** Ceiling on one line, so a missing newline cannot grow a buffer without bound. */
+export const STATEMENT_STREAM_MAX_LINE_BYTES = 4096
 
 export interface StatementLineRequest {
   /** The booking reference the supplier quotes: ours or theirs. */

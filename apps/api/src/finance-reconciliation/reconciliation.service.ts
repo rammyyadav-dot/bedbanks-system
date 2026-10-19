@@ -11,13 +11,15 @@ import { ReconciliationStore } from './reconciliation-store'
 import { sanitizeAuditPayload } from '../agent/audit-payload'
 import { enumParam, idParam, pageParams, paged, textParam } from '../admin-operations/query-params'
 import { allowedActions, approve, propose, reject, secondApprovalByAction, type Refusal, type Transition, type WorkflowSubject } from './exception-workflow'
-import { validateStatementImport } from './statement-import'
+import { validateStatementImport, type ValidStatement } from './statement-import'
+import { parseStatementStream } from './statement-stream'
 import { ReconciliationWorker } from './reconciliation-worker.service'
 
 /** Write endpoints stay off until the deployment opts in (and has provisioned the finance-gated write role). Reads always work. */
 export const reconciliationEnabled = (env: NodeJS.ProcessEnv = process.env) => env.FINANCE_RECONCILIATION_ENABLED === 'true'
 
 const MAX_TOLERANCE_MINOR = 1000n
+const STATEMENT_INSERT_BATCH = 1000
 const SUPPLIER = { select: { id: true, displayName: true } } as const
 const iso = (d: Date | null) => (d ? d.toISOString() : null)
 const day = (d: Date) => d.toISOString().slice(0, 10)
@@ -148,7 +150,16 @@ export class ReconciliationService {
 
   async importStatement(tenantId: string, userId: string, body: StatementImportRequest): Promise<StatementView> {
     this.assertEnabled()
-    const v = validateStatementImport(body)
+    return this.persistStatement(tenantId, userId, validateStatementImport(body))
+  }
+
+  /** Streamed upload (ADR 0074). The body is read and validated line by line before anything is written; idempotency and the content hash are the JSON import's. */
+  async importStatementStream(tenantId: string, userId: string, source: AsyncIterable<Buffer | Uint8Array | string>): Promise<StatementView> {
+    this.assertEnabled()
+    return this.persistStatement(tenantId, userId, await parseStatementStream(source))
+  }
+
+  private async persistStatement(tenantId: string, userId: string, v: ValidStatement): Promise<StatementView> {
     const replay = async () => {
       const existing = await this.prisma.withTenant(tenantId, (tx) => tx.supplierStatement.findFirst({ where: { tenantId, requestId: v.requestId }, include: { supplier: SUPPLIER } }))
       if (!existing) return null
@@ -168,7 +179,10 @@ export class ReconciliationService {
           data: { tenantId, supplierId: v.supplierId, statementRef: v.statementRef, periodStart: v.periodStart, periodEnd: v.periodEnd, lineCount: v.lines.length, contentSha256: v.contentSha256, requestId: v.requestId, importedById: userId },
           include: { supplier: SUPPLIER },
         })
-        await tx.supplierStatementLine.createMany({ data: v.lines.map((l) => ({ tenantId, statementId: statement.id, lineNo: l.lineNo, reference: l.reference, kind: l.kind, currency: l.currency, amountMinor: l.amountMinor })) })
+        // Batched so one statement never builds a single multi-thousand-row INSERT (PostgreSQL allows 32,767 bind parameters per statement).
+        for (let at = 0; at < v.lines.length; at += STATEMENT_INSERT_BATCH) {
+          await tx.supplierStatementLine.createMany({ data: v.lines.slice(at, at + STATEMENT_INSERT_BATCH).map((l) => ({ tenantId, statementId: statement.id, lineNo: l.lineNo, reference: l.reference, kind: l.kind, currency: l.currency, amountMinor: l.amountMinor })) })
+        }
         await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'finance.reconciliation.statement_imported', entityType: 'supplier_statement', entityId: statement.id, payload: sanitizeAuditPayload({ supplierId: v.supplierId, statementRef: v.statementRef, lines: v.lines.length, periodStart: day(v.periodStart), periodEnd: day(v.periodEnd), contentSha256: v.contentSha256 }) }] })
         return statement
       })

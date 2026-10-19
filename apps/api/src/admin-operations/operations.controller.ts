@@ -1,6 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import type { Request, Response } from 'express'
 import { departmentPermissions, operationsPermissions, type BookingAccessView, type CancellationSettlementRequest, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
@@ -34,6 +36,8 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
+  private readonly logger = new Logger(OperationsController.name)
+
   constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService, private readonly compliance: OperationsComplianceService, private readonly settlement: CancellationSettlementService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
@@ -64,9 +68,14 @@ export class OperationsController {
   // Declared before `hotels/:hotelId` so "export" is never read as an id. Own permission (ADR 0051); S2 data egress is audited by the service.
   @Get('hotels/export') @RequireSupplyPermission('supply.hotels.export') @UseGuards(SupplyPermissionGuard)
   async hotelsExport(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Query() query: Q, @Res() response: Response) {
-    const out = await this.hotelOps.exportCsv(tenantId, identity.user.id, query, requestIdOf(req))
-    // Headers are set explicitly because @Res() takes over the response.
-    response.status(200).set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="hotels.csv"', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store', 'X-Export-Rows': String(out.rows), 'X-Export-Truncated': String(out.truncated) }).send(out.csv)
+    // ADR 0074: streamed. The audit event is written inside openExportStream, before the first byte; the row count and truncation flag are known up front from a count.
+    const out = await this.hotelOps.openExportStream(tenantId, identity.user.id, query, requestIdOf(req))
+    // Headers are set explicitly because @Res() takes over the response. No Content-Length: the body is chunked and backpressured by the client.
+    response.status(200).set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="hotels.csv"', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store', 'X-Export-Rows': String(out.expectedRows), 'X-Export-Truncated': String(out.truncated) })
+    // pipeline destroys the generator when the client goes away (stops reading) and aborts the response when a read fails, so a broken export is never a clean file.
+    await pipeline(Readable.from(out.chunks), response).catch((error: NodeJS.ErrnoException) => {
+      if (error?.code !== 'ERR_STREAM_PREMATURE_CLOSE') this.logger.error(`hotel export stream failed (${error?.code ?? error?.name ?? 'error'})`)
+    })
   }
 
   // Declared before `hotels/:hotelId` so "summary" is never read as an id.

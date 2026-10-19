@@ -1663,6 +1663,7 @@ model Hotel {
   @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
   @@index([tenantId, contentStatus])
+  @@index([tenantId, name, id])
 }
 
 /// Operational and descriptive hotel content (ADR 0021). One row per canonical hotel, created lazily by the first save.
@@ -1986,6 +1987,7 @@ model Contract {
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
   @@index([supplierId, status])
+  @@index([supplierHotelMappingId])
 }
 
 enum ContractVersionKind {

@@ -66,7 +66,7 @@ export const routes = {
   },
   // Supplier statement reconciliation and the dispute queue (ADR 0070). Writes need an `Idempotency-Key`-style `requestId` in the body.
   adminFinanceReconciliation: {
-    statements: '/admin/finance/reconciliation/statements', statement: '/admin/finance/reconciliation/statements/:statementId',
+    statements: '/admin/finance/reconciliation/statements', statementsStream: '/admin/finance/reconciliation/statements/stream', statement: '/admin/finance/reconciliation/statements/:statementId',
     run: '/admin/finance/reconciliation/statements/:statementId/runs',
     exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
     propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',

@@ -5,7 +5,7 @@ import { join, relative } from 'node:path'
 import { checkRuntimeUrl, describeDatabaseUrl, forbiddenUserReason } from '../apps/api/src/database/runtime-db-identity'
 
 /** Variables a deployed service reads at runtime. Their literal values must be the restricted logins. */
-export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'HOLD_EXPIRY_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL', 'COMPLIANCE_DATABASE_URL'] as const
+export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'BOOKING_OPS_READ_REPLICA_URL', 'HOLD_EXPIRY_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL', 'COMPLIANCE_DATABASE_URL'] as const
 /** Variables that carry owner or administrator credentials. They belong to release jobs and operators only, never to a service definition. */
 export const OWNER_ONLY_VARS = ['MIGRATION_DATABASE_URL', 'PROVISION_DATABASE_URL', 'OWNER_DATABASE_URL', 'DIRECT_URL', 'DATABASE_URL_UNPOOLED'] as const
 
@@ -109,7 +109,7 @@ export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }>
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
   { file: 'apps/api/src/admin-operations/ledger-integrity-monitor.service.ts', url: 'LEDGER_INTEGRITY_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
-  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL' },
+  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL / BOOKING_OPS_READ_REPLICA_URL (ADR 0074)' },
 ]
 
 export function checkClientSource(file: string, text: string): string[] {

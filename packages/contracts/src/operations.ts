@@ -18,6 +18,8 @@ export interface OperationsCapabilities { permissions: Array<OperationsPermissio
 
 /** Machine-readable error codes the Admin branches on (in addition to the generic HTTP-status codes). */
 export const OPERATIONS_READ_DENIED = 'OPERATIONS_READ_DENIED'
+/** HTTP 503: a read replica is configured for this analytical read but cannot be used. The read is never served from the primary instead (ADR 0074); retry later. */
+export const READ_REPLICA_UNAVAILABLE = 'READ_REPLICA_UNAVAILABLE'
 /** HTTP 503: a mandatory commercial control (agency suspension, distribution restriction, markup rule) could not be read, so the request was refused rather than served unrestricted (ADR 0031). */
 export const COMMERCIAL_CONTROL_UNAVAILABLE = 'COMMERCIAL_CONTROL_UNAVAILABLE'
 /** HTTP 503: an authorized operation needs a database privilege the API runtime role does not hold. Infrastructure configuration, never a caller authorization decision (ADR 0031). */

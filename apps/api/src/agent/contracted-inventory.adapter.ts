@@ -1,3 +1,4 @@
+import { completeHotelsInCity } from './hotel-candidates'
 import { payAtHotel } from '../supply/local-charges'
 import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
 import { Inject, Injectable, Logger } from '@nestjs/common'
@@ -204,17 +205,20 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const nightDates = nights.map((night) => new Date(`${night}T00:00:00.000Z`))
     const destination = criteria.destination.trim()
     return this.prisma.withTenant(tenantId, async (tx) => {
-      const hotels = await tx.hotel.findMany({
-        where: {
-          tenantId,
-          contentStatus: 'COMPLETE',
-          ...(criteria.canonicalHotelIds?.length ? { id: { in: criteria.canonicalHotelIds } } : {}),
-          ...(criteria.filters?.propertyTypes?.length ? { propertyType: { in: criteria.filters.propertyTypes } } : {}),
-          ...(destination ? { city: criteria.destinationRef?.type === 'city' ? { equals: destination, mode: 'insensitive' as const } : { contains: destination, mode: 'insensitive' as const } } : {}),
-        },
-        select: { id: true },
-        orderBy: { id: 'asc' },
-      })
+      // ADR 0074: a resolved city is an exact, indexed lookup; free text keeps the substring filter (no index can serve it under row-level security).
+      const hotels = destination && criteria.destinationRef?.type === 'city'
+        ? await tx.$queryRaw<Array<{ id: string }>>(completeHotelsInCity({ tenantId, city: destination, canonicalHotelIds: criteria.canonicalHotelIds, propertyTypes: criteria.filters?.propertyTypes }))
+        : await tx.hotel.findMany({
+          where: {
+            tenantId,
+            contentStatus: 'COMPLETE',
+            ...(criteria.canonicalHotelIds?.length ? { id: { in: criteria.canonicalHotelIds } } : {}),
+            ...(criteria.filters?.propertyTypes?.length ? { propertyType: { in: criteria.filters.propertyTypes } } : {}),
+            ...(destination ? { city: { contains: destination, mode: 'insensitive' as const } } : {}),
+          },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        })
       const plans: Awaited<ReturnType<ContractedInventoryAdapter['findPlanBatch']>> = []
       for (let offset = 0; offset < hotels.length; offset += HOTEL_CANDIDATE_BATCH) {
         const hotelIds = hotels.slice(offset, offset + HOTEL_CANDIDATE_BATCH).map((hotel) => hotel.id)
