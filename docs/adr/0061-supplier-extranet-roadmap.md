@@ -202,3 +202,25 @@ Remove the supplier and staff routes and the permission rows by forward migratio
 | Portal | hotels and contracts pages follow the cursor ("Next page", "First page") and say when a contract's plan list is capped | type-check, lint, `next build` |
 
 Behaviour change for API consumers: both lists now return at most `limit` rows plus `nextCursor`, where hotels were previously unbounded and contracts capped at 200. The 200-plan cap per contract remains; it is now reported (`ratePlansTruncated`) instead of silent. A plan-level pager can be added if a real contract exceeds it.
+
+### Implementation (delivery step 2: change-set schema and supplier routes, slice 4a)
+| Requirement | Where | Evidence |
+|---|---|---|
+| Tables | `supplier_change_sets`, `supplier_change_set_cells`, `supplier_change_set_events`; migration `202611270005_supplier_change_sets` (tables, checks, RLS, triggers, two permission rows) | migration applies; no schema drift for the new tables; e2e CS-09, CS-13, CS-15 |
+| Supplier isolation in the database | forced RLS with two permissive policies: supplier-scoped (the request set its organization) and tenant-wide only when no supplier is set (the later staff queue) | e2e CS-13 |
+| Frozen after submit | trigger on cells (any write needs a DRAFT parent) and on the set (content, identity, status edges) | e2e CS-09 |
+| Append-only history | trigger on events | e2e CS-15 |
+| Grants | `runtime-role-contract.ts` only (SR-07): insert and a column-limited update on sets, insert and delete on cells (draft only), insert on events. No write on `DailyAvailability`, `DailyRate` or `RatePlan`; review columns not granted | e2e CS-14, `runtime-role-contract.spec.ts`, regenerated `docs/strict-runtime-db-role.md` |
+| Routes | `GET/POST /supplier/extranet/change-sets`, `POST .../preview`, `GET/PUT .../:id`, `POST .../:id/submit`, `POST .../:id/withdraw`; permissions `supplier.extranet.changes.read` / `.author` (granted to no role); shared types and routes in `@bedbanks/contracts` | e2e CS-01 to CS-12 |
+| Validation | the staff `buildCalendarImport` parser, unchanged, fed only the plans of the caller's own contracts at a hotel mapped to it; rates and pooled plans refused (`supplier-change-validation.ts`) | unit spec (10), e2e CS-03 to CS-05 |
+| Idempotency and versions | `Idempotency-Key` required on create, replace, submit, withdraw; one key names one request per organization (unique per tenant, supplier, key); `expectedVersion` on replace, submit, withdraw | e2e CS-07, CS-08, CS-10 |
+| Audit | an `AuditEvent` and a history event per transition; payloads hold ids, counts, version and hash only | e2e CS-02, CS-15 |
+
+Decisions taken during implementation (not in the draft):
+- **Input is CSV only.** It is the one format the validator understands. Row-level JSON arrives with the calendar screen (slice 5).
+- **Only a valid file is stored.** An invalid create or replace answers 422 `CHANGE_SET_INVALID` with every issue in `error.details` (the error envelope carries `code`, `message` and `details`) and stores or changes nothing. A `POST .../preview` returns the same report without storing.
+- **Submit does not re-validate.** The cells carry the live version they were prepared against; the authoritative check, including stale cells, runs when staff apply the set.
+- **Idempotency is per organization, not per change set**, so concurrent creates with one key cannot make two sets.
+
+Operating notes: run `ops:provision-api-runtime-role` after deploy to apply the new grants (until then the routes fail closed with a database "permission denied"), and assign the two permissions to supplier roles.
+Verification gaps: the end-to-end suites ran on local PostgreSQL 16 with the temporary jest configuration described under slice 3. No portal screen exists yet (step 4). The 26 API unit suites that cannot load on this host's Node 22 are the same set with and without this change.

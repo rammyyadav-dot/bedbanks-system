@@ -9,6 +9,8 @@ export type ExtranetPermission =
   | 'supplier.extranet.contracts.read'
   | 'supplier.extranet.bookings.read'
   | 'supplier.extranet.bookings.answer'
+  | 'supplier.extranet.changes.read'
+  | 'supplier.extranet.changes.author'
 
 /** GET /supplier/extranet/contracts (`supplier.extranet.contracts.read`). Read-only; the supplier cannot create or change a contract here. */
 export interface ExtranetRatePlanSummary {
@@ -153,6 +155,91 @@ export interface ExtranetBookingAnswerResult {
   bookingId: string
   reference: string
   status: ExtranetBookingStatus
+  /** True when the same Idempotency-Key and body had already been applied. Nothing changed on this call. */
+  replayed: boolean
+}
+
+/**
+ * Availability change sets (`supplier.extranet.changes.read` / `.author`), ADR 0061 Amendment 3, slice 4a.
+ * The supplier prepares a CSV of availability and stop-sale changes for one mapped hotel; it is validated, stored as a DRAFT, frozen on submit and
+ * reviewed by fBeds staff. Nothing here changes the live calendar. Rates are not accepted in this slice.
+ *
+ * CSV columns: `plan_code` or `plan_id`, `date`, and any of `allotment`, `stop_sell`, `min_stay`, `release_days`. At most 366 cells per set.
+ * Create, replace, submit and withdraw need an `Idempotency-Key` header (8-128 of A-Z a-z 0-9 . _ : -); one key names one request per organization.
+ */
+export const EXTRANET_CHANGE_SET_STATUSES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'APPLIED', 'FAILED', 'WITHDRAWN'] as const
+export type ExtranetChangeSetStatus = (typeof EXTRANET_CHANGE_SET_STATUSES)[number]
+
+export interface ExtranetChangeCell {
+  ratePlanId: string
+  ratePlanCode: string
+  /** ISO date (YYYY-MM-DD). */
+  stayDate: string
+  allotment: number
+  stopSell: boolean
+  minStay: number
+  /** Null: use the plan's release. */
+  releaseDays: number | null
+}
+
+export interface ExtranetChangeSetSummary {
+  id: string
+  hotelId: string
+  hotelName: string | null
+  status: ExtranetChangeSetStatus
+  /** Increases each time a draft's cells are replaced. */
+  version: number
+  cellCount: number
+  createdAt: string
+  submittedAt: string | null
+}
+
+export interface ExtranetChangeSetEvent {
+  action: string
+  fromStatus: ExtranetChangeSetStatus | null
+  toStatus: ExtranetChangeSetStatus
+  createdAt: string
+}
+
+export interface ExtranetChangeSetDetail extends ExtranetChangeSetSummary {
+  /** SHA-256 over the canonical cells. */
+  contentSha256: string
+  cells: ExtranetChangeCell[]
+  events: ExtranetChangeSetEvent[]
+}
+
+export interface ExtranetChangeSetList {
+  changeSets: ExtranetChangeSetSummary[]
+  /** Opaque. Pass back as `cursor` for the next page; null when there is none. Query: `status`, `limit` 1-50 (default 25). */
+  nextCursor: string | null
+}
+
+export interface ExtranetImportIssue {
+  line: number
+  code: string
+  message: string
+  field?: string
+}
+
+/** The validator's report. `ok` is false when `fatal` or `errors` is non-empty; nothing is stored then. */
+export interface ExtranetChangeSetPreview {
+  ok: boolean
+  fatal: ExtranetImportIssue[]
+  errors: ExtranetImportIssue[]
+  warnings: ExtranetImportIssue[]
+  truncatedErrors: boolean
+  cells: ExtranetChangeCell[]
+}
+
+/** POST /supplier/extranet/change-sets/preview and POST /supplier/extranet/change-sets. */
+export interface ExtranetChangeSetCreateRequest { hotelId: string; csv: string }
+/** PUT /supplier/extranet/change-sets/:changeSetId (a DRAFT only). `expectedVersion` is the version the supplier last saw. */
+export interface ExtranetChangeSetReplaceRequest { csv: string; expectedVersion: number }
+/** POST .../submit and .../withdraw. */
+export interface ExtranetChangeSetTransitionRequest { expectedVersion: number }
+
+export interface ExtranetChangeSetResult {
+  changeSet: ExtranetChangeSetDetail
   /** True when the same Idempotency-Key and body had already been applied. Nothing changed on this call. */
   replayed: boolean
 }

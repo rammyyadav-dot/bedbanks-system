@@ -5,12 +5,14 @@ import { SupplierExtranetController } from './supplier-extranet.controller'
 import { SupplierExtranetService } from './supplier-extranet.service'
 import { SupplierBookingsService } from './supplier-bookings.service'
 import { SupplierBookingAnswerService } from './supplier-booking-answer.service'
+import { SupplierChangeSetsController } from './supplier-change-sets.controller'
+import { SupplierChangeSetsService } from './supplier-change-sets.service'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { SupplierOrganizationGuard } from './supplier-organization.guard'
 
 @Module({
   imports: [AuthModule],
-  controllers: [SupplierExtranetController],
-  providers: [SupplierExtranetService, SupplierBookingsService, SupplierBookingAnswerService, BookingOpsDatabase, SupplierOrganizationGuard, TenantContextGuard],
+  controllers: [SupplierExtranetController, SupplierChangeSetsController],
+  providers: [SupplierExtranetService, SupplierBookingsService, SupplierBookingAnswerService, SupplierChangeSetsService, BookingOpsDatabase, SupplierOrganizationGuard, TenantContextGuard],
 })
 export class SupplierExtranetModule {}

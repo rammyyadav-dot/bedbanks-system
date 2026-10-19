@@ -757,6 +757,7 @@ model Tenant {
   controlProfile TenantControlProfile?
   supplierMemberships SupplierMembership[]
   supplierRoomDrafts SupplierRoomDraft[]
+  supplierChangeSets SupplierChangeSet[]
 
   @@map("tenants")
 }
@@ -1617,6 +1618,7 @@ model Supplier {
   inventoryEvents InventoryUpdateEvent[]
   memberships    SupplierMembership[]
   roomDrafts     SupplierRoomDraft[]
+  changeSets     SupplierChangeSet[]
   bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
@@ -1658,6 +1660,7 @@ model Hotel {
   mappings  SupplierHotelMapping[]
   searchIndex HotelSearchIndex?
   supplierRoomDrafts SupplierRoomDraft[]
+  supplierChangeSets SupplierChangeSet[]
 
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
@@ -1923,6 +1926,97 @@ model SupplierRoomDraft {
   @@map("supplier_room_drafts")
 }
 
+/// ADR 0061 Amendment 3 (slice 4a). A supplier's reviewed submission of availability and stop-sale changes. The supplier never writes
+/// DailyAvailability: staff review a submitted set and apply it through the existing calendar edit. Cells freeze when the set leaves DRAFT.
+enum SupplierChangeSetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  APPLIED
+  FAILED
+  WITHDRAWN
+}
+
+model SupplierChangeSet {
+  id               String                  @id @default(cuid())
+  tenantId         String                  @map("tenant_id")
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId       String                  @map("supplier_id")
+  supplier         Supplier                @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  hotelId          String                  @map("hotel_id")
+  hotel            Hotel                   @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  status           SupplierChangeSetStatus @default(DRAFT)
+  /// Incremented each time the draft's cells are replaced. Submit names the version the supplier reviewed.
+  version          Int                     @default(1)
+  cellCount        Int                     @map("cell_count")
+  /// SHA-256 over the canonical cells, so a reviewer can tell the set is what was submitted.
+  contentSha256    String                  @map("content_sha256") @db.Char(64)
+  createdByUserId  String                  @map("created_by_user_id")
+  submittedAt      DateTime?               @map("submitted_at")
+  submittedByUserId String?                @map("submitted_by_user_id")
+  decidedAt        DateTime?               @map("decided_at")
+  decidedByUserId  String?                 @map("decided_by_user_id")
+  decisionReason   String?                 @map("decision_reason") @db.VarChar(500)
+  appliedAt        DateTime?               @map("applied_at")
+  failureCode      String?                 @map("failure_code") @db.VarChar(64)
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  cells  SupplierChangeSetCell[]
+  events SupplierChangeSetEvent[]
+
+  @@unique([tenantId, supplierId, id])
+  @@index([tenantId, supplierId, status, createdAt])
+  @@index([tenantId, status, submittedAt])
+  @@map("supplier_change_sets")
+}
+
+model SupplierChangeSetCell {
+  id               String            @id @default(cuid())
+  tenantId         String            @map("tenant_id")
+  supplierId       String            @map("supplier_id")
+  changeSetId      String            @map("change_set_id")
+  changeSet        SupplierChangeSet @relation(fields: [tenantId, supplierId, changeSetId], references: [tenantId, supplierId, id], onDelete: Cascade)
+  ratePlanId       String            @map("rate_plan_id")
+  ratePlan         RatePlan          @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
+  stayDate         DateTime          @map("stay_date") @db.Date
+  allotment        Int
+  stopSell         Boolean           @map("stop_sell")
+  minStay          Int               @map("min_stay")
+  releaseDays      Int?              @map("release_days")
+  /// The cell's version when the supplier prepared it (null: a new cell). Apply fails the whole set if the cell changed since.
+  expectedUpdatedAt DateTime?        @map("expected_updated_at")
+
+  @@unique([changeSetId, ratePlanId, stayDate])
+  @@index([tenantId, supplierId, changeSetId])
+  @@map("supplier_change_set_cells")
+}
+
+/// Append-only history of a change set (database trigger rejects UPDATE and DELETE).
+model SupplierChangeSetEvent {
+  id                 String            @id @default(cuid())
+  tenantId           String            @map("tenant_id")
+  supplierId         String            @map("supplier_id")
+  changeSetId        String            @map("change_set_id")
+  changeSet          SupplierChangeSet @relation(fields: [tenantId, supplierId, changeSetId], references: [tenantId, supplierId, id], onDelete: Cascade)
+  action             String            @db.VarChar(40)
+  fromStatus         SupplierChangeSetStatus? @map("from_status")
+  toStatus           SupplierChangeSetStatus  @map("to_status")
+  actorUserId        String            @map("actor_user_id")
+  requestId          String?           @map("request_id") @db.VarChar(128)
+  idempotencyKey     String?           @map("idempotency_key") @db.VarChar(128)
+  requestFingerprint String?           @map("request_fingerprint") @db.Char(64)
+  /// Facts only: counts, version, hash. Never free text or guest data.
+  payload            Json              @default("{}")
+  createdAt          DateTime          @default(now()) @map("created_at")
+
+  /// One Idempotency-Key names one logical request per supplier organization.
+  @@unique([tenantId, supplierId, idempotencyKey])
+  @@index([tenantId, supplierId, changeSetId, createdAt])
+  @@map("supplier_change_set_events")
+}
+
 enum ContractRateType {
   NET
   COMMISSIONABLE
@@ -2060,6 +2154,7 @@ model RatePlan {
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
   availability DailyAvailability[]
+  supplierChangeSetCells SupplierChangeSetCell[]
   dailyRates   DailyRate[]
   guestPrices  RatePlanGuestPrice[]
   supplements  ContractSupplement[]

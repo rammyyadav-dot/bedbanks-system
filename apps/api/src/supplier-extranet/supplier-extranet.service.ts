@@ -14,6 +14,8 @@ const EXTRANET_PERMISSIONS = [
   'supplier.extranet.contracts.read',
   'supplier.extranet.bookings.read',
   'supplier.extranet.bookings.answer',
+  'supplier.extranet.changes.read',
+  'supplier.extranet.changes.author',
 ] as const
 
 const hotelFields = {
