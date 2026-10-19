@@ -1,7 +1,7 @@
 import { parseMarketRules } from './market-rules'
 import { rulesForPlan } from './cancellation-rules'
 import { effectiveGuestLines, type GuestPriceLine } from './guest-pricing'
-import type { PromotionKind, PromotionRule } from './promotions'
+import type { DiscountBase, PromotionKind, PromotionRule, StayWindowMode } from './promotions'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
 import { supplementsForPlan } from './supplements'
 
@@ -29,7 +29,7 @@ export interface StayPlanInput {
   /** ADR 0058 S10b. Null for a plan that is not derived; otherwise why the derived plan cannot be priced (see `withDerivedRates`). Required so a loader that skipped it cannot sell a derived plan from nothing. */
   derivedProblem: string | null
   /** ADR 0058 S10a promotions. Required: a loader that forgot them would silently sell at full price a plan the hotel discounted. */
-  promotions: Array<{ id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null }>
+  promotions: Array<{ id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null; combinable: boolean; stayWindowMode: string; discountBase: string }>
   /** ADR 0057 S3 allow-lists. Required (any JSON) so a loader that forgot them fails loudly rather than reading as unrestricted. */
   salesMarkets: unknown
   nationalities: unknown
@@ -127,7 +127,7 @@ export function buildStaySnapshot(
     contractCurrency: plan.contract.settlementCurrency,
     guestPrices: effectiveGuestLines(plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })), plan.contract.childPolicies, plan.currency),
     derivedProblem: plan.derivedProblem,
-    promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null })),
+    promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null , combinable: promo.combinable, stayWindowMode: promo.stayWindowMode as StayWindowMode, discountBase: promo.discountBase as DiscountBase})),
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     leadTimeRule: plan.contract.leadTimeRules[0] ? { minLeadHours: plan.contract.leadTimeRules[0].minLeadHours, maxLeadDays: plan.contract.leadTimeRules[0].maxLeadDays } : null,
     minStayMode: plan.contract.minStayMode,

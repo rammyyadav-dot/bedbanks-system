@@ -580,6 +580,16 @@ enum PromotionKind {
 
 /// A promotion on one rate plan (ADR 0058, S10a): a percentage off every night (EARLY_BIRD, LAST_MINUTE, LONG_STAY) or the cheapest nights free
 /// (FREE_NIGHTS), under booking-lead, length-of-stay and date-window conditions. Applied by the one stay evaluator to the nightly net before the markup.
+enum PromotionStayWindowMode {
+  WHOLE_STAY
+  NIGHTS_IN_WINDOW
+}
+
+enum PromotionDiscountBase {
+  ROOM_AND_GUESTS
+  ROOM_ONLY
+}
+
 model RatePlanPromotion {
   id          String        @id @default(cuid())
   tenantId    String        @map("tenant_id")
@@ -597,6 +607,12 @@ model RatePlanPromotion {
   bookTo      DateTime?     @map("book_to") @db.Date
   stayFrom    DateTime?     @map("stay_from") @db.Date
   stayTo      DateTime?     @map("stay_to") @db.Date
+  /// ADR 0067 F-09: may stack with other combinable promotions of the plan.
+  combinable  Boolean       @default(false)
+  /// WHOLE_STAY: every night inside the stay window. NIGHTS_IN_WINDOW: applies to the nights inside it.
+  stayWindowMode PromotionStayWindowMode @default(WHOLE_STAY) @map("stay_window_mode")
+  /// ROOM_ONLY: the extra-guest lines are not discounted.
+  discountBase PromotionDiscountBase @default(ROOM_AND_GUESTS) @map("discount_base")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 

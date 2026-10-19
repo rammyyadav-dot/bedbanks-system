@@ -402,6 +402,23 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }
   })
 
+  it('stacks combinable promotions when that saves more than the best one alone (ADR 0067, F-09)', async () => {
+    const base = { tenantId, ratePlanId, percentBp: null, minLeadDays: null, maxLeadDays: null, minNights: null, freeNights: null, combinable: true }
+    const rows = await prisma.$transaction([
+      prisma.ratePlanPromotion.create({ data: { ...base, kind: 'EARLY_BIRD', name: 'Early bird', nameKey: 'early bird', percentBp: 1000, minLeadDays: 1 } }),
+      prisma.ratePlanPromotion.create({ data: { ...base, kind: 'LONG_STAY', name: 'Long stay', nameKey: 'long stay', percentBp: 500, minNights: 3 } }),
+    ])
+    try {
+      const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
+      const afterEarly = nightMinor - Math.floor((nightMinor * 1000 + 5000) / 10000)
+      const afterBoth = afterEarly - Math.floor((afterEarly * 500 + 5000) / 10000)
+      expect(rate.sellAmountMinor).toBe(afterBoth * nights.length)
+      expect(rate.promotion).toEqual({ name: 'Early bird + Long stay', kind: 'EARLY_BIRD' })
+    } finally {
+      await prisma.ratePlanPromotion.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } })
+    }
+  })
+
   it('excludes pending and rejected mappings', async () => {
     const admin = api(ownerCookie)
     await admin.post(`/api/v1/supply/mappings/hotels/${mappingId}/rooms/${roomMappingId}/reopen`).expect(201)

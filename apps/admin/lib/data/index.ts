@@ -116,7 +116,7 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
+import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, HotelPromotionBulkApplyInput, HotelPromotionBulkApplyResult, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
 export type { CalendarImportPreview } from '@bedbanks/contracts'
 export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
@@ -143,6 +143,7 @@ export const getGuestPrices = (ratePlanId: string) => apiRequest<RatePlanGuestPr
 export const getDerivation = (ratePlanId: string) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId))
 export const replaceDerivation = (ratePlanId: string, input: RatePlanDerivationInput) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const getPromotions = (ratePlanId: string) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId))
+export const bulkApplyPromotion = (hotelId: string, input: HotelPromotionBulkApplyInput) => apiRequest<HotelPromotionBulkApplyResult>(supplyRoutes.hotelPromotionsBulkApply.replace(':hotelId', encodeURIComponent(hotelId)), { method: 'POST', headers: json, body: JSON.stringify(input) })
 export const replacePromotions = (ratePlanId: string, input: RatePlanPromotionsInput) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const replaceGuestPrices = (ratePlanId: string, input: RatePlanGuestPricesInput) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
 export const getActivationApproval = (ratePlanId: string) => apiRequest<RatePlanActivationApproval | null>(planPath(supplyRoutes.ratePlanActivationApproval, ratePlanId))

@@ -188,7 +188,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   }
 
   // Per night: the net before any promotion (rate plus guest lines) and the markup in force for it. The promotion and the markup are applied after the loop.
-  const nightNets: Array<{ net: bigint; bp: number | null } | null> = []
+  const nightNets: Array<{ net: bigint; bp: number | null; base: bigint } | null> = []
   let sawRate = false
   let sawInvalidRate = false
   let sawCurrencyMismatch = false
@@ -215,8 +215,8 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
         // NET sells only under a valid markup rule; anything else stays unsellable (fail closed). Guest lines are added to the nightly net BEFORE the promotion and the markup.
         const bp = night.markupBasisPoints
         if (bp === null || bp === undefined || !Number.isSafeInteger(bp) || bp < 0 || bp > MAX_MARKUP_BASIS_POINTS) sawNet = true
-        else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp }
-      } else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp: null }
+        else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp, base: night.rateAmountMinor }
+      } else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp: null, base: night.rateAmountMinor }
     }
     if (!night.availability) sawMissingAvailability = true
     else {
@@ -268,9 +268,9 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let supplements: NonNullable<StayDecision['supplements']> = []
   const priced = snapshot.nights.length > 0 && nightNets.length === snapshot.nights.length && nightNets.every((entry) => entry !== undefined && entry !== null)
   if (priced) {
-    const entries = nightNets as Array<{ net: bigint; bp: number | null }>
+    const entries = nightNets as Array<{ net: bigint; bp: number | null; base: bigint }>
     let nets = entries.map((entry) => entry.net)
-    const selected = snapshot.promotions.length === 0 ? null : selectPromotion(snapshot.promotions, { today: hotelToday(request.now, snapshot.hotelTimeZone), checkIn: request.checkIn, dates: snapshot.nights.map((night) => night.date) }, nets)
+    const selected = snapshot.promotions.length === 0 ? null : selectPromotion(snapshot.promotions, { today: hotelToday(request.now, snapshot.hotelTimeZone), checkIn: request.checkIn, dates: snapshot.nights.map((night) => night.date) }, nets, entries.map((entry) => entry.base))
     if (selected) { nets = selected.nets; promotion = { ...selected.applied, rooms: request.rooms } }
     const extras = supplementNights(snapshot.supplements, snapshot.nights.map((night) => night.date), { adults: request.adults, children: request.children })
     nets = nets.map((net, i) => net + extras.perNight[i]!)

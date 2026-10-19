@@ -22,8 +22,8 @@ test('an early bird and a free-nights promotion build the API input', () => {
     { ...blankPromotion('FREE_NIGHTS'), name: 'Stay 4 pay 3', minNights: '4', freeNights: '1' },
   ], v)
   assert.deepEqual(r.problems, [])
-  assert.deepEqual(r.input?.promotions[0], { kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1250, minLeadDays: 30, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: '2027-01-01', stayTo: null })
-  assert.deepEqual(r.input?.promotions[1], { kind: 'FREE_NIGHTS', name: 'Stay 4 pay 3', percentBp: null, minLeadDays: null, maxLeadDays: null, minNights: 4, freeNights: 1, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null })
+  assert.deepEqual(r.input?.promotions[0], { kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1250, minLeadDays: 30, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: '2027-01-01', stayTo: null, combinable: false, stayWindowMode: 'WHOLE_STAY', discountBase: 'ROOM_AND_GUESTS' })
+  assert.deepEqual(r.input?.promotions[1], { kind: 'FREE_NIGHTS', name: 'Stay 4 pay 3', percentBp: null, minLeadDays: null, maxLeadDays: null, minNights: 4, freeNights: 1, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null, combinable: false, stayWindowMode: 'WHOLE_STAY', discountBase: 'ROOM_AND_GUESTS' })
   assert.equal(r.input?.expectedUpdatedAt, v)
 })
 
@@ -40,8 +40,15 @@ test('obvious mistakes are reported together and nothing is built', () => {
 })
 
 test('stored promotions round-trip through the editor', () => {
-  const rows = [{ kind: 'LAST_MINUTE' as const, name: 'Late deal', percentBp: 1500, minLeadDays: null, maxLeadDays: 3, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null }]
+  const rows = [{ kind: 'LAST_MINUTE' as const, name: 'Late deal', percentBp: 1500, minLeadDays: null, maxLeadDays: 3, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null, combinable: false, stayWindowMode: 'WHOLE_STAY' as const, discountBase: 'ROOM_AND_GUESTS' as const }]
   const drafts = draftFromPromotions(rows)
   assert.equal(drafts[0]!.percent, '15')
   assert.deepEqual(buildPromotionsInput(drafts, v).input?.promotions, rows)
+})
+
+test('combinable, nights-in-window and room-only round-trip; a partial window needs a stay window (ADR 0067, F-09)', () => {
+  const rows = [{ kind: 'LONG_STAY' as const, name: 'Summer', percentBp: 1000, minLeadDays: null, maxLeadDays: null, minNights: 3, freeNights: null, bookFrom: null, bookTo: null, stayFrom: '2027-06-01', stayTo: '2027-08-31', combinable: true, stayWindowMode: 'NIGHTS_IN_WINDOW' as const, discountBase: 'ROOM_ONLY' as const }]
+  assert.deepEqual(buildPromotionsInput(draftFromPromotions(rows), v).input?.promotions, rows)
+  const open = draftFromPromotions([{ ...rows[0]!, stayFrom: null, stayTo: null }])
+  assert.ok(buildPromotionsInput(open, v).problems.some((p) => p.includes('needs a stay window')))
 })

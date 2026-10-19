@@ -87,7 +87,12 @@ export interface RatePlanPromotion {
   freeNights: number | null
   /** Optional windows, YYYY-MM-DD inclusive: when the booking is made (hotel-local today) and the nights that must all fall inside. */
   bookFrom: string | null; bookTo: string | null; stayFrom: string | null; stayTo: string | null
+  /** ADR 0067 F-09. combinable: may stack with the plan's other combinable promotions. stayWindowMode NIGHTS_IN_WINDOW: only nights inside the stay window are discounted. discountBase ROOM_ONLY: extra-guest lines are not discounted. Omitted on write: false, WHOLE_STAY, ROOM_AND_GUESTS. */
+  combinable?: boolean; stayWindowMode?: 'WHOLE_STAY' | 'NIGHTS_IN_WINDOW'; discountBase?: 'ROOM_AND_GUESTS' | 'ROOM_ONLY'
 }
+/** ADR 0067 F-09: one promotion added to many plans of a hotel, all or nothing. */
+export interface HotelPromotionBulkApplyInput { idempotencyKey: string; ratePlanIds: string[]; promotion: RatePlanPromotion }
+export interface HotelPromotionBulkApplyResult { hotelId: string; promotion: string; ratePlanIds: string[]; applied: number; idempotencyKey: string; replayed: boolean }
 export interface RatePlanPromotions { ratePlanId: string; updatedAt: string; promotions: RatePlanPromotion[] }
 export interface RatePlanPromotionsInput { expectedUpdatedAt: string; promotions: RatePlanPromotion[]; reason?: string }
 /**

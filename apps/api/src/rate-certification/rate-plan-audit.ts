@@ -7,7 +7,7 @@ import { markupMinor } from '@bedbanks/pricing'
 import { assessHotel, contractStateOf, type AssessHotelInput, type AssessPlan, type HotelAssessment, type PlanAssessment } from '../supply/commercial-assessment'
 import { evaluateContractedStay } from '../supply/contracted-sellability'
 import { hotelToday } from '../supply/rate-plan-expiry'
-import { selectPromotion, type PromotionKind, type PromotionRule } from '../supply/promotions'
+import { selectPromotion, type DiscountBase, type PromotionKind, type PromotionRule, type StayWindowMode } from '../supply/promotions'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { codesOutsideContract, parseMarketRules } from '../supply/market-rules'
 import { markupResolverFor, resolveMarkupBasisPoints, type MarkupRuleRow } from '../supply/markup-rules'
@@ -322,7 +322,7 @@ export function simulateStay(input: SimulateInput): Omit<SimulationResult, 'gene
     return rate && basis && rate.amountMinor >= 0n ? rate.amountMinor + extra : null
   })
   const allPriced = gross.every((value) => value !== null)
-  const promoRules: PromotionRule[] = plan.promotions.map((p) => ({ id: p.id, kind: p.kind as PromotionKind, name: p.name, percentBp: p.percentBp, minLeadDays: p.minLeadDays, maxLeadDays: p.maxLeadDays, minNights: p.minNights, freeNights: p.freeNights, bookFrom: p.bookFrom ? dayOf(p.bookFrom) : null, bookTo: p.bookTo ? dayOf(p.bookTo) : null, stayFrom: p.stayFrom ? dayOf(p.stayFrom) : null, stayTo: p.stayTo ? dayOf(p.stayTo) : null }))
+  const promoRules: PromotionRule[] = plan.promotions.map((p) => ({ id: p.id, kind: p.kind as PromotionKind, name: p.name, percentBp: p.percentBp, minLeadDays: p.minLeadDays, maxLeadDays: p.maxLeadDays, minNights: p.minNights, freeNights: p.freeNights, bookFrom: p.bookFrom ? dayOf(p.bookFrom) : null, bookTo: p.bookTo ? dayOf(p.bookTo) : null, stayFrom: p.stayFrom ? dayOf(p.stayFrom) : null, stayTo: p.stayTo ? dayOf(p.stayTo) : null, combinable: p.combinable, stayWindowMode: p.stayWindowMode as StayWindowMode, discountBase: p.discountBase as DiscountBase }))
   const selected = allPriced && input.dates.length > 0 ? selectPromotion(promoRules, { today: hotelToday(input.now, plan.roomType.hotel.timeZone), checkIn: input.checkIn, dates: input.dates }, gross as bigint[]) : null
   let recomputed: bigint | null = 0n
   const nights: SimulatedNight[] = input.dates.map((date, i) => {

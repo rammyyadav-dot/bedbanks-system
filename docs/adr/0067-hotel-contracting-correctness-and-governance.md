@@ -168,3 +168,19 @@ Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns wit
 - **Disclosure.** Agent offers name the included supplements (`supplements[]`, informational: already in the total), and the portal shows them under the rate and at checkout. Admin has a supplements panel on the contract and stages supplements in the policy amendment.
 
 **Not built.** A board supplement does not create a new board offer from another plan; the plan sold on that board carries it. Supplements per child age band are not modelled (PER_CHILD counts every child).
+
+## F-09: Combinable, partial-stay and hotel-wide offers
+
+**Problem.**
+- Exactly one promotion applied, so "early bird combinable with long stay", a standard contract clause, could not be sold.
+- A promotion with a stay window required every night inside it, so a stay crossing into a promotional period got nothing, while hotels discount the nights inside it.
+- A discount always covered the extra-guest lines, which hotels often exclude.
+- A hotel-wide offer meant editing every plan one by one.
+
+**Decision.**
+- **Three new fields.** `RatePlanPromotion` gains `combinable` (default false), `stayWindowMode` (WHOLE_STAY, the default and today's rule, or NIGHTS_IN_WINDOW) and `discountBase` (ROOM_AND_GUESTS, the default, or ROOM_ONLY). Migration `202611200008_promotion_combinable_partial_stay` adds them; a check makes NIGHTS_IN_WINDOW require a stay window. Existing promotions are unchanged.
+- **Stacking.** The best single promotion is computed as before. Separately, every applicable combinable promotion is applied in turn: FREE_NIGHTS first, then by id, each on what the previous left, with a room-only base shrinking by what was already taken. The buyer gets whichever saves more; the single promotion wins a tie. A stack of one is the single promotion. The offer names the stack, for example "Early bird + Long stay".
+- **NIGHTS_IN_WINDOW.** One night inside the window is enough for the promotion to apply, and only those nights are discounted; free nights are chosen among them.
+- **ROOM_ONLY.** Only the room rate of each night is discounted; extra adult and child lines stay full price, and a free night waives the room rate only.
+- **Plan fingerprint.** The plan fingerprint includes the new fields only when they differ from the defaults, so approvals bound to unchanged promotions stay valid.
+- **Hotel-wide offer.** `POST /supply/hotels/:hotelId/promotions/bulk-apply` adds one promotion to 1-100 plans of a hotel in one transaction. Each plan's whole promotion set is validated; any invalid plan (another hotel's, expired, a duplicate name, too many promotions) refuses the request with every problem listed and changes nothing. Every plan version moves, and each plan and the request are audited. An idempotency key replays the first result. Admin offers it as a "Hotel-wide offer" panel on the hotel's Rate plans tab; the plan promotions editor takes the three options.

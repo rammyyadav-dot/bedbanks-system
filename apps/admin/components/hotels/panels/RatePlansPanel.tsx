@@ -10,6 +10,7 @@ import { capabilityBlockedReason, describeRatePlanActionError, readinessFailures
 import { activateRatePlan, cloneRatePlan, getHotelRatePlans, getRatePlanCapabilities, getRatePlanReadiness, suspendRatePlan, type AdminRatePlan } from '@/lib/data'
 import { hotelHref } from '@/lib/hotel-ui'
 import { ActivationApprovalPanel } from './ActivationApprovalPanel'
+import { HotelOfferPanel } from './HotelOfferPanel'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
 const STATUSES = ['DRAFT', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const
@@ -103,6 +104,7 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
               <button type="button" className="admin-btn" disabled={!data.hasMore} onClick={() => setPage(page + 1)}>Next</button>
             </nav>
             <p style={{ color: '#3f565c', fontSize: 11, margin: 0 }}>Activation runs the API's readiness checklist; a plan with any failed check stays in its current state. Per-plan market eligibility is inherited from the contract: there is no separate plan-level distribution setting.</p>
+            {canManage ? <HotelOfferPanel hotelId={hotelId} plans={data.items.filter((plan) => plan.status !== 'EXPIRED')} onApplied={reload} /> : null}
           </>
         )}
       </OpsState>

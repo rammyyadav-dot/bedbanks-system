@@ -612,7 +612,7 @@ export class SupplyService {
     const rows = (await this.effectiveRates(tx, tenantId, plan, new Date(`${asOf}T00:00:00Z`), MAX_APPROVAL_RATE_ROWS + 1)).rows
     if (rows.length > MAX_APPROVAL_RATE_ROWS) throw new BadRequestException({ code: 'RATE_PLAN_TOO_MANY_RATES', message: `Approval covers at most ${MAX_APPROVAL_RATE_ROWS} dated rates; split the plan or end its sale window.` })
     const guestLines = await tx.ratePlanGuestPrice.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, minAge: true, maxAge: true, amountMinor: true, amountBasis: true, currency: true } })
-    const promotions = await tx.ratePlanPromotion.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } })
+    const promotions = await tx.ratePlanPromotion.findMany({ where: { tenantId, ratePlanId: plan.id }, select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true, combinable: true, stayWindowMode: true, discountBase: true } })
     return planFingerprint(plan, rows, asOf, guestLines, promotions)
   }
 
@@ -685,7 +685,7 @@ export class SupplyService {
     await this.check(tenantId, userId, 'supply.rates.read')
     const plan = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { orderBy: [{ nameKey: 'asc' }] } } }))
     if (!plan) throw new NotFoundException('Rate plan not found')
-    return { ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), promotions: plan.promotions.map(row => ({ id: row.id, kind: row.kind, name: row.name, percentBp: row.percentBp, minLeadDays: row.minLeadDays, maxLeadDays: row.maxLeadDays, minNights: row.minNights, freeNights: row.freeNights, bookFrom: dayOf(row.bookFrom), bookTo: dayOf(row.bookTo), stayFrom: dayOf(row.stayFrom), stayTo: dayOf(row.stayTo) })) }
+    return { ratePlanId: plan.id, updatedAt: plan.updatedAt.toISOString(), promotions: plan.promotions.map(row => ({ id: row.id, kind: row.kind, name: row.name, percentBp: row.percentBp, minLeadDays: row.minLeadDays, maxLeadDays: row.maxLeadDays, minNights: row.minNights, freeNights: row.freeNights, bookFrom: dayOf(row.bookFrom), bookTo: dayOf(row.bookTo), stayFrom: dayOf(row.stayFrom), stayTo: dayOf(row.stayTo), combinable: row.combinable, stayWindowMode: row.stayWindowMode, discountBase: row.discountBase })) }
   }
 
   /**
@@ -698,21 +698,67 @@ export class SupplyService {
     if (!expected || Number.isNaN(expected.getTime())) throw new BadRequestException('expectedUpdatedAt is required')
     if (!Array.isArray(input.promotions) || input.promotions.length > 40) throw new BadRequestException('Provide at most 40 promotions')
     const num = (v: unknown) => (v === null || v === undefined ? null : v)
-    const rules = input.promotions.map((raw: any) => ({ kind: raw?.kind, name: typeof raw?.name === 'string' ? raw.name.trim() : raw?.name, percentBp: num(raw?.percentBp), minLeadDays: num(raw?.minLeadDays), maxLeadDays: num(raw?.maxLeadDays), minNights: num(raw?.minNights), freeNights: num(raw?.freeNights), bookFrom: num(raw?.bookFrom), bookTo: num(raw?.bookTo), stayFrom: num(raw?.stayFrom), stayTo: num(raw?.stayTo) }))
+    const rules = input.promotions.map((raw: any) => ({ kind: raw?.kind, name: typeof raw?.name === 'string' ? raw.name.trim() : raw?.name, percentBp: num(raw?.percentBp), minLeadDays: num(raw?.minLeadDays), maxLeadDays: num(raw?.maxLeadDays), minNights: num(raw?.minNights), freeNights: num(raw?.freeNights), bookFrom: num(raw?.bookFrom), bookTo: num(raw?.bookTo), stayFrom: num(raw?.stayFrom), stayTo: num(raw?.stayTo), combinable: raw?.combinable ?? false, stayWindowMode: raw?.stayWindowMode ?? 'WHOLE_STAY', discountBase: raw?.discountBase ?? 'ROOM_AND_GUESTS' }))
     const issues = validatePromotions(rules)
     if (issues.length) throw new BadRequestException({ code: issues[0]!.code, message: issues[0]!.message, details: issues })
     const date = (v: unknown) => (typeof v === 'string' ? new Date(`${v}T00:00:00Z`) : null)
     return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.promotions_replaced', 'rate_plan', requestId, async tx => {
-      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true } } } })
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, updatedAt: true, promotions: { select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true, combinable: true, stayWindowMode: true, discountBase: true } } } })
       if (!plan) throw new NotFoundException('Rate plan not found')
       if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
       await tx.ratePlanPromotion.deleteMany({ where: { tenantId, ratePlanId } })
-      if (rules.length) await tx.ratePlanPromotion.createMany({ data: rules.map((rule: any) => ({ tenantId, ratePlanId, kind: rule.kind, name: rule.name, nameKey: rule.name.toLowerCase(), percentBp: rule.percentBp, minLeadDays: rule.minLeadDays, maxLeadDays: rule.maxLeadDays, minNights: rule.minNights, freeNights: rule.freeNights, bookFrom: date(rule.bookFrom), bookTo: date(rule.bookTo), stayFrom: date(rule.stayFrom), stayTo: date(rule.stayTo) })) })
+      if (rules.length) await tx.ratePlanPromotion.createMany({ data: rules.map((rule: any) => ({ tenantId, ratePlanId, kind: rule.kind, name: rule.name, nameKey: rule.name.toLowerCase(), percentBp: rule.percentBp, minLeadDays: rule.minLeadDays, maxLeadDays: rule.maxLeadDays, minNights: rule.minNights, freeNights: rule.freeNights, bookFrom: date(rule.bookFrom), bookTo: date(rule.bookTo), stayFrom: date(rule.stayFrom), stayTo: date(rule.stayTo), combinable: rule.combinable, stayWindowMode: rule.stayWindowMode, discountBase: rule.discountBase })) })
       await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
-      const shape = (rows: Array<Record<string, unknown>>) => rows.map(r => ({ kind: r.kind as string, name: r.name, percentBp: r.percentBp ?? null, minLeadDays: r.minLeadDays ?? null, maxLeadDays: r.maxLeadDays ?? null, minNights: r.minNights ?? null, freeNights: r.freeNights ?? null, bookFrom: r.bookFrom instanceof Date ? dayOf(r.bookFrom) : r.bookFrom ?? null, bookTo: r.bookTo instanceof Date ? dayOf(r.bookTo) : r.bookTo ?? null, stayFrom: r.stayFrom instanceof Date ? dayOf(r.stayFrom) : r.stayFrom ?? null, stayTo: r.stayTo instanceof Date ? dayOf(r.stayTo) : r.stayTo ?? null })) as Prisma.InputJsonValue
+      const shape = (rows: Array<Record<string, unknown>>) => rows.map(r => ({ kind: r.kind as string, name: r.name, percentBp: r.percentBp ?? null, minLeadDays: r.minLeadDays ?? null, maxLeadDays: r.maxLeadDays ?? null, minNights: r.minNights ?? null, freeNights: r.freeNights ?? null, bookFrom: r.bookFrom instanceof Date ? dayOf(r.bookFrom) : r.bookFrom ?? null, bookTo: r.bookTo instanceof Date ? dayOf(r.bookTo) : r.bookTo ?? null, stayFrom: r.stayFrom instanceof Date ? dayOf(r.stayFrom) : r.stayFrom ?? null, stayTo: r.stayTo instanceof Date ? dayOf(r.stayTo) : r.stayTo ?? null, combinable: r.combinable ?? false, stayWindowMode: r.stayWindowMode ?? 'WHOLE_STAY', discountBase: r.discountBase ?? 'ROOM_AND_GUESTS' })) as Prisma.InputJsonValue
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.promotions_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.promotions), after: shape(rules) } } })
       return { id: ratePlanId, value: { ratePlanId } }
     }).then(() => this.promotions(tenantId, userId, ratePlanId))
+  }
+
+  /**
+   * Hotel-wide offer (ADR 0067, F-09): adds one promotion to many plans of a hotel in one atomic, audited write. Each plan's whole promotion set is
+   * validated as `replacePromotions` would; any plan that would be invalid (an EXPIRED plan, a name already used, too many promotions)
+   * refuses the whole request with every problem listed. Every plan version moves, so an approval filed on old terms is voided. An idempotency key
+   * makes a retried request return the first result instead of failing on the now-duplicate name.
+   */
+  async bulkApplyPromotion(tenantId: string, userId: string, hotelId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid bulk promotion request')
+    const key = typeof input.idempotencyKey === 'string' ? input.idempotencyKey.trim() : ''
+    if (key.length < 8 || key.length > 80) throw new BadRequestException({ code: 'PROMOTION_BULK_INVALID', message: 'idempotencyKey is required (8 to 80 characters).' })
+    const ids = Array.isArray(input.ratePlanIds) ? [...new Set(input.ratePlanIds.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0))] as string[] : []
+    if (ids.length < 1 || ids.length > 100 || ids.length !== input.ratePlanIds.length) throw new BadRequestException({ code: 'PROMOTION_BULK_INVALID', message: 'ratePlanIds: 1 to 100 distinct rate plan ids.' })
+    const raw = input.promotion ?? {}
+    const num = (v: unknown) => (v === null || v === undefined ? null : v)
+    const rule = { kind: raw.kind, name: typeof raw.name === 'string' ? raw.name.trim() : raw.name, percentBp: num(raw.percentBp), minLeadDays: num(raw.minLeadDays), maxLeadDays: num(raw.maxLeadDays), minNights: num(raw.minNights), freeNights: num(raw.freeNights), bookFrom: num(raw.bookFrom), bookTo: num(raw.bookTo), stayFrom: num(raw.stayFrom), stayTo: num(raw.stayTo), combinable: raw.combinable ?? false, stayWindowMode: raw.stayWindowMode ?? 'WHOLE_STAY', discountBase: raw.discountBase ?? 'ROOM_AND_GUESTS' }
+    const own = validatePromotions([rule])
+    if (own.length) throw new BadRequestException({ code: own[0]!.code, message: own[0]!.message, details: own })
+    const date = (v: unknown) => (typeof v === 'string' ? new Date(`${v}T00:00:00Z`) : null)
+    const ACTION = 'supply.rate_plan.promotions_bulk_applied'
+    return this.write(tenantId, userId, 'supply.rates.manage', ACTION, 'hotel', requestId, async tx => {
+      const hotel = await tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { id: true } })
+      if (!hotel) throw new NotFoundException('Hotel not found')
+      const prior = await tx.auditEvent.findFirst({ where: { tenantId, action: 'supply.rate_plan.promotion_bulk_result', entityId: hotel.id, payload: { path: ['idempotencyKey'], equals: key } }, select: { payload: true } })
+      if (prior) return { id: hotel.id, value: { ...(prior.payload as Record<string, unknown>), replayed: true } }
+      const plans = await tx.ratePlan.findMany({ where: { tenantId, id: { in: ids }, roomType: { hotelId: hotel.id } }, select: { id: true, code: true, status: true, updatedAt: true, promotions: { select: { kind: true, name: true, percentBp: true, minLeadDays: true, maxLeadDays: true, minNights: true, freeNights: true, bookFrom: true, bookTo: true, stayFrom: true, stayTo: true, combinable: true, stayWindowMode: true, discountBase: true } } } })
+      const problems: string[] = []
+      for (const id of ids) if (!plans.some((p) => p.id === id)) problems.push(`${id}: not a rate plan of this hotel.`)
+      for (const plan of plans) {
+        if (plan.status === 'EXPIRED') problems.push(`${plan.code}: the plan has expired.`)
+        const day = (d: Date | null) => (d ? dayOf(d) : null)
+        const set = [...plan.promotions.map((p) => ({ ...p, bookFrom: day(p.bookFrom), bookTo: day(p.bookTo), stayFrom: day(p.stayFrom), stayTo: day(p.stayTo) })), rule]
+        for (const issue of validatePromotions(set)) problems.push(`${plan.code}: ${issue.message}`)
+      }
+      if (problems.length) throw new BadRequestException({ code: 'PROMOTION_BULK_REFUSED', message: `The promotion cannot be added to ${new Set(problems.map((p) => p.split(':')[0])).size} plan(s); nothing was changed.`, details: problems })
+      for (const plan of plans.sort((a, b) => a.id.localeCompare(b.id))) {
+        await tx.ratePlanPromotion.create({ data: { tenantId, ratePlanId: plan.id, kind: rule.kind, name: rule.name, nameKey: rule.name.toLowerCase(), percentBp: rule.percentBp as number | null, minLeadDays: rule.minLeadDays as number | null, maxLeadDays: rule.maxLeadDays as number | null, minNights: rule.minNights as number | null, freeNights: rule.freeNights as number | null, bookFrom: date(rule.bookFrom), bookTo: date(rule.bookTo), stayFrom: date(rule.stayFrom), stayTo: date(rule.stayTo), combinable: rule.combinable, stayWindowMode: rule.stayWindowMode, discountBase: rule.discountBase } })
+        const moved = await tx.ratePlan.updateMany({ where: { id: plan.id, tenantId, updatedAt: plan.updatedAt }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+        if (moved.count !== 1) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: `Rate plan ${plan.code} changed while the promotion was applied. Nothing was changed; retry.` })
+        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.promotions_changed', entityType: 'rate_plan', entityId: plan.id, payload: { requestId: requestId ?? null, added: { ...rule }, via: 'bulk', idempotencyKey: key } } })
+      }
+      const result = { hotelId: hotel.id, promotion: rule.name, ratePlanIds: plans.map((p) => p.id).sort(), applied: plans.length, idempotencyKey: key }
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.promotion_bulk_result', entityType: 'hotel', entityId: hotel.id, payload: { ...result, requestId: requestId ?? null } } })
+      return { id: hotel.id, value: { ...result, replayed: false } }
+    })
   }
 
   /** Derivation of a plan and the plans it could derive from (ADR 0058, S10b). `supply.rates.read`; 404 for another tenant's plan. */
