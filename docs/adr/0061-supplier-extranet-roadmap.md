@@ -132,3 +132,62 @@ Remove the route and the permission row by forward migration. Answers already re
 
 Operating note: the permission is granted to no role. An operator assigns it to supplier roles through the normal role-assignment path. The route needs `BOOKING_OPS_DATABASE_URL`; without it the route answers 503 and changes nothing.
 Verification gaps: the e2e suite was run on a local PostgreSQL 16 with a temporary jest configuration that stubs `@nestjs/swagger` (the project expects Node 24; this host had Node 22). The portal form was type-checked and built but not exercised in a browser. Four failures in `security-certification` and `booking-ops-role` also occur on the untouched baseline in that environment and were not investigated.
+
+## Amendment 3 (proposed): supplier change sets for availability and stop-sale (slice 4a), rates deferred (4b)
+
+Status: **Proposed. No code until accepted.** Drafted 2026-10-19 from `main` plus slice 3 (`93f6f64`). Implements decision 3 of this ADR ("suppliers never write commercial data directly").
+
+### What the code does today (verified in source)
+- **Calendar import already exists for staff.** `SupplyService.previewCalendarImport` parses a CSV with `buildCalendarImport` (`supply/calendar-import.ts`), reports row-level errors, and builds rate cells (`amountMinor` as a string, `amountBasis` NET or SELL, `currency`) and availability cells (`allotment`, `stopSell`, `minStay`, `releaseDays`), each carrying `expectedUpdatedAt` for stale-cell detection. Limits: 90,000 bytes, 2,000 lines, 366 cells per review.
+- **Preview and apply share one validator.** `editCalendar(..., preview, requireVersions)` is the single write path. It needs `supply.rates.manage` or `supply.availability.manage`.
+- **The import is not supplier-aware.** It resolves any hotel and any rate plan in the tenant. A supplier must never be able to name another organization's plan.
+- **Rate semantics.** `DailyRate.amountBasis` NET is non-sellable (`NET_RATE_MARKUP_UNAVAILABLE`) until markup governance exists (`docs/authoritative-rate-amount-semantics.md`). Supplier rates are NET by nature.
+- **Pooled plans.** A rate plan may share an `inventoryPoolId`, so editing its availability can change other plans' stock.
+- **Existing supplier draft** is a single note (`SupplierRoomDraft`). There is no versioned submission.
+
+### Decisions to take
+| # | Question | Recommendation |
+|---|---|---|
+| D1 | Scope of the first slice | **4a: availability and stop-sale only** (allotment, stop-sell, min stay, release days). No money. 4b (NET rate lines) follows after 4a is in use. |
+| D2 | How suppliers submit | A **change set**: a versioned, immutable-after-submit batch of cells, validated by the existing import validator, reviewed by fBeds staff, applied through `editCalendar`. |
+| D3 | Who reviews | A new staff permission `supply.supplier-changes.review`, distinct from `supply.availability.manage`, so every availability editor is not automatically a reviewer. Supplier submitter and staff reviewer are different people by construction. |
+| D4 | Risk-reducing changes (closing sales, cutting allotment) | **Reviewed like any other in 4a.** An instant "fast lane" for closing changes reduces oversell risk but is a direct supplier write; it needs its own owner decision and amendment after review-latency data exists. |
+| D5 | Pooled plans | **Refuse cells for plans with an `inventoryPoolId` in 4a** with a clear row error. Pooled stock needs a rule for who may move shared inventory. |
+| D6 | Prerequisite | Cursor pagination on `GET /supplier/extranet/hotels` and `/contracts` first (audit M3). The contracts route caps at 200 contracts and 200 plans, and the author screen needs a plan picker. |
+
+### Proposed model (4a)
+1. **Tables** (tenant-scoped, forced RLS, composite `(tenant_id, supplier_id)` foreign keys, `ON DELETE RESTRICT`):
+   - `SupplierChangeSet`: id, tenant, supplier, hotel, `status` (`DRAFT`, `SUBMITTED`, `APPROVED`, `REJECTED`, `APPLIED`, `FAILED`, `WITHDRAWN`), `version`, `cellCount`, `contentSha256`, author, submitted/decided/applied timestamps and users, a short decision reason.
+   - `SupplierChangeSetCell`: change set, rate plan, stay date, the availability fields, `expectedUpdatedAt`. Rows are frozen once the set leaves `DRAFT` (trigger).
+   - `SupplierChangeSetEvent`: append-only history (trigger), like `BookingEvent`.
+   - Indexes: `(tenant_id, supplier_id, status, created_at)` and `(tenant_id, status, submitted_at)` for the staff queue.
+2. **Supplier routes** (`/supplier/extranet/change-sets`): create draft from CSV or rows, replace draft cells, preview, submit, withdraw, list, detail. Permissions `supplier.extranet.changes.read` and `supplier.extranet.changes.author`. Create, submit and withdraw require an `Idempotency-Key`. Each runs under `withSupplier` and filters tenant and supplier in the query.
+3. **Supplier scoping of the validator.** The shared validator gains an optional allow-list: a hotel must be mapped to the caller's organization (`PENDING` or `MAPPED`), and each plan's contract must have `supplierId` equal to the caller's organization. Anything else is a row error `PLAN_NOT_YOURS`, reported as not found, never as forbidden. This extends the existing code path; it does not fork it.
+4. **Staff routes** (`/admin/operations/supplier-changes`): queue, detail with the validator's preview, approve, reject (reason required), apply. Approve and apply may be one step. Apply calls `editCalendar` with `requireVersions: true` inside one transaction; any stale cell fails the whole set (`FAILED`, reason recorded) and the supplier resubmits. Applied writes are attributed to the reviewing user with the change set id in the audit payload.
+5. **Audit and idempotency.** Every transition writes a `SupplierChangeSetEvent` and an `AuditEvent`. Payloads hold ids, counts, statuses and the content hash, never free-text notes.
+6. **Database privileges.** Per SR-07 migrations grant nothing to runtime roles; the owner-run provisioning grants the API runtime role `SELECT` and `INSERT` on the three tables and column-level `UPDATE` of `status` and `version` only, with a trigger allowing only `DRAFT` to `DRAFT`/`SUBMITTED`/`WITHDRAWN` and `SUBMITTED` to `WITHDRAWN` from that role. The staff apply uses the existing supply credential that `editCalendar` already uses. The extranet role gains no write on `DailyAvailability`, `DailyRate` or `RatePlan`.
+7. **Portal and admin UI.** Portal: a change-set list and an author screen (CSV upload with a row-level error report, then a calendar grid later in slice 5). Admin: a review queue page.
+
+### Slice 4b (rates), recorded now, built later
+- Supplier rate cells are forced to `amountBasis: NET`, integer minor-unit strings, and the plan's currency. A different currency is a row error.
+- A rate change above a configured percentage needs the reviewer's explicit confirmation (the existing `confirmLargeChanges`).
+- Applying NET rates makes nothing sellable by itself; `NET_RATE_MARKUP_UNAVAILABLE` still applies until markup governance is accepted.
+- 4b needs its own acceptance once 4a is in use.
+
+### Risks and open questions
+- **Review load.** Daily availability updates from many hotels could swamp staff. Mitigations are the cell cap, a queue sorted by age, and a later fast lane (D4). Measure before deciding.
+- **Staleness.** A set that waits in review may fail on apply because staff or a connector changed a cell. This is correct but frustrating; the failure message names the stale cells.
+- **Supplier-supplied dates in the past** or beyond the contract term are row errors from the existing validator; confirm it enforces the contract term for supplier input.
+- **Channel-manager feeds (slice 9)** will produce the same change sets from XML; the model is feed-agnostic on purpose.
+
+### Required tests before merge
+Another organization's hotel or plan returns a row error and writes nothing; a pooled plan is refused; frozen cells cannot change after submit (database trigger); idempotent create and submit (replay, key reuse with another body); withdraw only from `DRAFT` or `SUBMITTED`; approve then apply changes exactly the previewed cells; a stale cell fails the whole set and leaves the calendar untouched; a supplier cannot approve or apply, and a staff member without `supply.supplier-changes.review` cannot; the extranet role cannot write `DailyAvailability`, `DailyRate` or `RatePlan` (privilege probe); no guest, price or other-organization data in any supplier response.
+
+### Rollback
+Remove the supplier and staff routes and the permission rows by forward migration; the three tables may remain unused. Availability already applied stays valid and carries the change set id in its audit trail.
+
+### Suggested delivery order
+1. Cursor pagination on hotels and contracts (D6).
+2. Schema, provisioning grants, supplier author/submit routes with shared types.
+3. Supplier-scoped validator allow-list, staff queue and apply.
+4. Portal author screen and admin queue page.
