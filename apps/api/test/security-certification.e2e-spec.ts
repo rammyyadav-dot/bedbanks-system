@@ -161,7 +161,7 @@ describe('Tenant and database security certification', () => {
     t.A = a.id; t.B = b.id
     const keys = [
       'supply.hotels.read', 'supply.hotels.manage', 'supply.suppliers.read', 'supply.suppliers.manage', 'supply.rooms.read',
-      'supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.drafts.manage', 'supplier.extranet.bookings.read', 'supplier.extranet.contracts.read',
+      'supplier.extranet.hotels.read', 'supplier.extranet.rooms.read', 'supplier.extranet.drafts.manage', 'supplier.extranet.bookings.read', 'supplier.extranet.bookings.answer', 'supplier.extranet.contracts.read',
       'hotel.search', 'booking.read', 'audit.read',
     ]
     const permissions = await Promise.all(keys.map((key) => owner.permission.upsert({ where: { key }, update: {}, create: { key, description: key } })))

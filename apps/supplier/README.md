@@ -9,6 +9,10 @@ The Supplier Portal is the supplier-authoring workspace for hotel direct supplie
 
 Both routes intentionally show an honest unavailable state until the authenticated API work in GitHub Issue #57 is delivered. They do not generate mock supplier data and cannot activate supply, publish availability, distribute rates, search, recheck, or confirm bookings.
 
+## Booking answers
+
+A supplier user with `supplier.extranet.bookings.answer` can confirm, put on request, or reject a booking that awaits the supplier (ADR 0061 Amendment 2). Cancellations and "no booking exists" stay with fBeds operators.
+
 ## Supplier permissions
 
 Supplier users may eventually author Draft supplier, hotel, contract, rate-plan and inventory submissions only within their authorised tenant scope. They cannot approve, activate, publish, suspend, expire or administer another supplier's data. The API, RLS and RBAC controls are authoritative; UI controls are not treated as security enforcement.

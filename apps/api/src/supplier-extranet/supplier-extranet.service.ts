@@ -1,7 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import type { ExtranetContractList } from '@bedbanks/contracts'
+import type { ExtranetContractList, ExtranetHotelList } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
+import { decodePageCursor, encodePageCursor } from './supplier-page-cursor'
+import type { PageQueryDto } from './page-query.dto'
 
+const DEFAULT_PAGE = 25
+const PLANS_PER_CONTRACT = 200
 const VISIBLE_MAPPING = ['PENDING', 'MAPPED'] as const
 const EXTRANET_PERMISSIONS = [
   'supplier.extranet.hotels.read',
@@ -9,6 +13,9 @@ const EXTRANET_PERMISSIONS = [
   'supplier.extranet.drafts.manage',
   'supplier.extranet.contracts.read',
   'supplier.extranet.bookings.read',
+  'supplier.extranet.bookings.answer',
+  'supplier.extranet.changes.read',
+  'supplier.extranet.changes.author',
 ] as const
 
 const hotelFields = {
@@ -87,19 +94,29 @@ export class SupplierExtranetService {
     }
   }
 
-  async hotels(tenantId: string, userId: string, supplierId: string) {
+  /** Keyset-paged on (hotel name, hotel id). The cursor carries only those two keys; scope always comes from the authenticated organization. */
+  async hotels(tenantId: string, userId: string, supplierId: string, query: PageQueryDto = {}): Promise<ExtranetHotelList> {
     await this.requirePermission(tenantId, userId, 'supplier.extranet.hotels.read')
+    const limit = query.limit ?? DEFAULT_PAGE
+    const after = query.cursor ? decodePageCursor(query.cursor, 2) : undefined
     const mappings = await this.prisma.withSupplier(tenantId, supplierId, (tx) => tx.supplierHotelMapping.findMany({
-      where: { tenantId, supplierId, status: { in: [...VISIBLE_MAPPING] } },
-      orderBy: { hotel: { name: 'asc' } },
-      select: { status: true, hotel: { select: hotelFields } },
+      where: {
+        tenantId, supplierId, status: { in: [...VISIBLE_MAPPING] },
+        ...(after ? { OR: [{ hotel: { name: { gt: after[0] } } }, { hotel: { name: after[0] }, hotelId: { gt: after[1] } }] } : {}),
+      },
+      orderBy: [{ hotel: { name: 'asc' } }, { hotelId: 'asc' }],
+      take: limit + 1,
+      select: { status: true, hotelId: true, hotel: { select: hotelFields } },
     }))
+    const page = mappings.slice(0, limit)
+    const last = page[page.length - 1]
     return {
-      hotels: mappings.map((mapping) => ({
+      hotels: page.map((mapping) => ({
         ...mapping.hotel,
         countryCode: mapping.hotel.countryCode.trim(),
         mappingStatus: mapping.status,
       })),
+      nextCursor: mappings.length > limit && last ? encodePageCursor([last.hotel.name, last.hotelId]) : null,
     }
   }
 
@@ -149,23 +166,31 @@ export class SupplierExtranetService {
    * Read-only contract and rate-plan summaries for the caller's organization. Scope is the contract's own supplier id plus the
    * tenant; a contract linked to a mapping that is REJECTED is hidden. Amounts are never returned in this slice.
    */
-  async contracts(tenantId: string, userId: string, supplierId: string): Promise<ExtranetContractList> {
+  async contracts(tenantId: string, userId: string, supplierId: string, query: PageQueryDto = {}): Promise<ExtranetContractList> {
     await this.requirePermission(tenantId, userId, 'supplier.extranet.contracts.read')
+    const limit = query.limit ?? DEFAULT_PAGE
+    const after = query.cursor ? decodePageCursor(query.cursor, 3) : undefined
+    const afterFrom = after ? new Date(`${after[0]}T00:00:00.000Z`) : undefined
+    if (after && (Number.isNaN(afterFrom!.getTime()) || afterFrom!.toISOString().slice(0, 10) !== after[0])) throw new BadRequestException('Invalid cursor')
     const rows = await this.prisma.withSupplier(tenantId, supplierId, (tx) => tx.contract.findMany({
       where: {
         tenantId,
         supplierId,
-        OR: [{ supplierHotelMappingId: null }, { supplierHotelMapping: { status: { in: [...VISIBLE_MAPPING] } } }],
+        AND: [
+          { OR: [{ supplierHotelMappingId: null }, { supplierHotelMapping: { status: { in: [...VISIBLE_MAPPING] } } }] },
+          ...(after && afterFrom ? [{ OR: [{ validFrom: { lt: afterFrom } }, { validFrom: afterFrom, code: { gt: after[1] } }, { validFrom: afterFrom, code: after[1], id: { gt: after[2] } }] }] : []),
+        ],
       },
-      orderBy: [{ validFrom: 'desc' }, { code: 'asc' }],
-      take: 200,
+      orderBy: [{ validFrom: 'desc' }, { code: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
       select: {
         id: true, code: true, status: true, validFrom: true, validTo: true, settlementCurrency: true,
         supplierHotelMapping: { select: { hotel: { select: { id: true, name: true } } } },
+        _count: { select: { ratePlans: { where: { tenantId } } } },
         ratePlans: {
           where: { tenantId },
           orderBy: { code: 'asc' },
-          take: 200,
+          take: PLANS_PER_CONTRACT,
           select: {
             id: true, code: true, status: true, refundable: true, occupancy: true, currency: true, validFrom: true, validTo: true,
             roomType: { select: { name: true } },
@@ -174,9 +199,12 @@ export class SupplierExtranetService {
         },
       },
     }))
+    const pageRows = rows.slice(0, limit)
+    const lastRow = pageRows[pageRows.length - 1]
     const day = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : null)
     return {
-      contracts: rows.map((contract) => ({
+      nextCursor: rows.length > limit && lastRow ? encodePageCursor([day(lastRow.validFrom) as string, lastRow.code, lastRow.id]) : null,
+      contracts: pageRows.map((contract) => ({
         id: contract.id,
         code: contract.code,
         status: contract.status,
@@ -185,6 +213,7 @@ export class SupplierExtranetService {
         validFrom: day(contract.validFrom) as string,
         validTo: day(contract.validTo) as string,
         settlementCurrency: contract.settlementCurrency.trim(),
+        ratePlansTruncated: contract._count.ratePlans > contract.ratePlans.length,
         ratePlans: contract.ratePlans.map((plan) => ({
           id: plan.id,
           code: plan.code,

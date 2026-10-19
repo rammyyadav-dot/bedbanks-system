@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { BookingAnswerForm } from '../../../../components/bookings/BookingAnswerForm'
 import { PageHeader } from '../../../../components/ui/PageHeader'
 import { StatusBadge } from '../../../../components/ui/StatusBadge'
 import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
@@ -16,10 +18,12 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   const { bookingId } = await params
   try {
     const booking = await getBooking(bookingId)
+    const answers = booking.status === 'PENDING_SUPPLIER' ? (['CONFIRMED', 'ON_REQUEST', 'REJECTED'] as const) : booking.status === 'ON_REQUEST' ? (['CONFIRMED', 'REJECTED'] as const) : []
+    const canAnswer = portal.permissions.includes('supplier.extranet.bookings.answer') && answers.length > 0
     return (
       <div className="supplier-page">
         <Link className="back-link" href="/bookings">Back to bookings</Link>
-        <PageHeader eyebrow="Read only" title={booking.reference} description="This page shows the booking as recorded. It cannot confirm, reject or change it, and no supplier is contacted from here." />
+        <PageHeader eyebrow={canAnswer ? 'Awaiting your answer' : 'Booking'} title={booking.reference} description={canAnswer ? 'Review the booking, then confirm it, put it on request or reject it. No other change can be made here.' : 'This page shows the booking as recorded. It cannot be changed from here.'} />
         <section className="panel">
           <div className="form-section">
             <div className="form-grid">
@@ -34,6 +38,11 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
             </div>
           </div>
         </section>
+        {canAnswer && (
+          <section className="panel">
+            <BookingAnswerForm bookingId={booking.id} expectedStatus={booking.status} idempotencyKey={randomUUID()} answers={[...answers]} />
+          </section>
+        )}
         <section className="panel">
           <div className="table-wrap">
             <table className="data-table">

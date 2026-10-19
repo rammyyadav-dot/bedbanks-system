@@ -130,6 +130,18 @@ const READ_WRITE: readonly RuntimeGrant[] = [
     { op: 'UPDATE', service: 'SupplierExtranetService.upsertRoomDraft', endpoints: ['PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft'], reason: 'edit an own draft' },
   ] },
 
+  { table: 'supplier_change_sets', model: 'SupplierChangeSet', read: true, rls: 'forced-tenant', note: 'ADR 0061 Amendment 3: the supplier prepares, submits and withdraws; review and apply columns (decided_*, applied_at, failure_code) are not granted until the staff review step', writes: [
+    { op: 'INSERT', service: 'SupplierChangeSetsService.create', endpoints: ['POST /supplier/extranet/change-sets'], reason: 'create a draft availability change set' },
+    { op: 'UPDATE', columns: ['status', 'version', 'cell_count', 'content_sha256', 'submitted_at', 'submitted_by_user_id', 'updated_at'], service: 'SupplierChangeSetsService.replace, submit, withdraw', endpoints: ['PUT /supplier/extranet/change-sets/:changeSetId', 'POST /supplier/extranet/change-sets/:changeSetId/submit', 'POST /supplier/extranet/change-sets/:changeSetId/withdraw'], reason: 'replace a draft, submit it, or withdraw it (status edges are enforced by a database trigger)' },
+  ] },
+  { table: 'supplier_change_set_cells', model: 'SupplierChangeSetCell', read: true, rls: 'forced-tenant', note: 'cells freeze when the set leaves DRAFT (database trigger); no UPDATE', writes: [
+    { op: 'INSERT', service: 'SupplierChangeSetsService.create, replace', endpoints: ['POST /supplier/extranet/change-sets', 'PUT /supplier/extranet/change-sets/:changeSetId'], reason: 'store the validated cells of a draft' },
+    { op: 'DELETE', service: 'SupplierChangeSetsService.replace', endpoints: ['PUT /supplier/extranet/change-sets/:changeSetId'], reason: 'replace the cells of a draft' },
+  ] },
+  { table: 'supplier_change_set_events', model: 'SupplierChangeSetEvent', read: true, rls: 'forced-tenant', note: 'append-only (database trigger)', writes: [
+    { op: 'INSERT', service: 'SupplierChangeSetsService', endpoints: ['POST /supplier/extranet/change-sets', 'PUT /supplier/extranet/change-sets/:changeSetId', 'POST /supplier/extranet/change-sets/:changeSetId/submit', 'POST /supplier/extranet/change-sets/:changeSetId/withdraw'], reason: 'record every change-set transition' },
+  ] },
+
   { table: 'Agency', model: 'Agency', read: true, rls: 'forced-tenant', note: 'also read by the agency-suspension guard and the distribution lookup (mandatory commercial control)', writes: [
     { op: 'INSERT', service: 'ClientsService.create', endpoints: [`POST ${ADMIN_CLIENTS}/agencies`], reason: 'create an agency' },
     { op: 'UPDATE', service: 'ClientsService.update; AgencySuspensionService.execute', endpoints: [`PATCH ${ADMIN_CLIENTS}/agencies/:agencyId`, `POST ${ADMIN_CLIENTS}/agencies/suspension-approvals/:approvalId/execute`], reason: 'edit an agency; apply an approved suspension change' },

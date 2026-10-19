@@ -4,7 +4,7 @@ import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWork
 import { listHotels, SupplierApiError } from '../../../lib/supplier-api'
 import { loadPortal } from '../../../lib/portal'
 
-export default async function HotelsPage() {
+export default async function HotelsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const portal = await loadPortal()
   if (portal.kind !== 'ready') return null
   if (!portal.organization) {
@@ -14,7 +14,9 @@ export default async function HotelsPage() {
     return <SupplyWorkflowUnavailable eyebrow="Portfolio" title="Hotels" description="This membership cannot read hotels." />
   }
   try {
-    const hotels = await listHotels()
+    const raw = (await searchParams).cursor
+    const cursor = typeof raw === 'string' && raw.length > 0 && raw.length <= 700 ? raw : undefined
+    const { hotels, nextCursor } = await listHotels({ cursor, limit: 25 })
     return (
       <div className="supplier-page">
         <PageHeader eyebrow="Mapped hotels" title="Hotels" description="Hotels shown here are mapped to your organization. Adding a hotel, publishing content, and opening inventory are unavailable." />
@@ -23,7 +25,7 @@ export default async function HotelsPage() {
             <table className="data-table"><caption className="sr-only">Mapped hotels</caption>
               <thead><tr><th>Hotel</th><th>Location</th><th>Content status</th><th>Mapping</th></tr></thead>
               <tbody>
-                {hotels.length === 0 && <tr><td colSpan={4}>No mapped hotels.</td></tr>}
+                {hotels.length === 0 && <tr><td colSpan={4}>{cursor ? 'No more hotels.' : 'No mapped hotels.'}</td></tr>}
                 {hotels.map((hotel) => (
                   <tr key={hotel.id}>
                     <td><Link href={`/hotels/${hotel.id}`}>{hotel.name}</Link><small>{hotel.propertyType}</small></td>
@@ -35,6 +37,12 @@ export default async function HotelsPage() {
               </tbody>
             </table>
           </div>
+          {(nextCursor || cursor) && (
+            <p style={{ padding: 16, display: 'flex', gap: 8 }}>
+              {cursor && <Link className="btn" href="/hotels">First page</Link>}
+              {nextCursor && <Link className="btn" href={`/hotels?cursor=${encodeURIComponent(nextCursor)}`}>Next page</Link>}
+            </p>
+          )}
         </section>
       </div>
     )

@@ -119,6 +119,12 @@ export const routes = {
     contracts: '/supplier/extranet/contracts',
     bookings: '/supplier/extranet/bookings',
     booking: '/supplier/extranet/bookings/:bookingId',
+    bookingAnswer: '/supplier/extranet/bookings/:bookingId/answer',
+    changeSets: '/supplier/extranet/change-sets',
+    changeSetPreview: '/supplier/extranet/change-sets/preview',
+    changeSet: '/supplier/extranet/change-sets/:changeSetId',
+    changeSetSubmit: '/supplier/extranet/change-sets/:changeSetId/submit',
+    changeSetWithdraw: '/supplier/extranet/change-sets/:changeSetId/withdraw',
   },
   platformAccess: {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',

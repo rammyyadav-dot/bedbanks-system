@@ -1,9 +1,10 @@
+import Link from 'next/link'
 import { PageHeader } from '../../../components/ui/PageHeader'
 import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 import { listContracts } from '../../../lib/supplier-api'
 import { loadPortal } from '../../../lib/portal'
 
-export default async function ContractsPage() {
+export default async function ContractsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const portal = await loadPortal()
   if (portal.kind !== 'ready') return null
   if (!portal.organization) {
@@ -13,7 +14,9 @@ export default async function ContractsPage() {
     return <SupplyWorkflowUnavailable eyebrow="Portfolio" title="Contracts" description="This membership cannot read contracts." />
   }
   try {
-    const contracts = await listContracts()
+    const raw = (await searchParams).cursor
+    const cursor = typeof raw === 'string' && raw.length > 0 && raw.length <= 700 ? raw : undefined
+    const { contracts, nextCursor } = await listContracts({ cursor, limit: 25 })
     return (
       <div className="supplier-page">
         <PageHeader eyebrow="Read only" title="Contracts and rate plans" description="Contracts held for your organization. Rates, amounts, creating a contract, and activating a plan are unavailable here and nothing on this page can be changed." />
@@ -31,6 +34,7 @@ export default async function ContractsPage() {
                     <td>{contract.status}</td>
                     <td>
                       {contract.ratePlans.length === 0 && 'None'}
+                      {contract.ratePlansTruncated && <small style={{ display: 'block' }}>Showing the first {contract.ratePlans.length} plans only.</small>}
                       {contract.ratePlans.map((plan) => (
                         <small key={plan.id} style={{ display: 'block' }}>
                           {plan.code} · {plan.roomTypeName} · {plan.boardBasis} · {plan.refundable ? 'Refundable' : 'Non-refundable'} · {plan.status}
@@ -42,6 +46,12 @@ export default async function ContractsPage() {
               </tbody>
             </table>
           </div>
+          {(nextCursor || cursor) && (
+            <p style={{ padding: 16, display: 'flex', gap: 8 }}>
+              {cursor && <Link className="btn" href="/contracts">First page</Link>}
+              {nextCursor && <Link className="btn" href={`/contracts?cursor=${encodeURIComponent(nextCursor)}`}>Next page</Link>}
+            </p>
+          )}
         </section>
       </div>
     )
