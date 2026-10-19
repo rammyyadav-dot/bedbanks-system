@@ -154,6 +154,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       <li><Users size={14} aria-hidden="true" />{request.rooms} room{request.rooms === 1 ? '' : 's'} · {request.adults} adult{request.adults === 1 ? '' : 's'}{request.children ? ` + ${request.children} child${request.children === 1 ? '' : 'ren'}` : ''} per room</li>
       <li><Globe size={14} aria-hidden="true" />{guestMarketName(request.nationality)} guests · rate valid for this nationality</li>
       {rate.promotion && <li><Tag size={14} aria-hidden="true" />{rate.promotion.name} · included in the price</li>}
+      {rate.supplements?.map((item) => <li key={item.name}><Tag size={14} aria-hidden="true" />{item.name} · {formatMinorAmount(item.amountMinor, rate.total.currency)} included in the price</li>)}
       {priceIncludesText(rate) && <li><Tag size={14} aria-hidden="true" />{priceIncludesText(rate)}</li>}
       {payAtHotelLines(rate).map((line) => <li key={line} data-pay-at-hotel><Wallet size={14} aria-hidden="true" />Pay at hotel, not included: {line}</li>)}
     </ul>

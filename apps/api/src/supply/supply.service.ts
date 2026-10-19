@@ -28,6 +28,8 @@ import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
 import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived-rates'
 import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
 import { EMPTY_HEADER, GOVERNANCE_KEYS, HEADER_KEYS, cancellationTerm, headerOf, normaliseHeader, termsEditable, type ContractHeader } from './contract-lifecycle'
+import { MAX_SUPPLEMENTS, supplementTerm } from './supplements'
+import { supplementReferenceProblem } from './supplement-references'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
 const date = calendarDate
@@ -360,7 +362,7 @@ export class SupplyService {
   }
   async boardBases(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId, isActive: true }, orderBy: { code: 'asc' } })) }
   async contracts(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); return this.prisma.withTenant(tenantId, tx => tx.contract.findMany({ where: { tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } } }, orderBy: { validFrom: 'desc' } })) }
-  async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true } })); if (!value) throw new NotFoundException('Contract not found'); return value }
+  async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true, supplements: { orderBy: { createdAt: 'asc' } } } })); if (!value) throw new NotFoundException('Contract not found'); return { ...value, supplements: value.supplements.map((p) => ({ ...p, amountMinor: p.amountMinor.toString() })) } }
   async createContract(tenantId: string, userId: string, input: any, requestId?: string) { if (input?.status !== undefined && input.status !== 'DRAFT') throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'A contract is created in DRAFT. Activation needs a second approver (ADR 0067).' }); const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { ...this.contractHeaderData(input, EMPTY_HEADER), ...(await this.contractGovernanceData(tx, tenantId, input)), tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
   async updateContract(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
     // ADR 0067: status moves only through the lifecycle routes (activation needs a second approver); terms of an ACTIVE contract change only by amendment.
@@ -411,6 +413,29 @@ export class SupplyService {
       }
       await tx.cancellationPolicy.delete({ where: { id: rule.id } })
       return { id: rule.id, value: { id: rule.id, deleted: true } }
+    })
+  }
+  /** ADR 0067: a board or compulsory supplement on an editable contract. References are checked inside this tenant and contract. */
+  async createSupplement(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
+    const errors: string[] = []
+    const term = supplementTerm(input, 'supplement', errors)
+    if (!term) throw new BadRequestException({ code: 'CONTRACT_SUPPLEMENT_INVALID', message: 'Invalid supplement', details: errors })
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.supplement.created', 'contract_supplement', requestId, async tx => {
+      const contract = await this.lockEditableContract(tx, tenantId, contractId)
+      if (term.currency !== contract.settlementCurrency) throw new BadRequestException({ code: 'CONTRACT_SUPPLEMENT_INVALID', message: `A supplement is priced in the settlement currency ${contract.settlementCurrency}.`, details: [] })
+      const reference = await supplementReferenceProblem(tx, tenantId, contractId, [term])
+      if (reference) throw new BadRequestException({ code: 'CONTRACT_SUPPLEMENT_INVALID', message: reference, details: [] })
+      if ((await tx.contractSupplement.count({ where: { contractId } })) >= MAX_SUPPLEMENTS) throw new ConflictException({ code: 'CONTRACT_SUPPLEMENT_LIMIT', message: `A contract holds at most ${MAX_SUPPLEMENTS} supplements.` })
+      const value = await tx.contractSupplement.create({ data: { contractId, kind: term.kind, name: term.name, boardBasisId: term.boardBasisId, ratePlanId: term.ratePlanId, basis: term.basis, frequency: term.frequency, amountMinor: BigInt(term.amountMinor), currency: term.currency, stayFrom: term.stayFrom ? new Date(`${term.stayFrom}T00:00:00.000Z`) : null, stayTo: term.stayTo ? new Date(`${term.stayTo}T00:00:00.000Z`) : null } })
+      return { id: value.id, value: { ...value, amountMinor: value.amountMinor.toString() } }
+    })
+  }
+  async deleteSupplement(tenantId: string, userId: string, contractId: string, supplementId: string, requestId?: string) {
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.supplement.deleted', 'contract_supplement', requestId, async tx => {
+      await this.lockEditableContract(tx, tenantId, contractId)
+      const row = await tx.contractSupplement.findFirst({ where: { id: supplementId, contractId } }); if (!row) throw new NotFoundException('Supplement not found')
+      await tx.contractSupplement.delete({ where: { id: row.id } })
+      return { id: row.id, value: { id: row.id, deleted: true } }
     })
   }
   async deleteChildPolicy(tenantId: string, userId: string, contractId: string, policyId: string, requestId?: string) {

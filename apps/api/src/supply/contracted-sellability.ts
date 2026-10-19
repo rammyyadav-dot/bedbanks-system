@@ -4,6 +4,7 @@ import { hotelToday } from './rate-plan-expiry'
 import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } from './promotions'
 import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
+import { supplementNights, type SupplementKind, type SupplementRule } from './supplements'
 /**
  * Shared commercial gates for contracted inventory: the ONE evaluator Agent search, recheck, hold, Admin readiness, the hotel assessment, rate
  * certification and the Sellability Inspector all use (ADR 0067, F-07).
@@ -72,6 +73,8 @@ export interface ContractedStaySnapshot {
   leadTimeRule: { minLeadHours: number; maxLeadDays: number | null } | null
   /** How a night's minimum stay is read (ADR 0067, F-15): STAY_THROUGH applies every night's value, ARRIVAL only the check-in night's. Required. */
   minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  /** Board and compulsory supplements of the contract for this plan (ADR 0067). Empty means none. Required so a caller cannot drop a mandatory charge. */
+  supplements: SupplementRule[]
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -123,6 +126,8 @@ export interface StayDecision {
   minRemaining: number | null
   /** The one promotion that priced this stay (ADR 0058), with its saving on the net across all rooms; null when none applied. */
   promotion?: (AppliedPromotion & { rooms: number }) | null
+  /** Board and compulsory supplements included in the total, each across all rooms (ADR 0067). Absent when none applied. */
+  supplements?: Array<{ name: string; kind: SupplementKind; amountMinor: bigint }>
 }
 
 /** Fresh iff now < freshUntil. No expiry is allowed only for non-supplier sources; supplier data without an expiry is stale. */
@@ -252,16 +257,24 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (sawStale) reasons.push('INVENTORY_STALE')
   if (sawOnRequest) reasons.push('ON_REQUEST_ONLY')
 
+  // ADR 0067: supplements are priced in the plan's currency; anything else is not guessed at.
+  if (snapshot.supplements.some((rule) => rule.currency !== snapshot.ratePlanCurrency)) reasons.push('SUPPLEMENT_CURRENCY_MISMATCH')
+
   // ADR 0058: order is rate + guest lines -> ONE promotion -> markup on the discounted net. Only a fully priced stay is discounted.
+  // ADR 0067: supplements are added after the promotion (never discounted) and before the markup (a NET rate's supplement is marked up with it).
   let perRoom = 0n
   let perRoomNet = 0n
   let promotion: StayDecision['promotion'] = null
+  let supplements: NonNullable<StayDecision['supplements']> = []
   const priced = snapshot.nights.length > 0 && nightNets.length === snapshot.nights.length && nightNets.every((entry) => entry !== undefined && entry !== null)
   if (priced) {
     const entries = nightNets as Array<{ net: bigint; bp: number | null }>
     let nets = entries.map((entry) => entry.net)
     const selected = snapshot.promotions.length === 0 ? null : selectPromotion(snapshot.promotions, { today: hotelToday(request.now, snapshot.hotelTimeZone), checkIn: request.checkIn, dates: snapshot.nights.map((night) => night.date) }, nets)
     if (selected) { nets = selected.nets; promotion = { ...selected.applied, rooms: request.rooms } }
+    const extras = supplementNights(snapshot.supplements, snapshot.nights.map((night) => night.date), { adults: request.adults, children: request.children })
+    nets = nets.map((net, i) => net + extras.perNight[i]!)
+    supplements = extras.applied.map((item) => ({ ...item, amountMinor: item.amountMinor * BigInt(request.rooms) }))
     nets.forEach((net, i) => { perRoomNet += net; perRoom += net + (entries[i]!.bp === null ? 0n : markupMinor(net, entries[i]!.bp!)) })
   }
 
@@ -271,8 +284,9 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const total = perRoom * BigInt(request.rooms)
   const net = perRoomNet * BigInt(request.rooms)
   if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
-  if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion }
-  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion }
+  const included = supplements.length ? { supplements } : {}
+  if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion, ...included }
+  return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion, ...included }
 }
 
 /**

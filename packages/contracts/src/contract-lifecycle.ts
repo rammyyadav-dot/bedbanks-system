@@ -31,14 +31,22 @@ export interface ContractHeaderTerms {
 export const CONTRACT_RATE_TYPES = ['NET', 'COMMISSIONABLE'] as const
 export const CONTRACT_ALLOTMENT_TYPES = ['GUARANTEED', 'NON_GUARANTEED', 'FREE_SALE'] as const
 export const CONTRACT_MIN_STAY_MODES = ['STAY_THROUGH', 'ARRIVAL'] as const
+/** A board or compulsory supplement (ADR 0067). Amounts are minor units as strings; dates are stay nights, inclusive; null is open. */
+export interface ContractSupplementTerm {
+  kind: 'BOARD' | 'COMPULSORY'; name: string; boardBasisId: string | null; ratePlanId: string | null
+  basis: 'PER_ADULT' | 'PER_CHILD' | 'PER_PERSON' | 'PER_ROOM'; frequency: 'PER_NIGHT' | 'PER_STAY'; amountMinor: string; currency: string; stayFrom: string | null; stayTo: string | null
+}
+export const SUPPLEMENT_BASIS_LABELS: Record<ContractSupplementTerm['basis'], string> = { PER_ADULT: 'per adult', PER_CHILD: 'per child', PER_PERSON: 'per person', PER_ROOM: 'per room' }
+export const SUPPLEMENT_FREQUENCY_LABELS: Record<ContractSupplementTerm['frequency'], string> = { PER_NIGHT: 'per night', PER_STAY: 'once per stay' }
 export interface ContractTermsView {
   code: string; supplierId: string; supplierHotelMappingId: string | null; validFrom: string; validTo: string; settlementCurrency: string
   salesMarkets: string[]; nationalities: string[]; paymentPolicyRef: string | null
   cancellationPolicies: ContractCancellationTerm[]; childPolicies: ContractChildTerm[]; leadTimeRule: ContractLeadTimeTerm | null
+  supplements: ContractSupplementTerm[]
   header: ContractHeaderTerms
 }
 /** The terms an amendment may change. Supplier and hotel binding are identity and never amendable. Policy lists replace the whole set. */
-export type ContractAmendmentChanges = Partial<Pick<ContractTermsView, 'code' | 'validFrom' | 'validTo' | 'settlementCurrency' | 'salesMarkets' | 'nationalities' | 'paymentPolicyRef' | 'cancellationPolicies' | 'childPolicies' | 'leadTimeRule'>> & { header?: Partial<ContractHeaderTerms> }
+export type ContractAmendmentChanges = Partial<Pick<ContractTermsView, 'code' | 'validFrom' | 'validTo' | 'settlementCurrency' | 'salesMarkets' | 'nationalities' | 'paymentPolicyRef' | 'cancellationPolicies' | 'childPolicies' | 'leadTimeRule' | 'supplements'>> & { header?: Partial<ContractHeaderTerms> }
 /** As sent to `amendment-request`: header terms are top-level keys of `changes`. */
 export type ContractAmendmentInputChanges = Omit<ContractAmendmentChanges, 'header'> & Partial<ContractHeaderTerms>
 
@@ -82,5 +90,7 @@ export const contractLifecycleRoutes = {
   execute: '/supply/contract-approvals/:approvalId/execute',
   deleteCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/:policyId',
   deleteChildPolicy: '/supply/contracts/:contractId/policies/child/:policyId',
+  supplements: '/supply/contracts/:contractId/supplements',
+  deleteSupplement: '/supply/contracts/:contractId/supplements/:supplementId',
   deleteLeadTimeRule: '/supply/contracts/:contractId/policies/lead-time',
 } as const

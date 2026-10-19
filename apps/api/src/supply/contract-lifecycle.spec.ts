@@ -8,7 +8,7 @@ const terms = (over: Partial<ContractTerms> = {}): ContractTerms => ({
   salesMarkets: [], nationalities: [], paymentPolicyRef: null,
   cancellationPolicies: [{ policySet: null, kind: 'CANCELLATION' as const, daysBeforeCheckin: 3, penaltyPercent: 100, penaltyMinor: null, penaltyNights: null, currency: null }],
   childPolicies: [{ minAge: 0, maxAge: 5, extraBedAllowed: false, supplementMinor: '0', currency: 'AED' }],
-  leadTimeRule: null, header: EMPTY_HEADER, ...over,
+  leadTimeRule: null, supplements: [], header: EMPTY_HEADER, ...over,
 })
 const plan = (over: Partial<PlanFacts> = {}): PlanFacts => ({ code: 'P1', status: 'DRAFT', currency: 'AED', refundable: true, cancellationPolicySet: null, validFrom: null, validTo: null, ...over })
 const facts = (over: Partial<Parameters<typeof assessContractActivation>[0]> = {}) => ({ today: '2026-10-17', status: 'REVIEW', terms: terms(), supplierStatus: 'ACTIVE', mappingStatus: 'MAPPED', plans: [plan()], ...over })
@@ -65,6 +65,12 @@ describe('contract lifecycle (ADR 0067, F-01)', () => {
     expect(normaliseAmendment({ cancellationPolicies: [{ daysBeforeCheckin: 3, penaltyNights: 31 }] }).errors.join(' ')).toMatch(/1 to 30/)
     expect(normaliseAmendment({ clientBufferDays: 2 }).changes).toEqual({ header: { clientBufferDays: 2 } })
     expect(normaliseAmendment({ clientBufferDays: 31 }).errors.join(' ')).toMatch(/clientBufferDays/)
+    // ADR 0067 supplements: amended as a whole replacement set, validated per item, and in the settlement currency.
+    const gala = { kind: 'COMPULSORY', name: 'Gala', basis: 'PER_PERSON', frequency: 'PER_STAY', amountMinor: '25000', currency: 'AED', stayFrom: '2026-12-31', stayTo: '2026-12-31' }
+    expect(normaliseAmendment({ supplements: [gala] }).changes).toEqual({ supplements: [{ ...gala, boardBasisId: null, ratePlanId: null }] })
+    expect(normaliseAmendment({ supplements: [{ ...gala, kind: 'BOARD' }] }).errors.join(' ')).toMatch(/names the board/)
+    expect(amendmentProblems(terms(), applyAmendment(terms(), normaliseAmendment({ supplements: [{ ...gala, currency: 'USD' }] }).changes!), [])).toContain('A supplement is in USD, not the settlement currency AED.')
+    expect(termsFingerprint(terms())).not.toBe(termsFingerprint(applyAmendment(terms(), normaliseAmendment({ supplements: [gala] }).changes!)))
     expect(normaliseAmendment({ childPolicies: [{ minAge: 0, maxAge: 5 }, { minAge: 5, maxAge: 11 }] }).errors[0]).toMatch(/overlap/)
     expect(normaliseAmendment({ leadTimeRule: { minLeadHours: 48, maxLeadDays: 365 } }).changes).toEqual({ leadTimeRule: { minLeadHours: 48, maxLeadDays: 365 } })
   })

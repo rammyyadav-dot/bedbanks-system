@@ -147,3 +147,24 @@ Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns wit
 - **Derived plans.** A derived plan derives every occupancy of its parent.
 
 **Not built.** The hotel calendar grid shows the plan's own occupancy only; other occupancies are visible through import and export and the inspector. Activation still requires rates for the plan's own occupancy, which stays the base the plan is certified on.
+
+## Board and compulsory supplements
+
+**Problem.** Contracts state supplements on top of the room rate: half board at so much per adult per night on a bed-and-breakfast rate, or compulsory gala dinners on 24 and 31 December. There was nowhere to record them. Operators baked them into nightly rates by hand, or left them out, and a compulsory charge went missing from the price.
+
+**Decision.**
+- **Table.** `ContractSupplement` holds:
+  - `kind`: BOARD, which names the board it prices, or COMPULSORY.
+  - A name, and an optional rate plan of the contract.
+  - `basis`: per adult, per child, per person or per room. `frequency`: per night or once per stay.
+  - An amount in integer minor units in the settlement currency, and an optional window of stay nights.
+
+  Migration `202611200007_contract_supplements` adds it with checks and forced RLS through the owning contract. The API database role reads it, and writes stay on the privileged supply-authoring path.
+- **Reviewed terms.** Supplements are part of the fingerprint. They are authored while the terms are editable (`POST/DELETE /supply/contracts/:id/supplements`, 400 `CONTRACT_SUPPLEMENT_INVALID`), and on an ACTIVE contract they change as one replacement set through an approved amendment. A board must be an active board of the tenant and a plan must be on the contract; this is checked when the request is filed and again when it is applied.
+- **Pricing.** The shared stay evaluator takes the plan's supplements as a required snapshot field: BOARD supplements of the plan's board plus every COMPULSORY one, each optionally limited to the plan. It adds them per room after the promotion (never discounted) and before the markup (a NET rate's supplement is marked up with it).
+  - A per-stay supplement is charged once, on the first stay night in its window.
+  - A supplement whose window misses the stay, or that counts nobody, is not applied.
+  - A supplement in another currency is refused with `SUPPLEMENT_CURRENCY_MISMATCH`.
+- **Disclosure.** Agent offers name the included supplements (`supplements[]`, informational: already in the total), and the portal shows them under the rate and at checkout. Admin has a supplements panel on the contract and stages supplements in the policy amendment.
+
+**Not built.** A board supplement does not create a new board offer from another plan; the plan sold on that board carries it. Supplements per child age band are not modelled (PER_CHILD counts every child).

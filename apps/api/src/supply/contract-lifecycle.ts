@@ -1,3 +1,4 @@
+import { MAX_SUPPLEMENTS, supplementTerm, type SupplementTerm } from './supplements'
 import { createHash } from 'node:crypto'
 import { isValidPolicySetName, rulesForPlan } from './cancellation-rules'
 import { parseMarketList } from './market-rules'
@@ -45,6 +46,8 @@ export interface ContractTerms {
   cancellationPolicies: CancellationTerm[]
   childPolicies: ChildTerm[]
   leadTimeRule: LeadTimeTerm | null
+  /** Board and compulsory supplements (ADR 0067). The list replaces the whole set on amendment. */
+  supplements: SupplementTerm[]
   /** Commercial header (ADR 0067, F-20/F-15). Null means not recorded. */
   header: ContractHeader
 }
@@ -93,6 +96,8 @@ export function normaliseHeader(raw: Record<string, unknown>, current: ContractH
 
 const byCancellation = (a: CancellationTerm, b: CancellationTerm) => (a.policySet ?? '').localeCompare(b.policySet ?? '') || a.kind.localeCompare(b.kind) || (a.penaltyNights ?? -1) - (b.penaltyNights ?? -1) || b.daysBeforeCheckin - a.daysBeforeCheckin || (a.penaltyPercent ?? -1) - (b.penaltyPercent ?? -1) || (a.penaltyMinor ?? '').localeCompare(b.penaltyMinor ?? '')
 const byChild = (a: ChildTerm, b: ChildTerm) => a.minAge - b.minAge || a.maxAge - b.maxAge
+const supplementKey = (p: SupplementTerm) => JSON.stringify([p.kind, p.name, p.boardBasisId, p.ratePlanId, p.basis, p.frequency, p.amountMinor, p.currency, p.stayFrom, p.stayTo])
+const bySupplement = (a: SupplementTerm, b: SupplementTerm) => supplementKey(a).localeCompare(supplementKey(b))
 
 /** Canonical form: policies sorted, lists sorted, so the same terms always give the same fingerprint whatever order the rows came in. */
 export function canonicalTerms(terms: ContractTerms): ContractTerms {
@@ -100,6 +105,7 @@ export function canonicalTerms(terms: ContractTerms): ContractTerms {
     ...terms,
     salesMarkets: [...terms.salesMarkets].sort(), nationalities: [...terms.nationalities].sort(),
     cancellationPolicies: [...terms.cancellationPolicies].sort(byCancellation), childPolicies: [...terms.childPolicies].sort(byChild),
+    supplements: [...terms.supplements].sort(bySupplement),
   }
 }
 
@@ -112,6 +118,7 @@ export function termsFingerprint(terms: ContractTerms): string {
     cancellationPolicies: c.cancellationPolicies.map((p) => [p.policySet, p.kind, p.daysBeforeCheckin, p.penaltyPercent, p.penaltyMinor, p.penaltyNights, p.currency]),
     childPolicies: c.childPolicies.map((p) => [p.minAge, p.maxAge, p.extraBedAllowed, p.supplementMinor, p.currency]),
     leadTimeRule: c.leadTimeRule ? [c.leadTimeRule.minLeadHours, c.leadTimeRule.maxLeadDays] : null,
+    supplements: c.supplements.map(supplementKey),
     header: HEADER_KEYS.map((k) => c.header[k]),
   }
   return createHash('sha256').update(JSON.stringify(ordered)).digest('hex')
@@ -168,7 +175,7 @@ export function assessContractActivation(facts: ContractActivationFacts): Contra
 // ---- amendments -------------------------------------------------------------------------------------------------------------------------
 
 /** What an amendment may change. Supplier and hotel binding are identity: changing them is a new contract, never an amendment. */
-export const AMENDABLE_KEYS = ['code', 'validFrom', 'validTo', 'settlementCurrency', 'salesMarkets', 'nationalities', 'paymentPolicyRef', 'cancellationPolicies', 'childPolicies', 'leadTimeRule', ...HEADER_KEYS] as const
+export const AMENDABLE_KEYS = ['code', 'validFrom', 'validTo', 'settlementCurrency', 'salesMarkets', 'nationalities', 'paymentPolicyRef', 'cancellationPolicies', 'childPolicies', 'leadTimeRule', 'supplements', ...HEADER_KEYS] as const
 export type AmendableKey = (typeof AMENDABLE_KEYS)[number]
 export type ContractAmendment = Partial<Pick<ContractTerms, Exclude<AmendableKey, (typeof HEADER_KEYS)[number]>>> & { header?: Partial<ContractHeader> }
 
@@ -265,6 +272,10 @@ export function normaliseAmendment(input: unknown): { changes?: ContractAmendmen
     errors.push(...fieldErrors.filter((e) => !e.startsWith('commissionBp: a commissionable') && !e.startsWith('commissionBp: only')))
     if (errors.length === before) out.header = Object.fromEntries(headerKeys.map((k) => [k, parsed[k]])) as Partial<ContractHeader>
   }
+  if ('supplements' in raw) {
+    if (!Array.isArray(raw.supplements) || raw.supplements.length > MAX_SUPPLEMENTS) errors.push(`supplements: a list of at most ${MAX_SUPPLEMENTS} supplements (the full replacement set).`)
+    else out.supplements = raw.supplements.map((r, i) => supplementTerm(r, `supplements[${i}]`, errors)).filter((t): t is SupplementTerm => t !== null)
+  }
   if ('leadTimeRule' in raw) {
     const v = raw.leadTimeRule
     if (v === null) out.leadTimeRule = null
@@ -288,6 +299,7 @@ export function amendmentProblems(before: ContractTerms, after: ContractTerms, p
   problems.push(...headerErrors)
   for (const set of duplicateNoShowSets(after.cancellationPolicies)) problems.push(`Cancellation set ${set} has more than one no-show rule.`)
   for (const p of after.cancellationPolicies) if (p.currency !== null && p.currency !== after.settlementCurrency) { problems.push(`A cancellation rule is in ${p.currency}, not the settlement currency ${after.settlementCurrency}.`); break }
+  for (const p of after.supplements) if (p.currency !== after.settlementCurrency) { problems.push(`A supplement is in ${p.currency}, not the settlement currency ${after.settlementCurrency}.`); break }
   for (const p of after.childPolicies) if (p.currency !== null && p.currency !== after.settlementCurrency) { problems.push(`A child band is in ${p.currency}, not the settlement currency ${after.settlementCurrency}.`); break }
   problems.push(...planConflicts(after, plans))
   return problems

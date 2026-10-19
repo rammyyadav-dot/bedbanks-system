@@ -1715,6 +1715,7 @@ model BoardBasis {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  supplements ContractSupplement[]
   ratePlans RatePlan[]
 
   @@unique([tenantId, code])
@@ -1867,6 +1868,7 @@ model Contract {
   childPolicies         ChildPolicy[]
   leadTimeRules         BookingLeadTimeRule[]
   versions              ContractVersion[]
+  supplements           ContractSupplement[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
@@ -1947,6 +1949,7 @@ model RatePlan {
   availability DailyAvailability[]
   dailyRates   DailyRate[]
   guestPrices  RatePlanGuestPrice[]
+  supplements  ContractSupplement[]
   promotions   RatePlanPromotion[]
 
   @@unique([contractId, code])
@@ -1979,6 +1982,49 @@ model CancellationPolicy {
 
   @@index([contractId])
   @@index([contractId, policySet])
+}
+
+enum SupplementKind {
+  BOARD
+  COMPULSORY
+}
+
+enum SupplementBasis {
+  PER_ADULT
+  PER_CHILD
+  PER_PERSON
+  PER_ROOM
+}
+
+enum SupplementFrequency {
+  PER_NIGHT
+  PER_STAY
+}
+
+/// A charge the contract adds to the room rate (ADR 0067): a BOARD supplement for plans sold on that board (e.g. half board on a BB rate),
+/// or a COMPULSORY one such as a gala dinner. Added after the promotion and before the markup, in the plan's basis. A reviewed contract term.
+model ContractSupplement {
+  id           String              @id @default(cuid())
+  contractId   String              @map("contract_id")
+  contract     Contract            @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  kind         SupplementKind
+  name         String              @db.VarChar(80)
+  /// BOARD: the board the supplement prices. Required for BOARD, absent for COMPULSORY.
+  boardBasisId String?             @map("board_basis_id")
+  boardBasis   BoardBasis?         @relation(fields: [boardBasisId], references: [id], onDelete: Restrict)
+  /// Optional: only this plan of the contract. Null applies to every plan (of the board, for BOARD).
+  ratePlanId   String?             @map("rate_plan_id")
+  ratePlan     RatePlan?           @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  basis        SupplementBasis
+  frequency    SupplementFrequency
+  amountMinor  BigInt              @map("amount_minor")
+  currency     String              @db.Char(3)
+  /// Stay nights it applies to (inclusive). Null on both sides: every night.
+  stayFrom     DateTime?           @map("stay_from") @db.Date
+  stayTo       DateTime?           @map("stay_to") @db.Date
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@index([contractId])
 }
 
 model ChildPolicy {

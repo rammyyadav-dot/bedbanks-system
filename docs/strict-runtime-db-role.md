@@ -43,6 +43,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `ChildPolicy` | yes | - | - | - | forced tenant | search, recheck and hold price children from the contract child policy (ADR 0067, F-03) |
 | `CommercialMarkupRule` | yes | yes | yes | - | forced tenant | INSERT: CommercialMarkupService.create; POST /admin/commercial/markups; draft a markup rule / UPDATE: CommercialMarkupService.retire/execute; POST /admin/commercial/markups/:ruleId/retire, POST /admin/commercial/markups/approvals/:approvalId/execute; activate or retire a rule (rules are otherwise immutable) |
 | `Contract` | yes | - | - | - | forced tenant | read only |
+| `ContractSupplement` | yes | - | - | - | forced tenant | search, recheck and hold add board and compulsory supplements to the price (ADR 0067) |
 | `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |
 | `DailyAvailability` | yes | - | - | - | forced tenant | read only |
 | `DailyRate` | yes | - | - | - | forced tenant | read only |
@@ -99,6 +100,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
 - `Contract`: supply authoring
+- `ContractSupplement`: supply authoring
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update

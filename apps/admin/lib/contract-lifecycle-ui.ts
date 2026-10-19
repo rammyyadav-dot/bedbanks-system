@@ -54,7 +54,7 @@ const TERM_LABEL: Record<TermKey, string> = {
   rateType: 'Rate type', commissionBp: 'Commission (basis points)', paymentTermsDays: 'Payment terms (days)', signedAt: 'Signed on', signedDocumentRef: 'Signed document',
   allotmentType: 'Allotment type', minStayMode: 'Minimum stay reading', clientBufferDays: 'Client cancellation buffer (days)',
   code: 'Code', validFrom: 'Valid from', validTo: 'Valid to', settlementCurrency: 'Settlement currency', salesMarkets: 'Sales markets', nationalities: 'Nationalities',
-  paymentPolicyRef: 'Payment terms', cancellationPolicies: 'Cancellation rules', childPolicies: 'Child policy', leadTimeRule: 'Booking lead time',
+  paymentPolicyRef: 'Payment terms', cancellationPolicies: 'Cancellation rules', childPolicies: 'Child policy', leadTimeRule: 'Booking lead time', supplements: 'Supplements',
 }
 
 /** One line per changed term, for the approver. Policy sets are summarised by count; the full set is in the request. */

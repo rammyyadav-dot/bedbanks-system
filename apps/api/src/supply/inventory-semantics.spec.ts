@@ -12,11 +12,11 @@ function row(date: string, patch: Partial<Row> = {}): Row {
 }
 function plan(o: { rows?: Row[]; pool?: StayPlanInput['inventoryPool']; poolId?: string | null; releaseDays?: number; releaseTime?: string } = {}): StayPlanInput {
   return {
-    status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: o.releaseDays ?? 0, releaseTimeLocal: o.releaseTime ?? '00:00',
+    id: 'p1', boardBasisId: 'bb', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: o.releaseDays ?? 0, releaseTimeLocal: o.releaseTime ?? '00:00',
     inventoryPoolId: o.poolId ?? null, inventoryPool: o.pool ?? null,
     roomType: { hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
     boardBasis: { isActive: true },
-    contract: { cancellationPolicies: [], leadTimeRules: [], minStayMode: 'STAY_THROUGH', childPolicies: [], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
+    contract: { cancellationPolicies: [], leadTimeRules: [], minStayMode: 'STAY_THROUGH', supplements: [], childPolicies: [], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
     dailyRates: [...DATES, '2026-10-18'].map((d) => ({ stayDate: at(d), amountMinor: 30_000n, currency: 'AED', amountBasis: 'SELL' })),
     availability: o.rows ?? [...DATES, '2026-10-18'].map((d) => row(d)),
   }

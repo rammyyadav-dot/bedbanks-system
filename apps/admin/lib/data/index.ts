@@ -43,7 +43,8 @@ export interface AdminContract {
 export interface CancellationPolicyRecord { id: string; policySet?: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
-export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null }
+export interface SupplementRecord extends Omit<import('@bedbanks/contracts').ContractSupplementTerm, 'stayFrom' | 'stayTo'> { id: string; stayFrom: string | null; stayTo: string | null }
+export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
 export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
@@ -65,6 +66,8 @@ export async function cancelContractApproval(approvalId: string) { return apiReq
 export async function executeContractApproval(approvalId: string) { return apiRequest<ContractApprovalExecuteResult>(withApproval(cl.execute, approvalId), { method: 'POST' }) }
 export async function deleteCancellationPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteCancellationPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
 export async function deleteChildPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteChildPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
+export async function createSupplement(contractId: string, input: import('@bedbanks/contracts').ContractSupplementTerm) { return apiRequest(withContract(cl.supplements, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function deleteSupplement(contractId: string, supplementId: string) { return apiRequest(withContract(cl.deleteSupplement, contractId).replace(':supplementId', encodeURIComponent(supplementId)), { method: 'DELETE' }) }
 export async function deleteLeadTimeRule(contractId: string) { return apiRequest(withContract(cl.deleteLeadTimeRule, contractId), { method: 'DELETE' }) }
 export interface HotelMappingRecord { id: string; supplierId: string; hotelId: string; supplierHotelId: string; status: string }
 export async function getHotelMappings() { return apiRequest<HotelMappingRecord[]>('/supply/mappings/hotels'); }

@@ -3,11 +3,15 @@ import { rulesForPlan } from './cancellation-rules'
 import { effectiveGuestLines, type GuestPriceLine } from './guest-pricing'
 import type { PromotionKind, PromotionRule } from './promotions'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
+import { supplementsForPlan } from './supplements'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
 
 /** Structural shape of a rate plan with the relations the canonical stay evaluator needs. Prisma payloads satisfy it. */
 export interface StayPlanInput {
+  /** ADR 0067: the plan and its board pick the contract supplements that apply. */
+  id: string
+  boardBasisId: string
   status: string
   occupancy: number
   currency: string
@@ -36,7 +40,7 @@ export interface StayPlanInput {
   boardBasis: { isActive: boolean }
   /** ADR 0067 F-02: the contract's booking lead-time rule (zero or one row). Required so a loader that forgot it fails type-check instead of selling inside the cut-off. */
   /** ADR 0067 F-03: the contract child bands, inherited by a plan without CHILD lines of its own. Required for the same reason. */
-  contract: { minStayMode: string; childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
+  contract: { minStayMode: string; supplements: Array<{ kind: string; name: string; boardBasisId: string | null; ratePlanId: string | null; basis: string; frequency: string; amountMinor: bigint; currency: string; stayFrom: Date | null; stayTo: Date | null }>; childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
   dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; releaseDays: number | null; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
@@ -79,6 +83,7 @@ export function buildStaySnapshot(
   if (plan.promotions === undefined) throw new Error('RATE_PLAN_PROMOTIONS_NOT_LOADED')
   if (plan.contract.leadTimeRules === undefined) throw new Error('CONTRACT_LEAD_TIME_NOT_LOADED')
   if (plan.contract.childPolicies === undefined) throw new Error('CONTRACT_CHILD_POLICY_NOT_LOADED')
+  if (plan.contract.supplements === undefined) throw new Error('CONTRACT_SUPPLEMENTS_NOT_LOADED')
   if (plan.contract.minStayMode !== 'STAY_THROUGH' && plan.contract.minStayMode !== 'ARRIVAL') throw new Error('CONTRACT_MIN_STAY_MODE_NOT_LOADED')
   // A loader may bring several occupancies (ADR 0057, S6). ADR 0067 F-05: a plan may be contracted per occupancy (single, double, triple). The
   // party's adult count prices the stay when EVERY night has a rate for it; otherwise the plan's base occupancy does, with guest lines on top
@@ -126,6 +131,7 @@ export function buildStaySnapshot(
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     leadTimeRule: plan.contract.leadTimeRules[0] ? { minLeadHours: plan.contract.leadTimeRules[0].minLeadHours, maxLeadDays: plan.contract.leadTimeRules[0].maxLeadDays } : null,
     minStayMode: plan.contract.minStayMode,
+    supplements: supplementsForPlan({ id: plan.id, boardBasisId: plan.boardBasisId }, plan.contract.supplements),
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),

@@ -4,6 +4,7 @@ import type { ContractApprovalView, ContractLifecycleView, ContractVersionView }
 import { ApprovalService, type ApprovalView } from '../approvals/approval.service'
 import { PrismaService } from '../database/prisma.service'
 import { SupplyService } from './supply.service'
+import { supplementReferenceProblem } from './supplement-references'
 import {
   headerOf, activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
   type ContractAmendment, type ContractLifecycleAction, type ContractTerms, type PlanFacts,
@@ -24,7 +25,7 @@ const todayUtc = (now: Date) => now.toISOString().slice(0, 10)
 const contractInclude = {
   supplier: { select: { id: true, status: true, displayName: true } },
   supplierHotelMapping: { select: { id: true, status: true, hotelId: true } },
-  cancellationPolicies: true, childPolicies: true, leadTimeRules: true,
+  cancellationPolicies: true, childPolicies: true, leadTimeRules: true, supplements: true,
   ratePlans: { select: { code: true, status: true, currency: true, refundable: true, cancellationPolicySet: true, validFrom: true, validTo: true } },
 } as const
 type LoadedContract = Prisma.ContractGetPayload<{ include: typeof contractInclude }>
@@ -39,6 +40,7 @@ export function termsOf(c: LoadedContract): ContractTerms {
     cancellationPolicies: c.cancellationPolicies.map((p) => ({ policySet: p.policySet, kind: p.kind, daysBeforeCheckin: p.daysBeforeCheckin, penaltyPercent: p.penaltyPercent, penaltyMinor: p.penaltyMinor?.toString() ?? null, penaltyNights: p.penaltyNights, currency: p.currency })),
     childPolicies: c.childPolicies.map((p) => ({ minAge: p.minAge, maxAge: p.maxAge, extraBedAllowed: p.extraBedAllowed, supplementMinor: p.supplementMinor?.toString() ?? null, currency: p.currency })),
     leadTimeRule: lead ? { minLeadHours: lead.minLeadHours, maxLeadDays: lead.maxLeadDays } : null,
+    supplements: c.supplements.map((p) => ({ kind: p.kind, name: p.name, boardBasisId: p.boardBasisId, ratePlanId: p.ratePlanId, basis: p.basis, frequency: p.frequency, amountMinor: p.amountMinor.toString(), currency: p.currency, stayFrom: day(p.stayFrom), stayTo: day(p.stayTo) })),
     header: headerOf(c),
   }
 }
@@ -139,6 +141,7 @@ export class ContractApprovalService {
       if (contract.status !== 'ACTIVE') throw new ConflictException({ code: 'CONTRACT_AMENDMENT_NOT_NEEDED', message: `A ${contract.status} contract is edited directly; amendments are for ACTIVE contracts.` })
       const after = applyAmendment(terms, changes!)
       const problems = amendmentProblems(terms, after, plansOf(contract))
+      if (changes!.supplements !== undefined) { const ref = await this.prisma.withTenant(tenantId, (tx) => supplementReferenceProblem(tx, tenantId, contractId, after.supplements)); if (ref) problems.push(ref) }
       if (problems.length) throw new ConflictException({ code: 'CONTRACT_AMENDMENT_CONFLICT', message: problems.join(' '), details: problems })
       afterFingerprint = termsFingerprint(after)
     }
@@ -254,6 +257,11 @@ export class ContractApprovalService {
     if (changes.childPolicies !== undefined) {
       await tx.childPolicy.deleteMany({ where: { contractId: contract.id } })
       if (after.childPolicies.length) await tx.childPolicy.createMany({ data: after.childPolicies.map((p) => ({ contractId: contract.id, minAge: p.minAge, maxAge: p.maxAge, extraBedAllowed: p.extraBedAllowed, supplementMinor: p.supplementMinor === null ? null : BigInt(p.supplementMinor), currency: p.currency })) })
+    }
+    if (changes.supplements !== undefined) {
+      if (await supplementReferenceProblem(tx, contract.tenantId, contract.id, after.supplements)) throw new ConflictException({ code: 'CONTRACT_AMENDMENT_INVALID', message: 'The approved amendment is no longer valid.', details: ['A supplement names a board or rate plan that is not this contract\'s.'] })
+      await tx.contractSupplement.deleteMany({ where: { contractId: contract.id } })
+      if (after.supplements.length) await tx.contractSupplement.createMany({ data: after.supplements.map((p) => ({ contractId: contract.id, kind: p.kind, name: p.name, boardBasisId: p.boardBasisId, ratePlanId: p.ratePlanId, basis: p.basis, frequency: p.frequency, amountMinor: BigInt(p.amountMinor), currency: p.currency, stayFrom: p.stayFrom ? new Date(`${p.stayFrom}T00:00:00.000Z`) : null, stayTo: p.stayTo ? new Date(`${p.stayTo}T00:00:00.000Z`) : null })) })
     }
     if (changes.leadTimeRule !== undefined) {
       if (after.leadTimeRule === null) await tx.bookingLeadTimeRule.deleteMany({ where: { contractId: contract.id } })

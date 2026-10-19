@@ -59,6 +59,18 @@ test('keeps what the price includes and the charges paid at the hotel (ADR 0067,
     assert.deepEqual(validateSearchHotels([broken], criteria), { ok: false, reason: 'mapping_unavailable' })
   }
 })
+test('keeps the supplements included in the price, and refuses malformed ones (ADR 0067)', () => {
+  const sample = hotel()
+  const gala = { name: 'Gala dinner', kind: 'COMPULSORY', amountMinor: 20000 }
+  sample.rooms[0].rates[0].supplements = [{ ...gala, internal: 'x' }]
+  const result = validateSearchHotels([sample], criteria)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.hotels[0].rooms[0].rates[0].supplements, [gala])
+  for (const bad of [{ ...gala, kind: 'OTHER' }, { ...gala, amountMinor: 0 }, { ...gala, name: '' }]) {
+    const broken = hotel(); broken.rooms[0].rates[0].supplements = [bad]
+    assert.deepEqual(validateSearchHotels([broken], criteria), { ok: false, reason: 'mapping_unavailable' })
+  }
+})
 for (const [name, mutate] of [
   ['missing board ID', (h) => { delete h.rooms[0].rates[0].boardBasisId }],
   ['conflicting room ID', (h) => { h.rooms[0].rates[0].roomTypeId = 'room-b' }],

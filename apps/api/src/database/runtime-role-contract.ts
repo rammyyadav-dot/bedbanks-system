@@ -91,6 +91,7 @@ const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant
   { table: 'CancellationPolicy', model: 'CancellationPolicy', rls: 'forced-tenant', note: 'search and recheck include each contract\'s cancellation terms' },
   { table: 'BookingLeadTimeRule', model: 'BookingLeadTimeRule', rls: 'forced-tenant', note: 'search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02)' },
   { table: 'ChildPolicy', model: 'ChildPolicy', rls: 'forced-tenant', note: 'search, recheck and hold price children from the contract child policy (ADR 0067, F-03)' },
+  { table: 'ContractSupplement', model: 'ContractSupplement', rls: 'forced-tenant', note: 'search, recheck and hold add board and compulsory supplements to the price (ADR 0067)' },
   { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
 ]
 
@@ -208,7 +209,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   Hotel: 'DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted',
   BoardBasis: 'supply authoring',
   Supplier: 'supply authoring', Contract: 'supply authoring', ContractVersion: 'supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update', RatePlanGuestPrice: 'supply authoring (guest price lines)', RatePlanPromotion: 'supply authoring (promotions)',
-  DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring',
+  DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring', ContractSupplement: 'supply authoring',
   SupplierHotelMapping: 'mapping governance', SupplierRoomMapping: 'mapping governance',
   InventoryPool: 'pool authoring needs RatePlan and DailyAvailability writes', InventoryPoolDay: 'INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted',
   SupplierMutation: 'booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds',

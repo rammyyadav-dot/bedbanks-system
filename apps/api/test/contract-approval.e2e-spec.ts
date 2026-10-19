@@ -281,6 +281,18 @@ describe('Contract maker-checker and versioning (ADR 0067)', () => {
       expect(expectStatus(await api(maker).post(path, bad), 400).body.error.code).toBe('CANCELLATION_POLICY_INVALID')
     }
     expect(expectStatus(await api(maker).patch(`/supply/contracts/${draft.id}`, { clientBufferDays: 31 }), 400).body.error.code).toBe('CONTRACT_HEADER_INVALID')
+
+    // ADR 0067 supplements: authored on an editable contract, checked against this tenant's boards and this contract's plans.
+    const sup = `/supply/contracts/${draft.id}/supplements`
+    const gala = { kind: 'COMPULSORY', name: 'Gala dinner', basis: 'PER_PERSON', frequency: 'PER_STAY', amountMinor: '25000', currency: 'AED', stayFrom: iso(30), stayTo: iso(30) }
+    const created = expectStatus(await api(maker).post(sup, gala), 201).body.data
+    expect(created).toMatchObject({ kind: 'COMPULSORY', amountMinor: '25000' })
+    for (const bad of [{ ...gala, amountMinor: '0' }, { ...gala, kind: 'BOARD' }, { ...gala, currency: 'USD' }, { ...gala, boardBasisId: 'x' }, { ...gala, kind: 'BOARD', boardBasisId: 'not-a-board' }, { ...gala, stayTo: iso(29) }]) {
+      expect(expectStatus(await api(maker).post(sup, bad), 400).body.error.code).toBe('CONTRACT_SUPPLEMENT_INVALID')
+    }
+    expect((await api(maker).get(`/supply/contracts/${draft.id}`).expect(200)).body.data.supplements).toEqual([expect.objectContaining({ id: created.id, name: 'Gala dinner' })])
+    expectStatus(await api(maker).delete(`${sup}/${created.id}`), 200)
+    expectStatus(await api(maker).post(sup, { ...gala, kind: 'BOARD', boardBasisId: boardId }), 201)
   })
 
   it('history rows are immutable even for the database owner', async () => {

@@ -8,6 +8,7 @@ import { FormField } from '@/components/forms/FormField'
 import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
 import { ContractPolicies } from './ContractPolicies'
+import { ContractSupplements } from './ContractSupplements'
 import { ContractLifecyclePanel } from './ContractLifecyclePanel'
 import { ContractPolicyAmendment } from './ContractPolicyAmendment'
 import { CONTRACT_ALLOTMENT_TYPES, CONTRACT_MIN_STAY_MODES, CONTRACT_RATE_TYPES, type ContractHeaderTerms, type ContractLifecycleView } from '@bedbanks/contracts'
@@ -180,6 +181,7 @@ export function ContractForm({ contractId }: { contractId?: string }) {
           </form>
           {editing && lifecycle ? <ContractLifecyclePanel view={lifecycle} canManage={canManage} onChanged={() => void reload()} /> : null}
           {editing && detail ? <ContractPolicies contract={detail} canManage={canManage} editable={lifecycle?.termsEditable ?? false} onChanged={() => void reload()} /> : null}
+          {editing && detail ? <ContractSupplements contract={detail} canManage={canManage} editable={lifecycle?.termsEditable ?? false} onChanged={() => void reload()} /> : null}
           {editing && detail && lifecycle && amending && canManage && !lifecycle.openRequest ? <ContractPolicyAmendment key={lifecycle.fingerprint} contract={detail} fingerprint={lifecycle.fingerprint} onFiled={() => void reload()} /> : null}
         </>
       )}

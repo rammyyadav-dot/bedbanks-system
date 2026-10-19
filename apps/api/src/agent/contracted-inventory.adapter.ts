@@ -269,6 +269,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             supplier: true,
             cancellationPolicies: true,
             leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
+            supplements: true,
             childPolicies: { select: { minAge: true, maxAge: true, supplementMinor: true, currency: true } },
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
@@ -496,6 +497,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       priceIncludes: { taxes: plan.taxesIncluded, fees: plan.feesIncluded },
       payAtHotel: payAtHotel(plan.roomType.hotel.profile?.localCharges, { nights: nights.length, rooms: criteria.rooms, guests: criteria.adults + criteria.children }),
       ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
+      // ADR 0067: supplements are inside the total; the offer names them so the agent can tell the guest what is included.
+      ...(decision.supplements?.length ? { supplements: decision.supplements.map((item) => ({ name: item.name, kind: item.kind, amountMinor: Number(item.amountMinor) })) } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }
     const latitude = decimalText(plan.roomType.hotel.latitude)
