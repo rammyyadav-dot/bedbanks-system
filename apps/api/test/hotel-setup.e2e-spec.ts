@@ -642,7 +642,8 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     // closed-to-departure is stored but not applied: the night stays sellable
     expect((cal.rows[0].cells as Array<{ date: string; sellable: boolean }>).find((c) => c.date === day(10))!.sellable).toBe(true)
   })
-  const qu = (hotelId: string, verb: 'preview' | 'apply', who: string, body: object) => api('post', `/admin/hotels/${hotelId}/quick-update/${verb}`, who, body)
+  // These cases test Quick Update itself, so their large price moves are confirmed; the guardrail (ADR 0067, F-13) is proven in QU-12.
+  const qu = (hotelId: string, verb: 'preview' | 'apply', who: string, body: object) => api('post', `/admin/hotels/${hotelId}/quick-update/${verb}`, who, verb === 'apply' && !('confirmLargeChanges' in body) ? { ...body, confirmLargeChanges: true } : body)
   const planOf = async (hotelId: string) => (await prisma.ratePlan.findFirstOrThrow({ where: { tenantId: tenantA, roomType: { hotelId } } })).id
   const scope = (planId: string, from: number, to: number, weekdays?: string[]) => ({ ratePlanIds: [planId], ranges: [{ from: day(from), to: day(to) }], ...(weekdays ? { weekdays } : {}) })
   const rateAt = async (planId: string, offset: number) => (await prisma.dailyRate.findUniqueOrThrow({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: planId, stayDate: utc(offset), occupancy: 2 } } }))
@@ -654,7 +655,7 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     const request = { scope: scope(planId, 12, 18), changes: { price: { amount: '450.50', basis: 'SELL' } } }
     const before = await rateAt(planId, 12)
     const preview = (await qu(hotels.sold, 'preview', 'manager', request).expect(200)).body.data
-    expect(preview.counts).toEqual({ records: 7, willChange: 7, unchanged: 0, invalid: 0 }); expect(preview.canApply).toBe(true)
+    expect(preview.counts).toEqual({ records: 7, willChange: 7, unchanged: 0, invalid: 0, largePriceChanges: 7 }); expect(preview.canApply).toBe(true)
     expect(preview.dates).toEqual([12, 13, 14, 15, 16, 17, 18].map(day)); expect(preview.plans[0]).toMatchObject({ id: planId, currency: 'AED', occupancy: 2 })
     expect(preview.rows[0]).toMatchObject({ date: day(12), outcome: 'CHANGE', changes: [{ field: 'price', from: '10000', to: '45050', currency: 'AED' }] })
     expect(preview.unsupported.join(' ')).toMatch(/Lock dates/); expect(preview.unsupported.join(' ')).not.toMatch(/Allotment pools/); expect(preview.unsupported.join(' ')).toMatch(/release deadline/); expect(preview.timeZone).toBe('Asia/Dubai')
@@ -799,6 +800,24 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(before + 1)
     expect((await rateAt(planId, 11)).amountMinor).toBe(33_333n)
   })
+  it('QU-12 a large price move needs an explicit confirmation; seasons and relative adjustments apply through the same preview (ADR 0067, F-13, F-14)', async () => {
+    const planId = await planOf(hotels.sold)
+    const set = { scope: scope(planId, 30, 31, ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']), changes: { price: { amount: '400.00', basis: 'SELL' } } }
+    await apply(hotels.sold, (await qu(hotels.sold, 'preview', 'manager', set).expect(200)).body.data, set).expect(200)
+    const typo = { ...set, changes: { price: { amount: '4000', basis: 'SELL' } } }
+    const preview = (await qu(hotels.sold, 'preview', 'manager', typo).expect(200)).body.data
+    expect(preview.counts.largePriceChanges).toBe(2); expect(preview.rows[0].warnings[0]).toMatch(/\+900%/)
+    const refused = await qu(hotels.sold, 'apply', 'manager', { ...typo, idempotencyKey: key(), expectedFingerprint: preview.fingerprint, reason: 'Typo check', confirmLargeChanges: false }).expect(409)
+    expect(refused.body.error.code).toBe('PRICE_GUARDRAIL_CONFIRMATION_REQUIRED')
+    expect((await rateAt(planId, 30)).amountMinor).toBe(40_000n)
+    const up = { ...set, changes: { price: { adjustPercentBp: 1000 } } }
+    await apply(hotels.sold, (await qu(hotels.sold, 'preview', 'manager', up).expect(200)).body.data, up).expect(200)
+    expect((await rateAt(planId, 31)).amountMinor).toBe(44_000n)
+    const seasons = { ...set, changes: { price: { seasons: [{ from: day(30), to: day(30), amount: '410' }, { from: day(31), to: day(31), amount: '430' }], basis: 'SELL' } } }
+    await apply(hotels.sold, (await qu(hotels.sold, 'preview', 'manager', seasons).expect(200)).body.data, seasons).expect(200)
+    expect([(await rateAt(planId, 30)).amountMinor, (await rateAt(planId, 31)).amountMinor]).toEqual([41_000n, 43_000n])
+  })
+
   it('DR-01 distribution separates catalogue publication from transaction enablement and explains seven-day coverage by date, room, plan and supplier', async () => {
     await buildHotel(tenantA, supplier1, 'cover')
     const id = hotels.cover; const planId = await planOf(id)

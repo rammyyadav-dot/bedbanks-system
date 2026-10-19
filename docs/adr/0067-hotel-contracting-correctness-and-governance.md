@@ -184,3 +184,28 @@ Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns wit
 - **ROOM_ONLY.** Only the room rate of each night is discounted; extra adult and child lines stay full price, and a free night waives the room rate only.
 - **Plan fingerprint.** The plan fingerprint includes the new fields only when they differ from the defaults, so approvals bound to unchanged promotions stay valid.
 - **Hotel-wide offer.** `POST /supply/hotels/:hotelId/promotions/bulk-apply` adds one promotion to 1-100 plans of a hotel in one transaction. Each plan's whole promotion set is validated; any invalid plan (another hotel's, expired, a duplicate name, too many promotions) refuses the request with every problem listed and changes nothing. Every plan version moves, and each plan and the request are audited. An idempotency key replays the first result. Admin offers it as a "Hotel-wide offer" panel on the hotel's Rate plans tab; the plan promotions editor takes the three options.
+
+## F-14: Season loading and relative updates
+
+**Problem.** Quick Update set one price per batch. Loading a contract season by season meant one batch per season, and "+5% from 1 November" meant retyping every rate.
+
+**Decision.** A Quick Update price change is exactly one of four modes, each previewed per night and applied atomically as before:
+- `amount` with a basis: set one price, as today.
+- `seasons`: up to 12 non-overlapping windows, each with its own amount, plus one basis. Every date in scope must fall in a season, otherwise that night is invalid and nothing is written.
+- `adjustPercentBp`: signed basis points (-9000 to 100000) applied to each stored rate, rounded half away from zero.
+- `adjustAmount`: signed major units added to each stored rate.
+
+An adjustment needs a stored rate and keeps its basis. A night without a rate, or with an unverified basis, is reported, never treated as zero. A result of zero or below is refused. Percent adjustments may span currencies; the other modes need one currency. Admin's price panel offers the four modes with season rows.
+
+## F-13: Price-change guardrails
+
+**Problem.** A typo (45 for 450, 4500 for 450) in Quick Update, the rate grid, the rates workbench or a CSV import was written as entered.
+
+**Decision.**
+- `PRICE_GUARDRAIL.maxChangeBp` (5000, that is 50%) defines a large change: one that moves a stored rate by more than that share of its value. A first price is not a change.
+- Quick Update preview flags each such night (`warnings`, `counts.largePriceChanges`). The calendar preview lists them (`largePriceChanges`).
+- Applying needs `confirmLargeChanges: true`; without it the apply is refused with 409 `PRICE_GUARDRAIL_CONFIRMATION_REQUIRED` and nothing is written. The legacy single and bulk rate routes take the same flag.
+- The Quick Update audit records the count and the confirmation.
+- Admin shows the flagged prices and a confirmation checkbox on every apply screen, and keeps Apply disabled until it is ticked.
+
+The threshold is a platform constant for now; a per-tenant setting can replace it without changing the rule.

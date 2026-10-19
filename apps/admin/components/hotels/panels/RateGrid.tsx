@@ -6,6 +6,7 @@ import { dateRange } from '@/lib/dubai-operations'
 import { describeApiError } from '@/lib/api/describe-error'
 import { applyPaste, buildGridEdit, parsePaste, type GridBaseline, type GridPlan } from '@/lib/calendar-tools'
 import { minorToMajorInput } from '@/lib/minor-units'
+import { LargeChangeConfirm } from '@/components/commercial/LargeChangeConfirm'
 import { applyCalendar, getDailyRates, getHotelRatePlans, previewCalendar, type AdminRatePlan } from '@/lib/data'
 import { CalendarReview } from './CalendarReview'
 import { ScrollRegion, td, th, tableStyle } from '../ui'
@@ -26,6 +27,8 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
   const [derivedHidden, setDerivedHidden] = useState(0)
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null)
   const [review, setReview] = useState<{ edit: CalendarEdit; preview: CalendarPreview } | null>(null)
+  const [confirmLarge, setConfirmLarge] = useState(false)
+  const largeWarnings = (review?.preview.largePriceChanges ?? []).map((c) => `${c.stayDate}: ${c.warning}`)
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const dates = useMemo(() => { try { return dateRange(start, days) } catch { return [] } }, [start, days])
   const gridPlans: GridPlan[] = useMemo(() => plans.map((p) => ({ id: p.id, code: p.code, currency: p.currency, occupancy: p.occupancy })), [plans])
@@ -61,12 +64,12 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
   async function runReview() {
     if (!built.edit) return
     setBusy(true); setMessage(null)
-    try { setReview({ edit: built.edit, preview: await previewCalendar(built.edit) }) } catch (e) { setMessage({ kind: 'error', text: describeApiError(e, 'preview the changes') }) } finally { setBusy(false) }
+    try { setConfirmLarge(false); setReview({ edit: built.edit, preview: await previewCalendar(built.edit) }) } catch (e) { setMessage({ kind: 'error', text: describeApiError(e, 'preview the changes') }) } finally { setBusy(false) }
   }
   async function apply() {
     if (!review) return
     setBusy(true); setMessage(null)
-    try { await applyCalendar(review.edit); setMessage({ kind: 'ok', text: `Applied ${review.preview.affectedCells} cell(s) atomically.` }); onApplied(); await load() } catch (e) { setMessage({ kind: 'error', text: describeApiError(e, 'apply the changes') }) } finally { setBusy(false) }
+    try { await applyCalendar({ ...review.edit, ...(confirmLarge ? { confirmLargeChanges: true } : {}) }); setMessage({ kind: 'ok', text: `Applied ${review.preview.affectedCells} cell(s) atomically.` }); onApplied(); await load() } catch (e) { setMessage({ kind: 'error', text: describeApiError(e, 'apply the changes') }) } finally { setBusy(false) }
   }
 
   return (
@@ -110,7 +113,8 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
       {built.problems.length ? <ul aria-label="Problems" style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#a11d1d' }}>{built.problems.slice(0, 8).map((p, i) => <li key={i}>{p.planId ? <code>{planCode(p.planId)}</code> : null} {p.date ?? ''} {p.message}</li>)}{built.problems.length > 8 ? <li>…and {built.problems.length - 8} more</li> : null}</ul> : null}
       <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button type="button" className="admin-btn admin-btn-primary" disabled={busy || !built.edit} onClick={runReview}>{busy && !review ? 'Checking…' : `Review ${built.changed} changed cell${built.changed === 1 ? '' : 's'}`}</button>
-        {review ? <button type="button" className="admin-btn admin-btn-primary" disabled={busy} onClick={apply}>{busy ? 'Applying…' : `Apply ${review.preview.affectedCells} cell(s) atomically`}</button> : null}
+        {review ? <LargeChangeConfirm warnings={largeWarnings} confirmed={confirmLarge} onChange={setConfirmLarge} /> : null}
+        {review ? <button type="button" className="admin-btn admin-btn-primary" disabled={busy || (largeWarnings.length > 0 && !confirmLarge)} onClick={apply}>{busy ? 'Applying…' : `Apply ${review.preview.affectedCells} cell(s) atomically`}</button> : null}
         {Object.keys(edited).length ? <button type="button" className="admin-btn" onClick={() => { setEdited({}); setReview(null) }}>Discard edits</button> : null}
       </span>
       {review ? <CalendarReview preview={review.preview} planCode={planCode} /> : null}

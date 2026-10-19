@@ -10,6 +10,7 @@ import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
 import { dateRange } from '@/lib/dubai-operations'
 import { formatMinorUnits, minorToMajorInput, parseMajorToMinor } from '@/lib/minor-units'
+import { LargeChangeConfirm } from './LargeChangeConfirm'
 import { applyCalendar, previewCalendar, type CalendarEdit, type CalendarPreview, getDailyRates, getInventory, getRatePlans, type AdminAvailabilityRow, type AdminDailyRate, type AdminRatePlan } from '@/lib/data'
 
 interface DayDraft { amount: string; basis: 'SELL' | 'NET'; allotment: string; stopSell: boolean; minStay: string }
@@ -42,6 +43,8 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
   const [bulk, setBulk] = useState({ amount: '', allotment: '' })
   const [saving, setSaving] = useState(false)
   const [review, setReview] = useState<{ input: CalendarEdit; result: CalendarPreview } | null>(null)
+  const [confirmLarge, setConfirmLarge] = useState(false)
+  const largeWarnings = (review?.result.largePriceChanges ?? []).map((c) => `${c.stayDate}: ${c.warning}`)
   const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
 
   const plan = plans.find((candidate) => candidate.id === ratePlanId)
@@ -101,7 +104,7 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
     try {
       const input: CalendarEdit = { ...(rateRows.length ? { rates: rateRows } : {}), ...(availabilityRows.length ? { availability: availabilityRows } : {}) }
       const result = await previewCalendar(input)
-      setReview({ input, result })
+      setConfirmLarge(false); setReview({ input, result })
     } catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'preview changes') }) }
     finally { setSaving(false) }
   }
@@ -110,7 +113,7 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
     if (!review || saving) return
     setSaving(true)
     try {
-      await applyCalendar(review.input)
+      await applyCalendar({ ...review.input, ...(confirmLarge ? { confirmLargeChanges: true } : {}) })
       await loadGrid()
       setReview(null)
       setMessage({ kind: 'ok', text: 'All changes saved together. Values were reloaded from the API.' })
@@ -155,7 +158,8 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
             <div style={{ overflowX: 'auto' }}><table style={{ width: '100%' }}><thead><tr><th>Date</th><th>Type</th><th>Before</th><th>After</th></tr></thead><tbody>
               {review.result.changes.map((change, i) => <tr key={i}><td>{change.stayDate}</td><td>{change.kind}</td><td>{describeCell(change.kind, change.before)}</td><td>{describeCell(change.kind, change.after)}</td></tr>)}
             </tbody></table></div>
-            <button type="button" className="admin-btn admin-btn-primary" disabled={saving} onClick={confirm}>Apply reviewed changes</button>
+            <LargeChangeConfirm warnings={largeWarnings} confirmed={confirmLarge} onChange={setConfirmLarge} />
+            <button type="button" className="admin-btn admin-btn-primary" disabled={saving || (largeWarnings.length > 0 && !confirmLarge)} onClick={confirm}>Apply reviewed changes</button>
             <button type="button" className="admin-btn" disabled={saving} onClick={() => setReview(null)}>Cancel</button>
           </section> : null}
           {plan && loadingGrid ? <LoadingState rows={7} /> : null}

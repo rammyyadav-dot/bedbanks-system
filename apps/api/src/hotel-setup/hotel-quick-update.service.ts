@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
-  QUICK_UPDATE_LIMITS, QUICK_UPDATE_UNSUPPORTED,
+  PRICE_GUARDRAIL, QUICK_UPDATE_LIMITS, QUICK_UPDATE_UNSUPPORTED,
   type QuickUpdateApplied, type QuickUpdateApply, type QuickUpdatePlanRef, type QuickUpdatePreview, type QuickUpdateRequest,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
@@ -149,6 +149,8 @@ export class HotelQuickUpdateService {
       }
       if (loaded.fingerprint !== body.expectedFingerprint) throw new ConflictException({ message: 'The rates or inventory changed after you previewed this update. Nothing was written. Preview again to see the current values.', code: 'QUICK_UPDATE_STALE' })
       if (planned.counts.willChange === 0) throw new ConflictException({ message: 'Nothing would change: every selected record already has these values.', code: 'QUICK_UPDATE_NO_CHANGE' })
+      // ADR 0067 F-13: a large price move is never written without an explicit confirmation of what the preview showed.
+      if ((planned.counts.largePriceChanges ?? 0) > 0 && body.confirmLargeChanges !== true) throw new ConflictException({ message: `${planned.counts.largePriceChanges} price(s) change by more than ${PRICE_GUARDRAIL.maxChangeBp / 100}%. Nothing was written. Review them and confirm large changes to apply.`, code: 'PRICE_GUARDRAIL_CONFIRMATION_REQUIRED' })
 
       const writes = await this.write(tx, tenantId, loaded, planned.rows.filter((r) => r.outcome === 'CHANGE'))
       const after = await this.load(tx, tenantId, hotelId, value)
@@ -156,7 +158,7 @@ export class HotelQuickUpdateService {
       const sample = planned.rows.filter((r) => r.outcome === 'CHANGE').slice(0, 20).map((r) => ({ ratePlanId: r.ratePlanId, date: r.date, changes: r.changes }))
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: APPLIED, entityType: 'hotel', entityId: hotelId, payload: {
         outcome: 'allowed', requestId, idempotencyKey: body.idempotencyKey, reason, ratePlanIds: value.ratePlanIds, ranges: value.ranges, weekdays: value.weekdays, fields,
-        records: planned.counts.records, changedRecords: planned.counts.willChange, changed: writes, fingerprintBefore: loaded.fingerprint, fingerprintAfter: after.fingerprint, sample,
+        records: planned.counts.records, changedRecords: planned.counts.willChange, largePriceChanges: planned.counts.largePriceChanges ?? 0, confirmedLargeChanges: body.confirmLargeChanges === true, changed: writes, fingerprintBefore: loaded.fingerprint, fingerprintAfter: after.fingerprint, sample,
       } as unknown as Prisma.InputJsonValue } })
       // Inventory-specific audit actions (ADR 0030), in the same transaction as the write.
       const inventoryFields = new Set(fields.filter((f) => f !== 'price'))

@@ -10,6 +10,8 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { useCan } from '@/lib/auth/capabilities'
 import { apiErrorParts } from '@/lib/hotel-setup-ui'
 import { formatMinorUnits } from '@/lib/minor-units'
+import { LargeChangeConfirm } from '@/components/commercial/LargeChangeConfirm'
+import { priceChange, type PriceMode, type SeasonRow } from '@/lib/quick-update-price'
 import { getHotelContracts } from '@/lib/data/hotel-commercial'
 import { applyQuickUpdate, previewQuickUpdate } from '@/lib/data/hotel-quick-update'
 import { hotelHref } from '@/lib/hotel-ui'
@@ -37,7 +39,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
   const [ranges, setRanges] = useState([{ from: '', to: '' }])
   const [weekdays, setWeekdays] = useState<QuickUpdateWeekday[]>([])
   const [panels, setPanels] = useState<Panels>({ price: false, availability: false, restrictions: false })
-  const [amount, setAmount] = useState(''); const [basis, setBasis] = useState<'NET' | 'SELL'>('SELL'); const [priceOccupancy, setPriceOccupancy] = useState('')
+  const [amount, setAmount] = useState(''); const [basis, setBasis] = useState<'NET' | 'SELL'>('SELL'); const [priceOccupancy, setPriceOccupancy] = useState(''); const [priceMode, setPriceMode] = useState<PriceMode>('SET'); const [adjust, setAdjust] = useState(''); const [seasons, setSeasons] = useState<SeasonRow[]>([{ from: '', to: '', amount: '' }])
   const [allotment, setAllotment] = useState(''); const [stopSell, setStopSell] = useState<Flag>(''); const [mode, setMode] = useState<'' | InventoryMode>('')
   const [minStay, setMinStay] = useState(''); const [release, setRelease] = useState(''); const [cta, setCta] = useState<Flag>(''); const [ctd, setCtd] = useState<Flag>('')
   const [reason, setReason] = useState('')
@@ -51,13 +53,15 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
 
   function build(): QuickUpdateRequest {
     const changes: QuickUpdateChanges = {}
-    if (panels.price && amount.trim() !== '') changes.price = { amount: amount.trim(), basis, ...(priceOccupancy !== '' ? { occupancy: Number(priceOccupancy) } : {}) }
+    if (panels.price) { const p = priceChange(priceMode, { amount, basis, adjust, seasons, ...(priceOccupancy !== '' ? { occupancy: Number(priceOccupancy) } : {}) }); if (p) changes.price = p }
     if (panels.availability) { const a: NonNullable<QuickUpdateChanges['availability']> = {}; if (allotment.trim() !== '') a.allotment = Number(allotment); if (stopSell) a.stopSell = stopSell; if (mode) a.mode = mode; if (Object.keys(a).length) changes.availability = a }
     if (panels.restrictions) { const r: NonNullable<QuickUpdateChanges['restrictions']> = {}; if (minStay.trim() !== '') r.minStay = Number(minStay); if (release.trim().toLowerCase() === 'plan') r.releaseDays = null; else if (release.trim() !== '') r.releaseDays = Number(release); if (cta) r.closedToArrival = cta; if (ctd) r.closedToDeparture = ctd; if (Object.keys(r).length) changes.restrictions = r }
     return { scope: { ratePlanIds: selected, ranges: ranges.filter((r) => r.from || r.to).map((r) => ({ from: r.from, to: r.to || r.from })), ...(weekdays.length ? { weekdays } : {}) }, changes }
   }
   const request = build(); const requestKey = JSON.stringify(request)
-  const edited = (fn: () => void) => { fn(); applyKey.current = null; setResult(null) }
+  const [confirmLarge, setConfirmLarge] = useState(false)
+  const largeWarnings = (preview?.data.rows ?? []).flatMap((row) => (row.warnings ?? []).map((w) => `${row.date}: ${w}`))
+  const edited = (fn: () => void) => { fn(); applyKey.current = null; setResult(null); setConfirmLarge(false) }
   useUnsavedChanges(result === null && (selected.length > 0 || Object.keys(request.changes).length > 0 || ranges.some(r => r.from || r.to)))
   const previewIsCurrent = preview !== null && preview.key === requestKey
 
@@ -69,10 +73,10 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
     finally { inFlight.current = false; setBusy(null) }
   }
   async function runApply() {
-    if (inFlight.current || !preview || !previewIsCurrent || !preview.data.canApply || reason.trim().length < 3) return
+    if (inFlight.current || !preview || !previewIsCurrent || !preview.data.canApply || reason.trim().length < 3 || (largeWarnings.length > 0 && !confirmLarge)) return
     inFlight.current = true; setBusy('apply'); setError(null); applyKey.current ??= crypto.randomUUID()
     try {
-      const { data: r, requestId } = await applyQuickUpdate(hotelId, { ...request, idempotencyKey: applyKey.current, expectedFingerprint: preview.data.fingerprint, reason: reason.trim() })
+      const { data: r, requestId } = await applyQuickUpdate(hotelId, { ...request, idempotencyKey: applyKey.current, expectedFingerprint: preview.data.fingerprint, reason: reason.trim(), ...(confirmLarge ? { confirmLargeChanges: true } : {}) })
       applyKey.current = null; setPreview(null); setReason(''); onChanged?.()
       setResult({ text: `${r.replayed ? 'Already applied. ' : ''}Applied ${r.records} record${r.records === 1 ? '' : 's'}: ${r.changed.rates} rate${r.changed.rates === 1 ? '' : 's'} and ${r.changed.availabilityRows} inventory row${r.changed.availabilityRows === 1 ? '' : 's'} and ${r.changed.poolDays} pool night${r.changed.poolDays === 1 ? '' : 's'} written.`, requestId: r.auditRequestId || requestId })
     } catch (e) { const p = apiErrorParts(e, 'apply the update'); setError({ message: p.message, details: p.details, requestId: p.requestId }) }
@@ -133,8 +137,11 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
         <p style={note}>Each panel changes nothing until you tick it, and a blank field inside a ticked panel is left unchanged. A blank price is no change, not zero.</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
           {panelBox('price', 'Price', canRates, <>
-            <label style={field}>Amount per night{currencies.length === 1 ? ` (${currencies[0]})` : ''}<input className="input-wrap" inputMode="decimal" value={amount} onChange={(e) => edited(() => setAmount(e.target.value))} placeholder="450.50" /></label>
-            <label style={field}>Amount basis<select className="input-wrap" value={basis} onChange={(e) => edited(() => setBasis(e.target.value as 'NET' | 'SELL'))}><option value="SELL">SELL</option><option value="NET">NET</option></select></label>
+            <label style={field}>How<select className="input-wrap" value={priceMode} onChange={(e) => edited(() => setPriceMode(e.target.value as PriceMode))}><option value="SET">Set one price</option><option value="SEASONS">Load seasons (a price per date window)</option><option value="PERCENT">Adjust stored rates by a percent</option><option value="AMOUNT">Adjust stored rates by an amount</option></select></label>
+            {priceMode === 'SET' ? <label style={field}>Amount per night{currencies.length === 1 ? ` (${currencies[0]})` : ''}<input className="input-wrap" inputMode="decimal" value={amount} onChange={(e) => edited(() => setAmount(e.target.value))} placeholder="450.50" /></label> : null}
+            {priceMode === 'PERCENT' || priceMode === 'AMOUNT' ? <label style={field}>{priceMode === 'PERCENT' ? 'Change (percent, signed)' : `Change per night${currencies.length === 1 ? ` (${currencies[0]})` : ''}, signed`}<input className="input-wrap" value={adjust} onChange={(e) => edited(() => setAdjust(e.target.value))} placeholder={priceMode === 'PERCENT' ? '+5 or -10' : '+25 or -40.50'} /></label> : null}
+            {priceMode === 'SEASONS' ? <div style={{ display: 'grid', gap: 6 }} aria-label="Seasons">{seasons.map((row, i) => <div key={i} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><input type="date" className="input-wrap" aria-label={`Season ${i + 1} from`} value={row.from} onChange={(e) => edited(() => setSeasons((s) => s.map((x, j) => (j === i ? { ...x, from: e.target.value } : x))))} /><input type="date" className="input-wrap" aria-label={`Season ${i + 1} to`} value={row.to} onChange={(e) => edited(() => setSeasons((s) => s.map((x, j) => (j === i ? { ...x, to: e.target.value } : x))))} /><input className="input-wrap" inputMode="decimal" aria-label={`Season ${i + 1} amount`} placeholder="Amount" value={row.amount} onChange={(e) => edited(() => setSeasons((s) => s.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x))))} /></div>)}{seasons.length < QUICK_UPDATE_LIMITS.seasons ? <button type="button" className="admin-btn" onClick={() => edited(() => setSeasons((s) => [...s, { from: '', to: '', amount: '' }]))}>Add season</button> : null}<span style={note}>Every date in scope must fall in one season.</span></div> : null}
+            {priceMode === 'SET' || priceMode === 'SEASONS' ? <label style={field}>Amount basis<select className="input-wrap" value={basis} onChange={(e) => edited(() => setBasis(e.target.value as 'NET' | 'SELL'))}><option value="SELL">SELL</option><option value="NET">NET</option></select></label> : <p style={note}>An adjustment changes each stored rate and keeps its basis; a night without a rate is reported, never set to zero.</p>}
             <label style={field} title="ADR 0067 F-05: price another occupancy of the selected plans, such as single use. A stay uses it only when every night has that rate.">Occupancy priced<select className="input-wrap" value={priceOccupancy} onChange={(e) => edited(() => setPriceOccupancy(e.target.value))}><option value="">Each plan's own</option>{[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={String(n)}>{n} {n === 1 ? 'adult (single)' : 'adults'}</option>)}</select></label>
             <p style={note}>Entered in the plan&apos;s own currency and stored as integer minor units. Applies to each plan&apos;s occupancy.</p>
           </>, 'You need the rates permission to change prices.')}
@@ -180,7 +187,8 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
           <details><summary style={{ cursor: 'pointer', fontSize: 12 }}>What Quick Update does not do</summary><ul style={{ fontSize: 12 }} data-testid="qu-unsupported">{preview.data.unsupported.map((u) => <li key={u}>{u}</li>)}</ul></details>
           <form style={{ display: 'flex', gap: 10, alignItems: 'end', flexWrap: 'wrap' }} onSubmit={(e) => { e.preventDefault(); void runApply() }}>
             <label style={{ ...field, minWidth: 280 }}>Reason (required, recorded in the audit)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { applyKey.current = null; setReason(e.target.value) }} /></label>
-            <button type="submit" className="button primary" data-testid="qu-apply" disabled={busy !== null || !previewIsCurrent || !preview.data.canApply || reason.trim().length < 3}>{busy === 'apply' ? 'Applying…' : 'Apply changes'}</button>
+            <LargeChangeConfirm warnings={largeWarnings} confirmed={confirmLarge} onChange={setConfirmLarge} />
+            <button type="submit" className="button primary" data-testid="qu-apply" disabled={busy !== null || !previewIsCurrent || !preview.data.canApply || reason.trim().length < 3 || (largeWarnings.length > 0 && !confirmLarge)}>{busy === 'apply' ? 'Applying…' : 'Apply changes'}</button>
           </form>
         </section>
       )}

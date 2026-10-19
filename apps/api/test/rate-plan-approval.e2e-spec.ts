@@ -253,7 +253,7 @@ describe('Rate plan four-eye activation (ADR 0057, S5)', () => {
     it('a changed price after approval voids it: the plan stays DRAFT, and a new request supersedes the dead one', async () => {
       const id = await newPlan(true); const a = await filed(id)
       await approve(a.id).then((r) => expectStatus(r, 201))
-      await api(operator).post('/supply/daily-rates/bulk', { rows: [{ ratePlanId: id, stayDate: nights[0], occupancy: 2, amountMinor: '99000', amountBasis: 'SELL', currency: 'AED' }] }).expect(201)
+      await api(operator).post('/supply/daily-rates/bulk', { rows: [{ ratePlanId: id, stayDate: nights[0], occupancy: 2, amountMinor: '99000', amountBasis: 'SELL', currency: 'AED' }], confirmLargeChanges: true }).expect(201)
       const refused = await execute(a.id).then((r) => expectStatus(r, 409))
       expect(refused.body.error.code).toBe('RATE_PLAN_CHANGED_SINCE_APPROVAL')
       expect((await row(id)).status).toBe('DRAFT')

@@ -79,6 +79,33 @@ describe('planQuickUpdate', () => {
     const r = run({ restrictions: { closedToArrival: 'SET' } }, { avail: { 'p1:2026-11-02': A({ stopSell: true, minStay: 3, allotment: 9 }) }, scope: { weekdays: ['MON'] } })
     expect(r.rows).toHaveLength(1); expect(r.rows[0].nextAvail).toEqual({ create: false, allotment: 9, stopSell: true, minStay: 3, closedToArrival: true, closedToDeparture: false, releaseDays: null, mode: 'ALLOTMENT' })
   })
+  it('loads a price per season and refuses a date no season covers (ADR 0067, F-14)', () => {
+    const seasons = [{ from: '2026-11-02', to: '2026-11-04', amount: '400' }, { from: '2026-11-05', to: '2026-11-08', amount: '520.50' }]
+    const r = run({ price: { seasons, basis: 'SELL' } })
+    expect(r.rows.map((x) => [x.date, x.nextRate?.amountMinor])).toEqual([['2026-11-02', 40000n], ['2026-11-03', 40000n], ['2026-11-04', 40000n], ['2026-11-05', 52050n], ['2026-11-06', 52050n], ['2026-11-07', 52050n], ['2026-11-08', 52050n]])
+    const gap = run({ price: { seasons: [seasons[0]], basis: 'SELL' } })
+    expect(gap.rows.filter((x) => x.outcome === 'INVALID').map((x) => x.problems[0])).toEqual(expect.arrayContaining(['no season covers 2026-11-05']))
+    expect(() => run({ price: { seasons: [seasons[0], { ...seasons[1], from: '2026-11-04' }], basis: 'SELL' } })).toThrow(/seasons overlap/)
+  })
+  it('adjusts stored rates by a percent or an amount, keeping their basis; a night without a rate is not adjusted (ADR 0067, F-14)', () => {
+    const rates = { 'p1:2026-11-02': { amountMinor: 45_000n, basis: 'NET' as const }, 'p1:2026-11-03': { amountMinor: 30_001n, basis: 'SELL' as const } }
+    const scope = { ranges: [{ from: '2026-11-02', to: '2026-11-04' }] }
+    const up = run({ price: { adjustPercentBp: 1000 } }, { rates, scope })
+    expect(up.rows.map((x) => [x.outcome, x.nextRate?.amountMinor, x.nextRate?.basis])).toEqual([['CHANGE', 49_500n, 'NET'], ['CHANGE', 33_001n, 'SELL'], ['INVALID', undefined, undefined]])
+    expect(up.rows[2]!.problems[0]).toMatch(/no stored rate to adjust/)
+    const down = run({ price: { adjustAmount: '-50.00' } }, { rates, scope })
+    expect(down.rows.slice(0, 2).map((x) => x.nextRate?.amountMinor)).toEqual([40_000n, 25_001n])
+    expect(run({ price: { adjustAmount: '-500' } }, { rates, scope }).rows[0]!.problems[0]).toMatch(/zero or below/)
+    expect(() => run({ price: { adjustPercentBp: 0 } })).toThrow(/adjustPercentBp/)
+    expect(() => run({ price: { amount: '10', basis: 'SELL', adjustAmount: '5' } })).toThrow(/exactly one/)
+  })
+  it('flags large price changes without making the row invalid (ADR 0067, F-13)', () => {
+    const rates = { 'p1:2026-11-02': { amountMinor: 45_000n, basis: 'SELL' as const } }
+    const r = run({ price: { amount: '45', basis: 'SELL' } }, { rates, scope: { weekdays: ['MON'] } })
+    expect(r.rows[0]).toMatchObject({ outcome: 'CHANGE', warnings: [expect.stringMatching(/moves -90%/)] })
+    expect(r.counts.largePriceChanges).toBe(1)
+    expect(run({ price: { amount: '470', basis: 'SELL' } }, { rates, scope: { weekdays: ['MON'] } }).rows[0]!.warnings).toBeUndefined()
+  })
   it('prices another occupancy, up to what the room sleeps (ADR 0067, F-05)', () => {
     const single = run({ price: { amount: '380', basis: 'SELL', occupancy: 1 } }, { plans: [plan({ maxOccupancy: 3 })], scope: { weekdays: ['MON'] } })
     expect(single.rows[0]).toMatchObject({ outcome: 'CHANGE', nextRate: { amountMinor: 38000n, basis: 'SELL', occupancy: 1 } })
