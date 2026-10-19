@@ -1,12 +1,37 @@
 export const contactEmail = 'hello@fbeds.com'
 
+/** Brand line used in the logo lockup and page metadata. Claims here must stay true of the product today. */
+export const brandTagline = 'Wholesale hotels. Trade-ready.'
+
 export const heroCopy = {
-  headline: 'Your gateway to smarter hotel distribution.',
-  supporting: 'Discover hotel opportunities, compare room and board options, and recheck availability through one trade-focused workspace.',
+  eyebrow: 'Travel trade platform',
+  headline: 'Book wholesale hotels with total clarity.',
+  supporting: 'Search contracted Dubai inventory, compare rooms and boards, recheck availability and price, then confirm against your agency credit. One workspace built for speed and control.',
   primaryCta: 'Agent Sign In',
   secondaryCta: 'Request Agent Access',
   joinLabel: 'Join us',
   partnerInvitation: 'Travel agencies can request access. The fabBeds team reviews each request. Sending a message does not create an account or a workspace role.',
+} as const
+
+/** Public home page. Describes capability, never volume, price advantage or availability. */
+export const homeCopy = {
+  stepsTitle: 'Search to confirmed in four steps',
+  steps: [
+    { title: 'Search', text: 'Choose a destination, dates, rooms and guests. Filter by star, board and price.' },
+    { title: 'Compare', text: 'Rooms, boards and cancellation terms side by side, with the stay total in AED.' },
+    { title: 'Recheck', text: 'Re-price the selected rate against current inventory before anything is held.' },
+    { title: 'Book', text: 'Hold, add guest names and confirm. Voucher and invoice follow on confirmation.' },
+  ],
+  stepsNote: 'A search price is a quote until a recheck succeeds. Booking is available to agencies where it has been enabled.',
+  techTitle: 'Travel technology that keeps every booking defensible',
+  tech: [
+    { title: 'Recheck before hold', text: 'Price or availability changed? You see it before any inventory is held, and nothing is swapped silently.' },
+    { title: 'Transparent pricing', text: 'Stay totals in AED. Charges paid at the hotel are listed separately. Add your own client mark-up for display.' },
+    { title: 'Credit under control', text: 'Credit limit, balance and payment status in one view, with bank-transfer top-ups declared in the portal.' },
+    { title: 'Built for reliability', text: 'Duplicate-booking checks, safe retries and an audit trail on every booking action.' },
+  ],
+  bandTitle: 'Ready to trade with fabBeds?',
+  bandText: 'Request agency access. The fabBeds team reviews every request.',
 } as const
 
 export const privacyLink = {
