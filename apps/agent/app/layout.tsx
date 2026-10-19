@@ -7,7 +7,7 @@ const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-montserrat
 const barlow = Barlow_Semi_Condensed({ subsets: ['latin'], variable: '--font-barlow', weight: ['400', '500', '600', '700'] })
 
 export const metadata: Metadata = {
-  title: 'fabBeds Agent Portal | Wholesale hotels. Trade-ready.',
+  title: 'fabBeds Agent Portal | Wholesale Hotel Booking',
   description: 'The fabBeds trade workspace: search contracted hotel inventory, compare rooms and boards, recheck price and availability, and book against your agency credit.',
   generator: 'v0.app',
   icons: {

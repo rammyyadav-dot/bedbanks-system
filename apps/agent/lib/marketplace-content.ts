@@ -1,8 +1,5 @@
 export const contactEmail = 'hello@fbeds.com'
 
-/** Brand line used in the logo lockup and page metadata. Claims here must stay true of the product today. */
-export const brandTagline = 'Wholesale hotels. Trade-ready.'
-
 export const heroCopy = {
   eyebrow: 'Travel trade platform',
   headline: 'Book wholesale hotels with total clarity.',

@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { brandTagline, contactEmail, dubaiSpotlight, editorialDestinations, editorialPages, heroCopy, homeCopy, marketplaceHome, tradeAnnouncements } from './marketplace-content.ts'
+import { contactEmail, dubaiSpotlight, editorialDestinations, editorialPages, heroCopy, homeCopy, marketplaceHome, tradeAnnouncements } from './marketplace-content.ts'
 
-const text = JSON.stringify({ brandTagline, homeCopy, heroCopy, editorialPages, editorialDestinations, tradeAnnouncements, dubaiSpotlight, marketplaceHome })
+const text = JSON.stringify({ homeCopy, heroCopy, editorialPages, editorialDestinations, tradeAnnouncements, dubaiSpotlight, marketplaceHome })
 
 test('keeps the approved entrance copy and verified contact email', () => {
   assert.equal(heroCopy.headline, 'Book wholesale hotels with total clarity.')
-  assert.equal(brandTagline, 'Wholesale hotels. Trade-ready.')
   assert.match(heroCopy.supporting, /recheck availability/)
   assert.equal(contactEmail, 'hello@fbeds.com')
   assert.equal(dubaiSpotlight.destination, 'Dubai')
