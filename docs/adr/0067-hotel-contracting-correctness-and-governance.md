@@ -209,3 +209,20 @@ An adjustment needs a stored rate and keeps its basis. A night without a rate, o
 - Admin shows the flagged prices and a confirmation checkbox on every apply screen, and keeps Apply disabled until it is ticked.
 
 The threshold is a platform constant for now; a per-tenant setting can replace it without changing the rule.
+
+## F-16: Tabs follow the contracting workflow
+
+**Problem.** The hotel workspace put Bookings and Quick Update before Room Types and Rate Plans, and grouped contracts with rate plans and readiness. A contracting manager works a hotel in a fixed order (content, rooms, supplier mapping, contract, plans, rates and inventory, then distribution), and the order on screen did not match it.
+
+**Decision.** `HOTEL_TABS` and the nine workspace sections now follow that order:
+1. Profile setup: overview, hotel setup, amenities, images, hotel policies.
+2. Room types.
+3. Supplier mapping.
+4. Contracts.
+5. Rate plans.
+6. Rates and inventory: Quick Update, rates, allotment.
+7. Distribution and readiness.
+8. Bookings.
+9. Reports.
+
+Audit stays with the profile section, at the end of the tab bar. Tab ids are unchanged, so every deep link and readiness action still lands where it did. A test checks that each section's tabs come before the next section's.

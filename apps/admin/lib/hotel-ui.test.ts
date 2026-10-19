@@ -51,13 +51,16 @@ test('readiness outcomes: UNKNOWN is never the failure tone, and every action la
   assert.equal(readinessActionHref('h1', { tab: 'nonsense' as never, label: 'x', permission: null }), '/hotels/h1')
 })
 
-test('six primary sections cover every legacy hotel URL exactly once', async () => {
+test('nine primary sections follow the contracting workflow and cover every legacy hotel URL exactly once (ADR 0067, F-16)', async () => {
   const { HOTEL_WORKSPACE_SECTIONS, workspaceSection } = await import('./hotel-ui')
-  assert.equal(HOTEL_WORKSPACE_SECTIONS.length, 6)
-  assert.deepEqual(HOTEL_WORKSPACE_SECTIONS.map(s => s.id), ['profile', 'bookings', 'quick', 'rooms', 'rateplans', 'reports'])
+  assert.equal(HOTEL_WORKSPACE_SECTIONS.length, 9)
+  assert.deepEqual(HOTEL_WORKSPACE_SECTIONS.map(s => s.id), ['profile', 'rooms', 'mapping', 'contracts', 'rateplans', 'quick', 'distribution', 'bookings', 'reports'])
+  // The tab bar walks the same order: every tab of a section comes before every tab of the next one.
+  const position = (id: string) => HOTEL_TABS.findIndex((t) => t.id === id)
+  for (let i = 1; i < HOTEL_WORKSPACE_SECTIONS.length; i++) assert.ok(Math.max(...HOTEL_WORKSPACE_SECTIONS[i - 1]!.tabs.filter((t) => t !== 'audit').map(position)) < Math.min(...HOTEL_WORKSPACE_SECTIONS[i]!.tabs.map(position)), HOTEL_WORKSPACE_SECTIONS[i]!.id)
   for (const t of HOTEL_TABS) {
     assert.equal(HOTEL_WORKSPACE_SECTIONS.filter(s => (s.tabs as readonly string[]).includes(t.id)).length, 1, t.id)
     assert.ok(workspaceSection(t.id))
   }
-  assert.equal(workspaceSection(parseTab('mappings')).id, 'profile'); assert.equal(workspaceSection(parseTab('rates')).id, 'quick'); assert.equal(workspaceSection(parseTab('contracts')).id, 'rateplans')
+  assert.equal(workspaceSection(parseTab('mappings')).id, 'mapping'); assert.equal(workspaceSection(parseTab('rates')).id, 'quick'); assert.equal(workspaceSection(parseTab('contracts')).id, 'contracts')
 })
