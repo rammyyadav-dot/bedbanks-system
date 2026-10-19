@@ -5,6 +5,7 @@ import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } 
 import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 import { supplementNights, type SupplementKind, type SupplementRule } from './supplements'
+import { convertMinor, type FxQuote } from './fx'
 /**
  * Shared commercial gates for contracted inventory: the ONE evaluator Agent search, recheck, hold, Admin readiness, the hotel assessment, rate
  * certification and the Sellability Inspector all use (ADR 0067, F-07).
@@ -75,6 +76,8 @@ export interface ContractedStaySnapshot {
   minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
   /** Board and compulsory supplements of the contract for this plan (ADR 0067). Empty means none. Required so a caller cannot drop a mandatory charge. */
   supplements: SupplementRule[]
+  /** ADR 0067 F-12: the controlled rate that sells this contract in the request currency. Absent or null: the request must be in the contract currency. */
+  fx?: FxQuote | null
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
@@ -128,6 +131,8 @@ export interface StayDecision {
   promotion?: (AppliedPromotion & { rooms: number }) | null
   /** Board and compulsory supplements included in the total, each across all rooms (ADR 0067). Absent when none applied. */
   supplements?: Array<{ name: string; kind: SupplementKind; amountMinor: bigint }>
+  /** The controlled rate the amounts were converted with (ADR 0067, F-12). Absent when priced in the contract currency. */
+  fx?: FxQuote
 }
 
 /** Fresh iff now < freshUntil. No expiry is allowed only for non-supplier sources; supplier data without an expiry is stale. */
@@ -173,7 +178,10 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
     reasons.push('SUPPLIER_MAPPING_INVALID')
   }
   if (snapshot.ratePlanStatus !== 'ACTIVE') reasons.push('RATE_PLAN_INACTIVE')
-  if (snapshot.contractCurrency !== request.currency || snapshot.ratePlanCurrency !== request.currency) reasons.push('RATE_CURRENCY_MISMATCH')
+  // ADR 0067 F-12: with a controlled rate the stay is priced in the contract currency and converted once at the end; without one the request must be in it.
+  const fx = snapshot.fx && snapshot.fx.to === request.currency && snapshot.fx.from !== request.currency ? snapshot.fx : null
+  const pricingCurrency = fx ? fx.from : request.currency
+  if (snapshot.contractCurrency !== pricingCurrency || snapshot.ratePlanCurrency !== pricingCurrency) reasons.push('RATE_CURRENCY_MISMATCH')
   const minStayNights = snapshot.minStayMode === 'ARRIVAL' ? snapshot.nights.slice(0, 1) : snapshot.nights
   if (nightCount < snapshot.ratePlanMinStay || minStayNights.some((night) => (night.availability?.minStay ?? 1) > nightCount)) reasons.push('MIN_STAY_NOT_MET')
   if (snapshot.ratePlanMaxStay !== null && nightCount > snapshot.ratePlanMaxStay) reasons.push('MAX_STAY_EXCEEDED')
@@ -208,7 +216,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
     if (night.rateAmountMinor === null || night.rateAmountMinor <= 0n) sawInvalidRate = true
     else {
       sawRate = true
-      if (night.rateCurrency !== snapshot.ratePlanCurrency || night.rateCurrency !== request.currency) sawCurrencyMismatch = true
+      if (night.rateCurrency !== snapshot.ratePlanCurrency || night.rateCurrency !== pricingCurrency) sawCurrencyMismatch = true
       else if (night.amountBasis === null) sawUnverified = true
       else if (guestBasis !== null && guestBasis !== night.amountBasis) sawGuestBasisMismatch = true
       else if (night.amountBasis === 'NET') {
@@ -281,10 +289,17 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const unique = [...new Set(reasons)]
   const onRequestOnly = unique.length === 1 && unique[0] === 'ON_REQUEST_ONLY' && request.rooms >= 1
   if ((unique.length > 0 && !onRequestOnly) || request.rooms < 1) return { eligible: false, reasons: unique, totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
-  const total = perRoom * BigInt(request.rooms)
-  const net = perRoomNet * BigInt(request.rooms)
+  const baseTotal = perRoom * BigInt(request.rooms)
+  const baseNet = perRoomNet * BigInt(request.rooms)
+  // One conversion of the final amounts, never per night, so rounding happens once and net + markup = total still holds.
+  const total = fx ? convertMinor(baseTotal, fx) : baseTotal
+  const net = fx ? convertMinor(baseNet, fx) : baseNet
+  if (fx) {
+    if (promotion) promotion = { ...promotion, savingMinor: convertMinor(promotion.savingMinor, fx) }
+    supplements = supplements.map((item) => ({ ...item, amountMinor: convertMinor(item.amountMinor, fx) }))
+  }
   if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
-  const included = supplements.length ? { supplements } : {}
+  const included = { ...(supplements.length ? { supplements } : {}), ...(fx ? { fx } : {}) }
   if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion, ...included }
   return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion, ...included }
 }

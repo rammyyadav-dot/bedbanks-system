@@ -9,6 +9,8 @@ import { PrismaService } from '../database/prisma.service'
 import { evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { markupResolverFor, rulesNeedBuyer, type MarkupRuleRow } from '../supply/markup-rules'
+import { loadActiveFxRates } from '../supply/fx-rates.loader'
+import type { FxQuote } from '../supply/fx'
 import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
 import { CommercialControlUnavailableError, logCommercialControlFailure } from '../supply/commercial-controls'
 import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
@@ -51,6 +53,8 @@ interface StoredOffer {
   children: number
   childAges: number[]
   currency: string
+  /** ADR 0067 F-12: set when the offer was converted from the contract currency at a controlled rate; recheck and hold use it. */
+  contractCurrency?: string
   /** Guest nationality of the search, so a recheck re-applies the same contract nationality rule (ADR 0035). Absent on offers stored before it existed. */
   nationality?: string
   expiresAt: string
@@ -113,12 +117,14 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       if (supplierCount === 0) throw new SupplierProviderError('unconfigured')
       if (!uniformRoomStays(criteria)) return { offers: [], providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
       const nights = stayDates(criteria.checkIn, criteria.checkOut)
-      const plans = await this.loadPlans(context.tenantId, criteria, nights)
+      // ADR 0067 F-12: contracts in another currency are offered only through an ACTIVE controlled rate into the request currency.
+      const fx = await loadActiveFxRates(this.prisma, context.tenantId, criteria.currency)
+      const plans = await this.loadPlans(context.tenantId, criteria, nights, [criteria.currency, ...fx.keys()])
       const restrictions = await this.restrictionsFor(context.tenantId, context.userId)
       const rules = await this.markupRules(context.tenantId, plans)
       const visible = plans.filter((plan) => !isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId }))
       const buyer = await this.buyerFor(context.tenantId, context.userId, criteria.nationality, visible, rules)
-      const offers = this.toOffers(visible, criteria, context.tenantId, nights, rules, buyer)
+      const offers = this.toOffers(visible, criteria, context.tenantId, nights, rules, buyer, fx)
       return { offers: await this.withPrimaryImages(context.tenantId, offers), providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
     } catch (error) {
       if (error instanceof SupplierProviderError) throw error
@@ -155,6 +161,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         children: stored.children,
         childAges: [...stored.childAges],
         currency: stored.currency,
+        ...(stored.contractCurrency ? { contractCurrency: stored.contractCurrency } : {}),
         sellAmountMinor: decision,
         expiresAt: stored.expiresAt,
       }
@@ -189,7 +196,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     throw new Error('Booking is unavailable until supplier, recheck and finance gates are certified.')
   }
 
-  private async loadPlans(tenantId: string, criteria: SearchCriteria, nights: string[]) {
+  /** `currencies`: the request currency plus every base currency with an ACTIVE controlled rate into it (ADR 0067, F-12). */
+  private async loadPlans(tenantId: string, criteria: SearchCriteria, nights: string[], currencies: readonly string[] = [criteria.currency]) {
     const occupancy = criteria.adults + criteria.children
     const checkIn = new Date(`${criteria.checkIn}T00:00:00.000Z`)
     const checkOut = new Date(`${criteria.checkOut}T00:00:00.000Z`)
@@ -210,7 +218,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       const plans: Awaited<ReturnType<ContractedInventoryAdapter['findPlanBatch']>> = []
       for (let offset = 0; offset < hotels.length; offset += HOTEL_CANDIDATE_BATCH) {
         const hotelIds = hotels.slice(offset, offset + HOTEL_CANDIDATE_BATCH).map((hotel) => hotel.id)
-        plans.push(...await this.findPlanBatch(tx, tenantId, criteria, occupancy, checkIn, checkOut, nightDates, hotelIds))
+        plans.push(...await this.findPlanBatch(tx, tenantId, criteria, occupancy, checkIn, checkOut, nightDates, hotelIds, currencies))
       }
       return plans
     })
@@ -225,13 +233,14 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     checkOut: Date,
     nightDates: Date[],
     hotelIds: string[],
+    currencies: readonly string[],
   ) {
     const lastNight = new Date(checkOut.getTime() - 86_400_000)
     const plans = await tx.ratePlan.findMany({
       where: {
         tenantId,
         status: 'ACTIVE',
-        currency: criteria.currency,
+        currency: { in: [...currencies] },
         // ADR 0057, S6 and ADR 0067, F-03: a flat plan sells to exactly the searched party size; a plan priced by guest lines, its own or inherited from
         // its contract's child policy, is for a base party that children may complete, so it is a candidate whenever its base occupancy is within the
         // whole party. This is only a pre-filter: the evaluator decides, per adult count and child age.
@@ -252,7 +261,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         contract: {
           tenantId,
           status: 'ACTIVE',
-          settlementCurrency: criteria.currency,
+          settlementCurrency: { in: [...currencies] },
           validFrom: { lte: checkIn },
           // ADR 0067 F-06: validTo is the last stay night.
           validTo: { gte: lastNight },
@@ -333,12 +342,12 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     }
   }
 
-  private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[], buyer: BuyerContext): SearchHotelOffer[] {
+  private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[], buyer: BuyerContext, fx: ReadonlyMap<string, FxQuote> = new Map()): SearchHotelOffer[] {
     const expiresAt = new Date(Date.now() + offerTtlMs()).toISOString()
     const now = new Date()
     const seen = new Set<string>()
     const priced = plans.flatMap((plan) => {
-      const built = this.pricePlan(plan, criteria, tenantId, nights, now, expiresAt, rules, buyer)
+      const built = this.pricePlan(plan, criteria, tenantId, nights, now, expiresAt, rules, buyer, true, fx)
       if (!built || seen.has(commercialKey(built.rate))) return []
       seen.add(commercialKey(built.rate))
       return [built]
@@ -416,7 +425,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     return { refundable: plan.refundable, summary, ...(deadline ? { deadline } : {}) }
   }
 
-  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], now: Date, expiresAt: string, rules: readonly MarkupRuleRow[], buyer: BuyerContext, persist = true): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
+  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], now: Date, expiresAt: string, rules: readonly MarkupRuleRow[], buyer: BuyerContext, persist = true, fx: ReadonlyMap<string, FxQuote> = new Map()): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
     const mapping = plan.contract.supplierHotelMapping
     const roomMapping = mapping?.roomMappings.find((row) => row.tenantId === tenantId && row.roomTypeId === plan.roomTypeId && row.status === 'MAPPED')
     if (!mapping || !roomMapping || mapping.hotelId !== plan.roomType.hotelId) return null
@@ -424,7 +433,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     if (starRating === null || starRating < 1 || starRating > 5) return null
     if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
     if (criteria.filters?.refundableOnly && !plan.refundable) return null
-    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId, { agencyId: buyer.agencyId ?? null, market: buyer.market }), { adults: criteria.adults })
+    const converted = plan.contract.settlementCurrency !== criteria.currency ? fx.get(plan.contract.settlementCurrency) ?? null : null
+    if (plan.contract.settlementCurrency !== criteria.currency && !converted) return null
+    const snapshot = { ...buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId, { agencyId: buyer.agencyId ?? null, market: buyer.market }), { adults: criteria.adults }), fx: converted }
     const decision = evaluateContractedStay(snapshot, {
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,
@@ -460,6 +471,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       children: criteria.children,
       childAges: [...criteria.childAges],
       currency: criteria.currency,
+      ...(converted ? { contractCurrency: converted.from } : {}),
       ...(normalizeCountry(criteria.nationality) ? { nationality: normalizeCountry(criteria.nationality) as string } : {}),
       expiresAt,
     }
@@ -536,12 +548,14 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       currency: stored.currency,
     }
     const nights = stayDates(stored.checkIn, stored.checkOut)
-    const plans = await this.loadPlans(tenantId, criteria, nights)
+    // A converted offer is repriced at the rate ACTIVE now: a changed or retired rate is price_changed or unavailable, never the old figure.
+    const fx = stored.contractCurrency ? await loadActiveFxRates(this.prisma, tenantId, stored.currency) : new Map<string, FxQuote>()
+    const plans = await this.loadPlans(tenantId, criteria, nights, stored.contractCurrency ? [stored.currency, stored.contractCurrency] : [stored.currency])
     const rules = await this.markupRules(tenantId, plans)
     const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
     if (!plan || isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })) return null
     const buyer = await this.buyerFor(tenantId, userId, stored.nationality, [plan], rules)
-    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, buyer, false)
+    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, buyer, false, fx)
     // An on-request night is never confirmed inventory: a recheck of it is unavailable, never an upgrade to held.
     if (!priced || !priced.rate.available || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
     return priced.rate.sellAmountMinor

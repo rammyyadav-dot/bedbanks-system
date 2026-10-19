@@ -144,12 +144,16 @@ const READ_WRITE: readonly RuntimeGrant[] = [
     { op: 'DELETE', service: 'AgencyCreditService.execute', endpoints: [`POST ${ADMIN_CLIENTS}/agencies/credit-approvals/:approvalId/execute`], reason: 'remove the limit after approval' },
   ] },
   { table: 'ApprovalRequest', model: 'ApprovalRequest', read: true, rls: 'forced-tenant', writes: [
-    { op: 'INSERT', service: 'ApprovalService.request', endpoints: ['POST /admin/commercial/markups/:ruleId/request-activation', `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-suspension-change`, `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-credit-limit`, `POST ${HOTEL}/setup/publication/request`, `POST ${HOTEL}/inventory/pools/:poolId/night-requests`], reason: 'maker-checker request (ADR 0016); a pool night request is applied by the owner tool, never by the API (ADR 0036 Amendment 4)' },
+    { op: 'INSERT', service: 'ApprovalService.request', endpoints: ['POST /admin/commercial/markups/:ruleId/request-activation', 'POST /admin/commercial/fx-rates/:rateId/request-activation', `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-suspension-change`, `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-credit-limit`, `POST ${HOTEL}/setup/publication/request`, `POST ${HOTEL}/inventory/pools/:poolId/night-requests`], reason: 'maker-checker request (ADR 0016); a pool night request is applied by the owner tool, never by the API (ADR 0036 Amendment 4)' },
     { op: 'UPDATE', service: 'ApprovalService.decide/cancel/execute', endpoints: ['POST .../approvals/:approvalId/{approve,reject,cancel,execute}', `POST ${HOTEL}/inventory/pools/:poolId/night-requests/:approvalId/{approve,reject,cancel}`], reason: 'record the decision and the execution' },
   ] },
   { table: 'CommercialMarkupRule', model: 'CommercialMarkupRule', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck when a NET rate is priced (mandatory commercial control)', writes: [
     { op: 'INSERT', service: 'CommercialMarkupService.create', endpoints: ['POST /admin/commercial/markups'], reason: 'draft a markup rule' },
     { op: 'UPDATE', service: 'CommercialMarkupService.retire/execute', endpoints: ['POST /admin/commercial/markups/:ruleId/retire', 'POST /admin/commercial/markups/approvals/:approvalId/execute'], reason: 'activate or retire a rule (rules are otherwise immutable)' },
+  ] },
+  { table: 'FxRate', model: 'FxRate', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck when a contract in another currency is priced (mandatory commercial control, ADR 0067 F-12)', writes: [
+    { op: 'INSERT', service: 'CommercialFxService.create', endpoints: ['POST /admin/commercial/fx-rates'], reason: 'draft a controlled FX rate' },
+    { op: 'UPDATE', service: 'CommercialFxService.retire/execute', endpoints: ['POST /admin/commercial/fx-rates/:rateId/retire', 'POST /admin/commercial/fx-rates/approvals/:approvalId/execute'], reason: 'activate or retire a rate (rates are otherwise immutable)' },
   ] },
   { table: 'DistributionRestriction', model: 'DistributionRestriction', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck (mandatory commercial control)', writes: [
     { op: 'INSERT', service: 'DistributionService.create', endpoints: ['POST /admin/distribution/restrictions'], reason: 'restrict a hotel or supplier for an agency' },

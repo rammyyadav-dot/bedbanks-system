@@ -24,7 +24,7 @@ export const COMPLIANCE_CLASSIFICATION: Readonly<Record<ComplianceCategory, read
   /** Data left the system in bulk: exports and cross-tenant directory reads. */
   DATA_EXPORT: ['hotel.exported', 'hotel.report.exported', 'platform.tenants.directory.read', 'compliance.report.exported'],
   /** Credit, funding, booking money release and pricing controls. */
-  FINANCIAL_CONTROL: ['agency.credit_limit.changed', 'funding.declared', 'funding.verified', 'funding.compliance_cleared', 'funding.posted', 'funding.rejected', 'booking.finance.authorized', 'booking.finance.released', 'commercial.markup.activated', 'commercial.markup.retired'],
+  FINANCIAL_CONTROL: ['agency.credit_limit.changed', 'funding.declared', 'funding.verified', 'funding.compliance_cleared', 'funding.posted', 'funding.rejected', 'booking.finance.authorized', 'booking.finance.released', 'commercial.markup.activated', 'commercial.markup.retired', 'commercial.fx.activated', 'commercial.fx.retired'],
   /** Booking lifecycle facts; the trigger records the buyer (agency) and destination (hotel) countries and whether they differ. */
   BOOKING_JURISDICTION: ['booking.confirmed', 'booking.cancelled', 'booking.manual.created'],
 }

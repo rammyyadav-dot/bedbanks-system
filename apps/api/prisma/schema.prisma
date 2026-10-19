@@ -346,6 +346,36 @@ enum MarkupRuleStatus {
   RETIRED
 }
 
+/// ADR 0067 F-12: a tenant-controlled exchange rate for selling a contract in another currency. Activated maker-checker, like markup rules.
+enum FxRateStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+model FxRate {
+  id            String       @id @default(cuid())
+  tenantId      String       @map("tenant_id")
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// The contract (settlement) currency converted from, and the currency sold in.
+  baseCurrency  String       @map("base_currency") @db.Char(3)
+  quoteCurrency String       @map("quote_currency") @db.Char(3)
+  /// Quote major units per one base major unit, times 10^8 (an integer; never a float).
+  rateScaled    BigInt       @map("rate_scaled")
+  /// Added on top of the rate to cover movement until settlement, 0 to 2000 basis points.
+  bufferBp      Int          @default(0) @map("buffer_bp")
+  status        FxRateStatus @default(DRAFT)
+  reason        String
+  createdById   String       @map("created_by_id")
+  createdBy     User         @relation("FxRateCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedAt   DateTime?    @map("activated_at")
+  retiredAt     DateTime?    @map("retired_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+}
+
 model CommercialMarkupRule {
   id          String           @id @default(cuid())
   tenantId    String           @map("tenant_id")
@@ -696,6 +726,7 @@ model Tenant {
   serviceCases ServiceCase[]
   serviceCaseNotes ServiceCaseNote[]
   distributionRestrictions DistributionRestriction[]
+  fxRates FxRate[]
   markupRules CommercialMarkupRule[]
   id        String   @id @default(cuid())
   name      String
@@ -769,6 +800,7 @@ model User {
   caseNotes ServiceCaseNote[]
   restrictionsCreated DistributionRestriction[] @relation("RestrictionCreator")
   markupRulesCreated CommercialMarkupRule[] @relation("MarkupRuleCreator")
+  fxRatesCreated FxRate[] @relation("FxRateCreator")
   id           String    @id @default(cuid())
   email        String    @unique
   name         String?

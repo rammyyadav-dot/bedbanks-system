@@ -99,3 +99,45 @@ export interface MarkupImpact {
   currencies: Array<{ currency: string; netMinor: string; markupMinor: string }>
   definitions: Record<string, string>
 }
+
+/**
+ * Controlled FX rates (`/admin/commercial/fx-rates`, ADR 0067 F-12). A rate converts a contract's settlement currency (base) into the
+ * currency an agent searches and books in (quote). Rates are immutable: only the status moves, and DRAFT becomes ACTIVE only through a second
+ * person's approval. One ACTIVE rate per pair; activating a rate retires the one it replaces. Without an ACTIVE rate the contract is not
+ * offered in that currency.
+ */
+export type FxRateStatusName = 'DRAFT' | 'ACTIVE' | 'RETIRED'
+export const FX_RATE_STATUSES: readonly FxRateStatusName[] = ['DRAFT', 'ACTIVE', 'RETIRED']
+/** The largest buffer (basis points added on top of the rate to cover movement until settlement): 20%. */
+export const FX_MAX_BUFFER_BP = 2000
+
+export interface FxRateView {
+  id: string
+  baseCurrency: string
+  quoteCurrency: string
+  /** Quote major units per one base major unit, as a decimal string with eight places (e.g. "0.27229000"). */
+  rate: string
+  bufferBp: number
+  /** The rate with the buffer applied, as frozen on a booking. */
+  effectiveRate: string
+  status: FxRateStatusName
+  reason: string
+  createdById: string
+  createdAt: string
+  activatedAt: string | null
+  retiredAt: string | null
+  approval: MarkupApprovalView | null
+  canRequestActivation: boolean
+  canRetire: boolean
+}
+
+export interface FxRateCreate {
+  baseCurrency: string
+  quoteCurrency: string
+  /** A positive decimal with at most eight places, as a string so no float touches it. */
+  rate: string
+  bufferBp?: number
+  reason: string
+}
+export interface FxRatePage { items: FxRateView[]; page: number; pageSize: number; total: number }
+export interface FxActivationResult { approval: MarkupApprovalView; rate: FxRateView; replacedRateId: string | null }
