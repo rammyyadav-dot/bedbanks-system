@@ -103,7 +103,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
         `DELETE FROM "AuditEvent" WHERE tenant_id = '${t}'`, `DELETE FROM "ApprovalRequest" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelImage" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelAmenity" WHERE tenant_id = '${t}'`,
         `DELETE FROM "RoomAmenity" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelExternalIdentifier" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelProfile" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCaseNote" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCase" WHERE tenant_id = '${t}'`,
         `DELETE FROM "DistributionRestriction" WHERE tenant_id = '${t}'`, `DELETE FROM "AgencyCreditLimit" WHERE tenant_id = '${t}'`, `DELETE FROM "AgencyMember" WHERE tenant_id = '${t}'`, `DELETE FROM "Agency" WHERE tenant_id = '${t}'`,
-        `DELETE FROM "CommercialMarkupRule" WHERE tenant_id = '${t}'`, `DELETE FROM "RoomType" WHERE hotel_id IN (SELECT id FROM "Hotel" WHERE tenant_id = '${t}')`, `DELETE FROM "Hotel" WHERE tenant_id = '${t}'`, `DELETE FROM "Supplier" WHERE tenant_id = '${t}'`,
+        `DELETE FROM "CommercialMarkupRule" WHERE tenant_id = '${t}'`, `DELETE FROM "FxRate" WHERE tenant_id = '${t}'`, `DELETE FROM "RoomType" WHERE hotel_id IN (SELECT id FROM "Hotel" WHERE tenant_id = '${t}')`, `DELETE FROM "Hotel" WHERE tenant_id = '${t}'`, `DELETE FROM "Supplier" WHERE tenant_id = '${t}'`,
         `DELETE FROM "UserRole" WHERE tenant_id = '${t}'`, `DELETE FROM "RolePermission" WHERE role_id IN (SELECT id FROM "Role" WHERE tenant_id = '${t}')`, `DELETE FROM "Role" WHERE tenant_id = '${t}'`, `DELETE FROM memberships WHERE tenant_id = '${t}'`,
       ]) await owner.$executeRawUnsafe(q).catch(() => undefined)
     }
@@ -126,6 +126,24 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     expect((await owner.commercialMarkupRule.findUniqueOrThrow({ where: { id: rule.id } })).status).toBe('ACTIVE')
     await call('post', `${base}/${rule.id}/retire`, 'maker').expect(200)
     expect((await owner.commercialMarkupRule.findUniqueOrThrow({ where: { id: rule.id } })).status).toBe('RETIRED')
+  })
+
+  it('W-01b controlled FX rate: draft, request, approve (other user), execute, retire (ADR 0067 F-12)', async () => {
+    const previous = process.env.SETTLEMENT_CURRENCIES
+    process.env.SETTLEMENT_CURRENCIES = 'AED,USD'
+    try {
+      const base = '/admin/commercial/fx-rates'
+      const rate = (await call('post', base, 'maker', { baseCurrency: 'AED', quoteCurrency: 'USD', rate: '0.27229', bufferBp: 100, reason: 'Treasury rate for the week' }).expect(201)).body.data
+      const requested = (await call('post', `${base}/${rate.id}/request-activation`, 'maker', { requestId: key(), reason: 'Weekly treasury rate' }).expect(200)).body.data
+      await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'Self approval' }).expect(403)
+      await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches treasury' }).expect(200)
+      await call('post', `${base}/approvals/${requested.approval.id}/execute`, 'maker').expect(200)
+      expect((await owner.fxRate.findUniqueOrThrow({ where: { id: rate.id } })).status).toBe('ACTIVE')
+      await call('post', `${base}/${rate.id}/retire`, 'maker').expect(200)
+      expect((await owner.fxRate.findUniqueOrThrow({ where: { id: rate.id } })).status).toBe('RETIRED')
+    } finally {
+      if (previous === undefined) delete process.env.SETTLEMENT_CURRENCIES; else process.env.SETTLEMENT_CURRENCIES = previous
+    }
   })
 
   it('W-02 agency: create, edit, add and remove a member, suspend and reinstate through maker-checker (suspension is enforced on the strict role)', async () => {
