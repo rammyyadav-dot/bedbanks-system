@@ -8,6 +8,9 @@ const TOLERATED = new Set([
   'DROP INDEX "HotelSearchIndex_embedding_hnsw";',
   'DROP INDEX "Hotel_city_lower_trgm";',
   'DROP INDEX "Hotel_name_lower_trgm";',
+  // 202611280001_hotel_search_hot_path: a generated column and its partial index, neither expressible in Prisma 6.
+  'DROP INDEX "Hotel_tenant_id_city_key_complete_idx";',
+  'ALTER TABLE "Hotel" DROP COLUMN "city_key";',
 ])
 
 const diff = spawnSync(

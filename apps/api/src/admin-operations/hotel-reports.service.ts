@@ -1,15 +1,20 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import type { BookingAccessView, HotelReportQuery, HotelReportView } from '@bedbanks/contracts'
 import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
+import { BookingOpsReadReplica } from '../database/read-replica.database'
 import { dayParam, endOfDay, enumParam, idParam, textParam } from './query-params'
 import { buildHotelReport } from './hotel-report'
 
 export const HOTEL_REPORT_LIMIT = 5000
 @Injectable()
 export class HotelReportsService {
-  constructor(private readonly prisma: PrismaService, private readonly ops: BookingOpsDatabase) {}
+  constructor(private readonly prisma: PrismaService, private readonly ops: BookingOpsDatabase, @Optional() private readonly replica?: BookingOpsReadReplica) {}
+  /** A report is an analytical read (ADR 0074): the replica when one is configured, otherwise the primary booking login. */
+  private read<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.replica?.configured() ? this.replica.readTenant(tenantId, work) : this.ops.withTenant(tenantId, work)
+  }
   async report(tenantId: string, hotelIdRaw: string, access: BookingAccessView, raw: Record<string, unknown>): Promise<HotelReportView> {
     const hotelId = idParam('hotelId', hotelIdRaw)
     const from = dayParam('from', raw.from); const to = dayParam('to', raw.to)
@@ -22,7 +27,7 @@ export class HotelReportsService {
     const query: HotelReportQuery = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), dateBasis, ...(supplier ? { supplier } : {}) }
     const where: Prisma.BookingWhereInput = { tenantId, hotelId, ...(access.level === 'AGENCY' ? { agencyId: access.agencyId } : {}), ...(supplier ? { supplier } : {}), ...(dateBasis === 'booking' ? { createdAt: { gte: from, lte: endOfDay(to) } } : { checkIn: { lte: to }, checkOut: { gt: from } }) }
     const finance = access.level === 'OPERATOR' && access.permissions.includes('booking.finance.view')
-    const rows = await this.ops.withTenant(tenantId, async tx => {
+    const rows = await this.read(tenantId, async tx => {
       if (await tx.booking.count({ where }) > HOTEL_REPORT_LIMIT) throw new BadRequestException(`Narrow the report filters to ${HOTEL_REPORT_LIMIT} reservations or fewer; partial totals are not exported`)
       return tx.booking.findMany({ where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: HOTEL_REPORT_LIMIT, select: {
         status: true, currency: true, totalMinor: true, netMinor: access.canViewNet, checkIn: true, checkOut: true,

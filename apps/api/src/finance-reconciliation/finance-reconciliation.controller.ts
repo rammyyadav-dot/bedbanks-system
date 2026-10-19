@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UnsupportedMediaTypeException, UseGuards } from '@nestjs/common'
+import type { Request } from 'express'
 import { ApiTags } from '@nestjs/swagger'
-import type { ReconDecisionRequest, ReconProposeRequest, ReconRunRequest, StatementImportRequest } from '@bedbanks/contracts'
+import { STATEMENT_STREAM_CONTENT_TYPE, type ReconDecisionRequest, type ReconProposeRequest, type ReconRunRequest, type StatementImportRequest } from '@bedbanks/contracts'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
@@ -31,6 +32,13 @@ export class FinanceReconciliationController {
 
   @Post('statements') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.run') @UseGuards(SupplyPermissionGuard)
   importStatement(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Body() body: StatementImportRequest) { return this.recon.importStatement(tenantId, identity.user.id, body) }
+
+  // ADR 0074. Declared before the parameterised statement routes. The guards above run before a byte of the body is read; the body is then consumed as a stream.
+  @Post('statements/stream') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.run') @UseGuards(SupplyPermissionGuard)
+  importStatementStream(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+    if (!req.is(STATEMENT_STREAM_CONTENT_TYPE)) throw new UnsupportedMediaTypeException(`Content-Type must be ${STATEMENT_STREAM_CONTENT_TYPE}`)
+    return this.recon.importStatementStream(tenantId, identity.user.id, req)
+  }
 
   @Post('statements/:statementId/runs') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.run') @UseGuards(SupplyPermissionGuard)
   run(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('statementId') statementId: string, @Body() body: ReconRunRequest) { return this.recon.enqueueRun(tenantId, identity.user.id, statementId, body) }

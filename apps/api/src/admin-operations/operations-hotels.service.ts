@@ -1,6 +1,6 @@
 import { assessPlanSelect } from '../supply/assess-plan-select'
 import { withDerivedRates } from '../supply/derived-rates'
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
   COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_WINDOW_DEFAULT_DAYS, COMMERCIAL_WINDOW_MAX_DAYS, CONTRACT_EXPIRING_DAYS, CONTRACT_EXPIRY_FILTER_DAYS,
@@ -30,7 +30,7 @@ import { assessReadiness, type AgencyEvidence } from '../supply/hotel-readiness'
 import { normalizeCountry } from '../supply/market-rules'
 import { assertSupportedSettlementCurrency, defaultSettlementCurrency } from '../agent/currency'
 import { auditView } from './operations-transactions.service'
-import { HOTEL_EXPORT_MAX_ROWS, hotelCsv } from './hotel-export'
+import { HOTEL_EXPORT_MAX_ROWS, HOTEL_EXPORT_STREAM_BATCH, HOTEL_EXPORT_STREAM_MAX_ROWS, hotelCsv, hotelCsvHeader, hotelCsvLines } from './hotel-export'
 import { SEARCH_MONITOR_ACTIONS, SEARCH_MONITOR_READ_CAP, buildSearchMonitor } from './search-monitor'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { MAX_PAGE_SIZE, dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
@@ -65,6 +65,7 @@ type HotelRecord = { id: string; name: string; externalRef: string | null; city:
 /** Read-only hotel commercial views. Every readiness, gate, issue and reason comes from the shared canonical assessor. */
 @Injectable()
 export class OperationsHotelsService {
+  private readonly logger = new Logger(OperationsHotelsService.name)
   /** Replaceable in tests so date-dependent behaviour is deterministic. */
   clock: () => Date = () => new Date()
 
@@ -241,9 +242,70 @@ export class OperationsHotelsService {
       if (rows.length >= HOTEL_EXPORT_MAX_ROWS || result.items.length === 0 || page * MAX_PAGE_SIZE >= result.total) break
     }
     const kept = rows.slice(0, HOTEL_EXPORT_MAX_ROWS)
-    const filters = Object.keys(query).filter((k) => ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars', 'from', 'days'].includes(k) && query[k] !== undefined && query[k] !== '')
+    const filters = exportFilterKeys(query)
     await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.exported', entityType: 'hotel_directory', entityId: tenantId, payload: { outcome: 'allowed', requestId, rowCount: kept.length, truncated, filterKeys: filters } as Prisma.InputJsonValue } }))
     return { csv: hotelCsv(kept), rows: kept.length, truncated }
+  }
+
+  /**
+   * The same export as a stream (ADR 0074). Rows are read in keyset batches of HOTEL_EXPORT_STREAM_BATCH ordered by (name, id), each in its own short tenant transaction,
+   * and handed to the caller only as fast as the client drains them, so memory is one batch and no connection is held while a slow client reads.
+   * The audit event is written before the first byte (if it cannot be recorded nothing is exported); a second event records how the stream ended, because the
+   * row count is not known until then. A stream that fails or is abandoned half-way ends with an error, never as a file that looks complete.
+   * Computed filters (readiness, contract state, issue, expiry) need an assessment of every candidate first, so they keep the bounded buffered path.
+   */
+  async openExportStream(tenantId: string, userId: string, query: Record<string, unknown>, requestId: string | null): Promise<{ expectedRows: number; truncated: boolean; chunks: AsyncGenerator<string, void, void> }> {
+    if (this.computedFilters(query).any) {
+      const out = await this.exportCsv(tenantId, userId, query, requestId)
+      return { expectedRows: out.rows, truncated: out.truncated, chunks: (async function* () { yield out.csv })() }
+    }
+    const where = this.baseWhere(tenantId, query)
+    const win = this.window(query)
+    const total = await this.prisma.withTenant(tenantId, (tx) => tx.hotel.count({ where: { ...where, tenantId } }))
+    const expectedRows = Math.min(total, HOTEL_EXPORT_STREAM_MAX_ROWS)
+    const truncated = total > HOTEL_EXPORT_STREAM_MAX_ROWS
+    const filterKeys = exportFilterKeys(query)
+    await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.exported', entityType: 'hotel_directory', entityId: tenantId, payload: { outcome: 'allowed', requestId, streamed: true, expectedRows, truncated, filterKeys } as Prisma.InputJsonValue } }))
+    return { expectedRows, truncated, chunks: this.exportChunks(tenantId, userId, where, win, requestId, expectedRows) }
+  }
+
+  private async *exportChunks(tenantId: string, userId: string, where: Prisma.HotelWhereInput, win: Win, requestId: string | null, limit: number): AsyncGenerator<string, void, void> {
+    let rows = 0
+    let cursor: { name: string; id: string } | null = null
+    let completed = false
+    let failure: string | undefined
+    try {
+      yield hotelCsvHeader()
+      while (rows < limit) {
+        const take = Math.min(HOTEL_EXPORT_STREAM_BATCH, limit - rows)
+        const after = cursor
+        const batch: HotelCommercialRow[] = await this.prisma.withTenant(tenantId, async (tx) => {
+          const hotels = await tx.hotel.findMany({
+            where: after ? { AND: [{ ...where, tenantId }, { OR: [{ name: { gt: after.name } }, { name: after.name, id: { gt: after.id } }] }] } : { ...where, tenantId },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }], take, select: HOTEL_SELECT,
+          })
+          if (hotels.length === 0) return []
+          const assessed = await this.assessAll(tx, tenantId, hotels, win)
+          const extras = await this.rowExtras(tx, tenantId, hotels, assessed)
+          return hotels.map((h) => this.row(h, assessed.get(h.id)!, extras.for(h.id)))
+        })
+        if (batch.length === 0) break
+        const last = batch[batch.length - 1]!
+        cursor = { name: last.name, id: last.id }
+        rows += batch.length
+        yield hotelCsvLines(batch)
+        if (batch.length < take) break
+        // Let queued requests run between batches: a batch's assessment is synchronous work.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      completed = true
+    } catch (error) {
+      failure = (error as { code?: string })?.code ?? (error as Error)?.name ?? 'error'
+      throw error
+    } finally {
+      // Runs on normal end, on error and when the client disconnects (the consumer calls return()). Best effort: the data has already left.
+      await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'hotel.export_finished', entityType: 'hotel_directory', entityId: tenantId, payload: { requestId, rowCount: rows, completed, ...(failure ? { failure } : {}) } as Prisma.InputJsonValue } })).catch((error: unknown) => this.logger.error(`hotel.export_finished audit not recorded (${(error as { code?: string })?.code ?? 'unknown'}) requestId=${requestId ?? '-'}`))
+    }
   }
 
   // ---- summary -------------------------------------------------------------------------------------------------------------
@@ -775,4 +837,6 @@ function poolCells(plan: { inventoryPoolId?: string | null; inventoryPool?: { na
   return { poolName: plan.inventoryPoolId ? plan.inventoryPool?.name ?? null : null, poolCapacity: d?.capacity ?? null, poolSold: d?.sold ?? null, poolHeld: d?.held ?? null }
 }
 
+const EXPORT_FILTER_KEYS = ['search', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars', 'from', 'days']
+const exportFilterKeys = (query: Record<string, unknown>) => Object.keys(query).filter((k) => EXPORT_FILTER_KEYS.includes(k) && query[k] !== undefined && query[k] !== '')
 const HOTEL_SELECT = { id: true, name: true, externalRef: true, city: true, countryCode: true, starRating: true, propertyType: true, contentStatus: true, timeZone: true, address: true, latitude: true, longitude: true, updatedAt: true } as const
