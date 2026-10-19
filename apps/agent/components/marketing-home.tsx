@@ -1,67 +1,95 @@
-'use client'
+import Link from 'next/link'
+import { ArrowRight, Calculator, GitCompareArrows, MapPin, RefreshCcw, ShieldCheck, WalletCards } from 'lucide-react'
+import { BrandLogo } from '@/components/brand-logo'
+import { TradeFooter } from '@/components/entrance/trade-frame'
+import { heroCopy } from '@/lib/marketplace-content'
 
-import { useState } from 'react'
+const navItems = [['About', '/about'], ['Support', '/support'], ['News', '/news'], ['Contact', '/contact']] as const
 
-const navItems = ['Marketplace', 'Suppliers', 'Travel Buyers', 'Technology', 'Company', 'Insights']
+const steps = [
+  { icon: MapPin, title: 'Search', text: 'Pick a destination from the catalogue, then set dates, rooms and guests.' },
+  { icon: GitCompareArrows, title: 'Compare', text: 'Review room, board and cancellation terms side by side.' },
+  { icon: RefreshCcw, title: 'Recheck', text: 'Confirm price and availability against current inventory before you commit.' },
+  { icon: ShieldCheck, title: 'Book', text: 'Hold, check out and confirm, with a voucher and invoice on confirmation.' },
+] as const
 
+const strengths = [
+  { icon: Calculator, title: 'Clear pricing', text: 'Rates in AED with the stay total shown. Charges paid at the hotel are listed separately and never added to the total.' },
+  { icon: WalletCards, title: 'Credit and wallet', text: 'See your agency credit limit, balance and payment status in one place, and declare bank-transfer top-ups.' },
+  { icon: ShieldCheck, title: 'Controlled access', text: 'Every request is checked against your agency and role. Your own mark-up for clients is for display only.' },
+] as const
+
+/** Public entrance. Everything here describes what the workspace does; no inventory, volume or price claims. */
 export function MarketingHome() {
-  const [joinOpen, setJoinOpen] = useState(false)
-
   return (
-    <main className="marketing-site">
-      <header className="marketing-header">
-        <a className="marketing-logo" href="#top" aria-label="fabBeds home">
-          <span className="marketing-logo-mark">f</span>
-          <span><strong>fabBeds</strong><small>THE WORLD'S WHOLESALE MARKETPLACE</small></span>
-        </a>
-        <nav className="marketing-nav" aria-label="Main navigation">
-          {navItems.map((item) => <a key={item} href={`#${item.toLowerCase().replace(' ', '-')}`}>{item}</a>)}
+    <div className="site">
+      <header className="site-header">
+        <Link href="/" className="site-logo" aria-label="fabBeds home"><BrandLogo /></Link>
+        <nav className="site-nav" aria-label="Main navigation">
+          {navItems.map(([label, href]) => <Link key={href} href={href}>{label}</Link>)}
         </nav>
-        <div className="marketing-actions">
-          <a className="marketing-signin" href="/login">Sign In</a>
-          <button className="marketing-button marketing-button-small" onClick={() => setJoinOpen(true)}>Join fabBeds</button>
+        <div className="site-actions">
+          <Link className="site-link" href="/access">Request access</Link>
+          <Link className="site-btn" href="/login">Agent sign in</Link>
         </div>
       </header>
 
-      <section className="marketing-hero" id="top">
-        <img src="/fabBeds-hero.png" alt="Modern resort beside a blue Mediterranean coastline" />
-        <div className="marketing-hero-overlay" />
-        <div className="marketing-hero-content">
-          <p className="marketing-eyebrow">THE WORLD'S WHOLESALE MARKETPLACE</p>
-          <h1>Where the world<br /><em>moves travel.</em></h1>
-          <p className="marketing-hero-copy">Connecting global hotel supply with the businesses that move travel.</p>
-          <div className="marketing-hero-actions">
-            <button className="marketing-button" onClick={() => setJoinOpen(true)}>Join the marketplace <span>→</span></button>
-            <a className="marketing-text-link" href="#marketplace">Explore how it works <span>↓</span></a>
+      <main>
+        <section className="site-hero" aria-labelledby="site-title">
+          <div className="site-hero-copy">
+            <p className="site-eyebrow">Trade workspace for travel agents</p>
+            <h1 id="site-title">{heroCopy.headline}</h1>
+            <p className="site-lead">{heroCopy.supporting}</p>
+            <div className="site-cta">
+              <Link className="site-btn site-btn-lg" href="/login">{heroCopy.primaryCta} <ArrowRight size={18} aria-hidden="true" /></Link>
+              <Link className="site-btn site-btn-lg site-btn-ghost" href="/access">{heroCopy.secondaryCta}</Link>
+            </div>
+            <p className="site-note">{heroCopy.partnerInvitation}</p>
           </div>
-        </div>
-        <div className="marketing-hero-note">A smarter way to source, distribute<br />and grow hotel business.</div>
-      </section>
+          <figure className="site-hero-media">
+            <img src="/dubai-marina-entrance.jpg" alt="Dubai marina waterfront in late afternoon light, with towers reflected in calm water." width={1280} height={720} />
+          </figure>
+        </section>
 
-      <section className="marketing-intro" id="marketplace">
-        <div><p className="marketing-eyebrow marketing-eyebrow-dark">ONE MARKETPLACE. TWO SIDES OF TRAVEL.</p><h2>Built for the<br /><em>business of travel.</em></h2></div>
-        <div className="marketing-intro-copy"><p>fabBeds brings accommodation supply and professional travel buyers together in one focused wholesale marketplace.</p><p>Less friction. More choice. Better connections that help every side of the industry move further.</p><a href="#how-it-works" className="marketing-arrow-link">Discover fabBeds <span>↗</span></a></div>
-      </section>
+        <section className="site-section" aria-labelledby="site-steps">
+          <p className="site-eyebrow">How it works</p>
+          <h2 id="site-steps">From search to confirmed booking in four steps</h2>
+          <ol className="site-steps">
+            {steps.map(({ icon: Icon, title, text }, index) => (
+              <li key={title}>
+                <span className="site-step-icon" aria-hidden="true"><Icon size={20} /></span>
+                <span className="site-step-num">Step {index + 1}</span>
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </li>
+            ))}
+          </ol>
+          <p className="site-fineprint">A search price is a quote. It is confirmed only when a recheck succeeds. Booking is available to agencies where it has been enabled.</p>
+        </section>
 
-      <section className="marketing-audiences" id="suppliers">
-        <article className="marketing-audience-card marketing-audience-dark"><p className="marketing-eyebrow">FOR SUPPLIERS</p><h3>Put your hotel supply in front of a world of travel businesses.</h3><p>Reach the buyers that matter, with the commercial control and connectivity to grow on your terms.</p><a href="#contact">Become a supply partner <span>↗</span></a></article>
-        <article className="marketing-audience-card marketing-audience-red" id="travel-buyers"><p className="marketing-eyebrow">FOR TRAVEL BUYERS</p><h3>More hotel supply.<br />One smarter marketplace.</h3><p>Source, compare and validate hotel stays with a marketplace designed around the way you work.</p><a href="#contact">Join as a travel buyer <span>↗</span></a></article>
-      </section>
+        <section className="site-section site-section-tint" aria-labelledby="site-strengths">
+          <p className="site-eyebrow">Built for trade</p>
+          <h2 id="site-strengths">Clarity on every rate, control on every booking</h2>
+          <ul className="site-cards">
+            {strengths.map(({ icon: Icon, title, text }) => (
+              <li key={title}><span className="site-step-icon" aria-hidden="true"><Icon size={20} /></span><h3>{title}</h3><p>{text}</p></li>
+            ))}
+          </ul>
+        </section>
 
-      <section className="marketing-process" id="how-it-works">
-        <div><p className="marketing-eyebrow marketing-eyebrow-dark">THE FAB BEDS DIFFERENCE</p><h2>Move with<br /><em>confidence.</em></h2></div>
-        <div className="marketing-process-list">{[['01','Search','Find the right supply for every journey.'],['02','Compare','See the detail that makes the difference.'],['03','Select','Choose with clarity and commercial confidence.'],['04','Validate','Know it is right before you move forward.']].map(([number,title,copy]) => <div className="marketing-process-row" key={number}><span>{number}</span><strong>{title}</strong><p>{copy}</p><b>↗</b></div>)}</div>
-      </section>
+        <section className="site-band" aria-labelledby="site-join">
+          <div>
+            <h2 id="site-join">Ready to work with fabBeds?</h2>
+            <p>Travel agencies can request access. The fabBeds team reviews each request.</p>
+          </div>
+          <div className="site-cta">
+            <Link className="site-btn site-btn-lg site-btn-light" href="/access">{heroCopy.secondaryCta}</Link>
+            <Link className="site-btn site-btn-lg site-btn-outline" href="/login">{heroCopy.primaryCta}</Link>
+          </div>
+        </section>
+      </main>
 
-      <section className="marketing-cta" id="contact"><p className="marketing-eyebrow">READY TO MOVE TRAVEL FORWARD?</p><h2>Let's make<br /><em>the connection.</em></h2><button className="marketing-button" onClick={() => setJoinOpen(true)}>Join fabBeds <span>→</span></button></section>
-
-      <footer className="marketing-footer" id="company">
-        <div className="marketing-footer-brand"><a className="marketing-logo" href="#top"><span className="marketing-logo-mark">f</span><span><strong>fabBeds</strong><small>THE WORLD'S WHOLESALE MARKETPLACE</small></span></a><p>Connecting global hotel supply with the businesses that move travel.</p></div>
-        <div className="marketing-footer-columns"><div><strong>Marketplace</strong><a href="#marketplace">Hotels & Resorts</a><a href="#marketplace">Destinations</a></div><div><strong>Suppliers</strong><a href="#suppliers">Supplier Solutions</a><a href="#contact">Become a Partner</a></div><div><strong>Travel Buyers</strong><a href="#travel-buyers">Buyer Solutions</a><a href="#contact">Join the Marketplace</a></div><div><strong>Company</strong><a href="#company">About fabBeds</a><a href="#contact">Contact</a></div></div>
-        <div className="marketing-footer-bottom"><span>© 2026 fabBeds. All rights reserved.</span><span>Privacy · Terms · Cookies</span></div>
-      </footer>
-
-      {joinOpen && <div className="marketing-modal-backdrop" role="presentation" onClick={() => setJoinOpen(false)}><div className="marketing-modal" role="dialog" aria-modal="true" aria-labelledby="join-title" onClick={(event) => event.stopPropagation()}><button className="marketing-modal-close" aria-label="Close" onClick={() => setJoinOpen(false)}>×</button><p className="marketing-eyebrow marketing-eyebrow-dark">JOIN FAB BEDS</p><h2 id="join-title">How would you like<br /><em>to work with us?</em></h2><a href="#contact" onClick={() => setJoinOpen(false)}>I'm a Hotel / Supplier <span>→</span></a><a href="#contact" onClick={() => setJoinOpen(false)}>I'm a Travel Buyer <span>→</span></a></div></div>}
-    </main>
+      <div className="site-footer"><TradeFooter /></div>
+    </div>
   )
 }
