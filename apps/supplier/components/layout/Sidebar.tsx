@@ -56,9 +56,10 @@ export function Sidebar({
               const activeLink = pathname === item.href || pathname.startsWith(`${item.href}/`)
               const Icon = item.icon
               return (
-                <Link key={item.href} href={item.href} className={activeLink ? 'active' : ''} onClick={onClose}>
+                <Link key={item.href} href={item.href} className={`${activeLink ? 'active' : ''}${item.live ? '' : ' is-unavailable'}`} aria-current={activeLink ? 'page' : undefined} onClick={onClose}>
                   <Icon size={16} aria-hidden="true" />
                   <span>{item.label}</span>
+                  {!item.live && <small className="nav-tag">Not available</small>}
                 </Link>
               )
             })}

@@ -41,7 +41,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
           </form>
           {filters.ignored.length > 0 && <p role="status" style={{ padding: '0 16px' }}>Ignored invalid filter: {filters.ignored.join(', ')}.</p>}
           <div className="table-wrap">
-            <table className="data-table">
+            <table className="data-table"><caption className="sr-only">Bookings</caption>
               <thead><tr><th>Reference</th><th>Hotel</th><th>Stay</th><th>Lead guest</th><th>Status</th><th>Net</th></tr></thead>
               <tbody>
                 {result.bookings.length === 0 && <tr><td colSpan={6}>No bookings match.</td></tr>}

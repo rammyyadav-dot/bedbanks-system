@@ -21,6 +21,8 @@ export interface NavItem {
   href: string
   label: string
   icon: LucideIcon
+  /** True only when the route is backed by a reviewed extranet API. Everything else renders the unavailable state. */
+  live?: boolean
 }
 
 export interface NavSection {
@@ -31,15 +33,15 @@ export interface NavSection {
 export const navSections: NavSection[] = [
   {
     items: [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/dashboard', live: true, label: 'Dashboard', icon: LayoutDashboard },
       { href: '/supplier-profile', label: 'Supplier profile', icon: ClipboardCheck },
     ],
   },
   {
     label: 'Portfolio',
     items: [
-      { href: '/hotels', label: 'Properties', icon: Building2 },
-      { href: '/contracts', label: 'Contracts', icon: BookOpenCheck },
+      { href: '/hotels', live: true, label: 'Properties', icon: Building2 },
+      { href: '/contracts', live: true, label: 'Contracts', icon: BookOpenCheck },
       { href: '/rooms', label: 'Rooms', icon: BedDouble },
       { href: '/rates', label: 'Rates', icon: Tags },
     ],
@@ -57,7 +59,7 @@ export const navSections: NavSection[] = [
   {
     label: 'Operations',
     items: [
-      { href: '/bookings', label: 'Bookings', icon: Boxes },
+      { href: '/bookings', live: true, label: 'Bookings', icon: Boxes },
       { href: '/vouchers', label: 'Vouchers', icon: TicketCheck },
       { href: '/invoices', label: 'Invoices', icon: ReceiptText },
       { href: '/reports', label: 'Reports', icon: BarChart3 },

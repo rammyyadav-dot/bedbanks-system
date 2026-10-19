@@ -19,7 +19,7 @@ export default async function ContractsPage() {
         <PageHeader eyebrow="Read only" title="Contracts and rate plans" description="Contracts held for your organization. Rates, amounts, creating a contract, and activating a plan are unavailable here and nothing on this page can be changed." />
         <section className="panel">
           <div className="table-wrap">
-            <table className="data-table">
+            <table className="data-table"><caption className="sr-only">Contracts and rate plans</caption>
               <thead><tr><th>Contract</th><th>Hotel</th><th>Term</th><th>Status</th><th>Rate plans</th></tr></thead>
               <tbody>
                 {contracts.length === 0 && <tr><td colSpan={5}>No contracts for this organization.</td></tr>}
