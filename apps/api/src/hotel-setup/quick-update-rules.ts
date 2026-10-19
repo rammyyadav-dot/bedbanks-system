@@ -1,3 +1,4 @@
+import { isLargePriceChange, largeChangeWarning } from '../supply/price-guardrails'
 import { majorUnitsToMinor } from '@bedbanks/money'
 import {
   INVENTORY_LIMITS, INVENTORY_MODES, QUICK_UPDATE_LIMITS, QUICK_UPDATE_WEEKDAYS,
@@ -34,7 +35,7 @@ const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10)
 export function normaliseQuickUpdate(body: Partial<QuickUpdateRequest> | undefined): { value?: NormalisedQuickUpdate; errors: string[] } {
   const errors: string[] = []
   const b = (body ?? {}) as Record<string, unknown>
-  for (const key of Object.keys(b)) if (!['scope', 'changes', 'idempotencyKey', 'expectedFingerprint', 'reason'].includes(key)) errors.push(`${key}: is not a supported field`)
+  for (const key of Object.keys(b)) if (!['scope', 'changes', 'idempotencyKey', 'expectedFingerprint', 'reason', 'confirmLargeChanges'].includes(key)) errors.push(`${key}: is not a supported field`)
   const scope = b.scope as Record<string, unknown> | undefined
   const changes = b.changes as Record<string, unknown> | undefined
   if (!scope || typeof scope !== 'object' || Array.isArray(scope)) errors.push('scope: is required')
@@ -70,11 +71,35 @@ export function normaliseQuickUpdate(body: Partial<QuickUpdateRequest> | undefin
   for (const key of Object.keys(changes!)) if (!['price', 'availability', 'restrictions'].includes(key)) errors.push(`changes.${key}: is not a supported change`)
   const price = changes!.price as Record<string, unknown> | undefined
   if (price !== undefined) {
-    for (const key of Object.keys(price ?? {})) if (!['amount', 'basis', 'occupancy'].includes(key)) errors.push(`changes.price.${key}: is not a supported field`)
-    if (typeof price?.amount !== 'string' || price.amount.trim() === '') errors.push('changes.price.amount: enter an amount, or leave the price panel untouched')
-    else if (price.basis !== 'NET' && price.basis !== 'SELL') errors.push('changes.price.basis: choose NET or SELL')
-    else if (price.occupancy !== undefined && !(Number.isInteger(price.occupancy) && (price.occupancy as number) >= 1 && (price.occupancy as number) <= 9)) errors.push('changes.price.occupancy: a whole number of guests from 1 to 9, or omit it for each plan\'s own occupancy')
-    else out.price = { amount: price.amount.trim(), basis: price.basis, ...(price.occupancy !== undefined ? { occupancy: price.occupancy as number } : {}) }
+    // ADR 0067 F-14: a price is SET (amount + basis), loaded per season (seasons + basis), or ADJUSTED relative to the stored rate (percent or amount).
+    for (const key of Object.keys(price ?? {})) if (!['amount', 'basis', 'occupancy', 'seasons', 'adjustPercentBp', 'adjustAmount'].includes(key)) errors.push(`changes.price.${key}: is not a supported field`)
+    const modes = ['amount', 'seasons', 'adjustPercentBp', 'adjustAmount'].filter((k) => price?.[k] !== undefined)
+    const occupancyOk = price?.occupancy === undefined || (Number.isInteger(price.occupancy) && (price.occupancy as number) >= 1 && (price.occupancy as number) <= 9)
+    const occupancy = price?.occupancy !== undefined ? { occupancy: price.occupancy as number } : {}
+    if (!occupancyOk) errors.push('changes.price.occupancy: a whole number of guests from 1 to 9, or omit it for each plan\'s own occupancy')
+    if (modes.length !== 1) errors.push('changes.price: give exactly one of amount, seasons, adjustPercentBp or adjustAmount')
+    else if (modes[0] === 'amount' || modes[0] === 'seasons') {
+      if (price!.basis !== 'NET' && price!.basis !== 'SELL') errors.push('changes.price.basis: choose NET or SELL')
+      else if (modes[0] === 'amount') {
+        if (typeof price!.amount !== 'string' || price!.amount.trim() === '') errors.push('changes.price.amount: enter an amount, or leave the price panel untouched')
+        else if (occupancyOk) out.price = { amount: price!.amount.trim(), basis: price!.basis, ...occupancy }
+      } else {
+        const seasons = price!.seasons
+        const valid = Array.isArray(seasons) && seasons.length >= 1 && seasons.length <= QUICK_UPDATE_LIMITS.seasons && seasons.every((x) => x && typeof x === 'object' && DAY.test((x as Record<string, unknown>).from as string) && DAY.test((x as Record<string, unknown>).to as string) && (x as Record<string, string>).from <= (x as Record<string, string>).to && typeof (x as Record<string, unknown>).amount === 'string' && ((x as Record<string, string>).amount).trim() !== '')
+        const list = valid ? (seasons as Array<{ from: string; to: string; amount: string }>).map((x) => ({ from: x.from, to: x.to, amount: x.amount.trim() })).sort((a, b) => a.from.localeCompare(b.from)) : []
+        if (!valid) errors.push(`changes.price.seasons: 1 to ${QUICK_UPDATE_LIMITS.seasons} seasons, each with from and to (YYYY-MM-DD, from on or before to) and an amount`)
+        else if (list.some((x, i) => i > 0 && x.from <= list[i - 1]!.to)) errors.push('changes.price.seasons: seasons overlap; a night takes one season price')
+        else if (occupancyOk) out.price = { seasons: list, basis: price!.basis, ...occupancy }
+      }
+    } else if (modes[0] === 'adjustPercentBp') {
+      const bp = price!.adjustPercentBp
+      if (!Number.isInteger(bp) || (bp as number) === 0 || (bp as number) < -9000 || (bp as number) > 100_000) errors.push('changes.price.adjustPercentBp: a signed whole number of basis points from -9000 to 100000, not zero (e.g. 500 raises by 5%)')
+      else if (occupancyOk) out.price = { adjustPercentBp: bp as number, ...occupancy }
+    } else {
+      const amount = typeof price!.adjustAmount === 'string' ? price!.adjustAmount.trim() : ''
+      if (!/^[+-]?\d+(\.\d+)?$/.test(amount) || /^[+-]?0+(\.0+)?$/.test(amount)) errors.push('changes.price.adjustAmount: a signed amount such as -25.00 or +40, not zero')
+      else if (occupancyOk) out.price = { adjustAmount: amount, ...occupancy }
+    }
   }
   const availability = changes!.availability as Record<string, unknown> | undefined
   if (availability !== undefined) {
@@ -139,7 +164,7 @@ export function planQuickUpdate(input: {
   /** Pool nights keyed `${poolId}:${date}`. Omitted means no pool data is loaded. */
   pools?: Map<string, PoolDayState>
   today: string
-}): { dates: string[]; rows: PlannedRow[]; errors: string[]; counts: { records: number; willChange: number; unchanged: number; invalid: number } } {
+}): { dates: string[]; rows: PlannedRow[]; errors: string[]; counts: { records: number; willChange: number; unchanged: number; invalid: number; largePriceChanges?: number } } {
   const { value, plans, rates, avail, today } = input
   const pools = input.pools ?? new Map<string, PoolDayState>()
   const errors: string[] = []
@@ -148,20 +173,39 @@ export function planQuickUpdate(input: {
   if (dates.length === 0) errors.push('scope: the selected ranges and weekdays contain no dates')
   if (errors.length === 0 && dates.length * value.ratePlanIds.length > QUICK_UPDATE_LIMITS.records) errors.push(`scope: ${dates.length * value.ratePlanIds.length} records exceed the limit of ${QUICK_UPDATE_LIMITS.records} per batch; narrow the dates or plans`)
   const priceChange = value.changes.price
-  if (priceChange && new Set(value.ratePlanIds.map((id) => plans.get(id)?.currency)).size > 1) errors.push('scope: a price change needs rate plans in one currency, because one amount is entered; split the update by currency')
+  if (priceChange && priceChange.adjustPercentBp === undefined && new Set(value.ratePlanIds.map((id) => plans.get(id)?.currency)).size > 1) errors.push('scope: a price change needs rate plans in one currency, because one amount is entered; split the update by currency')
   if (errors.length) return { dates, rows: [], errors, counts: { records: 0, willChange: 0, unchanged: 0, invalid: 0 } }
 
-  // A price is converted once per currency with the canonical money package; no floating point is involved.
-  const minorByCurrency = new Map<string, { minor: bigint } | { error: string }>()
-  const priceFor = (currency: string) => {
-    if (!priceChange) return null
-    if (!minorByCurrency.has(currency)) {
+  // A price is converted once per currency and amount with the canonical money package; no floating point is involved.
+  const minorCache = new Map<string, { minor: bigint } | { error: string }>()
+  const toMinor = (amount: string, currency: string, signed = false): { minor: bigint } | { error: string } => {
+    const cacheKey = `${currency}|${amount}|${signed}`
+    if (!minorCache.has(cacheKey)) {
       try {
-        const minor = BigInt(majorUnitsToMinor(priceChange.amount, currency))
-        minorByCurrency.set(currency, minor <= 0n ? { error: 'the price must be greater than zero' } : minor > MAX_AMOUNT_MINOR ? { error: 'the price is above the accepted maximum' } : { minor })
-      } catch (e) { minorByCurrency.set(currency, { error: (e as Error).message === 'Amount exceeds the currency scale' ? `the price has more decimal places than ${currency} allows` : `the price is not a valid ${currency} amount` }) }
+        const negative = signed && amount.startsWith('-')
+        const minor = BigInt(majorUnitsToMinor(signed ? amount.replace(/^[+-]/, '') : amount, currency)) * (negative ? -1n : 1n)
+        minorCache.set(cacheKey, !signed && minor <= 0n ? { error: 'the price must be greater than zero' } : minor > MAX_AMOUNT_MINOR ? { error: 'the price is above the accepted maximum' } : { minor })
+      } catch (e) { minorCache.set(cacheKey, { error: (e as Error).message === 'Amount exceeds the currency scale' ? `the amount has more decimal places than ${currency} allows` : `the amount is not a valid ${currency} amount` }) }
     }
-    return minorByCurrency.get(currency)!
+    return minorCache.get(cacheKey)!
+  }
+  /** The night's new price and basis, or why it cannot be set. ADJUST needs a stored rate: a missing rate is unknown, never zero. */
+  const targetPrice = (currency: string, date: string, cur: RateState | undefined): { minor: bigint; basis: 'NET' | 'SELL' } | { error: string } => {
+    const change = priceChange!
+    if (change.amount !== undefined || change.seasons !== undefined) {
+      const amount = change.amount ?? change.seasons!.find((x) => date >= x.from && date <= x.to)?.amount
+      if (amount === undefined) return { error: `no season covers ${date}` }
+      const p = toMinor(amount, currency)
+      return 'error' in p ? p : { minor: p.minor, basis: change.basis! }
+    }
+    if (!cur) return { error: 'there is no stored rate to adjust for this night; set a price first' }
+    if (cur.basis === null) return { error: 'the stored rate has no basis (NET or SELL); set the price instead of adjusting it' }
+    let next: bigint
+    if (change.adjustPercentBp !== undefined) next = cur.amountMinor + (cur.amountMinor * BigInt(change.adjustPercentBp) + (change.adjustPercentBp >= 0 ? 5000n : -5000n)) / 10000n
+    else { const d = toMinor(change.adjustAmount!, currency, true); if ('error' in d) return d; next = cur.amountMinor + d.minor }
+    if (next <= 0n) return { error: 'the adjusted price would be zero or below' }
+    if (next > MAX_AMOUNT_MINOR) return { error: 'the adjusted price is above the accepted maximum' }
+    return { minor: next, basis: cur.basis }
   }
 
   const rows: PlannedRow[] = []
@@ -170,6 +214,7 @@ export function planQuickUpdate(input: {
     for (const date of dates) {
       const key = `${planId}:${date}`
       const problems: string[] = []; const changes: QuickUpdateFieldChange[] = []
+      const warnings: string[] = []
       let nextRate: PlannedRow['nextRate'] = null; let nextAvail: PlannedRow['nextAvail'] = null; let nextPool: PlannedRow['nextPool'] = null
       if (!WRITABLE_PLAN_STATUSES.has(plan.status)) problems.push(`the rate plan is ${plan.status} and cannot be changed`)
       if (date < today) problems.push(`${date} is before today in the hotel's time zone`)
@@ -178,12 +223,13 @@ export function planQuickUpdate(input: {
       if (priceChange && plan.derived) problems.push('the rate plan is derived from another plan and has no rates of its own; change the parent plan or its adjustment')
       else if (priceChange && priceChange.occupancy !== undefined && plan.maxOccupancy !== undefined && priceChange.occupancy > plan.maxOccupancy) problems.push(`the room sleeps at most ${plan.maxOccupancy}; occupancy ${priceChange.occupancy} cannot be priced`)
       else if (priceChange) {
-        const p = priceFor(plan.currency)!
+        const cur = rates.get(key)
+        const p = targetPrice(plan.currency, date, cur)
         if ('error' in p) problems.push(p.error)
         else {
-          const cur = rates.get(key)
-          if (!cur || cur.amountMinor !== p.minor || cur.basis !== priceChange.basis) {
-            nextRate = { amountMinor: p.minor, basis: priceChange.basis, occupancy: priceChange.occupancy ?? plan.occupancy }
+          if (!cur || cur.amountMinor !== p.minor || cur.basis !== p.basis) {
+            nextRate = { amountMinor: p.minor, basis: p.basis, occupancy: priceChange.occupancy ?? plan.occupancy }
+            if (cur && isLargePriceChange(cur.amountMinor, p.minor)) warnings.push(largeChangeWarning(cur.amountMinor, p.minor))
             changes.push({ field: 'price', from: cur ? cur.amountMinor.toString() : null, to: p.minor.toString(), currency: plan.currency })
           }
         }
@@ -219,9 +265,9 @@ export function planQuickUpdate(input: {
         }
       }
       const outcome = problems.length ? 'INVALID' : changes.length ? 'CHANGE' : 'NO_CHANGE'
-      rows.push({ ratePlanId: planId, date, outcome, problems, changes: problems.length ? [] : changes, nextRate: outcome === 'CHANGE' ? nextRate : null, nextAvail: outcome === 'CHANGE' ? nextAvail : null, nextPool: outcome === 'CHANGE' ? nextPool : null })
+      rows.push({ ratePlanId: planId, date, outcome, problems, changes: problems.length ? [] : changes, ...(warnings.length && !problems.length ? { warnings } : {}), nextRate: outcome === 'CHANGE' ? nextRate : null, nextAvail: outcome === 'CHANGE' ? nextAvail : null, nextPool: outcome === 'CHANGE' ? nextPool : null })
     }
   }
-  const counts = { records: rows.length, willChange: rows.filter((x) => x.outcome === 'CHANGE').length, unchanged: rows.filter((x) => x.outcome === 'NO_CHANGE').length, invalid: rows.filter((x) => x.outcome === 'INVALID').length }
+  const counts = { records: rows.length, willChange: rows.filter((x) => x.outcome === 'CHANGE').length, unchanged: rows.filter((x) => x.outcome === 'NO_CHANGE').length, invalid: rows.filter((x) => x.outcome === 'INVALID').length, largePriceChanges: rows.filter((x) => x.outcome === 'CHANGE' && x.warnings?.length).length }
   return { dates, rows, errors, counts }
 }

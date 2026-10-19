@@ -1,4 +1,4 @@
-import { resolveMarkupBasisPoints, markupResolverFor, type MarkupRuleRow } from './markup-rules'
+import { resolveMarkupBasisPoints, markupResolverFor, rulesNeedBuyer, type MarkupRuleRow } from './markup-rules'
 
 const rule = (patch: Partial<MarkupRuleRow>): MarkupRuleRow => ({ scope: 'TENANT_DEFAULT', supplierId: null, hotelId: null, basisPoints: 1_000, validFrom: '2026-01-01', validTo: null, ...patch })
 const target = { supplierId: 's1', hotelId: 'h1' }
@@ -42,5 +42,26 @@ describe('markup rule resolution (ADR 0018)', () => {
     const f = markupResolverFor([rule({ validTo: '2026-10-15' }), rule({ scope: 'HOTEL', hotelId: 'h1', basisPoints: 3_000, validFrom: '2026-10-16' })], 's1', 'h1')
     expect(f('2026-10-15')).toBe(1_000)
     expect(f('2026-10-16')).toBe(3_000)
+  })
+})
+
+describe('client and market tiers with exclusions (ADR 0067, F-11)', () => {
+  const r = (over: Partial<MarkupRuleRow>): MarkupRuleRow => ({ scope: 'TENANT_DEFAULT', supplierId: null, hotelId: null, basisPoints: 1000, validFrom: '2026-01-01', validTo: null, ...over })
+  const target = { supplierId: 's1', hotelId: 'h1' }
+  const rules = [r({ basisPoints: 1000 }), r({ scope: 'HOTEL', hotelId: 'h1', basisPoints: 1500 }), r({ market: 'GB', basisPoints: 1200 }), r({ agencyId: 'a1', basisPoints: 800 })]
+  it('a client tier outranks a market tier, which outranks a generic rule, whatever the generic rule targets', () => {
+    expect(resolveMarkupBasisPoints(rules, target, '2026-06-01', { agencyId: 'a1', market: 'GB' })).toBe(800)
+    expect(resolveMarkupBasisPoints(rules, target, '2026-06-01', { agencyId: 'a2', market: 'GB' })).toBe(1200)
+    expect(resolveMarkupBasisPoints(rules, target, '2026-06-01', { agencyId: 'a2', market: 'AE' })).toBe(1500)
+  })
+  it('without a buyer only generic rules apply', () => {
+    expect(resolveMarkupBasisPoints(rules, target, '2026-06-01')).toBe(1500)
+    expect(rulesNeedBuyer(rules)).toBe(true); expect(rulesNeedBuyer([r({})])).toBe(false)
+  })
+  it('an exclusion carves a hotel or supplier out, so the next rule applies there', () => {
+    const carved = [r({ basisPoints: 1000 }), r({ market: 'GB', basisPoints: 1200, excludedHotelIds: ['h1'] })]
+    expect(resolveMarkupBasisPoints(carved, target, '2026-06-01', { agencyId: null, market: 'GB' })).toBe(1000)
+    expect(resolveMarkupBasisPoints(carved, { supplierId: 's1', hotelId: 'h2' }, '2026-06-01', { agencyId: null, market: 'GB' })).toBe(1200)
+    expect(resolveMarkupBasisPoints([r({ excludedSupplierIds: ['s1'] })], target, '2026-06-01')).toBeNull()
   })
 })

@@ -176,6 +176,34 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     expect((offerFor((await search().expect(201)).body, hotelA)!).markupAmountMinor).toBe(2_002)
   })
 
+  it('CM-15 client and market tiers outrank generic rules, and an exclusion falls back to the next rule (ADR 0067, F-11)', async () => {
+    const makerId = ids.maker!
+    const agency = await prisma.agency.create({ data: { tenantId: tenantA, code: `GB-${Date.now().toString(36)}`.toUpperCase(), name: 'London Travel', countryCode: 'GB', createdById: makerId } })
+    const member = await prisma.agencyMember.create({ data: { tenantId: tenantA, agencyId: agency.id, userId: makerId } })
+    try {
+      await activate(await draft({ basisPoints: 1_000 }))
+      await activate(await draft({ market: 'GB', basisPoints: 1_500, excludedHotelIds: [otherHotelA] }))
+      let body = (await search().expect(201)).body
+      expect(offerFor(body, hotelA)!.markupAmountMinor).toBe(3_002) // GB market, 15%
+      expect(offerFor(body, otherHotelA)!.markupAmountMinor).toBe(2_002) // excluded from the market rule: the generic 10%
+      const client = await activate(await draft({ agencyId: agency.id, basisPoints: 2_000 }))
+      body = (await search().expect(201)).body
+      expect(offerFor(body, hotelA)!.markupAmountMinor).toBe(4_002); expect(offerFor(body, otherHotelA)!.markupAmountMinor).toBe(4_002) // the client tier wins everywhere
+      expect(offerFor((await search('checker').expect(201)).body, hotelA)!.markupAmountMinor).toBe(2_002) // another buyer, no agency: generic only
+      await call('post', `/${client.rule.id}/retire`, 'maker').expect(200)
+      expect(offerFor((await search().expect(201)).body, hotelA)!.markupAmountMinor).toBe(3_002)
+      // The generic and the market rule are separate targets: activating one never retires the other.
+      expect(await prisma.commercialMarkupRule.count({ where: { tenantId: tenantA, status: 'ACTIVE' } })).toBe(2)
+      await call('post', '', 'maker', { scope: 'HOTEL', hotelId: hotelA, excludedHotelIds: [otherHotelA], basisPoints: 100, validFrom: day(-30), reason: 'x' }).expect(400)
+      await call('post', '', 'maker', { scope: 'TENANT_DEFAULT', market: 'GBR', basisPoints: 100, validFrom: day(-30), reason: 'x' }).expect(400)
+      await call('post', '', 'bmaker', { scope: 'TENANT_DEFAULT', agencyId: agency.id, basisPoints: 100, validFrom: day(-30), reason: 'x' }).expect(404)
+    } finally {
+      await clearRules()
+      await prisma.agencyMember.deleteMany({ where: { tenantId: tenantA, agencyId: member.agencyId, userId: member.userId } })
+      await prisma.agency.delete({ where: { id: agency.id } })
+    }
+  })
+
   it('CM-05 activating a new rule for the same target retires the old one in the same step', async () => {
     const first = await activate(await draft({ basisPoints: 1_000 }))
     const second = await activate(await draft({ basisPoints: 1_200 }))

@@ -103,11 +103,11 @@ export class OfferHoldService {
     return this.prisma.withTenant(tenantId, async tx => {
       const plan = await tx.ratePlan.findFirst({ where: {
         id: offer.ratePlanId, tenantId, status: 'ACTIVE', boardBasisId: offer.boardBasisId,
-        roomTypeId: offer.canonicalRoomTypeId, currency: offer.currency,
+        roomTypeId: offer.canonicalRoomTypeId, currency: offer.contractCurrency ?? offer.currency,
         // The base occupancy may be below the party: guest lines and the contract child policy price the rest (ADR 0057 S6, ADR 0067 F-03); the evaluator decides.
         occupancy: { lte: offer.adults + offer.children }, boardBasis: { tenantId, isActive: true },
         roomType: { isActive: true, hotelId: offer.canonicalHotelId, maxAdults: { gte: offer.adults }, maxChildren: { gte: offer.children }, maxOccupancy: { gte: offer.adults + offer.children }, hotel: { tenantId, contentStatus: 'COMPLETE' } },
-        contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: lastNight }, settlementCurrency: offer.currency,
+        contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: lastNight }, settlementCurrency: offer.contractCurrency ?? offer.currency,
           supplier: { tenantId, status: 'ACTIVE' }, supplierHotelMapping: { tenantId, hotelId: offer.canonicalHotelId, supplierHotelId: offer.supplierHotelId, status: 'MAPPED',
             roomMappings: { some: { tenantId, supplierRoomId: offer.supplierRoomId, roomTypeId: offer.canonicalRoomTypeId, status: 'MAPPED' } } } },
       }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, availability: { where: { tenantId, stayDate: checkIn }, select: { releaseDays: true } }, roomType: { select: { hotel: { select: { timeZone: true } } } } } })

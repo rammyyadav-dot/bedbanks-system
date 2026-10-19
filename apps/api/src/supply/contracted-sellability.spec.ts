@@ -146,6 +146,22 @@ describe('contracted stay sellability', () => {
     expect(evaluateContractedStay(snapshot({ minStayMode: 'ARRIVAL', ratePlanMinStay: 5 }), request).reasons).toContain('MIN_STAY_NOT_MET')
   })
 
+  describe('controlled FX (ADR 0067, F-12)', () => {
+    const aedToUsd = { from: 'AED', to: 'USD', rateScaled: 27_229_000n, bufferBp: 100 } // 0.27229 USD per AED, +1%
+    it('prices in the contract currency and converts the final amounts once', () => {
+      const decision = evaluateContractedStay(snapshot({ fx: aedToUsd }), { ...request, currency: 'USD' })
+      // AED 897.00 * 0.27229 * 1.01 = USD 246.69... -> 24669 minor, half up
+      expect(decision).toMatchObject({ eligible: true, totalMinor: 24_669n, netMinor: 24_669n, markupMinor: 0n, fx: aedToUsd })
+    })
+    it('without a rate for the requested currency the stay is a currency mismatch, never a guess', () => {
+      expect(evaluateContractedStay(snapshot(), { ...request, currency: 'USD' }).reasons).toContain('RATE_CURRENCY_MISMATCH')
+      expect(evaluateContractedStay(snapshot({ fx: { ...aedToUsd, to: 'EUR' } }), { ...request, currency: 'USD' }).reasons).toContain('RATE_CURRENCY_MISMATCH')
+    })
+    it('a request in the contract currency ignores the rate', () => {
+      expect(evaluateContractedStay(snapshot({ fx: aedToUsd }), request)).toMatchObject({ totalMinor: 89_700n })
+    })
+  })
+
   describe('board and compulsory supplements (ADR 0067)', () => {
     const gala = { name: 'Gala dinner', kind: 'COMPULSORY' as const, basis: 'PER_PERSON' as const, frequency: 'PER_STAY' as const, amountMinor: 10_000n, currency: 'AED', stayFrom: '2026-10-16', stayTo: '2026-10-16' }
     const halfBoard = { name: 'Half board', kind: 'BOARD' as const, basis: 'PER_ADULT' as const, frequency: 'PER_NIGHT' as const, amountMinor: 5_000n, currency: 'AED', stayFrom: null, stayTo: null }

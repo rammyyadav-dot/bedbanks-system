@@ -179,6 +179,18 @@ describe('Calendar CSV import (ADR 0057, S7)', () => {
     expect((await night()).releaseDays).toBeNull()
   })
 
+  it('refuses a large price move without confirmation and applies it once confirmed (ADR 0067, F-13)', async () => {
+    const first = (await importCsv(operator, [H, `${planCode},${d(60)},450,SELL`].join('\n')).then((x) => expectStatus(x, 201))).body.data
+    await api(operator).post('/supply/calendar/apply', first.edit).then((x) => expectStatus(x, 201))
+    const typo = (await importCsv(operator, [H, `${planCode},${d(60)},4500,SELL`].join('\n')).then((x) => expectStatus(x, 201))).body.data
+    expect(typo.preview.largePriceChanges).toEqual([expect.objectContaining({ stayDate: d(60), fromMinor: '45000', toMinor: '450000' })])
+    const refused = await api(operator).post('/supply/calendar/apply', typo.edit).then((x) => expectStatus(x, 409))
+    expect(refused.body.error.code).toBe('PRICE_GUARDRAIL_CONFIRMATION_REQUIRED')
+    expect((await prisma.dailyRate.findFirstOrThrow({ where: { ratePlanId: planId, stayDate: new Date(d(60)) } })).amountMinor).toBe(45000n)
+    await api(operator).post('/supply/calendar/apply', { ...typo.edit, confirmLargeChanges: true }).then((x) => expectStatus(x, 201))
+    expect((await prisma.dailyRate.findFirstOrThrow({ where: { ratePlanId: planId, stayDate: new Date(d(60)) } })).amountMinor).toBe(450000n)
+  })
+
   describe('row-level errors and the error file', () => {
     it('keeps the good rows, reports each bad row with its line and reason, and applies only what was accepted', async () => {
       const before = await rateCount(planId)

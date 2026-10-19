@@ -53,6 +53,10 @@ export const routes = {
     markups: '/admin/commercial/markups', markupRetire: '/admin/commercial/markups/:ruleId/retire', markupRequestActivation: '/admin/commercial/markups/:ruleId/request-activation',
     markupApprovalApprove: '/admin/commercial/markups/approvals/:approvalId/approve', markupApprovalReject: '/admin/commercial/markups/approvals/:approvalId/reject',
     markupApprovalCancel: '/admin/commercial/markups/approvals/:approvalId/cancel', markupApprovalExecute: '/admin/commercial/markups/approvals/:approvalId/execute',
+    // Controlled FX (ADR 0067 F-12): same maker-checker lifecycle as markups.
+    fxRates: '/admin/commercial/fx-rates', fxRateRetire: '/admin/commercial/fx-rates/:rateId/retire', fxRateRequestActivation: '/admin/commercial/fx-rates/:rateId/request-activation',
+    fxApprovalApprove: '/admin/commercial/fx-rates/approvals/:approvalId/approve', fxApprovalReject: '/admin/commercial/fx-rates/approvals/:approvalId/reject',
+    fxApprovalCancel: '/admin/commercial/fx-rates/approvals/:approvalId/cancel', fxApprovalExecute: '/admin/commercial/fx-rates/approvals/:approvalId/execute',
   },
   // Read-only operational views over the authoritative transaction chain, plus one confirmed reconciliation action.
   adminFunding: {

@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service'
 import { freezeCancellationTerms } from './booking-cancellation-terms'
 import { rulesForPlan } from '../supply/cancellation-rules'
 import { readSupplierPrebook, type RecordedSupplierPrebook } from './supplier-prebook-record'
+import { effectiveRateDecimal } from '../supply/fx'
 
 const COMMERCIAL_SNAPSHOT_KEYS = [
   'version', 'requestId', 'offerId', 'searchId', 'inventoryHoldId', 'canonicalHotelId', 'canonicalRoomTypeId',
@@ -108,6 +109,14 @@ export class BookingPersistenceService {
         const stayNights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
         const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights })
         if (frozenTerms === null) throw new ConflictException('The cancellation terms of this rate plan cannot be recorded on the booking')
+        // ADR 0067 F-12: a contract in another currency was priced at the ACTIVE controlled rate; that rate (with its buffer) is frozen on the
+        // booking for reports. No rate, or a rate activated after the hold was priced, refuses the booking so the agent re-checks at today's rate.
+        let fxRate: string | null = null
+        if (plan.contract.settlementCurrency !== command.currency) {
+          const rate = await tx.fxRate.findFirst({ where: { tenantId: command.tenantId, status: 'ACTIVE', baseCurrency: plan.contract.settlementCurrency, quoteCurrency: command.currency }, select: { rateScaled: true, bufferBp: true, activatedAt: true } })
+          if (!rate || !rate.activatedAt || rate.activatedAt > hold.createdAt) throw new ConflictException({ message: 'The exchange rate this offer was priced at is no longer in force; check the offer again', code: 'FX_RATE_CHANGED' })
+          fxRate = effectiveRateDecimal(rate)
+        }
         const created = await tx.booking.create({
           data: {
             cancellationPolicy: frozenTerms as Prisma.InputJsonObject,
@@ -119,6 +128,7 @@ export class BookingPersistenceService {
             status: 'PENDING_SUPPLIER',
             currency: command.currency,
             totalMinor: BigInt(command.totalMinor),
+            ...(fxRate ? { fxRate } : {}),
             idempotencyKey: command.idempotencyKey,
             searchSnapshot: snapshot,
             channel: 'PORTAL',

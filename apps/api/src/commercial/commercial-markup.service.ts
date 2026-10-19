@@ -13,8 +13,9 @@ export const MARKUP_APPROVAL_ACTION = 'markup.activate'
 const ENTITY_TYPE = 'markup_rule'
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
-type RuleRow = Prisma.CommercialMarkupRuleGetPayload<{ include: { supplier: { select: { displayName: true } }; hotel: { select: { name: true } } } }>
-const INCLUDE = { supplier: { select: { displayName: true } }, hotel: { select: { name: true } } } as const
+type RuleRow = Prisma.CommercialMarkupRuleGetPayload<{ include: { supplier: { select: { displayName: true } }; hotel: { select: { name: true } }; agency: { select: { name: true } } } }>
+const INCLUDE = { supplier: { select: { displayName: true } }, hotel: { select: { name: true } }, agency: { select: { name: true } } } as const
+const MAX_EXCLUSIONS = 200
 const ymd = (d: Date): string => d.toISOString().slice(0, 10)
 
 function dateParam(name: string, value: unknown): string {
@@ -40,6 +41,7 @@ export class CommercialMarkupService {
     const open = approval && (approval.status === 'PENDING' || approval.status === 'APPROVED')
     return {
       id: r.id, scope: r.scope, supplierId: r.supplierId, supplierName: r.supplier?.displayName ?? null, hotelId: r.hotelId, hotelName: r.hotel?.name ?? null,
+      agencyId: r.agencyId, agencyName: r.agency?.name ?? null, market: r.market, excludedHotelIds: r.excludedHotelIds, excludedSupplierIds: r.excludedSupplierIds,
       basisPoints: r.basisPoints, validFrom: ymd(r.validFrom), validTo: r.validTo ? ymd(r.validTo) : null, status: r.status, reason: r.reason, createdById: r.createdById,
       createdAt: r.createdAt.toISOString(), activatedAt: r.activatedAt?.toISOString() ?? null, retiredAt: r.retiredAt?.toISOString() ?? null,
       approval: this.approvalView(approval, me), canRequestActivation: r.status === 'DRAFT' && !open, canRetire: r.status !== 'RETIRED',
@@ -75,15 +77,32 @@ export class CommercialMarkupService {
     if (scope === 'TENANT_DEFAULT' && (supplierId || hotelId)) throw new BadRequestException('A tenant default rule has no supplier or hotel')
     if (scope === 'SUPPLIER' && (!supplierId || hotelId)) throw new BadRequestException('A supplier rule needs a supplier and no hotel')
     if (scope === 'HOTEL' && (!hotelId || supplierId)) throw new BadRequestException('A hotel rule needs a hotel and no supplier')
+    // ADR 0067 F-11: client and market tiers, and exclusions carved out of a broad rule.
+    const agencyId = body.agencyId === undefined || body.agencyId === null || body.agencyId === '' ? null : idParam('agencyId', body.agencyId) ?? null
+    if (body.agencyId && !agencyId) throw new BadRequestException('Invalid agencyId')
+    const market = body.market === undefined || body.market === null || body.market === '' ? null : typeof body.market === 'string' && /^[A-Za-z]{2}$/.test(body.market.trim()) ? body.market.trim().toUpperCase() : undefined
+    if (market === undefined) throw new BadRequestException('market must be an ISO-3166 alpha-2 country code')
+    const idList = (name: string, value: unknown): string[] => {
+      if (value === undefined || value === null) return []
+      if (!Array.isArray(value) || value.length > MAX_EXCLUSIONS || value.some((v) => typeof v !== 'string' || !idParam(name, v))) throw new BadRequestException(`${name} must be a list of at most ${MAX_EXCLUSIONS} ids`)
+      return [...new Set(value as string[])].sort()
+    }
+    const excludedHotelIds = idList('excludedHotelIds', body.excludedHotelIds)
+    const excludedSupplierIds = idList('excludedSupplierIds', body.excludedSupplierIds)
+    if (scope === 'HOTEL' && excludedHotelIds.length) throw new BadRequestException('A hotel rule cannot exclude hotels')
+    if (scope === 'SUPPLIER' && excludedSupplierIds.length) throw new BadRequestException('A supplier rule cannot exclude suppliers')
     const row = await this.prisma.withTenant(tenantId, async (tx) => {
       if (supplierId && !(await tx.supplier.findFirst({ where: { id: supplierId, tenantId }, select: { id: true } }))) throw new NotFoundException('Supplier not found')
       if (hotelId && !(await tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { id: true } }))) throw new NotFoundException('Hotel not found')
+      if (agencyId && !(await tx.agency.findFirst({ where: { id: agencyId, tenantId }, select: { id: true } }))) throw new NotFoundException('Agency not found')
+      if (excludedHotelIds.length && (await tx.hotel.count({ where: { id: { in: excludedHotelIds }, tenantId } })) !== excludedHotelIds.length) throw new BadRequestException('An excluded hotel is not a hotel of this tenant')
+      if (excludedSupplierIds.length && (await tx.supplier.count({ where: { id: { in: excludedSupplierIds }, tenantId } })) !== excludedSupplierIds.length) throw new BadRequestException('An excluded supplier is not a supplier of this tenant')
       return tx.commercialMarkupRule.create({
-        data: { tenantId, scope, supplierId: supplierId ?? null, hotelId: hotelId ?? null, basisPoints, validFrom: new Date(`${validFrom}T00:00:00.000Z`), validTo: validTo ? new Date(`${validTo}T00:00:00.000Z`) : null, reason, createdById: userId },
+        data: { tenantId, scope, supplierId: supplierId ?? null, hotelId: hotelId ?? null, agencyId, market, excludedHotelIds, excludedSupplierIds, basisPoints, validFrom: new Date(`${validFrom}T00:00:00.000Z`), validTo: validTo ? new Date(`${validTo}T00:00:00.000Z`) : null, reason, createdById: userId },
         include: INCLUDE,
       })
     })
-    await this.audit.record({ tenantId, userId, action: 'commercial.markup.created', entityType: ENTITY_TYPE, entityId: row.id, payload: { scope, supplierId: supplierId ?? null, hotelId: hotelId ?? null, basisPoints, validFrom, validTo } })
+    await this.audit.record({ tenantId, userId, action: 'commercial.markup.created', entityType: ENTITY_TYPE, entityId: row.id, payload: { scope, supplierId: supplierId ?? null, hotelId: hotelId ?? null, agencyId, market, excludedHotelIds, excludedSupplierIds, basisPoints, validFrom, validTo } })
     return this.view(row, undefined, userId)
   }
 
@@ -102,11 +121,11 @@ export class CommercialMarkupService {
     if (!requestId) throw new BadRequestException('requestId is required')
     const open = (await this.approvals.listForEntities(tenantId, ENTITY_TYPE, [rule.id])).find((a) => (a.status === 'PENDING' || a.status === 'APPROVED') && a.requestId !== requestId)
     if (open) throw new ConflictException('This rule already has an open activation request')
-    const current = await this.prisma.withTenant(tenantId, (tx) => tx.commercialMarkupRule.findFirst({ where: { tenantId, status: 'ACTIVE', scope: rule.scope, supplierId: rule.supplierId, hotelId: rule.hotelId }, select: { id: true, basisPoints: true } }))
+    const current = await this.prisma.withTenant(tenantId, (tx) => tx.commercialMarkupRule.findFirst({ where: { tenantId, status: 'ACTIVE', scope: rule.scope, supplierId: rule.supplierId, hotelId: rule.hotelId, agencyId: rule.agencyId, market: rule.market }, select: { id: true, basisPoints: true } }))
     const approval = await this.approvals.request({
       tenantId, requesterId: userId, action: MARKUP_APPROVAL_ACTION, entityType: ENTITY_TYPE, entityId: rule.id, requestId, reason: String(body.reason ?? ''),
       beforeState: current ? { replacesRuleId: current.id, replacesBasisPoints: current.basisPoints } : {},
-      proposedState: { scope: rule.scope, supplierId: rule.supplierId ?? '', hotelId: rule.hotelId ?? '', basisPoints: rule.basisPoints, validFrom: ymd(rule.validFrom), validTo: rule.validTo ? ymd(rule.validTo) : '' },
+      proposedState: { scope: rule.scope, supplierId: rule.supplierId ?? '', hotelId: rule.hotelId ?? '', agencyId: rule.agencyId ?? '', market: rule.market ?? '', excludedHotelIds: rule.excludedHotelIds.join(','), excludedSupplierIds: rule.excludedSupplierIds.join(','), basisPoints: rule.basisPoints, validFrom: ymd(rule.validFrom), validTo: rule.validTo ? ymd(rule.validTo) : '' },
     })
     return this.view(rule, approval, userId)
   }
@@ -133,16 +152,16 @@ export class CommercialMarkupService {
   async execute(tenantId: string, userId: string, approvalId: string): Promise<MarkupActivationResult> {
     await this.assertRuleApproval(tenantId, approvalId)
     const out = await this.approvals.execute({ tenantId, executorId: userId, approvalId, expectedAction: MARKUP_APPROVAL_ACTION }, async (approval) => {
-      const p = (approval.proposedState ?? {}) as { scope?: string; supplierId?: string; hotelId?: string; basisPoints?: number; validFrom?: string; validTo?: string }
+      const p = (approval.proposedState ?? {}) as { scope?: string; supplierId?: string; hotelId?: string; agencyId?: string; market?: string; excludedHotelIds?: string; excludedSupplierIds?: string; basisPoints?: number; validFrom?: string; validTo?: string }
       return this.prisma.withTenant(tenantId, async (tx) => {
         const rule = await tx.commercialMarkupRule.findFirst({ where: { id: approval.entityId, tenantId } })
         if (!rule) throw new NotFoundException('Markup rule not found')
         if (rule.status !== 'DRAFT') throw new ConflictException('The rule is no longer a draft')
-        if (rule.scope !== p.scope || (rule.supplierId ?? '') !== (p.supplierId ?? '') || (rule.hotelId ?? '') !== (p.hotelId ?? '') || rule.basisPoints !== p.basisPoints || ymd(rule.validFrom) !== p.validFrom || (rule.validTo ? ymd(rule.validTo) : '') !== (p.validTo ?? '')) {
+        if (rule.scope !== p.scope || (rule.supplierId ?? '') !== (p.supplierId ?? '') || (rule.hotelId ?? '') !== (p.hotelId ?? '') || (rule.agencyId ?? '') !== (p.agencyId ?? '') || (rule.market ?? '') !== (p.market ?? '') || rule.excludedHotelIds.join(',') !== (p.excludedHotelIds ?? '') || rule.excludedSupplierIds.join(',') !== (p.excludedSupplierIds ?? '') || rule.basisPoints !== p.basisPoints || ymd(rule.validFrom) !== p.validFrom || (rule.validTo ? ymd(rule.validTo) : '') !== (p.validTo ?? '')) {
           throw new ConflictException('The rule differs from what was approved')
         }
         const now = new Date()
-        const replaced = await tx.commercialMarkupRule.findFirst({ where: { tenantId, status: 'ACTIVE', scope: rule.scope, supplierId: rule.supplierId, hotelId: rule.hotelId }, select: { id: true } })
+        const replaced = await tx.commercialMarkupRule.findFirst({ where: { tenantId, status: 'ACTIVE', scope: rule.scope, supplierId: rule.supplierId, hotelId: rule.hotelId, agencyId: rule.agencyId, market: rule.market }, select: { id: true } })
         if (replaced) await tx.commercialMarkupRule.update({ where: { id: replaced.id, tenantId }, data: { status: 'RETIRED', retiredAt: now } })
         const activated = await tx.commercialMarkupRule.update({ where: { id: rule.id, tenantId }, data: { status: 'ACTIVE', activatedAt: now }, include: INCLUDE })
         return { activated, replacedRuleId: replaced?.id ?? null }

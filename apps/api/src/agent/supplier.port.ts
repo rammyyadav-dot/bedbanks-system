@@ -14,6 +14,8 @@ export interface RecheckedOfferAuthority {
   canonicalHotelId: string; canonicalRoomTypeId: string; ratePlanId: string; boardBasisId: string
   checkIn: string; checkOut: string; rooms: number; adults: number; children: number; childAges: number[]
   currency: string; sellAmountMinor: number; expiresAt: string
+  /** ADR 0067 F-12: the contract currency when the offer was converted at a controlled rate. */
+  contractCurrency?: string
 }
 export type SupplierRecheckResult =
   | { status: 'available'; offer: RecheckedOfferAuthority; metadata?: { providerRequestId?: string; durationMs?: number } }

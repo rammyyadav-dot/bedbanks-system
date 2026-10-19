@@ -15,15 +15,19 @@ export const gateTone = (s: GateState): Tone => (s === 'PASS' ? 'ok' : s === 'WA
 
 export const reasonText = (code: string): string => COMMERCIAL_REASON_TEXT[code] ?? code
 
+/**
+ * Tabs in the order a contracting team works a hotel (ADR 0067, F-16): content, rooms, supplier mapping, contract, rate plans, rates and
+ * inventory, then distribution and readiness; bookings, audit and reports after. Ids are stable deep links; only the order and labels moved.
+ */
 export const HOTEL_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'setup', label: 'Hotel Setup' },
-  { id: 'rooms', label: 'Rooms' },
   { id: 'amenities', label: 'Amenities' },
   { id: 'images', label: 'Images' },
-  { id: 'policies', label: 'Policies' },
+  { id: 'policies', label: 'Hotel Policies' },
+  { id: 'rooms', label: 'Rooms' },
   { id: 'mappings', label: 'Supplier Mapping' },
-  { id: 'contracts', label: 'Contracts & Rate Plans' },
+  { id: 'contracts', label: 'Contracts' },
   { id: 'rateplans', label: 'Rate Plans' },
   { id: 'rates', label: 'Rates & Inventory' },
   { id: 'inventory', label: 'Inventory & Allotment' },
@@ -81,12 +85,15 @@ export const readinessActionHref = (hotelId: string, action: ReadinessAction): s
 
 /** Primary workspace sections; legacy tab ids remain valid deep links into their section. */
 export const HOTEL_WORKSPACE_SECTIONS = [
-  { id: 'profile', label: '1. Profile Setup', defaultTab: 'overview', tabs: ['overview', 'setup', 'amenities', 'images', 'policies', 'mappings', 'audit'] },
-  { id: 'bookings', label: '2. Bookings – All Reservations', defaultTab: 'bookings', tabs: ['bookings'] },
-  { id: 'quick', label: '3. Quick Update', defaultTab: 'quick', tabs: ['quick', 'rates', 'inventory'] },
-  { id: 'rooms', label: '4. Room Type', defaultTab: 'rooms', tabs: ['rooms'] },
-  { id: 'rateplans', label: '5. Rate Plan', defaultTab: 'rateplans', tabs: ['rateplans', 'contracts', 'sellability'] },
-  { id: 'reports', label: '6. Reports', defaultTab: 'reports', tabs: ['reports'] },
+  { id: 'profile', label: '1. Profile Setup', defaultTab: 'overview', tabs: ['overview', 'setup', 'amenities', 'images', 'policies', 'audit'] },
+  { id: 'rooms', label: '2. Room Types', defaultTab: 'rooms', tabs: ['rooms'] },
+  { id: 'mapping', label: '3. Supplier Mapping', defaultTab: 'mappings', tabs: ['mappings'] },
+  { id: 'contracts', label: '4. Contracts', defaultTab: 'contracts', tabs: ['contracts'] },
+  { id: 'rateplans', label: '5. Rate Plans', defaultTab: 'rateplans', tabs: ['rateplans'] },
+  { id: 'quick', label: '6. Rates & Inventory', defaultTab: 'quick', tabs: ['quick', 'rates', 'inventory'] },
+  { id: 'distribution', label: '7. Distribution & Readiness', defaultTab: 'sellability', tabs: ['sellability'] },
+  { id: 'bookings', label: '8. Bookings – All Reservations', defaultTab: 'bookings', tabs: ['bookings'] },
+  { id: 'reports', label: '9. Reports', defaultTab: 'reports', tabs: ['reports'] },
 ] as const
 export function workspaceSection(tab: HotelTabId) {
   return HOTEL_WORKSPACE_SECTIONS.find(section => (section.tabs as readonly string[]).includes(tab))!

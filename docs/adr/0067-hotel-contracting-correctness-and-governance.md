@@ -184,3 +184,72 @@ Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns wit
 - **ROOM_ONLY.** Only the room rate of each night is discounted; extra adult and child lines stay full price, and a free night waives the room rate only.
 - **Plan fingerprint.** The plan fingerprint includes the new fields only when they differ from the defaults, so approvals bound to unchanged promotions stay valid.
 - **Hotel-wide offer.** `POST /supply/hotels/:hotelId/promotions/bulk-apply` adds one promotion to 1-100 plans of a hotel in one transaction. Each plan's whole promotion set is validated; any invalid plan (another hotel's, expired, a duplicate name, too many promotions) refuses the request with every problem listed and changes nothing. Every plan version moves, and each plan and the request are audited. An idempotency key replays the first result. Admin offers it as a "Hotel-wide offer" panel on the hotel's Rate plans tab; the plan promotions editor takes the three options.
+
+## F-14: Season loading and relative updates
+
+**Problem.** Quick Update set one price per batch. Loading a contract season by season meant one batch per season, and "+5% from 1 November" meant retyping every rate.
+
+**Decision.** A Quick Update price change is exactly one of four modes, each previewed per night and applied atomically as before:
+- `amount` with a basis: set one price, as today.
+- `seasons`: up to 12 non-overlapping windows, each with its own amount, plus one basis. Every date in scope must fall in a season, otherwise that night is invalid and nothing is written.
+- `adjustPercentBp`: signed basis points (-9000 to 100000) applied to each stored rate, rounded half away from zero.
+- `adjustAmount`: signed major units added to each stored rate.
+
+An adjustment needs a stored rate and keeps its basis. A night without a rate, or with an unverified basis, is reported, never treated as zero. A result of zero or below is refused. Percent adjustments may span currencies; the other modes need one currency. Admin's price panel offers the four modes with season rows.
+
+## F-13: Price-change guardrails
+
+**Problem.** A typo (45 for 450, 4500 for 450) in Quick Update, the rate grid, the rates workbench or a CSV import was written as entered.
+
+**Decision.**
+- `PRICE_GUARDRAIL.maxChangeBp` (5000, that is 50%) defines a large change: one that moves a stored rate by more than that share of its value. A first price is not a change.
+- Quick Update preview flags each such night (`warnings`, `counts.largePriceChanges`). The calendar preview lists them (`largePriceChanges`).
+- Applying needs `confirmLargeChanges: true`; without it the apply is refused with 409 `PRICE_GUARDRAIL_CONFIRMATION_REQUIRED` and nothing is written. The legacy single and bulk rate routes take the same flag.
+- The Quick Update audit records the count and the confirmation.
+- Admin shows the flagged prices and a confirmation checkbox on every apply screen, and keeps Apply disabled until it is ticked.
+
+The threshold is a platform constant for now; a per-tenant setting can replace it without changing the rule.
+
+## F-16: Tabs follow the contracting workflow
+
+**Problem.** The hotel workspace put Bookings and Quick Update before Room Types and Rate Plans, and grouped contracts with rate plans and readiness. A contracting manager works a hotel in a fixed order (content, rooms, supplier mapping, contract, plans, rates and inventory, then distribution), and the order on screen did not match it.
+
+**Decision.** `HOTEL_TABS` and the nine workspace sections now follow that order:
+1. Profile setup: overview, hotel setup, amenities, images, hotel policies.
+2. Room types.
+3. Supplier mapping.
+4. Contracts.
+5. Rate plans.
+6. Rates and inventory: Quick Update, rates, allotment.
+7. Distribution and readiness.
+8. Bookings.
+9. Reports.
+
+Audit stays with the profile section, at the end of the tab bar. Tab ids are unchanged, so every deep link and readiness action still lands where it did. A test checks that each section's tabs come before the next section's.
+
+## F-11: Client and market markup tiers with exclusion lists
+
+**Problem.** Markup was one tier per target (tenant default, supplier, hotel). A DMC prices per client and per source market ("UK agents +12%, our top wholesaler +8%"). It also needs exceptions ("+12% for the UK except two hotels on a fixed net-to-sell deal"). Neither could be expressed, so every client paid the same margin.
+
+**Decision.**
+- **New fields.** `CommercialMarkupRule` gains an optional `agencyId` (client tier) and `market` (ISO-3166 alpha-2, matched against the buying agency's country), plus `excludedHotelIds` and `excludedSupplierIds`. Migration `202611270001_markup_client_market_tiers` adds them. It also rebuilds the "one ACTIVE rule per target" unique index, whose target now includes the client and market tiers.
+- **Precedence.** A client tier outranks a market tier, which outranks a generic rule; within each tier, hotel outranks supplier outranks tenant default. Ties go to the later start date.
+- **Exclusions.** A rule that excludes the hotel or supplier is skipped there, so the next rule applies. A hotel rule takes no hotel exclusions and a supplier rule no supplier exclusions.
+- **Unknown buyer.** A tier the buyer does not have never applies. Without a buyer, as in Admin readiness and the markup impact view, only generic rules apply.
+- **Who is buying.** When any active rule depends on the buyer, Agent search and recheck read the buying agency and its country once. A failed read throws, so a buyer-specific markup is never replaced by a generic one on a guess. The hotel stay diagnostic passes the selected agency.
+- **Authoring.** Agency, hotels and suppliers are checked inside the tenant. The approval binds the tiers and exclusions, so a rule changed after approval cannot be activated. Approvals filed before this change still compare correctly. Admin's markup form takes a client, a market and hotel exclusions; the rules list shows them.
+
+## F-12: Controlled FX
+
+**Problem.** A contract could only be sold in its own settlement currency. A Dubai DMC contracting in AED and selling to UK or US agents in GBP or USD had no rate, no buffer for movement until settlement, and no record of the rate on the booking. Any conversion would have happened outside the system.
+
+**Decision.**
+- **The rate.** A new tenant-scoped `FxRate` (migration `202611270002_controlled_fx_rates`, forced RLS) holds a base (contract) currency, a quote (selling) currency, and `rateScaled`: quote major units per one base major unit, times 10^8, as an integer. It also holds `bufferBp` (0 to 2000), which is added on top to cover movement until the DMC pays the hotel. There is one ACTIVE rate per pair, enforced by a partial unique index. Rates are immutable; only the status moves.
+- **Maker-checker.** A rate is created as DRAFT and becomes ACTIVE through the same approval lifecycle as markups (`fx.activate`, S3, refines `supply.rates.manage`). The approval binds the pair, rate and buffer. Execution retires the rate it replaces in the same transaction. Every step is audited; activation and retirement are FINANCIAL_CONTROL compliance evidence (migration `202611270003_fx_compliance_classification`).
+- **Conversion.** `supply/fx.ts` uses BigInt only. The stay's total, net, promotion saving and supplements are converted once, half up, respecting each currency's minor digits; no float touches money. The shared evaluator prices in the contract currency and converts at the end, so every rule (markup, child policy, offers) is applied exactly as for a same-currency sale.
+- **Search and recheck.** Agent search loads the ACTIVE rates into the requested currency and also considers plans in those base currencies. With no rate, a contract in another currency is simply not offered. A failed or malformed rate read throws `CommercialControlUnavailableError('fx_rates')` instead of dropping or guessing. The stored offer remembers its contract currency, and recheck reprices at the rate ACTIVE now: a changed rate is `price_changed` and a retired one is `unavailable`, never the old figure.
+- **Booking.** When the booking currency differs from the contract's, the ACTIVE rate with its buffer is frozen on `Booking.fxRate`, and reports convert with it. A booking is refused (409 `FX_RATE_CHANGED`) when no rate is in force or the rate was activated after the hold was priced, so the agent re-checks at today's rate.
+- **Cancellation limits.** Percent and nights penalties apply to the converted price. A fixed-amount cancellation penalty in the contract currency still cannot be frozen on a booking in another currency; `freezeCancellationTerms` refuses it, so such a plan is bookable only in its own currency. Converting fixed penalties is follow-up work.
+- **Admin.** Commercial → FX rates lists rates with their effective rate, and drafts, requests, approves, activates and retires them. The buttons come from the API's own flags.
+
+**Rollback.** Retire every ACTIVE rate: contracts are again offered only in their own currency. The table can then be dropped by a reviewed forward migration. `Booking.fxRate` predates this change and keeps its values.

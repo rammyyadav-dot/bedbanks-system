@@ -14,7 +14,7 @@ import { evaluatePlanNight, occupancySplit, starRatingValid, type AssessPlan } f
 import { buildStaySnapshot } from './stay-snapshot'
 import { markupResolverFor } from './markup-rules'
 import { loadActiveMarkupRulesInTx } from './markup-rules.loader'
-import { HOTEL_STAR_RATING_MISSING } from '@bedbanks/contracts'
+import { HOTEL_STAR_RATING_MISSING, PRICE_GUARDRAIL } from '@bedbanks/contracts'
 import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { RatePlanCloneDatabase } from './rate-plan-clone-database'
@@ -29,6 +29,7 @@ import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived
 import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
 import { EMPTY_HEADER, GOVERNANCE_KEYS, HEADER_KEYS, cancellationTerm, headerOf, normaliseHeader, termsEditable, type ContractHeader } from './contract-lifecycle'
 import { MAX_SUPPLEMENTS, supplementTerm } from './supplements'
+import { isLargePriceChange, largeChangeWarning } from './price-guardrails'
 import { supplementReferenceProblem } from './supplement-references'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 
@@ -876,12 +877,12 @@ export class SupplyService {
   }
 
   async bulkDailyRates(tenantId: string, userId: string, input: any, requestId?: string) {
-    const result = await this.editCalendar(tenantId, userId, { rates: inputRows(input.rows, 'daily rate') }, requestId)
+    const result = await this.editCalendar(tenantId, userId, { rates: inputRows(input.rows, 'daily rate'), confirmLargeChanges: input.confirmLargeChanges }, requestId)
     return result.rates
   }
 
   async upsertDailyRate(tenantId: string, userId: string, input: any, requestId?: string) {
-    return (await this.editCalendar(tenantId, userId, { rates: [input] }, requestId)).rates[0]
+    return (await this.editCalendar(tenantId, userId, { rates: [input], confirmLargeChanges: input?.confirmLargeChanges }, requestId)).rates[0]
   }
 
   async upsertAvailability(tenantId: string, userId: string, input: any, requestId?: string) {
@@ -930,7 +931,7 @@ export class SupplyService {
     return { ok: built.ok && built.fatal.length === 0, fatal: built.fatal, errors: built.errors, warnings: built.warnings, truncatedErrors: built.truncatedErrors, stats: built.stats, edit, preview }
   }
 
-  async editCalendar(tenantId: string, userId: string, input: { rates?: unknown; availability?: unknown }, requestId?: string, preview = false, requireVersions = false) {
+  async editCalendar(tenantId: string, userId: string, input: { rates?: unknown; availability?: unknown; confirmLargeChanges?: unknown }, requestId?: string, preview = false, requireVersions = false) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid calendar edit')
     const rates = input.rates === undefined ? [] : inputRows(input.rates, 'daily rate').map(rateInput)
     const availability = input.availability === undefined ? [] : inputRows(input.availability, 'availability').map(availabilityInput)
@@ -965,6 +966,9 @@ export class SupplyService {
           checkVersion(row.expectedUpdatedAt, before)
           rateChanges.push({ row, before })
         }
+        // ADR 0067 F-13: a stored rate moving by more than the guardrail is flagged in preview and needs an explicit confirmation to apply.
+        const largeChanges = rateChanges.filter(({ row, before }) => before !== null && isLargePriceChange(before.amountMinor, row.amountMinor)).map(({ row, before }) => ({ ratePlanId: row.ratePlanId, stayDate: row.stayDate.toISOString().slice(0, 10), occupancy: row.occupancy, fromMinor: before!.amountMinor.toString(), toMinor: row.amountMinor.toString(), warning: largeChangeWarning(before!.amountMinor, row.amountMinor) }))
+        if (!preview && largeChanges.length > 0 && input.confirmLargeChanges !== true) throw new ConflictException({ code: 'PRICE_GUARDRAIL_CONFIRMATION_REQUIRED', message: `${largeChanges.length} price(s) change by more than ${PRICE_GUARDRAIL.maxChangeBp / 100}%. Nothing was written. Review them and confirm large changes to apply.`, details: largeChanges.slice(0, 20).map((c) => `${c.stayDate}: ${c.warning}`) })
         for (const row of availability) {
           const plan = plans.find(plan => plan.id === row.ratePlanId)!
           if (row.stayDate < plan.contract.validFrom || row.stayDate > plan.contract.validTo) throw new BadRequestException('Availability date is outside the contract')
@@ -995,7 +999,7 @@ export class SupplyService {
             await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.availability.updated', entityType: 'daily_availability', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay, releaseDays: before.releaseDays } : null, after: data } } })
           }
         }
-        return { atomic: true, preview, affectedCells: changes.length, changes, rates: savedRates, availability: savedAvailability }
+        return { atomic: true, preview, affectedCells: changes.length, changes, largePriceChanges: largeChanges, rates: savedRates, availability: savedAvailability }
       }, { isolationLevel: 'Serializable' })
     } catch (error) {
       if ((error as { code?: string }).code === 'P2034' || (error as { code?: string }).code === 'P2002') throw new ConflictException({ code: 'CALENDAR_CHANGED', message: 'Concurrent calendar change. Reload and review before retrying.' })

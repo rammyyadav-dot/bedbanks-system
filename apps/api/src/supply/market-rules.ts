@@ -9,7 +9,8 @@ export const COUNTRY_CODE = /^[A-Z]{2}$/
 export const MAX_MARKET_LIST = 250
 
 /** What the buyer is, when the caller is an Agent. Null means "could not be determined", which never satisfies a restriction. */
-export interface BuyerContext { nationality: string | null; market: string | null }
+/** `agencyId` (ADR 0067, F-11) selects client-tier markups; absent or null means no client tier applies. */
+export interface BuyerContext { nationality: string | null; market: string | null; agencyId?: string | null }
 
 /** Normalized ISO-3166 alpha-2 list: unset or null is empty (unrestricted); a non-array, a non-string, a bad code or an oversized list is invalid (null). */
 export function parseMarketList(value: unknown): string[] | null {

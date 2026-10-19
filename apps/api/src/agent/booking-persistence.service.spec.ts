@@ -15,7 +15,7 @@ const hold = {
   id: 'hold-a', tenantId: 'tenant-a', status: 'HELD', expiresAt: new Date('2099-01-01T12:00:00.000Z'),
   offerId: 'offer-a', searchId: 'search-a', ratePlanId: 'plan-a', canonicalHotelId: 'hotel-a',
   canonicalRoomTypeId: 'room-a', boardBasisId: 'board-a', checkIn: new Date('2099-01-01T00:00:00.000Z'),
-  checkOut: new Date('2099-01-03T00:00:00.000Z'), rooms: 1, currency: 'AED', sellAmountMinor: 125099n,
+  checkOut: new Date('2099-01-03T00:00:00.000Z'), rooms: 1, currency: 'AED', sellAmountMinor: 125099n, createdAt: new Date('2098-12-01T00:00:00.000Z'),
 }
 const booking = {
   id: 'booking-a', tenantId: 'tenant-a', reference: 'FB-EXAMPLE', supplier: 'PENDING_SUPPLIER',
@@ -29,14 +29,15 @@ const booking = {
   },
 }
 
-function setup(overrides: { existing?: any; hold?: any; createError?: Error; agencyId?: string | null; plan?: any } = {}) {
+function setup(overrides: { existing?: any; hold?: any; createError?: Error; agencyId?: string | null; plan?: any; fxRate?: any } = {}) {
   const tx = {
     booking: {
       findUnique: jest.fn().mockResolvedValue(overrides.existing ?? null),
       create: overrides.createError ? jest.fn().mockRejectedValue(overrides.createError) : jest.fn().mockResolvedValue(booking),
     },
     inventoryHold: { findFirst: jest.fn().mockResolvedValue(overrides.hold === undefined ? hold : overrides.hold) },
-    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
+    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', settlementCurrency: 'AED', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
+    fxRate: { findFirst: jest.fn().mockResolvedValue(overrides.fxRate ?? null) },
     agencyMember: { findUnique: jest.fn().mockResolvedValue(overrides.agencyId === null ? null : { agencyId: overrides.agencyId ?? 'agency-a' }) },
     roomType: { findFirst: jest.fn().mockResolvedValue({ name: 'Deluxe Sea View' }) },
     boardBasis: { findFirst: jest.fn().mockResolvedValue({ code: 'BB' }) },
@@ -61,7 +62,7 @@ describe('BookingPersistenceService', () => {
     const { service, tx } = setup()
     tx.ratePlan.findFirst
       .mockResolvedValueOnce({ contract: { tenantId: 'tenant-a', supplierId: 'supplier-a' } })
-      .mockResolvedValueOnce({ cancellationPolicySet: null, contract: { cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 25, penaltyMinor: null, currency: null }] } })
+      .mockResolvedValueOnce({ cancellationPolicySet: null, contract: { settlementCurrency: 'AED', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 25, penaltyMinor: null, currency: null }] } })
     await service.persistPending(command)
     expect(tx.ratePlan.findFirst).toHaveBeenCalledTimes(2)
     expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({
@@ -190,5 +191,31 @@ describe('BookingPersistenceService', () => {
     await expect(service.recordSupplierPrebook('tenant-a', 'booking-a', { outcome: 'prebooked', supplierReference: 'supplier-ref' })).resolves.toBeUndefined()
     tx.booking.findFirst.mockResolvedValue({ ...booking, searchSnapshot: { ...written, supplierPrebook: { outcome: 'prebooked', supplierReference: 'supplier-ref' } } })
     await expect(service.recordSupplierPrebook('tenant-a', 'booking-a', { outcome: 'unknown', code: 'timeout' })).rejects.toBeInstanceOf(ConflictException)
+  })
+
+  describe('controlled FX (ADR 0067 F-12)', () => {
+    const usdPlan = { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', settlementCurrency: 'USD', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } }
+
+    it('freezes the ACTIVE rate with its buffer when the contract is in another currency', async () => {
+      const { service, tx } = setup({ plan: usdPlan, fxRate: { rateScaled: 367_250_000n, bufferBp: 100, activatedAt: new Date('2098-11-01T00:00:00.000Z') } })
+      await service.persistPending(command)
+      expect(tx.fxRate.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'tenant-a', status: 'ACTIVE', baseCurrency: 'USD', quoteCurrency: 'AED' } }))
+      expect(tx.booking.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ fxRate: '3.70922500' }) }))
+    })
+
+    it('refuses when no rate is in force, or the rate was activated after the hold was priced', async () => {
+      for (const fxRate of [null, { rateScaled: 367_250_000n, bufferBp: 0, activatedAt: new Date('2098-12-02T00:00:00.000Z') }]) {
+        const { service, tx } = setup({ plan: usdPlan, fxRate })
+        await expect(service.persistPending(command)).rejects.toThrow(ConflictException)
+        expect(tx.booking.create).not.toHaveBeenCalled()
+      }
+    })
+
+    it('does not read FX for a booking in the contract currency', async () => {
+      const { service, tx } = setup()
+      await service.persistPending(command)
+      expect(tx.fxRate.findFirst).not.toHaveBeenCalled()
+      expect(tx.booking.create.mock.calls[0][0].data.fxRate).toBeUndefined()
+    })
   })
 })

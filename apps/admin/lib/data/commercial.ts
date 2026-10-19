@@ -1,5 +1,5 @@
 // Commercial markup rules API (ADR 0018). Authoritative: rates are priced by the API, never in the browser.
-import { routes, type MarkupImpact, type MarkupActivationRequest, type MarkupActivationResult, type MarkupRuleCreate, type MarkupRulePage, type MarkupRuleView } from '@bedbanks/contracts'
+import { routes, type FxActivationResult, type FxRateCreate, type FxRatePage, type FxRateView, type MarkupImpact, type MarkupActivationRequest, type MarkupActivationResult, type MarkupRuleCreate, type MarkupRulePage, type MarkupRuleView } from '@bedbanks/contracts'
 import { apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -17,3 +17,13 @@ export const decideMarkupApproval = (approvalId: string, decision: 'approve' | '
 export const cancelMarkupApproval = (approvalId: string) => apiRequestWithMeta<MarkupRuleView>(fill(c.markupApprovalCancel, { approvalId }), { method: 'POST', headers: json, body: '{}' })
 export const executeMarkupApproval = (approvalId: string) => apiRequestWithMeta<MarkupActivationResult>(fill(c.markupApprovalExecute, { approvalId }), { method: 'POST', headers: json, body: '{}' })
 export const getMarkupImpact = (p: Params = {}) => apiRequest<MarkupImpact>(`${routes.adminOperations.commercialImpact}${opsQuery(p)}`)
+
+// Controlled FX rates (ADR 0067 F-12): the same maker-checker lifecycle as markup rules. The browser never converts a price.
+export const getFxRates = (p: Params = {}) => apiRequest<FxRatePage>(`${c.fxRates}${opsQuery(p)}`)
+export const createFxRate = (body: FxRateCreate) => apiRequestWithMeta<FxRateView>(c.fxRates, { method: 'POST', headers: json, body: JSON.stringify(body) })
+export const retireFxRate = (rateId: string) => apiRequestWithMeta<FxRateView>(fill(c.fxRateRetire, { rateId }), { method: 'POST', headers: json, body: '{}' })
+export const requestFxActivation = (rateId: string, body: MarkupActivationRequest) => apiRequestWithMeta<FxRateView>(fill(c.fxRateRequestActivation, { rateId }), { method: 'POST', headers: json, body: JSON.stringify(body) })
+export const decideFxApproval = (approvalId: string, decision: 'approve' | 'reject', reason: string) =>
+  apiRequestWithMeta<FxRateView>(fill(decision === 'approve' ? c.fxApprovalApprove : c.fxApprovalReject, { approvalId }), { method: 'POST', headers: json, body: JSON.stringify({ reason }) })
+export const cancelFxApproval = (approvalId: string) => apiRequestWithMeta<FxRateView>(fill(c.fxApprovalCancel, { approvalId }), { method: 'POST', headers: json, body: '{}' })
+export const executeFxApproval = (approvalId: string) => apiRequestWithMeta<FxActivationResult>(fill(c.fxApprovalExecute, { approvalId }), { method: 'POST', headers: json, body: '{}' })
