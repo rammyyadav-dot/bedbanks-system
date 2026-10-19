@@ -37,9 +37,30 @@ export interface ExtranetContractSummary {
   /** ISO-4217. */
   settlementCurrency: string
   ratePlans: ExtranetRatePlanSummary[]
+  /** True when the contract has more plans than are listed (the list is capped at 200). */
+  ratePlansTruncated: boolean
 }
 
-export interface ExtranetContractList { contracts: ExtranetContractSummary[] }
+export interface ExtranetContractList {
+  contracts: ExtranetContractSummary[]
+  /** Opaque. Pass back as `cursor` for the next page; null when there is none. Query: `limit` 1-50 (default 25). */
+  nextCursor: string | null
+}
+
+/** GET /supplier/extranet/hotels (`supplier.extranet.hotels.read`). Keyset-paged by hotel name; query `limit` 1-50 (default 25) and `cursor`. */
+export interface ExtranetHotelSummary {
+  id: string
+  name: string
+  city: string
+  countryCode: string
+  propertyType: string
+  contentStatus: string
+  mappingStatus: string
+}
+export interface ExtranetHotelList {
+  hotels: ExtranetHotelSummary[]
+  nextCursor: string | null
+}
 
 /**
  * GET /supplier/extranet/bookings and /bookings/:bookingId (`supplier.extranet.bookings.read`), ADR 0061 Amendment 1.

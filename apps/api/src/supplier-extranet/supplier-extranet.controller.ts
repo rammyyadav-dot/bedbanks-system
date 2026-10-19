@@ -8,6 +8,7 @@ import { ActiveSupplier, SupplierOrganizationGuard } from './supplier-organizati
 import { SupplierExtranetService } from './supplier-extranet.service'
 import { UpdateRoomDraftDto } from './update-room-draft.dto'
 import { ListBookingsQueryDto } from './list-bookings.dto'
+import { PageQueryDto } from './page-query.dto'
 import { SupplierBookingsService } from './supplier-bookings.service'
 import { SupplierBookingAnswerService } from './supplier-booking-answer.service'
 import { AnswerBookingDto } from './answer-booking.dto'
@@ -30,8 +31,8 @@ export class SupplierExtranetController {
 
   @Get('hotels')
   @UseGuards(SupplierOrganizationGuard)
-  hotels(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser) {
-    return this.extranet.hotels(tenantId, identity.user.id, supplierId)
+  hotels(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: PageQueryDto) {
+    return this.extranet.hotels(tenantId, identity.user.id, supplierId, query)
   }
 
   @Get('hotels/:hotelId')
@@ -48,8 +49,8 @@ export class SupplierExtranetController {
 
   @Get('contracts')
   @UseGuards(SupplierOrganizationGuard)
-  contracts(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser) {
-    return this.extranet.contracts(tenantId, identity.user.id, supplierId)
+  contracts(@ActiveTenant() tenantId: string, @ActiveSupplier() supplierId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: PageQueryDto) {
+    return this.extranet.contracts(tenantId, identity.user.id, supplierId, query)
   }
 
   @Get('bookings')

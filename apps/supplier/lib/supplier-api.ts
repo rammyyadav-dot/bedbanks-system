@@ -2,7 +2,7 @@ import 'server-only'
 
 import { cache } from 'react'
 import { cookies } from 'next/headers'
-import { routes, type ExtranetBookingAnswerRequest, type ExtranetBookingAnswerResult, type ExtranetBookingDetail, type ExtranetBookingList, type ExtranetBookingQuery, type ExtranetContractList, type ExtranetContractSummary } from '@bedbanks/contracts'
+import { routes, type ExtranetBookingAnswerRequest, type ExtranetBookingAnswerResult, type ExtranetBookingDetail, type ExtranetBookingList, type ExtranetBookingQuery, type ExtranetContractList, type ExtranetHotelList } from '@bedbanks/contracts'
 import { apiInternalUrl, SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE, supplierOrigin } from './server-env'
 
 export class SupplierApiError extends Error {
@@ -50,6 +50,8 @@ interface Identity {
   user: PortalUser
   memberships: { tenantId: string }[]
 }
+
+const nullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -152,10 +154,19 @@ export async function loadContext(supplierId?: string): Promise<{ organization: 
   return { organization: current, permissions: data.permissions.filter((key): key is string => typeof key === 'string') }
 }
 
-export async function listHotels(): Promise<ExtranetHotel[]> {
-  const data = await authorizedRequest(routes.supplier.hotels)
-  if (!isRecord(data) || !Array.isArray(data.hotels)) throw new SupplierApiError(502)
-  return data.hotels.flatMap((hotel) => {
+export interface PageQuery { cursor?: string; limit?: number }
+
+function pageSuffix(query: PageQuery): string {
+  const params = new URLSearchParams()
+  if (query.limit !== undefined) params.set('limit', String(query.limit))
+  if (query.cursor) params.set('cursor', query.cursor)
+  return params.size > 0 ? `?${params.toString()}` : ''
+}
+
+export async function listHotels(query: PageQuery = {}): Promise<ExtranetHotelList> {
+  const data = await authorizedRequest(`${routes.supplier.hotels}${pageSuffix(query)}`)
+  if (!isRecord(data) || !Array.isArray(data.hotels) || !nullableString(data.nextCursor)) throw new SupplierApiError(502)
+  const hotels = data.hotels.flatMap((hotel) => {
     if (!isRecord(hotel) || typeof hotel.id !== 'string' || typeof hotel.name !== 'string') return []
     return [{
       id: hotel.id,
@@ -167,6 +178,7 @@ export async function listHotels(): Promise<ExtranetHotel[]> {
       mappingStatus: typeof hotel.mappingStatus === 'string' ? hotel.mappingStatus : '',
     }]
   })
+  return { hotels, nextCursor: data.nextCursor }
 }
 
 export async function getHotel(hotelId: string): Promise<ExtranetHotel> {
@@ -207,14 +219,13 @@ export async function listRooms(hotelId: string): Promise<{ hotelId: string; hot
   }
 }
 
-export async function listContracts(): Promise<ExtranetContractSummary[]> {
-  const data = await authorizedRequest(routes.supplier.contracts)
-  if (!isRecord(data) || !Array.isArray(data.contracts)) throw new SupplierApiError(502)
-  return (data as unknown as ExtranetContractList).contracts
+export async function listContracts(query: PageQuery = {}): Promise<ExtranetContractList> {
+  const data = await authorizedRequest(`${routes.supplier.contracts}${pageSuffix(query)}`)
+  if (!isRecord(data) || !Array.isArray(data.contracts) || !nullableString(data.nextCursor)) throw new SupplierApiError(502)
+  return data as unknown as ExtranetContractList
 }
 
 const BOOKING_NET_STATUSES = new Set(['RECORDED', 'PARTIAL', 'NOT_RECORDED', 'MISMATCH'])
-const nullableString = (value: unknown): value is string | null => value === null || typeof value === 'string'
 
 /** Fails closed (502) on a shape the portal does not recognise; never fills a gap with a default or a zero. */
 function booking(value: unknown): ExtranetBookingDetail {

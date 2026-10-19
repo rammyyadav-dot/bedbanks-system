@@ -135,7 +135,7 @@ Verification gaps: the e2e suite was run on a local PostgreSQL 16 with a tempora
 
 ## Amendment 3 (proposed): supplier change sets for availability and stop-sale (slice 4a), rates deferred (4b)
 
-Status: **Proposed. No code until accepted.** Drafted 2026-10-19 from `main` plus slice 3 (`93f6f64`). Implements decision 3 of this ADR ("suppliers never write commercial data directly").
+Status: **Accepted 2026-10-19 (all recommendations D1 to D6 adopted).** Drafted 2026-10-19 from `main` plus slice 3 (`93f6f64`). Implements decision 3 of this ADR ("suppliers never write commercial data directly").
 
 ### What the code does today (verified in source)
 - **Calendar import already exists for staff.** `SupplyService.previewCalendarImport` parses a CSV with `buildCalendarImport` (`supply/calendar-import.ts`), reports row-level errors, and builds rate cells (`amountMinor` as a string, `amountBasis` NET or SELL, `currency`) and availability cells (`allotment`, `stopSell`, `minStay`, `releaseDays`), each carrying `expectedUpdatedAt` for stale-cell detection. Limits: 90,000 bytes, 2,000 lines, 366 cells per review.
@@ -191,3 +191,14 @@ Remove the supplier and staff routes and the permission rows by forward migratio
 2. Schema, provisioning grants, supplier author/submit routes with shared types.
 3. Supplier-scoped validator allow-list, staff queue and apply.
 4. Portal author screen and admin queue page.
+
+### Implementation (delivery step 1: pagination, D6)
+| Requirement | Where | Evidence |
+|---|---|---|
+| Keyset-paged hotels | `GET /supplier/extranet/hotels?limit&cursor`, order (hotel name, hotel id), `ExtranetHotelList` in `@bedbanks/contracts` | e2e SP-01, SP-02 |
+| Keyset-paged contracts | `GET /supplier/extranet/contracts?limit&cursor`, order (valid from desc, code, id), `nextCursor` and per-contract `ratePlansTruncated` | e2e SP-03 |
+| Bounded and validated | `PageQueryDto`: limit 1 to 50 (default 25), cursor up to 700 characters, unknown parameters refused | e2e SP-04, unit `supplier-page-cursor.spec.ts` |
+| Scope never from the cursor | the cursor holds ordering keys only; tenant and organization come from the session | e2e SP-05, SP-06 |
+| Portal | hotels and contracts pages follow the cursor ("Next page", "First page") and say when a contract's plan list is capped | type-check, lint, `next build` |
+
+Behaviour change for API consumers: both lists now return at most `limit` rows plus `nextCursor`, where hotels were previously unbounded and contracts capped at 200. The 200-plan cap per contract remains; it is now reported (`ratePlansTruncated`) instead of silent. A plan-level pager can be added if a real contract exceeds it.
