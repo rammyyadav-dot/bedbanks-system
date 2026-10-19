@@ -8,6 +8,7 @@ export type ExtranetPermission =
   | 'supplier.extranet.drafts.manage'
   | 'supplier.extranet.contracts.read'
   | 'supplier.extranet.bookings.read'
+  | 'supplier.extranet.bookings.answer'
 
 /** GET /supplier/extranet/contracts (`supplier.extranet.contracts.read`). Read-only; the supplier cannot create or change a contract here. */
 export interface ExtranetRatePlanSummary {
@@ -106,4 +107,31 @@ export interface ExtranetBookingQuery {
   reference?: string
   limit?: number
   cursor?: string
+}
+
+/**
+ * POST /supplier/extranet/bookings/:bookingId/answer (`supplier.extranet.bookings.answer`), ADR 0061 Amendment 2.
+ * The supplier answers one of its own bookings. Only these three answers exist; cancellations and "no booking exists" stay with fBeds operators.
+ * Requires an `Idempotency-Key` header (8-128 of A-Z a-z 0-9 . _ : -). The caller states the status it saw; a different current status is a 409.
+ */
+export const EXTRANET_BOOKING_ANSWERS = ['CONFIRMED', 'ON_REQUEST', 'REJECTED'] as const
+export type ExtranetBookingAnswer = (typeof EXTRANET_BOOKING_ANSWERS)[number]
+
+export interface ExtranetBookingAnswerRequest {
+  answer: ExtranetBookingAnswer
+  /** Compare-and-set: the booking must still be in this status. */
+  expectedStatus: ExtranetBookingStatus
+  /** Your own booking reference. Required to confirm. */
+  supplierRef?: string
+  hotelConfirmationNo?: string
+  /** Required to reject (at least 10 characters). */
+  reason?: string
+}
+
+export interface ExtranetBookingAnswerResult {
+  bookingId: string
+  reference: string
+  status: ExtranetBookingStatus
+  /** True when the same Idempotency-Key and body had already been applied. Nothing changed on this call. */
+  replayed: boolean
 }

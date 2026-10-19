@@ -80,7 +80,7 @@ Cross-organization booking returns 404; null-supplier booking invisible; update 
 
 ## Amendment 2 (proposed): supplier booking answers (slice 3)
 
-Status: **Proposed. No code until accepted.** Drafted 2026-10-19 from the code on `main` at `5cd7600`.
+Status: **Accepted 2026-10-19 (option A, no four-eye threshold in this slice).** Drafted 2026-10-19 from the code on `main` at `5cd7600`.
 
 ### What the code does today (verified in source)
 - `POST /admin/operations/booking-queue/:bookingId/supplier-answer` (`BookingOpsService.answer`) is an **operator** recording what a supplier told them. It requires `booking.ops.resolve`, an idempotency key, a compare-and-set `expectedStatus`, a reason of at least `BOOKING_OPS_REASON_MIN` characters, and writes an ops record. It "calls no supplier".
@@ -101,7 +101,7 @@ A supplier user answering their own booking is a different actor from an operato
 2. **Ownership:** the booking's frozen `supplierId` must equal the caller's active organization. Otherwise 404, never 403, so existence is not revealed.
 3. **Input:** `answer` (one of the three), `expectedStatus` (compare-and-set), `Idempotency-Key` header (required), `supplierRef` (required for confirm), `hotelConfirmationNo` (optional), `reason` (required for reject).
 4. **Idempotency and concurrency:** same key and same body replays the stored result; same key and different body is 409. A changed status is 409 with the current status.
-5. **Audit:** an immutable audit event per answer with actor type `SUPPLIER_USER`, answer, from and to status, request id. No guest data in the payload.
+5. **Audit:** an immutable audit event per answer (`supplier.booking.answered`) and the transition's `BookingEvent`. `AuditActorType` has only `USER` and `SYSTEM`, so both use actor type `USER` with the supplier user's id; the event payload carries `via: 'supplier_extranet'`, the supplier organization id, the answer and the from/to status, which separates it from an operator's answer. No guest data and no free text in the audit payload.
 6. **Finance:** confirm and reject keep the existing finance emission. No new finance behaviour is introduced.
 7. **Database access:** the extranet role stays read-only. The write goes through the booking role path in a service the extranet controller calls, so the extranet role gains no booking write. This needs an entry in `runtime-role-contract.ts` for the new caller and endpoint.
 8. **SLA:** out of scope here. The portal shows booking age; timers come with notifications (slice 7).
@@ -116,3 +116,19 @@ Cross-organization booking returns 404; replay with the same key returns the sam
 
 ### Rollback
 Remove the route and the permission row by forward migration. Answers already recorded remain valid booking history.
+
+### Implementation (slice 3)
+| Requirement | Where | Evidence |
+|---|---|---|
+| Route and permission | `POST /supplier/extranet/bookings/:bookingId/answer`, `supplier.extranet.bookings.answer`; migration `202611270004_supplier_extranet_bookings_answer_permission` (permission row only, granted to no role) | e2e SA-07 (403 with read-only access) |
+| Shared types | `ExtranetBookingAnswerRequest/Result`, `EXTRANET_BOOKING_ANSWERS`, `routes.supplier.bookingAnswer` in `@bedbanks/contracts` | type-check |
+| Allowed answers only | `supplier-booking-answer.ts` maps confirm / on request / reject to lifecycle actions; DTO whitelist refuses the rest | unit spec (3), e2e SA-04, SA-05 |
+| Ownership | row lock filtered by tenant and frozen `supplier_id`; other organization, tenant or null supplier is 404 | e2e SA-06 |
+| Idempotency, compare-and-set | `transitionBooking` (key + fingerprint, `expectedStatus`) | e2e SA-08, SA-09 (incl. two concurrent answers: one 200, one 409) |
+| Finance | unchanged: `emitFinance: true` through the existing transition | e2e SA-10 |
+| No new database privilege | write on the booking-module role; the API runtime role still cannot write a booking | e2e SA-11 |
+| Audit without guest data | `createMany` (the booking role may insert audit events but not read them) | e2e SA-01, SA-12 |
+| Portal | booking detail page shows the form only with the permission and a status that allows an answer; key issued with the page | type-check, lint, `next build` |
+
+Operating note: the permission is granted to no role. An operator assigns it to supplier roles through the normal role-assignment path. The route needs `BOOKING_OPS_DATABASE_URL`; without it the route answers 503 and changes nothing.
+Verification gaps: the e2e suite was run on a local PostgreSQL 16 with a temporary jest configuration that stubs `@nestjs/swagger` (the project expects Node 24; this host had Node 22). The portal form was type-checked and built but not exercised in a browser. Four failures in `security-certification` and `booking-ops-role` also occur on the untouched baseline in that environment and were not investigated.

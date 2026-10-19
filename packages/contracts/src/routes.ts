@@ -119,6 +119,7 @@ export const routes = {
     contracts: '/supplier/extranet/contracts',
     bookings: '/supplier/extranet/bookings',
     booking: '/supplier/extranet/bookings/:bookingId',
+    bookingAnswer: '/supplier/extranet/bookings/:bookingId/answer',
   },
   platformAccess: {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',

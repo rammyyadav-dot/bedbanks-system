@@ -71,7 +71,7 @@ The accepted order is ADR 0061 and the 2026-10-12 audit. Slices 1 (contracts) an
 
 | Slice | Deliverable | State |
 |---|---|---|
-| 3 | Supplier booking answers: confirm, on-request, reject, idempotent and audited | **Amendment 2 drafted in ADR 0061, awaiting acceptance** |
+| 3 | Supplier booking answers: confirm, on-request, reject, idempotent and audited | **Built** (ADR 0061 Amendment 2, accepted). Needs the permission assigned to supplier roles |
 | 4 | Supplier change sets (stop-sale, availability, rate lines) into admin review, applied through existing supply services; needs pagination first | ADR needed |
 | 5 | Calendar UI and CSV upload with a row-level error report | After 4 |
 | 6 | Vouchers, rooming list, statements and invoices (read, integer minor units) | After finance model; fix the `number` money wire type (M8) first |

@@ -22,7 +22,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
     const nextHref = result.nextCursor ? `/bookings?${filtersToQuery({ ...filters.values, cursor: result.nextCursor })}` : null
     return (
       <div className="supplier-page">
-        <PageHeader eyebrow="Read only" title="Bookings" description="Bookings placed on your organization's contracted inventory. This page cannot confirm, reject or change a booking. Amounts are your net per room; a missing figure is shown as Not recorded." />
+        <PageHeader eyebrow="Operations" title="Bookings" description="Bookings placed on your organization's contracted inventory. Open a booking to answer it when it awaits your answer. Amounts are your net per room; a missing figure is shown as Not recorded." />
         <section className="panel">
           <form method="get" action="/bookings" className="form-grid" style={{ padding: 16 }}>
             <label>Reference starts with<input name="reference" defaultValue={filters.values.reference ?? ''} maxLength={40} /></label>
