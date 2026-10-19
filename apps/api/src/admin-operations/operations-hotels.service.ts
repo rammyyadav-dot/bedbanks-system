@@ -600,7 +600,7 @@ export class OperationsHotelsService {
       for (const plan of input.plans.filter((p) => !roomTypeId || p.roomTypeId === roomTypeId).sort((x, y) => x.roomType.name.localeCompare(y.roomType.name) || x.code.localeCompare(y.code) || x.id.localeCompare(y.id))) {
         const { mapping, roomMapping } = mappingFor(plan, input)
         // ADR 0067 F-05: the same occupancy choice as Agent search (the party's adults when every night has that rate).
-        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId), { adults }), { checkIn, checkOut, rooms, adults, children, childAges, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
+        const decision = evaluateContractedStay(buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(input.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId, agencyId ? { agencyId, market: market ?? null } : undefined), { adults }), { checkIn, checkOut, rooms, adults, children, childAges, currency: currency ?? plan.currency, now, ...(agencyId ? { buyer: { market, nationality } } : {}) })
         const reasons = [...decision.reasons]
         if (agencyId && agencyStatus === 'SUSPENDED') reasons.push('AGENCY_SUSPENDED')
         if (agencyId && restrictions.some(r => r.scope === 'HOTEL' ? r.hotelId === hotel.id : r.supplierId === plan.contract.supplierId)) reasons.push('DISTRIBUTION_RESTRICTED')

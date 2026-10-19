@@ -177,6 +177,7 @@ model HotelImage {
 }
 
 model Agency {
+  markupRules CommercialMarkupRule[]
   bookings Booking[]
   id          String       @id @default(cuid())
   tenantId    String       @map("tenant_id")
@@ -354,6 +355,13 @@ model CommercialMarkupRule {
   supplier    Supplier?        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   hotelId     String?          @map("hotel_id")
   hotel       Hotel?           @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  /// ADR 0067 F-11: an optional client tier (one agency) and market tier (buyer agency country). A rule naming either applies only to that
+  /// buyer and outranks a rule without; null on both is the generic rule. Exclusions carve hotels or suppliers out of a broad rule.
+  agencyId    String?          @map("agency_id")
+  agency      Agency?          @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  market      String?          @db.Char(2)
+  excludedHotelIds    String[] @default([]) @map("excluded_hotel_ids")
+  excludedSupplierIds String[] @default([]) @map("excluded_supplier_ids")
   /// 0 to 10000 (zero to one hundred percent). Integer basis points only.
   basisPoints Int              @map("basis_points")
   /// First and last night the rule applies to (inclusive). validTo null means open-ended.

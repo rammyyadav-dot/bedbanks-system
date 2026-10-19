@@ -30,6 +30,12 @@ export interface MarkupRuleView {
   supplierName: string | null
   hotelId: string | null
   hotelName: string | null
+  /** ADR 0067 F-11: client tier (one agency) and market tier (buyer country). Null on both: a generic rule. */
+  agencyId: string | null
+  agencyName: string | null
+  market: string | null
+  excludedHotelIds: string[]
+  excludedSupplierIds: string[]
   basisPoints: number
   /** First and last night the rule applies to, inclusive. validTo null is open-ended. */
   validFrom: string
@@ -51,6 +57,12 @@ export interface MarkupRuleCreate {
   scope: MarkupScopeName
   supplierId?: string
   hotelId?: string
+  /** ADR 0067 F-11: limit the rule to one agency and/or one buyer market (ISO-3166 alpha-2). */
+  agencyId?: string
+  market?: string
+  /** Hotels or suppliers the rule does not apply to (at most 200 each). Not on the dimension the rule targets. */
+  excludedHotelIds?: string[]
+  excludedSupplierIds?: string[]
   basisPoints: number
   validFrom: string
   validTo?: string

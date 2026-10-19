@@ -8,11 +8,11 @@ import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common
 import { PrismaService } from '../database/prisma.service'
 import { evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
-import { markupResolverFor, type MarkupRuleRow } from '../supply/markup-rules'
+import { markupResolverFor, rulesNeedBuyer, type MarkupRuleRow } from '../supply/markup-rules'
 import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
 import { CommercialControlUnavailableError, logCommercialControlFailure } from '../supply/commercial-controls'
 import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
-import { loadBuyerMarket } from '../supply/buyer-market'
+import { loadBuyerAgency, loadBuyerMarket } from '../supply/buyer-market'
 import { normalizeCountry, parseMarketRules, type BuyerContext } from '../supply/market-rules'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
 import { offerPaymentType } from './offer-payment-type'
@@ -117,7 +117,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       const restrictions = await this.restrictionsFor(context.tenantId, context.userId)
       const rules = await this.markupRules(context.tenantId, plans)
       const visible = plans.filter((plan) => !isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId }))
-      const buyer = await this.buyerFor(context.tenantId, context.userId, criteria.nationality, visible)
+      const buyer = await this.buyerFor(context.tenantId, context.userId, criteria.nationality, visible, rules)
       const offers = this.toOffers(visible, criteria, context.tenantId, nights, rules, buyer)
       return { offers: await this.withPrimaryImages(context.tenantId, offers), providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
     } catch (error) {
@@ -301,7 +301,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
    * Who is buying, for contract sales-market and nationality rules (ADR 0035). The agency country is read only when a candidate contract restricts
    * sales markets, so a tenant with no market rule pays no extra read; an unreadable agency throws CommercialControlUnavailableError.
    */
-  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ salesMarkets?: unknown; contract: { salesMarkets?: unknown } }>): Promise<BuyerContext> {
+  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ salesMarkets?: unknown; contract: { salesMarkets?: unknown } }>, rules: readonly MarkupRuleRow[] = []): Promise<BuyerContext> {
+    // ADR 0067 F-11: client and market markup tiers need the buying agency as well; read once for both when any rule depends on the buyer.
+    if (rulesNeedBuyer(rules)) { const agency = await loadBuyerAgency(this.prisma, tenantId, userId); return { nationality: normalizeCountry(nationality), market: agency.market, agencyId: agency.agencyId } }
     const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0 || (parseMarketRules(plan).salesMarkets ?? ['?']).length > 0)
     return { nationality: normalizeCountry(nationality), market: needsMarket ? await loadBuyerMarket(this.prisma, tenantId, userId) : null }
   }
@@ -422,7 +424,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     if (starRating === null || starRating < 1 || starRating > 5) return null
     if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
     if (criteria.filters?.refundableOnly && !plan.refundable) return null
-    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId), { adults: criteria.adults })
+    const snapshot = buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId, { agencyId: buyer.agencyId ?? null, market: buyer.market }), { adults: criteria.adults })
     const decision = evaluateContractedStay(snapshot, {
       checkIn: criteria.checkIn,
       checkOut: criteria.checkOut,
@@ -538,7 +540,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const rules = await this.markupRules(tenantId, plans)
     const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
     if (!plan || isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })) return null
-    const buyer = await this.buyerFor(tenantId, userId, stored.nationality, [plan])
+    const buyer = await this.buyerFor(tenantId, userId, stored.nationality, [plan], rules)
     const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, buyer, false)
     // An on-request night is never confirmed inventory: a recheck of it is unavailable, never an upgrade to held.
     if (!priced || !priced.rate.available || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null

@@ -10,6 +10,7 @@ import { Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { getSuppliers } from '@/lib/data'
 import { getHotelsCommercial } from '@/lib/data/hotel-commercial'
+import { getAgencies } from '@/lib/data/departments'
 import { cancelMarkupApproval, createMarkupRule, decideMarkupApproval, executeMarkupApproval, getMarkupRules, requestMarkupActivation, retireMarkupRule } from '@/lib/data/commercial'
 import { describeApiError } from '@/lib/api/describe-error'
 import { MarkupImpact } from '@/components/commercial/MarkupImpact'
@@ -18,7 +19,9 @@ const PAGE_SIZE = 25
 /** Basis points shown as a percent using integer arithmetic only (1250 is 12.50%). */
 const percent = (bp: number) => `${Math.trunc(bp / 100)}.${String(bp % 100).padStart(2, '0')}%`
 const statusTone = (s: MarkupRuleView['status']) => (s === 'ACTIVE' ? 'ok' : s === 'RETIRED' ? 'bad' : 'warn') as 'ok' | 'bad' | 'warn'
-const target = (r: MarkupRuleView) => (r.scope === 'TENANT_DEFAULT' ? 'All NET rates (default)' : r.scope === 'SUPPLIER' ? `Supplier: ${r.supplierName ?? r.supplierId}` : `Hotel: ${r.hotelName ?? r.hotelId}`)
+const baseTarget = (r: MarkupRuleView) => (r.scope === 'TENANT_DEFAULT' ? 'All NET rates (default)' : r.scope === 'SUPPLIER' ? `Supplier: ${r.supplierName ?? r.supplierId}` : `Hotel: ${r.hotelName ?? r.hotelId}`)
+/** ADR 0067 F-11: the client and market tiers and the exclusions are part of what a rule applies to. */
+const target = (r: MarkupRuleView) => [baseTarget(r), r.agencyId ? `client ${r.agencyName ?? r.agencyId}` : null, r.market ? `market ${r.market}` : null, r.excludedHotelIds?.length ? `except ${r.excludedHotelIds.length} hotel(s)` : null, r.excludedSupplierIds?.length ? `except ${r.excludedSupplierIds.length} supplier(s)` : null].filter(Boolean).join(' · ')
 
 /**
  * NET-rate markup rules (ADR 0018). The API prices every stay; this page only manages rules. A rule is immutable once created,
@@ -91,6 +94,9 @@ function CreateRule({ onCreated }: { onCreated: (text: string) => void }) {
   const [percentInput, setPercentInput] = useState('10')
   const [validFrom, setValidFrom] = useState(''); const [validTo, setValidTo] = useState('')
   const [reason, setReason] = useState(''); const [supplierId, setSupplierId] = useState(''); const [hotelId, setHotelId] = useState(''); const [hotelSearch, setHotelSearch] = useState('')
+  const [agencyId, setAgencyId] = useState(''); const [market, setMarket] = useState(''); const [excluded, setExcluded] = useState<Array<{ id: string; name: string }>>([]); const [excludeSearch, setExcludeSearch] = useState('')
+  const agencies = useOpsQuery(() => getAgencies({ pageSize: 100 }), [])
+  const excludeHotels = useOpsQuery(() => (scope !== 'HOTEL' && excludeSearch.trim().length >= 2 ? getHotelsCommercial({ search: excludeSearch.trim(), pageSize: 10 }) : Promise.resolve(null)), [scope, excludeSearch])
   const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false)
   const suppliers = useOpsQuery(() => (scope === 'SUPPLIER' ? getSuppliers('pageSize=100') : Promise.resolve(null)), [scope])
   const hotels = useOpsQuery(() => (scope === 'HOTEL' && hotelSearch.trim().length >= 2 ? getHotelsCommercial({ search: hotelSearch.trim(), pageSize: 10 }) : Promise.resolve(null)), [scope, hotelSearch])
@@ -109,7 +115,7 @@ function CreateRule({ onCreated }: { onCreated: (text: string) => void }) {
     if (basisPoints === null) { setError('Enter a percent from 0 to 100 with at most two decimals.'); return }
     setBusy(true); setError(null)
     try {
-      await createMarkupRule({ scope, ...(scope === 'SUPPLIER' && { supplierId }), ...(scope === 'HOTEL' && { hotelId }), basisPoints, validFrom, ...(validTo && { validTo }), reason })
+      await createMarkupRule({ scope, ...(scope === 'SUPPLIER' && { supplierId }), ...(scope === 'HOTEL' && { hotelId }), ...(agencyId && { agencyId }), ...(market.trim() && { market: market.trim().toUpperCase() }), ...(scope !== 'HOTEL' && excluded.length ? { excludedHotelIds: excluded.map((h) => h.id) } : {}), basisPoints, validFrom, ...(validTo && { validTo }), reason })
       setReason(''); onCreated('Draft rule created. It changes no price until it is activated.')
     } catch (e) { setError(describeApiError(e, 'create the rule')) } finally { setBusy(false) }
   }
@@ -125,6 +131,9 @@ function CreateRule({ onCreated }: { onCreated: (text: string) => void }) {
         <label style={lab}>Find hotel<input style={field} value={hotelSearch} onChange={(e) => setHotelSearch(e.target.value)} placeholder="Type 2+ letters" /></label>
         <label style={lab}>Hotel<select style={field} value={hotelId} onChange={(e) => setHotelId(e.target.value)} required><option value="">Select…</option>{hotels.state.status === 'ready' && hotels.state.data?.items.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
       </>}
+      <label style={lab} title="Only this client's bookings use the rule; it outranks market and generic rules">Client (optional)<select style={field} value={agencyId} onChange={(e) => setAgencyId(e.target.value)}><option value="">Every client</option>{agencies.state.status === 'ready' && agencies.state.data.items.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+      <label style={lab} title="The buying agency's country (ISO-3166 alpha-2); outranks generic rules">Market (optional)<input style={{ ...field, width: 60 }} maxLength={2} value={market} onChange={(e) => setMarket(e.target.value.toUpperCase())} placeholder="GB" /></label>
+      {scope !== 'HOTEL' && <label style={lab} title="These hotels fall back to the next rule">Except hotels<input style={field} value={excludeSearch} onChange={(e) => setExcludeSearch(e.target.value)} placeholder="Search to add" />{excludeHotels.state.status === 'ready' && excludeHotels.state.data?.items.filter((h) => !excluded.some((x) => x.id === h.id)).slice(0, 5).map((h) => <button key={h.id} type="button" className="admin-btn" onClick={() => { setExcluded((x) => [...x, { id: h.id, name: h.name }]); setExcludeSearch('') }}>+ {h.name}</button>)}{excluded.map((h) => <button key={h.id} type="button" className="admin-btn" aria-label={`Remove exclusion ${h.name}`} onClick={() => setExcluded((x) => x.filter((y) => y.id !== h.id))}>{h.name} ×</button>)}</label>}
       <label style={lab}>Markup %<input style={{ ...field, width: 80 }} inputMode="decimal" value={percentInput} onChange={(e) => setPercentInput(e.target.value)} required /></label>
       <label style={lab}>Valid from<input style={field} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} required /></label>
       <label style={lab}>Valid to (optional)<input style={field} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} /></label>

@@ -226,3 +226,15 @@ The threshold is a platform constant for now; a per-tenant setting can replace i
 9. Reports.
 
 Audit stays with the profile section, at the end of the tab bar. Tab ids are unchanged, so every deep link and readiness action still lands where it did. A test checks that each section's tabs come before the next section's.
+
+## F-11: Client and market markup tiers with exclusion lists
+
+**Problem.** Markup was one tier per target (tenant default, supplier, hotel). A DMC prices per client and per source market ("UK agents +12%, our top wholesaler +8%"). It also needs exceptions ("+12% for the UK except two hotels on a fixed net-to-sell deal"). Neither could be expressed, so every client paid the same margin.
+
+**Decision.**
+- **New fields.** `CommercialMarkupRule` gains an optional `agencyId` (client tier) and `market` (ISO-3166 alpha-2, matched against the buying agency's country), plus `excludedHotelIds` and `excludedSupplierIds`. Migration `202611270001_markup_client_market_tiers` adds them. It also rebuilds the "one ACTIVE rule per target" unique index, whose target now includes the client and market tiers.
+- **Precedence.** A client tier outranks a market tier, which outranks a generic rule; within each tier, hotel outranks supplier outranks tenant default. Ties go to the later start date.
+- **Exclusions.** A rule that excludes the hotel or supplier is skipped there, so the next rule applies. A hotel rule takes no hotel exclusions and a supplier rule no supplier exclusions.
+- **Unknown buyer.** A tier the buyer does not have never applies. Without a buyer, as in Admin readiness and the markup impact view, only generic rules apply.
+- **Who is buying.** When any active rule depends on the buyer, Agent search and recheck read the buying agency and its country once. A failed read throws, so a buyer-specific markup is never replaced by a generic one on a guess. The hotel stay diagnostic passes the selected agency.
+- **Authoring.** Agency, hotels and suppliers are checked inside the tenant. The approval binds the tiers and exclusions, so a rule changed after approval cannot be activated. Approvals filed before this change still compare correctly. Admin's markup form takes a client, a market and hotel exclusions; the rules list shows them.
