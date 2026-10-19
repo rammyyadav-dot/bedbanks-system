@@ -23,7 +23,7 @@ export class BookingFinancialAuthorizationService {
 
   async authorize(command: FinancialAuthorizationCommand) {
     this.validate(command)
-    const key = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: command.idempotencyKey } }
+    const key = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: command.idempotencyKey }, tenantId: command.tenantId }
 
     try {
       return await this.prisma.withTenant(command.tenantId, async tx => {
@@ -83,8 +83,8 @@ export class BookingFinancialAuthorizationService {
 
   async release(command: FinancialAuthorizationCommand) {
     this.validate(command)
-    const authorizationKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: command.idempotencyKey } }
-    const releaseKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: `${command.idempotencyKey}:release` } }
+    const authorizationKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: command.idempotencyKey }, tenantId: command.tenantId }
+    const releaseKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: `${command.idempotencyKey}:release` }, tenantId: command.tenantId }
 
     try {
       return await this.prisma.withTenant(command.tenantId, async tx => {

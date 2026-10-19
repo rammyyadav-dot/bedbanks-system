@@ -1,3 +1,4 @@
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
@@ -25,7 +26,7 @@ const refuse = (message: string, code: string = BOOKING_FINANCE_FAILURE.forbidde
  */
 @Injectable()
 export class BookingFinanceService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly quoter: BookingPenaltyQuoter) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, private readonly quoter: BookingPenaltyQuoter, private readonly settlement: CancellationSettlementService) {}
 
   async view(tenantId: string, access: BookingAccessView, bookingId: string): Promise<BookingFinanceView> {
     if (!operatorWith(access, 'booking.finance.view')) throw refuse('You do not have permission to see booking finance')
@@ -37,7 +38,7 @@ export class BookingFinanceService {
       const canNet = access.permissions.includes('booking.view.net')
       const events = state.rows.map((e): BookingFinanceEventView => ({
         id: e.id, type: e.type as BookingFinanceEventType, seq: e.seq, currency: e.currency, sellMinor: e.sellMinor.toString(), netMinor: canNet && e.netMinor !== null ? e.netMinor.toString() : null,
-        penaltyMinor: e.penaltyMinor === null ? null : e.penaltyMinor.toString(), refundMinor: e.refundMinor === null ? null : e.refundMinor.toString(), paymentMode: e.paymentMode, actorUserId: e.actorUserId, createdAt: e.createdAt.toISOString(),
+        penaltyMinor: e.penaltyMinor === null ? null : e.penaltyMinor.toString(), refundMinor: e.refundMinor === null ? null : e.refundMinor.toString(), adjustmentMinor: e.adjustmentMinor === null ? null : e.adjustmentMinor.toString(), paymentMode: e.paymentMode, actorUserId: e.actorUserId, createdAt: e.createdAt.toISOString(),
         note: typeof (e.payload as { note?: unknown })?.note === 'string' ? (e.payload as { note: string }).note : null,
       }))
       const frozen = b.cancellationPolicy as { frozenAt?: string; source?: string } | null
@@ -71,7 +72,7 @@ export class BookingFinanceService {
     if (reason.length > PENALTY_REASON_MAX) throw bad('reason is too long', 'FIELD_TOO_LONG')
     const fingerprint = createHash('sha256').update(JSON.stringify([bookingId, requested.toString(), reason])).digest('hex')
 
-    return this.db.withTenantWrite(tenantId, async (tx) => {
+    const changed = await this.db.withTenantWrite(tenantId, async (tx) => {
       const b = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, status: true, closedAt: true, currency: true, totalMinor: true, netMinor: true, paymentMode: true } })
       if (!b) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
       const replay = await tx.bookingFinanceEvent.findFirst({ where: { tenantId, bookingId, type: { in: ['PENALTY_DECIDED', 'PENALTY_WAIVED'] }, payload: { path: ['idempotencyKey'], equals: key } }, select: { type: true, penaltyMinor: true, refundMinor: true, payload: true } })
@@ -103,6 +104,9 @@ export class BookingFinanceService {
         payload: { penaltyMinor: requested.toString(), refundMinor: refund.toString(), currency: b.currency, requestId, reasonGiven: true } }] })
       return { bookingId, kind: change.kind, penaltyMinor: requested.toString(), refundMinor: refund.toString(), replayed: false } satisfies BookingPenaltyResult
     })
+    // ADR 0069: a decided or waived penalty on a cancelled booking settles (or tops up) its refund. It is a no-op while the booking is not cancelled.
+    await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId, source: `penalty:${changed.kind}` })
+    return changed
   }
 
   /** Issue one document, once. Replays return the same document. The content is frozen at issue and cannot be edited (a database trigger enforces it). */

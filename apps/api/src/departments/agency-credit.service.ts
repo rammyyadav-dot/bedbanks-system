@@ -132,7 +132,7 @@ export class AgencyCreditService {
         const now: Stored = current ? { currency: current.currency, limitMinor: current.limitMinor.toString() } : { currency: null, limitMinor: null }
         if (now.currency !== before.currency || now.limitMinor !== before.limitMinor) throw new ConflictException({ message: 'The credit limit changed after this request was made. Make a new request.', code: 'AGENCY_CREDIT_CHANGED_AFTER_REQUEST' })
         if (proposed.limitMinor === null) await tx.agencyCreditLimit.deleteMany({ where: { tenantId, agencyId: agency.id } })
-        else if (current) await tx.agencyCreditLimit.update({ where: { id: current.id }, data: { currency: proposed.currency!, limitMinor: BigInt(proposed.limitMinor), updatedById: userId } })
+        else if (current) await tx.agencyCreditLimit.update({ where: { id: current.id, tenantId }, data: { currency: proposed.currency!, limitMinor: BigInt(proposed.limitMinor), updatedById: userId } })
         else await tx.agencyCreditLimit.create({ data: { tenantId, agencyId: agency.id, currency: proposed.currency!, limitMinor: BigInt(proposed.limitMinor), updatedById: userId } })
         return { before, proposed }
       })

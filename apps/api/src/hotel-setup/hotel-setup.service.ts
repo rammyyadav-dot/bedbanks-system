@@ -172,16 +172,16 @@ export class HotelSetupService {
           : data.starVerified === false ? { starVerifiedAt: null, starVerifiedById: null } : {}
         if (data.starVerified === true && (data.hotel.starRating !== undefined ? data.hotel.starRating : before.hotel.starRating) === null) throw new BadRequestException({ message: ['starVerified: record a star category before verifying it'], error: 'Bad Request' })
 
-        await tx.hotel.update({ where: { id: before.hotel.id }, data: { ...data.hotel, latitude: data.hotel.latitude === undefined ? undefined : data.hotel.latitude === null ? null : new Prisma.Decimal(data.hotel.latitude), longitude: data.hotel.longitude === undefined ? undefined : data.hotel.longitude === null ? null : new Prisma.Decimal(data.hotel.longitude), updatedAt: now } })
+        await tx.hotel.update({ where: { id: before.hotel.id, tenantId }, data: { ...data.hotel, latitude: data.hotel.latitude === undefined ? undefined : data.hotel.latitude === null ? null : new Prisma.Decimal(data.hotel.latitude), longitude: data.hotel.longitude === undefined ? undefined : data.hotel.longitude === null ? null : new Prisma.Decimal(data.hotel.longitude), updatedAt: now } })
         const profileData = { ...data.profile, ...verification, contacts: data.profile.contacts as Prisma.InputJsonValue | undefined, policies: data.profile.policies as Prisma.InputJsonValue | undefined, localCharges: data.profile.localCharges as Prisma.InputJsonValue | undefined, updatedById: userId }
-        if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id }, data: { ...profileData, version: { increment: 1 } } })
+        if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id, tenantId }, data: { ...profileData, version: { increment: 1 } } })
         else await tx.hotelProfile.create({ data: { ...profileData, tenantId, hotelId: before.hotel.id, version: 1 } })
 
         if (data.externalIdentifiers) {
           const wanted = new Map(data.externalIdentifiers.map((e) => [e.scheme, e.value]))
           for (const existing of before.identifiers) {
-            if (!wanted.has(existing.scheme)) await tx.hotelExternalIdentifier.delete({ where: { id: existing.id } })
-            else if (wanted.get(existing.scheme) !== existing.value) { await tx.hotelExternalIdentifier.delete({ where: { id: existing.id } }); await tx.hotelExternalIdentifier.create({ data: { tenantId, hotelId: before.hotel.id, scheme: existing.scheme, value: wanted.get(existing.scheme)!, createdById: userId } }) }
+            if (!wanted.has(existing.scheme)) await tx.hotelExternalIdentifier.delete({ where: { id: existing.id, tenantId } })
+            else if (wanted.get(existing.scheme) !== existing.value) { await tx.hotelExternalIdentifier.delete({ where: { id: existing.id, tenantId } }); await tx.hotelExternalIdentifier.create({ data: { tenantId, hotelId: before.hotel.id, scheme: existing.scheme, value: wanted.get(existing.scheme)!, createdById: userId } }) }
           }
           for (const [scheme, value] of wanted) if (!before.identifiers.some((e) => e.scheme === scheme)) await tx.hotelExternalIdentifier.create({ data: { tenantId, hotelId: before.hotel.id, scheme, value, createdById: userId } })
         }
@@ -219,9 +219,9 @@ export class HotelSetupService {
         if (before.hotel.contentStatus === 'ARCHIVED' && body.to !== 'DRAFT') throw new ConflictException({ code: 'HOTEL_ARCHIVED', message: 'Restore the archived hotel to DRAFT before any other lifecycle change.' })
         if (body.to === 'COMPLETE') throw new ConflictException({ message: 'Publishing a hotel needs a second approver. Make a publication request instead.', code: 'HOTEL_PUBLICATION_REQUIRES_APPROVAL' })
         const now = new Date()
-        await tx.hotel.update({ where: { id: before.hotel.id }, data: { contentStatus: body.to, updatedAt: now } })
+        await tx.hotel.update({ where: { id: before.hotel.id, tenantId }, data: { contentStatus: body.to, updatedAt: now } })
         const approval = { approvedById: null, approvedAt: null } // only the approved publication flow stamps an approver
-        if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id }, data: { ...approval, updatedById: userId, version: { increment: 1 } } })
+        if (before.profile) await tx.hotelProfile.update({ where: { id: before.profile.id, tenantId }, data: { ...approval, updatedById: userId, version: { increment: 1 } } })
         else await tx.hotelProfile.create({ data: { ...approval, tenantId, hotelId: before.hotel.id, updatedById: userId, version: 1 } })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: STATUS_CHANGED, entityType: 'hotel', entityId: before.hotel.id, payload: { outcome: 'allowed', requestId, idempotencyKey: key, reason, from: before.hotel.contentStatus, to: body.to, fromVersion: before.profile?.version ?? 0, toVersion: (before.profile?.version ?? 0) + 1 } as Prisma.InputJsonValue } })
         return { setup: this.toView(await this.load(tx, tenantId, hotelId), true), auditRequestId: requestId ?? '', replayed: false }

@@ -261,7 +261,7 @@ export class InventoryAdminService {
           const committed = await tx.inventoryPoolDay.count({ where: { tenantId, poolId: pool.id, stayDate: { gte: toDate(dayInZone(this.clock(), hotel.timeZone)) }, OR: [{ sold: { gt: 0 } }, { held: { gt: 0 } }] } })
           if (committed > 0) throw new ConflictException({ message: `${committed} future night(s) still have units sold or held on this pool.`, code: 'POOL_HAS_COMMITMENTS' })
         }
-        await tx.inventoryPool.update({ where: { id: pool.id }, data: { ...(name !== undefined ? { name } : {}), ...(body.archive === true ? { status: 'ARCHIVED', archivedAt: this.clock() } : {}) } })
+        await tx.inventoryPool.update({ where: { id: pool.id, tenantId }, data: { ...(name !== undefined ? { name } : {}), ...(body.archive === true ? { status: 'ARCHIVED', archivedAt: this.clock() } : {}) } })
         await this.audit(tx, tenantId, userId, POOL_ACTIONS.updated, hotel.id, { requestId, idempotencyKey: key, requestHash, poolId: pool.id, renamed: name !== undefined, archived: body.archive === true })
         return { replayed: false }
       })
@@ -290,7 +290,7 @@ export class InventoryAdminService {
       if (plan.status === 'EXPIRED') throw new ConflictException({ message: 'An expired rate plan cannot be changed.', code: 'PLAN_EXPIRED' })
       const moved = await tx.ratePlan.updateMany({ where: { id: plan.id, tenantId, updatedAt: expected }, data: { releaseDays, releaseTimeLocal: body.releaseTimeLocal } })
       if (moved.count !== 1) throw new ConflictException({ message: 'The rate plan changed after you loaded it. Nothing was written. Reload to see the current values.', code: 'PLAN_STALE' })
-      const updated = await tx.ratePlan.findUniqueOrThrow({ where: { id: plan.id }, select: { updatedAt: true } })
+      const updated = await tx.ratePlan.findUniqueOrThrow({ where: { id: plan.id, tenantId }, select: { updatedAt: true } })
       await this.audit(tx, tenantId, userId, POOL_ACTIONS.release, hotel.id, {
         requestId, idempotencyKey: key, requestHash, reason, ratePlanId: plan.id,
         from: { releaseDays: plan.releaseDays, releaseTimeLocal: plan.releaseTimeLocal }, to: { releaseDays, releaseTimeLocal: body.releaseTimeLocal },

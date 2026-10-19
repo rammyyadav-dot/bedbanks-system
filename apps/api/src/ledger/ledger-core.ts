@@ -43,6 +43,12 @@ export async function walletBalanceMinor(tx: Prisma.TransactionClient, tenantId:
   return aggregate._sum.amountMinor ?? 0n
 }
 
+/** The sum of one kind of entry for one business reference on one wallet (for example every REFUND of `booking:<id>`). */
+export async function referenceSumMinor(tx: Prisma.TransactionClient, tenantId: string, walletId: string, reference: string, type: LedgerEntryType): Promise<bigint> {
+  const aggregate = await tx.ledgerEntry.aggregate({ where: { tenantId, walletId, reference, type }, _sum: { amountMinor: true } })
+  return aggregate._sum.amountMinor ?? 0n
+}
+
 export interface WalletTotals { balanceMinor: bigint; entryCount: number; lastEntryAt: Date | null }
 
 /** Balances of many wallets in one query. A wallet with no entries is absent from the map; use `totalsOf`. */

@@ -14,3 +14,8 @@ portal_desired_count = 1
 
 # ADR 0055: staging stays access-restricted. Replace with your office/VPN egress ranges; 0.0.0.0/0 is refused.
 public_ingress_cidrs = ["203.0.113.0/24"]
+
+# Compliance WORM archive and scheduled export (ADR 0067 amendment 2). Off until the owner provisions fbeds_compliance_export.
+# Archived objects cannot be deleted by anyone until their retention ends; the bucket outlives terraform destroy for that long.
+# compliance_export_enabled = true
+# compliance_retention_days = 2557

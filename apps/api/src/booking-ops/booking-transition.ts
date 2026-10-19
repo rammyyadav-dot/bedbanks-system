@@ -40,14 +40,19 @@ export interface TransitionInput {
   penaltyQuote?: StoredPenaltyQuote
   /** When present the request is replay-safe. */
   idempotencyKey?: string
+  /** Extra non-personal facts for the event's payload (ADR 0072: the amendment id, the price difference). Never guest data. */
+  eventPayload?: Record<string, Prisma.InputJsonValue>
+  /** Canonical text of a structured request body (an amendment proposal or approval), so the same key with a different body is an idempotency conflict. Omitted: fingerprints are unchanged. */
+  fingerprintExtra?: string
   now: Date
 }
 export interface TransitionOutcome { bookingId: string; reference: string; status: BookingStatus; version: number; closed: boolean; replayed: boolean }
 
 const clean = (value: string | undefined) => { const v = value?.trim(); return v ? v : undefined }
 
-export function requestFingerprint(bookingId: string, input: Pick<TransitionInput, 'action' | 'expectedStatus' | 'reason' | 'supplierRef' | 'hotelConfirmationNo' | 'supplierCancellationRef' | 'confirmNonRefundable'>): string {
-  const canonical = JSON.stringify([bookingId, input.action, input.expectedStatus, clean(input.reason) ?? null, clean(input.supplierRef) ?? null, clean(input.hotelConfirmationNo) ?? null, clean(input.supplierCancellationRef) ?? null, input.confirmNonRefundable === true])
+export function requestFingerprint(bookingId: string, input: Pick<TransitionInput, 'action' | 'expectedStatus' | 'reason' | 'supplierRef' | 'hotelConfirmationNo' | 'supplierCancellationRef' | 'confirmNonRefundable'> & { fingerprintExtra?: string }): string {
+  const base = [bookingId, input.action, input.expectedStatus, clean(input.reason) ?? null, clean(input.supplierRef) ?? null, clean(input.hotelConfirmationNo) ?? null, clean(input.supplierCancellationRef) ?? null, input.confirmNonRefundable === true]
+  const canonical = JSON.stringify(input.fingerprintExtra === undefined ? base : [...base, input.fingerprintExtra])
   return createHash('sha256').update(canonical).digest('hex')
 }
 
@@ -66,7 +71,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   const booking = await tx.booking.findFirst({ where: { id: input.bookingId, tenantId: input.tenantId }, select: { id: true, reference: true, status: true, version: true, closedAt: true, isRefundable: true, checkIn: true, currency: true, totalMinor: true, netMinor: true, paymentMode: true } })
   if (!booking) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
 
-  const fingerprint = requestFingerprint(input.bookingId, { ...input, reason, supplierRef, hotelConfirmationNo, supplierCancellationRef })
+  const fingerprint = requestFingerprint(input.bookingId, { ...input, reason, supplierRef, hotelConfirmationNo, supplierCancellationRef, fingerprintExtra: input.fingerprintExtra })
   if (input.idempotencyKey) {
     const earlier = await tx.bookingEvent.findUnique({ where: { tenantId_bookingId_idempotencyKey: { tenantId: input.tenantId, bookingId: input.bookingId, idempotencyKey: input.idempotencyKey } }, select: { requestFingerprint: true } })
     if (earlier) {
@@ -86,7 +91,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   const needsSecond = Boolean(rule.secondConfirmationWhenNonRefundable) && (input.level === 'AGENCY' || booking.isRefundable !== true)
   if (needsSecond && input.confirmNonRefundable !== true) throw new UnprocessableEntityException({ message: 'This booking is not known to be refundable. Confirm a second time to continue.', code: 'CONFIRMATION_REQUIRED' })
 
-  const closing = input.action === 'close'
+  const closing = rule.locks === true
   const data: Prisma.BookingUpdateManyMutationInput = { status: rule.to }
   const writesRefs = input.action === 'recordConfirmed' || input.action === 'confirmOnRequest' || input.action === 'systemConfirm' || input.action === 'systemConfirmOnRequest'
   if (supplierRef !== undefined && writesRefs) data.supplierRef = supplierRef
@@ -98,7 +103,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   const changed = await tx.booking.updateMany({ where: { id: booking.id, tenantId: input.tenantId, status: rule.from, closedAt: null }, data })
   if (changed.count !== 1) throw new ConflictException({ message: 'The booking changed while you were working. Reload and try again.', code: 'STALE_STATUS' })
 
-  const payload: Record<string, Prisma.InputJsonValue> = {}
+  const payload: Record<string, Prisma.InputJsonValue> = { ...(input.eventPayload ?? {}) }
   if (supplierCancellationRef) payload.supplierCancellationRef = supplierCancellationRef
   if (supplierRef && data.supplierRef !== undefined) payload.supplierRef = supplierRef
   if (hotelConfirmationNo && data.hotelConfirmationNo !== undefined) payload.hotelConfirmationNo = hotelConfirmationNo

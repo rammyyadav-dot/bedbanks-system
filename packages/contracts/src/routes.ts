@@ -60,6 +60,13 @@ export const routes = {
     verify: '/admin/funding/receipts/:receiptId/verify', clearCompliance: '/admin/funding/receipts/:receiptId/clear-compliance',
     post: '/admin/funding/receipts/:receiptId/post', reject: '/admin/funding/receipts/:receiptId/reject',
   },
+  // Supplier statement reconciliation and the dispute queue (ADR 0070). Writes need an `Idempotency-Key`-style `requestId` in the body.
+  adminFinanceReconciliation: {
+    statements: '/admin/finance/reconciliation/statements', statement: '/admin/finance/reconciliation/statements/:statementId',
+    run: '/admin/finance/reconciliation/statements/:statementId/runs',
+    exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
+    propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
+  },
   // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
   adminRateCertification: {
     summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',
@@ -81,7 +88,7 @@ export const routes = {
     bookingActions: '/admin/operations/bookings/:bookingId/actions', bookingReferences: '/admin/operations/bookings/:bookingId/references', bookingSupplier: '/admin/operations/bookings/:bookingId/supplier',
     /** Operations queue (Phase 4). `bookingOps` is the list; counts, assignees and the per-booking actions hang off it. */
     bookingFinance: '/admin/operations/booking-finance/:bookingId', bookingFinancePenalty: '/admin/operations/booking-finance/:bookingId/penalty', bookingFinanceDocument: '/admin/operations/booking-finance/:bookingId/documents/:type', bookingFinanceDocumentHtml: '/admin/operations/booking-finance/:bookingId/documents/:type/html',
-    bookingBulkActions: '/admin/operations/bookings/bulk-actions', bookingBulkAction: '/admin/operations/booking-bulk-actions/:operationId',
+    bookingExport: '/admin/operations/bookings/export', bookingBulkActions: '/admin/operations/bookings/bulk-actions', bookingBulkAction: '/admin/operations/booking-bulk-actions/:operationId',
     bookingViews: '/admin/operations/booking-views', bookingViewDefaultClear: '/admin/operations/booking-views/default/clear', bookingView: '/admin/operations/booking-views/:viewId', bookingViewDefault: '/admin/operations/booking-views/:viewId/default',
     bookingOps: '/admin/operations/booking-queue', bookingOpsItem: '/admin/operations/booking-queue/:bookingId', bookingOpsAssignees: '/admin/operations/booking-queue/assignees', bookingOpsAssign: '/admin/operations/booking-queue/:bookingId/assign', bookingOpsAcknowledge: '/admin/operations/booking-queue/:bookingId/acknowledge', bookingOpsEscalate: '/admin/operations/booking-queue/:bookingId/escalate', bookingOpsNote: '/admin/operations/booking-queue/:bookingId/note', bookingOpsClear: '/admin/operations/booking-queue/:bookingId/clear', bookingOpsAnswer: '/admin/operations/booking-queue/:bookingId/supplier-answer',
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
@@ -90,7 +97,8 @@ export const routes = {
     wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', receivables: '/admin/operations/receivables', supplierPayables: '/admin/operations/supplier-payables', creditNotes: '/admin/operations/credit-notes', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
     commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
-    financeSummary: '/admin/operations/finance/summary', auditSummary: '/admin/operations/audit/summary',
+    complianceSummary: '/admin/operations/compliance/summary', complianceRecords: '/admin/operations/compliance/records', complianceReport: '/admin/operations/compliance/report',
+    financeSummary: '/admin/operations/finance/summary', ledgerIntegrity: '/admin/operations/finance/ledger-integrity', cancellationSettlements: '/admin/operations/finance/cancellation-settlements', auditSummary: '/admin/operations/audit/summary',
     audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
   },
   platform: {
@@ -114,7 +122,7 @@ export const routes = {
   supply: {
     ratePlanPortfolio: '/supply/rate-plan-portfolio', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
     hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',
-    mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId',
+    mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId', hotelMappingSuggestions: '/supply/mappings/hotels/suggestions',
     hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
     roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
     suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',

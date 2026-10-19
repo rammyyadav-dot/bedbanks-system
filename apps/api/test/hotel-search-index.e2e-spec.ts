@@ -10,6 +10,7 @@ describe('disposable hotel search index', () => {
   let tenantB = ''
   let hotelA = ''
   let hotelB = ''
+  let crowdedTenant = ''
 
   beforeAll(async () => {
     if (!databaseUrl) throw new Error('MAPPING_DATABASE_URL is required for the disposable vector test')
@@ -37,7 +38,7 @@ describe('disposable hotel search index', () => {
   })
 
   afterAll(async () => {
-    if (tenantA) await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } })
+    if (tenantA) await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB, crowdedTenant].filter(Boolean) } } })
     await prisma.$disconnect()
   })
 
@@ -92,6 +93,27 @@ describe('disposable hotel search index', () => {
     const { mkdirSync, writeFileSync } = await import('fs')
     mkdirSync('/opt/cursor/artifacts', { recursive: true })
     writeFileSync('/opt/cursor/artifacts/mapping-candidate-metrics.json', JSON.stringify({ indexedHotels: 102, indexWriteMs: indexedMs, candidateLookupMs: lookupMs, returned: rows.length }, null, 2))
+  })
+
+  it('returns a full shortlist even when other tenants hold the nearest neighbours', async () => {
+    // Behavioural guard (ADR 0073). It cannot force the planner onto HNSW at this table size, so it does not by itself catch a return to
+    // the approximate scan; that failure (0 of 20 rows) was reproduced on a 50,000-row, 100-tenant table and is recorded in the ADR.
+    const crowded = await prisma.tenant.create({ data: { name: `${suffix} C`, slug: `${suffix}-c` } })
+    crowdedTenant = crowded.id
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${crowded.id}, true)`
+      for (let index = 0; index < 150; index += 1) {
+        const other = await tx.hotel.create({ data: { tenantId: crowded.id, name: `Double Tree Hilton Al Jaddaf ${index}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', address: 'Al Jadaf Street' } })
+        await upsertHotelSearchIndex(tx, crowded.id, { hotelId: other.id, name: other.name, address: other.address, city: other.city, countryCode: other.countryCode })
+      }
+    })
+    const rows = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantA}, true)`
+      await tx.$executeRawUnsafe('SET LOCAL ROLE fbeds_map_reader')
+      return retrieveHotelCandidates(tx, tenantA, { name: 'Double Tree Hilton Al Jaddaf', address: 'Al Jadaf Street', city: 'Dubai', countryCode: 'AE' })
+    })
+    expect(rows).toHaveLength(20)
+    expect(rows[0].hotelId).toBe(hotelA)
   })
 
   it('returns no rows when the restricted role has no tenant context', async () => {

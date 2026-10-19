@@ -181,7 +181,7 @@ export class HotelQuickUpdateService {
       const stayDate = toDate(row.date)
       if (row.nextRate) {
         const occupancy = row.nextRate.occupancy
-        if (loaded.rates.has(`${row.ratePlanId}:${row.date}`)) await tx.dailyRate.update({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate, occupancy } }, data: { amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency } })
+        if (loaded.rates.has(`${row.ratePlanId}:${row.date}`)) await tx.dailyRate.update({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate, occupancy }, tenantId }, data: { amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency } })
         else newRates.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, occupancy, amountMinor: row.nextRate.amountMinor, amountBasis: row.nextRate.basis, currency: plan.currency })
         rates++
       }
@@ -189,7 +189,7 @@ export class HotelQuickUpdateService {
         const n = row.nextAvail
         const fields = { allotment: n.allotment, stopSell: n.stopSell, minStay: n.minStay, closedToArrival: n.closedToArrival, closedToDeparture: n.closedToDeparture, releaseDays: n.releaseDays, inventoryMode: n.mode as Prisma.DailyAvailabilityCreateManyInput['inventoryMode'], ...provenance }
         if (n.create) newAvail.push({ tenantId, ratePlanId: row.ratePlanId, stayDate, sold: 0, held: 0, ...fields })
-        else await this.guarded(() => tx.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate } }, data: fields }))
+        else await this.guarded(() => tx.dailyAvailability.update({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate }, tenantId }, data: fields }))
         availabilityRows++
       }
       if (row.nextPool) poolWrites.set(`${row.nextPool.poolId}:${row.date}`, { ...row.nextPool, date: row.date })

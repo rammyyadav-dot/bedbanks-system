@@ -194,3 +194,58 @@ Unknown refundability is treated as non-refundable. Owner membership implies non
 **Database.** Forced RLS on both tables; the booking role gets INSERT/SELECT and UPDATE only on progress columns (status, counts, timestamps, error code); no DELETE; the strict API role has no access. Rollback notes are in the migration header. Deployment: re-run `ops:provision-booking-ops-role` (new grants) and grant the new permissions to roles deliberately; the migration grants them to no role.
 
 **Not in 6C.** Background jobs, export, print, reconciliation, notifications, ledger posting, bulk financial or status mutation, and `CancellationDatabase` (it does not exist and is not created).
+
+## Phase 6D decisions: export, print, board and counter (2026-10-18)
+
+**Export is the list as a file.** `GET /admin/operations/bookings/export` selects with `BookingQueryV1` through `OperationsBookingsService`, so scope (tenant, and agency for agency callers), masking and net visibility are the list's, not a second implementation. It needs `booking.export` (operator) or `booking.export.agency` (agency, own agency only) as a formal role, declared with `RequireBookingAction` and checked again in the service; the migration (`202611230001`, data only) grants them to no role. An agency caller who names another agency's id is refused (403), as in the list.
+
+**Bounded and whole.** At most 1,000 rows (`BOOKING_EXPORT_MAX_ROWS`). One more row than the limit is read to detect overflow, which is refused with 422 `BOOKING_EXPORT_TOO_LARGE`; a file is never a silent partial answer. The reconciliation-flag filter (`attention`) cannot be exported (400). The spec's asynchronous export above 1,000 rows with an emailed link is **not built**: it needs a background job and an email channel, which remain an owner decision (see Phase 5).
+
+**Audit before release.** The `booking.exported` audit event (row count, level, agency, whether net and unmasked names were included, the applied filter KEYS) is written before the file is returned, so an export that cannot be recorded does not happen. Filter values are not stored (a guest search is personal data). `booking.pii.exported` is added when names are unmasked. Denials are audited by the access guard.
+
+**File safety.** Money is integer minor units formatted with integer arithmetic and the currency's exponent; an unknown currency prints its minor units with a suffix instead of a guess. A cell that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`, tab, also after leading spaces or line breaks) is prefixed with an apostrophe. The response is sent with `@Res()` like the hotel and compliance exports, because the global `ResponseInterceptor` would otherwise wrap the file in the JSON envelope (found by the HTTP e2e test, not by unit tests).
+
+**Print** is the browser's print of the page as shown, with a print stylesheet (A4 landscape, chrome hidden). It adds no new data path: what is printed is what the list already returned to the caller.
+
+**Board.** A read-only Kanban of the spec's six working statuses, each column an independent call to the same list API with the person's filters (25 oldest first; Confirmed by soonest check-in). A failing column shows a failure, never an empty column. A card links to the booking; there is no drag-to-change-status, so the board cannot request a transition the API would refuse and adds no write path. The header counter reads the Needs action total and is hidden, not zero, when it cannot be read.
+
+**Not in 6D:** asynchronous export, drag-and-drop transitions, the reconciliation job, notifications, ledger posting, the nightly Checked-out and close-after-dispute jobs. See `docs/booking-module-audit-2026-10-18.md`.
+
+## Phase 6E decisions: the scheduled Checked-out job (2026-10-18)
+
+**What.** Spec workflow G: from the day after check-out, a Confirmed booking becomes Checked out. `BookingLifecycleJobs` (`booking-ops`) runs it. It is off unless `BOOKING_LIFECYCLE_JOB_ENABLED=true`, needs the booking module's own credential (`BOOKING_OPS_DATABASE_URL`, a different one from `DATABASE_URL`) and refuses to start without it; the interval is `BOOKING_LIFECYCLE_JOB_INTERVAL_MS` (default one hour, minimum 60 s).
+
+**One writer, nothing forced.** Every move goes through `transitionBooking` as the existing system-only action `markCheckedOut`, so it is compare-and-set, leaves an immutable `BookingEvent` (actor SYSTEM) and is idempotent per booking (`lifecycle:checkout:<id>`). A booking a person moved or locked between the read and the move is a stale status and is skipped, never forced. One transaction per booking, at most 200 per tenant per pass (the rest wait for the next pass), and a tenant's failure never stops another's. The source-scan test that forbids other status writers still holds.
+
+**Day rule.** A booking is due when its check-out date is before the current UTC day. For a hotel west of UTC that can be a few hours before its local next day, but check-out itself has already happened; there is no earlier effect than the label change.
+
+**Finding tenants without a cross-tenant read.** Migration `202611240001` adds `fbeds_booking_checkout_due_tenants(date)`: SECURITY DEFINER, returns tenant ids only, EXECUTE granted to the booking role by the owner-run provisioning script (re-run `ops:provision-booking-ops-role` after deploying), the same pattern as the supplier and email functions. It adds a small partial index on `check_out` for Confirmed open bookings. That index deliberately does not lead with `tenant_id`, because its only reader is that ids-only function (recorded in the migration). Rollback is two statements, in the file.
+
+**Money and audit.** Checked out moves no money and emits no finance event. No `AuditEvent` is written: the row-level policy refuses SYSTEM-actor audit rows to this role (only the hold-expiry role has that policy, ADR 0005), and the immutable `BookingEvent` is the record of a non-privileged, non-financial platform move. Widening that policy was not warranted for this.
+
+**Not built: close after the dispute window.** The spec leaves the window length as an open owner question, and "Closed" today exists only as the operator's Failed lock. No default is invented. When the owner sets the window, closing is a second pass in the same job through `transitionBooking`.
+
+## Phase 6F decisions: the Urgent badge on list rows (2026-10-18)
+
+**One ruleset.** The spec says Urgent "is computed by rules, never set by hand". The operations queue (Phase 4) already is that ruleset, so the list does not get a second one: `BookingOpsQueueService.urgencyFor` loads the queue's own facts for the page's bookings (`loadOpsFacts`, a fixed number of queries, never one per booking) and runs `evaluateBookingOps` with the deployment's SLA policy and the request clock. The badge is `urgencyBadge(...)`: a case that is **Urgent or Critical**, nothing else (High and Normal cases carry no badge). It clears itself the moment the rule stops being true, because nothing is stored.
+
+**Who sees it.** Only callers for whom the queue is visible (`access.opsQueue`: operator, formal `booking.ops.view`, queue switched on). Everyone else gets no `urgency` field and no `urgencyAvailable` marker at all, not `false`.
+
+**Unknown is not "not urgent".** If the queue cannot be evaluated (an invalid `BOOKING_OPS_SLA_POLICY`, unreadable tables) the list still answers 200, the failure class is logged, `urgencyAvailable` is `false`, rows carry no `urgency`, and the screen says the badges are unavailable. A failing evaluation never turns into an empty badge column.
+
+**Scope.** The same `BookingListRow.urgency` is shown on the list's Booking # cell and on Kanban cards (both read the list API). The export never carries it. An "Only urgent" filter is **not** built: it would need the queue evaluation over every matching booking rather than a page; the Operations queue's Urgent filters already answer that question.
+
+## Phase 6G decisions: close after the dispute window (2026-10-18)
+
+**The window is the owner's number.** The spec leaves "dispute window length before Closed" as an open question (it only gives "e.g. 30 days"). So the close pass of `BookingLifecycleJobs` does nothing unless `BOOKING_CLOSE_AFTER_DAYS` is set to a whole number of days from 1 to 365. Unset: nothing is ever closed, however old. A value that is set but not valid makes the job refuse to start; there is no default and no guess. It also needs the supplier resolver (always present in the app) to judge operations cases.
+
+**What "the window" means.** A booking in a closable status (Checked out, No-show, Cancelled, Rejected, Failed) whose row has not changed for that many days. Any change, including an edit of a reference, restarts the clock, which is what a dispute window is: a quiet period. It is counted on `Booking.updated_at`, so it needs no new column.
+
+**Nothing that still needs a person is locked.** Judged again under the booking's row lock, in its own transaction: (1) the booking is still open, in a closable status, and still unchanged since the cutoff; (2) it is not an Operations queue case, by the queue's own ruleset, SLA policy and facts (`evaluateBookingOps(...).inQueue`: a manual follow-up, an unresolved supplier answer, an active job and so on), so the job cannot drift from the queue; (3) a Cancelled booking's penalty is determined (quoted, decided or waived): a locked booking refuses actions, so an undecided penalty must be decided first. Anything else is skipped and looked at again next pass. An invalid SLA policy stops the pass (the queue will not guess, so neither does a close).
+
+**One writer, still.** `transitionBooking` stays the only writer of `status` and `closedAt`. Five new system-only actions (`systemCloseCheckedOut`, `...NoShow`, `...Cancelled`, `...Rejected`, `...Failed`) keep the status and set the lock; a rule has a single `from`, hence one per status. A rule flag `locks` replaces the old test for the literal action name `close`, so the operator's "Close as failed" and these share one path. The event is the record (actor SYSTEM, the reason "no change for N days"); no `AuditEvent` is written, for the reason given in Phase 6E. People are never offered these actions. Closing moves no money and emits no finance event, and the existing lock rules apply afterwards (409 `BOOKING_CLOSED`).
+
+**Finding tenants without a cross-tenant read.** Migration `202611260001`: `fbeds_booking_close_due_tenants(cutoff)`, SECURITY DEFINER, ids only, EXECUTE granted to the booking role by the owner-run provisioning script (re-run `ops:provision-booking-ops-role`), and a small partial index on `updated_at` for open bookings in a closable status. As in Phase 6E that index deliberately does not lead with `tenant_id` (its only reader is the ids-only function; recorded in the migration, with rollback). At most 200 bookings per tenant per pass.
+
+**Not decided here.** Reopening a closed booking, and finance adjustments after close (the spec allows them; none exists yet).
+

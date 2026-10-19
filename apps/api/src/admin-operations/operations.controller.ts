@@ -2,19 +2,23 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuard
 import { ApiTags } from '@nestjs/swagger'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
-import { departmentPermissions, operationsPermissions, type BookingAccessView, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
+import { departmentPermissions, operationsPermissions, type BookingAccessView, type CancellationSettlementRequest, type DepartmentPermission, type OperationsCapabilities, type OperationsPermission, type ReconcileRequest, type ReconciliationApprovalDecision, type ReconciliationApprovalRequest } from '@bedbanks/contracts'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
-import { BookingAccess, BookingAccessGuard } from '../booking-ops/booking-access.guard'
+import { BookingAccess, BookingAccessGuard, RequireBookingAction } from '../booking-ops/booking-access.guard'
 import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
+import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
+import { OperationsComplianceService } from './operations-compliance.service'
+import { complianceReportCsv } from './compliance-report'
 import { OperationsSupplyService } from './operations-supply.service'
 import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -30,7 +34,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 @Controller('admin/operations')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class OperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService, private readonly compliance: OperationsComplianceService, private readonly settlement: CancellationSettlementService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -106,6 +110,16 @@ export class OperationsController {
   hold(@ActiveTenant() tenantId: string, @Param('holdId') holdId: string) { return this.tx.hold(tenantId, holdId) }
 
   // Booking list and detail (ADR 0039): operator-level `booking.read`, or an agency-scoped `booking.view.agency`; see BookingAccessGuard.
+  // Declared before `bookings/:bookingId` so "export" is never read as a booking id. Needs booking.export (operator) or booking.export.agency (agency user) as a formal role.
+  @Get('bookings/export') @RequireBookingAction('booking.export', 'booking.export.agency') @UseGuards(BookingAccessGuard)
+  async exportBookings(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Query() query: Q, @Res() res: Response) {
+    const file = await this.bookingsRead.exportCsv(tenantId, identity.user.id, access, query, requestIdOf(req))
+    // @Res() takes over the response so the global { success, data } envelope never wraps the file; errors thrown above keep the normal JSON envelope.
+    res.status(200).set({
+      'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${file.filename}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Export-Row-Count': String(file.rowCount),
+    }).send(file.csv)
+  }
+
   @Get('bookings') @UseGuards(BookingAccessGuard)
   bookings(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @BookingAccess() access: BookingAccessView, @Req() req: Request, @Query() query: Q) { return this.bookingsRead.list(tenantId, identity.user.id, access, query, requestIdOf(req)) }
 
@@ -182,8 +196,38 @@ export class OperationsController {
   @Get('access-review/users') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   accessReviewUsers(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.governance.accessReviewUsers(tenantId, query) }
 
+  @Get('compliance/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  complianceSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.compliance.summary(tenantId, query) }
+
+  @Get('compliance/records') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  complianceRecords(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.compliance.records(tenantId, query) }
+
+  /** A file download (JSON or CSV), audited as compliance.report.exported. Errors keep the normal JSON envelope. */
+  @Get('compliance/report') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
+  async complianceReport(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q, @Req() req: Request, @Res() res: Response) {
+    const { report, format } = await this.compliance.report(tenantId, identity.user.id, requestIdOf(req), query)
+    const name = `compliance-report-${report.period.from}-to-${report.period.to}.${format}`
+    res.status(200).set({
+      'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`,
+      'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Compliance-Records': String(report.attestation.recordCount), 'X-Compliance-Records-Sha256': report.attestation.recordsSha256,
+    }).send(format === 'csv' ? complianceReportCsv(report) : JSON.stringify(report, null, 2))
+  }
+
   @Get('finance/summary') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   financeSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.financeSummary(tenantId, query) }
+
+  /** Ledger integrity and sub-ledger reconciliation (ADR 0068). Read-only; posts, corrects and locks nothing. */
+  @Get('finance/ledger-integrity') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  ledgerIntegrity(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.integrity.report(tenantId, query) }
+
+  /**
+   * Settles cancelled, charged bookings that have no refund yet (ADR 0069), per their effective penalty. The amounts are fixed by policy or by
+   * a recorded decision, never by this request; `dryRun` lists what would be settled. Idempotent, so it can be run as often as needed.
+   */
+  @Post('finance/cancellation-settlements') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  cancellationSettlements(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Body() body: CancellationSettlementRequest | undefined, @Req() req: Request) {
+    return this.settlement.sweep({ tenantId, userId: identity.user.id, requestId: requestIdOf(req), dryRun: body?.dryRun === true })
+  }
 
   @Get('audit/summary') @RequirePermission('audit.read') @UseGuards(AgentRbacGuard)
   auditSummary(@ActiveTenant() tenantId: string, @Query() query: Q) { return this.finAudit.auditSummary(tenantId, query) }

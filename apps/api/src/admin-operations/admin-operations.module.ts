@@ -6,8 +6,11 @@ import { AuthModule } from '../auth/auth.module'
 import { OperationsController } from './operations.controller'
 import { OperationsHotelsService } from './operations-hotels.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
+import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
+import { LedgerIntegrityMonitor } from './ledger-integrity-monitor.service'
 import { OperationsReconciliationApprovalsService } from './operations-reconciliation-approvals.service'
 import { OperationsGovernanceService } from './operations-governance.service'
+import { OperationsComplianceService } from './operations-compliance.service'
 import { ApprovalsModule } from '../approvals/approvals.module'
 import { OperationsSupplyService } from './operations-supply.service'
 import { OperationsTransactionsService } from './operations-transactions.service'
@@ -29,6 +32,7 @@ import { BookingOpsQueueService } from '../booking-ops/booking-ops-queue.service
 import { BookingOpsService } from '../booking-ops/booking-ops.service'
 import { BookingSupplierJobsService } from '../booking-ops/booking-supplier-jobs.service'
 import { BookingSupplierRunner } from '../booking-ops/booking-supplier-runner.service'
+import { BookingLifecycleJobs } from '../booking-ops/booking-lifecycle-jobs.service'
 import { BookingEmailDispatcher } from '../booking-ops/email/booking-email-dispatcher.service'
 import { SesEmailSender } from '../booking-ops/email/ses-email-sender'
 import { EMAIL_SENDER } from '../booking-ops/email/email-sender.port'
@@ -38,6 +42,6 @@ import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplie
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
   controllers: [HotelReportsController, OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController, BookingBulkController],
-  providers: [HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsReconciliationApprovalsService, OperationsGovernanceService],
+  providers: [HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingLifecycleJobs, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, OperationsReconciliationApprovalsService, OperationsGovernanceService, OperationsComplianceService, { provide: LedgerIntegrityMonitor, useFactory: () => new LedgerIntegrityMonitor() }],
 })
 export class AdminOperationsModule {}

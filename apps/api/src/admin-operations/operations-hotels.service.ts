@@ -190,13 +190,13 @@ export class OperationsHotelsService {
       const destinations = (await tx.hotel.findMany({ where: { tenantId }, distinct: ['city'], select: { city: true }, orderBy: { city: 'asc' }, take: 200 })).map((h) => h.city)
       const order: Prisma.HotelOrderByWithRelationInput[] = [{ name: 'asc' }, { id: 'asc' }]
       if (!f.any) {
-        const [hotels, total] = await Promise.all([tx.hotel.findMany({ where, orderBy: order, skip: page.skip, take: page.take, select: HOTEL_SELECT }), tx.hotel.count({ where })])
+        const [hotels, total] = await Promise.all([tx.hotel.findMany({ where: { ...where, tenantId }, orderBy: order, skip: page.skip, take: page.take, select: HOTEL_SELECT }), tx.hotel.count({ where: { ...where, tenantId } })])
         const assessed = await this.assessAll(tx, tenantId, hotels, win)
         const extras = await this.rowExtras(tx, tenantId, hotels, assessed)
         return { ...paged(hotels.map((h) => this.row(h, assessed.get(h.id)!, extras.for(h.id))), page, total), profilesAvailable: extras.available, window: { from: win.from, to: win.to, days: win.days }, scanCapped: false, destinations }
       }
       // Computed filters need the assessment, so a bounded set is assessed first and then paged. The response says when the cap is hit.
-      const candidates = await tx.hotel.findMany({ where, orderBy: order, take: COMMERCIAL_SCAN_CAP + 1, select: HOTEL_SELECT })
+      const candidates = await tx.hotel.findMany({ where: { ...where, tenantId }, orderBy: order, take: COMMERCIAL_SCAN_CAP + 1, select: HOTEL_SELECT })
       const scanCapped = candidates.length > COMMERCIAL_SCAN_CAP
       const scanned = candidates.slice(0, COMMERCIAL_SCAN_CAP)
       const assessed = await this.assessAll(tx, tenantId, scanned, win)

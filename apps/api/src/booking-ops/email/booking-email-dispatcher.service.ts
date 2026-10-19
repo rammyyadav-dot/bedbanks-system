@@ -64,10 +64,10 @@ export class BookingEmailDispatcher implements OnModuleInit, OnModuleDestroy {
         const email = await tx.bookingEmail.findFirstOrThrow({ where: { id, tenantId } })
         if (email.attempt >= email.maxAttempts) {
           // A dispatcher died during the last attempt; the provider may or may not have accepted it. Stop rather than risk a duplicate.
-          await tx.bookingEmail.update({ where: { id }, data: { status: 'FAILED', lockedUntil: null, lastErrorCode: 'DISPATCHER_LOST' } })
+          await tx.bookingEmail.update({ where: { id, tenantId }, data: { status: 'FAILED', lockedUntil: null, lastErrorCode: 'DISPATCHER_LOST' } })
           continue
         }
-        await tx.bookingEmail.update({ where: { id }, data: { status: 'SENDING', attempt: { increment: 1 }, lockedUntil: new Date(now.getTime() + LOCK_SECONDS * 1000) } })
+        await tx.bookingEmail.update({ where: { id, tenantId }, data: { status: 'SENDING', attempt: { increment: 1 }, lockedUntil: new Date(now.getTime() + LOCK_SECONDS * 1000) } })
         out.push({ id, tenantId, bookingId: email.bookingId, attempt: email.attempt + 1, maxAttempts: email.maxAttempts, to: email.toAddress, cc: email.ccAddresses, requestedByUserId: email.requestedByUserId })
       }
       return out
@@ -112,13 +112,13 @@ export class BookingEmailDispatcher implements OnModuleInit, OnModuleDestroy {
     if (email.attempt >= email.maxAttempts) return this.finish(email, 'FAILED', code, at)
     const delay = BOOKING_EMAIL_RETRY_DELAYS_SECONDS[Math.min(email.attempt - 1, BOOKING_EMAIL_RETRY_DELAYS_SECONDS.length - 1)]
     return this.db.withTenantWrite(email.tenantId, async (tx) => {
-      await tx.bookingEmail.update({ where: { id: email.id }, data: { status: 'RETRY_WAIT', lockedUntil: null, lastErrorCode: code, runAfter: new Date(at.getTime() + delay * 1000) } })
+      await tx.bookingEmail.update({ where: { id: email.id, tenantId: email.tenantId }, data: { status: 'RETRY_WAIT', lockedUntil: null, lastErrorCode: code, runAfter: new Date(at.getTime() + delay * 1000) } })
     })
   }
 
   private finish(email: Claimed, status: 'SENT' | 'FAILED', code: string | null, at: Date, messageId?: string): Promise<void> {
     return this.db.withTenantWrite(email.tenantId, async (tx) => {
-      await tx.bookingEmail.update({ where: { id: email.id }, data: { status, lockedUntil: null, lastErrorCode: code, ...(status === 'SENT' ? { sentAt: at, providerMessageId: messageId ?? null } : {}) } })
+      await tx.bookingEmail.update({ where: { id: email.id, tenantId: email.tenantId }, data: { status, lockedUntil: null, lastErrorCode: code, ...(status === 'SENT' ? { sentAt: at, providerMessageId: messageId ?? null } : {}) } })
       // createMany: the audit log is write-only for this role (no RETURNING, so no SELECT is needed). Attributed to the agent whose confirmation
       // queued the email, like the supplier runner's job events (the policy keeps SYSTEM inserts for named roles only).
       await tx.auditEvent.createMany({ data: [{ tenantId: email.tenantId, userId: email.requestedByUserId, actorType: 'USER', action: status === 'SENT' ? 'booking.email.sent' : 'booking.email.failed', entityType: 'booking', entityId: email.bookingId,

@@ -4,6 +4,14 @@ on:
   pull_request:
   push:
 
+permissions:
+  contents: read
+
+# A newer push to the same PR supersedes the older run; branch pushes keep running to completion.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   schema-integrity:
     name: Schema integrity
@@ -22,6 +30,7 @@ jobs:
       - run: pnpm check:architecture
       - run: node --test tools/clone-certification-guard.test.mjs
       - run: node --import tsx --test tools/runtime-db-role-check.test.ts
+      - run: node --import tsx --test tools/tenant-filter-check.test.ts
 
   prisma-migration-certification:
     name: Prisma migration certification
@@ -83,6 +92,8 @@ jobs:
           strict-role-rollout.e2e-spec.ts
       - name: Sandbox staging strict-role acceptance (disposable PostgreSQL)
         run: pnpm --filter @bedbanks/api test:e2e -- sandbox-content-staging.e2e-spec.ts
+      - name: Tenant and database security certification (every restricted role, catalog, routes, cross-tenant, sessions, audit)
+        run: pnpm --filter @bedbanks/api test:security
       - run: pnpm --filter @bedbanks/api test:e2e
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - name: Re-certify strict login, protected columns and forced RLS after all suites

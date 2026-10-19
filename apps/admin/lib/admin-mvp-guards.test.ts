@@ -244,6 +244,18 @@ test('governance slices and pages read their own summary endpoints and do no ari
   assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', 'access-review', 'page.tsx'), 'utf8'), /password|passwordHash/i, 'no credential material is ever shown')
 })
 
+test('compliance evidence page is read-only, gated by audit.read, and never shows a payload', () => {
+  const src = readFileSync(join(root, 'app', '(dashboard)', 'compliance', 'page.tsx'), 'utf8')
+  for (const fn of ['getComplianceSummary', 'getComplianceRecords']) assert.match(src, new RegExp(fn))
+  assert.match(src, /OpsState/); assert.match(src, /state === 'unavailable'/, 'an unreadable export section is shown as unavailable, never zero')
+  assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed|\.reduce\(|method: 'POST'|\.payload\b/, 'no arithmetic, no mutation and no payload in the browser')
+  const panel = readFileSync(join(root, 'components', 'compliance', 'ComplianceReportPanel.tsx'), 'utf8')
+  assert.match(panel, /downloadComplianceReport/); assert.match(src, /<ComplianceReportPanel \/>/)
+  assert.doesNotMatch(panel, /Math\.|toFixed|\.reduce\(|createHash|sha256\(|method: 'POST'/, 'the report is built and attested by the API; the browser only saves the file')
+  const item = flatNav.find((i) => i.href === '/compliance')
+  assert.equal(item?.requires, 'audit.read')
+})
+
 test('markup page manages rules only: the API prices, the browser does no pricing arithmetic', () => {
   const page = readFileSync(join(root, 'app', '(dashboard)', 'commercial', 'markups', 'page.tsx'), 'utf8')
   assert.match(page, /getMarkupRules/); assert.match(page, /OpsState/)

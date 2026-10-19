@@ -50,7 +50,7 @@ export class BookingDocumentService {
     return this.prisma.withTenant(tenantId, async tx => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
-      const existing = await tx.bookingDocument.findUnique({ where: { bookingId_type: { bookingId, type } } })
+      const existing = await tx.bookingDocument.findUnique({ where: { bookingId_type: { bookingId, type }, tenantId } })
       if (existing) return this.view(existing, booking.status, true)
 
       if (type === 'VOUCHER' && booking.status !== 'CONFIRMED') throw new ConflictException('A voucher is issued only for a confirmed booking')

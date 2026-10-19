@@ -33,3 +33,6 @@ Each of these would change documents or flows that already exist, so each needs 
 2. **Two-person issue** of every credit note (today only a penalty waiver needs a second person).
 3. **Tax lines** (net rates are all-inclusive, ADR 0029).
 4. **Manual or goodwill refunds** that are not tied to a cancellation. They would need a restricted write role as in ADR 0042.
+
+## Update: supplier statement reconciliation (ADR 0070)
+The missing counterpart to the accrual above is now built: supplier settlement statements are imported, matched against the ledger by booking reference and exact net, and every difference is decided in a dispute queue by a restricted role, behind `FINANCE_RECONCILIATION_ENABLED`. It posts nothing. The decisions listed above (chart of accounts, settlement currency, whether refunds move money) are still needed before a resolved exception can become a payable or a ledger entry.

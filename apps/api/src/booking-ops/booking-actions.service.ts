@@ -1,8 +1,9 @@
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { randomBytes, createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import {
-  BOOKING_ACTION_RULES, BOOKING_ACTIONS, BOOKING_REASON_MAX, BOOKING_REF_MAX, BOOKING_STATUSES, MANUAL_BOOKING_FAILURE, permissionFor,
+  BOOKING_ACTION_RULES, BOOKING_ACTIONS, BOOKING_AMENDMENT_FAILURE, BOOKING_REASON_MAX, BOOKING_REF_MAX, BOOKING_STATUSES, MANUAL_BOOKING_FAILURE, permissionFor,
   type BookingAccessView, type BookingAction, type BookingActionRequest, type BookingReferencesRequest, type BookingStatus, type BookingWriteResult, type ManualBookingRequest,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
@@ -11,6 +12,7 @@ import { supplierJobsEnabled } from './booking-supplier-jobs.service'
 import { manualBookingEnabled } from './booking-access.guard'
 import { BookingOpsDatabase } from './booking-ops-database'
 import { BookingPenaltyQuoter } from './booking-penalty-quote'
+import { amendmentFingerprint, applyAmendmentDecision, prepareAmendmentDecision, recordAmendmentRequest, type PreparedDecision, type PreparedRequest } from './booking-amendment'
 import { transitionBooking } from './booking-transition'
 import { validateManualBooking } from './manual-booking'
 
@@ -21,7 +23,7 @@ const bad = (message: string, code: string) => new BadRequestException({ message
 /** Everything an Admin user can change on a booking (ADR 0039, Phase 2). Each public method is one transaction on the booking role and one audit event. */
 @Injectable()
 export class BookingActionsService {
-  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly quoter: BookingPenaltyQuoter) {}
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly quoter: BookingPenaltyQuoter, private readonly settlement: CancellationSettlementService) {}
 
   static idempotencyKey(raw: unknown): string {
     if (typeof raw !== 'string' || !KEY.test(raw)) throw bad('An Idempotency-Key header of 8 to 128 letters, digits or . _ : - is required', 'IDEMPOTENCY_KEY_REQUIRED')
@@ -42,7 +44,13 @@ export class BookingActionsService {
 
     // The penalty is worked out once, when cancellation is requested, outside the write transaction, and stored on that request (fixed from then on).
     const penaltyQuote = action === 'requestCancellation' ? await this.quoter.quote(tenantId, bookingId, now) : undefined
-    return this.db.withTenantWrite(tenantId, async (tx) => {
+    // ADR 0072: the structured parts of an amendment belong to exactly these two actions.
+    if (body.amendment !== undefined && action !== 'requestAmendment') throw bad('An amendment can only be sent with requestAmendment', BOOKING_AMENDMENT_FAILURE.invalid)
+    if (body.approval !== undefined && action !== 'approveAmendment') throw bad('An approval can only be sent with approveAmendment', BOOKING_AMENDMENT_FAILURE.approvalNotExpected)
+    const fingerprintExtra = amendmentFingerprint(action, body)
+    // Whether the agency ledger holds anything for this booking, read on the API connection (the booking role has no ledger access). null = could not be read.
+    const ledgerCharged = action === 'approveAmendment' && body.approval !== undefined ? await this.ledgerCharged(tenantId, bookingId) : null
+    const written = await this.db.withTenantWrite(tenantId, async (tx) => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, agencyId: true, isRefundable: true } })
       // An agency-scoped caller never learns another agency's booking exists.
       if (!booking || (level === 'AGENCY' && booking.agencyId !== access.agencyId)) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
@@ -51,17 +59,40 @@ export class BookingActionsService {
         await this.prisma.withTenant(tenantId, (t) => t.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'permission.denied', entityType: 'booking', entityId: booking.id, payload: { bookingAction: action, requestId } } })).catch(() => undefined)
         throw new ForbiddenException({ message: 'You do not have permission for this action on this booking', code: 'PERMISSION_DENIED' })
       }
+      // A replay of an earlier request must not prepare (or insert) anything a second time: the transition recognises it by the key and answers with the first result.
+      const earlier = await tx.bookingEvent.findUnique({ where: { tenantId_bookingId_idempotencyKey: { tenantId, bookingId: booking.id, idempotencyKey: key } }, select: { id: true } })
+      let request: PreparedRequest | null = null; let decision: PreparedDecision | null = null
+      if (!earlier && action === 'requestAmendment') request = await recordAmendmentRequest(tx, { tenantId, bookingId: booking.id, userId, raw: body.amendment, now })
+      if (!earlier && (action === 'approveAmendment' || action === 'rejectAmendment')) decision = await prepareAmendmentDecision(tx, { tenantId, bookingId: booking.id, kind: action === 'approveAmendment' ? 'APPROVE' : 'REJECT', rawApproval: body.approval, ledgerCharged, now })
       const outcome = await transitionBooking(tx, {
         tenantId, bookingId: booking.id, action, expectedStatus: body.expectedStatus as BookingStatus, actor: { type: 'USER', id: userId }, level, now,
         reason: clean(body.reason), supplierRef: clean(body.supplierRef), hotelConfirmationNo: clean(body.hotelConfirmationNo), supplierCancellationRef: clean(body.supplierCancellationRef),
-        confirmNonRefundable: body.confirmNonRefundable === true, idempotencyKey: key, emitFinance: true, penaltyQuote,
+        confirmNonRefundable: body.confirmNonRefundable === true, idempotencyKey: key, emitFinance: true, penaltyQuote, fingerprintExtra, eventPayload: request?.eventPayload ?? decision?.eventPayload,
       })
+      let applied: { documentsNotReissued: string[] } | null = null
+      if (!outcome.replayed && decision) applied = await applyAmendmentDecision(tx, { tenantId, bookingId: booking.id, userId, decision, now })
       if (!outcome.replayed) {
         // Same transaction as the status change: either both exist or neither. Free-text (reason) is never copied into the audit payload.
-        await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: `booking.${action}`, entityType: 'booking', entityId: booking.id, payload: { bookingAction: action, from: rule.from, to: rule.to, permission, level, requestId, reasonGiven: Boolean(clean(body.reason)) } }] })
+        await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: `booking.${action}`, entityType: 'booking', entityId: booking.id, payload: { bookingAction: action, from: rule.from, to: rule.to, permission, level, requestId, reasonGiven: Boolean(clean(body.reason)),
+          ...(request || decision ? { amendmentId: (request ?? decision)!.eventPayload.amendmentId, changes: (request ?? decision)!.eventPayload.changes ?? [], ...(decision?.differenceMinor !== undefined ? { differenceMinor: decision.differenceMinor.toString(), documentsNotReissued: applied?.documentsNotReissued ?? [] } : {}) } : {}) } }] })
       }
       return outcome
     })
+    // ADR 0069: a cancelled booking's agency is credited per the effective penalty, on the API connection (this role has no ledger access).
+    if (written.status === 'CANCELLED') await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId: written.bookingId, source: `booking_action:${action}` })
+    return written
+  }
+
+  /**
+   * Whether the agency ledger holds anything for this booking (a hold or a charge): true, false, or null when that could not be asked. Asked through the one boolean-only
+   * SECURITY DEFINER function the booking role may call (`fbeds_booking_has_ledger_entries`), so the role never reads the ledger itself. A price-changing amendment is only
+   * allowed on `false`; `null` fails closed with its own message.
+   */
+  private async ledgerCharged(tenantId: string, bookingId: string): Promise<boolean | null> {
+    try {
+      const rows = await this.db.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ touched: boolean }>>`SELECT "fbeds_booking_has_ledger_entries"(${bookingId}) AS touched`)
+      return rows[0]?.touched === true
+    } catch { return null }
   }
 
   /** Add or correct the supplier / hotel / agent references. The status is untouched. */

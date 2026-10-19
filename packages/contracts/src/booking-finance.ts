@@ -7,7 +7,7 @@
  */
 import type { BookingStatus } from './operations'
 
-export const BOOKING_FINANCE_EVENT_TYPES = ['CONFIRMED', 'ON_REQUEST_HOLD', 'HOLD_RELEASED', 'CANCELLED', 'PENALTY_DECIDED', 'PENALTY_WAIVED'] as const
+export const BOOKING_FINANCE_EVENT_TYPES = ['CONFIRMED', 'ON_REQUEST_HOLD', 'HOLD_RELEASED', 'CANCELLED', 'PENALTY_DECIDED', 'PENALTY_WAIVED', 'AMENDED'] as const
 export type BookingFinanceEventType = (typeof BOOKING_FINANCE_EVENT_TYPES)[number]
 
 export const BOOKING_DOCUMENT_TYPES = ['VOUCHER', 'INVOICE', 'CREDIT_NOTE', 'CANCELLATION_NOTE'] as const
@@ -151,7 +151,7 @@ export function documentBlock(type: BookingDocumentType, f: DocumentEligibilityF
   return null
 }
 
-export interface BookingFinanceEventView { id: string; type: BookingFinanceEventType; seq: number; currency: string; sellMinor: string; netMinor: string | null; penaltyMinor: string | null; refundMinor: string | null; paymentMode: string | null; actorUserId: string | null; createdAt: string; note: string | null }
+export interface BookingFinanceEventView { id: string; type: BookingFinanceEventType; seq: number; currency: string; sellMinor: string; netMinor: string | null; penaltyMinor: string | null; refundMinor: string | null; /** AMENDED only: the signed price difference (new minus old), integer minor units. */ adjustmentMinor?: string | null; paymentMode: string | null; actorUserId: string | null; createdAt: string; note: string | null }
 export interface BookingIssuedDocumentView { id: string; type: BookingDocumentType; number: string; issuedAt: string; htmlPath: string }
 export interface BookingFinanceView {
   bookingId: string

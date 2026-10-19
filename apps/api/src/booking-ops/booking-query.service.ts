@@ -53,7 +53,7 @@ export class BookingQueryService {
   async ids(tenantId: string, access: BookingAccessView, filter: BookingFilter, now: Date, limit = BOOKING_QUERY_ID_CAP): Promise<{ ids: string[]; truncated: boolean }> {
     const take = Math.min(Math.max(limit, 1), BOOKING_QUERY_ID_CAP)
     const { where, orderBy } = await this.select(tenantId, access, filter, now)
-    const rows = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where, orderBy, take: take + 1, select: { id: true } }))
+    const rows = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where: { ...where, tenantId }, orderBy, take: take + 1, select: { id: true } }))
     return { ids: rows.slice(0, take).map((r) => r.id), truncated: rows.length > take }
   }
 }

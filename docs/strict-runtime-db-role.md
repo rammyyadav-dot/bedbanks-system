@@ -42,6 +42,9 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `CancellationPolicy` | yes | - | - | - | forced tenant | search and recheck include each contract's cancellation terms |
 | `ChildPolicy` | yes | - | - | - | forced tenant | search, recheck and hold price children from the contract child policy (ADR 0067, F-03) |
 | `CommercialMarkupRule` | yes | yes | yes | - | forced tenant | INSERT: CommercialMarkupService.create; POST /admin/commercial/markups; draft a markup rule / UPDATE: CommercialMarkupService.retire/execute; POST /admin/commercial/markups/:ruleId/retire, POST /admin/commercial/markups/approvals/:approvalId/execute; activate or retire a rule (rules are otherwise immutable) |
+| `ComplianceExportBatch` | yes | - | - | - | forced tenant | Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067) |
+| `ComplianceExportBatchRecord` | yes | - | - | - | forced tenant | Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067) |
+| `ComplianceRecord` | cols (13) | - | - | - | forced tenant | SELECT (id, tenant_id, category, action, entity_type, entity_id, actor_type, user_id, occurred_at, payload_sha256, origin_country, destination_country, cross_border): Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS |
 | `Contract` | yes | - | - | - | forced tenant | read only |
 | `ContractSupplement` | yes | - | - | - | forced tenant | search, recheck and hold add board and compulsory supplements to the price (ADR 0067) |
 | `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |
@@ -83,6 +86,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
+- `BookingAmendment`: booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)
 - `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
 - `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
 - `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
@@ -99,6 +103,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Cancellation`: booking is disabled
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
+- `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
+- `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
+- `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
 - `Contract`: supply authoring
 - `ContractSupplement`: supply authoring
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
@@ -119,6 +126,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `RatePlan`: supply authoring and pool membership/release
 - `RatePlanGuestPrice`: supply authoring (guest price lines)
 - `RatePlanPromotion`: supply authoring (promotions)
+- `ReconciliationDecision`: finance-gated: append-only history of dispute queue decisions (ADR 0070)
+- `ReconciliationFinding`: finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)
+- `ReconciliationRun`: finance-gated: the reconciliation job queue; the API inserts QUEUED runs and the worker claims them (ADR 0070)
 - `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
 - `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
 - `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant
@@ -126,6 +136,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierHotelMapping`: mapping governance
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierRoomMapping`: mapping governance
+- `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)
+- `SupplierStatementLine`: finance-gated: immutable statement lines (ADR 0070)
 - `Tenant`: tenant settings authoring
 - `TenantControlProfile`: dedicated tenant control authoring role only
 - `TenantSettings`: tenant settings authoring

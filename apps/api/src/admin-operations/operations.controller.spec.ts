@@ -3,11 +3,11 @@ import { GUARDS_METADATA } from '@nestjs/common/constants'
 import { operationsPermissions } from '@bedbanks/contracts'
 import { AgentRbacGuard, REQUIRED_PERMISSION } from '../agent/rbac.guard'
 import { OperationsController } from './operations.controller'
-import { BookingAccessGuard } from '../booking-ops/booking-access.guard'
+import { BookingAccessGuard, REQUIRED_BOOKING_ACTION } from '../booking-ops/booking-access.guard'
 import { REQUIRED_SUPPLY_PERMISSION, SupplyPermissionGuard } from './supply-permission.guard'
 
-/** The booking list and detail (ADR 0039) resolve operator-level `booking.read` or agency-scoped `booking.view.agency` inside one fail-closed guard. */
-const BOOKING_ACCESS_HANDLERS = ['bookings', 'booking']
+/** The booking list, detail and export (ADR 0039, Phase 6D) resolve operator-level `booking.read` or agency-scoped `booking.view.agency` inside one fail-closed guard. */
+const BOOKING_ACCESS_HANDLERS = ['bookings', 'booking', 'exportBookings']
 
 const proto = OperationsController.prototype as unknown as Record<string, unknown>
 const handlers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' && typeof proto[name] === 'function')
@@ -32,6 +32,10 @@ describe('OperationsController authorization wiring', () => {
     expect(meta(REQUIRED_SUPPLY_PERMISSION, name)).toBeUndefined()
   })
 
+  it('the booking export additionally requires a formal export permission (operator or agency), declared on the route', () => {
+    expect(Reflect.getMetadata(REQUIRED_BOOKING_ACTION, proto.exportBookings as object)).toEqual(['booking.export', 'booking.export.agency'])
+  })
+
   it('hotel commercial endpoints use only the documented supply.* keys (export added by ADR 0051)', () => {
     const used = new Set(handlers.map(h => meta(REQUIRED_SUPPLY_PERMISSION, h)).filter(Boolean))
     expect([...used].sort()).toEqual(['supply.contracts.read', 'supply.hotels.export', 'supply.hotels.read', 'supply.mappings.read', 'supply.rates.read'])
@@ -42,9 +46,9 @@ describe('OperationsController authorization wiring', () => {
     expect(names).toEqual(['SessionAuthGuard', 'TenantContextGuard'])
   })
 
-  it('mutates only through reconciliation handlers, every one requiring booking.reconcile (the direct run plus the maker-checker path)', () => {
+  it('mutates only through reconciliation handlers, every one requiring booking.reconcile (the direct run, the maker-checker path and the cancellation settlement sweep, ADR 0069)', () => {
     const posts = handlers.filter(h => Reflect.getMetadata('method', proto[h] as object) === 1) // RequestMethod.POST
-    expect(posts.sort()).toEqual(['approveReconciliation', 'cancelReconciliationApproval', 'executeReconciliationApproval', 'reconcile', 'rejectReconciliation', 'requestReconciliationApproval'])
+    expect(posts.sort()).toEqual(['approveReconciliation', 'cancelReconciliationApproval', 'cancellationSettlements', 'executeReconciliationApproval', 'reconcile', 'rejectReconciliation', 'requestReconciliationApproval'])
     for (const h of posts) expect(meta(REQUIRED_PERMISSION, h)).toBe('booking.reconcile')
   })
 

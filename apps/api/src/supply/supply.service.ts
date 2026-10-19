@@ -208,7 +208,7 @@ export class SupplyService {
     return this.write(tenantId, userId, 'supply.suppliers.manage', 'supply.supplier.updated', 'supplier', requestId, async tx => {
       const duplicate = await tx.supplier.findFirst({ where: { tenantId, legalName: data.legalName, NOT: { id: supplierId } } })
       if (duplicate) throw new BadRequestException('Supplier legal name already exists')
-      const value = await tx.supplier.update({ where: { id: supplierId }, data: data as any })
+      const value = await tx.supplier.update({ where: { id: supplierId, tenantId }, data: data as any })
       return { id: value.id, value }
     })
   }
@@ -237,7 +237,7 @@ export class SupplyService {
       const current = await tx.boardBasis.findFirst({ where: { id: boardBasisId, tenantId } })
       if (!current) throw new NotFoundException('Board basis not found')
       if (input.name !== undefined && !clean(input.name)) throw new BadRequestException('Board basis name is required')
-      const value = await tx.boardBasis.update({ where: { id: boardBasisId }, data: { ...(input.name !== undefined ? { name: clean(input.name) } : {}), ...(input.description !== undefined ? { description: input.description == null ? null : clean(input.description) } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}) } })
+      const value = await tx.boardBasis.update({ where: { id: boardBasisId, tenantId }, data: { ...(input.name !== undefined ? { name: clean(input.name) } : {}), ...(input.description !== undefined ? { description: input.description == null ? null : clean(input.description) } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}) } })
       return { id: value.id, value: { ...value, code: value.code.trim() } }
     })
   }
@@ -295,7 +295,7 @@ export class SupplyService {
           const lost = regressions(assessCompleteness(base), assessCompleteness({ ...base, ...data, starVerified: data.starRating === current.starRating && base.starVerified }))
           if (lost.length) throw new ConflictException({ code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST', message: 'A published hotel cannot lose a publication requirement. Use Hotel Setup.' })
         }
-        const value = await tx.hotel.update({ where: { id: hotelId, updatedAt: current.updatedAt }, data })
+        const value = await tx.hotel.update({ where: { id: hotelId, updatedAt: current.updatedAt, tenantId }, data })
         if (current.starRating !== data.starRating) await tx.hotelProfile.updateMany({ where: { hotelId, tenantId }, data: { starVerifiedAt: null, starVerifiedById: null } })
         if (current.contentStatus === 'COMPLETE' && data.contentStatus !== 'COMPLETE') await tx.hotelProfile.updateMany({ where: { hotelId, tenantId }, data: { approvedById: null, approvedAt: null } })
         return { id: value.id, value }
@@ -374,13 +374,13 @@ export class SupplyService {
       const current = governanceOnly ? await this.lockContract(tx, tenantId, contractId) : await this.lockEditableContract(tx, tenantId, contractId)
       if (governanceOnly && current.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
       const extra = { ...this.contractHeaderData(input, headerOf(current)), ...(await this.contractGovernanceData(tx, tenantId, input)) }
-      if (governanceOnly) { const value = await tx.contract.update({ where: { id: contractId }, data: extra }); return { id: value.id, value } }
+      if (governanceOnly) { const value = await tx.contract.update({ where: { id: contractId, tenantId }, data: extra }); return { id: value.id, value } }
       const validFrom = input.validFrom === undefined ? current.validFrom : date(input.validFrom), validTo = input.validTo === undefined ? current.validTo : date(input.validTo)
       if (validTo < validFrom) throw new BadRequestException('Invalid contract validity')
       const supplierId = input.supplierId ?? current.supplierId; const supplier = await tx.supplier.findFirst({ where: { id: supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant')
       const mappingId = input.supplierHotelMappingId === undefined ? current.supplierHotelMappingId : input.supplierHotelMappingId
       if (mappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: mappingId, tenantId, supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') }
-      const value = await tx.contract.update({ where: { id: contractId }, data: { ...extra, ...(input.supplierId !== undefined ? { supplierId } : {}), ...(input.supplierHotelMappingId !== undefined ? { supplierHotelMappingId: mappingId } : {}), ...(input.code !== undefined ? { code: clean(input.code) } : {}), validFrom, validTo, ...(input.settlementCurrency !== undefined ? { settlementCurrency: enabledCurrency(input.settlementCurrency) } : {}), ...(input.salesMarkets !== undefined ? { salesMarkets: marketList('salesMarkets', input.salesMarkets) } : {}), ...(input.nationalities !== undefined ? { nationalities: marketList('nationalities', input.nationalities) } : {}), ...(input.paymentPolicyRef !== undefined ? { paymentPolicyRef: input.paymentPolicyRef == null ? null : clean(input.paymentPolicyRef) } : {}) } })
+      const value = await tx.contract.update({ where: { id: contractId, tenantId }, data: { ...extra, ...(input.supplierId !== undefined ? { supplierId } : {}), ...(input.supplierHotelMappingId !== undefined ? { supplierHotelMappingId: mappingId } : {}), ...(input.code !== undefined ? { code: clean(input.code) } : {}), validFrom, validTo, ...(input.settlementCurrency !== undefined ? { settlementCurrency: enabledCurrency(input.settlementCurrency) } : {}), ...(input.salesMarkets !== undefined ? { salesMarkets: marketList('salesMarkets', input.salesMarkets) } : {}), ...(input.nationalities !== undefined ? { nationalities: marketList('nationalities', input.nationalities) } : {}), ...(input.paymentPolicyRef !== undefined ? { paymentPolicyRef: input.paymentPolicyRef == null ? null : clean(input.paymentPolicyRef) } : {}) } })
       return { id: value.id, value }
     })
   }
@@ -482,7 +482,7 @@ export class SupplyService {
       const items = await tx.ratePlan.findMany({ where, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: [{ code: 'asc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize })
       // Counts ignore the status filter so the toolbar can show the whole split for the current hotel/search scope.
       const { status: _status, ...scope } = where
-      const grouped = await tx.ratePlan.groupBy({ by: ['status'], where: scope, _count: { _all: true } })
+      const grouped = await tx.ratePlan.groupBy({ by: ['status'], where: { ...scope, tenantId }, _count: { _all: true } })
       const statusCounts = { DRAFT: 0, ACTIVE: 0, SUSPENDED: 0, EXPIRED: 0 }
       for (const row of grouped) statusCounts[row.status] = row._count._all
       return { items, total, page, pageSize, hasMore: page * pageSize < total, statusCounts }
@@ -512,7 +512,7 @@ export class SupplyService {
       const refundableNext = input.refundable ?? current.refundable
       const cancellationPolicySet = await cancellationSetOrThrow(tx, contractId, refundableNext, input.cancellationPolicySet === undefined ? current.cancellationPolicySet : input.cancellationPolicySet)
       const before = current.status === 'ACTIVE' && READINESS_FIELDS.some(field => input[field] !== undefined) ? (await this.activationReadiness(tx, tenantId, ratePlanId)).readiness.checks : null
-      const value = await tx.ratePlan.update({ where: { id: ratePlanId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet, salesMarkets: markets.salesMarkets, nationalities: markets.nationalities } })
+      const value = await tx.ratePlan.update({ where: { id: ratePlanId, tenantId }, data: { contractId, roomTypeId, boardBasisId, ...(input.code !== undefined ? { code: clean(input.code) } : {}), occupancy, currency, ...(input.refundable !== undefined ? { refundable: input.refundable } : {}), ...(input.taxesIncluded !== undefined ? { taxesIncluded: input.taxesIncluded } : {}), ...(input.feesIncluded !== undefined ? { feesIncluded: input.feesIncluded } : {}), minStay, maxStay, releaseDays, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet, salesMarkets: markets.salesMarkets, nationalities: markets.nationalities } })
       // An ACTIVE plan must not be edited into a state activation would refuse: any readiness check that passed before this edit and fails after it refuses the edit.
       // Checks that were already failing are not this edit's doing and do not block it.
       if (before) {
@@ -673,7 +673,7 @@ export class SupplyService {
       await tx.ratePlanGuestPrice.deleteMany({ where: { tenantId, ratePlanId } })
       if (lines.length) await tx.ratePlanGuestPrice.createMany({ data: lines.map((line: any) => ({ tenantId, ratePlanId, kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, amountBasis: line.basis, currency: line.currency })) })
       // The plan version moves with its prices: an approval or a stale editor bound to the old version is refused.
-      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      await tx.ratePlan.update({ where: { id: ratePlanId, tenantId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
       const shape = (rows: Array<{ kind: string; minAge: number; maxAge: number; amountMinor: bigint | null; amountBasis?: string | null; basis?: string }>) => rows.map(r => ({ kind: r.kind, minAge: r.minAge, maxAge: r.maxAge, amountMinor: r.amountMinor?.toString() ?? null, basis: r.amountBasis ?? r.basis ?? null }))
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.guest_prices_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.guestPrices), after: shape(lines) } } })
       return { id: ratePlanId, value: { ratePlanId } }
@@ -708,7 +708,7 @@ export class SupplyService {
       if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
       await tx.ratePlanPromotion.deleteMany({ where: { tenantId, ratePlanId } })
       if (rules.length) await tx.ratePlanPromotion.createMany({ data: rules.map((rule: any) => ({ tenantId, ratePlanId, kind: rule.kind, name: rule.name, nameKey: rule.name.toLowerCase(), percentBp: rule.percentBp, minLeadDays: rule.minLeadDays, maxLeadDays: rule.maxLeadDays, minNights: rule.minNights, freeNights: rule.freeNights, bookFrom: date(rule.bookFrom), bookTo: date(rule.bookTo), stayFrom: date(rule.stayFrom), stayTo: date(rule.stayTo), combinable: rule.combinable, stayWindowMode: rule.stayWindowMode, discountBase: rule.discountBase })) })
-      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      await tx.ratePlan.update({ where: { id: ratePlanId, tenantId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
       const shape = (rows: Array<Record<string, unknown>>) => rows.map(r => ({ kind: r.kind as string, name: r.name, percentBp: r.percentBp ?? null, minLeadDays: r.minLeadDays ?? null, maxLeadDays: r.maxLeadDays ?? null, minNights: r.minNights ?? null, freeNights: r.freeNights ?? null, bookFrom: r.bookFrom instanceof Date ? dayOf(r.bookFrom) : r.bookFrom ?? null, bookTo: r.bookTo instanceof Date ? dayOf(r.bookTo) : r.bookTo ?? null, stayFrom: r.stayFrom instanceof Date ? dayOf(r.stayFrom) : r.stayFrom ?? null, stayTo: r.stayTo instanceof Date ? dayOf(r.stayTo) : r.stayTo ?? null, combinable: r.combinable ?? false, stayWindowMode: r.stayWindowMode ?? 'WHOLE_STAY', discountBase: r.discountBase ?? 'ROOM_AND_GUESTS' })) as Prisma.InputJsonValue
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.promotions_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.promotions), after: shape(rules) } } })
       return { id: ratePlanId, value: { ratePlanId } }
@@ -815,7 +815,7 @@ export class SupplyService {
         if (await tx.dailyRate.count({ where: { tenantId, ratePlanId } }) > 0) throw new ConflictException({ code: 'RATE_PLAN_HAS_OWN_RATES', message: 'This plan has its own rates. A derived plan has none: delete its rate rows first.' })
         if (await tx.ratePlan.count({ where: { tenantId, derivedFromId: ratePlanId } }) > 0) throw new ConflictException({ code: 'RATE_PLAN_HAS_DERIVED_PLANS', message: 'Other plans are derived from this one, so it cannot itself be derived (derivation is one level deep).' })
       }
-      await tx.ratePlan.update({ where: { id: ratePlanId }, data: { derivedFromId: parentId, derivedMode: mode, derivedAdjustment: adjustment, updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
+      await tx.ratePlan.update({ where: { id: ratePlanId, tenantId }, data: { derivedFromId: parentId, derivedMode: mode, derivedAdjustment: adjustment, updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
       const shape = (parent: string | null, m: string | null, a: number | null) => ({ parentId: parent, mode: m, adjustment: a })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.derivation_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.derivedFromId, plan.derivedMode, plan.derivedAdjustment), after: shape(parentId, mode, adjustment) } } })
       return { id: ratePlanId, value: { ratePlanId } }
@@ -838,7 +838,7 @@ export class SupplyService {
       if (!sourceRoom || !targetRoom || !contract) throw new BadRequestException('Invalid rate plan relationship')
       if (targetRoom.hotelId !== sourceRoom.hotelId) throw new BadRequestException('A clone must stay within the same hotel')
       if (source.occupancy > targetRoom.maxOccupancy) throw new BadRequestException('Occupancy exceeds the target room capacity')
-      if (await tx.ratePlan.findFirst({ where: { contractId: source.contractId, code }, select: { id: true } })) throw new ConflictException({ code: 'RATE_PLAN_CODE_EXISTS', message: 'That rate plan code already exists on this contract.' })
+      if (await tx.ratePlan.findFirst({ where: { contractId: source.contractId, code, tenantId }, select: { id: true } })) throw new ConflictException({ code: 'RATE_PLAN_CODE_EXISTS', message: 'That rate plan code already exists on this contract.' })
       const value = await tx.ratePlan.create({ data: { tenantId, ...cloneDraftFields(source, { code, roomTypeId }), salesMarkets: source.salesMarkets as Prisma.InputJsonValue, nationalities: source.nationalities as Prisma.InputJsonValue } })
       return { id: value.id, value }
     }, { cloneRole: true }).catch((error: { code?: string }) => {
@@ -961,14 +961,14 @@ export class SupplyService {
           // ADR 0067 F-05: a plan may carry a rate per occupancy (single, double, triple) up to what the room sleeps.
           if (plan.currency !== row.currency || plan.contract.settlementCurrency !== row.currency || row.occupancy < 1 || row.occupancy > plan.roomType.maxOccupancy) throw new BadRequestException('Rate currency or occupancy does not match the plan, room and contract')
           if (row.stayDate < plan.contract.validFrom || row.stayDate > plan.contract.validTo) throw new BadRequestException('Rate date is outside the contract')
-          const before = await tx.dailyRate.findUnique({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy } } })
+          const before = await tx.dailyRate.findUnique({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy }, tenantId } })
           checkVersion(row.expectedUpdatedAt, before)
           rateChanges.push({ row, before })
         }
         for (const row of availability) {
           const plan = plans.find(plan => plan.id === row.ratePlanId)!
           if (row.stayDate < plan.contract.validFrom || row.stayDate > plan.contract.validTo) throw new BadRequestException('Availability date is outside the contract')
-          const before = await tx.dailyAvailability.findUnique({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate } } })
+          const before = await tx.dailyAvailability.findUnique({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate }, tenantId } })
           checkVersion(row.expectedUpdatedAt, before)
           if (before && row.allotment < before.sold + before.held) throw new BadRequestException('Allotment cannot be below committed inventory')
           // A pooled plan has a single physical stock authority. Its local restrictions may change, not its ignored allotment.
@@ -984,13 +984,13 @@ export class SupplyService {
         if (!preview) {
           for (const { row, before } of rateChanges) {
             const values = { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy, amountMinor: row.amountMinor, amountBasis: row.amountBasis, currency: row.currency }
-            const saved = await tx.dailyRate.upsert({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy } }, create: { tenantId, ...values }, update: { amountMinor: row.amountMinor, amountBasis: row.amountBasis, currency: row.currency, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
+            const saved = await tx.dailyRate.upsert({ where: { ratePlanId_stayDate_occupancy: { ratePlanId: row.ratePlanId, stayDate: row.stayDate, occupancy: row.occupancy }, tenantId }, create: { tenantId, ...values }, update: { amountMinor: row.amountMinor, amountBasis: row.amountBasis, currency: row.currency, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
             savedRates.push({ ...saved, amountMinor: saved.amountMinor.toString() })
             await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.daily_rate.updated', entityType: 'daily_rate', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { amountMinor: before.amountMinor.toString(), amountBasis: before.amountBasis } : null, after: { amountMinor: row.amountMinor.toString(), amountBasis: row.amountBasis } } } })
           }
           for (const { row, before } of availabilityChanges) {
             const data = { allotment: row.allotment, stopSell: row.stopSell ?? before?.stopSell ?? false, minStay: row.minStay ?? before?.minStay ?? 1, releaseDays: row.releaseDays === undefined ? before?.releaseDays ?? null : row.releaseDays }
-            const saved = await tx.dailyAvailability.upsert({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate } }, create: { tenantId, ratePlanId: row.ratePlanId, stayDate: row.stayDate, ...data }, update: { ...data, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
+            const saved = await tx.dailyAvailability.upsert({ where: { ratePlanId_stayDate: { ratePlanId: row.ratePlanId, stayDate: row.stayDate }, tenantId }, create: { tenantId, ratePlanId: row.ratePlanId, stayDate: row.stayDate, ...data }, update: { ...data, updatedAt: new Date(Math.max(Date.now(), (before?.updatedAt.getTime() ?? 0) + 1)) } })
             savedAvailability.push(saved)
             await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.availability.updated', entityType: 'daily_availability', entityId: saved.id, payload: { requestId: requestId ?? null, before: before ? { allotment: before.allotment, stopSell: before.stopSell, minStay: before.minStay, releaseDays: before.releaseDays } : null, after: data } } })
           }

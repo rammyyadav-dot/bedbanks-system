@@ -1,6 +1,6 @@
 // Admin operations API access. Read-only except reconcile; no mock or fallback data lives here.
-import { routes, type BookingBulkOperationView, type BookingBulkRequest, type BookingSavedViewList, type BookingSavedViewView, type SavedViewUpdateRequest, type SavedViewWriteRequest, type SavedViewWriteResult, type BookingDocumentIssueResult, type BookingFinanceView, type BookingPenaltyRequest, type BookingPenaltyResult, type BookingOperationsPanel, type BookingOpsAcknowledgeRequest, type BookingOpsAnswerRequest, type BookingOpsAssignee, type BookingOpsAssignRequest, type BookingOpsClearRequest, type BookingOpsEscalateRequest, type BookingOpsNoteRequest, type BookingOpsQueuePage, type BookingOpsWriteResult, BOOKING_IDEMPOTENCY_HEADER, type BookingActionRequest, type BookingReferencesRequest, type BookingSupplierRequest, type BookingSupplierResult, type BookingWriteResult, type ManualBookingRequest, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type SupplierPayablesView, type CreditNoteRow, type AccessReviewPage, type AccessReviewSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
-import { apiRequest, apiRequestWithMeta } from '../api/client'
+import { routes, type BookingBulkOperationView, type BookingBulkRequest, type BookingSavedViewList, type BookingSavedViewView, type SavedViewUpdateRequest, type SavedViewWriteRequest, type SavedViewWriteResult, type BookingDocumentIssueResult, type BookingFinanceView, type BookingPenaltyRequest, type BookingPenaltyResult, type BookingOperationsPanel, type BookingOpsAcknowledgeRequest, type BookingOpsAnswerRequest, type BookingOpsAssignee, type BookingOpsAssignRequest, type BookingOpsClearRequest, type BookingOpsEscalateRequest, type BookingOpsNoteRequest, type BookingOpsQueuePage, type BookingOpsWriteResult, BOOKING_IDEMPOTENCY_HEADER, type BookingActionRequest, type BookingReferencesRequest, type BookingSupplierRequest, type BookingSupplierResult, type BookingWriteResult, type ManualBookingRequest, type BookingDetailView, type BookingListPage, type AgencyAccountView, type ReceivablesView, type SupplierPayablesView, type CreditNoteRow, type AccessReviewPage, type AccessReviewSummary, type ComplianceRecordPage, type ComplianceSummary, type MarketsSummary, type ReliabilitySummary, type ReconciliationApprovalExecution, type ReconciliationApprovalRequest, type ReconciliationApprovalView, type AuditSummary, type FinanceSummary, type AuditEventView, type CancellationRow, type ConnectorRow, type HoldDetail, type HoldRow, type LedgerEntryView, type OperationsCapabilities, type OperationsReadiness, type Paged, type ReconcileResponse, type ReconciliationQueue, type SupplierOperationsRow, type WalletRow } from '@bedbanks/contracts'
+import { apiDownload, apiRequest, apiRequestWithMeta } from '../api/client'
 import { opsQuery } from '../ops-state'
 
 type Params = Record<string, string | number | boolean | undefined | null>
@@ -17,6 +17,8 @@ export const getOpsHolds = (p: Params) => apiRequest<Paged<HoldRow>>(`${ops.hold
 export const getOpsHold = (holdId: string) => apiRequest<HoldDetail>(fill(ops.hold, { holdId }))
 /** Booking list and detail (ADR 0039). The detail takes the booking id or its FB- reference. */
 export const getOpsBookings = (p: Params) => apiRequest<BookingListPage>(`${ops.bookings}${opsQuery(p)}`)
+/** The filtered list as a CSV file (ADR 0039, Phase 6D). The API enforces the export permission and the row limit, and audits every download. */
+export const downloadBookingsCsv = (p: Params) => apiDownload(`${ops.bookingExport}${opsQuery(p)}`)
 export const getOpsBooking = (bookingIdOrReference: string) => apiRequest<BookingDetailView>(fill(ops.booking, { bookingId: bookingIdOrReference }))
 /**
  * Booking writes (ADR 0039, Phase 2). Each takes the Idempotency-Key the caller generated once per dialog, so a retry after a timeout replays instead of
@@ -53,6 +55,10 @@ export const getMarketsSummary = (p: Params = {}) => apiRequest<MarketsSummary>(
 export const getReliabilitySummary = (p: Params = {}) => apiRequest<ReliabilitySummary>(`${ops.reliabilitySummary}${opsQuery(p)}`)
 export const getAccessReviewSummary = () => apiRequest<AccessReviewSummary>(ops.accessReviewSummary)
 export const getAccessReviewUsers = (p: Params = {}) => apiRequest<AccessReviewPage>(`${ops.accessReviewUsers}${opsQuery(p)}`)
+export const getComplianceSummary = (p: Params = {}) => apiRequest<ComplianceSummary>(`${ops.complianceSummary}${opsQuery(p)}`)
+export const getComplianceRecords = (p: Params = {}) => apiRequest<ComplianceRecordPage>(`${ops.complianceRecords}${opsQuery(p)}`)
+/** A file download (ADR 0067 amendment 3). The API audits every download and refuses a period over the record cap; errors keep the JSON envelope. */
+export const downloadComplianceReport = (p: { from: string; to: string; format: 'json' | 'csv' }) => apiDownload(`${ops.complianceReport}${opsQuery(p)}`)
 
 // ---- Operations queue (ADR 0039, Phase 4). Reads never write; every mutation carries the Idempotency-Key the dialog generated once. ----------------------
 export const getOpsQueue = (p: Params) => apiRequest<BookingOpsQueuePage>(`${ops.bookingOps}${opsQuery(p)}`)

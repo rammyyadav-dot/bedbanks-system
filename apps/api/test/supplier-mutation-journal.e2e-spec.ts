@@ -11,6 +11,7 @@ import { BookingConfirmationService } from '../src/agent/booking-confirmation.se
 import { BookingQueryService } from '../src/agent/booking-query.service'
 import { SupplierMutationJournalService, supplierMutationFingerprint } from '../src/agent/supplier-mutation-journal.service'
 import { SupplierProviderError, type SupplierAdapter } from '../src/agent/supplier.port'
+import { eraseLedger } from './ledger-erasure'
 
 class PrepareFails extends SupplierMutationJournalService {
   override async prepare(): Promise<never> { throw new Error('prepare down') }
@@ -87,7 +88,7 @@ describe('durable supplier mutation journal (PostgreSQL)', () => {
 
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } })
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.supplierMutation.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } })
     await prisma.booking.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })

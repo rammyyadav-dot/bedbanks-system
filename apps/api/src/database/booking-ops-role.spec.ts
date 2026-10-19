@@ -7,10 +7,12 @@ describe('booking module database role (ADR 0039)', () => {
   it('BO-01: grants are SELECT on the five booking tables, INSERT on the four booking tables plus AuditEvent, and UPDATE on named Booking columns only', () => {
     const statements = bookingOpsGrantStatements()
     expect(statements[0]).toBe(`GRANT USAGE ON SCHEMA public TO "${BOOKING_OPS_GROUP_ROLE}"`)
-    expect(statements.filter((q) => q.startsWith('GRANT SELECT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingEmail'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
-    expect(statements.filter((q) => q.startsWith('GRANT INSERT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem'].map((t) => `GRANT INSERT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT SELECT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingEmail', 'BookingAmendment'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT INSERT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingAmendment'].map((t) => `GRANT INSERT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
     expect(statements.filter((q) => q.startsWith('GRANT UPDATE'))).toEqual([
-      `GRANT UPDATE ("status", "supplier_status", "supplier_ref", "hotel_confirmation_no", "agent_ref", "version", "closed_at", "updated_at") ON "Booking" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "supplier_status", "supplier_ref", "hotel_confirmation_no", "agent_ref", "version", "closed_at", "updated_at", "check_in", "check_out", "nights", "total_minor", "net_minor", "markup_minor", "cancel_deadline") ON "Booking" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "approved_sell_minor", "approved_net_minor", "difference_minor", "approved_cancel_deadline", "documents_not_reissued", "decided_by_user_id", "decided_at", "updated_at") ON "BookingAmendment" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("adults", "children", "child_ages", "sell_minor", "net_minor") ON "BookingRoom" TO "${BOOKING_OPS_GROUP_ROLE}"`,
       `GRANT UPDATE ("status", "attempt", "run_after", "locked_until", "last_error_code", "completed_at", "updated_at") ON "BookingSupplierJob" TO "${BOOKING_OPS_GROUP_ROLE}"`,
       `GRANT UPDATE ("name", "name_key", "description", "filter_version", "filters_json", "sort_json", "visible_columns_json", "default_slot", "version", "updated_at") ON "BookingSavedView" TO "${BOOKING_OPS_GROUP_ROLE}"`,
       `GRANT UPDATE ("status", "processed_count", "succeeded_count", "failed_count", "started_at", "completed_at", "updated_at") ON "BookingBulkOperation" TO "${BOOKING_OPS_GROUP_ROLE}"`,
@@ -18,10 +20,10 @@ describe('booking module database role (ADR 0039)', () => {
       `GRANT UPDATE ("status", "attempt", "run_after", "locked_until", "last_error_code", "provider_message_id", "sent_at", "updated_at") ON "BookingEmail" TO "${BOOKING_OPS_GROUP_ROLE}"`,
       `GRANT UPDATE ("assignee_user_id", "assigned_at", "assigned_by_user_id", "acknowledged_at", "acknowledged_by_user_id", "manual_priority", "escalated_at", "escalated_by_user_id", "escalation_reason", "follow_up", "follow_up_at", "resolved_at", "resolved_by_user_id", "version", "updated_at") ON "BookingOpsState" TO "${BOOKING_OPS_GROUP_ROLE}"`,
     ])
-    expect(statements.filter((q) => q.startsWith('GRANT EXECUTE'))).toEqual([`GRANT EXECUTE ON FUNCTION "fbeds_booking_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_email_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`])
+    expect(statements.filter((q) => q.startsWith('GRANT EXECUTE'))).toEqual([`GRANT EXECUTE ON FUNCTION "fbeds_booking_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_email_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_checkout_due_tenants"(date) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_close_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_has_ledger_entries"(text) TO "${BOOKING_OPS_GROUP_ROLE}"`])
     expect(statements.filter((q) => /DELETE/i.test(q))).toEqual([`GRANT DELETE ON "BookingSavedView" TO "${BOOKING_OPS_GROUP_ROLE}"`]) // the only delete there is
     expect(statements.join(' ').replace(/GRANT DELETE ON "BookingSavedView"[^\n]*?(?=GRANT|$)/, '')).not.toMatch(/DELETE|TRUNCATE|ALL PRIVILEGES|WITH GRANT OPTION|BYPASSRLS|REFERENCES|TRIGGER/i)
-    expect(statements.length).toBe(1 + 14 + 13 + 7 + 2 + 1)
+    expect(statements.length).toBe(1 + 15 + 14 + 9 + 5 + 1)
   })
 
   it('BO-02: no grant reaches ledger, wallet, audit, identity or hotel tables, and the two lists never overlap', () => {

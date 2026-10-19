@@ -92,3 +92,61 @@ Breached SLA, check-in within 24 hours, or three or more failed supplier calls e
 ## Bulk actions (Phase 6C)
 
 Two actions on explicit booking ids, at most 100 per request: assign/change the operations owner and acknowledge. `POST /admin/operations/bookings/bulk-actions` (body `bookingIds`, `action`, `payload`, `idempotencyKey`), `GET /admin/operations/booking-bulk-actions/:id` (your own operations only). Permissions (formal roles only, granted to no role by the migration): `booking.bulk.assign`, `booking.bulk.acknowledge`, `booking.bulk.read`; each booking is still checked against `booking.ops.assign`. Bulk calls the single-booking services one booking at a time: a partial result is `PARTIAL` with a stable reason per booking, and retrying the same request (same key) returns the first result without applying anything twice. In the Bookings list, people with the capability see row checkboxes, a selected count, select-page, clear, a toolbar, a confirmation dialog and a result summary. No money, document or status change is possible, and there is no background job, export or notification. Deploying it: run the migration, re-run `ops:provision-booking-ops-role`, then grant the permissions to the right roles.
+
+## Export, print, board and counter (Phase 6D)
+
+**Export (Excel / CSV).** In the Bookings list, people with the permission see **Excel / CSV**. It downloads the current filtered list: the same rows, scope, masking and net visibility as the screen, at most **1,000 rows** (above that it tells you to narrow the filters; it never truncates). Permissions (formal roles only, granted to no role by the migration): `booking.export` (operator, all agencies) and `booking.export.agency` (own agency only). Every export is written to the audit log before the file is released (`booking.exported`; plus `booking.pii.exported` when guest names are unmasked); the log keeps which filters applied, not their values. Cells that would run as formulas in a spreadsheet are neutralised. The reconciliation-flag filter cannot be exported. After deploying, run the migration and grant the permissions to the right roles; no change to `ops:provision-booking-ops-role` is needed (the module reads the same tables as the list).
+
+**Print.** **Print** opens the browser print dialog on the page as shown (A4 landscape; menus and controls hidden; a heading with the time and the applied filters). It prints the current page of the list or the board.
+
+**Kanban.** The **Kanban** toggle (remembered per browser) shows one column per working status: On request, Pending supplier, Confirmed, Amend requested, Cancel requested, Failed. Your filters apply; a status filter narrows the columns. Each column shows its total and the first 25 (a link opens the full list for that status). Cards open the booking, where the action dialogs are. It is a read-only board: there is no drag-to-change-status.
+
+**Counter.** The "N need action" button in the header opens the Needs action list. If the count cannot be read it is not shown.
+
+**Tests.** Unit: `booking-export.spec.ts`; Admin `booking-export-ui.test.ts`, `booking-kanban-ui.test.ts`. E2E (disposable DB): `booking-export.e2e-spec.ts`. The screens themselves still need the browser harnesses in `tools/admin-ops-verify`.
+
+## Scheduled Checked-out job (Phase 6E)
+
+**What it does.** From the day after check-out, Confirmed bookings move to **Checked out** automatically (a Timeline entry by "System"). It never touches Cancelled, On request, Cancel requested, Amend requested, closed (locked) bookings, or a Confirmed booking with no check-out date, and it moves no money and sends nothing. If a person changes a booking at the same moment, theirs wins and the job skips it.
+
+**Switches.** `BOOKING_LIFECYCLE_JOB_ENABLED=true` (default off) and `BOOKING_OPS_DATABASE_URL` (required; the job refuses to start without it). `BOOKING_LIFECYCLE_JOB_INTERVAL_MS` (default 3,600,000; minimum 60,000). Run it on one API instance or several: the move is compare-and-set, so two instances cannot move a booking twice.
+
+**Deploying.** Run the migration, then re-run `ops:provision-booking-ops-role` (new EXECUTE grant on `fbeds_booking_checkout_due_tenants`), then set the two variables. Without the grant the job logs an access failure and moves nothing; it never falls back to another credential.
+
+**Not built:** closing terminal bookings after the dispute window (the length is an open owner decision).
+
+**Tests.** Unit: `booking-lifecycle-jobs.spec.ts`. E2E (disposable DB): `booking-lifecycle-jobs.e2e-spec.ts` (which bookings move, idempotency, the day boundary, two runners at once, the role boundary).
+
+## Amendments (ADR 0072)
+
+**What a person does.** On a Confirmed booking, **Request amendment** opens a form: new check-in and check-out, and adults, children and child ages per room. Only fields you change are sent. Change nothing and write the note, and it is a *free-text* request (guest names, special requests): the note goes to the supplier directly and approving it changes nothing by itself. A structured request moves the booking to **Amend requested**; the **Amendments** tab shows what was asked and the booking as it was.
+The approver asks the supplier, then **Approve amendment** asks for the price the supplier confirmed (new sell total; optional net; optional free-cancellation deadline) and shows the difference in words before confirming. Approving applies the dates, nights, occupancy, price and deadline together, returns the booking to Confirmed with a new version, and records the difference as an amount **awaiting Finance booking** (Finance & documents tab). **Reject** leaves the booking exactly as it was and it can be amended again.
+
+**What it does not do.** It charges and refunds nothing and posts nothing to the ledger. It does not reissue the voucher or invoice (the panel lists which were left as issued). It does not rename guests. The net and margin become unknown if the approver does not record them (or cannot see them), and the free-cancellation deadline becomes unknown if the dates moved and none was recorded.
+
+**The ledger rule.** If the agency ledger holds anything for the booking (it was held or charged through the Agent flow), a **price-changing** approval is refused with "needs a ledger adjustment that is not built yet", and nothing changes. Reject it and agree the change with Finance, or approve it only if the price stays the same. This protects the cancellation settlement (ADR 0069), which refunds from the booking total. Manual and other non-ledger bookings are fully supported.
+
+**Permissions** (unchanged, formal roles only): `booking.amend` (request, approve, reject), `booking.amend.request` (an agency user, own bookings, request only).
+
+**Deploying.** Run migrations `202611250001` to `202611250003`, then **re-run `ops:provision-booking-ops-role`**: the booking role gains narrow UPDATE grants on the stay and price columns and the amendment table, and EXECUTE on `fbeds_booking_has_ledger_entries`. Without the re-run, a structured request answers 503 (not readable) rather than doing anything broader. No new environment variable.
+
+**Tests.** Unit: `booking-amendment.spec.ts` (validation, integer money, deadline and net rules, idempotency fingerprint, the source-scan that confines the writes); Admin `booking-amendment-ui.test.ts`. E2E (disposable DB): `booking-amendment.e2e-spec.ts` (15 tests: request, approve increase and decrease, zero difference, reject, approval rules, free-text path, the ledger guard, invalid proposals, idempotency, concurrent approvals, permissions and agency scope, visibility of net, documents not reissued, the role boundary).
+
+## Urgent badge on list rows (Phase 6F)
+
+Rows (and Kanban cards) show a red **Urgent** or **Critical** badge for a booking that is an Urgent or Critical case in the Operations queue, using the same rules, SLA policy and clock, so the list and the queue cannot disagree. Hover for the reason and the SLA state. It is computed on every read and clears itself; nobody sets it by hand. High and Normal cases carry no badge. Only people who can see the queue (`booking.ops.view` with `ADMIN_BOOKING_OPS_ENABLED=true`) see it. If the queue cannot be evaluated (for example an invalid `BOOKING_OPS_SLA_POLICY`), the list still works and says "Urgent badges are not shown", which is not the same as "nothing is urgent". There is no "Only urgent" filter on the list; use the Operations queue. No migration, no new permission, no new grant.
+
+**Tests.** Unit: `booking-urgency.spec.ts`; Admin `booking-ui.test.ts`. E2E (disposable DB): `booking-urgency.e2e-spec.ts` (verdict per row, caller without the permission, invalid policy, queue switched off).
+
+## Close after the dispute window (Phase 6G)
+
+**Off until you choose the window.** Set `BOOKING_CLOSE_AFTER_DAYS` (a whole number of days, 1 to 365) next to the Phase 6E switches (`BOOKING_LIFECYCLE_JOB_ENABLED=true`, `BOOKING_OPS_DATABASE_URL`). Unset, nothing is ever closed. A bad value makes the job refuse to start.
+
+**What it does.** A Checked out, No-show, Cancelled, Rejected or Failed booking that has not changed for that many days is **locked** (it shows CLOSED, keeps its status, and its Timeline says "Closed automatically: no change for N days" by System). Any edit restarts its clock. A closed booking refuses further actions.
+
+**What it will not lock.** Anything that still needs a person: an Operations queue case (manual follow-up, unresolved supplier answer, an active job), or a Cancelled booking whose penalty nobody has decided (decide it, and it is closed on a later pass). It moves no money and sends nothing.
+
+**Deploying.** Run migration `202611260001`, then re-run `ops:provision-booking-ops-role` (new EXECUTE grant on `fbeds_booking_close_due_tenants`), then set the variable. Without the grant the job logs an access failure and closes nothing; it never falls back to another credential.
+
+**Tests.** Unit: `booking-lifecycle-jobs.spec.ts` (LJ-06 to LJ-09). E2E (disposable DB): `booking-lifecycle-jobs.e2e-spec.ts` (LJE-06 to LJE-10: each status, the window edge, the "still needs a person" skips, idempotency and two runners, off when unset).
+

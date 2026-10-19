@@ -240,6 +240,52 @@ export interface FinanceSummary {
   ledger: SectionState<LedgerWindowSummary>
 }
 
+// ---- Ledger integrity and reconciliation (ADR 0068) ---------------------------------------------------------------------
+/** CLEAN: no finding. WARNINGS: credit-control or timing items only. ISSUES: at least one critical break. INCOMPLETE: the scan was capped, nothing is claimed. */
+export type LedgerIntegrityVerdict = 'CLEAN' | 'WARNINGS' | 'ISSUES' | 'INCOMPLETE'
+export const LEDGER_INTEGRITY_ENTRY_LIMIT = 50_000
+export const LEDGER_INTEGRITY_FINDING_LIMIT = 500
+export const LEDGER_INTEGRITY_STALE_MINUTES_DEFAULT = 60
+export interface LedgerIntegrityFindingView {
+  code: string
+  severity: 'critical' | 'warning'
+  currency: string | null
+  accountId: string | null; agencyId: string | null; bookingId: string | null; receiptId: string | null; entryId: string | null
+  /** Named integer minor-unit strings that show the break (for example expectedRefundMinor and refundMinor). */
+  amounts: Record<string, MinorString>
+}
+/** Roll-forward per currency: balance = funding credits + other credits + refunds - charges - open reservations. Never added across currencies. */
+export interface LedgerIntegrityCurrencyTotals {
+  currency: string; accounts: number; entries: number
+  fundingCreditsMinor: MinorString; otherCreditsMinor: MinorString; chargesMinor: MinorString; refundsMinor: MinorString; openReservationsMinor: MinorString; balanceMinor: MinorString
+  /** POSTED funding receipts from the receipt register. Equal to fundingCreditsMinor when the sub-ledger ties out. */
+  postedReceiptsMinor: MinorString
+}
+export interface LedgerIntegrityReport {
+  generatedAt: string
+  verdict: LedgerIntegrityVerdict
+  staleReservationMinutes: number
+  scan: { accounts: number; entries: number; bookings: number; receipts: number; entryLimit: number; capped: boolean }
+  counts: { critical: number; warning: number; byCode: Array<{ code: string; severity: 'critical' | 'warning'; count: number }> }
+  totals: LedgerIntegrityCurrencyTotals[]
+  /** Critical first. At most LEDGER_INTEGRITY_FINDING_LIMIT; `findingsTruncated` says when more exist (counts are always complete). */
+  findings: LedgerIntegrityFindingView[]
+  findingsTruncated: boolean
+  definitions: Record<string, string>
+}
+
+// ---- Cancellation settlement (ADR 0069) -----------------------------------------------------------------------------------
+/**
+ * settled / topped_up: a refund was credited to the agency account. already_settled: nothing to do. awaiting_penalty_decision: the penalty is
+ * undetermined, so nothing is credited until a person decides it. review_required: the decision would refund less than already credited, or
+ * more than was charged; nothing is changed. not_ledger_charged: the agency was never charged on the ledger. would_settle: dry run.
+ */
+export type CancellationSettlementOutcome =
+  | 'settled' | 'topped_up' | 'already_settled' | 'awaiting_penalty_decision' | 'review_required' | 'not_ledger_charged' | 'not_cancelled' | 'not_found' | 'would_settle' | 'failed'
+export interface CancellationSettlementRequest { dryRun?: boolean }
+export interface CancellationSettlementItem { bookingId: string; outcome: CancellationSettlementOutcome; refundMinor: MinorString | null; postedMinor: MinorString | null }
+export interface CancellationSettlementRun { dryRun: boolean; examined: number; items: CancellationSettlementItem[] }
+
 export interface AuditSummary {
   generatedAt: string
   window: SummaryWindow
@@ -296,6 +342,67 @@ export interface AccessReviewUserRow {
   roles: string[]; sensitivePermissions: string[]; lastLoginAt: string | null; flags: AccessFlag[]
 }
 export interface AccessReviewPage { items: AccessReviewUserRow[]; page: number; pageSize: number; total: number }
+
+// ---- Compliance evidence (ADR 0067 amendment 1) ---------------------------------------------------------------------------
+/** Categories of the compliance capture trigger. Mirrors the database enum `ComplianceCategory`. */
+export const COMPLIANCE_CATEGORY_VALUES = ['RBAC_CHANGE', 'PRIVILEGED_ACCESS', 'ACCESS_DENIAL', 'TENANT_GOVERNANCE', 'DATA_EXPORT', 'FINANCIAL_CONTROL', 'BOOKING_JURISDICTION'] as const
+export type ComplianceCategoryValue = (typeof COMPLIANCE_CATEGORY_VALUES)[number]
+/** Where a record is on its way to WORM storage: not yet in a batch, in a sealed batch not yet stored, or stored. */
+export type ComplianceExportState = 'PENDING' | 'SEALED' | 'STORED'
+
+export interface ComplianceSummary {
+  generatedAt: string
+  window: SummaryWindow
+  definitions: Record<string, string>
+  /** Records captured in the window, per category. Every category is present (zero when none). */
+  byCategory: Array<{ category: ComplianceCategoryValue; count: number }>
+  /** Booking events in the window whose buyer and destination countries differ, and those whose countries are unknown. */
+  bookings: { crossBorder: number; domestic: number; unknown: number }
+  /** The tenant's chain of export batches. All-time, not windowed. */
+  export: SectionState<{
+    batches: number; stored: number; sealedNotStored: number
+    headSequence: number | null; headSha256: string | null; lastStoredAt: string | null
+    pendingRecords: number; oldestPendingAt: string | null
+  }>
+}
+
+/** One captured record. The audit payload itself is not exposed here: only its SHA-256, which matches the archived copy. */
+export interface ComplianceRecordView {
+  id: string; occurredAt: string; category: ComplianceCategoryValue; action: string; entityType: string; entityId: string
+  actorType: 'USER' | 'SYSTEM'; userId: string | null; payloadSha256: string
+  originCountry: string | null; destinationCountry: string | null; crossBorder: boolean | null
+  exportState: ComplianceExportState; batchSequence: number | null; storedAt: string | null
+}
+export type ComplianceRecordPage = Paged<ComplianceRecordView>
+
+/** Per-period compliance report (ADR 0067 amendment 3). Downloaded as a file (`?from=YYYY-MM-DD&to=YYYY-MM-DD&format=json|csv`); never paged. */
+export const COMPLIANCE_REPORT_MAX_DAYS = 366
+/** A period with more records is refused (COMPLIANCE_REPORT_TOO_LARGE), never truncated: narrow the period. */
+export const COMPLIANCE_REPORT_MAX_RECORDS = 20_000
+export const COMPLIANCE_REPORT_TOO_LARGE = 'COMPLIANCE_REPORT_TOO_LARGE'
+export type ComplianceReportFormat = 'json' | 'csv'
+export interface ComplianceReport {
+  formatVersion: 1
+  tenantId: string
+  /** Inclusive UTC calendar days. */
+  period: { from: string; to: string }
+  generatedAt: string
+  generatedByUserId: string
+  definitions: Record<string, string>
+  totals: { records: number; stored: number; sealed: number; pending: number }
+  byCategory: Array<{ category: ComplianceCategoryValue; count: number; actions: Array<{ action: string; count: number }> }>
+  bookings: { crossBorder: number; domestic: number; unknown: number; corridors: Array<{ origin: string; destination: string; count: number }> }
+  attestation: {
+    /** SHA-256 (hex) of `${id}\t${payloadSha256}\n` for every record of the period, oldest first (occurredAt, then id). Recomputable from the archive. */
+    recordsSha256: string
+    recordCount: number
+    /** The tenant's newest export batch when the report was generated; null before the first batch. */
+    chainHead: { sequence: number; batchSha256: string; storageStatus: 'SEALED' | 'STORED'; storedAt: string | null } | null
+  }
+  /** Every record of the period, oldest first. */
+  records: ComplianceRecordView[]
+}
+
 
 // ---- Agent Search Monitor (ADR 0053) -------------------------------------------------------------------------------------
 export const SEARCH_MONITOR_STATUSES = ['available', 'partial', 'no_availability', 'provider_unavailable', 'mapping_unavailable'] as const

@@ -7,7 +7,8 @@
  * caller holds `booking.view.net`. Agency-scoped callers only ever receive their own agency's bookings.
  */
 import type { BookingAction, BookingAvailableAction } from './booking-lifecycle'
-import type { BookingOperationsPanel } from './booking-ops-queue'
+import type { BookingAmendmentApproval, BookingAmendmentProposal, BookingAmendmentView } from './booking-amendment'
+import type { BookingOperationsPanel, BookingUrgency } from './booking-ops-queue'
 import type { BookingAttention, BookingOperations, BookingStatus, MinorString, SectionState } from './operations'
 
 export const BOOKING_QUICK_SEARCHES = ['needsAction', 'latest', 'checkInNext7', 'missingSupplierRef', 'deadline48h', 'failed', 'latestCancelled', 'onRequest', 'unpaid', 'noShowCandidates'] as const
@@ -132,6 +133,8 @@ export interface BookingListRow {
   amended: boolean
   /** Reconciliation flags from transaction evidence. Null when that evidence is not readable by the API database role: unknown, not "no flags". */
   attention: BookingAttention[] | null
+  /** The operations queue's verdict on this booking (Phase 6F). Absent or null when the caller cannot see the queue or it could not be evaluated: unknown, not "not urgent". */
+  urgency?: BookingUrgency | null
 }
 
 export interface BookingListPage {
@@ -145,6 +148,8 @@ export interface BookingListPage {
   applied: Array<{ key: string; label: string; value: string }>
   /** False when reconciliation flags could not be read (shown as unavailable, not as none). */
   attentionAvailable: boolean
+  /** True when every row's `urgency` was evaluated. False when the caller can see the queue but it could not be evaluated (shown as unavailable, never as none). Absent for callers who cannot see the queue. */
+  urgencyAvailable?: boolean
   /** True when the attention filter scanned the newest bookings only (the cap is part of the contract). */
   scanCapped: boolean
 }
@@ -190,6 +195,8 @@ export interface BookingDetailView {
     netVisibility: 'VISIBLE' | 'HIDDEN_BY_PERMISSION' | 'NOT_RECORDED'
   }
   timeline: BookingTimelineItem[]
+  /** Structured amendments, newest first (ADR 0072). */
+  amendments?: BookingAmendmentView[]
   /** The existing transaction record: hold, finance, documents, reconciliation flags. Unavailable when the API database role cannot read it; null for an agency-scoped caller, who never sees internal finance or audit. */
   operationsRecord: SectionState<BookingOperations> | null
   /** What this caller may do next on this booking, from the same rules the API enforces. Empty for a closed booking. */
@@ -246,6 +253,10 @@ export interface BookingActionRequest {
   hotelConfirmationNo?: string
   supplierCancellationRef?: string
   confirmNonRefundable?: boolean
+  /** `requestAmendment` only (ADR 0072): the structured change (stay dates and/or room occupancy). Omitted: a free-text request (names, special requests), which changes nothing by itself. */
+  amendment?: BookingAmendmentProposal
+  /** `approveAmendment` only: the supplier-confirmed price. Required when the open amendment is structured; refused when it is not. */
+  approval?: BookingAmendmentApproval
 }
 /** `PATCH /admin/operations/bookings/:id/references`: add or correct references without changing the status. Omitted fields are untouched; null clears. */
 export interface BookingReferencesRequest { supplierRef?: string | null; hotelConfirmationNo?: string | null; agentRef?: string | null; reason: string }

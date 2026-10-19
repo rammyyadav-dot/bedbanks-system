@@ -59,11 +59,14 @@ export class BookingConfirmationService {
       if (amountMinor !== booking.totalMinor || reservation.currency !== booking.currency) throw new ConflictException('Financial authorization does not match the booking')
       const walletRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Wallet" WHERE "id" = ${reservation.walletId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
       if (walletRows.length !== 1) throw new ForbiddenException('Wallet is unavailable')
+      // ADR 0068 F2: a reservation already returned by compensation or reconciliation cannot also be settled (read under the wallet lock that release() also takes), or the confirmed stay would net to zero.
+      const released = await tx.ledgerEntry.findFirst({ where: { tenantId, walletId: reservation.walletId, idempotencyKey: `${authorizationKey}:release` }, select: { id: true } })
+      if (released) throw new ConflictException('Financial authorization was released')
 
       const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId } })
       if (nights.length === 0) throw new ConflictException('Inventory hold has no nights')
       for (const night of nights) await moveNight(tx, tenantId, night, 'confirm')
-      await tx.inventoryHold.update({ where: { id: holdId }, data: { status: 'CONFIRMED' } })
+      await tx.inventoryHold.update({ where: { id: holdId, tenantId }, data: { status: 'CONFIRMED' } })
 
       // The reservation becomes a final charge: reverse the HOLD, then DEBIT the same amount (net balance unchanged).
       const reference = `booking:${bookingId}`
@@ -72,7 +75,7 @@ export class BookingConfirmationService {
 
       // The one writer of Booking.status (ADR 0039): records the move and its immutable event. `supplier` is not part of the lifecycle.
       await transitionBooking(tx, { tenantId, bookingId, action: 'systemConfirm', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'USER', id: userId }, level: 'SYSTEM', idempotencyKey: `confirm:${bookingId}`, now: new Date() })
-      await tx.booking.update({ where: { id: bookingId }, data: { supplier: 'contracted-inventory' } })
+      await tx.booking.update({ where: { id: bookingId, tenantId }, data: { supplier: 'contracted-inventory' } })
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.confirmed', entityType: 'booking', entityId: bookingId,
         payload: { requestId, inventoryHoldId: holdId, walletId: reservation.walletId, currency: booking.currency, amountMinor: amountMinor.toString() } } })
       // ADR 0066 transactional outbox: the confirmation email is queued in this same transaction, once per booking (unique), or not at all.

@@ -13,8 +13,8 @@
     "build": "tsc"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "@types/node": "^24"
+    "typescript": "^5.9.3",
+    "@types/node": "^26"
   },
   "dependencies": {
     "@bedbanks/money": "workspace:*"

@@ -16,23 +16,36 @@
     "check:no-float": "node --import tsx tools/no-float-check.ts",
     "check:no-silent-fallback": "node --import tsx tools/no-silent-fallback-check.ts",
     "check:ledger-single-writer": "node --import tsx tools/ledger-single-writer-check.ts",
+    "check:tenant-filter": "node --import tsx tools/tenant-filter-check.ts",
     "check:schema": "node --import tsx tools/no-divergent-schema-check.ts",
     "check:public-env": "node --import tsx tools/public-env-check.ts",
     "check:runtime-db-role": "node --import tsx tools/runtime-db-role-check.ts",
     "check:aws-governance": "node tools/aws-governance-check.mjs",
-    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance"
+    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:tenant-filter && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance && pnpm check:workflow-permissions",
+    "check:workflow-permissions": "node tools/workflow-permissions-check.mjs",
+    "check:dependencies": "node tools/dependency-audit-check.mjs"
   },
   "dependencies": {
-    "next": "16.3.3",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "next": "16.4.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@prisma/client": "^6.2.1",
-    "eslint": "^9.39.5",
+    "eslint": "^10.12.0",
     "prisma": "^6.2.1",
-    "tsx": "^4.20.6",
-    "turbo": "^2.10.13",
-    "typescript-eslint": "^8.70.0"
+    "tsx": "^4.23.15",
+    "turbo": "^2.11.8",
+    "typescript-eslint": "^8.71.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "multer": "^2.4.0",
+      "lodash": "^4.18.1",
+      "js-yaml@^4": "^4.3.2",
+      "sharp": "^0.35.5",
+      "source-map-js": "^1.2.2",
+      "proxy-addr": "^2.0.8"
+    }
   }
 }

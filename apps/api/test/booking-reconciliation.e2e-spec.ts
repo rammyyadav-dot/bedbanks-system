@@ -9,6 +9,7 @@ import { SupplierMutationJournalService } from '../src/agent/supplier-mutation-j
 import { BookingReconciliationService } from '../src/agent/booking-reconciliation.service'
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import { SupplierProviderError, type SupplierAdapter } from '../src/agent/supplier.port'
+import { eraseLedger } from './ledger-erasure'
 
 describe('interrupted booking reconciliation (PostgreSQL)', () => {
   const prisma = new PrismaService()
@@ -51,7 +52,7 @@ describe('interrupted booking reconciliation (PostgreSQL)', () => {
 
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { tenantId } })
-    await prisma.ledgerEntry.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
     await prisma.supplierMutation.deleteMany({ where: { tenantId } })
     await prisma.booking.deleteMany({ where: { tenantId } })
     await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })

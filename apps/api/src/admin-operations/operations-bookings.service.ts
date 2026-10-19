@@ -1,10 +1,10 @@
 import { readSpecialRequests, type StoredSpecialRequests } from '../agent/special-requests'
-import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import {
-  availableActions,
+  availableActions, BOOKING_EXPORT_FAILURE, BOOKING_EXPORT_MAX_ROWS, bookingExportCsv, bookingExportFilename, bookingExportPermission,
   OPERATIONS_READ_DENIED,
-  type BookingAccessView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingSupplierView, type BookingTimelineItem, type SectionState,
+  type BookingAccessView, type BookingAmendmentView, type BookingAttention, type BookingDetailView, type BookingGuestView, type BookingListPage, type BookingListRow, type BookingOperations, type BookingRoomView, type BookingStatus, type BookingSupplierView, type BookingTimelineItem, type SectionState,
 } from '@bedbanks/contracts'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { BookingOpsQueueService } from '../booking-ops/booking-ops-queue.service'
@@ -20,6 +20,21 @@ import { auditView, OperationsTransactionsService } from './operations-transacti
 /** The newest bookings the reconciliation-flag filter will examine; the response says when the cap was reached. */
 export const BOOKING_ATTENTION_SCAN_CAP = 500
 const REFERENCE_PARAM = /^[A-Za-z0-9_.:-]{1,80}$/
+
+type AmendmentRow = Prisma.BookingAmendmentGetPayload<object>
+/** A stored amendment as the Admin shows it. Dates, head counts and prices only; the net only with `booking.view.net`. */
+function amendmentView(a: AmendmentRow, access: BookingAccessView): BookingAmendmentView {
+  const before = a.beforeState as unknown as BookingAmendmentView['before']
+  const direction = a.differenceMinor === null ? null : a.differenceMinor > 0n ? 'INCREASE' as const : a.differenceMinor < 0n ? 'DECREASE' as const : 'NONE' as const
+  return {
+    id: a.id, status: a.status, fromVersion: a.fromVersion, proposal: a.proposal as unknown as BookingAmendmentView['proposal'],
+    before: { ...before, netMinor: access.canViewNet ? before.netMinor ?? null : null },
+    approved: a.status === 'APPROVED' && a.approvedSellMinor !== null && a.differenceMinor !== null && direction !== null
+      ? { sellMinor: a.approvedSellMinor.toString(), netMinor: access.canViewNet && a.approvedNetMinor !== null ? a.approvedNetMinor.toString() : null, cancelDeadline: a.approvedCancelDeadline ? a.approvedCancelDeadline.toISOString() : null, differenceMinor: a.differenceMinor.toString(), direction }
+      : null,
+    requestedAt: a.requestedAt.toISOString(), decidedAt: a.decidedAt ? a.decidedAt.toISOString() : null, documentsNotReissued: a.documentsNotReissued, financeRecorded: a.status === 'APPROVED' && a.differenceMinor !== null && a.differenceMinor !== 0n,
+  }
+}
 
 type CoreRow = Prisma.BookingGetPayload<{ include: { rooms: true; guests: true } }>
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null)
@@ -38,6 +53,7 @@ const maskRequests = (requests: StoredSpecialRequests | null, canViewPii: boolea
 
 @Injectable()
 export class OperationsBookingsService {
+  private readonly logger = new Logger(OperationsBookingsService.name)
   /** Replaceable in tests so every date rule is deterministic. */
   clock: () => Date = () => new Date()
 
@@ -54,7 +70,7 @@ export class OperationsBookingsService {
     let attention: Map<string, BookingAttention[]> | null = null
     if (filter.attention) {
       // Reconciliation flags need the existing transaction evidence; evaluate them over the newest bookings and say when the cap was reached.
-      const scanned = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where, orderBy, take: BOOKING_ATTENTION_SCAN_CAP, include }))
+      const scanned = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where: { ...where, tenantId }, orderBy, take: BOOKING_ATTENTION_SCAN_CAP, include }))
       attention = await this.evidence.attentionByBooking(tenantId, scanned)
       if (attention === null) throw new ServiceUnavailableException({ message: 'Reconciliation flags are not readable by the API database role, so this filter cannot be applied. Grants must be reviewed by a human; see ADR 0039.', code: OPERATIONS_READ_DENIED })
       const flagged = scanned.filter((b) => (attention!.get(b.id) ?? []).length > 0)
@@ -62,18 +78,53 @@ export class OperationsBookingsService {
       rows = flagged.slice((filter.page - 1) * filter.pageSize, filter.page * filter.pageSize)
     } else {
       const [page, count] = await this.ops.withTenant(tenantId, (tx) => Promise.all([
-        tx.booking.findMany({ where, orderBy, skip: (filter.page - 1) * filter.pageSize, take: filter.pageSize, include }),
-        tx.booking.count({ where }),
+        tx.booking.findMany({ where: { ...where, tenantId }, orderBy, skip: (filter.page - 1) * filter.pageSize, take: filter.pageSize, include }),
+        tx.booking.count({ where: { ...where, tenantId } }),
       ]))
       rows = page; total = count
       attention = await this.evidence.attentionByBooking(tenantId, rows)
     }
 
     const names = await this.names(tenantId, rows)
-    const items = rows.map((b) => this.row(b, names, access, attention?.get(b.id) ?? null, attention !== null))
+    const urgency = await this.urgency(tenantId, access, rows.map((b) => b.id), now)
+    const items = rows.map((b) => ({ ...this.row(b, names, access, attention?.get(b.id) ?? null, attention !== null), ...(urgency ? { urgency: urgency.get(b.id) ?? null } : {}) }))
     await this.auditUnmasked(tenantId, userId, access, rows, requestId, 'booking.pii.list_viewed', 'booking_list', requestId)
     return {
       items, page: filter.page, pageSize: filter.pageSize, total, access, applied: describeApplied(filter), attentionAvailable: attention !== null, scanCapped,
+      ...(access.opsQueue ? { urgencyAvailable: urgency !== null } : {}),
+    }
+  }
+
+  // ---- export -------------------------------------------------------------------------------------------------------------
+  /**
+   * The filtered list as a CSV file (ADR 0039, Phase 6D). Same grammar, same scope, same masking and same net visibility as the list: nothing here reads a column the list does
+   * not show. At most `BOOKING_EXPORT_MAX_ROWS` rows; more is refused (never truncated) so a file is always the whole answer to its query. The audit event is written BEFORE the
+   * file is returned, so an export that cannot be recorded does not happen. The query's values are not stored (a guest search text is personal data); only which filters applied.
+   */
+  async exportCsv(tenantId: string, userId: string, access: BookingAccessView, rawQuery: Record<string, unknown>, requestId: string): Promise<{ csv: string; filename: string; rowCount: number }> {
+    const permission = bookingExportPermission(access)
+    if (!access.permissions.includes(permission)) throw new ForbiddenException({ message: 'You do not have permission to export bookings', code: BOOKING_EXPORT_FAILURE.forbidden })
+    const filter = this.query.parse(rawQuery, access)
+    if (filter.attention) throw new BadRequestException({ message: 'The reconciliation-flag filter cannot be exported; remove it and export again', code: 'BOOKING_EXPORT_UNSUPPORTED_FILTER' })
+    const now = this.clock()
+    const { where, orderBy } = await this.query.select(tenantId, access, filter, now)
+    const include = { rooms: { orderBy: { position: 'asc' as const } }, guests: { where: { isLead: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } }
+    const rows = await this.ops.withTenant(tenantId, (tx) => tx.booking.findMany({ where: { ...where, tenantId }, orderBy, take: BOOKING_EXPORT_MAX_ROWS + 1, include }))
+    if (rows.length > BOOKING_EXPORT_MAX_ROWS) throw new UnprocessableEntityException({ message: `More than ${BOOKING_EXPORT_MAX_ROWS} bookings match. Narrow the filters (dates, agency, status) and export again.`, code: BOOKING_EXPORT_FAILURE.tooLarge, limit: BOOKING_EXPORT_MAX_ROWS })
+    const names = await this.names(tenantId, rows)
+    const items = rows.map((b) => this.row(b, names, access, null, false))
+    await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.exported', entityType: 'booking_export', entityId: requestId, payload: { requestId, rowCount: items.length, level: access.level, agencyId: access.agencyId, includesNet: access.canViewNet, guestNamesUnmasked: access.canViewPii, appliedFilters: describeApplied(filter).map((a) => a.key) } } }))
+    await this.auditUnmasked(tenantId, userId, access, rows, requestId, 'booking.pii.exported', 'booking_export', requestId)
+    return { csv: bookingExportCsv(items, access), filename: bookingExportFilename(now), rowCount: items.length }
+  }
+
+  /** Urgency for a page, only for callers who can see the queue. Null = not evaluated (not permitted, or it failed): the list still works and says so. */
+  private async urgency(tenantId: string, access: BookingAccessView, ids: string[], now: Date) {
+    if (!access.opsQueue) return null
+    try { return await this.opsQueue.urgencyFor(tenantId, ids, now) } catch (error) {
+      // Observable, not silent: the page says "unavailable" (urgencyAvailable: false) and the log names the failure class, never a detail.
+      this.logger.warn(`Urgency could not be evaluated for the booking list (${error instanceof Error ? error.name : 'unknown'})`)
+      return null
     }
   }
 
@@ -132,9 +183,10 @@ export class OperationsBookingsService {
       // The supplier queue is internal: operator-level callers only.
       const jobs = access.level === 'OPERATOR' ? await tx.bookingSupplierJob.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 10 }) : []
       const calls = access.level === 'OPERATOR' ? await tx.bookingSupplierCall.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 30 }) : []
-      return { b, events, jobs, calls }
+      const amendments = await tx.bookingAmendment.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 20 })
+      return { b, events, jobs, calls, amendments }
     })
-    const { b, events, jobs, calls } = core
+    const { b, events, jobs, calls, amendments } = core
     const names = await this.names(tenantId, [b])
     const hotel = names.hotels.get(b.hotelId)
     const row = this.row(b, names, access, null, false)
@@ -157,6 +209,7 @@ export class OperationsBookingsService {
       // ADR 0066: request codes are operational facts; the free-text note may carry personal data, so it follows the PII permission.
       booking: { ...rest, hotelAddress: hotel?.address ?? null, specialRequests: maskRequests(readSpecialRequests(b.specialRequests), access.canViewPii) },
       rooms, guests,
+      amendments: amendments.map((a) => amendmentView(a, access)),
       pricing: {
         currency: b.currency, sellMinor: b.totalMinor.toString(),
         netMinor: row.netMinor, markupMinor: access.canViewNet && b.markupMinor !== null ? b.markupMinor.toString() : null, marginMinor: row.marginMinor,

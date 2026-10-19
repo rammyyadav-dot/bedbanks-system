@@ -21,13 +21,18 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Phase 5 adds BookingDocument (issue-once, immutable by trigger) and BookingFinanceEvent (append-only): SELECT + INSERT, never UPDATE. Phase 1: SELECT only. `SupplierMutation` carries fingerprints, references and failure codes, never request or response payloads. */
-export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingEmail'] as const
+export const BOOKING_OPS_READ_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingEmail', 'BookingAmendment'] as const
 /**
  * Phase 2 write grants, as narrow as the transition function needs (ADR 0039). No DELETE and no TRUNCATE anywhere. Status, lock, version and the supplier
  * references can be UPDATEd only as named columns (which is also why the immutable `BookingEvent` gets INSERT only). AuditEvent is INSERT-only and not readable.
  */
 export const BOOKING_OPS_UPDATE_COLUMNS = {
-  Booking: ['status', 'supplier_status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at'],
+  /** ADR 0072: an approved amendment writes the stay (dates, nights), the price (sell, net, markup) and the deadline, through the one amendment function only (a source-scan test enforces it). */
+  Booking: ['status', 'supplier_status', 'supplier_ref', 'hotel_confirmation_no', 'agent_ref', 'version', 'closed_at', 'updated_at', 'check_in', 'check_out', 'nights', 'total_minor', 'net_minor', 'markup_minor', 'cancel_deadline'],
+  /** ADR 0072: the decision columns of an amendment, and never its proposal, its before-state or its keys. */
+  BookingAmendment: ['status', 'approved_sell_minor', 'approved_net_minor', 'difference_minor', 'approved_cancel_deadline', 'documents_not_reissued', 'decided_by_user_id', 'decided_at', 'updated_at'],
+  /** ADR 0072: an approved amendment changes the occupancy of a room and clears its per-room prices (they would be stale). Never the room's keys or product. */
+  BookingRoom: ['adults', 'children', 'child_ages', 'sell_minor', 'net_minor'],
   /** Phase 3: the runner claims, retries and completes its own jobs, and nothing else about them. */
   BookingSupplierJob: ['status', 'attempt', 'run_after', 'locked_until', 'last_error_code', 'completed_at', 'updated_at'],
   /** Phase 6B: a person's own saved view. The keys (tenant, owner) and the row's creation are never updatable: a view cannot change hands. */
@@ -40,9 +45,9 @@ export const BOOKING_OPS_UPDATE_COLUMNS = {
   BookingEmail: ['status', 'attempt', 'run_after', 'locked_until', 'last_error_code', 'provider_message_id', 'sent_at', 'updated_at'],
   BookingOpsState: ['assignee_user_id', 'assigned_at', 'assigned_by_user_id', 'acknowledged_at', 'acknowledged_by_user_id', 'manual_priority', 'escalated_at', 'escalated_by_user_id', 'escalation_reason', 'follow_up', 'follow_up_at', 'resolved_at', 'resolved_by_user_id', 'version', 'updated_at'],
 } as const
-/** Phase 3: the function the runner may call, to learn which tenants have due jobs (returns tenant ids only); ADR 0066 adds its twin for the email dispatcher. */
-export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)', '"fbeds_booking_email_due_tenants"(timestamp)'] as const
-export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem'] as const
+/** Phase 3: the function the runner may call, to learn which tenants have due jobs (returns tenant ids only); ADR 0066 adds its twin for the email dispatcher; Phase 6E adds the one for the Checked-out job. */
+export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)', '"fbeds_booking_email_due_tenants"(timestamp)', '"fbeds_booking_checkout_due_tenants"(date)', '"fbeds_booking_close_due_tenants"(timestamp)', '"fbeds_booking_has_ledger_entries"(text)'] as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingAmendment'] as const
 /**
  * The ONE table the role may DELETE from: a person's own saved booking views (Phase 6B). They are preferences, not records: no evidence is lost by removing one, and the
  * deletion is audited. Every other table is delete-proof for this role, and the verifier checks both sides of that.

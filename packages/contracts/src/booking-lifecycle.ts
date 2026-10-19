@@ -31,6 +31,7 @@ export const BOOKING_ACTIONS = [
   'requestAmendment', 'approveAmendment', 'rejectAmendment',
   'requestCancellation', 'confirmCancellation',
   'markNoShow', 'markCheckedOut', 'close',
+  'systemCloseCheckedOut', 'systemCloseNoShow', 'systemCloseCancelled', 'systemCloseRejected', 'systemCloseFailed',
   'systemConfirm', 'systemOnRequest', 'systemConfirmOnRequest', 'systemRejectOnRequest', 'systemFail', 'systemRequestCancellation', 'systemCompleteCancellation',
 ] as const
 export type BookingAction = (typeof BOOKING_ACTIONS)[number]
@@ -54,6 +55,8 @@ export interface BookingActionRule {
   secondConfirmationWhenNonRefundable?: true
   /** Bumps `Booking.version` (an approved amendment). */
   bumpsVersion?: true
+  /** Keeps the status and sets the `closedAt` lock (spec decision 2). Only for the five closable statuses. */
+  locks?: true
   /** One-line plain-language effect, shown in the dialog. */
   effect: string
 }
@@ -65,8 +68,8 @@ export const BOOKING_ACTION_RULES: Readonly<Record<BookingAction, BookingActionR
   recordFailed: R({ action: 'recordFailed', label: 'Record failure', from: 'PENDING_SUPPLIER', to: 'FAILED', permissions: ['booking.confirm.manual'], required: ['reason'], actors: ['OPERATOR'], effect: 'The supplier could not book it. A failed booking is never revived: rebooking creates a new booking.' }),
   confirmOnRequest: R({ action: 'confirmOnRequest', label: 'Confirm', from: 'ON_REQUEST', to: 'CONFIRMED', permissions: ['booking.on-request.resolve'], required: ['supplierRef', 'hotelConfirmationNo'], actors: ['OPERATOR'], effect: 'The supplier or hotel confirmed. Both references are mandatory.' }),
   rejectOnRequest: R({ action: 'rejectOnRequest', label: 'Reject', from: 'ON_REQUEST', to: 'REJECTED', permissions: ['booking.on-request.resolve'], required: ['reason'], actors: ['OPERATOR'], effect: 'The supplier or hotel declined. A reason is mandatory.' }),
-  requestAmendment: R({ action: 'requestAmendment', label: 'Request amendment', from: 'CONFIRMED', to: 'AMEND_REQUESTED', permissions: ['booking.amend', 'booking.amend.request'], required: ['reason'], actors: ['OPERATOR', 'AGENCY'], effect: 'Describe the change (names, dates, room, occupancy, requests). Do not put guest personal details in this note.' }),
-  approveAmendment: R({ action: 'approveAmendment', label: 'Approve amendment', from: 'AMEND_REQUESTED', to: 'CONFIRMED', permissions: ['booking.amend'], required: [], actors: ['OPERATOR'], bumpsVersion: true, effect: 'Records approval of the amendment request and returns the booking to Confirmed with a new version. This does not update stay dates, rooms, guests, inventory or price; verify the actual reservation with the supplier before treating those changes as complete.' }),
+  requestAmendment: R({ action: 'requestAmendment', label: 'Request amendment', from: 'CONFIRMED', to: 'AMEND_REQUESTED', permissions: ['booking.amend', 'booking.amend.request'], required: ['reason'], actors: ['OPERATOR', 'AGENCY'], effect: 'Ask for new stay dates and/or room occupancy (priced by the supplier, recorded on approval), or describe another change (names, requests) in the note. Do not put guest personal details in the note.' }),
+  approveAmendment: R({ action: 'approveAmendment', label: 'Approve amendment', from: 'AMEND_REQUESTED', to: 'CONFIRMED', permissions: ['booking.amend'], required: [], actors: ['OPERATOR'], bumpsVersion: true, effect: 'For a structured request, record the price the supplier confirmed: the new dates, occupancy and price are applied together and the booking returns to Confirmed with a new version. A free-text request only records approval and changes nothing by itself; verify the actual reservation with the supplier.' }),
   rejectAmendment: R({ action: 'rejectAmendment', label: 'Reject amendment', from: 'AMEND_REQUESTED', to: 'CONFIRMED', permissions: ['booking.amend'], required: ['reason'], actors: ['OPERATOR'], effect: 'The booking returns to Confirmed exactly as it was.' }),
   requestCancellation: R({ action: 'requestCancellation', label: 'Request cancellation', from: 'CONFIRMED', to: 'CANCEL_REQUESTED', permissions: ['booking.cancel', 'booking.cancel.nonrefundable', 'booking.cancel.request'], required: ['reason'], actors: ['OPERATOR', 'AGENCY'], secondConfirmationWhenNonRefundable: true, effect: 'Records a cancellation request, not supplier cancellation. An authoritative penalty is fixed where terms permit; otherwise it needs a decision. This action does not pay a refund.' }),
   confirmCancellation: R({ action: 'confirmCancellation', label: 'Record cancellation', from: 'CANCEL_REQUESTED', to: 'CANCELLED', permissions: ['booking.cancel', 'booking.cancel.nonrefundable'], required: ['supplierCancellationRef'], actors: ['OPERATOR'], secondConfirmationWhenNonRefundable: true, effect: 'Records the supplier-reported cancellation and its reference. Finance events or documents do not by themselves pay a refund or settle the ledger.' }),
@@ -80,7 +83,12 @@ export const BOOKING_ACTION_RULES: Readonly<Record<BookingAction, BookingActionR
   systemFail: R({ action: 'systemFail', label: 'Fail (platform)', from: 'PENDING_SUPPLIER', to: 'FAILED', permissions: [], required: ['reason'], actors: ['SYSTEM'], effect: 'The attempt could not be completed and was released.' }),
   systemRequestCancellation: R({ action: 'systemRequestCancellation', label: 'Cancel (platform, start)', from: 'CONFIRMED', to: 'CANCEL_REQUESTED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'A cancellation was started through the platform.' }),
   systemCompleteCancellation: R({ action: 'systemCompleteCancellation', label: 'Cancel (platform, complete)', from: 'CANCEL_REQUESTED', to: 'CANCELLED', permissions: [], required: [], actors: ['SYSTEM'], effect: 'The cancellation completed through the platform.' }),
-  close: R({ action: 'close', label: 'Close as failed', from: 'FAILED', to: 'FAILED', permissions: ['booking.rebook'], required: ['reason'], actors: ['OPERATOR'], effect: 'Locks the failed booking for edits. Its failure stays visible for reporting.' }),
+  close: R({ action: 'close', label: 'Close as failed', from: 'FAILED', to: 'FAILED', permissions: ['booking.rebook'], required: ['reason'], actors: ['OPERATOR'], locks: true, effect: 'Locks the failed booking for edits. Its failure stays visible for reporting.' }),
+  // ADR 0039 Phase 6G: the scheduled close after the dispute window. One system-only action per closable status (a rule has a single `from`); each keeps the status and sets the lock.
+  ...Object.fromEntries((['CHECKED_OUT', 'NO_SHOW', 'CANCELLED', 'REJECTED', 'FAILED'] as const).map((status) => {
+    const action = `systemClose${status === 'CHECKED_OUT' ? 'CheckedOut' : status === 'NO_SHOW' ? 'NoShow' : status[0] + status.slice(1).toLowerCase()}` as BookingAction
+    return [action, R({ action, label: 'Close (platform)', from: status, to: status, permissions: [], required: [], actors: ['SYSTEM'], locks: true, effect: 'Locked for edits automatically after the dispute window with no activity. The last real status stays visible for reporting.' })]
+  })) as Record<'systemCloseCheckedOut' | 'systemCloseNoShow' | 'systemCloseCancelled' | 'systemCloseRejected' | 'systemCloseFailed', BookingActionRule>,
 }
 
 /** Every rule must be a legal move in the table (or the lock). Checked by a test, so the two cannot drift. */
@@ -100,7 +108,7 @@ export type ActionBlock = 'WRONG_STATUS' | 'CLOSED' | 'NO_SHOW_WINDOW' | 'NO_STA
 export function actionBlock(rule: BookingActionRule, facts: BookingActionFacts, now: Date): ActionBlock | null {
   if (facts.closedAt) return 'CLOSED'
   if (facts.status !== rule.from) return 'WRONG_STATUS'
-  if (rule.action === 'close' && !(BOOKING_CLOSABLE_STATUSES as readonly string[]).includes(facts.status)) return 'NOT_CLOSABLE'
+  if (rule.locks && !(BOOKING_CLOSABLE_STATUSES as readonly string[]).includes(facts.status)) return 'NOT_CLOSABLE'
   if (rule.action === 'markNoShow') {
     if (!facts.checkIn) return 'NO_STAY_DATES'
     const limit = Date.parse(`${facts.checkIn}T00:00:00Z`) + (NO_SHOW_WINDOW_DAYS + 1) * 86_400_000 // inclusive of the seventh day
@@ -145,4 +153,16 @@ export function availableActions(facts: BookingActionFacts, level: 'OPERATOR' | 
 /** Fields of `BookingActionField` a request must still supply. */
 export function missingFields(rule: BookingActionRule, input: Partial<Record<BookingActionField, unknown>>): BookingActionField[] {
   return rule.required.filter((field) => field === 'confirmNonRefundable' ? input[field] !== true : typeof input[field] !== 'string' || (input[field] as string).trim().length === 0)
+}
+
+/** The system action that locks a booking in this status, or null when the status cannot be closed. */
+export const CLOSE_ACTION_BY_STATUS: Readonly<Partial<Record<BookingStatus, Extract<BookingAction, `systemClose${string}`>>>> = {
+  CHECKED_OUT: 'systemCloseCheckedOut', NO_SHOW: 'systemCloseNoShow', CANCELLED: 'systemCloseCancelled', REJECTED: 'systemCloseRejected', FAILED: 'systemCloseFailed',
+}
+/** The dispute window, in whole days, from a configured text. Null when it is not set; a value that is set but not a whole number of days from 1 to 365 is an error (the job refuses to start), never a guess. */
+export function parseCloseAfterDays(raw: string | undefined | null): { ok: true; days: number | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw.trim() === '') return { ok: true, days: null }
+  if (!/^\d{1,3}$/.test(raw.trim())) return { ok: false, error: 'must be a whole number of days from 1 to 365' }
+  const days = Number(raw.trim())
+  return days >= 1 && days <= 365 ? { ok: true, days } : { ok: false, error: 'must be a whole number of days from 1 to 365' }
 }

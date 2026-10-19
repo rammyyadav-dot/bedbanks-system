@@ -3,7 +3,7 @@ import type { BookingDocumentType, BookingFinanceEventType, DocumentBlock, Effec
 import { parseMajorToMinor } from './minor-units'
 
 export const FINANCE_EVENT_LABEL: Record<BookingFinanceEventType, string> = {
-  CONFIRMED: 'Confirmed: amount due recorded', ON_REQUEST_HOLD: 'On request: amount held', HOLD_RELEASED: 'Hold released', CANCELLED: 'Cancelled: penalty and refund recorded', PENALTY_DECIDED: 'Penalty decided', PENALTY_WAIVED: 'Penalty waived (reduced)',
+  CONFIRMED: 'Confirmed: amount due recorded', ON_REQUEST_HOLD: 'On request: amount held', HOLD_RELEASED: 'Hold released', CANCELLED: 'Cancelled: penalty and refund recorded', PENALTY_DECIDED: 'Penalty decided', PENALTY_WAIVED: 'Penalty waived (reduced)', AMENDED: 'Amended: price difference recorded',
 }
 export const DOCUMENT_LABEL: Record<BookingDocumentType, string> = { VOUCHER: 'Voucher', INVOICE: 'Invoice', CREDIT_NOTE: 'Credit note', CANCELLATION_NOTE: 'Cancellation note' }
 export const DOCUMENT_ROUTE: Record<BookingDocumentType, string> = { VOUCHER: 'voucher', INVOICE: 'invoice', CREDIT_NOTE: 'credit-note', CANCELLATION_NOTE: 'cancellation-note' }
