@@ -20,3 +20,7 @@ Measured on PostgreSQL 16 with 50,000 synthetic hotels (10,000 per tenant) and a
 
 ## Rollback
 `DROP INDEX "Hotel_city_lower_trgm"; DROP INDEX "Hotel_name_lower_trgm";` and remove the two names from the drift tolerance list. Queries stay correct without the indexes.
+
+## Erratum (ADR 0074)
+The timings in this ADR were taken with a login that bypasses row-level security. The runtime login does not, and PostgreSQL will not use an index for a non-leakproof qual (`lower()`, `LIKE`, `<%`) under forced RLS, so for that login the two trigram indexes are not used: a selective substring search at 70,000 hotels in one tenant took about 44 ms by sequential and tenant-index scan, against 7.8 ms through the trigram index as the table owner. The queries stay correct; the claimed speedup does not reach the runtime role. See ADR 0074.
+
