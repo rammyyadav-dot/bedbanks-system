@@ -217,6 +217,8 @@ describe('Tenant and database security certification', () => {
     app.useGlobalFilters(new HttpExceptionFilter())
     app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
+    // Listen up front: supertest 7.3 closes a server it started once no request is pending, which races requests built around an awaited login.
+    await app.listen(0, '127.0.0.1')
     for (const who of people.map((p) => p[0])) await login(who)
   }, 120_000)
 

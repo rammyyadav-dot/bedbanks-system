@@ -302,7 +302,9 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
 
   it('W-11 coverage: every write privilege in the contract changed at least one row through these workflows', async () => {
     const after = await counters()
-    const exempt = new Set(['users', 'sessions', 'AuditEvent', 'supplier_room_drafts', 'InventoryPoolDay']) // authentication, audit, the supplier extranet and pool capacity are covered by their own suites (pool-capacity-editor PCE-22..27, inventory-runtime-http RH-04)
+    // Authentication, audit, the supplier extranet and pool capacity are covered by their own strict-role suites
+    // (pool-capacity-editor PCE-22..27, inventory-runtime-http RH-04, supplier-change-sets for the change-set lifecycle).
+    const exempt = new Set(['users', 'sessions', 'AuditEvent', 'supplier_room_drafts', 'supplier_change_sets', 'supplier_change_set_cells', 'supplier_change_set_events', 'InventoryPoolDay'])
     const missing: string[] = []
     for (const grant of RUNTIME_ROLE_GRANTS) {
       if (exempt.has(grant.table)) continue
