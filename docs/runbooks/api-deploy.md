@@ -6,7 +6,7 @@ The Admin and Agent apps cannot build or run on Vercel until the API has a publi
 
 | Dependency | Notes |
 |---|---|
-| Container host | Any host that runs `Dockerfile.api` and injects `PORT` (Render, Railway, Fly.io). Long-running process; not suitable for Vercel serverless. |
+| Container host | Any host that runs `apps/api/Dockerfile` (build context: repository root) and injects `PORT` (Render, Railway, Fly.io). Long-running process; not suitable for Vercel serverless. |
 | PostgreSQL 16 with `pgvector` and `pg_trgm` | Migration `202610010003_hotel_search_index` runs `CREATE EXTENSION vector`. Neon supports it. |
 | Redis (`REDIS_URL`, `redis://` or `rediss://`) | Search cache. |
 | HTTPS | `AUTH_COOKIE_SECURE=true` is mandatory. |
@@ -35,7 +35,7 @@ The service gets only the restricted logins: `DATABASE_URL` (`fbeds_api_login`) 
 ## Order of operations
 
 1. **Back up** the database (provider snapshot).
-2. **Migrate** as the database owner from a trusted shell, with the owner URL (for Neon use the unpooled URL):
+2. **Migrate** as the database owner from a trusted shell, only after the same commit is `STAGING_CERTIFIED` on the Neon staging branch ([neon-staging-migrations.md](neon-staging-migrations.md)), with the owner URL (for Neon use the unpooled URL):
    `MIGRATION_DATABASE_URL=<owner url> pnpm --filter @bedbanks/api prisma:migrate:deploy:owner` (the wrapper hands the owner URL to that one command only)
    Never run `prisma migrate dev` against this database.
 3. **Provision the runtime role** exactly as in `docs/runbooks/api-runtime-role.md` (needs owner approval for a remote database). Build `DATABASE_URL` for the API from `fbeds_api_login`. The API must not run as the table owner: that role has `BYPASSRLS` and tenant isolation would not be enforced (ADR 0008).
@@ -48,7 +48,7 @@ The service gets only the restricted logins: `DATABASE_URL` (`fbeds_api_login`) 
    pnpm --filter @bedbanks/api ops:bootstrap-first-admin --allow-remote --confirm-database=<exact database name>
    ```
    It creates the tenant, a tenant `owner` role holding every tenant permission, the user, and a `platform_owner` role holding every platform permission. It is idempotent; an existing user's password is kept unless you add `--reset-password`. It writes two audit events (ids only) and prints only ids and counts. This is the only path that bypasses the API's self-escalation rule; run it once, then manage further access through the platform admin API. It does not create wallets.
-5. **Create the service** from `Dockerfile.api`, set the variables above, and deploy.
+5. **Create the service** from `apps/api/Dockerfile` (build context: repository root), set the variables above, and deploy.
 6. **Smoke test:** `GET https://<api-host>/api/v1/health` returns `status: ok` with `database.status: ok`. `GET /api/v1/health/ready` is the host readiness check and returns 503 when the database is unavailable, so a process with a failed database is not treated as ready.
 7. **Vercel (Admin project, Root Directory `apps/admin`):** set `API_INTERNAL_URL=https://<api-host>/api/v1` and `AUTH_API_ORIGIN=<Admin public origin>` for Production and Preview, then redeploy. `AUTH_API_ORIGIN` must equal the API's `ADMIN_ORIGIN`.
 8. Record the deployed version, migration state and rollback point (`docs/runbooks/deploy.md`, `rollback.md`).

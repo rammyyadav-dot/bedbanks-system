@@ -31,5 +31,7 @@
 /.github/dependabot.yml @rammyyadav-dot
 /.gitleaks.toml @rammyyadav-dot
 /Dockerfile.* @rammyyadav-dot
+/apps/api/Dockerfile @rammyyadav-dot
+/scripts/ @rammyyadav-dot
 /pnpm-lock.yaml @rammyyadav-dot
 /package.json @rammyyadav-dot

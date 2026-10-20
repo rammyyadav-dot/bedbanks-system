@@ -76,7 +76,12 @@ jobs:
             echo "$image already exists (tags are immutable); nothing to do"; exit 0
           fi
           if [ "$APP" = api ]; then
-            docker buildx build --file Dockerfile.api --tag "$image" --push .
+            # Two targets of one recipe (ADR 0075): the runtime image (compiled JS, no prisma CLI) and the one-off migration task image.
+            if ! aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$GITHUB_SHA-migrate" >/dev/null 2>&1; then
+              docker buildx build --file apps/api/Dockerfile --target migrator --tag "$image-migrate" --push .
+            fi
+            docker buildx build --file apps/api/Dockerfile --target runner --tag "$image" --push .
+            echo "pushed $image-migrate" >> "$GITHUB_STEP_SUMMARY"
           else
             docker buildx build --file Dockerfile.web --tag "$image" --push \
               --build-arg APP="$APP" --build-arg PACKAGE="$PACKAGE" \

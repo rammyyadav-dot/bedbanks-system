@@ -1,14 +1,60 @@
+# Build context for apps/api/Dockerfile (NestJS + Prisma) and Dockerfile.web (Next.js). Both build from the repository root, so every workspace
+# package.json and pnpm-lock.yaml must stay in the context (`pnpm install --frozen-lockfile` checks all importers). Everything listed here is either
+# rebuilt inside the image, never read by a build, or must never reach an image layer (secrets, local databases, VCS metadata).
+
+# Dependencies and build output: always reinstalled/rebuilt in the builder stage for the image's own OS and libc.
 **/node_modules
-**/.next
 **/dist
+**/build
+**/.next
+**/.next-*
+**/out
 **/.turbo
-**/dump.rdb
-.git
+**/.swc
+**/*.tsbuildinfo
+**/.eslintcache
+
+# Prisma: the client is generated inside the image (musl engine); local engines, SQLite files and query logs never belong in a layer.
+**/node_modules/.prisma
+**/prisma/*.db
+**/prisma/*.db-journal
+
+# Secrets and local environment. Committed examples stay. Nothing secret is ever a build input (ADR 0055).
 .env
 **/.env
 **/.env.*
 !**/.env.example
+**/*.pem
+**/*.key
+**/.npmrc.local
 **/.seed-*.json
-**/*.log
-**/.next-*
+
+# Version control, CI, editor and agent metadata.
+.git
+.gitignore
+.gitleaks.toml
+.gitleaksignore
+.github
+.agents
+.vscode
+.idea
+**/.DS_Store
+
+# Tests, coverage and reports produced locally (CI runs tests outside the image).
+**/coverage
+**/test-results
+**/playwright-report
+**/blob-report
+clone-certification-evidence
+staging-migration-evidence
+
+# Not read by any build: documentation, infrastructure, security inventories, logs and local data.
+docs
 infra
+security
+**/*.log
+**/dump.rdb
+**/.vercel
+**/.terraform
+Dockerfile.web
+apps/api/Dockerfile
