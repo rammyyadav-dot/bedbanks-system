@@ -1,11 +1,11 @@
-import type { ConnectorCapability } from '../index.js'
-import type { XmlNode } from './xml-parser.js'
-import type { XmlRequest, XmlSupplierTransport } from './xml-transport.js'
+import type { ConnectorCapability } from '../index'
+import type { XmlNode } from './xml-parser'
+import type { XmlRequest, XmlSupplierTransport } from './xml-transport'
 import {
   SupplierCallError, isIsoDate, isOffsetTimestamp, validateSearchQuery,
   type SupplierBookRequest, type SupplierBookResult, type SupplierCallContext, type SupplierCancelResult, type SupplierErrorCode, type SupplierOfferObservation,
   type SupplierRecheckResult, type SupplierSearchQuery, type SupplierSearchResult, type SupplierStatusResult,
-} from './supplier-types.js'
+} from './supplier-types'
 
 /**
  * A provider profile is the ONLY place supplier-specific XML lives: request builders, response mappers and the

@@ -1,5 +1,5 @@
-import { SupplierCallError, type SupplierErrorCode } from '../xml/supplier-types.js'
-import type { ConnectorGate, XmlOperation } from '../xml/xml-transport.js'
+import { SupplierCallError, type SupplierErrorCode } from '../xml/supplier-types'
+import type { ConnectorGate, XmlOperation } from '../xml/xml-transport'
 
 /**
  * Bounded, observable fan-out of one READ operation (search, content, availability) across several suppliers

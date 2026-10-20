@@ -348,7 +348,7 @@ is `QUEUED`/`SENDING`.
 
 ## Not built (do not present as capability)
 - Distribution routes, `DistributionAuthGuard`, quota guard, OAuth token endpoint, admin screens for clients and keys.
-- `AggregatingSupplierAdapter` and the Redis `ConnectorGate`.
+- `AggregatingSupplierAdapter`. (The Redis `ConnectorGate` is built; see Amendment 1. Nothing constructs it yet.)
 - Agency-keyed search cache, content cache per language, geo index.
 - Webhook subscription API, outbox writes, dispatcher.
 - The schema above and its migration.
@@ -363,3 +363,47 @@ reused; callers that send a safe id are unaffected.
 ## Verification
 `pnpm check:architecture`; `@bedbanks/connectors-core`, `@bedbanks/validation` and `@bedbanks/contracts` type-check,
 lint and test; API unit tests for the request-id middleware and the exception filter.
+
+## Amendment 1: shared circuit breaker (Redis `ConnectorGate`)
+
+Status: Accepted. Built and tested against Redis 7; **not wired**, because no supplier transport is constructed in
+production yet.
+
+**Decision.** `SharedConnectorGate` (`@bedbanks/connectors-core`, `xml/shared-gate.ts`) implements `ConnectorGate` for
+every API task that calls one connector. State lives behind a `GateStore` port, so the package stays free of Redis
+(dependency direction). `RedisGateStore` (`apps/api/src/common/cache/redis-gate.store.ts`) implements it with two Lua
+scripts run through a new `RedisCacheAdapter.eval`, so each acquire and release is one atomic step across tasks.
+
+- **Key:** `fbeds:v1:gate:<tenantId>:<connectorId>`. The connector holds one credential reference, so this is the
+  per-credential gate ADR 0060 asks for. Both Redis keys share a hash tag so they live in one cluster slot.
+- **Concurrency:** a sorted set of slot leases (`slotTtlMs`, default 60 s, above the transport's 20 s overall
+  timeout). A task that dies mid-call frees its slot when the lease lapses.
+- **Circuit:** `failureThreshold` consecutive provider failures (timeout, transport, 5xx, 429) open it for `openMs`.
+  Then half-open: exactly one probe is let through; success closes the circuit, a failure re-opens it for a full
+  period, and a probe whose task died is replaced when its lease lapses. Failures from calls that started before the
+  circuit opened do not extend it. `cancelled`, `busy` and similar outcomes never count against a supplier.
+- **Clock:** Redis server `TIME` only, so tasks with skewed clocks agree on when a circuit closes.
+- **Store outage (explicit policy, invariant 5):** the constructor requires `whenStoreUnavailable`, a per-task gate the
+  caller sizes as `maxConcurrent / taskCount`. Every fallback emits `store_unavailable`. A release that fails emits
+  `release_failed` and is bounded by the slot lease; it never fails the supplier call.
+- **Idle expiry:** both keys expire after 24 h without writes (or twice `openMs`, whichever is longer).
+
+`InProcessGate` stays the transport default, for tests and single-process tools.
+
+**Found while wiring: the API could not load `@bedbanks/connectors-core` at runtime.** The package used `.js`
+suffixes on relative imports, which the API's production loader (`@swc-node/register`, CommonJS) and Jest cannot map
+to `.ts` sources. This was latent because the API imported only types from the package; the first value import (any
+connector, `fanOutRead`, this gate) would have failed at startup with `Cannot find module './hotelbeds-sandbox.js'`.
+The suffixes are removed. The package's own tests (tsx), its type-check (bundler resolution), the API's loader and Jest
+all resolve extensionless imports.
+
+**Rollback.** Revert the commit. No schema, route or permission change. Gate keys in Redis expire on their own, or
+`DEL` keys matching `{fbeds:v1:gate:*}:*`.
+
+**Verification.** connectors-core 75/75, including 7 gate policy tests. API: 3 reply-handling tests that always run,
+and 11 Redis integration tests (CI provides `REDIS_URL`). The integration tests use two adapters as two tasks and cover:
+a shared limit; exactly 5 of 60 concurrent acquires granted; opening on failures reported by different tasks;
+consecutive-count reset; probe close and re-open; dead-probe replacement; lease expiry; ignored straggler failures;
+key TTLs; and `SharedConnectorGate` end to end. They passed three runs in a row locally. The production loader was
+checked with `node -r @swc-node/register -e "require('@bedbanks/connectors-core')"`.
+
