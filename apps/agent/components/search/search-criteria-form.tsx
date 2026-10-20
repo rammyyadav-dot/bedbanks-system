@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Globe, MapPin, Minus, Plus, Search, Users } from 'lucide-react'
-import type { SmartSearchParseResponse } from '@bedbanks/contracts'
+import type { SmartSearchParseResponse } from '@bedbanks/contracts/agent'
 import { MarkupControl, SmartSearchControl } from '@/components/search/search-utility'
 import type { DestinationRef, DestinationResolution, SearchSort } from '@bedbanks/domain'
 import { marketplaceHome } from '@/lib/marketplace-content'

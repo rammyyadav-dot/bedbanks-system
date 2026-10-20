@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { globSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = process.cwd();
-const routeSource = readFileSync(resolve(root, 'packages/contracts/src/routes.ts'), 'utf8');
+// routes.ts composes the Agent's routes from agent-routes.ts (ADR 0075), so both files are the route source.
+const routeSource = ['routes.ts', 'agent-routes.ts'].map((file) => readFileSync(resolve(root, 'packages/contracts/src', file), 'utf8')).join('\n');
 const controllers = globSync(resolve(root, 'apps/api/src/**/*.controller.ts'));
 const missing: string[] = [];
 

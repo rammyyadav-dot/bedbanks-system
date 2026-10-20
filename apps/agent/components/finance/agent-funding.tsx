@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentFundingView } from '@bedbanks/contracts'
+import type { AgentFundingView } from '@bedbanks/contracts/agent'
 import { declareFundingReceipt, getFundingReceipts } from '@/lib/api-client'
 import { formatMinorAmount } from '@/lib/format'
 import { parseMajorAmount } from '@/lib/search-filters'

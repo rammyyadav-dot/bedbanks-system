@@ -2,7 +2,8 @@
 
 ## Status
 Accepted: the boundary rules, the target layout, the `check:app-boundaries` gate (it runs in `pnpm check:architecture`) and the buyer-only agent search projection (phase 2).
-Proposed: the remaining phases (contracts split, feature folders, removal of dead packages). Each phase is its own PR.
+Accepted and done: phase 3 (the Agent's own contracts entry).
+Proposed: the remaining phases (feature folders, removal of dead packages, audience entries for Admin and Supplier). Each phase is its own PR.
 
 ## Context
 `apps/admin` is the operational control plane: suppliers, contracts, markup rules, FX, rate certification, finance, reconciliation, access and audit. `apps/agent` is the buyer surface: search, recheck, hold, checkout, bookings, wallet and credit. Both are Next.js apps that reach the NestJS API through a same-origin `/api/v1` proxy (ADR 0010, ADR 0055). The API is the only process that holds database credentials, supplier credentials and the commercial engine.
@@ -13,7 +14,7 @@ An inspection of the code on 2026-10-20 found:
 | --- | --- |
 | **The agent search wire format carries platform commercials.** Every rate in `POST /agent/search` included `netAmountMinor`, `markupAmountMinor`, supplier-cost `totalAmountMinor`, `supplierId`, `supplierRoomId`, `supplierRateId`, `providerId` and `contractId` (`packages/domain/src/search-offers.cjs` `validateSearchHotels`, `SearchRateOffer`). ADR 0018 added these fields for the shared evaluator. Agent display never reads them (only `apps/agent/services/hotel-service.test.mjs` mentions them). | Any agency user can read the platform's net cost and margin for every rate in browser devtools, and can work out which supplier is behind it. This was the one live commercial leak in the Agent. Fixed by phase 2. |
 | No import-boundary enforcement. ESLint has no restricted-import rules, and nothing stops an app importing another app or Prisma. | The boundary was held only by reviewer discipline. Nothing currently crosses it. |
-| `@bedbanks/contracts` has a single `.` export. `routes` is one object literal holding 21 agent paths next to 173 admin, 70 supply, 19 platform and 15 supplier paths. | The Agent client bundle ships the whole internal API map, so any agency user can read the admin surface (credit approvals, ledger, markups, platform). The API authorizes every call, so this is not a privilege bypass. It is reconnaissance material and a design smell. |
+| `@bedbanks/contracts` has a single `.` export. `routes` is one object literal holding 21 agent paths next to 173 admin, 70 supply, 19 platform and 15 supplier paths. | **Corrected by measurement in phase 3.** The route map did *not* reach the browser: webpack drops the unused `routes` properties, and the Agent's `.next/static` held 0 non-agent API paths. What did ship was the Admin console's permission keys and department module table (57 permission keys such as `booking.bulk.assign` and `audit.export`, plus paths like `/commercial/markups`). `admin-departments.ts` builds that table with top-level function calls, which the bundler kept because the package declared no `sideEffects`. The API authorizes every call, so this was never a privilege bypass, but it showed agencies the Admin surface. Fixed by phase 3: both counts are now 0. |
 | The commercial markup engine is server-only (`apps/api/src/commercial/commercial-markup.service.ts`). `@bedbanks/pricing` holds only basis-point arithmetic (`markupMinor`, `applyPercentMarkup`). The Agent uses it for its own display-only client markup (ADR 0065). | Correct today. The risk is that rule resolution gets "shared" into `@bedbanks/pricing` later and is bundled into the Agent. |
 | `@bedbanks/types` declares `Money { amount: number }`. `@bedbanks/types`, `@bedbanks/validation` and `@bedbanks/config` are imported by no workspace. | A float money type sits one import away, against invariant 3, and three packages advertise capabilities nobody uses, against invariant 10. |
 | `@bedbanks/ui` exports one `Button` and is used only by the Agent. Admin keeps its own shadcn components. | No real shared design system yet. |
@@ -121,7 +122,7 @@ packages/
 ├── ui/                                 # design tokens + presentational primitives used by 2+ apps
 └── connectors/*                        # server-only; API is the only consumer
 ```
-`@bedbanks/contracts` exports `./shared`, `./agent`, `./admin` and `./supplier`. The Agent may import only `./shared` and `./agent`, and the boundary gate enforces that once the split lands. `@bedbanks/types`, `@bedbanks/validation` and `@bedbanks/config` are removed because they are unused, and the float `Money` type goes with them. Zod schemas that the API and a client both need live beside their contract in `@bedbanks/contracts`. A component moves into `@bedbanks/ui` only when a second app needs it.
+`@bedbanks/contracts` exports `.` (everything, for the API, Admin and Supplier) and `./agent` (auth and agent routes, envelope, checkout, smart search and agent funding types). The package is `sideEffects: false`. The Agent may import only `./agent`, and `check:app-boundaries` enforces it (`agent-contracts`). `./admin` and `./supplier` entries are added only if a measured bundle shows another audience's code leaking. `@bedbanks/types`, `@bedbanks/validation` and `@bedbanks/config` are removed because they are unused, and the float `Money` type goes with them. Zod schemas that the API and a client both need live beside their contract in `@bedbanks/contracts`. A component moves into `@bedbanks/ui` only when a second app needs it.
 
 ### 7. Secrets and environment
 - Server-only env (`API_INTERNAL_URL`, `AUTH_API_ORIGIN`, cookie names) is read only in modules that `import 'server-only'`, such as `apps/admin/lib/api/server-env.ts`.
@@ -138,12 +139,16 @@ packages/
    - The Agent's recheck call now sends the session tenant rather than a `tenantId` copied from the offer.
    - Tests: `agent-search.contract.spec.ts` fails if any dropped key reaches the response. The HTTP e2e suites (commercial markup, Dubai search, benchmark journey) assert the sell price and the absence of supply fields, and derive markup as sell minus the fixture's known net.
    - Deploy order: the Agent first, then the API. The new Agent accepts both shapes. The old Agent rejects the new shape as `mapping_unavailable`.
-3. Split `@bedbanks/contracts` into audience subpaths and keep the root `.` export as a re-export during transition. Move the Agent to `./agent` and `./shared`. Then extend the gate to fail if the Agent imports `@bedbanks/contracts` or `./admin`, and confirm by building the Agent and searching `.next/static` for `/admin/` paths.
+3. **Done: the Agent's own contracts entry.**
+   - `packages/contracts/src/agent.ts` is exported as `@bedbanks/contracts/agent`. Auth and agent routes live in `agent-routes.ts`, and `routes.ts` composes them, so the root `routes` object is unchanged for the API, Admin and Supplier. `tools/contract-check.ts` reads both files.
+   - The package declares `sideEffects: false`. No contract module runs code at load time.
+   - All eight Agent imports use `@bedbanks/contracts/agent`, and the boundary check fails on any other contracts import in the Agent.
+   - Measured in the Agent's `.next/static`: Admin permission keys went from 57 to 0, the Admin module table from present to absent, non-agent API paths stayed at 0, and agent paths stayed at 15.
 4. Delete `@bedbanks/types`, `@bedbanks/validation` and `@bedbanks/config` after confirming they have no consumers.
 5. Admin `features/` regrouping, one bounded context per PR, with no URL changes.
 6. Agent route-per-step (`(workspace)/search`, `checkout/[holdId]`, `bookings/[bookingId]`). This is a UX change and needs its own ADR and e2e coverage.
 
 ## Consequences
 - An app-to-app import, or a Prisma, NestJS or connector import in a browser app, now fails CI.
-- The gate is regex-based on import specifiers. It does not follow re-exports through a shared package, so the `pricing` and `contracts` content rules in decisions 2 and 6 still rely on review until phases 2 and 3 add a response contract test and subpath enforcement.
+- The gate is regex-based on import specifiers. It does not follow re-exports through a shared package, so the `pricing` and `contracts` content rules in decisions 2 and 6 still rely on review for anything other than the agent search response (phase 2 contract test) and the Agent's contracts entry (phase 3 gate rule).
 - Rollback: remove `check:app-boundaries` from `check:architecture` and delete `tools/app-boundary-check.ts`. Nothing at runtime depends on either.

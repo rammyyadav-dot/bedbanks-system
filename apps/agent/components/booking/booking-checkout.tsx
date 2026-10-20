@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, BedDouble, CalendarDays, CheckCircle2, Clock, FileText, Globe, Mail, Printer, ShieldAlert, Tag, Users, Wallet } from 'lucide-react'
 import type { SearchCriteria, AgentRateOffer } from '@bedbanks/domain'
-import { AGENT_REF_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABELS, SPECIAL_REQUEST_NOTE_MAX, type ConfirmationEmailState, type DuplicateBookingMatch, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts'
+import { AGENT_REF_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABELS, SPECIAL_REQUEST_NOTE_MAX, type ConfirmationEmailState, type DuplicateBookingMatch, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts/agent'
 import { BookingService, type BookingFailure, type DocumentType } from '@/services/booking-service'
 import { formatCancellationDeadline, formatMinorAmount, formatStay } from '@/lib/format'
 import { ARRIVAL_TIME_OPTIONS, buildRoster, isLead, parseCcEmails, rosterErrors, rosterPayload, stayNights, type GuestDraft } from '@/lib/checkout'

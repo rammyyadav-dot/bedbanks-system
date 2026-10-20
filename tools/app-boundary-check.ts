@@ -12,6 +12,8 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
  *  - cross-app        a file imports another app, by relative path or by its workspace package name
  *  - package-to-app   a shared package imports an app
  *  - server-only-dep  a browser app imports, or declares a dependency on, a server-only package (Prisma, connectors, NestJS)
+ *  - agent-contracts  the Agent imports `@bedbanks/contracts` other than its own `@bedbanks/contracts/agent` entry, which would bundle
+ *                     Admin, supply and platform contracts (permission catalogue, department map, routes) into agency browsers
  *
  * Integration tests (an app's `test/` directory or `*.integration.*`) may import another app to exercise the seam between them;
  * they are never bundled. They are still held to the server-only rule.
@@ -23,6 +25,9 @@ const PACKAGES = ['packages'] as const
 
 /** Packages that only the API may load. A prefix match covers every connector workspace. */
 const SERVER_ONLY = [/^@prisma\//, /^prisma$/, /^@bedbanks\/connectors(-|\/|$)/, /^@nestjs\//, /^@bedbanks\/api$/]
+
+/** The only contract entries each app may import. Apps not listed may import any entry. */
+const CONTRACT_ENTRIES: Record<string, readonly string[]> = { 'apps/agent': ['@bedbanks/contracts/agent'] }
 
 const appNames = new Map<string, string>()
 for (const app of ALL_APPS) {
@@ -67,6 +72,10 @@ function scan(dir: string, owner: string, isPackage: boolean) {
       if (browser && SERVER_ONLY.some((pattern) => pattern.test(specifier))) {
         violations.push(`${where}: server-only-dep '${specifier}' imported by a browser app`)
       }
+      const entries = CONTRACT_ENTRIES[owner]
+      if (entries && /^@bedbanks\/contracts(\/|$)/.test(specifier) && !entries.includes(specifier)) {
+        violations.push(`${where}: agent-contracts '${specifier}'; import ${entries.join(' or ')}`)
+      }
     }
   }
 }
@@ -85,4 +94,4 @@ if (violations.length) {
   console.error(violations.join('\n'))
   process.exit(1)
 }
-console.log('Workspace boundaries hold: no cross-app imports, no package-to-app imports, no server-only packages in browser apps.')
+console.log('Workspace boundaries hold: no cross-app imports, no package-to-app imports, no server-only packages in browser apps, Agent contracts only from its own entry.')
