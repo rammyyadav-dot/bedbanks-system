@@ -133,8 +133,8 @@ resource "aws_ecs_task_definition" "migrate" {
   memory                   = 1024
   execution_role_arn       = aws_iam_role.migrate_execution.arn
   container_definitions = jsonencode([{
-    name      = "migrate"
     # The `migrator` target of apps/api/Dockerfile (prisma CLI + migrations only, ADR 0075); the API runtime image carries neither.
+    name      = "migrate"
     image     = "${aws_ecr_repository.this["api"].repository_url}:${var.initial_image_tag}-migrate"
     essential = true
     environment = [

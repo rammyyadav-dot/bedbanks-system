@@ -69,7 +69,8 @@ step() {
 write_evidence() {
   local verdict="$1"
   mkdir -p "$EVIDENCE_DIR"
-  local file="$EVIDENCE_DIR/staging-migration-$(date -u +%Y%m%dT%H%M%SZ).json"
+  local file
+  file="$EVIDENCE_DIR/staging-migration-$(date -u +%Y%m%dT%H%M%SZ).json"
   VERDICT="$verdict" FAILED_STEP="${2:-}" STEPS_FILE="$STEPS" WORK="$WORK" RUN_STARTED_UTC="$RUN_STARTED_UTC" GIT_SHA="${GIT_SHA:-unknown}" GIT_DIRTY="${GIT_DIRTY:-unknown}" \
   TARGET_DATABASE="${TARGET_DATABASE:-unknown}" TARGET_KIND="${TARGET_KIND:-unknown}" DEPLOY_SECONDS="${DEPLOY_SECONDS:-}" DRY_RUN="$DRY_RUN" \
   REPROVISION="$REPROVISION" SKIP_RUNTIME_VERIFY="$SKIP_RUNTIME_VERIFY" node - "$file" <<'NODE'
@@ -242,8 +243,9 @@ step "prisma migrate status (after: must be up to date)" owner_only prisma migra
 step "schema drift (migrated database vs prisma/schema.prisma)" owner_only node scripts/check-migration-drift.mjs
 
 # The ops CLIs read the owner URL as PROVISION_DATABASE_URL and the runtime login as API_DATABASE_URL; each gets only the one it needs.
-as_provisioner() { PROVISION_DATABASE_URL="$MIGRATION_DATABASE_URL" MIGRATION_DATABASE_URL= API_DATABASE_URL= pnpm --silent --filter @bedbanks/api "$@" "${REMOTE_FLAGS[@]}"; }
-as_runtime() { API_DATABASE_URL="$API_DATABASE_URL" MIGRATION_DATABASE_URL= PROVISION_DATABASE_URL= API_RUNTIME_LOGIN_PASSWORD= pnpm --silent --filter @bedbanks/api "$@" "${REMOTE_FLAGS[@]}"; }
+# shellcheck disable=SC2097,SC2098 # deliberate: the child gets the owner URL as PROVISION_DATABASE_URL and an empty MIGRATION_DATABASE_URL
+as_provisioner() { PROVISION_DATABASE_URL="$MIGRATION_DATABASE_URL" MIGRATION_DATABASE_URL='' API_DATABASE_URL='' pnpm --silent --filter @bedbanks/api "$@" "${REMOTE_FLAGS[@]}"; }
+as_runtime() { API_DATABASE_URL="$API_DATABASE_URL" MIGRATION_DATABASE_URL='' PROVISION_DATABASE_URL='' API_RUNTIME_LOGIN_PASSWORD='' pnpm --silent --filter @bedbanks/api "$@" "${REMOTE_FLAGS[@]}"; }
 if [ "$REPROVISION" = true ]; then
   step "re-provision runtime role (REVOKE ALL, then exactly the contract; rotates the staging login password)" as_provisioner ops:provision-api-runtime-role
 fi
