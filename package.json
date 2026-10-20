@@ -13,6 +13,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "check:contracts": "node --import tsx tools/contract-check.ts",
+    "check:app-boundaries": "node --import tsx tools/app-boundary-check.ts",
     "check:no-float": "node --import tsx tools/no-float-check.ts",
     "check:no-silent-fallback": "node --import tsx tools/no-silent-fallback-check.ts",
     "check:ledger-single-writer": "node --import tsx tools/ledger-single-writer-check.ts",
@@ -21,7 +22,7 @@
     "check:public-env": "node --import tsx tools/public-env-check.ts",
     "check:runtime-db-role": "node --import tsx tools/runtime-db-role-check.ts",
     "check:aws-governance": "node tools/aws-governance-check.mjs",
-    "check:architecture": "pnpm check:contracts && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:tenant-filter && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance && pnpm check:workflow-permissions && pnpm check:framework-peers",
+    "check:architecture": "pnpm check:contracts && pnpm check:app-boundaries && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:tenant-filter && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance && pnpm check:workflow-permissions && pnpm check:framework-peers",
     "check:workflow-permissions": "node tools/workflow-permissions-check.mjs",
     "check:framework-peers": "node tools/framework-peer-check.mjs",
     "check:dependencies": "node tools/dependency-audit-check.mjs"
