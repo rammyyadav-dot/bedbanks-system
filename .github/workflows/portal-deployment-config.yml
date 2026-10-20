@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          # No dependencies are installed here; setup-node v5 would otherwise auto-cache pnpm before pnpm exists.
+          package-manager-cache: false
       - run: node --test tools/deployment/config.test.mjs
 
   build-environment-hashing:
