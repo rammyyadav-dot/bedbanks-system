@@ -1,4 +1,4 @@
-import type { CertificationLevel, XmlProviderProfile } from './xml-connector.js'
+import type { CertificationLevel, XmlProviderProfile } from './xml-connector'
 
 /**
  * Honest readiness: a supplier is "connectable" only when every gate passes with evidence. Registering a name or

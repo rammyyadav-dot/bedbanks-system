@@ -1,4 +1,4 @@
-import type { HotelbedsSandboxTransport, SandboxContext } from './hotelbeds-sandbox.js'
+import type { HotelbedsSandboxTransport, SandboxContext } from './hotelbeds-sandbox'
 
 /** The sink must atomically stage a page and advance its checkpoint under the lease.
  * No implementation in this slice writes canonical content, mappings or inventory.
