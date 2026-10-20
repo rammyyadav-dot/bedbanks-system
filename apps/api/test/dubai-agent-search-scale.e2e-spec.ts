@@ -424,21 +424,19 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     })) }).expect(201)
   }
 
-  function offersOf(hotels: Array<{ hotelId: string; name: string; supplierId: string; supplierHotelId: string; destination: string; rooms: Array<{ roomTypeId: string; name: string; rates: Array<Record<string, unknown>> }> }>) {
+  function offersOf(hotels: Array<{ hotelId: string; name: string; destination: string; rooms: Array<{ roomTypeId: string; name: string; rates: Array<Record<string, unknown>> }> }>) {
     return hotels.flatMap((hotel) => hotel.rooms.flatMap((room) => room.rates.map((rate) => ({ hotel, room, rate }))))
   }
 
-  function commercialSignature(hotels: Array<{ hotelId: string; name: string; supplierId: string; rooms: Array<{ roomTypeId: string; name: string; rates: Array<{ ratePlanId: string; contractId?: string; boardBasisId: string; supplierId: string; sellAmountMinor: number; total: { currency: string } }> }> }>) {
+  function commercialSignature(hotels: Array<{ hotelId: string; name: string; rooms: Array<{ roomTypeId: string; name: string; rates: Array<{ ratePlanId: string; boardBasisId: string; sellAmountMinor: number; total: { currency: string } }> }> }>) {
     return hotels.map((hotel) => ({
       hotelId: hotel.hotelId,
       name: hotel.name,
-      supplierId: hotel.supplierId,
       rooms: hotel.rooms.map((room) => ({
         roomTypeId: room.roomTypeId,
         name: room.name,
         rates: room.rates.map((rate) => ({
-          ratePlanId: rate.ratePlanId, contractId: rate.contractId, boardBasisId: rate.boardBasisId,
-          supplierId: rate.supplierId, sellAmountMinor: rate.sellAmountMinor, currency: rate.total.currency,
+          ratePlanId: rate.ratePlanId, boardBasisId: rate.boardBasisId, sellAmountMinor: rate.sellAmountMinor, currency: rate.total.currency,
         })),
       })),
     }))
@@ -455,25 +453,24 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     expect(offers.some((offer) => hiddenPlanIds.has(String(offer.rate.ratePlanId)))).toBe(false)
     expect(new Set(hotels.map((hotel: { hotelId: string }) => hotel.hotelId)).size).toBe(hotels.length)
     expect(new Set(offers.map((offer) => offer.rate.offerId)).size).toBe(offers.length)
-    const commercial = offers.map((offer) => [offer.hotel.hotelId, offer.room.roomTypeId, offer.rate.boardBasisId, offer.rate.ratePlanId, offer.rate.supplierId, offer.rate.contractId].join('|'))
+    const commercial = offers.map((offer) => [offer.hotel.hotelId, offer.room.roomTypeId, offer.rate.boardBasisId, offer.rate.ratePlanId].join('|'))
     expect(new Set(commercial).size).toBe(commercial.length)
 
     for (const row of expected) {
       const offer = offers.find((candidate) => candidate.rate.ratePlanId === row.ratePlanId)
       expect(offer).toBeTruthy()
-      expect(offer!.hotel).toMatchObject({ hotelId: row.hotelId, name: row.hotelName, destination: 'Dubai', supplierId: row.supplierId })
+      expect(offer!.hotel).toMatchObject({ hotelId: row.hotelId, name: row.hotelName, destination: 'Dubai' })
       expect(offer!.room).toMatchObject({ roomTypeId: row.roomId, name: row.roomName })
+      // row.ratePlanId belongs to row.contractId and row.supplierId; the buyer sees the plan, never the supply chain (ADR 0075).
       expect(offer!.rate).toMatchObject({
-        tenantId, supplierId: row.supplierId, hotelId: row.hotelId, canonicalHotelId: row.hotelId,
-        roomTypeId: row.roomId, canonicalRoomTypeId: row.roomId, boardBasisId: row.boardId, boardBasisName: row.boardName,
-        ratePlanId: row.ratePlanId, contractId: row.contractId, availability: row.availability,
+        hotelId: row.hotelId, roomTypeId: row.roomId, boardBasisId: row.boardId, boardBasisName: row.boardName,
+        ratePlanId: row.ratePlanId, availability: row.availability,
       })
+      for (const key of ['tenantId', 'supplierId', 'supplierHotelId', 'supplierRoomId', 'supplierRateId', 'providerId', 'contractId', 'canonicalHotelId', 'netAmountMinor', 'markupAmountMinor', 'totalAmountMinor']) expect({ ...offer!.hotel, ...offer!.room, ...offer!.rate }).not.toHaveProperty(key)
       expect(offer!.rate.total).toEqual({ amountMinor: row.totalMinor, currency: 'AED' })
       expect(offer!.rate.sellAmountMinor).toBe(row.totalMinor)
       expect(Number.isSafeInteger(offer!.rate.sellAmountMinor)).toBe(true)
       expect(offer!.rate.sellAmountMinor).toBe(row.nightMinor * stayNights)
-      expect(offer!.hotel.supplierId).toBe(supplierId)
-      expect(offer!.rate.supplierId).not.toBe(otherSupplierId)
     }
     expect(hotels.map((hotel: { name: string }) => hotel.name)).toEqual([...expected.map((row) => row.hotelName)].filter((name, index, names) => names.indexOf(name) === index).sort((left, right) => left.localeCompare(right)))
   })

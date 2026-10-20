@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, BedDouble, CalendarDays, CheckCircle2, Clock, FileText, Globe, Mail, Printer, ShieldAlert, Tag, Users, Wallet } from 'lucide-react'
-import type { SearchCriteria, SearchRateOffer } from '@bedbanks/domain'
+import type { SearchCriteria, AgentRateOffer } from '@bedbanks/domain'
 import { AGENT_REF_MAX, GUEST_TITLES, SPECIAL_REQUEST_CODES, SPECIAL_REQUEST_LABELS, SPECIAL_REQUEST_NOTE_MAX, type ConfirmationEmailState, type DuplicateBookingMatch, type GuestTitle, type SpecialRequestCode } from '@bedbanks/contracts'
 import { BookingService, type BookingFailure, type DocumentType } from '@/services/booking-service'
 import { formatCancellationDeadline, formatMinorAmount, formatStay } from '@/lib/format'
@@ -25,7 +25,7 @@ type Done = { bookingId: string; reference: string; documents: { voucher: string
  * then a confirmation page with the voucher, invoice and the email's true state. All state shown comes from the API; a failure never looks like success.
  */
 export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId, request, onBooked, onViewBooking, service, agentEmail = null, timeZone }: {
-  tenantId: string; hotelName: string; roomName: string; rate: SearchRateOffer; searchId: string; request: SearchCriteria
+  tenantId: string; hotelName: string; roomName: string; rate: AgentRateOffer; searchId: string; request: SearchCriteria
   onBooked: () => void; onViewBooking: (bookingId: string) => void; service?: BookingService
   /** The signed-in agent's account email: where the confirmation goes. */
   agentEmail?: string | null; timeZone?: string

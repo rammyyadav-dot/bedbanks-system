@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { cityDestinationId, validSearchCriteria, validateSearchHotels, validateAgentSearchResponse } = require('./search-offers.cjs')
+const { cityDestinationId, validSearchCriteria, validateSearchHotels, validateAgentSearchResponse, projectAgentHotels } = require('./search-offers.cjs')
 
 // Stay dates are relative to today so these tests do not expire as the calendar moves.
 const stayDay = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
@@ -193,6 +193,63 @@ test('validates version, exact search context and status before rendering', () =
   assert.equal(validateAgentSearchResponse({ ...response, request: { ...criteria, adults: 3 } }, criteria).ok, false)
   assert.equal(validateAgentSearchResponse({ ...response, version: 2 }, criteria).ok, false)
   assert.equal(validateAgentSearchResponse({ ...response, status: 'no_availability' }, criteria).ok, false)
+})
+// ADR 0075: the buyer never receives the platform's cost, margin or supply identity.
+const SERVER_ONLY_KEYS = ['netAmountMinor', 'markupAmountMinor', 'totalAmountMinor', 'supplierId', 'supplierHotelId', 'supplierRoomId',
+  'supplierRateId', 'providerId', 'contractId', 'tenantId', 'canonicalHotelId', 'canonicalRoomTypeId', 'offerToken', 'source']
+function serverOnlyKeysIn(value, found = new Set()) {
+  if (Array.isArray(value)) value.forEach((item) => serverOnlyKeysIn(item, found))
+  else if (value !== null && typeof value === 'object') {
+    for (const [key, inner] of Object.entries(value)) { if (SERVER_ONLY_KEYS.includes(key)) found.add(key); serverOnlyKeysIn(inner, found) }
+  }
+  return [...found]
+}
+test('the agent projection drops cost, margin and supply identity and keeps what the buyer is shown (ADR 0075)', () => {
+  const sample = hotel()
+  sample.rooms[0].rates[0].contractId = 'contract-a'
+  const internal = validateSearchHotels([sample], criteria)
+  assert.equal(internal.ok, true)
+  const projected = projectAgentHotels(internal.hotels)
+  assert.deepEqual(serverOnlyKeysIn(projected), [])
+  const rate = projected[0].rooms[0].rates[0]
+  assert.deepEqual(rate.total, { amountMinor: 125099, currency: 'AED' })
+  assert.equal(rate.sellAmountMinor, 125099)
+  assert.equal(rate.taxAmountMinor, 10000)
+  assert.equal(rate.feeAmountMinor, 99)
+  assert.equal(rate.boardBasisName, 'Breakfast')
+  assert.deepEqual(serverOnlyKeysIn(internal.hotels).sort(), [...SERVER_ONLY_KEYS].sort(), 'the API-side view keeps every field')
+})
+test('the browser accepts the agent projection and strips server fields an older API still sends (ADR 0075)', () => {
+  const internal = validateSearchHotels([hotel()], criteria)
+  const envelope = { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z',
+    status: 'available', request: criteria, total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+  const projected = validateAgentSearchResponse({ ...envelope, hotels: projectAgentHotels(internal.hotels) }, criteria)
+  assert.equal(projected.ok, true)
+  assert.equal(projected.response.hotels[0].rooms[0].rates[0].sellAmountMinor, 125099)
+  const legacy = validateAgentSearchResponse({ ...envelope, hotels: [hotel()] }, criteria)
+  assert.equal(legacy.ok, true)
+  assert.deepEqual(serverOnlyKeysIn(legacy.response), [])
+})
+test('the browser still rejects an agent rate whose total disagrees with the sell price or is smaller than its taxes and fees', () => {
+  const envelope = { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z',
+    status: 'available', request: criteria, total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+  const priced = (patch) => {
+    const [projected] = projectAgentHotels(validateSearchHotels([hotel()], criteria).hotels)
+    Object.assign(projected.rooms[0].rates[0], patch)
+    return validateAgentSearchResponse({ ...envelope, hotels: [projected] }, criteria).ok
+  }
+  assert.equal(priced({}), true)
+  assert.equal(priced({ total: { amountMinor: 125000, currency: 'AED' } }), false)
+  assert.equal(priced({ taxAmountMinor: 125100 }), false)
+  assert.equal(priced({ sellAmountMinor: -1, total: { amountMinor: -1, currency: 'AED' } }), false)
+})
+test('the API-side validator still requires the supplier-cost identities', () => {
+  const broken = hotel()
+  broken.rooms[0].rates[0].markupAmountMinor = 4000
+  assert.equal(validateSearchHotels([broken], criteria).ok, false)
+  const unsourced = hotel()
+  delete unsourced.rooms[0].rates[0].source
+  assert.equal(validateSearchHotels([unsourced], criteria).ok, false)
 })
 test('rejects past, overlong, unsupported and unknown search input', () => {
   assert.equal(validSearchCriteria({ ...criteria, checkIn: '2020-01-01', checkOut: '2020-01-02' }), false)

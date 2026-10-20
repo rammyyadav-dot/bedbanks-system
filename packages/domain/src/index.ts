@@ -134,6 +134,15 @@ export interface SearchHotelOffer {
   supplierHotelId: string
   rooms: SearchRoomOffer[]
 }
+/**
+ * The buyer's view of an offer (ADR 0075), the only shape `POST /agent/search` returns. Net cost, markup, supplier cost, supplier,
+ * provider, contract and tenant identifiers stay on the server; recheck and hold resolve them from the stored offer.
+ */
+export type AgentRateOffer = Pick<SearchRateOffer, 'offerId' | 'hotelId' | 'roomTypeId' | 'ratePlanId' | 'ratePlanName' | 'boardBasisId' | 'boardBasisName' |
+  'expiresAt' | 'occupancy' | 'availability' | 'available' | 'cancellation' | 'total' | 'taxAmountMinor' | 'feeAmountMinor' | 'sellAmountMinor' |
+  'paymentType' | 'priceIncludes' | 'payAtHotel' | 'promotion' | 'supplements'>
+export interface AgentRoomOffer { roomTypeId: string; name: string; rates: AgentRateOffer[] }
+export type AgentHotelOffer = Omit<SearchHotelOffer, 'supplierId' | 'supplierHotelId' | 'rooms'> & { rooms: AgentRoomOffer[] }
 export interface SearchPagination {
   limit: number
   offset: number
@@ -149,7 +158,7 @@ export interface AgentSearchResponse {
   generatedAt: string
   status: 'available' | 'partial' | 'no_availability' | 'provider_unavailable' | 'mapping_unavailable'
   request: SearchCriteria
-  hotels: SearchHotelOffer[]
+  hotels: AgentHotelOffer[]
   /** Hotels in this page. The matched count lives on `pagination.total`. */
   total: number
   pagination?: SearchPagination

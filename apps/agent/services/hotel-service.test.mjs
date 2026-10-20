@@ -45,6 +45,23 @@ test('live canonical offer retains nested authoritative total', async () => {
   assert.equal(result.liveHotels[0].rooms[0].rates[0].total.amountMinor, 125099)
   assert.equal(result.liveHotels[0].rooms[0].rates[0].boardBasisId, 'b1')
 })
+test('accepts the buyer-only offer the API now sends and keeps no cost or supply field from an older API (ADR 0075)', async () => {
+  process.env.NODE_ENV = 'production'
+  const { supplierId: _s, supplierHotelId: _sh, ...shown } = hotel
+  const buyerRate = { offerId: 'o1', hotelId: 'h1', roomTypeId: 'r1', ratePlanId: 'p1', ratePlanName: 'Flexible', boardBasisId: 'b1', boardBasisName: 'Breakfast',
+    expiresAt: '2099-01-01T00:00:00Z', occupancy: { rooms: 1, adults: 2, children: 0, childAges: [] },
+    cancellation: { refundable: true, summary: 'Free until deadline' }, availability: 'available', available: true,
+    total: { amountMinor: 125099, currency: 'AED' }, taxAmountMinor: 10000, feeAmountMinor: 99, sellAmountMinor: 125099, paymentType: 'credit' }
+  for (const hotels of [[{ ...shown, rooms: [{ roomTypeId: 'r1', name: 'King', rates: [buyerRate] }] }], [hotel]]) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+      request: criteria, hotels, total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
+    const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+    assert.equal(result.status, 'available')
+    assert.equal(result.liveHotels[0].rooms[0].rates[0].sellAmountMinor, 125099)
+    const kept = JSON.stringify(result.liveHotels)
+    for (const key of ['netAmountMinor', 'markupAmountMinor', 'totalAmountMinor', 'supplierId', 'supplierRateId', 'providerId', 'tenantId']) assert.equal(kept.includes(`"${key}"`), false, key)
+  }
+})
 test('keeps server pagination instead of treating the page as the full result', async () => {
   process.env.NODE_ENV = 'production'
   const pageCriteria = { ...criteria, limit: 1, offset: 1 }

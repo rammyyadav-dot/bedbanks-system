@@ -36,7 +36,8 @@ test.describe('Benchmark journey: supplier content -> admin readiness -> agent s
     expect(agentHotel, 'the agent search returns the hotel the supplier and admin see').toBeTruthy()
     const rate = agentHotel.rooms[0].rates[0]
     expect(rate.total).toEqual({ amountMinor: 90000, currency: 'AED' }) // 2 nights x 45,000 fils
-    expect(rate.sellAmountMinor).toBe(rate.totalAmountMinor + rate.markupAmountMinor)
+    expect(rate.sellAmountMinor).toBe(rate.total.amountMinor)
+    for (const key of ['netAmountMinor', 'markupAmountMinor', 'totalAmountMinor', 'supplierId', 'providerId']) expect(rate, `the agent never sees ${key} (ADR 0075)`).not.toHaveProperty(key)
     expect(search.body.data.hotels.map((h: any) => h.hotelId)).not.toContain(f.hotelTenantB)
   })
 })

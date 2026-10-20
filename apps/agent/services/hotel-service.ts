@@ -1,5 +1,5 @@
 import type { HotelSearchCriteria, HotelSearchResult, OfferRecheckResult } from '../types/hotel.ts'
-import type { SearchRateOffer } from '@bedbanks/domain'
+import type { AgentRateOffer } from '@bedbanks/domain'
 import { agentApiBase } from '../lib/api-config.mjs'
 import { announceSessionExpired } from '../lib/session-events.mjs'
 import { isAgencySuspended } from '../lib/agency-suspension.mjs'
@@ -7,7 +7,7 @@ import { validSearchCriteria, validateAgentSearchResponse } from '@bedbanks/doma
 
 export interface HotelService {
   search(criteria: HotelSearchCriteria, tenantId: string): Promise<HotelSearchResult>
-  recheckOffer(rate: SearchRateOffer, searchId: string, tenantId: string): Promise<OfferRecheckResult>
+  recheckOffer(rate: AgentRateOffer, searchId: string, tenantId: string): Promise<OfferRecheckResult>
 }
 
 export class ApiHotelService implements HotelService {
@@ -59,7 +59,7 @@ export class ApiHotelService implements HotelService {
     }
   }
 
-  async recheckOffer(rate: SearchRateOffer, searchId: string, tenantId: string): Promise<OfferRecheckResult> {
+  async recheckOffer(rate: AgentRateOffer, searchId: string, tenantId: string): Promise<OfferRecheckResult> {
     const fallback = (status: OfferRecheckResult['status']): OfferRecheckResult => ({ offerId: rate.offerId, searchId, requestId: 'unavailable', status })
     if (!this.baseUrl || !rate.offerId || !searchId || !tenantId) return fallback('provider_unavailable')
     try {

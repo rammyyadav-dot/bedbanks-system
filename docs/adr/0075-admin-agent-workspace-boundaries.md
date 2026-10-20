@@ -1,8 +1,8 @@
 # ADR 0075: Admin and Agent workspace boundaries
 
 ## Status
-Accepted: the boundary rules, the target layout, and the `check:app-boundaries` gate (it runs in `pnpm check:architecture`).
-Proposed: the phased migration below (contracts split, feature folders, removal of dead packages). Each phase is its own PR.
+Accepted: the boundary rules, the target layout, the `check:app-boundaries` gate (it runs in `pnpm check:architecture`) and the buyer-only agent search projection (phase 2).
+Proposed: the remaining phases (contracts split, feature folders, removal of dead packages). Each phase is its own PR.
 
 ## Context
 `apps/admin` is the operational control plane: suppliers, contracts, markup rules, FX, rate certification, finance, reconciliation, access and audit. `apps/agent` is the buyer surface: search, recheck, hold, checkout, bookings, wallet and credit. Both are Next.js apps that reach the NestJS API through a same-origin `/api/v1` proxy (ADR 0010, ADR 0055). The API is the only process that holds database credentials, supplier credentials and the commercial engine.
@@ -11,7 +11,7 @@ An inspection of the code on 2026-10-20 found:
 
 | Finding | Effect |
 | --- | --- |
-| **The agent search wire format carries platform commercials.** Every rate in `GET /agent/search` includes `netAmountMinor`, `markupAmountMinor`, supplier-cost `totalAmountMinor`, `supplierId`, `supplierRoomId`, `supplierRateId`, `providerId` and `contractId` (`packages/domain/src/search-offers.cjs` `validateSearchHotels`, `SearchRateOffer`). ADR 0018 added these fields for the shared evaluator. Agent display never reads them (only `apps/agent/services/hotel-service.test.mjs` mentions them). | Any agency user can read the platform's net cost and margin for every rate in browser devtools, and can work out which supplier is behind it. This is the one live commercial leak in the Agent. |
+| **The agent search wire format carries platform commercials.** Every rate in `POST /agent/search` included `netAmountMinor`, `markupAmountMinor`, supplier-cost `totalAmountMinor`, `supplierId`, `supplierRoomId`, `supplierRateId`, `providerId` and `contractId` (`packages/domain/src/search-offers.cjs` `validateSearchHotels`, `SearchRateOffer`). ADR 0018 added these fields for the shared evaluator. Agent display never reads them (only `apps/agent/services/hotel-service.test.mjs` mentions them). | Any agency user can read the platform's net cost and margin for every rate in browser devtools, and can work out which supplier is behind it. This was the one live commercial leak in the Agent. Fixed by phase 2. |
 | No import-boundary enforcement. ESLint has no restricted-import rules, and nothing stops an app importing another app or Prisma. | The boundary was held only by reviewer discipline. Nothing currently crosses it. |
 | `@bedbanks/contracts` has a single `.` export. `routes` is one object literal holding 21 agent paths next to 173 admin, 70 supply, 19 platform and 15 supplier paths. | The Agent client bundle ships the whole internal API map, so any agency user can read the admin surface (credit approvals, ledger, markups, platform). The API authorizes every call, so this is not a privilege bypass. It is reconnaissance material and a design smell. |
 | The commercial markup engine is server-only (`apps/api/src/commercial/commercial-markup.service.ts`). `@bedbanks/pricing` holds only basis-point arithmetic (`markupMinor`, `applyPercentMarkup`). The Agent uses it for its own display-only client markup (ADR 0065). | Correct today. The risk is that rule resolution gets "shared" into `@bedbanks/pricing` later and is bundled into the Agent. |
@@ -46,7 +46,7 @@ apps/website                    │  ├─► @bedbanks/pricing     (pure basis
 | Agent display-only client markup | `apps/agent/lib/client-markup.ts` (ADR 0065) | Yes. Never sent to the API |
 | Admin rule-editing UI and previews | `apps/admin/features/commercial` | No (separate app) |
 
-Target: the API returns the Agent its **sell price only**. Net cost, markup amount, applied rule IDs, margin, supplier/provider identity and contract IDs are never in an agent contract. Today the search response breaks this (see Context). Phase 2 fixes it. `@bedbanks/pricing` must stay free of rule types, rule precedence and anything tenant-specific. A function that needs a `MarkupRule` belongs in the API.
+Target: the API returns the Agent its **sell price only**. Net cost, markup amount, applied rule IDs, margin, supplier/provider identity and contract IDs are never in an agent contract. Phase 2 enforces this for search. `@bedbanks/pricing` must stay free of rule types, rule precedence and anything tenant-specific. A function that needs a `MarkupRule` belongs in the API.
 
 ### 3. No `packages/database`
 Prisma, the schema, migrations, runtime-role provisioning and the ledger single writer stay in `apps/api`. A shared database package would make `import { PrismaClient }` resolvable from every workspace and would break ADR 0008, ADR 0031, ADR 0032 and ADR 0062. If a second server process (a worker) needs the database, it becomes `apps/worker` and shares code through an API-internal library. Browser apps still never get it.
@@ -130,7 +130,14 @@ packages/
 
 ## Migration phases
 1. **This change.** Add `check:app-boundaries` to `check:architecture` and record this ADR. No runtime change.
-2. **Strip commercials from the agent search projection (P0).** Add a separate agent-facing offer type and projector in the API. It keeps `offerId`/`offerToken`, `total`, tax and fee breakdown, supplements, pay-at-hotel, cancellation and availability, and drops `net*`, `markup*`, supplier-cost `totalAmountMinor`, `supplier*`, `providerId`, `contractId` and `tenantId`. Recheck and hold must resolve those fields server-side from `offerId`/`offerToken` before this lands. The agent validator keeps the `total.amountMinor` check and loses the `sell = total + markup` identity, which stays an API-side invariant. Add a contract test that fails if a forbidden key appears in an agent response.
+2. **Done: strip commercials from the agent search projection (P0).** `POST /agent/search` now returns `AgentHotelOffer`/`AgentRateOffer` (`packages/domain`), built by `projectAgentHotels` in `AgentController.search`.
+   - Kept: `offerId`, hotel and room type, `ratePlanId` (a canonical platform id that the UI and tests use to tell plans apart), plan and board names, occupancy, availability, cancellation, `total`, tax and fee, `sellAmountMinor`, payment type, priceIncludes, pay-at-hotel, promotion and supplements.
+   - Dropped: `netAmountMinor`, `markupAmountMinor`, supplier-cost `totalAmountMinor`, `supplierId`, `supplierHotelId`, `supplierRoomId`, `supplierRateId`, `providerId`, `contractId`, `tenantId`, `canonicalHotelId`, `canonicalRoomTypeId`, `offerToken` and `source`.
+   - Recheck and hold already resolve the stored offer server-side by `offerId`, so no request body changed. The search cache keeps the full internal offer; projection happens only at the controller.
+   - `validateSearchHotels(..., audience: 'agent')` is the browser validator. It keeps `total.amountMinor === sellAmountMinor` and `tax + fee <= sell`. The `total = net + tax + fee` and `sell = total + markup` identities are API-side only.
+   - The Agent's recheck call now sends the session tenant rather than a `tenantId` copied from the offer.
+   - Tests: `agent-search.contract.spec.ts` fails if any dropped key reaches the response. The HTTP e2e suites (commercial markup, Dubai search, benchmark journey) assert the sell price and the absence of supply fields, and derive markup as sell minus the fixture's known net.
+   - Deploy order: the Agent first, then the API. The new Agent accepts both shapes. The old Agent rejects the new shape as `mapping_unavailable`.
 3. Split `@bedbanks/contracts` into audience subpaths and keep the root `.` export as a re-export during transition. Move the Agent to `./agent` and `./shared`. Then extend the gate to fail if the Agent imports `@bedbanks/contracts` or `./admin`, and confirm by building the Agent and searching `.next/static` for `/admin/` paths.
 4. Delete `@bedbanks/types`, `@bedbanks/validation` and `@bedbanks/config` after confirming they have no consumers.
 5. Admin `features/` regrouping, one bounded context per PR, with no URL changes.
