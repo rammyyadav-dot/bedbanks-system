@@ -512,3 +512,88 @@ only EXECUTE on the two functions, and cover:
 
 The security certification and runtime-role suites still pass with the new objects.
 
+## Amendment 4: partner authentication and OAuth token issuance (step 2 of 4)
+
+Status: Accepted. Migration `202611300001_distribution_auth_context`, module `apps/api/src/distribution`. Live routes, but only for
+partners an operator has created: there is still no API or screen to create clients or keys (they exist only through the owner
+database connection), and no partner business route yet. Steps 3-4 are the Redis quotas and the partner search route.
+
+**Routes** (contracts: `routes.distribution`, `distribution-auth.ts`):
+- `POST /distribution/v1/oauth/token`: OAuth 2.0 client credentials (RFC 6749 section 4.4).
+  - The client authenticates with HTTP Basic or body `client_id`/`client_secret`, never both.
+  - Optional `scope` subset, using the wire names `search checkrate book cancel bookings:read`.
+  - Issues a 15-minute opaque `fbt_` token.
+  - Answers in the RFC wire format with `Cache-Control: no-store`, **not** the API envelope, so standard OAuth clients work.
+  - Client authentication is checked before the rest of the request, so an unauthenticated caller learns nothing about the schema.
+- `GET /distribution/v1/me`: who the presented credential is (client, agency, scopes, limits), inside the envelope. Like
+  `GET /auth/me`, it answers only about the caller.
+
+**`DistributionAuthGuard`** accepts `Authorization: ApiKey fbk_<keyId>_<secret>` (an `API_KEY` credential) or
+`Authorization: Bearer fbt_<token>`.
+- Shapes are checked before any hashing or query. Identity comes only from the definer functions.
+- A session cookie is ignored: a signed-in user is unauthenticated on partner routes (401).
+- An OAuth client secret presented as an API key is refused; it can only be exchanged for tokens.
+- Every refusal is the same 401 with a `Bearer realm` challenge. The reason is logged, the credential and its hash never are.
+- A database failure is 503, never 401 or a pass.
+- The handler must declare `@RequireDistributionScope(...)` (`SELF` for caller-only routes), or the guard refuses (fail closed);
+  a missing scope is 403 `insufficient_scope`.
+- The client's CIDR allowlist is checked against the connection address.
+
+**Database (forward migration):**
+- The two lookup functions now also return the CIDR allowlist and per-minute limits, so the quotas in step 3 need no further
+  migration or table privilege. Their return type changes, so they are dropped and recreated.
+- New `fbeds_distribution_issue_token(...)` (`SECURITY DEFINER`, pinned `search_path`, no PUBLIC execute). It re-verifies the
+  OAuth client secret, checks requested scopes against the client's, and writes the token hash **and** a
+  `distribution.token.issued` audit event (`SYSTEM` actor; payload with ids, scopes, TTL and request id, never a secret) in one
+  transaction.
+- The runtime therefore holds **no privilege on any credential table**. A table INSERT grant would also have required table
+  SELECT (a contract rule), exposing every token hash.
+- Even a compromised API process cannot mint a token without a real client secret.
+
+**Runtime role contract:**
+- `RUNTIME_FUNCTION_GRANTS` names the three functions. Provisioning revokes all direct function grants and grants exactly these.
+- The verifier checks both directions: the login can execute each of them, and **no other** function that PUBLIC cannot execute
+  (for example `fbeds_booking_due_tenants`). Before this, functions were not checked at all.
+- A contract spec requires each function to be migrated as `SECURITY DEFINER` with a pinned `search_path` and PUBLIC revoked, to
+  be documented, and to have a call site.
+- `docs/strict-runtime-db-role.md` is regenerated.
+- **Run `ops:provision-api-runtime-role` after deploying the migration**: dropping a function drops its grants. Until then, partner
+  authentication answers 503 (the function is unexecutable), never a pass.
+
+**Security certification.** A new route class, `partner`, for routes behind `DistributionAuthGuard` with a declared scope, plus the
+token endpoint (no guard: it authenticates the client itself). The zero-permission sweep expects 401 for a signed-in member on a
+partner route, not 403. A partner route without a declared scope, or with a session guard beside it, is unclassified and fails
+(negative control run).
+
+**Finding: client addresses behind the load balancer.** `main.ts` sets no `trust proxy`, so behind CloudFront/ALB `req.ip` is the
+proxy's address.
+- For the allowlist this fails closed: a partner with a non-empty allowlist is refused until proxy trust is configured for the
+  deployment's hop count. Partners without an allowlist are unaffected.
+- The same value keys the login throttle (`auth.controller.ts`), which therefore throttles everyone behind the same proxy address
+  together. That is pre-existing and out of scope here.
+- Configuring `trust proxy` is a deployment decision (hop count, header spoofing) for its own change.
+
+**Not built:**
+- Operator API or Admin screen to create clients and keys, and to revoke them.
+- `last_used_at` updates.
+- A purge job for expired tokens.
+- Quotas (step 3) and business routes (step 4).
+
+**Rollback.** Remove `DistributionModule` from `AppModule` (the routes disappear). The migration header has the database rollback.
+Re-run provisioning after any function change.
+
+**Verification.**
+- Unit tests (18): formats, scope mapping and the IP allowlist; the guard (hash-only queries, identical 401s, no query for
+  malformed input, session ignored, scope and fail-closed rules, 503 on database failure, nothing secret logged); the token
+  service (check order, Basic decoding, error mapping, only hashes sent to the database).
+- `test/distribution-auth.e2e-spec.ts` (8 tests) runs the whole application as the provisioned restricted login over HTTP. It
+  covers:
+  - the verifier passes, and the login is denied every credential table and a foreign definer function;
+  - token issuance with hash-only storage, a 900 s lifetime and the audit event;
+  - body credentials, scope subsets and every refusal path writing nothing;
+  - `/me` with a token and with a key;
+  - identical 401s for bad credentials, an OAuth secret used as a key and a session cookie;
+  - revocation and agency suspension taking effect on the next request;
+  - the CIDR allowlist.
+- The security certification (with the new class), runtime-role and step 1 suites pass.
+

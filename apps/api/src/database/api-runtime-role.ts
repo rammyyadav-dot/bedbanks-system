@@ -1,5 +1,5 @@
 import { describePasswordProblems, upsertLoginRoleSql } from './hold-expiry-role'
-import { RUNTIME_READ_TABLES, expectedColumnReads, expectedWrites, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
+import { RUNTIME_FUNCTION_GRANTS, RUNTIME_READ_TABLES, expectedColumnReads, expectedWrites, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
 
 export const API_RUNTIME_GROUP_ROLE = 'fbeds_api'
 export const API_RUNTIME_LOGIN_ROLE = 'fbeds_api_login'
@@ -72,10 +72,27 @@ export async function verifyApiRuntimeRole(db: Pick<Executor, '$queryRawUnsafe'>
     `SELECT count(*) AS n FROM unnest(ARRAY['Wallet','LedgerEntry','Booking','ConnectorCredentialReference']) t
       WHERE has_table_privilege(current_user, format('%I', t), 'SELECT')`)
   if (Number(forbidden?.n ?? 0) > 0) failures.push('role can read finance or credential tables')
+  failures.push(...(await inspectRuntimeFunctions(db)))
   const privileges = await inspectRuntimePrivileges(db)
   failures.push(...privileges.problems.map((p) => p.message))
   if (privileges.missingReads.length) failures.push(`role cannot read required tables: ${privileges.missingReads.join(', ')}`)
   return { ok: failures.length === 0, failures }
+}
+
+/**
+ * Functions PUBLIC cannot execute are the guarded ones (SECURITY DEFINER lookups and job helpers). The runtime must be able to execute exactly the
+ * contract's, and none of the others: a stray EXECUTE on, say, a booking job helper is as much a contract violation as a stray table write.
+ */
+export async function inspectRuntimeFunctions(db: Pick<Executor, '$queryRawUnsafe'>): Promise<string[]> {
+  const rows = await db.$queryRawUnsafe<Array<{ name: string; can: boolean }>>(
+    `SELECT DISTINCT p.proname AS name, has_function_privilege(current_user, p.oid, 'EXECUTE') AS can
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND NOT has_function_privilege('public', p.oid, 'EXECUTE') ORDER BY 1`)
+  const required = new Set(RUNTIME_FUNCTION_GRANTS.map((f) => f.name))
+  const failures: string[] = []
+  for (const name of required) if (!rows.some((r) => r.name === name && r.can)) failures.push(`role cannot execute required function ${name}`)
+  for (const r of rows) if (r.can && !required.has(r.name)) failures.push(`role may execute ${r.name}, which is not in the contract`)
+  return failures
 }
 
 export interface PrivilegeProblem { table: string; message: string }

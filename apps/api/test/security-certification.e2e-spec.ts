@@ -52,6 +52,7 @@ type RouteClass =
   | 'guard-permission' //  an RBAC guard reads a declared permission and fails closed
   | 'booking-scope' //     BookingAccessGuard: booking.read (operator) or booking.view.agency (own agency)
   | 'supplier-membership' // SupplierOrganizationGuard plus a supplier.extranet.* permission in the service
+  | 'partner' //           B2B Distribution API (ADR 0075): a partner API key or OAuth token, never a session; DistributionAuthGuard + declared scope
 
 const PERMISSION_KEYS = ['fbeds:required-admin-permission', 'fbeds:required-permission', 'fbeds:required-supply-permission', 'fbeds:booking-action-permissions', 'platform_permission']
 const GUARD_FOR_KEY: Record<string, string> = {
@@ -62,6 +63,9 @@ const GUARD_FOR_KEY: Record<string, string> = {
   platform_permission: 'PlatformRbacGuard',
 }
 const PUBLIC_ROUTES = new Set(['GET /health', 'GET /health/ready', 'POST /auth/login', 'POST /auth/logout'])
+/** The OAuth token endpoint authenticates the partner client itself (client secret), so it carries no guard; nothing else may. */
+const PARTNER_TOKEN_ROUTES = new Set(['POST /distribution/v1/oauth/token'])
+const PARTNER_SCOPE_KEY = 'fbeds:distribution-scope'
 const SELF_ROUTES = new Set([
   'GET /auth/me', 'GET /agent/context', 'GET /supplier/extranet/memberships',
   // Capability lists: the caller's own permission keys, used only to hide controls.
@@ -70,7 +74,7 @@ const SELF_ROUTES = new Set([
 /** Routes a zero-permission member may reach: they answer only about the caller. */
 const ZERO_PERMISSION_ALLOWED = new Set([...SELF_ROUTES])
 
-interface Route { method: string; path: string; handler: string; guards: string[]; keys: string[]; cls?: RouteClass }
+interface Route { method: string; path: string; handler: string; guards: string[]; keys: string[]; partnerScope?: string; cls?: RouteClass }
 
 function inventory(): Route[] {
   const seen = new Set<unknown>()
@@ -96,7 +100,8 @@ function inventory(): Route[] {
       if (path === undefined) continue
       const guards = [...classGuards, ...(Reflect.getMetadata('__guards__', handler) ?? []).map((g: { name: string }) => g.name)]
       const keys = PERMISSION_KEYS.filter((k) => Reflect.getMetadata(k, handler) !== undefined || Reflect.getMetadata(k, c) !== undefined)
-      routes.push({ method: methods[Reflect.getMetadata('method', handler) as number], path: `/${base}/${path}`.replace(/\/+/g, '/').replace(/(.)\/$/, '$1'), handler: `${c.name}.${name}`, guards, keys })
+      const partnerScope = (Reflect.getMetadata(PARTNER_SCOPE_KEY, handler) ?? Reflect.getMetadata(PARTNER_SCOPE_KEY, c)) as string | undefined
+      routes.push({ method: methods[Reflect.getMetadata('method', handler) as number], path: `/${base}/${path}`.replace(/\/+/g, '/').replace(/(.)\/$/, '$1'), handler: `${c.name}.${name}`, guards, keys, partnerScope })
     }
   }
   return routes
@@ -105,6 +110,9 @@ function inventory(): Route[] {
 function classify(route: Route): RouteClass | undefined {
   const id = `${route.method} ${route.path}`
   if (PUBLIC_ROUTES.has(id)) return 'public'
+  if (PARTNER_TOKEN_ROUTES.has(id)) return route.guards.length === 0 ? 'partner' : undefined
+  // A partner route authenticates the partner credential and declares its scope; a session guard beside it would be a mistake.
+  if (route.guards.includes('DistributionAuthGuard')) return route.partnerScope && !route.guards.includes('SessionAuthGuard') ? 'partner' : undefined
   if (!route.guards.includes('SessionAuthGuard')) return undefined
   if (SELF_ROUTES.has(id)) return 'self'
   if (route.keys.length) return route.keys.every((k) => route.guards.includes(GUARD_FOR_KEY[k])) ? 'guard-permission' : undefined
@@ -365,7 +373,9 @@ describe('Tenant and database security certification', () => {
         const anonymous = await (http() as unknown as Record<string, (u: string) => request.Test>)[r.method.toLowerCase()](url).set('Origin', origin).send({})
         if (anonymous.status !== 401) leaks.push(`${id}: anonymous ${anonymous.status}`)
         const res = await as('zero', call).send({})
-        if (res.status !== 403) leaks.push(`${id}: zero-permission ${res.status}`)
+        // A session is not a partner credential: a signed-in member reaching a partner route is unauthenticated there (401), not unauthorized.
+        const expected = classify(r) === 'partner' ? 401 : 403
+        if (res.status !== expected) leaks.push(`${id}: zero-permission ${res.status}`)
       }
       expect(leaks).toEqual([])
     }, 300_000)

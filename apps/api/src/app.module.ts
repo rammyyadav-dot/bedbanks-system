@@ -23,6 +23,7 @@ import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { SupplyModule } from './supply/supply.module';
 import { SupplierExtranetModule } from './supplier-extranet/supplier-extranet.module';
+import { DistributionModule } from './distribution/distribution.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { SupplierExtranetModule } from './supplier-extranet/supplier-extranet.mo
     PlatformAdminModule,
     SupplyModule,
     SupplierExtranetModule,
+    DistributionModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: CrossSiteRequestGuard }, AgentAuditService, { provide: APP_INTERCEPTOR, useClass: DatabaseDenialInterceptor }],
 })
