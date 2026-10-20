@@ -49,6 +49,8 @@ describe('Admin settings HTTP', () => {
     app.useGlobalFilters(new HttpExceptionFilter())
     app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
+    // Listen up front: supertest 7.3 closes a server it started once no request is pending, which races requests built around an awaited login.
+    await app.listen(0, '127.0.0.1')
   }, 30000)
 
   afterAll(async () => {

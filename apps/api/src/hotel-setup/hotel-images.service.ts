@@ -68,7 +68,7 @@ export class HotelImagesService {
         const agg = await tx.hotelImage.aggregate({ where: { tenantId, hotelId }, _count: true, _max: { sortOrder: true } })
         if (agg._count >= HOTEL_IMAGE_LIMITS.maxPerHotel) throw new ConflictException({ message: `A hotel can have at most ${HOTEL_IMAGE_LIMITS.maxPerHotel} images.`, code: HOTEL_IMAGE_ERROR_CODES.limitReached })
         const row = await tx.hotelImage.create({
-          data: { tenantId, hotelId, contentType: probe.contentType, bytes: bytes.length, width: probe.width, height: probe.height, sha256, altText: alt, sortOrder: (agg._max.sortOrder ?? -1) + 1, isPrimary: agg._count === 0, data: bytes, uploadedById: userId },
+          data: { tenantId, hotelId, contentType: probe.contentType, bytes: bytes.length, width: probe.width, height: probe.height, sha256, altText: alt, sortOrder: (agg._max.sortOrder ?? -1) + 1, isPrimary: agg._count === 0, data: new Uint8Array(bytes), uploadedById: userId },
           select: META,
         })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: UPLOADED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId: row.id, bytes: row.bytes, width: row.width, height: row.height, contentType: row.contentType, primary: row.isPrimary } as Prisma.InputJsonValue } })

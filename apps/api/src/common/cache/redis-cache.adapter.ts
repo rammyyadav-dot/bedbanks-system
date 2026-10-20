@@ -138,7 +138,8 @@ class RedisConnection {
         // An idle cache connection must not keep the process alive.
         socket.unref()
         this.socket = socket
-        socket.on('data', chunk => this.onData(chunk))
+        // No encoding is set, so chunks are Buffers; the guard keeps the RESP parser byte-exact.
+        socket.on('data', (chunk: Buffer | string) => this.onData(typeof chunk === 'string' ? Buffer.from(chunk) : chunk))
         socket.on('error', error => this.fail(error))
         socket.on('close', () => this.fail(new Error('Redis connection closed')))
         resolve()

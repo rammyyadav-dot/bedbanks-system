@@ -254,10 +254,13 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     expect(res.text).not.toContain(hotels.oscar.id) // tenant B's hotel never appears
     const audits = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'hotel.exported' } })
     expect(audits.length).toBe(before + 1)
-    const payload = audits[audits.length - 1].payload as { rowCount: number; filterKeys: string[] }
-    expect(payload.rowCount).toBe(lines.length - 1)
+    // ADR 0074: the egress audit is written before the first byte with the expected count; a second event records what actually left.
+    const payload = audits[audits.length - 1].payload as { requestId: string; expectedRows: number; filterKeys: string[] }
+    expect(payload.expectedRows).toBe(lines.length - 1)
     expect(payload.filterKeys).toContain('search')
     expect(JSON.stringify(payload)).not.toContain(hotels.alpha.name) // the audit holds counts, never the data
+    const finished = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'hotel.export_finished' } })
+    expect(finished.find((a) => (a.payload as { requestId?: string }).requestId === payload.requestId)?.payload).toMatchObject({ rowCount: lines.length - 1, completed: true })
     // the other tenant's exporter sees only its own hotel
     const b = await get(`/hotels/export?${win}`, 'bexporter')
     expect(b.status).toBe(200)

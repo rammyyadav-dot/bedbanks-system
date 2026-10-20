@@ -30,6 +30,7 @@ export const NON_TENANT_TABLES: Readonly<Record<string, { rls: 'forced' | 'none'
   Cancellation: { rls: 'forced', reason: 'child of Booking; policy joins to the parent tenant' },
   CancellationPolicy: { rls: 'forced', reason: 'child of Contract; policy joins to the parent tenant' },
   ChildPolicy: { rls: 'forced', reason: 'child of Contract; policy joins to the parent tenant' },
+  ContractSupplement: { rls: 'forced', reason: 'child of Contract; policy joins to the parent tenant' },
   ConnectorCredentialReference: { rls: 'forced', reason: 'child of ConnectorDefinition; secret references only, never values' },
   RolePermission: { rls: 'forced', reason: 'child of Role; policy joins to the parent tenant' },
   RoomType: { rls: 'forced', reason: 'child of Hotel; policy joins to the parent tenant' },
