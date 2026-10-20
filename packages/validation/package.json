@@ -7,9 +7,10 @@
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test"
+    "test": "node --import tsx --test"
   },
   "dependencies": {
+    "@bedbanks/contracts": "workspace:*",
     "zod": "^3.22.0"
   },
   "devDependencies": {

@@ -488,6 +488,9 @@ importers:
 
   packages/validation:
     dependencies:
+      '@bedbanks/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       zod:
         specifier: ^3.22.0
         version: 3.25.76

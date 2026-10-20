@@ -18,4 +18,6 @@ export type { XmlProviderProfile, OperationSpec, SupplierFault, CertificationLev
 export { SupplierCallError, supplierAmountMinor, validateSearchQuery, isIsoDate, isOffsetTimestamp } from './xml/supplier-types.js';
 export type * from './xml/supplier-types.js';
 export { evaluateReadiness, ProviderProfileRegistry, PROVIDER_ONBOARDING } from './xml/readiness.js';
+export { fanOutRead } from './fanout/supplier-fanout.js';
+export type { SupplierLeg, FanoutOptions, FanoutResult, LegResult, FanoutLegEvent } from './fanout/supplier-fanout.js';
 export type { ConnectorRuntimeState, ReadinessReport, ReadinessGate, ProviderOnboarding } from './xml/readiness.js';
