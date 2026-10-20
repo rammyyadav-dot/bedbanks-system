@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { PRIVILEGED_WRITE_MODELS, RUNTIME_ROLE_GRANTS, expectedWrites, renderRuntimeRoleMatrix, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
+import { PRIVILEGED_WRITE_MODELS, RUNTIME_FUNCTION_GRANTS, RUNTIME_ROLE_GRANTS, expectedWrites, renderRuntimeRoleMatrix, runtimeGrantStatements, type WritePrivilege } from './runtime-role-contract'
 
 const root = join(__dirname, '..', '..')
 const repo = join(root, '..', '..')
@@ -148,6 +148,24 @@ describe('API runtime role contract (the single definition)', () => {
     for (const [table, want] of expectedWrites()) {
       for (const op of want.table) expect(statements).toMatch(new RegExp(`GRANT [A-Z, ]*${op}[A-Z, ]* ON "${table}"`))
       for (const op of want.columns.keys()) expect(statements).toContain(`GRANT ${op} (`)
+    }
+  })
+
+  it('every function grant is a migrated SECURITY DEFINER with a pinned search_path and no PUBLIC execute, is documented, and has a call site', () => {
+    const dir = join(root, 'prisma', 'migrations')
+    const sql = readdirSync(dir).filter((n) => statSync(join(dir, n)).isDirectory()).sort().map((n) => read(dir, n, 'migration.sql')).join('\n')
+    const sources = sourceFiles(join(root, 'src')).filter((f) => !f.endsWith('runtime-role-contract.ts')).map((f) => readFileSync(f, 'utf8')).join('\n')
+    const statements = runtimeGrantStatements('fbeds_api')
+    expect(statements).toContain('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM "fbeds_api"')
+    expect(new Set(RUNTIME_FUNCTION_GRANTS.map((f) => f.name)).size).toBe(RUNTIME_FUNCTION_GRANTS.length)
+    for (const fn of RUNTIME_FUNCTION_GRANTS) {
+      // The last CREATE of the function is the one in force.
+      const created = [...sql.matchAll(new RegExp(`CREATE FUNCTION "${fn.name}"\\(([\\s\\S]*?)\\$\\$ LANGUAGE (\\w+) ([^;]*);\\s*REVOKE ALL ON FUNCTION "${fn.name}"\\([^)]*\\) FROM PUBLIC;`, 'g'))].pop()
+      expect({ fn: fn.name, createdWithPublicRevoked: Boolean(created) }).toEqual({ fn: fn.name, createdWithPublicRevoked: true })
+      expect({ fn: fn.name, definer: /SECURITY DEFINER/.test(created![3]), pinned: /SET search_path = public, pg_temp/.test(created![3]) }).toEqual({ fn: fn.name, definer: true, pinned: true })
+      expect({ fn: fn.name, documented: fn.service.length > 0 && fn.endpoints.length > 0 && fn.reason.length > 10 }).toEqual({ fn: fn.name, documented: true })
+      expect({ fn: fn.name, hasCallSite: sources.includes(`"${fn.name}"`) }).toEqual({ fn: fn.name, hasCallSite: true })
+      expect(statements).toContain(`GRANT EXECUTE ON FUNCTION ${fn.signature} TO "fbeds_api"`)
     }
   })
 })

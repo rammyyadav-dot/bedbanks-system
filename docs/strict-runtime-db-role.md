@@ -86,6 +86,12 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `UserRole` | yes | - | - | - | forced tenant | read only |
 | `users` | yes | - | cols (2) | - | none (auth) | UPDATE (last_login_at, updated_at): AuthService.login; POST /auth/login; record the last successful sign-in |
 
+Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC function is denied):
+
+- `fbeds_distribution_authenticate_key`: DistributionAuthGuard; GET /distribution/v1/me; authenticate a partner API key; returns identity, scopes, allowlist and limits, never a hash
+- `fbeds_distribution_authenticate_token`: DistributionAuthGuard; GET /distribution/v1/me; authenticate a partner OAuth access token; scopes cut to the client's current scopes
+- `fbeds_distribution_issue_token`: DistributionTokenService.issue; POST /distribution/v1/oauth/token; re-verify the OAuth client secret, then write the token hash and its audit event atomically
+
 Privileged paths (written by the API process somewhere, never by the runtime role):
 
 - `BoardBasis`: supply authoring

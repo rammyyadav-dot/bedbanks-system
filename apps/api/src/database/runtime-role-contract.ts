@@ -212,6 +212,28 @@ const READ_WRITE: readonly RuntimeGrant[] = [
   ] },
 ]
 
+/**
+ * SECURITY DEFINER functions the runtime may execute (ADR 0075 amendments 3-4). Each returns identity or a result only, never a stored hash, so the
+ * runtime authenticates partners and issues their tokens with no privilege on the credential tables at all. Every other function that PUBLIC cannot
+ * execute stays unexecutable by the runtime (the verifier checks both directions).
+ */
+export interface RuntimeFunctionGrant {
+  name: string
+  /** Exactly as `GRANT EXECUTE ON FUNCTION` takes it. */
+  signature: string
+  service: string
+  endpoints: readonly string[]
+  reason: string
+}
+
+const DISTRIBUTION_PARTNER_ROUTES = ['GET /distribution/v1/me'] as const
+
+export const RUNTIME_FUNCTION_GRANTS: readonly RuntimeFunctionGrant[] = [
+  { name: 'fbeds_distribution_authenticate_key', signature: '"fbeds_distribution_authenticate_key"(text, text)', service: 'DistributionAuthGuard', endpoints: DISTRIBUTION_PARTNER_ROUTES, reason: 'authenticate a partner API key; returns identity, scopes, allowlist and limits, never a hash' },
+  { name: 'fbeds_distribution_authenticate_token', signature: '"fbeds_distribution_authenticate_token"(text)', service: 'DistributionAuthGuard', endpoints: DISTRIBUTION_PARTNER_ROUTES, reason: 'authenticate a partner OAuth access token; scopes cut to the client\'s current scopes' },
+  { name: 'fbeds_distribution_issue_token', signature: '"fbeds_distribution_issue_token"(text, text, text, "DistributionApiScope"[], integer, text)', service: 'DistributionTokenService.issue', endpoints: ['POST /distribution/v1/oauth/token'], reason: 're-verify the OAuth client secret, then write the token hash and its audit event atomically' },
+]
+
 export const RUNTIME_ROLE_GRANTS: readonly RuntimeGrant[] = [
   ...READ_ONLY.map((r): RuntimeGrant => ({ ...r, read: true, writes: [] })),
   ...READ_COLUMNS_ONLY,
@@ -263,7 +285,7 @@ const quote = (name: string) => `"${name}"`
 /** Statements the owner runs. REVOKE ALL first, then exactly the contract. */
 export function runtimeGrantStatements(group: string): string[] {
   const role = quote(group)
-  const statements = [`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${role}`, `DO $$ DECLARE r record; BEGIN FOR r IN SELECT c.relname, a.attname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped LOOP EXECUTE format('REVOKE ALL (%I) ON %I FROM %I', r.attname, r.relname, '${group}'); END LOOP; END $$`, `GRANT USAGE ON SCHEMA public TO ${role}`]
+  const statements = [`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${role}`, `REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM ${role}`, `DO $$ DECLARE r record; BEGIN FOR r IN SELECT c.relname, a.attname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped LOOP EXECUTE format('REVOKE ALL (%I) ON %I FROM %I', r.attname, r.relname, '${group}'); END LOOP; END $$`, `GRANT USAGE ON SCHEMA public TO ${role}`]
   for (const grant of RUNTIME_ROLE_GRANTS) {
     const table = quote(grant.table)
     const privileges: string[] = [...(grant.read ? ['SELECT'] : []), ...grant.writes.filter((w) => !w.columns).map((w) => w.op)]
@@ -272,6 +294,7 @@ export function runtimeGrantStatements(group: string): string[] {
     if (grant.readColumns) statements.push(`GRANT SELECT (${grant.readColumns.map(quote).join(', ')}) ON ${table} TO ${role}`)
     for (const write of grant.writes.filter((w) => w.columns)) statements.push(`GRANT ${write.op} (${write.columns!.map(quote).join(', ')}) ON ${table} TO ${role}`)
   }
+  for (const fn of RUNTIME_FUNCTION_GRANTS) statements.push(`GRANT EXECUTE ON FUNCTION ${fn.signature} TO ${role}`)
   return statements
 }
 
@@ -316,6 +339,8 @@ export function renderRuntimeRoleMatrix(): string {
       : grant.readColumns ? `SELECT (${grant.readColumns.join(', ')}): ${grant.note ?? 'column-level read'}` : (grant.note ?? 'read only')
     lines.push(`| \`${grant.table}\` | ${readCell(grant)} | ${opCell(grant, 'INSERT')} | ${opCell(grant, 'UPDATE')} | ${opCell(grant, 'DELETE')} | ${grant.rls === 'forced-tenant' ? 'forced tenant' : 'none (auth)'} | ${who} |`)
   }
+  lines.push('', 'Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC function is denied):', '')
+  for (const fn of RUNTIME_FUNCTION_GRANTS) lines.push(`- \`${fn.name}\`: ${fn.service}; ${fn.endpoints.join(', ')}; ${fn.reason}`)
   lines.push('', 'Privileged paths (written by the API process somewhere, never by the runtime role):', '')
   for (const [model, reason] of Object.entries(PRIVILEGED_WRITE_MODELS).sort(([a], [b]) => a.localeCompare(b))) lines.push(`- \`${model}\`: ${reason}`)
   return lines.join('\n')
