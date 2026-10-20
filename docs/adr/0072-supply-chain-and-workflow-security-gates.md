@@ -8,7 +8,7 @@ The 2026-10-18 security audit (`docs/security-access-cicd-audit-2026-10-18.md`) 
 
 ## Decision
 
-1. `security.yml` runs on every PR, on main and weekly: a production dependency audit gate, GitHub dependency review for new packages, CodeQL `security-extended`, and a gitleaks full-history scan.
+1. `security.yml` runs on every PR, on main and weekly: a production dependency audit gate, GitHub dependency review for new packages (removed 2026-10-20, see Amendments), CodeQL `security-extended`, and a gitleaks full-history scan.
 2. The audit gate (`tools/dependency-audit-check.mjs`) fails on any high or critical production advisory not listed in `security/audit-allowlist.json`. Every allowlist entry needs a reason and an expiry date; an expired entry fails the gate.
 3. Every workflow must declare top-level `permissions:`, never `write-all`, and never `pull_request_target` (`tools/workflow-permissions-check.mjs`, part of `check:architecture`).
 4. Transitive fixes use `pnpm.overrides` in the root `package.json`. CLI-only tooling (`shadcn`) is a devDependency.
@@ -23,3 +23,7 @@ The 2026-10-18 security audit (`docs/security-access-cicd-audit-2026-10-18.md`) 
 ## Rollback
 
 Revert the commit. No schema or data changes are involved.
+
+## Amendments
+
+- 2026-10-20: removed the `dependency-review` job. `actions/dependency-review-action` needs the repository's Dependency graph (and GitHub Code Security on a private repository); without it the job failed on every PR before reviewing anything, so it was never a working gate. New high/critical advisories in production dependencies are still caught by the audit gate (decision 2), which runs on every PR. Re-add the job if Code Security is enabled.
