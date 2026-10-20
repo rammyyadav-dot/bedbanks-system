@@ -29,7 +29,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs
+      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs tools/framework-peer-check.test.mjs
       - run: node tools/workflow-permissions-check.mjs
       # Fails on any unaccepted high or critical advisory; accepted ones live in security/audit-allowlist.json with a reason and expiry.
       - run: node tools/dependency-audit-check.mjs
