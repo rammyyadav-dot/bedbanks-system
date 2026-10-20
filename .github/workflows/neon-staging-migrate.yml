@@ -52,7 +52,8 @@ jobs:
       - name: Create or reset the staging branch from production's head
         env:
           RESET: ${{ inputs.reset_staging }}
-        run: scripts/neon-staging-branch.sh create $([ "$RESET" = true ] && echo --reset)
+        run: |
+          if [ "$RESET" = true ]; then scripts/neon-staging-branch.sh create --reset; else scripts/neon-staging-branch.sh create; fi
       - name: Staging owner credential and production denylist (masked, 0600, runner-local)
         run: scripts/neon-staging-branch.sh env --env-file "$RUNNER_TEMP/staging.env"
       - name: Apply pending migrations and certify staging

@@ -72,9 +72,9 @@ json() { node -e 'const d = JSON.parse(require("fs").readFileSync(0, "utf8")); c
 
 # Waits for every operation a REST call started (Neon rejects most changes while one is running on the branch).
 wait_operations() {
-  local response="$1" id status i
+  local response="$1" id status
   for id in $(json '(d.operations ?? []).map((o) => o.id).join(" ")' <<< "$response"); do
-    for i in $(seq 1 60); do
+    for _ in $(seq 1 60); do
       status="$(neon_api GET "/projects/$NEON_PROJECT_ID/operations/$id" | json 'd.operation.status')"
       case "$status" in finished|skipped) break ;; failed|error|cancelled) die "Neon operation $id ended $status" ;; esac
       sleep 2
@@ -112,7 +112,8 @@ cmd_create() {
     assert_non_production "$NAME"
     [ "$RESET" = true ] || die "branch \"$NAME\" already exists; pass --reset to reset it to the head of \"$PARENT\" (its current state is preserved under a new name)"
     [ "$(BRANCH="$NAME" FIELD=parent_id branch_field)" = "$parent_id" ] || die "branch \"$NAME\" is not a child of \"$PARENT\"; refusing to reset it"
-    local preserved="$NAME-before-$(date -u +%Y%m%dT%H%M%SZ)"
+    local preserved
+    preserved="$NAME-before-$(date -u +%Y%m%dT%H%M%SZ)"
     log "resetting \"$NAME\" to the head of \"$PARENT\"; previous state kept as \"$preserved\""
     neonctl branches reset "$NAME" --parent --preserve-under-name "$preserved" -o json > /dev/null
   else
