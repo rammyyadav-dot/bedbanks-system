@@ -70,6 +70,9 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
   const call = (method: 'get' | 'post', path: string, who: string, body?: object) => { const r = request(app.getHttpServer())[method](`${base}${path}`); const c = who === 'anon' ? r : r.set('Cookie', cookies[who]); return body ? c.send(body) : c }
   const search = (who = 'maker') => request(app.getHttpServer()).post('/api/v1/agent/search').set('Cookie', cookies[who])
     .send({ destination: 'Dubai', checkIn: day(10), checkOut: day(12), rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED', limit: 100 })
+  // The agent sees the sell price only (ADR 0075). Every hotel here is NIGHT net per night, two nights, no tax or fee, so markup = sell - net.
+  const STAY_NET = 2 * Number(NIGHT)
+  const markupOf = (offer: Record<string, unknown> | undefined) => (offer!.sellAmountMinor as number) - STAY_NET
   const offerFor = (body: { data: { hotels: Array<{ hotelId: string; rooms: Array<{ rates: Array<Record<string, unknown>> }> }> } }, hotelId: string) => body.data.hotels.find((h) => h.hotelId === hotelId)?.rooms[0].rates[0]
   const draft = async (patch: object = {}, who = 'maker') => (await call('post', '', who, { scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: day(-30), reason: 'Standard margin on NET contracts', ...patch }).expect(201)).body.data
   const activate = async (rule: { id: string }, maker = 'maker', checker = 'checker') => {
@@ -142,7 +145,7 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     expect(offerFor((await search().expect(201)).body, hotelA)).toBeUndefined()
   })
 
-  it('CM-03 activation needs a different person; then the Agent sees net plus an exact integer markup, rounded per night', async () => {
+  it('CM-03 activation needs a different person; then the Agent sell price is net plus an exact integer markup, rounded per night', async () => {
     const rule = await draft()
     const requested = (await call('post', `/${rule.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'Standard margin' }).expect(200)).body.data
     expect(requested.approval).toMatchObject({ status: 'PENDING', canDecide: false, canCancel: true })
@@ -154,10 +157,11 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     expect(done.rule).toMatchObject({ status: 'ACTIVE' }); expect(done.replacedRuleId).toBeNull()
     const offer = offerFor((await search().expect(201)).body, hotelA)!
     // 10005 per night, 10% = 1000.5 rounds half up to 1001 per night; two nights
-    expect(offer).toMatchObject({ netAmountMinor: 20_010, markupAmountMinor: 2_002, sellAmountMinor: 22_012 })
-    expect(offer.netAmountMinor as number + (offer.markupAmountMinor as number)).toBe(offer.sellAmountMinor)
+    expect(offer).toMatchObject({ sellAmountMinor: 22_012 })
+    expect(markupOf(offer)).toBe(2_002)
     expect((offer.total as { amountMinor: number }).amountMinor).toBe(22_012)
-    for (const k of ['netAmountMinor', 'markupAmountMinor', 'sellAmountMinor']) expect(Number.isInteger(offer[k])).toBe(true)
+    expect(Number.isInteger(offer.sellAmountMinor)).toBe(true)
+    for (const k of ['netAmountMinor', 'markupAmountMinor', 'totalAmountMinor', 'supplierId', 'contractId']) expect(offer).not.toHaveProperty(k)
     const inspect = (await request(app.getHttpServer()).get(`/api/v1/admin/operations/hotels/${hotelA}/sellability?checkIn=${day(10)}&checkOut=${day(12)}&adults=2&children=0`).set('Cookie', cookies.maker).expect(200)).body.data
     expect(inspect.sellable).toBe(true)
   })
@@ -165,15 +169,15 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
   it('CM-04 precedence and effective dates: hotel beats supplier beats default, and an ended hotel rule falls back', async () => {
     await activate(await draft({ basisPoints: 1_000 }))
     await activate(await draft({ scope: 'SUPPLIER', supplierId: supplierA, basisPoints: 1_500 }))
-    expect((offerFor((await search().expect(201)).body, hotelA)!).markupAmountMinor).toBe(3_002) // 15%: 1501.. per night
+    expect(markupOf(offerFor((await search().expect(201)).body, hotelA))).toBe(3_002) // 15%: 1501.. per night
     await activate(await draft({ scope: 'HOTEL', hotelId: hotelA, basisPoints: 2_000 }))
     const a = offerFor((await search().expect(201)).body, hotelA)!
-    expect(a).toMatchObject({ markupAmountMinor: 4_002, sellAmountMinor: 24_012 }) // 20%: 2001 per night
-    expect(offerFor((await search().expect(201)).body, otherHotelA)!.markupAmountMinor).toBe(3_002) // other hotel still on the supplier rule
+    expect(markupOf(a)).toBe(4_002); expect(a.sellAmountMinor).toBe(24_012) // 20%: 2001 per night
+    expect(markupOf(offerFor((await search().expect(201)).body, otherHotelA))).toBe(3_002) // other hotel still on the supplier rule
     await clearRules()
     await activate(await draft({ basisPoints: 1_000 }))
     await activate(await draft({ scope: 'HOTEL', hotelId: hotelA, basisPoints: 2_000, validFrom: day(-30), validTo: day(-1) })) // already ended
-    expect((offerFor((await search().expect(201)).body, hotelA)!).markupAmountMinor).toBe(2_002)
+    expect(markupOf(offerFor((await search().expect(201)).body, hotelA))).toBe(2_002)
   })
 
   it('CM-15 client and market tiers outrank generic rules, and an exclusion falls back to the next rule (ADR 0067, F-11)', async () => {
@@ -184,14 +188,14 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
       await activate(await draft({ basisPoints: 1_000 }))
       await activate(await draft({ market: 'GB', basisPoints: 1_500, excludedHotelIds: [otherHotelA] }))
       let body = (await search().expect(201)).body
-      expect(offerFor(body, hotelA)!.markupAmountMinor).toBe(3_002) // GB market, 15%
-      expect(offerFor(body, otherHotelA)!.markupAmountMinor).toBe(2_002) // excluded from the market rule: the generic 10%
+      expect(markupOf(offerFor(body, hotelA))).toBe(3_002) // GB market, 15%
+      expect(markupOf(offerFor(body, otherHotelA))).toBe(2_002) // excluded from the market rule: the generic 10%
       const client = await activate(await draft({ agencyId: agency.id, basisPoints: 2_000 }))
       body = (await search().expect(201)).body
-      expect(offerFor(body, hotelA)!.markupAmountMinor).toBe(4_002); expect(offerFor(body, otherHotelA)!.markupAmountMinor).toBe(4_002) // the client tier wins everywhere
-      expect(offerFor((await search('checker').expect(201)).body, hotelA)!.markupAmountMinor).toBe(2_002) // another buyer, no agency: generic only
+      expect(markupOf(offerFor(body, hotelA))).toBe(4_002); expect(markupOf(offerFor(body, otherHotelA))).toBe(4_002) // the client tier wins everywhere
+      expect(markupOf(offerFor((await search('checker').expect(201)).body, hotelA))).toBe(2_002) // another buyer, no agency: generic only
       await call('post', `/${client.rule.id}/retire`, 'maker').expect(200)
-      expect(offerFor((await search().expect(201)).body, hotelA)!.markupAmountMinor).toBe(3_002)
+      expect(markupOf(offerFor((await search().expect(201)).body, hotelA))).toBe(3_002)
       // The generic and the market rule are separate targets: activating one never retires the other.
       expect(await prisma.commercialMarkupRule.count({ where: { tenantId: tenantA, status: 'ACTIVE' } })).toBe(2)
       await call('post', '', 'maker', { scope: 'HOTEL', hotelId: hotelA, excludedHotelIds: [otherHotelA], basisPoints: 100, validFrom: day(-30), reason: 'x' }).expect(400)
@@ -211,7 +215,7 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     const list = (await call('get', '?pageSize=50', 'maker').expect(200)).body.data.items
     expect(list.filter((r: { status: string }) => r.status === 'ACTIVE')).toHaveLength(1)
     expect(list.find((r: { id: string }) => r.id === first.rule.id).status).toBe('RETIRED')
-    expect((offerFor((await search().expect(201)).body, hotelA)!).markupAmountMinor).toBe(2_402) // 12% of 10005 = 1200.6 -> 1201 per night
+    expect(markupOf(offerFor((await search().expect(201)).body, hotelA))).toBe(2_402) // 12% of 10005 = 1200.6 -> 1201 per night
   })
 
   it('CM-06 retiring the ACTIVE rule makes NET unsellable again (fail closed), and the audit trail records each step', async () => {

@@ -57,6 +57,16 @@ describe('Agent canonical search boundary', () => {
     const firstHotel = result.hotels[0] as typeof hotel
     expect(firstHotel.rooms[0].rates[0].total).toEqual({ amountMinor: 125099, currency: 'AED' })
   })
+  it('never sends the buyer cost, margin or supply identity (ADR 0075)', async () => {
+    const { controller } = setup(jest.fn().mockResolvedValue(supplierResult([hotel])))
+    const result = await controller.search(query(), identity, request())
+    const serverOnly = ['netAmountMinor', 'markupAmountMinor', 'totalAmountMinor', 'supplierId', 'supplierHotelId', 'supplierRoomId',
+      'supplierRateId', 'providerId', 'contractId', 'tenantId', 'canonicalHotelId', 'canonicalRoomTypeId', 'offerToken', 'source']
+    const sent = JSON.stringify(result.hotels)
+    expect(serverOnly.filter((key) => sent.includes(`"${key}"`))).toEqual([])
+    expect(result.hotels[0].rooms[0].rates[0]).toMatchObject({ offerId: 'o1', sellAmountMinor: 125099, taxAmountMinor: 10000, feeAmountMinor: 99,
+      total: { amountMinor: 125099, currency: 'AED' } })
+  })
   it('returns partial only when a failed provider accompanies verified offers', async () => {
     const partial = supplierResult([hotel])
     partial.providerSummary = { queried: 2, succeeded: 1, failed: 1 }

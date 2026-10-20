@@ -145,7 +145,49 @@ function declaredPagination(value, criteria, pageLength) {
   return { limit, offset, total: value.total, hasMore, ...(hasMore ? { nextOffset: offset + limit } : {}) }
 }
 
-function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantId, paginate = true) {
+/**
+ * The buyer's view of a rate (ADR 0075). Net cost, markup, supplier cost, supplier and provider identity, contract and tenant
+ * stay on the server: recheck and hold resolve them from the stored offer by `offerId`.
+ */
+function agentRate(rate) {
+  return {
+    offerId: rate.offerId, hotelId: rate.hotelId, roomTypeId: rate.roomTypeId,
+    ratePlanId: rate.ratePlanId, ratePlanName: rate.ratePlanName, boardBasisId: rate.boardBasisId, boardBasisName: rate.boardBasisName,
+    expiresAt: rate.expiresAt,
+    occupancy: { rooms: rate.occupancy.rooms, adults: rate.occupancy.adults,
+      children: rate.occupancy.children, childAges: [...rate.occupancy.childAges] },
+    availability: rate.availability, available: rate.available,
+    cancellation: { refundable: rate.cancellation.refundable, summary: rate.cancellation.summary,
+      ...(rate.cancellation.deadline === undefined ? {} : { deadline: rate.cancellation.deadline }) },
+    total: { amountMinor: rate.total.amountMinor, currency: rate.total.currency },
+    taxAmountMinor: rate.taxAmountMinor, feeAmountMinor: rate.feeAmountMinor, sellAmountMinor: rate.sellAmountMinor,
+    paymentType: rate.paymentType, ...(rate.promotion === undefined ? {} : { promotion: { name: rate.promotion.name, kind: rate.promotion.kind } }),
+    ...(rate.supplements === undefined ? {} : { supplements: rate.supplements.map((x) => ({ name: x.name, kind: x.kind, amountMinor: x.amountMinor })) }),
+    ...(rate.priceIncludes === undefined ? {} : { priceIncludes: { taxes: rate.priceIncludes.taxes, fees: rate.priceIncludes.fees } }),
+    ...(rate.payAtHotel === undefined ? {} : { payAtHotel: rate.payAtHotel.map((c) => ({ kind: c.kind, label: c.label, amountMinor: c.amountMinor, currency: c.currency, basis: c.basis, estimatedTotalMinor: c.estimatedTotalMinor })) }),
+  }
+}
+
+/** Server-side fields and the supplier-cost identities: total = net + tax + fee, sell = total + markup. Never checked in the browser. */
+function internalRateOk(rate, hotel, room, expectedTenantId) {
+  return id(rate.tenantId) && (expectedTenantId === undefined || rate.tenantId === expectedTenantId) &&
+    id(rate.providerId) && rate.canonicalHotelId === hotel.hotelId && rate.canonicalRoomTypeId === room.roomTypeId &&
+    id(rate.canonicalHotelId) && id(rate.canonicalRoomTypeId) &&
+    rate.supplierId === hotel.supplierId && rate.supplierRoomId === room.supplierRoomId &&
+    (rate.contractId === undefined || id(rate.contractId)) && id(rate.supplierRateId) &&
+    (rate.offerToken === undefined || id(rate.offerToken)) &&
+    natural(rate.netAmountMinor, 0) && natural(rate.totalAmountMinor, 0) && natural(rate.markupAmountMinor, 0) &&
+    rate.totalAmountMinor === rate.netAmountMinor + rate.taxAmountMinor + rate.feeAmountMinor &&
+    rate.sellAmountMinor === rate.totalAmountMinor + rate.markupAmountMinor &&
+    ['hotel_direct', 'dmc', 'bedbank', 'channel_manager', 'gds'].includes(rate.source)
+}
+
+/**
+ * `audience: 'internal'` (default) validates supplier output on the API and keeps every field. `audience: 'agent'` validates the
+ * buyer projection in the browser: it checks only what a buyer is sent and returns only `agentRate` fields.
+ */
+function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantId, paginate = true, audience = 'internal') {
+  const agent = audience === 'agent'
   if (!validSearchCriteria(criteria) || !Array.isArray(input)) return { ok: false, reason: 'mapping_unavailable' }
   const offerIds = new Set()
   const hotelIds = new Set()
@@ -159,28 +201,21 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
           (hotel.latitude !== undefined && (!coordinateOk(hotel.latitude) || !coordinateOk(hotel.longitude))) ||
           (hotel.timeZone !== undefined && !timeZoneOk(hotel.timeZone)) ||
           (hotel.primaryImage !== undefined && !imageOk(hotel.primaryImage)) ||
-          !id(hotel.supplierId) || !id(hotel.supplierHotelId) ||
+          (!agent && (!id(hotel.supplierId) || !id(hotel.supplierHotelId))) ||
           !Array.isArray(hotel.rooms) || hotel.rooms.length === 0 ||
           hotelIds.has(hotel.hotelId))
         throw Error('hotel')
       hotelIds.add(hotel.hotelId)
       const roomIds = new Set()
       const rooms = hotel.rooms.map((room) => {
-        if (!record(room) || !id(room.roomTypeId) || !id(room.name) || !id(room.supplierRoomId) ||
+        if (!record(room) || !id(room.roomTypeId) || !id(room.name) || (!agent && !id(room.supplierRoomId)) ||
             !Array.isArray(room.rates) || room.rates.length === 0 ||
             roomIds.has(room.roomTypeId)) throw Error('room')
         roomIds.add(room.roomTypeId)
         const rates = room.rates.map((rate) => {
           if (!record(rate) || !id(rate.offerId) || offerIds.has(rate.offerId) ||
-              !id(rate.tenantId) || (expectedTenantId !== undefined && rate.tenantId !== expectedTenantId) ||
-              !id(rate.providerId) || !id(rate.canonicalHotelId) ||
-              rate.canonicalHotelId !== hotel.hotelId || !id(rate.canonicalRoomTypeId) ||
-              rate.canonicalRoomTypeId !== room.roomTypeId ||
               rate.hotelId !== hotel.hotelId || rate.roomTypeId !== room.roomTypeId ||
-              rate.supplierId !== hotel.supplierId || rate.supplierRoomId !== room.supplierRoomId ||
-              !id(rate.ratePlanId) || (rate.contractId !== undefined && !id(rate.contractId)) || !id(rate.ratePlanName) || !id(rate.boardBasisId) ||
-              !id(rate.boardBasisName) || !id(rate.supplierRateId) ||
-              (rate.offerToken !== undefined && !id(rate.offerToken)) ||
+              !id(rate.ratePlanId) || !id(rate.ratePlanName) || !id(rate.boardBasisId) || !id(rate.boardBasisName) ||
               !instant(rate.expiresAt) || Date.parse(rate.expiresAt) <= now ||
               !['available', 'limited', 'sold_out', 'on_request'].includes(rate.availability) ||
               !record(rate.occupancy) || rate.occupancy.rooms !== criteria.rooms ||
@@ -193,10 +228,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               (rate.cancellation.deadline !== undefined && !instant(rate.cancellation.deadline)) ||
               typeof rate.available !== 'boolean' || rate.available !== (rate.availability === 'available' || rate.availability === 'limited') ||
               !record(rate.total) || rate.total.currency !== criteria.currency || !natural(rate.total.amountMinor, 0) ||
-              !natural(rate.netAmountMinor, 0) || !natural(rate.taxAmountMinor, 0) || !natural(rate.feeAmountMinor, 0) ||
-              !natural(rate.totalAmountMinor, 0) || !natural(rate.markupAmountMinor, 0) || !natural(rate.sellAmountMinor, 0) ||
-              rate.totalAmountMinor !== rate.netAmountMinor + rate.taxAmountMinor + rate.feeAmountMinor ||
-              rate.sellAmountMinor !== rate.totalAmountMinor + rate.markupAmountMinor ||
+              !natural(rate.taxAmountMinor, 0) || !natural(rate.feeAmountMinor, 0) || !natural(rate.sellAmountMinor, 0) ||
               rate.total.amountMinor !== rate.sellAmountMinor ||
               !['prepaid', 'pay_at_hotel', 'credit', 'unspecified'].includes(rate.paymentType) ||
               (rate.promotion !== undefined && (!record(rate.promotion) || !id(rate.promotion.name) || !['EARLY_BIRD', 'LAST_MINUTE', 'LONG_STAY', 'FREE_NIGHTS'].includes(rate.promotion.kind))) ||
@@ -205,35 +237,19 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               (rate.payAtHotel !== undefined && (!Array.isArray(rate.payAtHotel) || rate.payAtHotel.length > 10 || rate.payAtHotel.some((c) => !record(c) || !id(c.kind) || !id(c.label) ||
                 !natural(c.amountMinor, 0) || !natural(c.estimatedTotalMinor, 0) || !/^[A-Z]{3}$/.test(c.currency) ||
                 !['PER_ROOM_PER_NIGHT', 'PER_PERSON_PER_NIGHT', 'PER_ROOM_PER_STAY', 'PER_PERSON_PER_STAY'].includes(c.basis)))) ||
-              !['hotel_direct', 'dmc', 'bedbank', 'channel_manager', 'gds'].includes(rate.source)) throw Error('rate')
+              (agent ? rate.taxAmountMinor + rate.feeAmountMinor > rate.sellAmountMinor : !internalRateOk(rate, hotel, room, expectedTenantId))) throw Error('rate')
           offerIds.add(rate.offerId)
-          return {
-            offerId: rate.offerId, tenantId: rate.tenantId, providerId: rate.providerId,
-            hotelId: rate.hotelId, canonicalHotelId: rate.canonicalHotelId,
-            roomTypeId: rate.roomTypeId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
+          const buyer = agentRate(rate)
+          if (agent) return buyer
+          return { ...buyer, tenantId: rate.tenantId, providerId: rate.providerId,
+            canonicalHotelId: rate.canonicalHotelId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
             supplierId: rate.supplierId, supplierRoomId: rate.supplierRoomId,
-            ratePlanId: rate.ratePlanId, ...(rate.contractId === undefined ? {} : { contractId: rate.contractId }), ratePlanName: rate.ratePlanName,
-            boardBasisId: rate.boardBasisId, boardBasisName: rate.boardBasisName,
-            supplierRateId: rate.supplierRateId,
-            ...(rate.offerToken === undefined ? {} : { offerToken: rate.offerToken }),
-            expiresAt: rate.expiresAt,
-            occupancy: { rooms: rate.occupancy.rooms, adults: rate.occupancy.adults,
-              children: rate.occupancy.children, childAges: [...rate.occupancy.childAges] },
-            availability: rate.availability, available: rate.available,
-            cancellation: { refundable: rate.cancellation.refundable, summary: rate.cancellation.summary,
-              ...(rate.cancellation.deadline === undefined ? {} : { deadline: rate.cancellation.deadline }) },
-            total: { amountMinor: rate.total.amountMinor, currency: rate.total.currency },
-            netAmountMinor: rate.netAmountMinor, taxAmountMinor: rate.taxAmountMinor,
-            feeAmountMinor: rate.feeAmountMinor, totalAmountMinor: rate.totalAmountMinor,
-            markupAmountMinor: rate.markupAmountMinor, sellAmountMinor: rate.sellAmountMinor,
-            paymentType: rate.paymentType, ...(rate.promotion === undefined ? {} : { promotion: { name: rate.promotion.name, kind: rate.promotion.kind } }),
-            ...(rate.supplements === undefined ? {} : { supplements: rate.supplements.map((x) => ({ name: x.name, kind: x.kind, amountMinor: x.amountMinor })) }),
-            ...(rate.priceIncludes === undefined ? {} : { priceIncludes: { taxes: rate.priceIncludes.taxes, fees: rate.priceIncludes.fees } }),
-            ...(rate.payAtHotel === undefined ? {} : { payAtHotel: rate.payAtHotel.map((c) => ({ kind: c.kind, label: c.label, amountMinor: c.amountMinor, currency: c.currency, basis: c.basis, estimatedTotalMinor: c.estimatedTotalMinor })) }),
-            source: rate.source,
-          }
+            ...(rate.contractId === undefined ? {} : { contractId: rate.contractId }),
+            supplierRateId: rate.supplierRateId, ...(rate.offerToken === undefined ? {} : { offerToken: rate.offerToken }),
+            netAmountMinor: rate.netAmountMinor, totalAmountMinor: rate.totalAmountMinor, markupAmountMinor: rate.markupAmountMinor,
+            source: rate.source }
         })
-        return { roomTypeId: room.roomTypeId, name: room.name, supplierRoomId: room.supplierRoomId, rates }
+        return { roomTypeId: room.roomTypeId, name: room.name, ...(agent ? {} : { supplierRoomId: room.supplierRoomId }), rates }
       })
       return { hotelId: hotel.hotelId, name: hotel.name, destination: hotel.destination, starRating: hotel.starRating,
         ...(hotel.propertyType === undefined ? {} : { propertyType: hotel.propertyType }),
@@ -241,7 +257,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
         ...(hotel.latitude === undefined ? {} : { latitude: hotel.latitude, longitude: hotel.longitude }),
         ...(hotel.timeZone === undefined ? {} : { timeZone: hotel.timeZone }),
         ...(hotel.primaryImage === undefined ? {} : { primaryImage: { imageId: hotel.primaryImage.imageId, altText: hotel.primaryImage.altText, width: hotel.primaryImage.width, height: hotel.primaryImage.height } }),
-        supplierId: hotel.supplierId, supplierHotelId: hotel.supplierHotelId, rooms }
+        ...(agent ? {} : { supplierId: hotel.supplierId, supplierHotelId: hotel.supplierHotelId }), rooms }
     })
     const requestedHotelIds = criteria.canonicalHotelIds === undefined ? undefined : new Set(criteria.canonicalHotelIds)
     const destination = criteria.destination.trim().toLocaleLowerCase('en-US')
@@ -287,7 +303,7 @@ function validateAgentSearchResponse(value, criteria, now = Date.now()) {
       !natural(value.providerSummary.queried, 0) || !natural(value.providerSummary.succeeded, 0) || !natural(value.providerSummary.failed, 0) ||
       value.providerSummary.succeeded + value.providerSummary.failed > value.providerSummary.queried)
     return { ok: false, reason: 'mapping_unavailable' }
-  const result = validateSearchHotels(value.hotels, criteria, now, undefined, false)
+  const result = validateSearchHotels(value.hotels, criteria, now, undefined, false, 'agent')
   const pagination = result.ok ? declaredPagination(value.pagination, criteria, result.hotels.length) : null
   if (!result.ok || pagination === null || value.total !== result.hotels.length ||
       (!['available', 'partial'].includes(value.status) && result.hotels.length > 0) ||
@@ -302,4 +318,12 @@ function validateAgentSearchResponse(value, criteria, now = Date.now()) {
     providerSummary: { queried: value.providerSummary.queried, succeeded: value.providerSummary.succeeded, failed: value.providerSummary.failed } } }
 }
 
-module.exports = { validSearchCriteria, validateSearchHotels, validateAgentSearchResponse, cityDestinationId }
+/** The API's agent-facing search hotels: validated internal offers reduced to the buyer's view. */
+function projectAgentHotels(hotels) {
+  return hotels.map((hotel) => {
+    const { supplierId: _supplierId, supplierHotelId: _supplierHotelId, ...shown } = hotel
+    return { ...shown, rooms: hotel.rooms.map((room) => ({ roomTypeId: room.roomTypeId, name: room.name, rates: room.rates.map(agentRate) })) }
+  })
+}
+
+module.exports = { validSearchCriteria, validateSearchHotels, validateAgentSearchResponse, projectAgentHotels, cityDestinationId }

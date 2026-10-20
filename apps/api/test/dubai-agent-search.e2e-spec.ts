@@ -279,12 +279,11 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     const hotel = response.body.data.hotels[0]
     const room = hotel.rooms[0]
     const rate = room.rates[0]
-    expect(hotel).toMatchObject({ hotelId, name: hotelName, destination: 'Dubai', supplierId })
+    expect(hotel).toMatchObject({ hotelId, name: hotelName, destination: 'Dubai' })
     expect(room).toMatchObject({ roomTypeId: roomId, name: roomName })
-    expect(rate).toMatchObject({
-      tenantId, supplierId, hotelId, canonicalHotelId: hotelId, roomTypeId: roomId, canonicalRoomTypeId: roomId,
-      boardBasisId: boardId, boardBasisName: boardName, ratePlanId, contractId,
-    })
+    // The rate plan belongs to the certified contract; supply identity and cost stay on the server (ADR 0075).
+    expect(rate).toMatchObject({ hotelId, roomTypeId: roomId, boardBasisId: boardId, boardBasisName: boardName, ratePlanId })
+    for (const key of ['tenantId', 'supplierId', 'supplierHotelId', 'supplierRoomId', 'supplierRateId', 'providerId', 'contractId', 'canonicalHotelId', 'netAmountMinor', 'markupAmountMinor', 'totalAmountMinor']) expect({ ...hotel, ...room, ...rate }).not.toHaveProperty(key)
     expect(rate.total).toEqual({ amountMinor: stayMinor, currency: 'AED' })
     expect(rate.sellAmountMinor).toBe(stayMinor)
     expect(Number.isSafeInteger(rate.sellAmountMinor)).toBe(true)

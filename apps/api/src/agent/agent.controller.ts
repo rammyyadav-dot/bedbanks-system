@@ -21,7 +21,7 @@ import { Type } from 'class-transformer'
 import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { defaultSettlementCurrency, enabledSettlementCurrencies } from './currency'
-import { validSearchCriteria } from './search-offers'
+import { projectAgentHotels, validSearchCriteria } from './search-offers'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
@@ -195,7 +195,9 @@ export class AgentController {
     const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
     if (!resolved) throw new BadRequestException('Canonical destination is no longer available')
     if (!validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
-    return this.agentSearch.execute(resolved, tenantId, req.requestId ?? randomUUID(), identity)
+    const response = await this.agentSearch.execute(resolved, tenantId, req.requestId ?? randomUUID(), identity)
+    // The buyer sees the sell price only: cost, margin and supply identity never leave the API (ADR 0075).
+    return { ...response, hotels: projectAgentHotels(response.hotels) }
   }
 
   @Delete('holds/:holdId')
