@@ -258,7 +258,7 @@ Before production release, additionally verify:
 2. Tenant-isolation and RBAC tests for every privileged or tenant-scoped route.
 3. A live-safe provider sandbox path for search, recheck, booking and cancellation.
 4. Booking idempotency, unknown-outcome and reconciliation scenarios.
-5. Secret scanning, dependency review, security headers and accessible frontend smoke tests.
+5. Secret scanning, dependency audit, security headers and accessible frontend smoke tests.
 6. Monitoring dashboards, alerts, rollback plan and accountable on-call ownership.
 7. Legal review for privacy, terms, supplier contracts, payments and regional compliance.
 
