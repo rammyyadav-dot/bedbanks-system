@@ -1242,7 +1242,7 @@ model BookingAmendment {
   differenceMinor        BigInt?                @map("difference_minor")
   approvedCancelDeadline DateTime?              @map("approved_cancel_deadline")
   /// Document types already issued when this was approved; they are not reissued.
-  documentsNotReissued   String[]               @map("documents_not_reissued")
+  documentsNotReissued   String[]               @default([]) @map("documents_not_reissued")
   requestedByUserId      String?                @map("requested_by_user_id")
   requestedBy            User?                  @relation("BookingAmendmentRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
   decidedByUserId        String?                @map("decided_by_user_id")

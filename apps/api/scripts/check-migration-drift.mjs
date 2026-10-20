@@ -11,6 +11,8 @@ const TOLERATED = new Set([
   // 202611280001_hotel_search_hot_path: a generated column and its partial index, neither expressible in Prisma 6.
   'DROP INDEX "Hotel_tenant_id_city_key_complete_idx";',
   'ALTER TABLE "Hotel" DROP COLUMN "city_key";',
+  // 202611250001_hotel_search_indexes: generated tsvector column; Prisma 6 reads the generation expression as a default.
+  'ALTER TABLE "HotelSearchIndex" ALTER COLUMN "search_tsv" DROP DEFAULT;',
 ])
 
 const diff = spawnSync(

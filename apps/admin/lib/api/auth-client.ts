@@ -15,7 +15,7 @@ async function apiFetch<T>(
     signal: AbortSignal.timeout(10000),
   });
 
-  const body = await res.json();
+  const body: unknown = await res.json();
 
   if (!res.ok) {
     const err = body as { success: false; error: ApiError };
@@ -26,7 +26,7 @@ async function apiFetch<T>(
     );
   }
 
-  if (body.success !== true) throw new Error('Invalid authentication response');
+  if ((body as { success?: unknown } | null)?.success !== true) throw new Error('Invalid authentication response');
   return { data: (body as { success: true; data: T }).data, response: res };
 }
 
