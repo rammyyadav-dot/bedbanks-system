@@ -17,11 +17,11 @@ jobs:
     name: Schema integrity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -54,11 +54,11 @@ jobs:
       MAPPING_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -130,11 +130,11 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -170,11 +170,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -191,7 +191,7 @@ jobs:
         run: pnpm --filter @bedbanks/e2e e2e
       - name: Upload report and service logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-release-suite-report
           path: |
@@ -210,11 +210,11 @@ jobs:
       EXPECTED_SITE_URL: https://www.fbeds.com
       CHECK_BASE_URL: http://localhost:4710
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -237,7 +237,7 @@ jobs:
         run: pnpm --filter @bedbanks/website check:site -- --external
       - name: Upload browser report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: website-playwright-report
           path: |
