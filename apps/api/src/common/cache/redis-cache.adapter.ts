@@ -46,6 +46,11 @@ export class RedisCacheAdapter implements CachePort, CoordinationPort {
     await this.command(['EVAL', RELEASE_SCRIPT, '1', lease.key, lease.token])
   }
 
+  /** Runs a Lua script atomically. Scripts used here return one scalar (string, integer or nil); arrays are not parsed. */
+  async eval(script: string, keys: string[], args: string[]): Promise<string | number | null> {
+    return this.command(['EVAL', script, String(keys.length), ...keys, ...args])
+  }
+
   private assertTtl(ttlMs: number): void {
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error('A bounded positive Redis TTL is required')
   }

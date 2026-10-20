@@ -18,6 +18,8 @@ export type { XmlProviderProfile, OperationSpec, SupplierFault, CertificationLev
 export { SupplierCallError, supplierAmountMinor, validateSearchQuery, isIsoDate, isOffsetTimestamp } from './xml/supplier-types';
 export type * from './xml/supplier-types';
 export { evaluateReadiness, ProviderProfileRegistry, PROVIDER_ONBOARDING } from './xml/readiness';
+export { SharedConnectorGate, sharedGateKey, DEFAULT_SHARED_GATE_LIMITS } from './xml/shared-gate';
+export type { GateStore, GateAcquireResult, GateOutcome, SharedGateLimits, SharedGateEvent, SharedConnectorGateOptions } from './xml/shared-gate';
 export { fanOutRead } from './fanout/supplier-fanout';
 export type { SupplierLeg, FanoutOptions, FanoutResult, LegResult, FanoutLegEvent } from './fanout/supplier-fanout';
 export type { ConnectorRuntimeState, ReadinessReport, ReadinessGate, ProviderOnboarding } from './xml/readiness';
