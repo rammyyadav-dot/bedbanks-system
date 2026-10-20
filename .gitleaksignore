@@ -1,0 +1,14 @@
+# Exact-fingerprint exemptions (commit:file:rule:line). Reviewed 2026-10-20.
+#
+# 27f90560 (only on the stale branch fix/api-auth-prisma-structure, never merged) committed a local
+# apps/admin/.next build directory. The hits are Next.js previewModeSigningKey/previewModeEncryptionKey:
+# random per-build values from that one developer build, not credentials. The admin app does not use
+# draft/preview mode, .next is in .gitignore and .dockerignore, and every deployed build generates its
+# own keys, so there is nothing to rotate. A new commit or path still fails the scan.
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/cache/.previewinfo:generic-api-key:1
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/prerender-manifest.json:generic-api-key:122
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/prerender-manifest.json:generic-api-key:123
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware/middleware-manifest.json:generic-api-key:25
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware/middleware-manifest.json:generic-api-key:26
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware-manifest.json:generic-api-key:25
+27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware-manifest.json:generic-api-key:26
