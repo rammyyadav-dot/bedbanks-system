@@ -15,3 +15,7 @@ paths = [
   '''apps/website/tests/lead-security\.test\.ts''',
   '''tools/admin-ops-verify/verify-inventory\.cjs''',
 ]
+# Reviewed 2026-10-20: 27f90560 accidentally committed apps/admin/.next build output (removed in 4fc0833d; .next is gitignored).
+# Its 8 hits are the Next.js preview-mode signing/encryption keys that every build regenerates; no deployed build uses them.
+# Commit-scoped, not path-scoped: a secret in any other commit, including future .next output, still fails the scan.
+commits = ['''27f90560270e1e04d5f3fe2c19926e0ab290252e''']
