@@ -5,7 +5,7 @@ services:
   - type: web
     name: fbeds-api
     runtime: docker
-    dockerfilePath: ./Dockerfile.api
+    dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
     plan: starter
     region: frankfurt
