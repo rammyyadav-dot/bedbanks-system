@@ -9,3 +9,4 @@ export const cityDestinationId = searchOffers.cityDestinationId
 export const validSearchCriteria = searchOffers.validSearchCriteria
 export const validateSearchHotels = searchOffers.validateSearchHotels
 export const validateAgentSearchResponse = searchOffers.validateAgentSearchResponse
+export const projectAgentHotels = searchOffers.projectAgentHotels

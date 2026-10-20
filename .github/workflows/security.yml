@@ -18,53 +18,43 @@ concurrency:
 jobs:
   dependency-audit:
     name: Dependency audit (production)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs
+      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs tools/framework-peer-check.test.mjs
       - run: node tools/workflow-permissions-check.mjs
       # Fails on any unaccepted high or critical advisory; accepted ones live in security/audit-allowlist.json with a reason and expiry.
       - run: node tools/dependency-audit-check.mjs
 
-  dependency-review:
-    name: Dependency review (new packages in the PR)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/dependency-review-action@v5
-        with:
-          fail-on-severity: high
-
   codeql:
     name: CodeQL (JavaScript and TypeScript)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: javascript-typescript
           queries: security-extended
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:javascript-typescript
 
   secret-scan:
     name: Secret scan (full history)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false

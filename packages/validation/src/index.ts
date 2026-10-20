@@ -10,3 +10,5 @@ export const hotelSearchSchema = z.object({
   checkIn: z.string().min(1),
   checkOut: z.string().min(1),
 })
+
+export * from './distribution-search'

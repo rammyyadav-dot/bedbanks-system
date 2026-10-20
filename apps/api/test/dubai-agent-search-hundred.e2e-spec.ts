@@ -301,15 +301,14 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     return api(cookie, tenant).post('/api/v1/agent/search').send(searchBody(patch))
   }
 
-  function commercialSignature(rows: Array<{ hotelId: string; name: string; supplierId: string; rooms: Array<{ roomTypeId: string; rates: Array<{ ratePlanId: string; contractId?: string; boardBasisId: string; sellAmountMinor: number; total: { currency: string } }> }> }>) {
+  function commercialSignature(rows: Array<{ hotelId: string; name: string; rooms: Array<{ roomTypeId: string; rates: Array<{ ratePlanId: string; boardBasisId: string; sellAmountMinor: number; total: { currency: string } }> }> }>) {
     return rows.map((hotel) => ({
       hotelId: hotel.hotelId,
       name: hotel.name,
-      supplierId: hotel.supplierId,
       rooms: hotel.rooms.map((room) => ({
         roomTypeId: room.roomTypeId,
         rates: room.rates.map((rate) => ({
-          ratePlanId: rate.ratePlanId, contractId: rate.contractId, boardBasisId: rate.boardBasisId, sellAmountMinor: rate.sellAmountMinor, currency: rate.total.currency,
+          ratePlanId: rate.ratePlanId, boardBasisId: rate.boardBasisId, sellAmountMinor: rate.sellAmountMinor, currency: rate.total.currency,
         })),
       })),
     }))
@@ -333,12 +332,13 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     for (const sample of [hotels[0], hotels[24], hotels[25], hotels[99]]) {
       const hotel = rows.find((row: { hotelId: string }) => row.hotelId === sample.hotelId)
       const offer = hotel.rooms[0].rates[0]
-      expect(hotel).toMatchObject({ name: sample.name, destination: 'Dubai', supplierId })
+      expect(hotel).toMatchObject({ name: sample.name, destination: 'Dubai' })
       expect(hotel.rooms[0]).toMatchObject({ roomTypeId: sample.roomId, name: 'King Room' })
+      // sellPlanId belongs to sample.contractId; supply identity and cost stay on the server (ADR 0075).
       expect(offer).toMatchObject({
-        tenantId, supplierId, hotelId: sample.hotelId, canonicalHotelId: sample.hotelId, roomTypeId: sample.roomId,
-        boardBasisId: boardId, boardBasisName: 'Bed & Breakfast', ratePlanId: sample.sellPlanId, contractId: sample.contractId,
+        hotelId: sample.hotelId, roomTypeId: sample.roomId, boardBasisId: boardId, boardBasisName: 'Bed & Breakfast', ratePlanId: sample.sellPlanId,
       })
+      for (const key of ['tenantId', 'supplierId', 'supplierHotelId', 'supplierRoomId', 'supplierRateId', 'providerId', 'contractId', 'canonicalHotelId', 'netAmountMinor', 'markupAmountMinor', 'totalAmountMinor']) expect({ ...hotel, ...offer }).not.toHaveProperty(key)
       expect(offer.total).toEqual({ amountMinor: sample.totalMinor, currency: 'AED' })
       expect(offer.sellAmountMinor).toBe(sample.totalMinor)
       expect(Number.isSafeInteger(offer.sellAmountMinor)).toBe(true)

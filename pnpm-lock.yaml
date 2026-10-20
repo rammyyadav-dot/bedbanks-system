@@ -220,12 +220,6 @@ importers:
       '@prisma/client':
         specifier: ^6.2.1
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
-      '@swc-node/register':
-        specifier: ^1.12.1
-        version: 1.12.1(@swc/core@1.16.18(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3)
-      '@swc/core':
-        specifier: ^1.16.18
-        version: 1.16.18(@swc/helpers@0.5.23)
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -257,6 +251,12 @@ importers:
       '@nestjs/testing':
         specifier: ^11.2.7
         version: 11.2.7(@nestjs/common@11.2.7(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.2.7)(@nestjs/platform-express@11.2.7)
+      '@swc-node/register':
+        specifier: ^1.12.1
+        version: 1.12.1(@swc/core@1.16.18(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3)
+      '@swc/core':
+        specifier: ^1.16.18
+        version: 1.16.18(@swc/helpers@0.5.23)
       '@types/bcryptjs':
         specifier: ^2.4.6
         version: 2.4.6
@@ -488,6 +488,9 @@ importers:
 
   packages/validation:
     dependencies:
+      '@bedbanks/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       zod:
         specifier: ^3.22.0
         version: 3.25.76

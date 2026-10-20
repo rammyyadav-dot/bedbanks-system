@@ -3,7 +3,8 @@ title = "fBeds gitleaks config"
 [extend]
 useDefault = true
 
-# Reviewed 2026-10-18: the only default-rule hits in history are idempotencyKey literals and test-only SECRET constants in these files.
+# Reviewed 2026-10-18: default-rule hits on main are idempotencyKey literals and test-only SECRET constants in these files.
+# Single historical hits on unmerged branches are exempted by exact fingerprint in .gitleaksignore instead.
 # Path-scoped on purpose: production code and configuration are never exempt.
 [allowlist]
 description = "Test and verification fixtures (idempotency keys, test signing constants)"

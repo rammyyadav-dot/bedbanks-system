@@ -15,13 +15,13 @@ concurrency:
 jobs:
   schema-integrity:
     name: Schema integrity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -29,15 +29,18 @@ jobs:
       - run: pnpm check:schema
       - run: pnpm check:architecture
       - run: node --test tools/clone-certification-guard.test.mjs
+      - run: node --test tools/migration-ledger-check.test.mjs
+      - name: Committed migration chain (IDs, collisions, SQL present)
+        run: node tools/migration-ledger-check.mjs chain
       - run: node --import tsx --test tools/runtime-db-role-check.test.ts
       - run: node --import tsx --test tools/tenant-filter-check.test.ts
 
   prisma-migration-certification:
     name: Prisma migration certification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -54,11 +57,11 @@ jobs:
       MAPPING_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fbeds_ci?schema=public
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -100,10 +103,10 @@ jobs:
         run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs
 
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -116,7 +119,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:7-alpine
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
         ports:
           - 6379:6379
         options: >-
@@ -130,11 +133,11 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -153,11 +156,11 @@ jobs:
 
   e2e-release-suite:
     name: End-to-end release suite (Admin, Agent, Supplier)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -170,11 +173,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -191,7 +194,7 @@ jobs:
         run: pnpm --filter @bedbanks/e2e e2e
       - name: Upload report and service logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-release-suite-report
           path: |
@@ -203,18 +206,18 @@ jobs:
 
   website-production-checks:
     name: Website production checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       NEXT_PUBLIC_SITE_URL: https://www.fbeds.com
       EXPECTED_SITE_URL: https://www.fbeds.com
       CHECK_BASE_URL: http://localhost:4710
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -237,7 +240,7 @@ jobs:
         run: pnpm --filter @bedbanks/website check:site -- --external
       - name: Upload browser report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: website-playwright-report
           path: |

@@ -20,13 +20,13 @@ concurrency:
 jobs:
   certify-clone:
     if: github.repository == 'rammyyadav-dot/bedbanks-system' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.apply_clone_migrations
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Owner must configure required reviewers and restrict this environment to main.
     environment: fbeds-clone-certification
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
         ports: [6379:6379]
         options: >-
           --health-cmd "redis-cli ping"
@@ -34,14 +34,14 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
@@ -65,7 +65,7 @@ jobs:
         run: node tools/certify-production-clone.mjs
       - name: Publish sanitized result only
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: clone-certification-result
           path: clone-certification-evidence/result.json

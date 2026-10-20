@@ -4,8 +4,9 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination, tenantCacheKey, type CachePort, type CoordinationPort } from '../common/cache/cache.port'
 import { AgentAuditService } from './audit.service'
 import { SupplierAdapter, SUPPLIER_ADAPTER, type HotelSearchCriteria } from './supplier.port'
-import type { SearchPagination } from '@bedbanks/domain'
+import type { SearchHotelOffer, SearchPagination } from '@bedbanks/domain'
 import { validateSearchHotels } from './search-offers'
+import { isAuthoritative } from './aggregating-supplier.adapter'
 
 const DEFAULT_SEARCH_TTL_MS = 45_000
 const MIN_SEARCH_TTL_MS = 1_000
@@ -14,14 +15,15 @@ const SEARCH_LOCK_TTL_MS = 12_000
 const SEARCH_LOCK_WAIT_MS = 750
 const SEARCH_LOCK_POLL_MS = 75
 
-type SearchResponse = {
+/** The internal search result, cached per tenant. Agents receive it only through `projectAgentHotels` (ADR 0075). */
+export type SearchResponse = {
   version: 1
   searchId: string
   requestId: string
   generatedAt: string
   request: HotelSearchCriteria
   status: 'available' | 'partial' | 'no_availability' | 'provider_unavailable' | 'mapping_unavailable'
-  hotels: unknown[]
+  hotels: SearchHotelOffer[]
   total: number
   pagination: SearchPagination
   providerSummary: { queried: number; succeeded: number; failed: number }
@@ -163,7 +165,7 @@ export class AgentSearchService {
   }
 
   private authoritativeInventory(): boolean {
-    return this.supplier.name === 'contracted-inventory'
+    return isAuthoritative(this.supplier)
   }
 
   private acceptCached(value: unknown, tenantId: string, request: HotelSearchCriteria): SearchResponse | null {

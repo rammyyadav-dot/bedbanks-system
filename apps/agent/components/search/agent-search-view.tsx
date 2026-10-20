@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { MapPin, Search, ShieldAlert } from 'lucide-react'
 import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
-import type { DestinationRef, SearchCriteria, SearchHotelOffer, SearchRateOffer, SearchRoomOffer, SearchSort } from '@bedbanks/domain'
+import type { DestinationRef, SearchCriteria, AgentHotelOffer, AgentRateOffer, AgentRoomOffer, SearchSort } from '@bedbanks/domain'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
 import { ApiHotelService } from '@/services/hotel-service'
 import { includesBreakfast } from '@/lib/board-basis'
@@ -41,7 +41,7 @@ export function SearchView({
   destination: string; destinationRef: DestinationRef | null; setDestination: (label: string, ref: DestinationRef | null, cityName: string) => void
   checkIn: string; setCheckIn: (value: string) => void
   checkOut: string; setCheckOut: (value: string) => void
-  liveHotels: SearchHotelOffer[]
+  liveHotels: AgentHotelOffer[]
   result: HotelSearchResult | null; searching: boolean; refreshing?: boolean; refreshError?: string; searchFailed: boolean; loadingMore: boolean; loadMoreError: string; onSearch: () => void; onLoadMore: () => void; onPage: (offset: number) => void
   roomStays: RoomStayDraft[]; setRoomStays: (value: RoomStayDraft[]) => void
   currency: string; setCurrency: (value: string) => void
@@ -63,7 +63,7 @@ export function SearchView({
   agentEmail?: string | null
   bookingEnabled: boolean; tenantId: string; onBooked: () => void; onViewBooking: (bookingId: string) => void
 }) {
-  const [selectedLive, setSelectedLive] = useState<SearchHotelOffer | null>(null)
+  const [selectedLive, setSelectedLive] = useState<AgentHotelOffer | null>(null)
   const [cursor, setCursor] = useState(0)
   const [validationMessage, setValidationMessage] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -115,7 +115,7 @@ export function SearchView({
     card?.scrollIntoView({ block: 'center' })
     card?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
   }, [selectedLive])
-  const openHotel = (hotel: SearchHotelOffer, index: number) => {
+  const openHotel = (hotel: AgentHotelOffer, index: number) => {
     setCursor(index)
     returnTo.current = hotel.hotelId
     setSelectedLive(hotel)
@@ -207,8 +207,8 @@ function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchRe
   const copy = unavailable ? 'Please try again in a moment.' : mapping ? 'The supplier offer could not be verified against the fabBeds hotel and room catalogue.' : status === 'empty' ? 'Change the dates, broaden the destination, or clear filters. This is not a supplier outage.' : 'Your search details are preserved. Try again or adjust the search criteria.'
   return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div>{unavailable ? <button className="portal-primary" onClick={onRetry}>Try again</button> : <button className="portal-primary" onClick={onEdit}>Modify search</button>}{!unavailable && <button className="portal-link" onClick={onRetry}>Try again</button>}</div></div>
 }
-function paymentLabel(paymentType: SearchRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : paymentType === 'unspecified' ? 'Payment terms not stated' : 'Agency credit' }
-function formatTotal(total: SearchRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
+function paymentLabel(paymentType: AgentRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : paymentType === 'unspecified' ? 'Payment terms not stated' : 'Agency credit' }
+function formatTotal(total: AgentRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }
 function hotelInitial(name: string) {
   return name.trim().charAt(0).toUpperCase() || 'H'
 }
@@ -220,11 +220,11 @@ function StarMark({ rating }: { rating: number }) {
   if (!stars) return null
   return <span className="market-stars" aria-label={`${stars} star${stars === 1 ? '' : 's'}`}>{'★'.repeat(stars)}<span aria-hidden="true">{'☆'.repeat(5 - stars)}</span></span>
 }
-function cancellationDeadline(rate: SearchRateOffer, timeZone?: string) {
+function cancellationDeadline(rate: AgentRateOffer, timeZone?: string) {
   if (!rate.cancellation.deadline || !rate.cancellation.refundable) return null
   return formatCancellationDeadline(rate.cancellation.deadline, timeZone || 'UTC')
 }
-function cancellationLine(rate: SearchRateOffer, timeZone?: string) {
+function cancellationLine(rate: AgentRateOffer, timeZone?: string) {
   const until = cancellationDeadline(rate, timeZone)
   if (until) return `Free cancellation until ${until}`
   return rate.cancellation.summary.trim() || (rate.cancellation.refundable ? 'Refundable' : 'Non-refundable')
@@ -234,10 +234,10 @@ function moneyLine(label: string, amountMinor: number, currency: string) {
   const formatted = formatMinorAmount(amountMinor, currency)
   return formatted ? `${label} ${formatted}` : null
 }
-function leadStay(hotel: SearchHotelOffer) {
+function leadStay(hotel: AgentHotelOffer) {
   // Instantly bookable rates lead; an on-request rate is never the headline price while a confirmed one exists.
-  let lead: { room: SearchRoomOffer; rate: SearchRateOffer } | null = null
-  let onRequest: { room: SearchRoomOffer; rate: SearchRateOffer } | null = null
+  let lead: { room: AgentRoomOffer; rate: AgentRateOffer } | null = null
+  let onRequest: { room: AgentRoomOffer; rate: AgentRateOffer } | null = null
   for (const room of hotel.rooms) {
     for (const rate of room.rates) {
       if (rate.availability === 'sold_out') continue
@@ -251,7 +251,7 @@ function leadStay(hotel: SearchHotelOffer) {
   return lead ?? onRequest
 }
 function nightsLabel(nights: number | null) { return nights === null ? 'stay' : `${nights} ${nights === 1 ? 'night' : 'nights'}` }
-function PerNight({ total, nights }: { total: SearchRateOffer['total']; nights: number | null }) {
+function PerNight({ total, nights }: { total: AgentRateOffer['total']; nights: number | null }) {
   const average = averageNightlyMinor(total.amountMinor, nights)
   const formatted = average === null || nights === null || nights < 2 ? null : formatMinorAmount(average, total.currency)
   return formatted ? <small className="bb-per-night">avg. {formatted} / night</small> : null
@@ -260,7 +260,7 @@ function PerNight({ total, nights }: { total: SearchRateOffer['total']; nights: 
  * Lead price for a card or hotel page. With a client markup (ADR 0065) the client price leads and the agency price stays visible:
  * the agency is always charged the agency price.
  */
-function PriceBlock({ total, nights, markupBp }: { total: SearchRateOffer['total']; nights: number | null; markupBp: number }) {
+function PriceBlock({ total, nights, markupBp }: { total: AgentRateOffer['total']; nights: number | null; markupBp: number }) {
   const client = clientPrice(total, markupBp)
   if (!client) return <><small>From · total for {nightsLabel(nights)}</small><strong>{formatTotal(total)}</strong><PerNight total={total} nights={nights} /></>
   return <>
@@ -270,7 +270,7 @@ function PriceBlock({ total, nights, markupBp }: { total: SearchRateOffer['total
     <small className="bb-agency-price">Agency price {formatTotal(total)}</small>
   </>
 }
-function LiveHotelCard({ hotel, tenantId, nights, markupBp, active, onSelect }: { hotel: SearchHotelOffer; tenantId: string; nights: number | null; markupBp: number; active: boolean; onSelect: () => void }) {
+function LiveHotelCard({ hotel, tenantId, nights, markupBp, active, onSelect }: { hotel: AgentHotelOffer; tenantId: string; nights: number | null; markupBp: number; active: boolean; onSelect: () => void }) {
   const lead = leadStay(hotel)
   const rate = lead?.rate
   const roomOptions = selectableRoomLabel(selectableRoomCount(hotel.rooms))
@@ -300,16 +300,16 @@ function LiveHotelCard({ hotel, tenantId, nights, markupBp, active, onSelect }: 
     </div>
   </article>
 }
-function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, markupBp, agentEmail, onBooked, onViewBooking }: { hotel: SearchHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; markupBp: number; agentEmail: string | null; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
+function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingEnabled, tenantId, markupBp, agentEmail, onBooked, onViewBooking }: { hotel: AgentHotelOffer; request: SearchCriteria; searchId?: string; onBack: () => void; onRefresh: () => void; bookingEnabled: boolean; tenantId: string; markupBp: number; agentEmail: string | null; onBooked: () => void; onViewBooking: (bookingId: string) => void }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
-  const [selection, setSelection] = useState<{ hotel: SearchHotelOffer; room: SearchRoomOffer; rate: SearchRateOffer; searchContext: SearchCriteria } | null>(null)
+  const [selection, setSelection] = useState<{ hotel: AgentHotelOffer; room: AgentRoomOffer; rate: AgentRateOffer; searchContext: SearchCriteria } | null>(null)
   const [acceptedMinor, setAcceptedMinor] = useState<number | null>(null)
   const [recheck, setRecheck] = useState<OfferRecheckResult | null>(null)
   const [rechecking, setRechecking] = useState(false)
   const recheckGeneration = useRef(0)
   const selectedOfferId = useRef('')
-  const runRecheck = async (rate: SearchRateOffer, expectedMinor: number, generation: number) => {
+  const runRecheck = async (rate: AgentRateOffer, expectedMinor: number, generation: number) => {
     const offerId = rate.offerId
     selectedOfferId.current = offerId
     if (!searchId) { if (generation === recheckGeneration.current) setRechecking(false); return }
@@ -317,7 +317,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     setRechecking(true)
     setRecheck(null)
     try {
-      const result = await new ApiHotelService().recheckOffer({ ...rate, sellAmountMinor: expectedMinor, total: { ...rate.total, amountMinor: expectedMinor } }, searchId, rate.tenantId)
+      const result = await new ApiHotelService().recheckOffer({ ...rate, sellAmountMinor: expectedMinor, total: { ...rate.total, amountMinor: expectedMinor } }, searchId, tenantId)
       if (stillSelected()) setRecheck(result)
     } catch {
       if (stillSelected()) setRecheck({ status: 'provider_unavailable', offerId, searchId, requestId: 'unavailable' })
@@ -325,7 +325,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       if (generation === recheckGeneration.current) setRechecking(false)
     }
   }
-  const choose = (room: SearchRoomOffer, rate: SearchRateOffer) => {
+  const choose = (room: AgentRoomOffer, rate: AgentRateOffer) => {
     if (Date.parse(rate.expiresAt) <= Date.now() || rate.availability === 'sold_out' || rate.availability === 'on_request') return
     const generation = recheckGeneration.current + 1
     recheckGeneration.current = generation

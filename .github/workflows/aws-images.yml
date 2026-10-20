@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
@@ -48,7 +48,7 @@ jobs:
 
   build:
     needs: plan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The build role may only be assumed from main (see infra/aws/terraform/iam.tf).
     if: github.ref == 'refs/heads/main'
     environment: ${{ inputs.environment }}
@@ -56,14 +56,14 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      - uses: docker/setup-buildx-action@v3
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build and push
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -76,7 +76,12 @@ jobs:
             echo "$image already exists (tags are immutable); nothing to do"; exit 0
           fi
           if [ "$APP" = api ]; then
-            docker buildx build --file Dockerfile.api --tag "$image" --push .
+            # Two targets of one recipe (ADR 0075): the runtime image (compiled JS, no prisma CLI) and the one-off migration task image.
+            if ! aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$GITHUB_SHA-migrate" >/dev/null 2>&1; then
+              docker buildx build --file apps/api/Dockerfile --target migrator --tag "$image-migrate" --push .
+            fi
+            docker buildx build --file apps/api/Dockerfile --target runner --tag "$image" --push .
+            echo "pushed $image-migrate" >> "$GITHUB_STEP_SUMMARY"
           else
             docker buildx build --file Dockerfile.web --tag "$image" --push \
               --build-arg APP="$APP" --build-arg PACKAGE="$PACKAGE" \

@@ -1,0 +1,78 @@
+name: Neon staging migration
+
+# ADR 0075, docs/runbooks/neon-staging-migrations.md. Manual only, from main, behind the `neon-staging` environment (required reviewer, main only).
+# Branches `staging` from production's head (or resets it), rotates the inherited owner password, applies every pending migration with the owner
+# credential, re-provisions and verifies the runtime role, and uploads the sanitized evidence. It never receives or targets production credentials:
+# scripts/neon-staging-branch.sh refuses to issue credentials for a protected or default branch and scripts/migrate-staging.sh refuses production hosts.
+on:
+  workflow_dispatch:
+    inputs:
+      reset_staging:
+        description: Reset an existing staging branch to production's current head (its current state is preserved under a new name)
+        required: true
+        type: boolean
+        default: true
+      expect_pending:
+        description: Exact number of pending migrations expected on the fresh staging branch (empty = do not assert)
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fbeds-neon-staging-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate-staging:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: neon-staging
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      NEON_DATABASE: ${{ vars.NEON_DATABASE || 'neondb' }}
+      NEON_OWNER_ROLE: ${{ vars.NEON_OWNER_ROLE || 'neondb_owner' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bedbanks/api prisma:generate
+      - name: Create or reset the staging branch from production's head
+        env:
+          RESET: ${{ inputs.reset_staging }}
+        run: scripts/neon-staging-branch.sh create $([ "$RESET" = true ] && echo --reset)
+      - name: Staging owner credential and production denylist (masked, 0600, runner-local)
+        run: scripts/neon-staging-branch.sh env --env-file "$RUNNER_TEMP/staging.env"
+      - name: Apply pending migrations and certify staging
+        env:
+          EXPECT_PENDING: ${{ inputs.expect_pending }}
+        run: |
+          set -euo pipefail
+          set -a; . "$RUNNER_TEMP/staging.env"; set +a
+          API_RUNTIME_LOGIN_PASSWORD="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64url"))')"
+          echo "::add-mask::$API_RUNTIME_LOGIN_PASSWORD"
+          export API_RUNTIME_LOGIN_PASSWORD
+          scripts/migrate-staging.sh --reprovision-runtime-role ${EXPECT_PENDING:+--expect-pending "$EXPECT_PENDING"}
+      - name: Remove the credential file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/staging.env"
+      - name: Publish sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: staging-migration-evidence
+          path: staging-migration-evidence/
+          if-no-files-found: ignore
+          retention-days: 30

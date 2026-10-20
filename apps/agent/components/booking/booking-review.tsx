@@ -1,6 +1,6 @@
 'use client'
 
-import type { SearchCriteria, SearchRateOffer } from '@bedbanks/domain'
+import type { SearchCriteria, AgentRateOffer } from '@bedbanks/domain'
 import { bookingReviewStay, formatOfferExpiry, recheckedTotalText } from '@/lib/format'
 import { stayOccupancyLabel } from '@/lib/search-summary'
 
@@ -12,7 +12,7 @@ export function BookingReview({
   destination: string
   starRating: number
   roomName: string
-  rate: SearchRateOffer
+  rate: AgentRateOffer
   request: SearchCriteria
   recheckedMinor: number
   bookingEnabled: boolean

@@ -1,8 +1,8 @@
-import type { SearchCriteria, SearchHotelOffer, SearchPagination } from '@bedbanks/domain'
+import type { SearchCriteria, AgentHotelOffer, SearchPagination } from '@bedbanks/domain'
 
 export type HotelSearchCriteria = SearchCriteria
 export type HotelSearchResult = {
-  liveHotels: SearchHotelOffer[]
+  liveHotels: AgentHotelOffer[]
   total: number
   status: 'available' | 'partial' | 'empty' | 'provider_unavailable' | 'mapping_unavailable' | 'auth_required' | 'access_denied' | 'agency_suspended' | 'destination_unavailable'
   failureMessage?: string

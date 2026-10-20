@@ -38,7 +38,7 @@ concurrency:
 jobs:
   hold-expiry-role:
     if: github.repository == 'rammyyadav-dot/bedbanks-system' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     # Owner configures required reviewers on db-production and restricts both to main.
     environment: db-${{ inputs.target }}
@@ -53,13 +53,13 @@ jobs:
       EXPECTED_PENDING: 202609280001_hold_expiry_system_audit_policy
       NODE_ENV: production
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm

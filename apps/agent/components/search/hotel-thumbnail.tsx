@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { SearchHotelOffer } from '@bedbanks/domain'
+import type { AgentHotelOffer } from '@bedbanks/domain'
 import { agentApiBase } from '@/lib/api-config.mjs'
 import { hotelImagePath } from '@/lib/hotel-image.mjs'
 
@@ -10,7 +10,7 @@ import { hotelImagePath } from '@/lib/hotel-image.mjs'
  * session cookie and the active-tenant header (an <img src> cannot send the header) and shown from a temporary object URL.
  * A failure never shows a broken-image icon and never a stand-in picture.
  */
-export function HotelThumbnail({ hotel, tenantId, initial }: { hotel: SearchHotelOffer; tenantId: string; initial: string }) {
+export function HotelThumbnail({ hotel, tenantId, initial }: { hotel: AgentHotelOffer; tenantId: string; initial: string }) {
   const image = hotel.primaryImage
   const [src, setSrc] = useState<string | null>(null)
   useEffect(() => {

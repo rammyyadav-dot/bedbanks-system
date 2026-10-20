@@ -1,4 +1,4 @@
-import type { SearchCriteria, SearchRateOffer, SearchRoomOffer } from '@bedbanks/domain'
+import type { SearchCriteria, AgentRateOffer, AgentRoomOffer } from '@bedbanks/domain'
 
 type Filters = NonNullable<SearchCriteria['filters']>
 
@@ -39,7 +39,7 @@ export function filterCount(filters: Filters | undefined): number {
 }
 
 /** Distinct boards offered by one hotel, in first-seen order. Used for the meal chips on the hotel page. */
-export function hotelBoards(rooms: SearchRoomOffer[]): Array<{ id: string; name: string }> {
+export function hotelBoards(rooms: AgentRoomOffer[]): Array<{ id: string; name: string }> {
   const seen = new Map<string, string>()
   for (const room of rooms) for (const rate of room.rates) if (!seen.has(rate.boardBasisId)) seen.set(rate.boardBasisId, rate.boardBasisName)
   return [...seen].map(([id, name]) => ({ id, name }))
@@ -48,8 +48,8 @@ export function hotelBoards(rooms: SearchRoomOffer[]): Array<{ id: string; name:
 export type RateView = { boardBasisId: string | null; refundableOnly: boolean }
 
 /** Narrows the rates of one hotel already on screen. It never re-prices and never reorders the server's rates. */
-export function visibleRooms(rooms: SearchRoomOffer[], view: RateView): SearchRoomOffer[] {
-  const keep = (rate: SearchRateOffer) => (view.boardBasisId === null || rate.boardBasisId === view.boardBasisId) && (!view.refundableOnly || rate.cancellation.refundable)
+export function visibleRooms(rooms: AgentRoomOffer[], view: RateView): AgentRoomOffer[] {
+  const keep = (rate: AgentRateOffer) => (view.boardBasisId === null || rate.boardBasisId === view.boardBasisId) && (!view.refundableOnly || rate.cancellation.refundable)
   return rooms.flatMap((room) => {
     const rates = room.rates.filter(keep)
     return rates.length ? [{ ...room, rates }] : []
@@ -59,7 +59,7 @@ export function visibleRooms(rooms: SearchRoomOffer[], view: RateView): SearchRo
 /**
  * Lowest instantly sellable total in a room group, in the currency of its first such rate. On-request and sold-out rates never lead.
  */
-export function roomFromMinor(room: SearchRoomOffer): { amountMinor: number; currency: string } | null {
+export function roomFromMinor(room: AgentRoomOffer): { amountMinor: number; currency: string } | null {
   let lead: { amountMinor: number; currency: string } | null = null
   for (const rate of room.rates) {
     if (rate.availability === 'sold_out' || rate.availability === 'on_request') continue

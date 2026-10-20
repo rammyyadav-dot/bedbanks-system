@@ -134,7 +134,8 @@ resource "aws_ecs_task_definition" "migrate" {
   execution_role_arn       = aws_iam_role.migrate_execution.arn
   container_definitions = jsonencode([{
     name      = "migrate"
-    image     = "${aws_ecr_repository.this["api"].repository_url}:${var.initial_image_tag}"
+    # The `migrator` target of apps/api/Dockerfile (prisma CLI + migrations only, ADR 0075); the API runtime image carries neither.
+    image     = "${aws_ecr_repository.this["api"].repository_url}:${var.initial_image_tag}-migrate"
     essential = true
     environment = [
       { name = "DB_HOST", value = aws_db_instance.this.address },
@@ -142,7 +143,7 @@ resource "aws_ecs_task_definition" "migrate" {
       { name = "DB_USER", value = "fbeds_owner" },
     ]
     secrets = [{ name = "DB_PASSWORD", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:password::" }]
-    command = ["sh", "-c", "export DATABASE_URL=\"postgresql://$DB_USER:$(node -p 'encodeURIComponent(process.env.DB_PASSWORD)')@$DB_HOST:5432/$DB_NAME?schema=public&sslmode=require\" && exec pnpm --filter @bedbanks/api prisma:migrate:deploy"]
+    command = ["sh", "-c", "export DATABASE_URL=\"postgresql://$DB_USER:$(node -p 'encodeURIComponent(process.env.DB_PASSWORD)')@$DB_HOST:5432/$DB_NAME?schema=public&sslmode=require\" && exec node node_modules/prisma/build/index.js migrate deploy --schema=prisma/schema.prisma"]
     logConfiguration = {
       logDriver = "awslogs"
       options   = { "awslogs-group" = aws_cloudwatch_log_group.this["migrate"].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "migrate" }

@@ -89,6 +89,28 @@ describe('SupplierPrebookOrchestrationService', () => {
     expect(recovery.compensate).not.toHaveBeenCalled()
   })
 
+  it('journals the supplier that owns the offer when the adapter fronts several suppliers', async () => {
+    const { service, supplier, journal } = setup()
+    Object.assign(supplier, { name: 'aggregate', supplierKeyFor: jest.fn().mockReturnValue('bedbank-a') })
+    await service.execute(command)
+    expect((supplier as unknown as { supplierKeyFor: jest.Mock }).supplierKeyFor).toHaveBeenCalledWith('offer-a')
+    expect(journal.row?.supplierKey).toBe('bedbank-a')
+  })
+
+  it('journals the adapter name when it fronts one supplier', async () => {
+    const { service, journal } = setup()
+    await service.execute(command)
+    expect(journal.row?.supplierKey).toBe('test-supplier')
+  })
+
+  it('releases the reservation and never calls a supplier when no supplier owns the offer', async () => {
+    const { service, supplier, recovery } = setup()
+    Object.assign(supplier, { supplierKeyFor: () => { throw new Error('no owner') } })
+    await expect(service.execute(command)).rejects.toThrow('Supplier prebook unavailable')
+    expect(supplier.prebook).not.toHaveBeenCalled()
+    expect(recovery.compensate).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 'booking-a', inventoryHoldId: 'hold-a' }))
+  })
+
   it('releases finance and inventory when supplier prebook fails', async () => {
     const { service, recovery, supplier } = setup()
     supplier.prebook.mockRejectedValue(new Error('provider down'))

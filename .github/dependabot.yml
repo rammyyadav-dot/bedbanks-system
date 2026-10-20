@@ -22,7 +22,7 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
   - package-ecosystem: docker
-    directory: /
+    directories: ['/', '/apps/api']
     schedule: { interval: weekly, day: monday }
     # Runtime must match engines.node (24.x) and the Node version CI tests on; move all three together via an ADR.
     ignore:
