@@ -347,11 +347,11 @@ is `QUEUED`/`SENDING`.
    supplier correlation ids.
 
 ## Not built (do not present as capability)
-- Distribution routes, `DistributionAuthGuard`, quota guard, OAuth token endpoint, admin screens for clients and keys.
+- Distribution routes, `DistributionAuthGuard`, quota guard, OAuth token endpoint, admin screens for clients and keys. (The credential schema and lookup functions are built: Amendment 3.)
 - External supplier members for the aggregate (Amendment 2). The Redis `ConnectorGate` is built (Amendment 1) and waits for them.
 - Agency-keyed search cache, content cache per language, geo index.
 - Webhook subscription API, outbox writes, dispatcher.
-- The schema above and its migration.
+- Webhook tables and `Booking.distribution_client_id` from the schema above (Amendment 3 builds the credential tables only).
 
 Suggested order: Redis gate, then aggregator behind the existing portal search (measurable without partners), then
 client credentials and quotas, then partner search, CheckRate and Book routes, then webhooks.
@@ -454,4 +454,61 @@ summary dropped, all-fail parity, the circuit skipping a member, sanitized log e
 refusal, configuration refusal, authority. Further tests check that search does not cache an authoritative aggregate
 and that prebook journals the owning supplier, including releasing the reservation when no member owns the offer.
 The production loader (`@swc-node/register`) builds the aggregate from the factory.
+
+## Amendment 3: partner credential schema and authentication functions (step 1 of 4)
+
+Status: Accepted. Migration `202611290001_distribution_credentials`. **Not reachable**: no role is granted the functions, and no
+route or guard exists. Steps 2-4 are the guard and OAuth token endpoint (which add the runtime grant), the Redis quotas, and the
+partner search route.
+
+**Tables** (all with forced RLS `tenant_id = fbeds_current_tenant_id()`):
+- `distribution_clients`: one agency per client, `scopes` (`DistributionApiScope`: SEARCH, CHECKRATE, BOOK, CANCEL,
+  BOOKINGS_READ), per-scope-class limits (1-10,000 per minute), CIDR allowlist (each entry must cast to `cidr`).
+- `distribution_credentials`: `API_KEY` or `OAUTH_CLIENT`; `key_id` (20 characters `[a-z0-9]`, globally unique, embedded in the
+  key) and `secret_hash` (SHA-256 hex).
+- `distribution_access_tokens`: `token_hash`, scopes, at most one hour. Composite foreign key on
+  `(tenant_id, client_id, credential_id)`, so a token can only belong to a credential of its own client.
+
+**Authentication without reading hashes.** `fbeds_distribution_authenticate_key(key_id, secret_hash)` and
+`fbeds_distribution_authenticate_token(token_hash)` are `SECURITY DEFINER`, `STABLE`, pinned `search_path`, and not executable
+by PUBLIC. They compare inside the database and return identity only (tenant, agency, client, credential or token id, scopes),
+at most one row. Every refusal is the same empty answer:
+- unknown key, wrong secret, or malformed input;
+- revoked or expired credential or token;
+- client not ACTIVE, agency SUSPENDED or INACTIVE, tenant SUSPENDED.
+
+A token's scopes are intersected with the client's *current* scopes at each lookup; an empty intersection is a refusal. A token
+also needs its minting credential to be an unrevoked, unexpired `OAUTH_CLIENT`. This is stricter than sessions (`rls: none`, read
+by the runtime): no restricted role can read either hash column, and both columns are now in the security certification's
+`CREDENTIAL_COLUMNS`, so a future grant that exposed them fails certification. Like `fbeds_booking_due_tenants`, the functions
+rely on the migration owner bypassing forced RLS. Without it they return nothing, so every partner is refused (fail closed).
+
+**Integrity for every role (triggers and checks):**
+- Credential keys, hashes, owner and expiry never change, and credentials are never deleted.
+- Revocation is permanent, on credentials and on tokens.
+- A client keeps its tenant and agency, never leaves REVOKED, and is never deleted.
+- A token is immutable except revocation, and deletable only a day after it expired (for a later purge job).
+- No rule compares `created_at` (database clock) with `revoked_at` (application clock) to the millisecond. An earlier draft
+  did, and a test showed it rejecting a legitimate revocation under 1 ms of skew.
+
+**Changes from the schema proposal above:**
+- The scope enum is `DistributionApiScope`, because `DistributionScope` already exists for distribution restrictions.
+- Credentials and tokens use `ON DELETE RESTRICT` instead of cascade: credentials are revoked, never deleted.
+- The token's credential foreign key is client-scoped.
+- Webhook tables and the `Booking` attribution column move to their own steps.
+
+**Rollback.** In the migration header. No existing table, policy or grant changes.
+
+**Verification.** On PostgreSQL 16 with pgvector: the full chain migrates on an empty database, drift is clean, and 18 new e2e
+tests pass (`test/distribution-credentials.e2e-spec.ts`). They run as a disposable `NOSUPERUSER NOBYPASSRLS` login holding
+only EXECUTE on the two functions, and cover:
+- identity returned for a valid key and token;
+- refusal for each refusal case above, including SQL-shaped input;
+- the scope intersection;
+- denial of every table and of the hash column to the login;
+- denial of the functions to a role without EXECUTE, and no PUBLIC execute;
+- tenant isolation under forced RLS;
+- each trigger and check.
+
+The security certification and runtime-role suites still pass with the new objects.
 

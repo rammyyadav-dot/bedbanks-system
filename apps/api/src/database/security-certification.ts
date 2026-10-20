@@ -46,6 +46,9 @@ export const APPEND_ONLY_TABLES = [
 export const CREDENTIAL_COLUMNS = [
   { table: 'users', column: 'password_hash' },
   { table: 'sessions', column: 'token_hash' },
+  /** ADR 0075 amendment 3: compared only inside the SECURITY DEFINER authentication functions; no restricted role reads them, not even the API runtime. */
+  { table: 'distribution_credentials', column: 'secret_hash' },
+  { table: 'distribution_access_tokens', column: 'token_hash' },
 ] as const
 export const CREDENTIAL_READERS = ['fbeds_api', 'fbeds_api_login'] as const
 

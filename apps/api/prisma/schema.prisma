@@ -177,6 +177,7 @@ model HotelImage {
 }
 
 model Agency {
+  distributionClients DistributionClient[]
   markupRules CommercialMarkupRule[]
   bookings Booking[]
   id          String       @id @default(cuid())
@@ -714,6 +715,9 @@ model Tenant {
   bookingBulkOperations BookingBulkOperation[]
   bookingBulkOperationItems BookingBulkOperationItem[]
   agencies Agency[]
+  distributionClients DistributionClient[]
+  distributionCredentials DistributionCredential[]
+  distributionAccessTokens DistributionAccessToken[]
   inventoryPools InventoryPool[]
   hotelImages HotelImage[]
   agencyCreditLimits AgencyCreditLimit[]
@@ -2799,3 +2803,103 @@ model ReconciliationDecision {
 
   @@index([tenantId, findingId, createdAt])
 }
+
+/// B2B distribution API (ADR 0075, amendment 3). A partner system acting for exactly one agency; tenant and agency are fixed at creation.
+/// Forced tenant RLS. No role reads these tables to authenticate: `fbeds_distribution_authenticate_key` / `_token` (SECURITY DEFINER)
+/// compare hashes inside the database and return identity only.
+enum DistributionClientStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum DistributionApiScope {
+  SEARCH
+  CHECKRATE
+  BOOK
+  CANCEL
+  BOOKINGS_READ
+}
+
+enum DistributionCredentialKind {
+  API_KEY
+  OAUTH_CLIENT
+}
+
+model DistributionClient {
+  id                 String                   @id @default(cuid())
+  tenantId           String                   @map("tenant_id")
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId           String                   @map("agency_id")
+  agency             Agency                   @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  name               String                   @db.VarChar(100)
+  status             DistributionClientStatus @default(ACTIVE)
+  /// At least one. A token's scopes are cut to these at every lookup, so removing a scope takes effect immediately.
+  scopes             DistributionApiScope[]
+  /// Requests per minute per scope class, enforced in Redis (1 to 10,000).
+  searchPerMinute    Int                      @default(120) @map("search_per_minute")
+  checkRatePerMinute Int                      @default(30) @map("check_rate_per_minute")
+  bookPerMinute      Int                      @default(10) @map("book_per_minute")
+  /// CIDR blocks; empty means any address. Each entry must parse as `cidr` (database check).
+  ipAllowlist        String[]                 @default([]) @map("ip_allowlist")
+  createdByUserId    String                   @map("created_by_user_id")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  credentials  DistributionCredential[]
+  accessTokens DistributionAccessToken[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, agencyId, name])
+  @@index([tenantId, agencyId, status])
+  @@map("distribution_clients")
+}
+
+/// An API key or an OAuth client secret. Only the SHA-256 of the secret is stored; the secret is shown once at creation.
+/// Immutable except `last_used_at` and a one-way `revoked_at` (database trigger).
+model DistributionCredential {
+  id              String                     @id @default(cuid())
+  tenantId        String                     @map("tenant_id")
+  tenant          Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId        String                     @map("client_id")
+  client          DistributionClient         @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict)
+  kind            DistributionCredentialKind
+  /// Public lookup id embedded in the key: 20 characters [a-z0-9], unique across all tenants (the lookup runs before a tenant is known).
+  keyId           String                     @unique @map("key_id") @db.VarChar(20)
+  secretHash      String                     @map("secret_hash") @db.Char(64)
+  lastUsedAt      DateTime?                  @map("last_used_at")
+  expiresAt       DateTime?                  @map("expires_at")
+  revokedAt       DateTime?                  @map("revoked_at")
+  createdByUserId String                     @map("created_by_user_id")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+
+  accessTokens DistributionAccessToken[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId, id])
+  @@index([tenantId, clientId])
+  @@map("distribution_credentials")
+}
+
+/// Opaque OAuth2 access token (client_credentials), at most one hour. Only its SHA-256 is stored. Immutable except a one-way `revoked_at`.
+model DistributionAccessToken {
+  id           String                 @id @default(cuid())
+  tenantId     String                 @map("tenant_id")
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId     String                 @map("client_id")
+  client       DistributionClient     @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict)
+  /// The OAuth client credential that minted it. Revoking that credential also stops its tokens.
+  credentialId String                 @map("credential_id")
+  /// Composite with the client, so a token can only be minted by a credential of the same client.
+  credential   DistributionCredential @relation(fields: [tenantId, clientId, credentialId], references: [tenantId, clientId, id], onDelete: Restrict)
+  tokenHash    String                 @unique @map("token_hash") @db.Char(64)
+  scopes       DistributionApiScope[]
+  expiresAt    DateTime               @map("expires_at")
+  revokedAt    DateTime?              @map("revoked_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+
+  @@index([tenantId, clientId, expiresAt])
+  @@index([tenantId, credentialId])
+  @@map("distribution_access_tokens")
+}
+
