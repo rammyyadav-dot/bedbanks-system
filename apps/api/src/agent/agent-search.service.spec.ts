@@ -153,6 +153,17 @@ describe('AgentSearchService cache boundary', () => {
     expect(cache.writes).toHaveLength(0)
   })
 
+  it('does not cache when the adapter declares itself authoritative, whatever its name (an aggregate containing contracted inventory)', async () => {
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const cache = new MemoryCache()
+    const supplier = { name: 'aggregate', authoritative: true, search } as unknown as SupplierAdapter
+    const service = new AgentSearchService(supplier, { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService, cache)
+    await service.execute(criteria, 'tenant-a', 'r1', identity)
+    await service.execute(criteria, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(cache.writes).toHaveLength(0)
+  })
+
   it('rejects a corrupted cache entry and searches again', async () => {
     const cache = new MemoryCache()
     const search = jest.fn().mockResolvedValue(supplierResult([hotel]))

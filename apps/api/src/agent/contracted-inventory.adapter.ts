@@ -23,7 +23,8 @@ import { CancellationPolicyService, buyerRules, describePenalty, type Cancellati
 import { formatMinor } from './booking-document.render'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
 
-const OFFER_PREFIX = 'ci_'
+export const CONTRACTED_OFFER_PREFIX = 'ci_'
+export const CONTRACTED_REFERENCE_PREFIX = 'contracted:'
 const DEFAULT_OFFER_TTL_MS = 900_000
 const MIN_OFFER_TTL_MS = 1_000
 const MAX_OFFER_TTL_MS = 3_600_000
@@ -190,7 +191,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       where: { tenantId: context.tenantId, offerId: request.offerId, searchId: request.searchId, status: 'PROCESSING' }, select: { id: true },
     }))
     if (!hold) throw new SupplierProviderError('malformed_response')
-    return { supplierReference: `contracted:${hold.id}` }
+    return { supplierReference: `${CONTRACTED_REFERENCE_PREFIX}${hold.id}` }
   }
 
   async cancel(): Promise<{ refundMinor: number }> {
@@ -456,7 +457,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const sellAmountMinor = Number(decision.totalMinor)
     if (criteria.filters?.minPriceMinor !== undefined && sellAmountMinor < criteria.filters.minPriceMinor) return null
     if (criteria.filters?.maxPriceMinor !== undefined && sellAmountMinor > criteria.filters.maxPriceMinor) return null
-    const offerId = `${OFFER_PREFIX}${randomUUID()}`
+    const offerId = `${CONTRACTED_OFFER_PREFIX}${randomUUID()}`
     const stored: StoredOffer = {
       offerId,
       tenantId,

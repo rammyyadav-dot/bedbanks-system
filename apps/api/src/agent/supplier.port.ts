@@ -23,6 +23,17 @@ export type SupplierRecheckResult =
 export interface PrebookRequest extends SupplierRecheckRequest { idempotencyKey: string }
 export interface SupplierAdapter {
   readonly name: string
+  /**
+   * True when search results are the authority themselves (contracted inventory), so a search answer must never be
+   * served from cache: the next search must observe stop-sell and rate edits. Omitted means false, except for the
+   * `contracted-inventory` adapter, which predates this flag.
+   */
+  readonly authoritative?: boolean
+  /**
+   * The key of the supplier that owns `offerId`, recorded on the supplier mutation journal and later used to route
+   * cancel and status calls. Omitted means `name`. An adapter that fronts several suppliers must implement it.
+   */
+  supplierKeyFor?(offerId: string): string
   /** Return canonical offers with independently keyed relationships; never synthesize IDs from labels. */
   search(criteria: SearchCriteria, context: SupplierSearchContext): Promise<SupplierSearchResult>
   recheck(request: SupplierRecheckRequest, context: SupplierRequestContext): Promise<SupplierRecheckResult>
