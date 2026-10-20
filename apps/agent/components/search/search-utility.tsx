@@ -2,8 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from 'react'
 import { BadgePercent, ChevronDown, ChevronUp, Sparkles, X } from 'lucide-react'
-import type { SmartSearchParseResponse } from '@bedbanks/contracts'
-import { SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
+import type { SmartSearchParseResponse } from '@bedbanks/contracts/agent'
+import { SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts/agent'
 import { parseSmartSearch } from '@/lib/api-client'
 import { formatMarkupPercent, MAX_CLIENT_MARKUP_BP, parseMarkupPercent, stepMarkup } from '@/lib/client-markup'
 import { guestMarketName } from '@/lib/guest-market'

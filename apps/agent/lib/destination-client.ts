@@ -1,5 +1,5 @@
 import type { DestinationResolution } from '@bedbanks/domain'
-import { routes } from '@bedbanks/contracts'
+import { routes } from '@bedbanks/contracts/agent'
 import { agentApiBase } from './api-config.mjs'
 
 export type SearchFacets = { boards: { id: string; name: string }[]; propertyTypes: string[] }

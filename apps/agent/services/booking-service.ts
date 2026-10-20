@@ -1,7 +1,7 @@
 import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
-import { DUPLICATE_BOOKING_SUSPECTED, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts'
+import { DUPLICATE_BOOKING_SUSPECTED, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
 import { duplicateMatches } from '../lib/checkout'
 
 /**

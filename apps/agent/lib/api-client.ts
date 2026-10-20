@@ -1,4 +1,4 @@
-import { routes, type AgentFundingReceiptView, type AgentFundingView, type FundingDeclareRequest, type SmartSearchParseResponse } from '@bedbanks/contracts'
+import { routes, type AgentFundingReceiptView, type AgentFundingView, type FundingDeclareRequest, type SmartSearchParseResponse } from '@bedbanks/contracts/agent'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
 import { NON_EXPIRING_PATHS, announceSessionExpired } from './session-events.mjs'

@@ -1,4 +1,4 @@
-import { CONFIRMATION_CC_MAX, type CheckoutGuest, type DuplicateBookingMatch, type GuestTitle } from '@bedbanks/contracts'
+import { CONFIRMATION_CC_MAX, type CheckoutGuest, type DuplicateBookingMatch, type GuestTitle } from '@bedbanks/contracts/agent'
 
 /** Same rule as the server and the lead guest: letters first, then letters, marks, apostrophes, spaces, dots and hyphens; 1-80 characters. */
 const NAME = /^[\p{L}][\p{L}\p{M}' .-]{0,79}$/u
