@@ -9,6 +9,7 @@ import { AgencySuspensionGuard } from './agency-suspension.guard'
 import { TenantContextGuard } from './tenant-context.guard'
 import { ContractedInventoryAdapter } from './contracted-inventory.adapter'
 import { SUPPLIER_ADAPTER } from './supplier.port'
+import { supplierAdapterFromEnvironment } from './supplier-adapter.factory'
 import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { HoldExpirySweeper } from './hold-expiry-sweeper.service'
@@ -68,7 +69,8 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
       provide: COORDINATION_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCoordination(),
     },
-    { provide: SUPPLIER_ADAPTER, useClass: ContractedInventoryAdapter },
+    ContractedInventoryAdapter,
+    { provide: SUPPLIER_ADAPTER, useFactory: (contracted: ContractedInventoryAdapter) => supplierAdapterFromEnvironment(contracted), inject: [ContractedInventoryAdapter] },
   ],
   exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService, CancellationSettlementService],
 })

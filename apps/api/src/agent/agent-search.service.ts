@@ -6,6 +6,7 @@ import { AgentAuditService } from './audit.service'
 import { SupplierAdapter, SUPPLIER_ADAPTER, type HotelSearchCriteria } from './supplier.port'
 import type { SearchPagination } from '@bedbanks/domain'
 import { validateSearchHotels } from './search-offers'
+import { isAuthoritative } from './aggregating-supplier.adapter'
 
 const DEFAULT_SEARCH_TTL_MS = 45_000
 const MIN_SEARCH_TTL_MS = 1_000
@@ -163,7 +164,7 @@ export class AgentSearchService {
   }
 
   private authoritativeInventory(): boolean {
-    return this.supplier.name === 'contracted-inventory'
+    return isAuthoritative(this.supplier)
   }
 
   private acceptCached(value: unknown, tenantId: string, request: HotelSearchCriteria): SearchResponse | null {

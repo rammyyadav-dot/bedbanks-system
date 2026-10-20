@@ -348,7 +348,7 @@ is `QUEUED`/`SENDING`.
 
 ## Not built (do not present as capability)
 - Distribution routes, `DistributionAuthGuard`, quota guard, OAuth token endpoint, admin screens for clients and keys.
-- `AggregatingSupplierAdapter`. (The Redis `ConnectorGate` is built; see Amendment 1. Nothing constructs it yet.)
+- External supplier members for the aggregate (Amendment 2). The Redis `ConnectorGate` is built (Amendment 1) and waits for them.
 - Agency-keyed search cache, content cache per language, geo index.
 - Webhook subscription API, outbox writes, dispatcher.
 - The schema above and its migration.
@@ -406,4 +406,52 @@ a shared limit; exactly 5 of 60 concurrent acquires granted; opening on failures
 consecutive-count reset; probe close and re-open; dead-probe replacement; lease expiry; ignored straggler failures;
 key TTLs; and `SharedConnectorGate` end to end. They passed three runs in a row locally. The production loader was
 checked with `node -r @swc-node/register -e "require('@bedbanks/connectors-core')"`.
+
+## Amendment 2: multi-supplier search behind the agent portal
+
+Status: Accepted. Built; **off by default**.
+
+**Decision.** `AggregatingSupplierAdapter` (`apps/api/src/agent/aggregating-supplier.adapter.ts`) implements the existing
+`SupplierAdapter` port in front of several member adapters. Agent search, offer hold and prebook use it unchanged.
+
+- **Search** fans out through `fanOutRead`. Each member has its own timeout and, for external suppliers, a
+  `SharedConnectorGate`; in-house inventory has no gate. Offers are merged and member summaries are added up. A failed
+  or timed-out member, or one that reports an impossible summary, contributes nothing and counts as failed, so the
+  search answer is `partial`. If every member fails, search throws, as a single failing adapter does today
+  (`provider_unavailable`). One structured log line per member per search records supplier, outcome, duration and a
+  supplier-safe correlation id.
+- **Nothing else fans out.** Each member declares an `offerId` prefix and a booking-reference prefix; overlapping
+  prefixes and duplicate members are refused at construction. Recheck, prebook and `supplierKeyFor` go to the member
+  that minted the offer, and cancel to the member that issued the reference. An unknown offer rechecks as
+  `unavailable`; an unknown prebook, cancel or key lookup throws. Nothing is guessed.
+- **Supplier key.** The port gains an optional `supplierKeyFor(offerId)`. Prebook orchestration records the owning
+  supplier's key on the mutation journal (which later routes cancel and status calls), never `aggregate`. If no
+  member owns the offer, the existing prepare-failure path releases the reservation before any supplier is called.
+- **Caching.** The port gains an optional `authoritative` flag. Search skips its cache when the adapter is
+  authoritative, and an aggregate is authoritative when any member is. A merged answer that contains contracted
+  inventory is therefore never cached, as before.
+- **Transparency.** With one member, the aggregate takes that member's name. Audit payloads, the `unconfigured`
+  checks, caching and the journal see no change.
+
+**Configuration.**
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `AGENT_SUPPLIER_AGGREGATION` | unset (= `disabled`) | `enabled` wraps contracted inventory in the aggregate. Any other value fails startup. |
+| `AGENT_SEARCH_DEADLINE_MS` | `10000` | Search budget, 1,000 to 11,000. The cap keeps a search inside the 12 s single-flight search lock. Out of range fails startup. |
+
+**What enabling changes today.** Contracted inventory is the only member, so the one behaviour change is the deadline:
+a contracted search that takes longer than `AGENT_SEARCH_DEADLINE_MS` now answers `provider_unavailable` instead of
+waiting. The abandoned database work finishes in the background and its result is discarded, because member adapters
+do not take an abort signal yet. Enable it first in staging and compare the search monitor (ADR 0053) and the
+`supplier_leg` duration lines against the current latency.
+
+**Rollback.** Unset `AGENT_SUPPLIER_AGGREGATION` and restart. To remove the code, revert the commit. No schema, route
+or permission change.
+
+**Verification.** 14 aggregate and factory tests: transparency, merge, a slow member cut at its timeout, an impossible
+summary dropped, all-fail parity, the circuit skipping a member, sanitized log events, owner routing, unknown-owner
+refusal, configuration refusal, authority. Further tests check that search does not cache an authoritative aggregate
+and that prebook journals the owning supplier, including releasing the reservation when no member owns the offer.
+The production loader (`@swc-node/register`) builds the aggregate from the factory.
 

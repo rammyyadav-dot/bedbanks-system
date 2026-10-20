@@ -83,7 +83,7 @@ export class SupplierPrebookOrchestrationService {
         userId: command.userId,
         bookingId: booking.id,
         holdId: command.inventoryHoldId,
-        supplierKey: this.supplierKey(),
+        supplierKey: this.supplierKey(command.offerId),
         operation: 'PREBOOK',
         idempotencyKey,
         requestId: command.requestId,
@@ -195,8 +195,10 @@ export class SupplierPrebookOrchestrationService {
     }
   }
 
-  private supplierKey(): string {
-    return typeof this.supplier.name === 'string' && this.supplier.name.length > 0 ? this.supplier.name : 'unconfigured'
+  /** The owning supplier, not an aggregate: the journal routes later cancel and status calls by this key. */
+  private supplierKey(offerId: string): string {
+    const key = this.supplier.supplierKeyFor ? this.supplier.supplierKeyFor(offerId) : this.supplier.name
+    return typeof key === 'string' && key.length > 0 ? key : 'unconfigured'
   }
 
   private async compensateOrThrow(financeCommand: { tenantId: string; userId: string; requestId: string; walletId: string; bookingId: string; currency: string; amountMinor: bigint; idempotencyKey: string }, inventoryHoldId: string): Promise<void> {
