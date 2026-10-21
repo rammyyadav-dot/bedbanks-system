@@ -1,10 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
-import { Barlow_Semi_Condensed, Montserrat } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
-const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-montserrat', weight: ['400', '500', '600', '700', '800'] })
-const barlow = Barlow_Semi_Condensed({ subsets: ['latin'], variable: '--font-barlow', weight: ['400', '500', '600', '700'] })
 
 export const metadata: Metadata = {
   title: 'fabBeds Agent Portal | Wholesale hotels. Trade-ready.',
@@ -43,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${montserrat.variable} ${barlow.variable} bg-background`}>
+    <html lang="en" className="bg-background">
       <body className="antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
