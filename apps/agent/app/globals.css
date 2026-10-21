@@ -627,6 +627,12 @@ label, .field span { color: #5a5a55; }
 .bb-sort button[aria-pressed="true"] { background: #1F2937; color: #FFFFFF; }
 .bb-sort button:disabled { cursor: progress; }
 .bb-sort button:focus-visible, .bb-rate-tools button:focus-visible, .bb-hotel-media:focus-visible { outline: 2px solid #0f7681; outline-offset: -2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.bb-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; }
+.bb-filter-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 999px; background: #F3F4F6; color: #1F2937; font-size: 12px; font-weight: 600; }
+.bb-filter-chip:hover:not(:disabled) { background: #E5E7EB; }
+.bb-filter-chip:disabled { cursor: progress; opacity: .6; }
+.bb-filter-chip:focus-visible { outline: 2px solid #0f7681; outline-offset: -2px; }
 
 .bb-hotel-list { gap: 12px; }
 .portal-hotel-card.bb-hotel-card { display: grid; grid-template-columns: 220px minmax(0, 1fr) 210px; min-height: 176px; border-radius: 10px; }

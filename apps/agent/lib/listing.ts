@@ -1,4 +1,5 @@
 import type { SearchCriteria, AgentRateOffer, AgentRoomOffer } from '@bedbanks/domain'
+import { activeFilterLabel } from './search-summary'
 
 type Filters = NonNullable<SearchCriteria['filters']>
 
@@ -36,6 +37,37 @@ export function filterCount(filters: Filters | undefined): number {
   if (!filters) return 0
   return (filters.starRatings?.length ?? 0) + (filters.boardBasisIds?.length ?? 0) + (filters.propertyTypes?.length ?? 0)
     + (filters.refundableOnly ? 1 : 0) + (filters.minPriceMinor !== undefined || filters.maxPriceMinor !== undefined ? 1 : 0)
+}
+
+export type FilterChip = { key: string; label: string; next: Filters }
+
+/**
+ * One removable chip per active filter selection, each carrying the filters to apply if that chip is removed.
+ * Mirrors filterCount: a chip exists for every selection it counts. Prices show one combined chip for min/max.
+ */
+export function activeFilterChips(filters: Filters | undefined, currency: string, boards: Array<{ id: string; name: string }>): FilterChip[] {
+  if (!filters) return []
+  const chips: FilterChip[] = []
+  for (const star of filters.starRatings ?? []) {
+    chips.push({ key: `star:${star}`, label: `${star}★`, next: { ...filters, starRatings: filters.starRatings?.filter((value) => value !== star) } })
+  }
+  if (filters.refundableOnly) {
+    const { refundableOnly: _drop, ...rest } = filters
+    chips.push({ key: 'refundable', label: 'Refundable', next: rest })
+  }
+  for (const boardId of filters.boardBasisIds ?? []) {
+    const name = boards.find((board) => board.id === boardId)?.name ?? boardId
+    chips.push({ key: `board:${boardId}`, label: name, next: { ...filters, boardBasisIds: filters.boardBasisIds?.filter((value) => value !== boardId) } })
+  }
+  for (const type of filters.propertyTypes ?? []) {
+    chips.push({ key: `type:${type}`, label: type, next: { ...filters, propertyTypes: filters.propertyTypes?.filter((value) => value !== type) } })
+  }
+  if (filters.minPriceMinor !== undefined || filters.maxPriceMinor !== undefined) {
+    const label = activeFilterLabel({ minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor, currency })
+    const { minPriceMinor: _min, maxPriceMinor: _max, ...rest } = filters
+    if (label) chips.push({ key: 'price', label, next: rest })
+  }
+  return chips.map((chip) => ({ ...chip, next: Object.keys(chip.next).length ? chip.next : {} }))
 }
 
 /** Distinct boards offered by one hotel, in first-seen order. Used for the meal chips on the hotel page. */

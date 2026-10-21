@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { MapPin, Search, ShieldAlert } from 'lucide-react'
+import { MapPin, Search, ShieldAlert, X } from 'lucide-react'
 import { SearchCriteriaForm } from '@/components/search/search-criteria-form'
 import type { DestinationRef, SearchCriteria, AgentHotelOffer, AgentRateOffer, AgentRoomOffer, SearchSort } from '@bedbanks/domain'
 import { validSearchCriteria } from '@bedbanks/domain/search-offers'
@@ -25,7 +25,7 @@ import { HotelThumbnail } from '@/components/search/hotel-thumbnail'
 import { agencySuspendedMessage, agencySuspendedTitle } from '@/lib/agency-suspension.mjs'
 import { ResultFilters } from '@/components/search/result-filters'
 import { nightCount } from '@/lib/stay-calendar'
-import { averageNightlyMinor, hotelBoards, roomFromMinor, visibleRooms } from '@/lib/listing'
+import { activeFilterChips, averageNightlyMinor, hotelBoards, roomFromMinor, visibleRooms } from '@/lib/listing'
 import { clientPrice, formatMarkupPercent } from '@/lib/client-markup'
 import { payAtHotelLines } from '@/lib/pay-at-hotel'
 
@@ -140,6 +140,7 @@ export function SearchView({
       </div>
       {refreshing && <p className="market-refresh" role="status">Refreshing results for the new search. The list below is the previous successful search.</p>}
       {refreshError && <p className="portal-field-error" role="alert">{refreshError}</p>}
+      <ActiveFilterChips filters={request.filters} currency={request.currency} boards={boards} disabled={searching} onApply={onApplyFilters} />
       <div className="bb-results-layout">
         <ResultFilters key={`${request.currency}:${JSON.stringify(request.filters ?? {})}`} applied={request.filters} currency={request.currency} boards={boards} propertyTypeOptions={propertyTypeOptions} searching={searching} onApply={onApplyFilters} />
         <div className="bb-results-main">
@@ -171,6 +172,16 @@ function SortBar({ sort, disabled, onSort }: { sort: SearchSort; disabled: boole
   return <div className="bb-sort" role="group" aria-label="Sort results">
     <span>Sort by</span>
     {SORTS.map((option) => <button key={option.value} type="button" aria-pressed={sort === option.value} disabled={disabled} onClick={() => { if (sort !== option.value) onSort(option.value) }}>{option.label}</button>)}
+  </div>
+}
+
+/** Removable chips for every active server-side filter, plus "Clear all". Removing a chip re-runs the search with that filter dropped. */
+function ActiveFilterChips({ filters, currency, boards, disabled, onApply }: { filters: SearchCriteria['filters']; currency: string; boards: { id: string; name: string }[]; disabled: boolean; onApply: (filters: NonNullable<SearchCriteria['filters']>) => void }) {
+  const chips = activeFilterChips(filters, currency, boards)
+  if (!chips.length) return null
+  return <div className="bb-active-filters" role="group" aria-label="Active filters">
+    {chips.map((chip) => <button key={chip.key} type="button" className="bb-filter-chip" disabled={disabled} onClick={() => onApply(chip.next)}>{chip.label}<X size={12} aria-hidden="true" /><span className="sr-only">Remove {chip.label} filter</span></button>)}
+    {chips.length > 1 && <button type="button" className="portal-link" disabled={disabled} onClick={() => onApply({})}>Clear all</button>}
   </div>
 }
 
