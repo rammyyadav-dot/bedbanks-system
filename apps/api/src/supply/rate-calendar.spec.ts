@@ -8,6 +8,7 @@ function setup() {
   const tx = {
     userRole: { findMany: jest.fn().mockResolvedValue([{ role: { permissions: ['supply.rates.manage', 'supply.availability.manage', 'supply.rates.read'].map(key => ({ permission: { key } })) } }]) },
     ratePlan: { groupBy: jest.fn().mockResolvedValue([{ status: 'DRAFT', _count: { _all: 51 } }, { status: 'ACTIVE', _count: { _all: 4 } }]), findMany: jest.fn().mockResolvedValue([{ id: 'plan', occupancy: 2, currency: 'AED', inventoryPoolId: null, roomType: { maxOccupancy: 3 }, contract: { settlementCurrency: 'AED', validFrom: at, validTo: new Date('2030-12-31') } }]), count: jest.fn().mockResolvedValue(51) },
+    supplierRatePlanMapping: { findMany: jest.fn().mockResolvedValue([]) },
     dailyRate: { findUnique: jest.fn().mockResolvedValue({ id: 'rate', amountMinor: 12000n, amountBasis: 'SELL', currency: 'AED', updatedAt: at }), upsert: jest.fn().mockResolvedValue({ id: 'rate', amountMinor: 15000n }) },
     dailyAvailability: { findUnique: jest.fn().mockResolvedValue({ id: 'availability', allotment: 10, sold: 2, held: 1, stopSell: true, minStay: 3, updatedAt: at }), upsert: jest.fn().mockResolvedValue({ id: 'availability' }) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },

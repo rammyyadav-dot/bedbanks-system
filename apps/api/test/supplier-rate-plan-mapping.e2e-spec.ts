@@ -4,6 +4,7 @@ import { resolveAllotment, resolveCancellation, resolveRate, summarizeResolution
 import { MappingService } from '../src/supply/mapping.service'
 import { loadMappingIndex } from '../src/supply/mapping-index.loader'
 import { RatePlanMappingService } from '../src/supply/rate-plan-mapping.service'
+import { assertRatesNotFeedManaged, feedManagedPlanIds } from '../src/supply/feed-managed'
 
 jest.setTimeout(120_000)
 
@@ -115,6 +116,15 @@ describe('supplier rate plan mapping governance and resolution', () => {
     expect(audit[1].payload).toMatchObject({ previousStatus: 'PENDING', newStatus: 'MAPPED', reason: 'verified against contract sheet', supplierRatePlanCode: 'BAR' })
   })
 
+  it('RPM-02b an approved mapping makes its plan feed-managed (single writer); pending, reopened and other tenants do not', async () => {
+    // BAR is MAPPED (planA) and PROMO does not exist yet: only the approved mapping manages a plan.
+    expect(await prisma.withTenant(tenantId, (tx) => feedManagedPlanIds(tx, tenantId, [planA, planB]))).toEqual([planA])
+    await expect(prisma.withTenant(tenantId, (tx) => assertRatesNotFeedManaged(tx, tenantId, [planA, planB]))).rejects.toMatchObject({ response: { code: 'RATE_PLAN_FEED_MANAGED', ratePlanIds: [planA] } })
+    await expect(prisma.withTenant(tenantId, (tx) => assertRatesNotFeedManaged(tx, tenantId, [planB]))).resolves.toBeUndefined()
+    await expect(prisma.withTenant(tenantId, (tx) => assertRatesNotFeedManaged(tx, tenantId, []))).resolves.toBeUndefined()
+    expect(await prisma.withTenant(otherTenantId, (tx) => feedManagedPlanIds(tx, otherTenantId, [planA]))).toEqual([])
+  })
+
   it('RPM-03 database guards: identity is immutable and the plan must match the room type, supplier and tenant even when the service is bypassed', async () => {
     const [mapped] = await service.list(tenantId, readerId, hotelMappingId, roomMappingId)
     await expect(prisma.supplierRatePlanMapping.update({ where: { id: mapped.id }, data: { supplierRatePlanCode: 'RENAMED' } })).rejects.toThrow(/identity is immutable/)
@@ -151,6 +161,8 @@ describe('supplier rate plan mapping governance and resolution', () => {
     await service.decide(tenantId, userId, hotelMappingId, roomMappingId, bar.id, 'reopen')
     const index = await prisma.withTenant(tenantId, (tx) => loadMappingIndex(tx, tenantId, supplierId))
     expect(resolveRate({ supplierHotelCode: 'H1', supplierRoomCode: 'DBL', supplierRatePlanCode: 'BAR', currency: 'AED', taxesIncluded: true, freshUntil: later }, index, now)).toMatchObject({ ok: false, reason: 'RATE_PLAN_NOT_APPROVED' })
+    // Reopening hands the plan back to people.
+    await expect(prisma.withTenant(tenantId, (tx) => assertRatesNotFeedManaged(tx, tenantId, [planA]))).resolves.toBeUndefined()
     // With no approved plan left the room mapping may now be reopened.
     await mappings.decide(tenantId, userId, 'room', roomMappingId, 'reopen', undefined, hotelMappingId)
   })
