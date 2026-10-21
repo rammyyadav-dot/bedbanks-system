@@ -20,10 +20,12 @@ What the repository actually does:
 
 4. **Scan `tools/` too.** Operator and verification scripts under `tools/` must be listed in `APPROVED_TOOL_CLIENTS` to construct a `PrismaClient` or `PrismaService`. They are exempt from the "only the API may import `@prisma/client`" rule, because they are one-shot processes and not part of any deployed service.
 
+5. **Warn at startup when a pool is unsized.** `inspectPoolConfig` (`apps/api/src/database/pool-config.ts`) runs from `PrismaService.assertRestrictedRuntimeRole`, which every role connection already calls. It logs a warning, with the role label only and never the URL, when `connection_limit` is missing or invalid, or when a Neon pooled host lacks `pgbouncer=true`. It does not block startup.
+
 ## Consequences
 - A new database client or pool cannot appear without a reviewed edit to the guard's lists.
 - The transaction-local tenant context (`set_config(..., true)` inside `$transaction`) works unchanged with both direct and PgBouncer transaction-mode connections.
 - Pool sizing stays an operator setting held in the secret manager. It is not checked at runtime.
 
 ## Rollback
-Revert the `APPROVED_POOL_HOLDERS` check in `tools/runtime-db-role-check.ts` and its test. Nothing at runtime depends on it.
+Revert the `APPROVED_POOL_HOLDERS` check in `tools/runtime-db-role-check.ts` and its test, and the `warnOnPoolConfig` call in `PrismaService`. Nothing at runtime depends on it.
