@@ -378,7 +378,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       ? 'The maximum price must be at least the minimum price.'
       : ''
   const rooms = visibleRooms(hotel.rooms, {
-    boardBasisId: boardView, refundableOnly: refundableView, roomNameQuery: roomQuery,
+    boardBasisId: boardView, refundableOnly: refundableView, roomNameQuery: roomQuery, markupBp,
     minSellMinor: priceViewError ? null : minParsed.state === 'minor' ? minParsed.minor : null,
     maxSellMinor: priceViewError ? null : maxParsed.state === 'minor' ? maxParsed.minor : null,
   })

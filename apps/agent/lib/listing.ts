@@ -1,5 +1,6 @@
 import type { SearchCriteria, AgentRateOffer, AgentRoomOffer } from '@bedbanks/domain'
 import { activeFilterLabel } from './search-summary'
+import { clientPrice } from './client-markup'
 
 type Filters = NonNullable<SearchCriteria['filters']>
 
@@ -86,16 +87,22 @@ export type RateView = {
   refundableOnly: boolean
   /** Case-insensitive substring match against the room name. Empty matches every room. */
   roomNameQuery?: string
-  /** Inclusive bounds on the rate's total stay price, in the same currency and integer minor units already on screen. */
+  /**
+   * Inclusive bounds on the rate's total stay price, in the same currency and integer minor units already on screen —
+   * the client price when a markup (ADR 0065) is set, since that is the bold number the agent is comparing against.
+   */
   minSellMinor?: number | null
   maxSellMinor?: number | null
+  /** Display-only client markup in basis points (ADR 0065), applied before the price-range bounds above are checked. */
+  markupBp?: number
 }
 
 /** Narrows the rates of one hotel already on screen. It never re-prices and never reorders the server's rates. */
 export function visibleRooms(rooms: AgentRoomOffer[], view: RateView): AgentRoomOffer[] {
   const query = view.roomNameQuery?.trim().toLocaleLowerCase('en-US') ?? ''
+  const displayMinor = (rate: AgentRateOffer) => clientPrice(rate.total, view.markupBp ?? 0)?.amountMinor ?? rate.sellAmountMinor
   const keep = (rate: AgentRateOffer) => (view.boardBasisId === null || rate.boardBasisId === view.boardBasisId) && (!view.refundableOnly || rate.cancellation.refundable)
-    && (view.minSellMinor == null || rate.sellAmountMinor >= view.minSellMinor) && (view.maxSellMinor == null || rate.sellAmountMinor <= view.maxSellMinor)
+    && (view.minSellMinor == null || displayMinor(rate) >= view.minSellMinor) && (view.maxSellMinor == null || displayMinor(rate) <= view.maxSellMinor)
   return rooms.flatMap((room) => {
     if (query && !room.name.toLocaleLowerCase('en-US').includes(query)) return []
     const rates = room.rates.filter(keep)

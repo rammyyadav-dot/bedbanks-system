@@ -40,7 +40,7 @@ export function ResultFilters({ applied, currency, boards, propertyTypeOptions, 
     setStarRatings([]); setRefundableOnly(false); setBoardBasisIds([]); setPropertyTypes([]); setBrands([]); setBrandQuery(''); setMinPrice(''); setMaxPrice('')
     if (appliedCount > 0 && !searching) { onApply({}); setOpen(false) }
   }
-  const visibleBrands = brandQuery.trim() ? brandOptions.filter((brand) => brand.toLocaleLowerCase().includes(brandQuery.trim().toLocaleLowerCase())) : brandOptions
+  const visibleBrands = brandQuery.trim() ? brandOptions.filter((brand) => brand.toLocaleLowerCase('en-US').includes(brandQuery.trim().toLocaleLowerCase('en-US'))) : brandOptions
   return <>
     <button type="button" className="bb-filter-toggle portal-secondary" aria-expanded={open} aria-controls="bb-result-filters" onClick={() => setOpen((value) => !value)}>
       <SlidersHorizontal size={15} /> Filters{appliedCount ? ` (${appliedCount})` : ''}

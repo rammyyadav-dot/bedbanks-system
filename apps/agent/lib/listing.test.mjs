@@ -53,6 +53,17 @@ test('hotel page also narrows by room name and a sell-price range', () => {
   assert.equal(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, roomNameQuery: 'no such room' }).length, 0)
 })
 
+test('the price-range filter compares the client price actually shown, not the pre-markup agency price', () => {
+  // AED 850 agency price; at a 20% client markup the bold number on screen is AED 1,020.
+  const rooms = [{ roomTypeId: 'dlx', name: 'Deluxe', rates: [rate('a', 'ro', 85000, { sellAmountMinor: 85000 })] }]
+  // No markup: the agency price (AED 850) is what's compared, so a max of AED 900 keeps it.
+  assert.equal(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, maxSellMinor: 90000 }).length, 1)
+  // 20% markup: the displayed client price (AED 1,020) exceeds a max of AED 900, so it must drop out.
+  assert.equal(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, maxSellMinor: 90000, markupBp: 2000 }).length, 0)
+  // Raising the max to cover the displayed client price brings it back.
+  assert.equal(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, maxSellMinor: 102000, markupBp: 2000 }).length, 1)
+})
+
 test('a room "from" price is the lowest instantly sellable total; on-request and sold-out never lead', () => {
   assert.deepEqual(roomFromMinor({ rates: [rate('a', 'ro', 70000), rate('b', 'ro', 40000, { availability: 'on_request' }), rate('c', 'ro', 30000, { availability: 'sold_out' }), rate('d', 'ro', 65000)] }), { amountMinor: 65000, currency: 'AED' })
   assert.equal(roomFromMinor({ rates: [rate('b', 'ro', 40000, { availability: 'on_request' })] }), null)
