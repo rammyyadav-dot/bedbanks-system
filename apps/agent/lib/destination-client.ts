@@ -2,7 +2,7 @@ import type { DestinationResolution } from '@bedbanks/domain'
 import { routes } from '@bedbanks/contracts/agent'
 import { agentApiBase } from './api-config.mjs'
 
-export type SearchFacets = { boards: { id: string; name: string }[]; propertyTypes: string[] }
+export type SearchFacets = { boards: { id: string; name: string }[]; propertyTypes: string[]; brands: string[] }
 
 async function readData(path: string, tenantId: string): Promise<unknown> {
   if (!tenantId) return null
@@ -25,13 +25,14 @@ export async function fetchDestinations(query: string, tenantId: string): Promis
 export async function fetchFacets(tenantId: string): Promise<SearchFacets> {
   try {
     const data = await readData(routes.agent.searchFacets, tenantId)
-    if (!data || typeof data !== 'object') return { boards: [], propertyTypes: [] }
-    const row = data as { boards?: unknown; propertyTypes?: unknown }
+    if (!data || typeof data !== 'object') return { boards: [], propertyTypes: [], brands: [] }
+    const row = data as { boards?: unknown; propertyTypes?: unknown; brands?: unknown }
     const boards = Array.isArray(row.boards) ? row.boards.filter((item): item is { id: string; name: string } => !!item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && typeof (item as { name?: unknown }).name === 'string') : []
     const propertyTypes = Array.isArray(row.propertyTypes) ? row.propertyTypes.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
-    return { boards, propertyTypes }
+    const brands = Array.isArray(row.brands) ? row.brands.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+    return { boards, propertyTypes, brands }
   } catch {
-    return { boards: [], propertyTypes: [] }
+    return { boards: [], propertyTypes: [], brands: [] }
   }
 }
 

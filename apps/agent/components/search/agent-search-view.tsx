@@ -35,7 +35,7 @@ export function SearchView({
   roomStays, setRoomStays, currency, setCurrency, sort, setSort, onCriteriaChange,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions, onApplyFilters, clientMarkupBp = 0, setClientMarkupBp, agentEmail = null,
+  brands, setBrands, boards, propertyTypeOptions, brandOptions = [], onApplyFilters, clientMarkupBp = 0, setClientMarkupBp, agentEmail = null,
   bookingEnabled, tenantId, onBooked, onViewBooking,
 }: {
   destination: string; destinationRef: DestinationRef | null; setDestination: (label: string, ref: DestinationRef | null, cityName: string) => void
@@ -54,7 +54,8 @@ export function SearchView({
   maxPrice: string; setMaxPrice: (value: string) => void
   boardBasisIds: string[]; setBoardBasisIds: (value: string[]) => void
   propertyTypes: string[]; setPropertyTypes: (value: string[]) => void
-  boards: { id: string; name: string }[]; propertyTypeOptions: string[]
+  brands: string[]; setBrands: (value: string[]) => void
+  boards: { id: string; name: string }[]; propertyTypeOptions: string[]; brandOptions?: string[]
   /** Runs a new search with these filters (applied server-side before pagination). */
   onApplyFilters: (filters: NonNullable<SearchCriteria['filters']>) => void
   /** Display-only client markup in basis points (ADR 0065). */
@@ -67,7 +68,7 @@ export function SearchView({
   const [cursor, setCursor] = useState(0)
   const [validationMessage, setValidationMessage] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
-  const draft: FilterDraft = { starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes }
+  const draft: FilterDraft = { starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes, brands }
   const parsedFilters = criteriaFilters(draft)
   const stays = buildRoomStays(roomStays)
   const criteria: SearchCriteria | null = stays.ok && canSubmitDestination(destinationRef) ? {
@@ -122,7 +123,7 @@ export function SearchView({
     window.scrollTo({ top: 0 })
   }
   return <>
-    <SearchCriteriaForm destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes} boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !canSubmitDestination(destinationRef))} tenantId={tenantId} filtersInSidebar={Boolean(result)} clientMarkupBp={clientMarkupBp} setClientMarkupBp={setClientMarkupBp} />
+    <SearchCriteriaForm destination={destination} destinationRef={destinationRef} setDestination={setDestination} checkIn={checkIn} setCheckIn={setCheckIn} checkOut={checkOut} setCheckOut={setCheckOut} roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency} nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly} minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes} brands={brands} setBrands={setBrands} boards={boards} propertyTypeOptions={propertyTypeOptions} brandOptions={brandOptions} sort={sort} setSort={setSort} searching={searching} searchFailed={searchFailed} onSubmit={submitSearch} onChange={update} destinationInvalid={Boolean(validationMessage && !canSubmitDestination(destinationRef))} tenantId={tenantId} filtersInSidebar={Boolean(result)} clientMarkupBp={clientMarkupBp} setClientMarkupBp={setClientMarkupBp} />
     {validationMessage && <p className="portal-field-error" role="alert">{validationMessage}</p>}
     {searching && !result && <SearchLoadingState />}
     {result && request && selectedLive && <LiveHotelDetail key={selectedLive.hotelId} hotel={selectedLive} request={request} searchId={result.hotelSearchIds?.[selectedLive.hotelId] ?? result.searchId} onBack={() => setSelectedLive(null)} onRefresh={onSearch} bookingEnabled={bookingEnabled} tenantId={tenantId} markupBp={clientMarkupBp} agentEmail={agentEmail} onBooked={onBooked} onViewBooking={onViewBooking} />}
@@ -142,7 +143,7 @@ export function SearchView({
       {refreshError && <p className="portal-field-error" role="alert">{refreshError}</p>}
       <ActiveFilterChips filters={request.filters} currency={request.currency} boards={boards} disabled={searching} onApply={onApplyFilters} />
       <div className="bb-results-layout">
-        <ResultFilters key={`${request.currency}:${JSON.stringify(request.filters ?? {})}`} applied={request.filters} currency={request.currency} boards={boards} propertyTypeOptions={propertyTypeOptions} searching={searching} onApply={onApplyFilters} />
+        <ResultFilters key={`${request.currency}:${JSON.stringify(request.filters ?? {})}`} applied={request.filters} currency={request.currency} boards={boards} propertyTypeOptions={propertyTypeOptions} brandOptions={brandOptions} searching={searching} onApply={onApplyFilters} />
         <div className="bb-results-main">
           <div className="bb-results-head">
             <p className="bb-results-count"><b>{pageWindow.total === 0 ? <><strong>0</strong> hotels found</> : <><strong>{pageWindow.total}</strong> {pageWindow.total === 1 ? 'hotel' : 'hotels'} found · showing {pageWindow.start}–{pageWindow.end}</>}</b><span>{formatStay(request.checkIn, request.checkOut)} · prices in {request.currency}, total stay{clientMarkupBp > 0 ? ` · client prices include your ${formatMarkupPercent(clientMarkupBp)}% markup` : ''}</span></p>

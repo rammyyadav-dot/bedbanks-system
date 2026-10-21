@@ -21,6 +21,7 @@ function canonical(filters: Filters | undefined): string {
     starRatings: sorted(filters.starRatings),
     boardBasisIds: sorted(filters.boardBasisIds),
     propertyTypes: sorted(filters.propertyTypes),
+    brands: sorted(filters.brands),
     refundableOnly: filters.refundableOnly ? true : undefined,
     minPriceMinor: filters.minPriceMinor,
     maxPriceMinor: filters.maxPriceMinor,
@@ -35,7 +36,7 @@ export function sameFilters(left: Filters | undefined, right: Filters | undefine
 /** Number of individual filter selections, for the "Filters (n)" control. */
 export function filterCount(filters: Filters | undefined): number {
   if (!filters) return 0
-  return (filters.starRatings?.length ?? 0) + (filters.boardBasisIds?.length ?? 0) + (filters.propertyTypes?.length ?? 0)
+  return (filters.starRatings?.length ?? 0) + (filters.boardBasisIds?.length ?? 0) + (filters.propertyTypes?.length ?? 0) + (filters.brands?.length ?? 0)
     + (filters.refundableOnly ? 1 : 0) + (filters.minPriceMinor !== undefined || filters.maxPriceMinor !== undefined ? 1 : 0)
 }
 
@@ -61,6 +62,9 @@ export function activeFilterChips(filters: Filters | undefined, currency: string
   }
   for (const type of filters.propertyTypes ?? []) {
     chips.push({ key: `type:${type}`, label: type, next: { ...filters, propertyTypes: filters.propertyTypes?.filter((value) => value !== type) } })
+  }
+  for (const brand of filters.brands ?? []) {
+    chips.push({ key: `brand:${brand}`, label: brand, next: { ...filters, brands: filters.brands?.filter((value) => value !== brand) } })
   }
   if (filters.minPriceMinor !== undefined || filters.maxPriceMinor !== undefined) {
     const label = activeFilterLabel({ minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor, currency })

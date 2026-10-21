@@ -617,6 +617,9 @@ label, .field span { color: #5a5a55; }
 .bb-filters-actions .portal-primary { width: 100%; }
 .bb-filters-actions .portal-primary:disabled { opacity: .5; cursor: not-allowed; }
 .bb-filters-actions p { margin: 0; color: #B45309; font-size: 12px; }
+.bb-brand-search { width: 100%; height: 34px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 6px; color: #1F2937; font-size: 13px; }
+.bb-brand-list { display: grid; gap: 6px; max-height: 180px; overflow-y: auto; }
+.bb-brand-empty { margin: 4px 0 0; color: #9CA3AF; font-size: 12px; }
 
 .bb-results-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 .bb-results-count { display: grid; gap: 2px; margin: 0; color: #1F2937; font-size: 15px; }

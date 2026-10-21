@@ -17,4 +17,11 @@ describe('completeHotelsInCity (ADR 0074)', () => {
     expect(q.sql).not.toContain('DROP')
     expect(q.values).toEqual(['t1', "O'Hare; DROP TABLE", ['h1', 'h2'], ['Resort']])
   })
+
+  it('binds the optional brand filter as a HotelProfile existence check, parameterized', () => {
+    const q = completeHotelsInCity({ tenantId: 't1', city: 'Dubai', brands: ['JW Marriott'] })
+    expect(q.sql).toContain('EXISTS (SELECT 1 FROM "HotelProfile" p WHERE p."hotel_id" = "Hotel"."id" AND p."brand_name" = ANY(?::text[]))')
+    expect(q.sql).not.toContain('DROP')
+    expect(q.values).toEqual(['t1', 'Dubai', ['JW Marriott']])
+  })
 })

@@ -50,6 +50,7 @@ export interface SearchCriteria {
     minPriceMinor?: number
     maxPriceMinor?: number
     propertyTypes?: string[]
+    brands?: string[]
   }
 }
 export interface CanonicalRate { id: string; hotelId: string; currency: string; totalMinor: number; refundable: boolean }
@@ -124,6 +125,8 @@ export interface SearchHotelOffer {
   starRating: number
   /** Stored hotel master fields. Omitted when the catalogue has no value. */
   propertyType?: string
+  /** Hotel profile brand name (ADR 0021), e.g. "JW Marriott". Omitted when the hotel has no profile or no brand recorded. */
+  brand?: string
   address?: string
   latitude?: string
   longitude?: string

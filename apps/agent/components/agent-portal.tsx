@@ -46,6 +46,7 @@ type SearchOverride = {
   maxPriceMinor?: number
   boardBasisIds?: string[]
   propertyTypes?: string[]
+  brands?: string[]
 }
 
 const SEARCH_PAGE_SIZE = 25
@@ -74,7 +75,8 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
   const [maxPrice, setMaxPrice] = useState('')
   const [boardBasisIds, setBoardBasisIds] = useState<string[]>([])
   const [propertyTypes, setPropertyTypes] = useState<string[]>([])
-  const [facets, setFacets] = useState<SearchFacets>({ boards: [], propertyTypes: [] })
+  const [brands, setBrands] = useState<string[]>([])
+  const [facets, setFacets] = useState<SearchFacets>({ boards: [], propertyTypes: [], brands: [] })
   const [searchResult, setSearchResult] = useState<HotelSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [refreshError, setRefreshError] = useState('')
@@ -106,7 +108,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast('') }, 2200)
   }
   const nav = (next: View) => { setView(next); setMobileNav(false) }
-  const draft = (): FilterDraft => ({ starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes })
+  const draft = (): FilterDraft => ({ starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes, brands })
   const selectDestination = (label: string, ref: DestinationRef | null, cityName: string) => {
     setDestinationLabel(label)
     setDestinationRef(ref)
@@ -171,6 +173,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     const nextRefundable = override?.refundableOnly ?? refundableOnly
     const nextBoards = override?.boardBasisIds ?? boardBasisIds
     const nextTypes = override?.propertyTypes ?? propertyTypes
+    const nextBrands = override?.brands ?? brands
     const nextMin = override && ('minPriceMinor' in override || 'maxPriceMinor' in override) ? minorToMajorInput(override.minPriceMinor, nextCurrency) : minPrice
     const nextMax = override && ('minPriceMinor' in override || 'maxPriceMinor' in override) ? minorToMajorInput(override.maxPriceMinor, nextCurrency) : maxPrice
     if (override && ('destinationLabel' in override || 'destinationRef' in override || 'destinationCity' in override)) selectDestination(nextLabel, nextRef, nextCity)
@@ -187,13 +190,14 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     if (override && 'refundableOnly' in override) setRefundableOnly(Boolean(override.refundableOnly))
     if (override?.boardBasisIds) setBoardBasisIds(override.boardBasisIds)
     if (override?.propertyTypes) setPropertyTypes(override.propertyTypes)
+    if (override?.brands) setBrands(override.brands)
     if (override && ('minPriceMinor' in override || 'maxPriceMinor' in override)) {
       setMinPrice(nextMin)
       setMaxPrice(nextMax)
     }
     return criteriaFrom(
       { destinationCity: nextCity, destinationRef: nextRef, checkIn: nextCheckIn, checkOut: nextCheckOut, roomStays: nextStays, nationality: nextNationality, currency: nextCurrency, sort: nextSort },
-      { starRatings: nextStars, refundableOnly: nextRefundable, minPrice: nextMin, maxPrice: nextMax, currency: nextCurrency, boardBasisIds: nextBoards, propertyTypes: nextTypes },
+      { starRatings: nextStars, refundableOnly: nextRefundable, minPrice: nextMin, maxPrice: nextMax, currency: nextCurrency, boardBasisIds: nextBoards, propertyTypes: nextTypes, brands: nextBrands },
     )
   }
   const changeNationality = (value: string) => {
@@ -252,6 +256,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
         ...(built.criteria.filters?.maxPriceMinor !== undefined ? { maxPriceMinor: built.criteria.filters.maxPriceMinor } : {}),
         ...(built.criteria.filters?.boardBasisIds ? { boardBasisIds: built.criteria.filters.boardBasisIds } : {}),
         ...(built.criteria.filters?.propertyTypes ? { propertyTypes: built.criteria.filters.propertyTypes } : {}),
+        ...(built.criteria.filters?.brands ? { brands: built.criteria.filters.brands } : {}),
       }, tenantId)
       const notice = searchAttemptNotice({ kind: 'resolved', status: result.status })
       setSearchFailed(Boolean(notice))
@@ -308,6 +313,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       maxPriceMinor: search.maxPriceMinor,
       boardBasisIds: search.boardBasisIds ?? [],
       propertyTypes: search.propertyTypes ?? [],
+      brands: search.brands ?? [],
     })
   }
   async function handlePage(offset: number) {
@@ -379,8 +385,8 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     destination, destinationRef, setDestination: selectDestination, checkIn, setCheckIn, checkOut, setCheckOut,
     roomStays, setRoomStays, currency, setCurrency, sort, setSort: applySort,
     nationality, setNationality: changeNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
-    minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-    boards: facets.boards, propertyTypeOptions: facets.propertyTypes, searching, searchFailed, tenantId,
+    minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes, brands, setBrands,
+    boards: facets.boards, propertyTypeOptions: facets.propertyTypes, brandOptions: facets.brands, searching, searchFailed, tenantId,
     clientMarkupBp, setClientMarkupBp,
   }
   const supplierNote = providerStatus === 'checking' ? 'Checking supplier access' : providerStatus === 'unavailable' ? 'Supplier access was not confirmed' : 'This status is not a live supplier probe'
@@ -406,7 +412,7 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     </header>
     <div className="portal-body"><main className="portal-main">
       {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={bookingEnabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onReplay={replaySearch} />}
-      {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} onApplyFilters={(filters) => beginSearch({ starRatings: filters.starRatings ?? [], refundableOnly: Boolean(filters.refundableOnly), boardBasisIds: filters.boardBasisIds ?? [], propertyTypes: filters.propertyTypes ?? [], minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor })} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} agentEmail={identity.user.email} />}
+      {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} onApplyFilters={(filters) => beginSearch({ starRatings: filters.starRatings ?? [], refundableOnly: Boolean(filters.refundableOnly), boardBasisIds: filters.boardBasisIds ?? [], propertyTypes: filters.propertyTypes ?? [], brands: filters.brands ?? [], minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor })} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} agentEmail={identity.user.email} />}
       {view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
       {view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} tenantId={tenantId} overdue={finance?.overdue ? { state: finance.overdue.state, daysOverdue: finance.overdue.daysOverdue, unpaidLabel: formatMinorAmount(finance.overdue.unpaidMinor, finance.currency) } : null} />}
       {view === 'account' && <AgentAccount identity={identity} tenantId={tenantId} />}

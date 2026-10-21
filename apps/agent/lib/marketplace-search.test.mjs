@@ -72,12 +72,17 @@ test('converts AED, USD and OMR major units to integer minor units', () => {
   assert.equal(activeFilterLabel({ minPriceMinor: 40000, maxPriceMinor: 90000, starRatings: [5], refundableOnly: true }), '5★ · Refundable · AED 400–900 total')
   assert.equal(activeFilterLabel({ maxPriceMinor: 100000, currency: 'OMR' }), 'Up to OMR 100 total')
   assert.equal(activeFilterLabel({}), '')
-  assert.deepEqual(criteriaFilters({ starRatings: [5, 5, 4], refundableOnly: true, minPrice: '150', maxPrice: '1500', currency: 'AED', boardBasisIds: [], propertyTypes: [] }), {
+  assert.equal(activeFilterLabel({ brands: ['JW Marriott', 'Kempinski'] }), 'JW Marriott, Kempinski')
+  assert.deepEqual(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '', maxPrice: '', currency: 'AED', boardBasisIds: [], propertyTypes: [], brands: ['Kempinski', 'Kempinski', ''] }), {
+    ok: true,
+    filters: { brands: ['Kempinski'] },
+  })
+  assert.deepEqual(criteriaFilters({ starRatings: [5, 5, 4], refundableOnly: true, minPrice: '150', maxPrice: '1500', currency: 'AED', boardBasisIds: [], propertyTypes: [], brands: [] }), {
     ok: true,
     filters: { starRatings: [4, 5], refundableOnly: true, minPriceMinor: 15000, maxPriceMinor: 150000 },
   })
-  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '', maxPrice: '', currency: 'AED', boardBasisIds: [], propertyTypes: [] }).filters, undefined)
-  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '10', maxPrice: '2', currency: 'USD', boardBasisIds: [], propertyTypes: [] }).ok, false)
+  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '', maxPrice: '', currency: 'AED', boardBasisIds: [], propertyTypes: [], brands: [] }).filters, undefined)
+  assert.equal(criteriaFilters({ starRatings: [], refundableOnly: false, minPrice: '10', maxPrice: '2', currency: 'USD', boardBasisIds: [], propertyTypes: [], brands: [] }).ok, false)
 })
 
 test('builds a Monday calendar and refuses a checkout before check-in', () => {
