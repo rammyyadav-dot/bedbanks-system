@@ -144,9 +144,13 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
 - `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant
 - `Supplier`: supply authoring
+- `SupplierAllotmentObservation`: ingestion-gated: latest supplier stock statement per night, an observation that is never sellable by itself (ADR 0078)
+- `SupplierCancellationObservation`: ingestion-gated: latest supplier cancellation policy per rate plan, an observation that is never sellable by itself (ADR 0078)
 - `SupplierHotelMapping`: mapping governance
+- `SupplierIngestRun`: ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
+- `SupplierRateObservation`: ingestion-gated: latest supplier net per supplier night, an observation that is never sellable by itself (ADR 0078)
 - `SupplierRoomMapping`: mapping governance
 - `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)
 - `SupplierStatementLine`: finance-gated: immutable statement lines (ADR 0070)
