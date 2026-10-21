@@ -23,3 +23,4 @@ export type { GateStore, GateAcquireResult, GateOutcome, SharedGateLimits, Share
 export { fanOutRead } from './fanout/supplier-fanout';
 export type { SupplierLeg, FanoutOptions, FanoutResult, LegResult, FanoutLegEvent } from './fanout/supplier-fanout';
 export type { ConnectorRuntimeState, ReadinessReport, ReadinessGate, ProviderOnboarding } from './xml/readiness';
+export * from './ingest'
