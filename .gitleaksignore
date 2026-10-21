@@ -12,3 +12,7 @@
 27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware/middleware-manifest.json:generic-api-key:26
 27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware-manifest.json:generic-api-key:25
 27f90560270e1e04d5f3fe2c19926e0ab290252e:apps/admin/.next/server/middleware-manifest.json:generic-api-key:26
+
+# Reviewed 2026-10-21: c9037814 KEY_ALPHABET in distribution-credentials.ts is the public character set
+# 'abcdefghijklmnopqrstuvwxyz0123456789' used to generate key IDs. It is not a credential.
+c9037814f77ce4b44fb204400e79d14087dfc4f3:apps/api/src/distribution/distribution-credentials.ts:generic-api-key:21
