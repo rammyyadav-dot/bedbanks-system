@@ -103,6 +103,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BookingEmail`: booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it
 - `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
 - `BookingFinanceEvent`: booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)
+- `BookingFinancePosting`: finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)
 - `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
 - `BookingLeadTimeRule`: supply authoring
 - `BookingOpsState`: booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)
@@ -145,6 +146,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Supplier`: supply authoring
 - `SupplierHotelMapping`: mapping governance
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
+- `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
 - `SupplierRoomMapping`: mapping governance
 - `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)
 - `SupplierStatementLine`: finance-gated: immutable statement lines (ADR 0070)

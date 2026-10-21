@@ -30,7 +30,7 @@ The module is **not production-activatable** and must not be described as such, 
 | Supplier-initiated cancellation, nightly supplier reconciliation | Not built | ADR 0039 Phase 3/4 |
 | Offer alternative; rebook from Failed | Not built | ADR 0039 Phase 2 |
 | Guest / agent notifications and tenant webhooks | Partial: a checkout confirmation email outbox exists (ADR 0066, not re-audited here); per-status notifications and signed tenant webhooks are not built | `booking-ops/email/*` |
-| Ledger posting and supplier payables from booking events | Not built: the module writes an append-only outbox ("awaiting Finance booking") and moves no money | ADR 0039 Phase 5 |
+| Ledger posting and supplier payables from booking events | **Built (ADR 0076), off by default**: a consumer under its own role posts agency debits/holds/refunds and supplier payable entries through the single ledger writer. No Admin backlog screen yet; the booking finance panel still reads "awaiting Finance booking" | ADR 0039 Phase 5, ADR 0076 |
 
 ## 3. Findings
 
@@ -49,7 +49,7 @@ The module is **not production-activatable** and must not be described as such, 
 ## 4. Release gates still open (not UI work)
 
 1. A certified live supplier adapter with independent canonical IDs and authoritative prices.
-2. A Finance consumer of `BookingFinanceEvent` (ledger posting, supplier payable creation) under the single-writer ledger rule.
+2. ~~A Finance consumer of `BookingFinanceEvent`~~ **Built** (ADR 0076; off until the role is provisioned and the agencies' accounts are open). Remaining: a backlog/review screen and the panel wording.
 3. Amendment re-pricing and supplier amendment calls (F4).
 4. Scheduled jobs: Checked-out, close-after-dispute, nightly supplier reconciliation, supplier-initiated cancellation intake (F5).
 5. Per-status notifications and signed tenant webhooks.
@@ -73,7 +73,7 @@ The module is **not production-activatable** and must not be described as such, 
 - **Not done**: the React screens (Kanban, toolbar, print layout) were type-checked and their pure logic unit-tested, but not rendered in a browser in this session. Run `tools/admin-ops-verify` before release.
 
 ## 6. Recommended next order
-1. Finance consumer for the money outbox (unblocks payables and revenue reporting).
+1. ~~Finance consumer for the money outbox~~ done (ADR 0076). Next on that line: the backlog/review screen, a revenue report, and switching the payables page to the new entries.
 2. Scheduled jobs (F5), starting with auto Checked-out, which is already a defined system action.
 3. Amendment re-pricing (F4).
 4. Urgent badge on list rows (F7), reusing the queue ruleset.
