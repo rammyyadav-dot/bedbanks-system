@@ -3,9 +3,11 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { inspectPoolConfig } from './pool-config';
 import { assertRuntimeDbIdentity, runtimeGuardMode } from './runtime-db-identity';
 
 /**
@@ -29,6 +31,12 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
+  private readonly poolUrl: string | undefined;
+
+  constructor(@Optional() options?: Prisma.PrismaClientOptions) {
+    super(options);
+    this.poolUrl = options?.datasourceUrl ?? process.env.DATABASE_URL;
+  }
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
@@ -41,6 +49,7 @@ export class PrismaService
    * The error names the invariant only; it never contains the connection string or password. Also used by every other runtime client.
    */
   async assertRestrictedRuntimeRole(label: string): Promise<void> {
+    this.warnOnPoolConfig(label);
     if (runtimeGuardMode() === 'off') return;
     try {
       const identity = await assertRuntimeDbIdentity(this, label);
@@ -49,6 +58,12 @@ export class PrismaService
       await this.$disconnect().catch(() => undefined);
       throw error;
     }
+  }
+
+  /** ADR 0067: surface pools that are missing the settings the connection budget relies on. Logs findings only, never the URL. */
+  private warnOnPoolConfig(label: string): void {
+    const report = inspectPoolConfig(this.poolUrl);
+    for (const warning of report.warnings) this.logger.warn(`${label} database pool: ${warning}`);
   }
 
   async onModuleDestroy(): Promise<void> {
