@@ -21,7 +21,7 @@ export function SearchCriteriaForm({
   roomStays, setRoomStays, currency, setCurrency,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions, sort, setSort,
+  brands, setBrands, boards, propertyTypeOptions, brandOptions = [], sort, setSort,
   searching, searchFailed = false, onSubmit, onChange, destinationInvalid = false, tenantId, filtersInSidebar = false,
   clientMarkupBp, setClientMarkupBp,
 }: {
@@ -50,8 +50,11 @@ export function SearchCriteriaForm({
   setBoardBasisIds: (value: string[]) => void
   propertyTypes: string[]
   setPropertyTypes: (value: string[]) => void
+  brands: string[]
+  setBrands: (value: string[]) => void
   boards: { id: string; name: string }[]
   propertyTypeOptions: string[]
+  brandOptions?: string[]
   sort: SearchSort
   setSort: (value: SearchSort) => void
   searching: boolean
@@ -74,7 +77,7 @@ export function SearchCriteriaForm({
   const nights = nightCount(checkIn, checkOut)
   const change = (action: () => void) => { setFormError(''); onChange(action) }
   const submit = () => {
-    const parsed = criteriaFilters({ starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes })
+    const parsed = criteriaFilters({ starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes, brands })
     const stays = buildRoomStays(roomStays)
     if (!canSubmitDestination(destinationRef)) return setFormError('Select a city or hotel. Typed text is not a destination.')
     if (!parsed.ok) return setFormError(parsed.reason)
@@ -113,7 +116,7 @@ export function SearchCriteriaForm({
         <p className="trade-search-note">{marketplaceHome.currencyNote} {marketplaceHome.nationalityHelper} A search total is not confirmed availability.</p>
         {!filtersInSidebar && <button type="button" className="portal-link" aria-expanded={advanced} onClick={() => setAdvanced((open) => !open)}>+ {marketplaceHome.advancedLabel}</button>}
       </div>
-      {advanced && !filtersInSidebar && <AdvancedFields currency={currency} starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPrice={minPrice} setMinPrice={(value) => change(() => setMinPrice(value))} maxPrice={maxPrice} setMaxPrice={(value) => change(() => setMaxPrice(value))} boardBasisIds={boardBasisIds} setBoardBasisIds={(value) => change(() => setBoardBasisIds(value))} boards={boards} propertyTypes={propertyTypes} setPropertyTypes={(value) => change(() => setPropertyTypes(value))} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={(value) => change(() => setSort(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPrice(''); setMaxPrice(''); setBoardBasisIds([]); setPropertyTypes([]); setSort('default') })} />}
+      {advanced && !filtersInSidebar && <AdvancedFields currency={currency} starRatings={starRatings} setStarRatings={(value) => change(() => setStarRatings(value))} refundableOnly={refundableOnly} setRefundableOnly={(value) => change(() => setRefundableOnly(value))} minPrice={minPrice} setMinPrice={(value) => change(() => setMinPrice(value))} maxPrice={maxPrice} setMaxPrice={(value) => change(() => setMaxPrice(value))} boardBasisIds={boardBasisIds} setBoardBasisIds={(value) => change(() => setBoardBasisIds(value))} boards={boards} propertyTypes={propertyTypes} setPropertyTypes={(value) => change(() => setPropertyTypes(value))} propertyTypeOptions={propertyTypeOptions} brands={brands} setBrands={(value) => change(() => setBrands(value))} brandOptions={brandOptions} sort={sort} setSort={(value) => change(() => setSort(value))} onClear={() => change(() => { setStarRatings([]); setRefundableOnly(false); setMinPrice(''); setMaxPrice(''); setBoardBasisIds([]); setPropertyTypes([]); setBrands([]); setSort('default') })} />}
     </form>
   )
 }
@@ -305,7 +308,7 @@ function NationalityField({ nationality, onChange }: { nationality: string; onCh
   </div>
 }
 
-function AdvancedFields({ currency, starRatings, setStarRatings, refundableOnly, setRefundableOnly, minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, boards, propertyTypes, setPropertyTypes, propertyTypeOptions, sort, setSort, onClear }: {
+function AdvancedFields({ currency, starRatings, setStarRatings, refundableOnly, setRefundableOnly, minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, boards, propertyTypes, setPropertyTypes, propertyTypeOptions, brands, setBrands, brandOptions, sort, setSort, onClear }: {
   currency: string
   starRatings: number[]
   setStarRatings: (value: number[]) => void
@@ -321,6 +324,9 @@ function AdvancedFields({ currency, starRatings, setStarRatings, refundableOnly,
   propertyTypes: string[]
   setPropertyTypes: (value: string[]) => void
   propertyTypeOptions: string[]
+  brands: string[]
+  setBrands: (value: string[]) => void
+  brandOptions: string[]
   sort: SearchSort
   setSort: (value: SearchSort) => void
   onClear: () => void
@@ -334,6 +340,7 @@ function AdvancedFields({ currency, starRatings, setStarRatings, refundableOnly,
     <label className="market-check"><input type="checkbox" checked={refundableOnly} onChange={(event) => setRefundableOnly(event.target.checked)} /> Refundable rates only</label>
     {boards.length > 0 && <fieldset><legend>Board</legend><div>{boards.map((board) => <label key={board.id}><input type="checkbox" checked={boardBasisIds.includes(board.id)} onChange={() => toggle(boardBasisIds, board.id, setBoardBasisIds)} /> {board.name}</label>)}</div></fieldset>}
     {propertyTypeOptions.length > 0 && <fieldset><legend>Property type</legend><div>{propertyTypeOptions.map((type) => <label key={type}><input type="checkbox" checked={propertyTypes.includes(type)} onChange={() => toggle(propertyTypes, type, setPropertyTypes)} /> {type}</label>)}</div></fieldset>}
+    {brandOptions.length > 0 && <fieldset><legend>Hotel chains &amp; brands</legend><div>{brandOptions.map((brand) => <label key={brand}><input type="checkbox" checked={brands.includes(brand)} onChange={() => toggle(brands, brand, setBrands)} /> {brand}</label>)}</div></fieldset>}
     <div className="market-price-range">
       <label>Minimum total stay ({currency})<input inputMode="decimal" value={minPrice} aria-label={`Minimum total stay in ${currency}`} onChange={(event) => setMinPrice(event.target.value)} /></label>
       <label>Maximum total stay ({currency})<input inputMode="decimal" value={maxPrice} aria-label={`Maximum total stay in ${currency}`} onChange={(event) => setMaxPrice(event.target.value)} /></label>

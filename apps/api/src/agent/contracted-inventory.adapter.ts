@@ -208,13 +208,14 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     return this.prisma.withTenant(tenantId, async (tx) => {
       // ADR 0074: a resolved city is an exact, indexed lookup; free text keeps the substring filter (no index can serve it under row-level security).
       const hotels = destination && criteria.destinationRef?.type === 'city'
-        ? await tx.$queryRaw<Array<{ id: string }>>(completeHotelsInCity({ tenantId, city: destination, canonicalHotelIds: criteria.canonicalHotelIds, propertyTypes: criteria.filters?.propertyTypes }))
+        ? await tx.$queryRaw<Array<{ id: string }>>(completeHotelsInCity({ tenantId, city: destination, canonicalHotelIds: criteria.canonicalHotelIds, propertyTypes: criteria.filters?.propertyTypes, brands: criteria.filters?.brands }))
         : await tx.hotel.findMany({
           where: {
             tenantId,
             contentStatus: 'COMPLETE',
             ...(criteria.canonicalHotelIds?.length ? { id: { in: criteria.canonicalHotelIds } } : {}),
             ...(criteria.filters?.propertyTypes?.length ? { propertyType: { in: criteria.filters.propertyTypes } } : {}),
+            ...(criteria.filters?.brands?.length ? { profile: { brandName: { in: criteria.filters.brands } } } : {}),
             ...(destination ? { city: { contains: destination, mode: 'insensitive' as const } } : {}),
           },
           select: { id: true },
@@ -276,8 +277,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       },
       include: {
         boardBasis: true,
-        // ADR 0067 F-04: only the structured local charges are read from the profile; contacts stay private.
-        roomType: { include: { hotel: { include: { profile: { select: { localCharges: true } } } } } },
+        // ADR 0067 F-04 / ADR 0021: structured local charges and the catalogue brand name are read from the profile; contacts stay private.
+        roomType: { include: { hotel: { include: { profile: { select: { localCharges: true, brandName: true } } } } } },
         contract: {
           include: {
             supplier: true,
@@ -404,6 +405,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       destination: hotel.destination,
       starRating: hotel.starRating,
       ...(hotel.propertyType ? { propertyType: hotel.propertyType } : {}),
+      ...(hotel.brand ? { brand: hotel.brand } : {}),
       ...(hotel.address ? { address: hotel.address } : {}),
       ...(hotel.latitude && hotel.longitude ? { latitude: hotel.latitude, longitude: hotel.longitude } : {}),
       ...(hotel.timeZone ? { timeZone: hotel.timeZone } : {}),
@@ -529,6 +531,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       destination: plan.roomType.hotel.city,
       starRating,
       ...(plan.roomType.hotel.propertyType ? { propertyType: plan.roomType.hotel.propertyType } : {}),
+      ...(plan.roomType.hotel.profile?.brandName ? { brand: plan.roomType.hotel.profile.brandName } : {}),
       ...(address ? { address } : {}),
       ...(latitude && longitude ? { latitude, longitude } : {}),
       ...(plan.roomType.hotel.timeZone ? { timeZone: plan.roomType.hotel.timeZone } : {}),

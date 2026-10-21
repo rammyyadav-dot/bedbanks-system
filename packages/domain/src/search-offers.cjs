@@ -79,6 +79,7 @@ function filterKey(filters) {
     minPriceMinor: filters.minPriceMinor ?? null,
     maxPriceMinor: filters.maxPriceMinor ?? null,
     propertyTypes: filters.propertyTypes ? [...filters.propertyTypes].slice().sort() : null,
+    brands: filters.brands ? [...filters.brands].slice().sort() : null,
   })
 }
 const sameDestination = (left, right) => left.destination === right.destination ||
@@ -110,10 +111,11 @@ function validSearchCriteria(c, now = Date.now()) {
   const nights = date(c.checkIn) && date(c.checkOut) ? Math.round((Date.parse(c.checkOut) - Date.parse(c.checkIn)) / 86400000) : 0
   const hotelsValid = c.canonicalHotelIds === undefined || (Array.isArray(c.canonicalHotelIds) && c.canonicalHotelIds.length > 0 && c.canonicalHotelIds.length <= 50 && c.canonicalHotelIds.every(id))
   const filters = c.filters
-  const filtersValid = filters === undefined || (allowedKeys(filters, ['starRatings', 'boardBasisIds', 'refundableOnly', 'minPriceMinor', 'maxPriceMinor', 'propertyTypes']) &&
+  const filtersValid = filters === undefined || (allowedKeys(filters, ['starRatings', 'boardBasisIds', 'refundableOnly', 'minPriceMinor', 'maxPriceMinor', 'propertyTypes', 'brands']) &&
     (filters.starRatings === undefined || (Array.isArray(filters.starRatings) && filters.starRatings.every((v) => natural(v, 1) && v <= 5))) &&
     (filters.boardBasisIds === undefined || (Array.isArray(filters.boardBasisIds) && filters.boardBasisIds.length <= 20 && filters.boardBasisIds.every(id))) &&
     (filters.propertyTypes === undefined || (Array.isArray(filters.propertyTypes) && filters.propertyTypes.length > 0 && filters.propertyTypes.length <= 20 && filters.propertyTypes.every(propertyTypeOk))) &&
+    (filters.brands === undefined || (Array.isArray(filters.brands) && filters.brands.length > 0 && filters.brands.length <= 20 && filters.brands.every(propertyTypeOk))) &&
     (filters.refundableOnly === undefined || typeof filters.refundableOnly === 'boolean') &&
     (filters.minPriceMinor === undefined || natural(filters.minPriceMinor, 0)) &&
     (filters.maxPriceMinor === undefined || natural(filters.maxPriceMinor, 0)) &&
@@ -196,6 +198,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
       if (!record(hotel) || !id(hotel.hotelId) || !id(hotel.name) || !id(hotel.destination) ||
           !natural(hotel.starRating, 1) || hotel.starRating > 5 ||
           (hotel.propertyType !== undefined && !propertyTypeOk(hotel.propertyType)) ||
+          (hotel.brand !== undefined && !propertyTypeOk(hotel.brand)) ||
           (hotel.address !== undefined && !addressOk(hotel.address)) ||
           ((hotel.latitude !== undefined) !== (hotel.longitude !== undefined)) ||
           (hotel.latitude !== undefined && (!coordinateOk(hotel.latitude) || !coordinateOk(hotel.longitude))) ||
@@ -253,6 +256,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
       })
       return { hotelId: hotel.hotelId, name: hotel.name, destination: hotel.destination, starRating: hotel.starRating,
         ...(hotel.propertyType === undefined ? {} : { propertyType: hotel.propertyType }),
+        ...(hotel.brand === undefined ? {} : { brand: hotel.brand }),
         ...(hotel.address === undefined ? {} : { address: hotel.address }),
         ...(hotel.latitude === undefined ? {} : { latitude: hotel.latitude, longitude: hotel.longitude }),
         ...(hotel.timeZone === undefined ? {} : { timeZone: hotel.timeZone }),
@@ -270,6 +274,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
       } else if (!hotel.destination.toLocaleLowerCase('en-US').includes(destination)) return []
       if (criteria.filters?.starRatings !== undefined && !criteria.filters.starRatings.includes(hotel.starRating)) return []
       if (criteria.filters?.propertyTypes !== undefined && (!hotel.propertyType || !criteria.filters.propertyTypes.includes(hotel.propertyType))) return []
+      if (criteria.filters?.brands !== undefined && (!hotel.brand || !criteria.filters.brands.includes(hotel.brand))) return []
       const rooms = hotel.rooms.flatMap((room) => {
         const rates = room.rates.filter((rate) => (rate.available || rate.availability === 'on_request') &&
           (criteria.filters?.boardBasisIds === undefined || criteria.filters.boardBasisIds.includes(rate.boardBasisId)) &&

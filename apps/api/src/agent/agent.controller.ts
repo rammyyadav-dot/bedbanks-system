@@ -42,6 +42,7 @@ class SearchFiltersDto {
   @IsOptional() @IsInt() @Min(0) minPriceMinor?: number
   @IsOptional() @IsInt() @Min(0) maxPriceMinor?: number
   @IsOptional() @IsArray() @IsString({ each: true }) propertyTypes?: string[]
+  @IsOptional() @IsArray() @IsString({ each: true }) brands?: string[]
 }
 
 class DestinationRefDto {

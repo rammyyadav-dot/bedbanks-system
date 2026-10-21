@@ -24,6 +24,7 @@ export type RecentSearch = {
   maxPriceMinor?: number
   boardBasisIds?: string[]
   propertyTypes?: string[]
+  brands?: string[]
 }
 
 const limit = 8
@@ -70,6 +71,7 @@ function isRecentSearch(value: unknown): value is RecentSearch {
   const ages = item.childAges
   if (item.boardBasisIds !== undefined && (!Array.isArray(item.boardBasisIds) || !item.boardBasisIds.every((id) => typeof id === 'string' && id.trim()))) return false
   if (item.propertyTypes !== undefined && (!Array.isArray(item.propertyTypes) || !item.propertyTypes.every((type) => typeof type === 'string' && type.trim()))) return false
+  if (item.brands !== undefined && (!Array.isArray(item.brands) || !item.brands.every((brand) => typeof brand === 'string' && brand.trim()))) return false
   if (item.nationality !== undefined && !isGuestMarket(item.nationality)) return false
   if (item.starRatings !== undefined && !validStars(item.starRatings)) return false
   if (item.refundableOnly !== undefined && item.refundableOnly !== true) return false
@@ -111,6 +113,7 @@ export function recentSearchIdentity(item: RecentSearch): string {
     item.maxPriceMinor ?? '',
     [...(item.boardBasisIds ?? [])].sort().join(','),
     [...(item.propertyTypes ?? [])].sort().join(','),
+    [...(item.brands ?? [])].sort().join(','),
   ].join('|')
 }
 
@@ -143,6 +146,7 @@ export function readRecentSearches(storage: Pick<Storage, 'getItem'>, userId: st
       ...(item.sort ? { sort: item.sort } : {}),
       ...(Array.isArray(item.boardBasisIds) ? { boardBasisIds: [...item.boardBasisIds] } : {}),
       ...(Array.isArray(item.propertyTypes) ? { propertyTypes: [...item.propertyTypes] } : {}),
+      ...(Array.isArray(item.brands) ? { brands: [...item.brands] } : {}),
     }))
   } catch {
     return []
@@ -170,6 +174,7 @@ function storedSearch(search: RecentSearch): RecentSearch {
     ...(search.sort ? { sort: search.sort } : {}),
     ...(search.boardBasisIds?.length ? { boardBasisIds: [...search.boardBasisIds] } : {}),
     ...(search.propertyTypes?.length ? { propertyTypes: [...search.propertyTypes] } : {}),
+    ...(search.brands?.length ? { brands: [...search.brands] } : {}),
   }
 }
 

@@ -27,6 +27,8 @@ export function activeFilterLabel(input) {
   const stars = [...new Set(input.starRatings ?? [])].filter((star) => Number.isInteger(star) && star >= 1 && star <= 5).sort((left, right) => right - left)
   if (stars.length) parts.push(stars.map((star) => `${star}★`).join(' '))
   if (input.refundableOnly) parts.push('Refundable')
+  const brands = [...new Set(input.brands ?? [])].filter((brand) => typeof brand === 'string' && brand.trim().length > 0)
+  if (brands.length) parts.push(brands.join(', '))
   const currency = input.currency ?? 'AED'
   const min = input.minPriceMinor === undefined ? '' : wholeAmount(input.minPriceMinor, currency)
   const max = input.maxPriceMinor === undefined ? '' : wholeAmount(input.maxPriceMinor, currency)

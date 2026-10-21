@@ -134,6 +134,7 @@ export class AgentSearchService {
       ...(criteria.filters.minPriceMinor !== undefined ? { minPriceMinor: criteria.filters.minPriceMinor } : {}),
       ...(criteria.filters.maxPriceMinor !== undefined ? { maxPriceMinor: criteria.filters.maxPriceMinor } : {}),
       ...(criteria.filters.propertyTypes ? { propertyTypes: [...criteria.filters.propertyTypes].sort() } : {}),
+      ...(criteria.filters.brands ? { brands: [...criteria.filters.brands].sort() } : {}),
     } : undefined
     const destinationRef = criteria.destinationRef?.type === 'city'
       ? { type: 'city' as const, id: criteria.destinationRef.id, countryCode: criteria.destinationRef.countryCode }

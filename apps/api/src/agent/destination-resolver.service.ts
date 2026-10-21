@@ -15,10 +15,10 @@ const DESTINATIONS_TTL_MS = 60_000
 const FUZZY_THRESHOLD = 0.35
 const isResolutions = (value: unknown): value is DestinationResolution[] => Array.isArray(value) && value.every((item) => !!item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string')
 
-type Facets = { boards: { id: string; name: string }[]; propertyTypes: string[] }
+type Facets = { boards: { id: string; name: string }[]; propertyTypes: string[]; brands: string[] }
 const isFacets = (value: unknown): value is Facets => {
   const candidate = value as Partial<Facets> | null
-  return !!candidate && Array.isArray(candidate.boards) && Array.isArray(candidate.propertyTypes)
+  return !!candidate && Array.isArray(candidate.boards) && Array.isArray(candidate.propertyTypes) && Array.isArray(candidate.brands)
 }
 
 @Injectable()
@@ -87,7 +87,7 @@ export class DestinationResolverService {
   }
 
   private async loadFacets(tenantId: string): Promise<Facets> {
-    const [boards, hotels] = await Promise.all([
+    const [boards, hotels, profiles] = await Promise.all([
       this.prisma.withTenant(tenantId, (tx) => tx.boardBasis.findMany({
         where: { tenantId, isActive: true },
         select: { id: true, name: true },
@@ -100,10 +100,18 @@ export class DestinationResolverService {
         distinct: ['propertyType'],
         take: 40,
       })),
+      // ADR 0021: only the catalogue brand name is read here, never contacts.
+      this.prisma.withTenant(tenantId, (tx) => tx.hotelProfile.findMany({
+        where: { tenantId, brandName: { not: null }, hotel: { contentStatus: 'COMPLETE' } },
+        select: { brandName: true },
+        distinct: ['brandName'],
+        take: 100,
+      })),
     ])
     return {
       boards: boards.filter((board) => board.id && board.name).map((board) => ({ id: board.id, name: board.name })),
       propertyTypes: [...new Set(hotels.map((hotel) => hotel.propertyType).filter((value) => value.trim().length > 0))].sort(),
+      brands: [...new Set(profiles.map((profile) => profile.brandName).filter((value): value is string => !!value && value.trim().length > 0))].sort(),
     }
   }
 

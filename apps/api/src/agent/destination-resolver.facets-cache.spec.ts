@@ -12,7 +12,8 @@ class MemoryCache implements CachePort {
 function build(cache: CachePort) {
   const boardFindMany = jest.fn(async () => [{ id: 'b1', name: 'Bed & Breakfast' }])
   const hotelFindMany = jest.fn(async () => [{ propertyType: 'Resort' }, { propertyType: 'Hotel' }])
-  const prisma = { withTenant: async (_tenant: string, run: (tx: unknown) => unknown) => run({ boardBasis: { findMany: boardFindMany }, hotel: { findMany: hotelFindMany } }) }
+  const hotelProfileFindMany = jest.fn(async () => [{ brandName: 'JW Marriott' }])
+  const prisma = { withTenant: async (_tenant: string, run: (tx: unknown) => unknown) => run({ boardBasis: { findMany: boardFindMany }, hotel: { findMany: hotelFindMany }, hotelProfile: { findMany: hotelProfileFindMany } }) }
   return { service: new DestinationResolverService(prisma as never, cache), boardFindMany }
 }
 
@@ -23,6 +24,7 @@ describe('DestinationResolverService.facets cache-aside', () => {
     const second = await service.facets('t1')
     expect(second).toEqual(first)
     expect(first.propertyTypes).toEqual(['Hotel', 'Resort'])
+    expect(first.brands).toEqual(['JW Marriott'])
     expect(boardFindMany).toHaveBeenCalledTimes(1)
   })
 

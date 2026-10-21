@@ -18,7 +18,7 @@ export function AgentHome({
   roomStays, setRoomStays, currency, setCurrency, sort, setSort,
   nationality, setNationality, starRatings, setStarRatings, refundableOnly, setRefundableOnly,
   minPrice, setMinPrice, maxPrice, setMaxPrice, boardBasisIds, setBoardBasisIds, propertyTypes, setPropertyTypes,
-  boards, propertyTypeOptions,   searching, searchFailed, tenantId, bookingEnabled, onOpenBookings, onSearch, onChange, onReplay,
+  brands, setBrands, boards, propertyTypeOptions, brandOptions = [], searching, searchFailed, tenantId, bookingEnabled, onOpenBookings, onSearch, onChange, onReplay,
   clientMarkupBp, setClientMarkupBp,
 }: {
   userId: string
@@ -49,8 +49,11 @@ export function AgentHome({
   setBoardBasisIds: (value: string[]) => void
   propertyTypes: string[]
   setPropertyTypes: (value: string[]) => void
+  brands: string[]
+  setBrands: (value: string[]) => void
   boards: { id: string; name: string }[]
   propertyTypeOptions: string[]
+  brandOptions?: string[]
   searching: boolean
   searchFailed: boolean
   tenantId: string
@@ -81,7 +84,7 @@ export function AgentHome({
         roomStays={roomStays} setRoomStays={setRoomStays} currency={currency} setCurrency={setCurrency}
         nationality={nationality} setNationality={setNationality} starRatings={starRatings} setStarRatings={setStarRatings} refundableOnly={refundableOnly} setRefundableOnly={setRefundableOnly}
         minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice} boardBasisIds={boardBasisIds} setBoardBasisIds={setBoardBasisIds} propertyTypes={propertyTypes} setPropertyTypes={setPropertyTypes}
-        boards={boards} propertyTypeOptions={propertyTypeOptions} sort={sort} setSort={setSort}
+        brands={brands} setBrands={setBrands} boards={boards} propertyTypeOptions={propertyTypeOptions} brandOptions={brandOptions} sort={sort} setSort={setSort}
         searching={searching} searchFailed={searchFailed} onSubmit={onSearch} onChange={onChange} tenantId={tenantId}
         clientMarkupBp={clientMarkupBp} setClientMarkupBp={setClientMarkupBp}
       />

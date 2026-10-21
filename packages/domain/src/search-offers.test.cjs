@@ -367,6 +367,25 @@ test('sorts and filters before the 25-hotel page window', () => {
   assert.equal(second.hotels[0].rooms[0].rates[0].occupancy.childAges[0], 8)
 })
 
+test('filters by brand and rejects an unknown filter key', () => {
+  const branded = hotel()
+  branded.brand = 'Marina Signature Hotels'
+  const unbranded = hotel()
+  unbranded.hotelId = 'hotel-b'
+  unbranded.rooms[0].roomTypeId = 'room-b'
+  unbranded.rooms[0].rates[0].offerId = 'offer-b'
+  unbranded.rooms[0].rates[0].hotelId = 'hotel-b'
+  unbranded.rooms[0].rates[0].canonicalHotelId = 'hotel-b'
+  unbranded.rooms[0].rates[0].roomTypeId = 'room-b'
+  unbranded.rooms[0].rates[0].canonicalRoomTypeId = 'room-b'
+  const result = validateSearchHotels([branded, unbranded], { ...criteria, filters: { brands: ['Marina Signature Hotels'] } })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.hotels.map((item) => item.hotelId), [branded.hotelId])
+  assert.equal(result.hotels[0].brand, 'Marina Signature Hotels')
+  assert.equal(validSearchCriteria({ ...criteria, filters: { brands: ['Marina Signature Hotels'], notAFilter: true } }), false)
+  assert.equal(validSearchCriteria({ ...criteria, filters: { brands: [] } }), false)
+})
+
 test('keeps stored address and drops a hotel with a malformed coordinate', () => {
   const sample = hotel()
   sample.address = '1 Sheikh Zayed Road'

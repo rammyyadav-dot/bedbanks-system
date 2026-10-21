@@ -12,11 +12,12 @@ type Filters = NonNullable<SearchCriteria['filters']>
  * Bedbank-style results sidebar. Every filter is applied by the server before pagination, so totals and pages stay exact:
  * the sidebar keeps a local draft and only "Apply filters" runs a new search. Editing the draft never clears the results on screen.
  */
-export function ResultFilters({ applied, currency, boards, propertyTypeOptions, searching, onApply }: {
+export function ResultFilters({ applied, currency, boards, propertyTypeOptions, brandOptions = [], searching, onApply }: {
   applied: Filters | undefined
   currency: string
   boards: { id: string; name: string }[]
   propertyTypeOptions: string[]
+  brandOptions?: string[]
   searching: boolean
   onApply: (filters: Filters) => void
 }) {
@@ -25,18 +26,21 @@ export function ResultFilters({ applied, currency, boards, propertyTypeOptions, 
   const [refundableOnly, setRefundableOnly] = useState(Boolean(applied?.refundableOnly))
   const [boardBasisIds, setBoardBasisIds] = useState<string[]>(applied?.boardBasisIds ?? [])
   const [propertyTypes, setPropertyTypes] = useState<string[]>(applied?.propertyTypes ?? [])
+  const [brands, setBrands] = useState<string[]>(applied?.brands ?? [])
+  const [brandQuery, setBrandQuery] = useState('')
   const [minPrice, setMinPrice] = useState(minorToMajorInput(applied?.minPriceMinor, currency))
   const [maxPrice, setMaxPrice] = useState(minorToMajorInput(applied?.maxPriceMinor, currency))
-  const parsed = criteriaFilters({ starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes })
+  const parsed = criteriaFilters({ starRatings, refundableOnly, minPrice, maxPrice, currency, boardBasisIds, propertyTypes, brands })
   const drafted = parsed.ok ? parsed.filters : undefined
   const pending = parsed.ok && !sameFilters(drafted, applied)
   const appliedCount = filterCount(applied)
   const toggle = <T,>(current: T[], value: T, set: (next: T[]) => void) => set(current.includes(value) ? current.filter((item) => item !== value) : [...current, value])
   const apply = () => { if (parsed.ok && !searching) { onApply(parsed.filters ?? {}); setOpen(false) } }
   const clear = () => {
-    setStarRatings([]); setRefundableOnly(false); setBoardBasisIds([]); setPropertyTypes([]); setMinPrice(''); setMaxPrice('')
+    setStarRatings([]); setRefundableOnly(false); setBoardBasisIds([]); setPropertyTypes([]); setBrands([]); setBrandQuery(''); setMinPrice(''); setMaxPrice('')
     if (appliedCount > 0 && !searching) { onApply({}); setOpen(false) }
   }
+  const visibleBrands = brandQuery.trim() ? brandOptions.filter((brand) => brand.toLocaleLowerCase().includes(brandQuery.trim().toLocaleLowerCase())) : brandOptions
   return <>
     <button type="button" className="bb-filter-toggle portal-secondary" aria-expanded={open} aria-controls="bb-result-filters" onClick={() => setOpen((value) => !value)}>
       <SlidersHorizontal size={15} /> Filters{appliedCount ? ` (${appliedCount})` : ''}
@@ -72,6 +76,14 @@ export function ResultFilters({ applied, currency, boards, propertyTypeOptions, 
         {propertyTypeOptions.length > 0 && <fieldset className="bb-filter-group">
           <legend>Property type</legend>
           {propertyTypeOptions.map((type) => <label key={type} className="bb-check"><input type="checkbox" checked={propertyTypes.includes(type)} onChange={() => toggle(propertyTypes, type, setPropertyTypes)} />{type}</label>)}
+        </fieldset>}
+        {brandOptions.length > 0 && <fieldset className="bb-filter-group">
+          <legend>Hotel chains &amp; brands</legend>
+          <input type="search" className="bb-brand-search" value={brandQuery} placeholder="Search brands…" aria-label="Search hotel chains and brands" onChange={(event) => setBrandQuery(event.target.value)} />
+          <div className="bb-brand-list">
+            {visibleBrands.map((brand) => <label key={brand} className="bb-check"><input type="checkbox" checked={brands.includes(brand)} onChange={() => toggle(brands, brand, setBrands)} />{brand}</label>)}
+            {visibleBrands.length === 0 && <p className="bb-brand-empty">No brand matches &quot;{brandQuery}&quot;.</p>}
+          </div>
         </fieldset>}
         <div className="bb-filters-actions">
           <button type="submit" className="portal-primary" disabled={!pending || searching} aria-busy={searching}>{searching ? 'Updating results…' : 'Apply filters'}</button>
