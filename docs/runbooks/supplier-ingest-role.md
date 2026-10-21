@@ -2,7 +2,7 @@
 
 Nothing uses this role yet. Follow these steps only when a worker is about to be enabled.
 
-1. **Migrate** with the owner credential (`pnpm --filter @bedbanks/api prisma:migrate:deploy`); applies `202612020001` (tables, ADR 0078) and `202612020002` (system audit policy). Never `prisma migrate dev`.
+1. **Migrate** with the owner credential (`pnpm --filter @bedbanks/api prisma:migrate:deploy`); applies `202612020002` (system audit policy) and `202612020003` (tables, ADR 0078). Never `prisma migrate dev`.
 2. **Provision** (owner credential; idempotent; prints no secret):
    ```
    PROVISION_DATABASE_URL=<owner url> SUPPLIER_INGEST_LOGIN_PASSWORD=<32+ char URL-safe secret> \
