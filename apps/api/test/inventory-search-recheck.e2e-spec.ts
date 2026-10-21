@@ -7,7 +7,12 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
   const prisma = new PrismaService()
   const adapter = new ContractedInventoryAdapter(prisma)
   const suffix = `sr-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
+  // Release rules are hotel-local, so "today" is the hotel's calendar day. A UTC day is one day behind for the hotel between 20:00 and 24:00 UTC.
+  const HOTEL_TIME_ZONE = 'Asia/Dubai'
+  const day = (offset: number) => {
+    const hotelToday = new Date().toLocaleDateString('en-CA', { timeZone: HOTEL_TIME_ZONE })
+    return new Date(Date.parse(`${hotelToday}T00:00:00.000Z`) + offset * 86_400_000).toISOString().slice(0, 10)
+  }
   const checkIn = day(20); const mid = day(21); const checkOut = day(22)
   const nights = [checkIn, mid]
   let tenantId: string, otherTenantId: string, userId: string, supplierId: string, hotelId: string, roomId: string, boardId: string, contractId: string, poolId: string
@@ -41,7 +46,7 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     userId = (await prisma.user.create({ data: { email: `${suffix}@example.test` } })).id
     await prisma.membership.create({ data: { tenantId, userId, role: 'owner' } })
     supplierId = (await prisma.supplier.create({ data: { tenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} s`, displayName: 'S', countryCode: 'AE', defaultCurrency: 'AED' } })).id
-    hotelId = (await prisma.hotel.create({ data: { tenantId, name: `${suffix} hotel`, propertyType: 'HOTEL', starRating: 5, city: 'Dubai', countryCode: 'AE', timeZone: 'Asia/Dubai', contentStatus: 'COMPLETE' } })).id
+    hotelId = (await prisma.hotel.create({ data: { tenantId, name: `${suffix} hotel`, propertyType: 'HOTEL', starRating: 5, city: 'Dubai', countryCode: 'AE', timeZone: HOTEL_TIME_ZONE, contentStatus: 'COMPLETE' } })).id
     roomId = (await prisma.roomType.create({ data: { hotelId, name: 'Room', code: suffix, maxAdults: 2, maxOccupancy: 2 } })).id
     boardId = (await prisma.boardBasis.create({ data: { tenantId, code: 'ROH', name: `ROH ${suffix}` } })).id
     const hm = (await prisma.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId, supplierHotelId: `${suffix}-sh`, status: 'MAPPED' } })).id
