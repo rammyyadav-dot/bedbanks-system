@@ -22,8 +22,8 @@ export interface PersistScope {
   connectorId: string
   /** Stable across retries of the same delivery: 8-128 of [A-Za-z0-9_-]. */
   idempotencyKey: string
-  /** The authenticated operator. A system actor needs its own audit policy and role, which this change does not add. */
-  actorUserId: string
+  /** The authenticated operator, or null for the ingestion worker, which audits as SYSTEM through its own role and policy (ADR 0079). */
+  actorUserId: string | null
   receivedAt: Date
   /** Supplier-stated feed time, or null. */
   sourceUpdatedAt: Date | null
@@ -75,7 +75,7 @@ export function hashResult(kind: Kind, result: IngestResult<unknown>): string {
 }
 
 function validate(scope: PersistScope): void {
-  const ok = !!scope.tenantId && !!scope.supplierId && !!scope.connectorId && !!scope.actorUserId && KEY.test(scope.idempotencyKey) &&
+  const ok = !!scope.tenantId && !!scope.supplierId && !!scope.connectorId && scope.actorUserId !== '' && KEY.test(scope.idempotencyKey) &&
     Number.isFinite(scope.receivedAt.getTime()) && Number.isFinite(scope.freshUntil.getTime()) && scope.freshUntil > scope.receivedAt &&
     (scope.sourceUpdatedAt === null || Number.isFinite(scope.sourceUpdatedAt.getTime()))
   if (!ok) throw new IngestPersistenceError('INVALID_INPUT')
@@ -113,11 +113,12 @@ async function persist<T>(
   })
   let written = 0
   if (applied) for (let i = 0; i < result.accepted.length; i += CHUNK) written += await write(result.accepted.slice(i, i + CHUNK), run.id)
-  await tx.auditEvent.create({
-    data: {
-      tenantId, userId: scope.actorUserId, actorType: 'USER', action: `supplier.ingest.${result.status.toLowerCase()}`, entityType: 'supplier_ingest_run', entityId: run.id,
+  // createMany: no RETURNING, so a role with INSERT-only access to the audit log can write it.
+  await tx.auditEvent.createMany({
+    data: [{
+      tenantId, userId: scope.actorUserId, actorType: scope.actorUserId === null ? 'SYSTEM' : 'USER', action: `supplier.ingest.${result.status.toLowerCase()}`, entityType: 'supplier_ingest_run', entityId: run.id,
       payload: { kind, supplierId, connectorId, extracted: result.extracted, accepted: result.accepted.length, rejected: result.rejected.length, written, applied },
-    },
+    }],
   })
   return { runId: run.id, status: result.status, applied, replayed: false, written, superseded: applied ? result.accepted.length - written : 0 }
 }

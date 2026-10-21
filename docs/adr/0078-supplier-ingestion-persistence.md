@@ -39,11 +39,8 @@ Migration `202612020001_supplier_ingest_observations` adds four tenant-owned tab
    is `supplier.ingest.<status>`.
 
 ## Not built (invariant 10: do not present as capability)
-- **No writer role.** The tables are privileged paths in `PRIVILEGED_WRITE_MODELS`; the API runtime role has no grant. A dedicated
-  ingestion role (provisioning CLI, verifier, runtime-role contract entry) is required before any process can write them in a strict
-  deployment. Until then the functions run only on a connection that can.
-- **No system actor.** The audit insert policy refuses `SYSTEM` rows except for named roles, so today the caller must pass an
-  authenticated operator (`actorUserId`). A scheduled worker needs its own audit policy, like ADR 0076.
+- **Writer role: see ADR 0079.** The tables are privileged paths and the API runtime role has no grant. ADR 0079 adds the dedicated ingestion login, its
+  certification, and the narrow SYSTEM audit policy, so a worker can audit itself (`actorUserId: null`). It is provisioned by the owner and nothing uses it yet.
 - No HTTP route, `@bedbanks/contracts` entry, permission, scheduler, webhook receiver, or Admin screen.
 - No mapping of supplier codes to canonical hotels, rooms or plans, and no promotion into `DailyRate`/`DailyAvailability`.
 - No withdrawal of nights a later feed omits: omission is handled by `fresh_until` expiry only.
