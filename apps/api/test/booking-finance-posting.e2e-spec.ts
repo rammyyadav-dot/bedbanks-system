@@ -7,6 +7,8 @@ import { BookingFinancePostingService } from '../src/booking-finance-posting/boo
 import { BookingFinancePostingWorker } from '../src/booking-finance-posting/booking-finance-posting.worker'
 import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
 import { BookingFinancePostingBacklogService } from '../src/booking-finance-posting/booking-finance-posting-backlog.service'
+import { BookingPayablesService } from '../src/booking-finance-posting/booking-payables.service'
+import { BookingRevenueService } from '../src/booking-finance-posting/booking-revenue.service'
 import { OperationsLedgerIntegrityService } from '../src/admin-operations/operations-ledger-integrity.service'
 import { eraseLedger } from './ledger-erasure'
 
@@ -337,6 +339,97 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     expect(JSON.stringify(view)).not.toMatch(/email|password|guest/i)
     await expect(new BookingFinancePostingBacklogService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL })).backlog(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
     expect((await backlog.backlog(otherTenantId)).counts.posted).toBe(0)
+  })
+
+  it('REVENUE: sales, refunds and supplier cost per currency tie to the ledger and the payable entries; currencies are never added; names resolve', async () => {
+    const usdWallet = await owner.wallet.create({ data: { tenantId, agencyId, currency: 'USD' } })
+    const usd = await booking('usd', { currency: 'USD', totalMinor: 50_000n, netMinor: 40_000n })
+    await owner.bookingFinanceEvent.create({ data: { tenantId, bookingId: usd.id, type: 'CONFIRMED', seq: ++seq, currency: 'USD', sellMinor: 50_000n, netMinor: 40_000n, paymentMode: 'CREDIT', payload: {}, createdAt: new Date(Date.UTC(2026, 9, 1, 1, 0, ++tick)) } })
+    await service.drain(tenantId)
+    const revenue = new BookingRevenueService(database, owner)
+    const report = await revenue.report(tenantId, {})
+    expect(report).toMatchObject({ basis: 'POSTING_DATE' })
+    expect(report.currencies.map((c) => c.currency)).toEqual(['AED', 'USD'])
+
+    // AED ties to the ledger: the DEBIT and REFUND entries of the bookings the consumer posted, and to the payable entries.
+    const posted = await owner.bookingFinancePosting.findMany({ where: { tenantId, status: 'POSTED', currency: 'AED' }, select: { bookingId: true } })
+    const refs = [...new Set(posted.map((p) => `booking:${p.bookingId}`))]
+    const ledger = await owner.ledgerEntry.findMany({ where: { tenantId, currency: 'AED', reference: { in: refs } }, select: { type: true, amountMinor: true, idempotencyKey: true } })
+    const ledgerSales = ledger.filter((e) => e.type === 'DEBIT').reduce((n, e) => n - e.amountMinor, 0n)
+    const ledgerRefunds = ledger.filter((e) => e.type === 'REFUND').reduce((n, e) => n + e.amountMinor, 0n)
+    const cost = (await owner.supplierPayableEntry.aggregate({ where: { tenantId, currency: 'AED' }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+    const aed = report.currencies[0]
+    expect(BigInt(aed.salesMinor)).toBe(ledgerSales)
+    expect(BigInt(aed.refundsMinor)).toBe(ledgerRefunds)
+    expect(BigInt(aed.netRevenueMinor)).toBe(ledgerSales - ledgerRefunds)
+    expect(BigInt(aed.supplierCostMinor)).toBe(cost)
+    expect(BigInt(aed.marginMinor)).toBe(ledgerSales - ledgerRefunds - cost)
+    expect(aed.chargedEvents).toBeGreaterThan(5)
+    expect(aed.byAgency.reduce((n, r) => n + BigInt(r.netRevenueMinor), 0n)).toBe(BigInt(aed.netRevenueMinor))
+    expect(aed.byAgency.map((r) => r.name)).toEqual(expect.arrayContaining(['Posting Travel', 'No Account Travel']))
+    expect(aed.bySupplier).toEqual([expect.objectContaining({ supplierId, name: 'Posting Supplier', costMinor: cost.toString() })])
+
+    // USD is its own block: one charge of 50,000, cost 40,000, margin 10,000.
+    expect(report.currencies[1]).toMatchObject({ currency: 'USD', salesMinor: '50000', refundsMinor: '0', netRevenueMinor: '50000', supplierCostMinor: '40000', marginMinor: '10000', chargedEvents: 1 })
+    expect(usdWallet.id).toBeTruthy()
+
+    // A window with nothing in it is an empty report, an invalid one is refused, another tenant sees nothing, and an unavailable consumer is a 503.
+    expect((await revenue.report(tenantId, { from: '2020-01-01', to: '2020-01-31' })).currencies).toEqual([])
+    await expect(revenue.report(tenantId, { from: '2026-10-05', to: '2026-10-01' })).rejects.toMatchObject({ response: { code: 'REVENUE_REPORT_INVALID_RANGE' } })
+    expect((await revenue.report(otherTenantId, {})).currencies).toEqual([])
+    await expect(new BookingRevenueService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).report(tenantId, {})).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
+  })
+
+  it('PAYABLES: per supplier and currency by kind, tying to the payable entries and to the revenue report\'s cost; currencies stay apart', async () => {
+    const payables = new BookingPayablesService(database, owner)
+    const view = await payables.payables(tenantId)
+    const rows = (currency: string) => view.rows.filter((r) => r.currency === currency)
+    const sum = async (currency: string, kind?: 'ACCRUAL' | 'ADJUSTMENT' | 'REVERSAL') => (await owner.supplierPayableEntry.aggregate({ where: { tenantId, currency, ...(kind ? { kind } : {}) }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+    expect(rows('AED')).toHaveLength(1)
+    expect(rows('AED')[0]).toMatchObject({ supplierId, name: 'Posting Supplier', accrualsMinor: (await sum('AED', 'ACCRUAL')).toString(), reversalsMinor: (await sum('AED', 'REVERSAL')).toString(), balanceMinor: (await sum('AED')).toString() })
+    expect(BigInt(rows('AED')[0].accrualsMinor) + BigInt(rows('AED')[0].adjustmentsMinor) + BigInt(rows('AED')[0].reversalsMinor)).toBe(BigInt(rows('AED')[0].balanceMinor))
+    expect(BigInt(rows('AED')[0].reversalsMinor)).toBeLessThanOrEqual(0n)
+    expect(rows('USD')).toEqual([expect.objectContaining({ balanceMinor: '40000', entries: 1 })])
+    expect(rows('AED')[0].balanceMinor).toBe((await new BookingRevenueService(database, owner).report(tenantId, {})).currencies.find((c) => c.currency === 'AED')?.supplierCostMinor)
+    expect(view.truncated).toBe(false)
+    expect((await payables.payables(otherTenantId)).rows).toEqual([])
+    await expect(new BookingPayablesService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).payables(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
+  })
+
+  it('AGING: open balance per booking aged from its first accrual into four buckets; a reversed booking owes nothing; currencies stay apart', async () => {
+    const payables = new BookingPayablesService(database, owner)
+    const now = new Date('2026-10-21T12:00:00.000Z')
+    const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000 - 3_600_000)
+    const supplier2 = (await owner.supplier.create({ data: { tenantId, type: 'DMC', legalName: `${suffix} Aging LLC`, displayName: 'Aging Supplier', countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    const entry = async (label: string, accrualAgo: number, amount: bigint, extra: Array<{ kind: 'ADJUSTMENT' | 'REVERSAL'; amount: bigint; ago: number }> = []) => {
+      const b = await booking(`age-${label}`, { supplierId: supplier2 })
+      const rows = [{ kind: 'ACCRUAL' as const, amount, ago: accrualAgo }, ...extra]
+      for (const r of rows) {
+        const e = await owner.bookingFinanceEvent.create({ data: { tenantId, bookingId: b.id, seq: ++seq, currency: 'AED', sellMinor: sell, paymentMode: 'CREDIT', payload: {}, createdAt: daysAgo(r.ago), ...(r.kind === 'ACCRUAL' ? { type: 'CONFIRMED' as const } : r.kind === 'ADJUSTMENT' ? { type: 'AMENDED' as const, adjustmentMinor: 1n } : { type: 'CANCELLED' as const, penaltyMinor: 0n, refundMinor: sell }) } })
+        await owner.supplierPayableEntry.create({ data: { tenantId, bookingId: b.id, supplierId: supplier2, eventId: e.id, kind: r.kind, currency: 'AED', amountMinor: r.amount, createdAt: daysAgo(r.ago) } })
+      }
+    }
+    await entry('a', 5, 1_000n)
+    await entry('b', 31, 2_000n)                       // 31 whole days: the first day of the 31-60 bucket
+    await entry('g', 30, 500n)                         // 30 whole days (and an hour): still 0-30
+    await entry('c', 45, 4_000n, [{ kind: 'ADJUSTMENT', amount: 500n, ago: 2 }])   // aged from the FIRST accrual, balance 4,500
+    await entry('d', 75, 8_000n)
+    await entry('e', 200, 16_000n)
+    await entry('f', 100, 32_000n, [{ kind: 'REVERSAL', amount: -32_000n, ago: 90 }]) // fully reversed: owes nothing, appears nowhere
+    const view = await payables.aging(tenantId, now)
+    const row = view.rows.find((r) => r.supplierId === supplier2 && r.currency === 'AED')!
+    expect(row.name).toBe('Aging Supplier')
+    expect(row.buckets.map((b) => [b.bucket, b.amountMinor, b.bookings])).toEqual([['D0_30', '1500', 2], ['D31_60', '6500', 2], ['D61_90', '8000', 1], ['D91_PLUS', '16000', 1]])
+    expect(row.totalMinor).toBe('32000')
+    expect(row.bookings).toBe(6)
+    // The aged total plus the other suppliers' open balances equals the open balance of every booking with a positive balance.
+    const open = await owner.supplierPayableEntry.groupBy({ by: ['bookingId'], where: { tenantId, currency: 'AED' }, _sum: { amountMinor: true } })
+    const aged = view.rows.filter((r) => r.currency === 'AED').reduce((n, r) => n + BigInt(r.totalMinor), 0n)
+    expect(aged).toBe(open.reduce((n, g) => ((g._sum.amountMinor ?? 0n) > 0n ? n + (g._sum.amountMinor ?? 0n) : n), 0n))
+    expect(view.rows.some((r) => r.currency === 'USD')).toBe(true)
+    expect(view.truncated).toBe(false)
+    expect((await payables.aging(otherTenantId, now)).rows).toEqual([])
+    await expect(new BookingPayablesService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).aging(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
   })
 
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {

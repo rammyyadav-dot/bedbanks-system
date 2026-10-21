@@ -16,6 +16,7 @@ Posts the money facts of Admin-originated bookings to the agency account and to 
 7. **Set** `BOOKING_FINANCE_POSTING_ENABLED=true`, then `BOOKING_FINANCE_POSTING_WORKER_ENABLED=true` (optional `BOOKING_FINANCE_POSTING_WORKER_INTERVAL_MS`, default 30000, minimum 5000). Restart the API. The API refuses to start with the worker enabled and no distinct role URL.
 
 ## Reading the result
+Finance → Booking revenue shows sales, refunds, supplier cost and indicative margin per currency for a period, by agency and by supplier. It is dated by posting date and covers only the bookings this consumer posted.
 Finance → Booking postings shows the counts, every event that needs a person (with what to do), what is waiting, and why events were skipped. It needs `finance.read`. The notes below are the same information from the database.
 - `BookingFinancePosting.status`: `POSTED` (ledger and payable written), `SKIPPED` (moves no money; `reason` says why), `REVIEW_REQUIRED` (nothing written; `reason` says what to fix).
 - Audit events `booking.finance.posted` and `booking.finance.review_required` (SYSTEM actor) carry the legs and amounts, never guest data.

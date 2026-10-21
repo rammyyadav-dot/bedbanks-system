@@ -1264,6 +1264,9 @@ model BookingFinancePosting {
   walletId      String?                     @map("wallet_id")
   currency      String                      @db.Char(3)
   /// Net effect on the agency account of the ledger entries this event produced (signed, integer minor units). Zero when none.
+  /// What this event charged the agency (positive: the DEBIT legs) and refunded it (positive: the REFUND legs). Zero unless POSTED. The revenue report adds these up.
+  salesMinor    BigInt                      @default(0) @map("sales_minor")
+  refundsMinor  BigInt                      @default(0) @map("refunds_minor")
   agencyEffectMinor BigInt                  @default(0) @map("agency_effect_minor")
   /// Net effect on what is owed to the supplier (signed). Zero when none.
   payableEffectMinor BigInt                 @default(0) @map("payable_effect_minor")

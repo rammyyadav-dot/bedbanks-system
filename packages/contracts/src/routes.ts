@@ -71,7 +71,7 @@ export const routes = {
     propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
   },
   // Backlog of the booking Finance consumer (ADR 0076). Read-only.
-  adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings' },
+  adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging' },
   // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
   adminRateCertification: {
     summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',

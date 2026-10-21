@@ -187,3 +187,8 @@ function cancellationPayable(event: PostingEvent, facts: PostingFacts): PayableL
 
 /** The net effect of the legs on the account balance, signed. HOLD and DEBIT lower it; RELEASE and REFUND raise it. A hold plus its release nets to zero. */
 export const agencyEffect = (legs: readonly LedgerLeg[]): bigint => legs.reduce((sum, leg) => sum + leg.amountMinor, 0n)
+
+/** What the legs charged the agency (positive: the DEBIT legs). A hold and its release are not sales. */
+export const salesOf = (legs: readonly LedgerLeg[]): bigint => legs.reduce((sum, leg) => (leg.type === 'DEBIT' ? sum - leg.amountMinor : sum), 0n)
+/** What the legs refunded the agency (positive: the REFUND legs). */
+export const refundsOf = (legs: readonly LedgerLeg[]): bigint => legs.reduce((sum, leg) => (leg.type === 'REFUND' ? sum + leg.amountMinor : sum), 0n)
