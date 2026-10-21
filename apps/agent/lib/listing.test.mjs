@@ -41,6 +41,18 @@ test('hotel page narrows rates on screen without re-pricing and drops empty room
   assert.equal(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false })[0].rates[0].total.amountMinor, 50000)
 })
 
+test('hotel page also narrows by room name and a sell-price range', () => {
+  const rooms = [
+    { roomTypeId: 'dbl', name: 'Double Deluxe', rates: [rate('a', 'ro', 50000, { sellAmountMinor: 50000 })] },
+    { roomTypeId: 'ste', name: 'Executive Suite', rates: [rate('b', 'ro', 90000, { sellAmountMinor: 90000 })] },
+  ]
+  assert.deepEqual(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, roomNameQuery: 'suite' }).map((room) => room.roomTypeId), ['ste'])
+  assert.deepEqual(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, roomNameQuery: 'DOUBLE' }).map((room) => room.roomTypeId), ['dbl'])
+  assert.deepEqual(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, minSellMinor: 60000 }).map((room) => room.roomTypeId), ['ste'])
+  assert.deepEqual(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, maxSellMinor: 60000 }).map((room) => room.roomTypeId), ['dbl'])
+  assert.equal(visibleRooms(rooms, { boardBasisId: null, refundableOnly: false, roomNameQuery: 'no such room' }).length, 0)
+})
+
 test('a room "from" price is the lowest instantly sellable total; on-request and sold-out never lead', () => {
   assert.deepEqual(roomFromMinor({ rates: [rate('a', 'ro', 70000), rate('b', 'ro', 40000, { availability: 'on_request' }), rate('c', 'ro', 30000, { availability: 'sold_out' }), rate('d', 'ro', 65000)] }), { amountMinor: 65000, currency: 'AED' })
   assert.equal(roomFromMinor({ rates: [rate('b', 'ro', 40000, { availability: 'on_request' })] }), null)

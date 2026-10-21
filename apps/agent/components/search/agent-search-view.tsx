@@ -13,7 +13,7 @@ import { formatCancellationDeadline, formatCompactStay, formatMinorAmount, forma
 import { guestMarketName } from '@/lib/guest-market'
 import { buildRoomStays, type RoomStayDraft } from '@/lib/occupancy'
 import { canSubmitDestination } from '@/lib/destination-suggestions'
-import { criteriaFilters, type FilterDraft } from '@/lib/search-filters'
+import { criteriaFilters, parseMajorAmount, type FilterDraft } from '@/lib/search-filters'
 import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
 import { canOpenCheckout, recheckOutcomeMessage, recheckOutcomeTitle } from '@/lib/recheck-copy'
 import { resultWindow } from '@/lib/result-window'
@@ -367,7 +367,21 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
   const boards = hotelBoards(hotel.rooms)
   const [boardView, setBoardView] = useState<string | null>(null)
   const [refundableView, setRefundableView] = useState(false)
-  const rooms = visibleRooms(hotel.rooms, { boardBasisId: boardView, refundableOnly: refundableView })
+  const [roomQuery, setRoomQuery] = useState('')
+  const [minPriceView, setMinPriceView] = useState('')
+  const [maxPriceView, setMaxPriceView] = useState('')
+  const minParsed = parseMajorAmount(minPriceView, request.currency)
+  const maxParsed = parseMajorAmount(maxPriceView, request.currency)
+  const priceViewError = minParsed.state === 'invalid' || maxParsed.state === 'invalid'
+    ? `Enter the price range in ${request.currency} using that currency's decimal places.`
+    : minParsed.state === 'minor' && maxParsed.state === 'minor' && maxParsed.minor < minParsed.minor
+      ? 'The maximum price must be at least the minimum price.'
+      : ''
+  const rooms = visibleRooms(hotel.rooms, {
+    boardBasisId: boardView, refundableOnly: refundableView, roomNameQuery: roomQuery,
+    minSellMinor: priceViewError ? null : minParsed.state === 'minor' ? minParsed.minor : null,
+    maxSellMinor: priceViewError ? null : maxParsed.state === 'minor' ? maxParsed.minor : null,
+  })
   // A selected offer stays visible even when a chip would hide it, so the recheck and checkout below never lose their row.
   const shownRooms = selection && !rooms.some((room) => room.rates.some((rate) => rate.offerId === selection.rate.offerId))
     ? [...rooms, { ...selection.room, rates: [selection.rate] }]
@@ -396,8 +410,16 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       <button type="button" aria-pressed={boardView === null} onClick={() => setBoardView(null)}>All</button>
       {boards.map((board) => <button key={board.id} type="button" aria-pressed={boardView === board.id} onClick={() => setBoardView(board.id)}>{board.name}</button>)}
       <label className="bb-check"><input type="checkbox" checked={refundableView} onChange={(event) => setRefundableView(event.target.checked)} />Refundable only</label>
+      <label className="bb-room-search"><span className="sr-only">Search by room name</span><input type="search" value={roomQuery} placeholder="Search by room name…" onChange={(event) => setRoomQuery(event.target.value)} /></label>
+      <div className="bb-rate-price-range">
+        <span>Price range ({request.currency})</span>
+        <label><span className="sr-only">Minimum total stay in {request.currency}</span><input inputMode="decimal" value={minPriceView} placeholder="Min" onChange={(event) => setMinPriceView(event.target.value)} /></label>
+        <span aria-hidden="true">–</span>
+        <label><span className="sr-only">Maximum total stay in {request.currency}</span><input inputMode="decimal" value={maxPriceView} placeholder="Max" onChange={(event) => setMaxPriceView(event.target.value)} /></label>
+      </div>
     </div>
-    {shownRooms.length === 0 && <div className="portal-empty"><p>No rates at this hotel match these options.</p><button type="button" className="portal-link" onClick={() => { setBoardView(null); setRefundableView(false) }}>Show all rates</button></div>}
+    {priceViewError && <p className="portal-field-error" role="alert">{priceViewError}</p>}
+    {shownRooms.length === 0 && <div className="portal-empty"><p>No rates at this hotel match these options.</p><button type="button" className="portal-link" onClick={() => { setBoardView(null); setRefundableView(false); setRoomQuery(''); setMinPriceView(''); setMaxPriceView('') }}>Show all rates</button></div>}
     {shownRooms.length > 0 && <div className="bb-rate-columns" aria-hidden="true"><span>Rate plan &amp; meal</span><span>Cancellation &amp; terms</span><span>Total stay</span><span /></div>}
     {shownRooms.map((room) => {
       const from = roomFromMinor(room)

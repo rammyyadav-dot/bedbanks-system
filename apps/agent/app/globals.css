@@ -674,6 +674,11 @@ label, .field span { color: #5a5a55; }
 .bb-rate-tools button { min-height: 32px; padding: 0 12px; border: 1px solid #D1D5DB; border-radius: 999px; background: #FFFFFF; color: #374151; font-size: 12px; font-weight: 600; }
 .bb-rate-tools button[aria-pressed="true"] { border-color: #1F2937; background: #1F2937; color: #FFFFFF; }
 .bb-rate-tools .bb-check { margin-left: auto; }
+.bb-room-search input { min-height: 32px; min-width: 180px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 999px; color: #1F2937; font-size: 12px; }
+.bb-rate-price-range { display: flex; align-items: center; gap: 6px; }
+.bb-rate-price-range > span:first-child { color: #6B7280; font-size: 12px; font-weight: 700; }
+.bb-rate-price-range input { width: 72px; min-height: 32px; padding: 0 8px; border: 1px solid #D1D5DB; border-radius: 6px; color: #1F2937; font-size: 12px; }
+.bb-rate-price-range > span[aria-hidden] { color: #9CA3AF; }
 .bb-rate-columns { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(180px, 1.2fr) minmax(150px, auto) 132px; gap: 12px; padding: 0 14px; color: #6B7280; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .bb-rate-columns span:nth-child(3) { text-align: right; }
 .bb-room-group { margin-top: 0; }

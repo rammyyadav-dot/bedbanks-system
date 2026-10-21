@@ -81,12 +81,23 @@ export function hotelBoards(rooms: AgentRoomOffer[]): Array<{ id: string; name: 
   return [...seen].map(([id, name]) => ({ id, name }))
 }
 
-export type RateView = { boardBasisId: string | null; refundableOnly: boolean }
+export type RateView = {
+  boardBasisId: string | null
+  refundableOnly: boolean
+  /** Case-insensitive substring match against the room name. Empty matches every room. */
+  roomNameQuery?: string
+  /** Inclusive bounds on the rate's total stay price, in the same currency and integer minor units already on screen. */
+  minSellMinor?: number | null
+  maxSellMinor?: number | null
+}
 
 /** Narrows the rates of one hotel already on screen. It never re-prices and never reorders the server's rates. */
 export function visibleRooms(rooms: AgentRoomOffer[], view: RateView): AgentRoomOffer[] {
+  const query = view.roomNameQuery?.trim().toLocaleLowerCase('en-US') ?? ''
   const keep = (rate: AgentRateOffer) => (view.boardBasisId === null || rate.boardBasisId === view.boardBasisId) && (!view.refundableOnly || rate.cancellation.refundable)
+    && (view.minSellMinor == null || rate.sellAmountMinor >= view.minSellMinor) && (view.maxSellMinor == null || rate.sellAmountMinor <= view.maxSellMinor)
   return rooms.flatMap((room) => {
+    if (query && !room.name.toLocaleLowerCase('en-US').includes(query)) return []
     const rates = room.rates.filter(keep)
     return rates.length ? [{ ...room, rates }] : []
   })
