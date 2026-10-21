@@ -17,6 +17,15 @@ export interface IngestProfile {
    * declares 'SELL' is refused at registration. Left undeclared, the source's data can be ingested and resolved but never promoted.
    */
   amountBasis?: 'NET' | 'SELL'
+  /**
+   * What an ALLOTMENT count means (ADR 0083): 'REMAINING' units still sellable, or 'TOTAL' allotment. Declared, never assumed: left undeclared, stock from this source is never promoted.
+   */
+  allotmentSemantics?: 'REMAINING' | 'TOTAL'
+  /**
+   * How many days ahead a complete feed from this source covers. Promoted nights inside this window that a complete feed no longer mentions are closed (ADR 0083); nights beyond it are
+   * never touched. Left undeclared, an omitted night is never closed on a guess and only its freshness expiry stops it selling.
+   */
+  coverageDays?: number
   /** Observations expire this long after receipt (ADR 0030 #7). Required: no unexpiring supplier data. */
   freshnessMs: number
   /** Stay dates beyond `today + horizonDays` are rejected. Default from the normalizer. */
@@ -39,6 +48,8 @@ export class IngestProfileRegistry {
     if (profile.format !== 'xml' && profile.format !== 'json') throw new Error('Ingest profile format must be xml or json')
     if (profile.amountBasis === 'SELL') throw new Error('An ingest profile may not declare SELL: supplier feeds carry NET rates and markup is applied by the markup rules (ADR 0082)')
     if (profile.amountBasis !== undefined && profile.amountBasis !== 'NET') throw new Error('Ingest profile amountBasis must be NET when declared')
+    if (profile.allotmentSemantics !== undefined && profile.allotmentSemantics !== 'REMAINING' && profile.allotmentSemantics !== 'TOTAL') throw new Error('Ingest profile allotmentSemantics must be REMAINING or TOTAL when declared')
+    if (profile.coverageDays !== undefined && (!Number.isInteger(profile.coverageDays) || profile.coverageDays < 1 || profile.coverageDays > 730)) throw new Error('Ingest profile coverageDays must be an integer from 1 to 730 when declared')
     if (Object.keys(profile.specs).length === 0) throw new Error('Ingest profile needs at least one feed spec')
     if (!Number.isInteger(profile.freshnessMs) || profile.freshnessMs < MIN_FRESHNESS_MS || profile.freshnessMs > MAX_FRESHNESS_MS) throw new Error('Ingest profile freshnessMs must be between one minute and seven days')
     this.profiles.set(profile.key, Object.freeze({ ...profile }))

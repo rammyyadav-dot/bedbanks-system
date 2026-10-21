@@ -33,9 +33,8 @@ profile must declare `amountBasis: 'NET'` to be promotable (never defaulted); a 
 ## Not built (invariant 10: do not present as capability)
 - **Promotion.** Nothing writes `DailyRate` from observations; no process calls `checkRatePromotable` or `evaluateBatchGuard`. It still needs the narrow promotion role with read access to observations
   and mappings and write access to the rate and availability tables, an idempotent audited writer, a place for held batches and their review, and an Admin view.
-- **Availability single-writer.** Only *price* edits are refused on a feed-managed plan. Manual allotment, stop-sell and restriction edits are not yet restricted, because an emergency stop-sell must stay
-  possible and the rule for reconciling a manual close with the next feed statement is decision 3 (room-wide allotments, pools, restrictions), not yet made.
-- **Nights a later feed omits (decision 4)** beyond the 20% hold: not decided.
+- **Availability single-writer.** Only *price* edits are refused on a feed-managed plan. Manual allotment, stop-sell and restriction edits stay possible (an emergency stop-sell must). How the feed
+  treats a manual close, room-wide stock, count meaning and omitted nights is decided in [ADR 0083](0083-feed-stock-promotion-rules.md); manual allotment-count edits on a feed-managed plan are still not refused.
 - A plan whose price a person needs to change must have its mapping reopened first; there is no per-night override.
 - Existing hand-edited rows on a plan that later becomes feed-managed are overwritten by promotion; whether to require an empty or reconciled calendar before approving the mapping is not decided.
 
