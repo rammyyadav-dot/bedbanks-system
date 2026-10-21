@@ -39,3 +39,11 @@ test('the revenue page adds nothing up in the browser: it shows API figures, and
   assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(|parseInt|\+ Number/)
   assert.match(text, /currencies\.map/)
 })
+
+test('the payables page shows the consumer\'s posted payables as a separate, labelled basis, with its own failure state, and adds nothing up', () => {
+  const text = readFileSync(join(root, 'app/(dashboard)/finance/payables/page.tsx'), 'utf8')
+  assert.match(text, /getPostedPayables/)
+  assert.match(text, /different basis/)
+  assert.match(text, /Neither is an amount to pay/)
+  assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
+})

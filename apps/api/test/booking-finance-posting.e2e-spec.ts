@@ -7,6 +7,7 @@ import { BookingFinancePostingService } from '../src/booking-finance-posting/boo
 import { BookingFinancePostingWorker } from '../src/booking-finance-posting/booking-finance-posting.worker'
 import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
 import { BookingFinancePostingBacklogService } from '../src/booking-finance-posting/booking-finance-posting-backlog.service'
+import { BookingPayablesService } from '../src/booking-finance-posting/booking-payables.service'
 import { BookingRevenueService } from '../src/booking-finance-posting/booking-revenue.service'
 import { OperationsLedgerIntegrityService } from '../src/admin-operations/operations-ledger-integrity.service'
 import { eraseLedger } from './ledger-erasure'
@@ -377,6 +378,22 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     await expect(revenue.report(tenantId, { from: '2026-10-05', to: '2026-10-01' })).rejects.toMatchObject({ response: { code: 'REVENUE_REPORT_INVALID_RANGE' } })
     expect((await revenue.report(otherTenantId, {})).currencies).toEqual([])
     await expect(new BookingRevenueService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).report(tenantId, {})).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
+  })
+
+  it('PAYABLES: per supplier and currency by kind, tying to the payable entries and to the revenue report\'s cost; currencies stay apart', async () => {
+    const payables = new BookingPayablesService(database, owner)
+    const view = await payables.payables(tenantId)
+    const rows = (currency: string) => view.rows.filter((r) => r.currency === currency)
+    const sum = async (currency: string, kind?: 'ACCRUAL' | 'ADJUSTMENT' | 'REVERSAL') => (await owner.supplierPayableEntry.aggregate({ where: { tenantId, currency, ...(kind ? { kind } : {}) }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+    expect(rows('AED')).toHaveLength(1)
+    expect(rows('AED')[0]).toMatchObject({ supplierId, name: 'Posting Supplier', accrualsMinor: (await sum('AED', 'ACCRUAL')).toString(), reversalsMinor: (await sum('AED', 'REVERSAL')).toString(), balanceMinor: (await sum('AED')).toString() })
+    expect(BigInt(rows('AED')[0].accrualsMinor) + BigInt(rows('AED')[0].adjustmentsMinor) + BigInt(rows('AED')[0].reversalsMinor)).toBe(BigInt(rows('AED')[0].balanceMinor))
+    expect(BigInt(rows('AED')[0].reversalsMinor)).toBeLessThanOrEqual(0n)
+    expect(rows('USD')).toEqual([expect.objectContaining({ balanceMinor: '40000', entries: 1 })])
+    expect(rows('AED')[0].balanceMinor).toBe((await new BookingRevenueService(database, owner).report(tenantId, {})).currencies.find((c) => c.currency === 'AED')?.supplierCostMinor)
+    expect(view.truncated).toBe(false)
+    expect((await payables.payables(otherTenantId)).rows).toEqual([])
+    await expect(new BookingPayablesService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).payables(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
   })
 
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {

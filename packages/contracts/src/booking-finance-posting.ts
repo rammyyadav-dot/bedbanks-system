@@ -83,3 +83,24 @@ export interface RevenueReportView {
   notes: string[]
   listLimit: number
 }
+
+/**
+ * Payables posted by the Finance consumer (ADR 0076): what the operator owes each supplier according to the append-only payable entries, per currency.
+ * It is the ledger-side counterpart of the booking-net accrual (`SupplierPayablesView`, ADR 0054), which reads the bookings themselves and works whether or not the consumer runs.
+ * Neither is an amount to pay: no supplier invoice, payment or settlement record exists. Currencies are never converted or added.
+ */
+export interface PostedPayableRow {
+  supplierId: string
+  name: string | null
+  currency: string
+  /** Accruals on confirmation. */
+  accrualsMinor: string
+  /** Net of price adjustments (signed). */
+  adjustmentsMinor: string
+  /** Reversals on penalty-free cancellation (zero or negative). */
+  reversalsMinor: string
+  /** Accruals + adjustments + reversals. */
+  balanceMinor: string
+  entries: number
+}
+export interface PostedPayablesView { generatedAt: string; rows: PostedPayableRow[]; listLimit: number; truncated: boolean }
