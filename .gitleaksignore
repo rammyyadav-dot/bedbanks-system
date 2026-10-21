@@ -16,3 +16,6 @@
 # Reviewed 2026-10-21: c9037814 KEY_ALPHABET in distribution-credentials.ts is the public character set
 # 'abcdefghijklmnopqrstuvwxyz0123456789' used to generate key IDs. It is not a credential.
 c9037814f77ce4b44fb204400e79d14087dfc4f3:apps/api/src/distribution/distribution-credentials.ts:generic-api-key:21
+
+# Reviewed 2026-10-21: 87844c9c idempotencyKey 'key-partial-01' in a test fixture. A test literal, not a credential.
+87844c9cf416a87eac09d16c36b6c8c1490a46d6:apps/api/test/supplier-ingest-persistence.e2e-spec.ts:generic-api-key:76
