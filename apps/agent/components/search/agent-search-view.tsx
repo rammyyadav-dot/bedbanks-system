@@ -420,16 +420,33 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     </div>
     {priceViewError && <p className="portal-field-error" role="alert">{priceViewError}</p>}
     {shownRooms.length === 0 && <div className="portal-empty"><p>No rates at this hotel match these options.</p><button type="button" className="portal-link" onClick={() => { setBoardView(null); setRefundableView(false); setRoomQuery(''); setMinPriceView(''); setMaxPriceView('') }}>Show all rates</button></div>}
-    {shownRooms.length > 0 && <div className="bb-rate-columns" aria-hidden="true"><span>Rate plan &amp; meal</span><span>Cancellation &amp; terms</span><span>Total stay</span><span /></div>}
+    {shownRooms.length > 0 && <div className="bb-room-table-head" aria-hidden="true"><span>Room type</span><span>Choose your rate plan</span></div>}
     {shownRooms.map((room) => {
       const from = roomFromMinor(room)
-      return <div className="market-room-group bb-room-group" key={room.roomTypeId}><header><h3>{room.name}</h3><span>{room.rates.length} {room.rates.length === 1 ? 'rate' : 'rates'}{from ? ` · from ${formatTotal(from)}` : ''}</span></header><div>{room.rates.map((rate) => {
+      const lead = room.rates[0]
+      return <div className="bb-room-split" key={room.roomTypeId}>
+        <aside className="bb-room-info">
+          <h3>{room.name}</h3>
+          {lead && <span className="bb-room-occupancy">{stayOccupancyLabel(lead.occupancy.rooms, lead.occupancy.adults, lead.occupancy.children, lead.occupancy.childAges)}</span>}
+          <span className="bb-room-rate-count">{room.rates.length} {room.rates.length === 1 ? 'rate plan' : 'rate plans'}{from ? ` · from ${formatTotal(from)}` : ''}</span>
+        </aside>
+        <div className="bb-rate-plans">{room.rates.map((rate) => {
       const expired = Date.parse(rate.expiresAt) <= now
       const selectable = !expired && rate.availability !== 'sold_out' && rate.availability !== 'on_request'
       const selected = selection?.rate.offerId === rate.offerId
       const components = [moneyLine('taxes', rate.taxAmountMinor, rate.total.currency), moneyLine('fees', rate.feeAmountMinor, rate.total.currency)].filter(Boolean).join(' · ')
-      return <div key={rate.offerId} data-offer-id={rate.offerId} className={`market-rate-row${selected ? ' is-selected' : ''}`}><div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}{rate.promotion && <em>{rate.promotion.name} applied</em>}{rate.supplements?.length ? <em data-supplements>Includes {rate.supplements.map((item) => item.name).join(', ')}</em> : null}</div><div className="market-rate-policy"><span>{cancellationLine(rate, hotel.timeZone)}</span><span>{stayOccupancyLabel(rate.occupancy.rooms, rate.occupancy.adults, rate.occupancy.children, rate.occupancy.childAges)} · {rate.availability === 'limited' ? 'Limited availability' : rate.availability === 'on_request' ? 'On request · not confirmed' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span>{payAtHotelLines(rate).map((line) => <span key={line} className="bb-pay-at-hotel" data-pay-at-hotel>Pay at hotel, not included: {line}</span>)}</div><div className="market-rate-price">{(() => { const client = clientPrice(rate.total, markupBp); return client ? <><b>{formatTotal(client)}</b><small>Client price · +{formatMarkupPercent(markupBp)}%</small><small className="bb-agency-price">Agency {formatTotal(rate.total)}{components ? ` · ${components}` : ''}</small></> : <><b>{formatTotal(rate.total)}</b><small>Total stay{components ? ` · ${components}` : ''}</small></> })()}</div><button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : rate.availability === 'on_request' ? 'On request' : 'Select Offer'}</button></div>
-    })}</div></div>
+      return <div key={rate.offerId} data-offer-id={rate.offerId} className={`bb-rate-card${selected ? ' is-selected' : ''}`}>
+        <div className="bb-rate-card-main">
+          <div className="market-rate-plan"><strong>{rate.ratePlanName}</strong><span>{rate.boardBasisName}</span>{includesBreakfast(rate.boardBasisName) && <em>Breakfast included</em>}{rate.promotion && <em>{rate.promotion.name} applied</em>}{rate.supplements?.length ? <em data-supplements>Includes {rate.supplements.map((item) => item.name).join(', ')}</em> : null}</div>
+          <div className="market-rate-policy"><span>{cancellationLine(rate, hotel.timeZone)}</span><span>{rate.availability === 'limited' ? 'Limited availability' : rate.availability === 'on_request' ? 'On request · not confirmed' : rate.availability.replace('_', ' ')} · {paymentLabel(rate.paymentType)}</span>{payAtHotelLines(rate).map((line) => <span key={line} className="bb-pay-at-hotel" data-pay-at-hotel>Pay at hotel, not included: {line}</span>)}</div>
+        </div>
+        <div className="bb-rate-card-foot">
+          <div className="market-rate-price">{(() => { const client = clientPrice(rate.total, markupBp); return client ? <><b>{formatTotal(client)}</b><small>Client price · +{formatMarkupPercent(markupBp)}%</small><small className="bb-agency-price">Agency {formatTotal(rate.total)}{components ? ` · ${components}` : ''}</small></> : <><b>{formatTotal(rate.total)}</b><small>Total stay{components ? ` · ${components}` : ''}</small></> })()}</div>
+          <button className="portal-primary" type="button" disabled={!selectable || (selected && rechecking)} onClick={() => choose(room, rate)}>{expired ? 'Rate expired' : rate.availability === 'sold_out' ? 'Unavailable' : rate.availability === 'on_request' ? 'On request' : 'Select Offer'}</button>
+        </div>
+      </div>
+    })}</div>
+      </div>
     })}
     {selection && Date.parse(selection.rate.expiresAt) <= now && <div className="portal-policy-note" role="status"><ShieldAlert size={16} /> This rate has expired. Refresh the latest rates to continue.</div>}
     {selection && !searchId && <p className="portal-field-error" role="alert">This result has no search identifier, so the offer cannot be rechecked.</p>}
