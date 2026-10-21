@@ -7,6 +7,7 @@ const files = (dir: string): string[] => readdirSync(dir).flatMap((name) => { co
 /** Application paths that may write DailyRate without the feed-managed guard, each with its reason. Anything else that writes a nightly price must call it (ADR 0082). */
 const EXEMPT: Record<string, string> = {
   'database/provision-preview-fixtures.cli.ts': 'operator CLI that seeds disposable preview data; never runs in a deployment',
+  'supplier-promotion/supplier-promotion.service.ts': 'the feed writer itself: it writes only plans reached through an APPROVED supplier rate plan mapping, which is what makes a plan feed-managed (ADR 0082, 0084)',
 }
 
 describe('single writer for feed-managed plans (ADR 0082)', () => {

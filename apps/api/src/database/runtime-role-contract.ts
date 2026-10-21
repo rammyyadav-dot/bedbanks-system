@@ -272,6 +272,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   ReconciliationDecision: 'finance-gated: append-only history of dispute queue decisions (ADR 0070)',
   BookingFinancePosting: 'finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)',
   SupplierPayableEntry: 'finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)',
+  SupplierPromotionRun: 'promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)',
   SupplierIngestRun: 'ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)',
   SupplierRateObservation: 'ingestion-gated: latest supplier net per supplier night, an observation that is never sellable by itself (ADR 0078)',
   SupplierAllotmentObservation: 'ingestion-gated: latest supplier stock statement per night, an observation that is never sellable by itself (ADR 0078)',

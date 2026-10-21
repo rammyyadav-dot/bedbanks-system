@@ -36,6 +36,8 @@
     "ops:verify-finance-posting-role": "tsx src/database/verify-finance-posting-role.cli.ts",
     "ops:provision-supplier-ingest-role": "tsx src/database/provision-supplier-ingest-role.cli.ts",
     "ops:verify-supplier-ingest-role": "tsx src/database/verify-supplier-ingest-role.cli.ts",
+    "ops:provision-supplier-promotion-role": "tsx src/database/provision-supplier-promotion-role.cli.ts",
+    "ops:verify-supplier-promotion-role": "tsx src/database/verify-supplier-promotion-role.cli.ts",
     "ops:strict-role-boot-smoke": "node scripts/strict-role-boot-smoke.cjs",
     "ops:render-runtime-role-doc": "tsx src/database/render-runtime-role-doc.cli.ts",
     "ops:provision-api-runtime-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-api-runtime-role.cli.ts",

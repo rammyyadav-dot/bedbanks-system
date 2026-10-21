@@ -151,6 +151,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierIngestRun`: ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
+- `SupplierPromotionRun`: promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)
 - `SupplierRateObservation`: ingestion-gated: latest supplier net per supplier night, an observation that is never sellable by itself (ADR 0078)
 - `SupplierRatePlanMapping`: mapping governance (ADR 0081)
 - `SupplierRoomMapping`: mapping governance

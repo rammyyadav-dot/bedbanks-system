@@ -1698,6 +1698,7 @@ model Supplier {
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
   ingestRuns SupplierIngestRun[]
+  promotionRuns SupplierPromotionRun[]
   rateObservations SupplierRateObservation[]
   allotmentObservations SupplierAllotmentObservation[]
   cancellationObservations SupplierCancellationObservation[]
@@ -3140,4 +3141,36 @@ model SupplierRatePlanMapping {
   @@unique([tenantId, supplierRoomMappingId, supplierRatePlanCode])
   @@unique([tenantId, ratePlanId])
   @@index([tenantId, status])
+}
+
+enum SupplierPromotionStatus {
+  APPLIED
+  HELD
+  NOTHING_TO_PROMOTE
+}
+
+/// Append-only record of one promotion of ingested observations into contracted rates, availability and pool capacity (ADR 0084). Counts and reason codes only: no payload, guest data or credentials.
+/// HELD means the batch guard stopped it and nothing was written; it waits for a person.
+model SupplierPromotionRun {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  /// Caller-owned key, stable across retries of the same promotion. Same key replays the stored outcome and writes nothing.
+  idempotencyKey String @map("idempotency_key")
+  profileKey String @map("profile_key")
+  status SupplierPromotionStatus
+  ratesConsidered Int @map("rates_considered")
+  ratesPromoted Int @map("rates_promoted")
+  stockConsidered Int @map("stock_considered")
+  nightsPromoted Int @map("nights_promoted")
+  poolNightsPromoted Int @map("pool_nights_promoted")
+  nightsClosed Int @map("nights_closed")
+  /// Counts keyed by stable code (blocks, sticky skips, hold reasons). Capped; no row content.
+  summary Json @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
 }
