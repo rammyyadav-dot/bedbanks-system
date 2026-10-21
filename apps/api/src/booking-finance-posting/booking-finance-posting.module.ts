@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module'
 import { BookingFinancePostingBacklogService } from './booking-finance-posting-backlog.service'
 import { BookingFinancePostingController } from './booking-finance-posting.controller'
 import { BookingFinancePostingDatabase } from './booking-finance-posting.database'
+import { BookingRevenueService } from './booking-revenue.service'
 import { BookingFinancePostingService } from './booking-finance-posting.service'
 import { BookingFinancePostingWorker } from './booking-finance-posting.worker'
 
@@ -10,7 +11,7 @@ import { BookingFinancePostingWorker } from './booking-finance-posting.worker'
 @Module({
   imports: [AuthModule],
   controllers: [BookingFinancePostingController],
-  providers: [BookingFinancePostingDatabase, BookingFinancePostingService, BookingFinancePostingBacklogService, BookingFinancePostingWorker],
+  providers: [BookingFinancePostingDatabase, BookingFinancePostingService, BookingFinancePostingBacklogService, BookingRevenueService, BookingFinancePostingWorker],
   exports: [BookingFinancePostingService],
 })
 export class BookingFinancePostingModule {}

@@ -23,7 +23,7 @@ const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 export const FINPOST_OWN_TABLES = ['BookingFinancePosting', 'SupplierPayableEntry', 'LedgerEntry', 'Cancellation'] as const
 /** The only columns the role may update: a posting that is under review is retried and finally closed. Identity columns are not here. */
 export const FINPOST_UPDATE_COLUMNS = {
-  BookingFinancePosting: ['status', 'reason', 'attempts', 'wallet_id', 'agency_effect_minor', 'payable_effect_minor', 'updated_at'],
+  BookingFinancePosting: ['status', 'reason', 'attempts', 'wallet_id', 'agency_effect_minor', 'payable_effect_minor', 'sales_minor', 'refunds_minor', 'updated_at'],
   /** The refund a cancellation record fixed, when a later decision or waiver changes it. The booking it belongs to is not writable. */
   Cancellation: ['refund_minor'],
   /** Lock only (`SELECT … FOR UPDATE` needs an UPDATE privilege). The balance, the limit and the identity of an account are not writable. */

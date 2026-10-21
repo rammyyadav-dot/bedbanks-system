@@ -46,3 +46,40 @@ export interface PostingBacklogView {
   waiting: PostingBacklogItem[]
   listLimit: number
 }
+
+/**
+ * Revenue report of the bookings the Finance consumer posted (ADR 0076). Basis: the date the consumer POSTED the event, not the booking, stay or payment date.
+ * Scope: Admin-originated bookings only (the Agent flow's charges are not part of it, and neither is their supplier cost). Each currency is its own block; amounts are never converted or added.
+ * Margin is indicative: a cancelled booking with a penalty keeps its supplier payable until the supplier's own fee is known (ADR 0070).
+ */
+export const REVENUE_REPORT_MAX_DAYS = 366
+export const REVENUE_REPORT_INVALID_RANGE = 'REVENUE_REPORT_INVALID_RANGE'
+
+export interface RevenueAgencyRow { agencyId: string | null; name: string | null; salesMinor: string; refundsMinor: string; netRevenueMinor: string }
+export interface RevenueSupplierRow { supplierId: string; name: string | null; costMinor: string }
+export interface RevenueCurrencyBlock {
+  currency: string
+  /** Charged to agencies (the DEBIT legs). */
+  salesMinor: string
+  /** Refunded to agencies. */
+  refundsMinor: string
+  netRevenueMinor: string
+  /** Net of accruals, adjustments and reversals owed to suppliers. */
+  supplierCostMinor: string
+  /** Net revenue less supplier cost. Indicative. */
+  marginMinor: string
+  /** Posted events that charged an agency. */
+  chargedEvents: number
+  byAgency: RevenueAgencyRow[]
+  bySupplier: RevenueSupplierRow[]
+}
+export interface RevenueReportView {
+  /** Inclusive UTC dates, YYYY-MM-DD. */
+  from: string
+  to: string
+  basis: 'POSTING_DATE'
+  generatedAt: string
+  currencies: RevenueCurrencyBlock[]
+  notes: string[]
+  listLimit: number
+}

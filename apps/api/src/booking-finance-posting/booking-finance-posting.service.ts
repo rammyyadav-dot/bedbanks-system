@@ -4,7 +4,7 @@ import type { BookingFinanceEventType } from '@bedbanks/contracts'
 import { accountLockKey } from '../agent/agency-account'
 import { appendLedgerEntry, referenceSumMinor } from '../ledger/ledger-core'
 import { BookingFinancePostingDatabase } from './booking-finance-posting.database'
-import { agencyEffect, bookingReference, holdKey, planPosting, releaseKey, settleDebitKey, settleReleaseKey, type PaymentMode, type PostingEvent, type PostingFacts, type PostingPlan, type ReviewReason } from './posting-plan'
+import { agencyEffect, bookingReference, holdKey, refundsOf, salesOf, planPosting, releaseKey, settleDebitKey, settleReleaseKey, type PaymentMode, type PostingEvent, type PostingFacts, type PostingPlan, type ReviewReason } from './posting-plan'
 
 /** A REVIEW_REQUIRED event is retried after this long (the due-tenants function uses the same interval). */
 export const REVIEW_RETRY_MS = 5 * 60 * 1000
@@ -149,7 +149,7 @@ export class BookingFinancePostingService {
       else await tx.cancellation.create({ data: { bookingId: input.bookingId, reason: 'Settled by finance (booking finance posting)', refundMinor: plan.cancellationRefundMinor }, select: { id: true } })
     }
     const effect = agencyEffect(plan.legs)
-    return this.record(tx, { tenantId, event, status: 'POSTED', reason: null, walletId, agencyEffect: effect, payableEffect: plan.payable?.amountMinor ?? 0n, legs: plan.legs.map((l) => ({ type: l.type, amountMinor: l.amountMinor.toString(), idempotencyKey: l.idempotencyKey })), notes: plan.notes, cancellationRefundMinor: plan.cancellationRefundMinor })
+    return this.record(tx, { tenantId, event, status: 'POSTED', reason: null, walletId, agencyEffect: effect, payableEffect: plan.payable?.amountMinor ?? 0n, sales: salesOf(plan.legs), refunds: refundsOf(plan.legs), legs: plan.legs.map((l) => ({ type: l.type, amountMinor: l.amountMinor.toString(), idempotencyKey: l.idempotencyKey })), notes: plan.notes, cancellationRefundMinor: plan.cancellationRefundMinor })
   }
 
   private async recordReview(tx: Prisma.TransactionClient, tenantId: string, eventId: string, reason: ReviewReason, known?: PostedEvent, walletId: string | null = null): Promise<PostingOutcome> {
@@ -159,9 +159,9 @@ export class BookingFinancePostingService {
   }
 
   /** Writes (or, for a posting under review, updates) the posting row and, for a final outcome, the audit event. */
-  private async record(tx: Prisma.TransactionClient, input: { tenantId: string; event: PostedEvent; status: 'POSTED' | 'SKIPPED' | 'REVIEW_REQUIRED'; reason: string | null; walletId: string | null; agencyEffect: bigint; payableEffect: bigint; legs?: unknown[]; notes?: string[]; cancellationRefundMinor?: bigint | null }): Promise<PostingOutcome> {
+  private async record(tx: Prisma.TransactionClient, input: { tenantId: string; event: PostedEvent; status: 'POSTED' | 'SKIPPED' | 'REVIEW_REQUIRED'; reason: string | null; walletId: string | null; agencyEffect: bigint; payableEffect: bigint; sales?: bigint; refunds?: bigint; legs?: unknown[]; notes?: string[]; cancellationRefundMinor?: bigint | null }): Promise<PostingOutcome> {
     const { tenantId, event, status } = input
-    const data = { status, reason: input.reason, walletId: input.walletId, agencyEffectMinor: input.agencyEffect, payableEffectMinor: input.payableEffect }
+    const data = { status, reason: input.reason, walletId: input.walletId, agencyEffectMinor: input.agencyEffect, payableEffectMinor: input.payableEffect, salesMinor: input.sales ?? 0n, refundsMinor: input.refunds ?? 0n }
     const prior = await tx.bookingFinancePosting.findUnique({ where: { tenantId_eventId: { tenantId, eventId: event.id } }, select: { id: true, status: true, reason: true } })
     if (prior) await tx.bookingFinancePosting.update({ where: { id: prior.id, tenantId }, data: { ...data, attempts: { increment: 1 } }, select: { id: true } })
     else await tx.bookingFinancePosting.create({ data: { tenantId, bookingId: event.bookingId, eventId: event.id, currency: event.currency, ...data }, select: { id: true } })

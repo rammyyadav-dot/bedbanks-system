@@ -7,6 +7,7 @@ import { BookingFinancePostingService } from '../src/booking-finance-posting/boo
 import { BookingFinancePostingWorker } from '../src/booking-finance-posting/booking-finance-posting.worker'
 import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
 import { BookingFinancePostingBacklogService } from '../src/booking-finance-posting/booking-finance-posting-backlog.service'
+import { BookingRevenueService } from '../src/booking-finance-posting/booking-revenue.service'
 import { OperationsLedgerIntegrityService } from '../src/admin-operations/operations-ledger-integrity.service'
 import { eraseLedger } from './ledger-erasure'
 
@@ -337,6 +338,45 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     expect(JSON.stringify(view)).not.toMatch(/email|password|guest/i)
     await expect(new BookingFinancePostingBacklogService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL })).backlog(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
     expect((await backlog.backlog(otherTenantId)).counts.posted).toBe(0)
+  })
+
+  it('REVENUE: sales, refunds and supplier cost per currency tie to the ledger and the payable entries; currencies are never added; names resolve', async () => {
+    const usdWallet = await owner.wallet.create({ data: { tenantId, agencyId, currency: 'USD' } })
+    const usd = await booking('usd', { currency: 'USD', totalMinor: 50_000n, netMinor: 40_000n })
+    await owner.bookingFinanceEvent.create({ data: { tenantId, bookingId: usd.id, type: 'CONFIRMED', seq: ++seq, currency: 'USD', sellMinor: 50_000n, netMinor: 40_000n, paymentMode: 'CREDIT', payload: {}, createdAt: new Date(Date.UTC(2026, 9, 1, 1, 0, ++tick)) } })
+    await service.drain(tenantId)
+    const revenue = new BookingRevenueService(database, owner)
+    const report = await revenue.report(tenantId, {})
+    expect(report).toMatchObject({ basis: 'POSTING_DATE' })
+    expect(report.currencies.map((c) => c.currency)).toEqual(['AED', 'USD'])
+
+    // AED ties to the ledger: the DEBIT and REFUND entries of the bookings the consumer posted, and to the payable entries.
+    const posted = await owner.bookingFinancePosting.findMany({ where: { tenantId, status: 'POSTED', currency: 'AED' }, select: { bookingId: true } })
+    const refs = [...new Set(posted.map((p) => `booking:${p.bookingId}`))]
+    const ledger = await owner.ledgerEntry.findMany({ where: { tenantId, currency: 'AED', reference: { in: refs } }, select: { type: true, amountMinor: true, idempotencyKey: true } })
+    const ledgerSales = ledger.filter((e) => e.type === 'DEBIT').reduce((n, e) => n - e.amountMinor, 0n)
+    const ledgerRefunds = ledger.filter((e) => e.type === 'REFUND').reduce((n, e) => n + e.amountMinor, 0n)
+    const cost = (await owner.supplierPayableEntry.aggregate({ where: { tenantId, currency: 'AED' }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+    const aed = report.currencies[0]
+    expect(BigInt(aed.salesMinor)).toBe(ledgerSales)
+    expect(BigInt(aed.refundsMinor)).toBe(ledgerRefunds)
+    expect(BigInt(aed.netRevenueMinor)).toBe(ledgerSales - ledgerRefunds)
+    expect(BigInt(aed.supplierCostMinor)).toBe(cost)
+    expect(BigInt(aed.marginMinor)).toBe(ledgerSales - ledgerRefunds - cost)
+    expect(aed.chargedEvents).toBeGreaterThan(5)
+    expect(aed.byAgency.reduce((n, r) => n + BigInt(r.netRevenueMinor), 0n)).toBe(BigInt(aed.netRevenueMinor))
+    expect(aed.byAgency.map((r) => r.name)).toEqual(expect.arrayContaining(['Posting Travel', 'No Account Travel']))
+    expect(aed.bySupplier).toEqual([expect.objectContaining({ supplierId, name: 'Posting Supplier', costMinor: cost.toString() })])
+
+    // USD is its own block: one charge of 50,000, cost 40,000, margin 10,000.
+    expect(report.currencies[1]).toMatchObject({ currency: 'USD', salesMinor: '50000', refundsMinor: '0', netRevenueMinor: '50000', supplierCostMinor: '40000', marginMinor: '10000', chargedEvents: 1 })
+    expect(usdWallet.id).toBeTruthy()
+
+    // A window with nothing in it is an empty report, an invalid one is refused, another tenant sees nothing, and an unavailable consumer is a 503.
+    expect((await revenue.report(tenantId, { from: '2020-01-01', to: '2020-01-31' })).currencies).toEqual([])
+    await expect(revenue.report(tenantId, { from: '2026-10-05', to: '2026-10-01' })).rejects.toMatchObject({ response: { code: 'REVENUE_REPORT_INVALID_RANGE' } })
+    expect((await revenue.report(otherTenantId, {})).currencies).toEqual([])
+    await expect(new BookingRevenueService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).report(tenantId, {})).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
   })
 
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {

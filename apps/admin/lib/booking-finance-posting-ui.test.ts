@@ -23,10 +23,19 @@ test('the booking postings page is a real, permission-gated, read-only module wi
   const item = flatNav.find((n) => n.href === '/finance/booking-postings')
   assert.ok(item, 'listed in navigation')
   assert.equal(item.requires, 'finance.read')
-  const files = ['app/(dashboard)/finance/booking-postings/page.tsx', 'lib/data/booking-finance-postings.ts', 'lib/booking-finance-posting-ui.ts']
+  const revenue = flatNav.find((n) => n.href === '/finance/booking-revenue')
+  assert.ok(revenue, 'revenue report listed in navigation')
+  assert.equal(revenue.requires, 'finance.read')
+  const files = ['app/(dashboard)/finance/booking-postings/page.tsx', 'app/(dashboard)/finance/booking-revenue/page.tsx', 'lib/data/booking-finance-postings.ts', 'lib/booking-finance-posting-ui.ts']
   for (const f of files) {
     const text = readFileSync(join(root, f), 'utf8')
     assert.doesNotMatch(text, /BigInt\(|Number\(.*Minor|parseFloat|\bMath\./, f)
     assert.doesNotMatch(text, /method:\s*'(POST|PUT|PATCH|DELETE)'/, f)
   }
+})
+
+test('the revenue page adds nothing up in the browser: it shows API figures, and never sums across currencies', () => {
+  const text = readFileSync(join(root, 'app/(dashboard)/finance/booking-revenue/page.tsx'), 'utf8')
+  assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(|parseInt|\+ Number/)
+  assert.match(text, /currencies\.map/)
 })
