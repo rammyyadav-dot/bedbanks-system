@@ -47,3 +47,11 @@ test('the payables page shows the consumer\'s posted payables as a separate, lab
   assert.match(text, /Neither is an amount to pay/)
   assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
 })
+
+test('the aging section says what its age means, has its own failure state, and adds nothing up', () => {
+  const text = readFileSync(join(root, 'app/(dashboard)/finance/payables/page.tsx'), 'utf8')
+  assert.match(text, /getPayablesAging/)
+  assert.match(text, /not how late it is/)
+  assert.match(text, /PAYABLE_AGING_BUCKETS/)
+  assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
+})

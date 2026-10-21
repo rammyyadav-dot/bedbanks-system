@@ -396,6 +396,42 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     await expect(new BookingPayablesService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).payables(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
   })
 
+  it('AGING: open balance per booking aged from its first accrual into four buckets; a reversed booking owes nothing; currencies stay apart', async () => {
+    const payables = new BookingPayablesService(database, owner)
+    const now = new Date('2026-10-21T12:00:00.000Z')
+    const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000 - 3_600_000)
+    const supplier2 = (await owner.supplier.create({ data: { tenantId, type: 'DMC', legalName: `${suffix} Aging LLC`, displayName: 'Aging Supplier', countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    const entry = async (label: string, accrualAgo: number, amount: bigint, extra: Array<{ kind: 'ADJUSTMENT' | 'REVERSAL'; amount: bigint; ago: number }> = []) => {
+      const b = await booking(`age-${label}`, { supplierId: supplier2 })
+      const rows = [{ kind: 'ACCRUAL' as const, amount, ago: accrualAgo }, ...extra]
+      for (const r of rows) {
+        const e = await owner.bookingFinanceEvent.create({ data: { tenantId, bookingId: b.id, seq: ++seq, currency: 'AED', sellMinor: sell, paymentMode: 'CREDIT', payload: {}, createdAt: daysAgo(r.ago), ...(r.kind === 'ACCRUAL' ? { type: 'CONFIRMED' as const } : r.kind === 'ADJUSTMENT' ? { type: 'AMENDED' as const, adjustmentMinor: 1n } : { type: 'CANCELLED' as const, penaltyMinor: 0n, refundMinor: sell }) } })
+        await owner.supplierPayableEntry.create({ data: { tenantId, bookingId: b.id, supplierId: supplier2, eventId: e.id, kind: r.kind, currency: 'AED', amountMinor: r.amount, createdAt: daysAgo(r.ago) } })
+      }
+    }
+    await entry('a', 5, 1_000n)
+    await entry('b', 31, 2_000n)                       // 31 whole days: the first day of the 31-60 bucket
+    await entry('g', 30, 500n)                         // 30 whole days (and an hour): still 0-30
+    await entry('c', 45, 4_000n, [{ kind: 'ADJUSTMENT', amount: 500n, ago: 2 }])   // aged from the FIRST accrual, balance 4,500
+    await entry('d', 75, 8_000n)
+    await entry('e', 200, 16_000n)
+    await entry('f', 100, 32_000n, [{ kind: 'REVERSAL', amount: -32_000n, ago: 90 }]) // fully reversed: owes nothing, appears nowhere
+    const view = await payables.aging(tenantId, now)
+    const row = view.rows.find((r) => r.supplierId === supplier2 && r.currency === 'AED')!
+    expect(row.name).toBe('Aging Supplier')
+    expect(row.buckets.map((b) => [b.bucket, b.amountMinor, b.bookings])).toEqual([['D0_30', '1500', 2], ['D31_60', '6500', 2], ['D61_90', '8000', 1], ['D91_PLUS', '16000', 1]])
+    expect(row.totalMinor).toBe('32000')
+    expect(row.bookings).toBe(6)
+    // The aged total plus the other suppliers' open balances equals the open balance of every booking with a positive balance.
+    const open = await owner.supplierPayableEntry.groupBy({ by: ['bookingId'], where: { tenantId, currency: 'AED' }, _sum: { amountMinor: true } })
+    const aged = view.rows.filter((r) => r.currency === 'AED').reduce((n, r) => n + BigInt(r.totalMinor), 0n)
+    expect(aged).toBe(open.reduce((n, g) => ((g._sum.amountMinor ?? 0n) > 0n ? n + (g._sum.amountMinor ?? 0n) : n), 0n))
+    expect(view.rows.some((r) => r.currency === 'USD')).toBe(true)
+    expect(view.truncated).toBe(false)
+    expect((await payables.aging(otherTenantId, now)).rows).toEqual([])
+    await expect(new BookingPayablesService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).aging(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
+  })
+
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {
     const otherBooking = await owner.booking.create({ data: { tenantId: otherTenantId, reference: `${suffix}-other`, supplier: 'S', hotelId: 'h', status: 'CONFIRMED', currency: 'AED', totalMinor: 10_000n, idempotencyKey: `${suffix}-other-1`, searchSnapshot: {}, paymentMode: 'CREDIT' } as never })
     await owner.bookingFinanceEvent.create({ data: { tenantId: otherTenantId, bookingId: otherBooking.id, type: 'CONFIRMED', seq: 1, currency: 'AED', sellMinor: 10_000n, netMinor: 8_000n, paymentMode: 'CREDIT', payload: {} } })

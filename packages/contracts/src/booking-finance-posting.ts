@@ -104,3 +104,19 @@ export interface PostedPayableRow {
   entries: number
 }
 export interface PostedPayablesView { generatedAt: string; rows: PostedPayableRow[]; listLimit: number; truncated: boolean }
+
+/**
+ * Aging of the posted supplier payables (ADR 0076). Each booking's open balance (the sum of its payable entries, when positive) is aged from the day of its FIRST accrual:
+ * there are no payment terms, due dates or supplier payments in the system, so this is the age of what is owed, not how late it is. Per supplier and currency; never added across currencies.
+ */
+export const PAYABLE_AGING_BUCKETS = [
+  { key: 'D0_30', label: '0–30 days', fromDays: 0, toDays: 30 },
+  { key: 'D31_60', label: '31–60 days', fromDays: 31, toDays: 60 },
+  { key: 'D61_90', label: '61–90 days', fromDays: 61, toDays: 90 },
+  { key: 'D91_PLUS', label: 'Over 90 days', fromDays: 91, toDays: null },
+] as const
+export type PayableAgingBucketKey = (typeof PAYABLE_AGING_BUCKETS)[number]['key']
+
+export interface PayableAgingCell { bucket: PayableAgingBucketKey; amountMinor: string; bookings: number }
+export interface PayableAgingRow { supplierId: string; name: string | null; currency: string; buckets: PayableAgingCell[]; totalMinor: string; bookings: number }
+export interface PayablesAgingView { asOf: string; rows: PayableAgingRow[]; listLimit: number; truncated: boolean }
