@@ -86,6 +86,19 @@ enum BookingFinanceEventType {
   AMENDED
 }
 
+/// Outcome of the Finance consumer for one BookingFinanceEvent (ADR 0076). POSTED and SKIPPED are final; REVIEW_REQUIRED is retried and blocks the booking's later events.
+enum BookingFinancePostingStatus {
+  POSTED
+  SKIPPED
+  REVIEW_REQUIRED
+}
+
+enum SupplierPayableKind {
+  ACCRUAL
+  ADJUSTMENT
+  REVERSAL
+}
+
 enum BookingAmendmentStatus {
   REQUESTED
   APPROVED
@@ -710,6 +723,8 @@ model Tenant {
   bookingEmails BookingEmail[]
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
+  bookingFinancePostings BookingFinancePosting[]
+  supplierPayableEntries SupplierPayableEntry[]
   bookingAmendments BookingAmendment[]
   bookingSavedViews BookingSavedView[]
   bookingBulkOperations BookingBulkOperation[]
@@ -1035,6 +1050,8 @@ model Booking {
   emails              BookingEmail[]
   opsState            BookingOpsState?
   financeEvents       BookingFinanceEvent[]
+  financePostings     BookingFinancePosting[]
+  payableEntries      SupplierPayableEntry[]
   amendments          BookingAmendment[]
   /// The cancellation rules frozen with the booking (Phase 5): { rules: [{ daysBeforeCheckin, penaltyPercent | penaltyMinor }], frozenAt, source }. Written at creation only.
   cancellationPolicy  Json?                 @map("cancellation_policy")
@@ -1221,10 +1238,63 @@ model BookingFinanceEvent {
   actor         User?                    @relation("BookingFinanceActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   payload       Json                     @default("{}")
   createdAt     DateTime                 @default(now()) @map("created_at")
+  posting       BookingFinancePosting?
+  payableEntries SupplierPayableEntry[]
 
+  @@unique([tenantId, id])
   @@unique([tenantId, bookingId, type, seq])
   @@index([tenantId, bookingId, createdAt])
   @@index([tenantId, type, createdAt])
+}
+
+/// What the Finance consumer did with one BookingFinanceEvent (ADR 0076): one row per event, written in the same transaction as the ledger entries and payable entries it
+/// describes. Written only by the narrow `fbeds_finpost_ops` role. POSTED and SKIPPED rows never change; REVIEW_REQUIRED is the only row that is updated (to a final status).
+model BookingFinancePosting {
+  id            String                      @id @default(cuid())
+  tenantId      String                      @map("tenant_id")
+  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId     String                      @map("booking_id")
+  booking       Booking                     @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  eventId       String                      @map("event_id")
+  event         BookingFinanceEvent         @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict)
+  status        BookingFinancePostingStatus
+  /// Stable machine code for SKIPPED and REVIEW_REQUIRED (never a free-text or provider message). Null when POSTED.
+  reason        String?
+  attempts      Int                         @default(1)
+  walletId      String?                     @map("wallet_id")
+  currency      String                      @db.Char(3)
+  /// Net effect on the agency account of the ledger entries this event produced (signed, integer minor units). Zero when none.
+  agencyEffectMinor BigInt                  @default(0) @map("agency_effect_minor")
+  /// Net effect on what is owed to the supplier (signed). Zero when none.
+  payableEffectMinor BigInt                 @default(0) @map("payable_effect_minor")
+  createdAt     DateTime                    @default(now()) @map("created_at")
+  updatedAt     DateTime                    @updatedAt @map("updated_at")
+
+  @@unique([tenantId, eventId])
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, bookingId])
+}
+
+/// Append-only movements of what the operator owes a supplier for a booking (ADR 0076). Signed integer minor units in the booking currency; the balance of a booking is the sum.
+/// There is no payment or settlement record here: paying a supplier is a separate, undecided workflow (ADR 0054).
+model SupplierPayableEntry {
+  id          String              @id @default(cuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId   String              @map("booking_id")
+  booking     Booking             @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  supplierId  String              @map("supplier_id")
+  supplier    Supplier            @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  eventId     String              @map("event_id")
+  event       BookingFinanceEvent @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict)
+  kind        SupplierPayableKind
+  currency    String              @db.Char(3)
+  amountMinor BigInt              @map("amount_minor")
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, eventId, kind])
+  @@index([tenantId, bookingId])
+  @@index([tenantId, supplierId, currency])
 }
 
 /// A structured amendment of a Confirmed booking (ADR 0072): the requested change to stay dates and/or room occupancy, the booking as it was, and, once approved, the
@@ -1624,6 +1694,7 @@ model Supplier {
   roomDrafts     SupplierRoomDraft[]
   changeSets     SupplierChangeSet[]
   bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
+  payableEntries SupplierPayableEntry[]
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
 

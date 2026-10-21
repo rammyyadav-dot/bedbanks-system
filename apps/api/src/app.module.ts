@@ -18,6 +18,7 @@ import { CommercialModule } from './commercial/commercial.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { FundingModule } from './funding/funding.module';
 import { FinanceReconciliationModule } from './finance-reconciliation/finance-reconciliation.module';
+import { BookingFinancePostingModule } from './booking-finance-posting/booking-finance-posting.module';
 import { HotelSetupModule } from './hotel-setup/hotel-setup.module';
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
@@ -44,6 +45,7 @@ import { DistributionModule } from './distribution/distribution.module';
     DepartmentsModule,
     FundingModule,
     FinanceReconciliationModule,
+    BookingFinancePostingModule,
     HotelSetupModule,
     AdminSettingsModule,
     PlatformAdminModule,
