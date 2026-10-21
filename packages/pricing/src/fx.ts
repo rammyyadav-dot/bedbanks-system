@@ -37,3 +37,33 @@ export function convertWithMargin(amountMinor: bigint, fx: FxQuoteWithMargin, no
   const denominator = FX_RATE_SCALE * 10_000n * fromScale;
   return (numerator + denominator / 2n) / denominator;
 }
+
+/**
+ * Corridor policy (business decision 2026-10-21). Stable majors carry a 30 to 50 bp volatility margin and a 4 hour rate age; corridors with an
+ * emerging currency carry 100 to 150 bp and a 1 hour age. A rate older than `hardExpireMs` (12 hours) is expired. There is deliberately NO
+ * fallback to a cached rate here: serving a stale price needs an explicit policy (CLAUDE.md invariant 5), so an expired or stale rate is refused.
+ */
+export const FX_STABLE_MAJORS: readonly string[] = ['USD', 'AED', 'EUR', 'GBP'];
+const HOUR_MS = 3_600_000;
+export interface FxCorridorPolicy { corridor: 'STABLE' | 'EMERGING'; minVolatilityBp: number; maxVolatilityBp: number; maxAgeMs: number; hardExpireMs: number }
+
+export function fxCorridorPolicy(from: string, to: string): FxCorridorPolicy {
+  const stable = FX_STABLE_MAJORS.includes(from) && FX_STABLE_MAJORS.includes(to);
+  return stable
+    ? { corridor: 'STABLE', minVolatilityBp: 30, maxVolatilityBp: 50, maxAgeMs: 4 * HOUR_MS, hardExpireMs: 12 * HOUR_MS }
+    : { corridor: 'EMERGING', minVolatilityBp: 100, maxVolatilityBp: 150, maxAgeMs: 1 * HOUR_MS, hardExpireMs: 12 * HOUR_MS };
+}
+
+export type FxRateFreshness = 'FRESH' | 'STALE' | 'EXPIRED';
+/** FRESH within the corridor age, STALE past it (refused for new quotes), EXPIRED past the hard limit (refused everywhere, needs a new rate). */
+export function fxRateFreshness(policy: FxCorridorPolicy, asOfMs: number, nowMs: number): FxRateFreshness {
+  const age = nowMs - asOfMs;
+  return age > policy.hardExpireMs ? 'EXPIRED' : age > policy.maxAgeMs ? 'STALE' : 'FRESH';
+}
+
+/** Null when the volatility margin sits inside the corridor's band; otherwise a message for the rate form or certification finding. */
+export function fxVolatilityOutOfBand(policy: FxCorridorPolicy, volatilityBp: number): string | null {
+  return volatilityBp < policy.minVolatilityBp || volatilityBp > policy.maxVolatilityBp
+    ? `Volatility margin ${volatilityBp} bp is outside the ${policy.corridor.toLowerCase()} corridor band ${policy.minVolatilityBp} to ${policy.maxVolatilityBp} bp`
+    : null;
+}

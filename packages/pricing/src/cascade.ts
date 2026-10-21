@@ -5,7 +5,7 @@ import { markupMinor, MAX_MARKUP_BASIS_POINTS } from './markup';
  *
  * Layers apply in this fixed order, each on the running amount left by the one before:
  * `BASE_RATE` (the net) -> `SUPPLIER_CONTRACT` -> `AGENCY_TIER` -> `CLIENT` -> `GLOBAL_OVERRIDE`.
- * A layer is a percent in basis points or a fixed amount in minor units of the same currency. Percent rounds half up per layer
+ * A layer is a percent in basis points or a fixed amount in minor units of the same currency. Percent rounds half up per layer (on the running amount, or on the original net when the rule says `base: 'NET'`)
  * (the same rule as `markupMinor`), so the result is reproducible from the trace alone.
  * `GLOBAL_OVERRIDE` can instead *set* the final sell amount (`SET_SELL`), which is how a commercial owner pins a price.
  */
@@ -13,7 +13,8 @@ export const MARKUP_LAYERS = ['SUPPLIER_CONTRACT', 'AGENCY_TIER', 'CLIENT', 'GLO
 export type MarkupLayerName = (typeof MARKUP_LAYERS)[number];
 
 export type LayerAdjustment =
-  | { kind: 'PERCENT'; basisPoints: number }
+  /** `base: 'RUNNING'` (default) compounds on the amount left by earlier layers; `'NET'` applies the percent to the original net (flat, for GSA or corporate contracts). */
+  | { kind: 'PERCENT'; basisPoints: number; base?: 'RUNNING' | 'NET' }
   | { kind: 'FIXED'; amountMinor: bigint }
   | { kind: 'SET_SELL'; amountMinor: bigint };
 
@@ -47,7 +48,7 @@ export function applyMarkupCascade(netMinor: bigint, layers: readonly MarkupLaye
     let next: bigint;
     if (adjustment.kind === 'PERCENT') {
       if (!Number.isSafeInteger(adjustment.basisPoints) || adjustment.basisPoints < 0 || adjustment.basisPoints > MAX_MARKUP_BASIS_POINTS) throw new Error('Markup basis points must be an integer from 0 to 10000');
-      next = running + markupMinor(running, adjustment.basisPoints);
+      next = running + markupMinor(adjustment.base === 'NET' ? netMinor : running, adjustment.basisPoints);
     } else if (adjustment.kind === 'FIXED') {
       if (adjustment.amountMinor < 0n) throw new Error('A fixed markup must not be negative');
       next = running + adjustment.amountMinor;

@@ -14,6 +14,13 @@ The audit in `docs/commercial-distribution-audit-2026-10-21.md` found that marku
 5. **Guards.** `MARGIN_NEGATIVE` (FAIL), `MARGIN_SQUEEZE` (WARN; percent or absolute floor) and `CHANNEL_PARITY_VIOLATION` (FAIL; spread over the lowest channel price above a tolerance) are computed by pure functions and surfaced as rate-certification findings.
 6. **Distribution rules** (min/max LOS, booking window, blackout dates) narrow what a channel can sell, never grant access or change a price, and are evaluated in the same evaluator as `minStay`/`maxStay`/`releaseDays` today. Channel overrides are rows keyed by tenant and channel; the channel comes from the authenticated distribution credential, never a request field (invariant 1).
 
+## Business decisions (2026-10-21, recorded; thresholds are defaults, tenant level with channel override)
+1. **Compounding by default, flat per rule.** A percent adjustment carries `base: 'RUNNING'` (default) or `'NET'` (flat against the original net, for GSA or corporate contracts). Implemented in `applyMarkupCascade`.
+2. **Margin and parity.** Margin is measured on the sell price: under 8.00% is a WARN (`MARGIN_SQUEEZE`), under 3.00% is a FAIL that blocks distribution (`MARGIN_BLOCKED`). Parity against the public B2C baseline flags only when the variation exceeds both 0.50% and one major unit of the currency (interpretation of "or absolute variance"; confirm). Implemented as `DEFAULT_MARGIN_POLICY` and `checkParityAgainstBaseline`; the per-tenant and per-channel storage is phase P2.
+3. **FX.** Stable majors (USD, AED, EUR, GBP): 30 to 50 bp volatility margin, 4 hour maximum age. Any corridor with another currency (INR, THB, AZN): 100 to 150 bp, 1 hour. Hard expiry at 12 hours. Implemented as `fxCorridorPolicy`, `fxRateFreshness`, `fxVolatilityOutOfBand`; THB and AZN added to the supported minor-unit table.
+4. **Open conflict: no cached-rate fallback.** The proposal to "fall back to cached safe rates" when a feed stalls contradicts invariant 5 unless it is an explicit policy. Until a policy defines who may sell on a cached rate, for how long, with what extra margin and with what alert, a stale or expired rate is refused. A stalled feed therefore stops sales in that corridor.
+5. **Chain data.** Source hierarchy: canonical hotel master registry, then supplier feed values at ingestion, then operator-verified mapping in the Admin mapping workspace. This extends ADR 0009 and 0059 and needs a nullable `chainCode` on the canonical hotel (phase P2 migration). The repo has no registry named "Escanva"; the canonical hotel table is the registry unless you mean an external dataset, which needs its own ADR.
+
 ## Phases (each a separate reviewed change)
 | Phase | Content | Needs |
 |---|---|---|

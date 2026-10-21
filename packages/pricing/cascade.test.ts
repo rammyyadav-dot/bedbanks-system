@@ -83,3 +83,38 @@ test('parity guard: spread vs the lowest price, tolerance inclusive', () => {
   assert.equal(checkChannelParity([prices[0]!], 0), null)
   assert.throws(() => checkChannelParity([{ channel: 'x', sellMinor: 0n }, prices[0]!], 10), /positive/)
 })
+
+import { fxCorridorPolicy, fxRateFreshness, fxVolatilityOutOfBand, checkParityAgainstBaseline, DEFAULT_MARGIN_POLICY } from './src/index.ts'
+
+test('flat-base percent applies to the original net, not the running amount', () => {
+  const layers = (base: 'RUNNING' | 'NET') => [
+    { layer: 'SUPPLIER_CONTRACT' as const, ruleId: 'a', adjustment: { kind: 'PERCENT' as const, basisPoints: 1_000 } },
+    { layer: 'CLIENT' as const, ruleId: 'b', adjustment: { kind: 'PERCENT' as const, basisPoints: 1_000, base } },
+  ]
+  assert.equal(applyMarkupCascade(10_000n, layers('RUNNING')).sellMinor, 12_100n)
+  assert.equal(applyMarkupCascade(10_000n, layers('NET')).sellMinor, 12_000n)
+})
+
+test('margin policy defaults: 8% warns, under 3% blocks', () => {
+  const floor = { minMarginBp: DEFAULT_MARGIN_POLICY.warnBelowBp, minMarginMinor: 0n, blockBelowBp: DEFAULT_MARGIN_POLICY.blockBelowBp }
+  assert.equal(checkMargin(10_000n, 10_200n, floor)?.code, 'MARGIN_BLOCKED') // 196 bp
+  assert.equal(checkMargin(10_000n, 10_600n, floor)?.code, 'MARGIN_SQUEEZE') // 566 bp
+  assert.equal(checkMargin(10_000n, 11_000n, floor), null) // 909 bp
+})
+
+test('baseline parity needs both the percent and the absolute variation to be exceeded', () => {
+  assert.equal(checkParityAgainstBaseline('api', 10_040n, 10_000n, 50, 100n), null) // 40 bp
+  assert.equal(checkParityAgainstBaseline('api', 10_080n, 10_000n, 50, 100n), null) // 80 bp but only 0.80 units
+  assert.equal(checkParityAgainstBaseline('api', 10_150n, 10_000n, 50, 100n)?.variationBp, 150)
+  assert.equal(checkParityAgainstBaseline('api', 9_800n, 10_000n, 50, 100n)?.variationMinor, 200n) // below baseline counts too
+})
+
+test('FX corridors: majors 4h, emerging 1h, 12h hard expiry, no cached fallback', () => {
+  const major = fxCorridorPolicy('USD', 'AED'); const em = fxCorridorPolicy('INR', 'USD')
+  assert.equal(major.corridor, 'STABLE'); assert.equal(em.corridor, 'EMERGING')
+  const h = 3_600_000
+  assert.equal(fxRateFreshness(major, 0, 4 * h), 'FRESH'); assert.equal(fxRateFreshness(major, 0, 4 * h + 1), 'STALE')
+  assert.equal(fxRateFreshness(em, 0, h + 1), 'STALE'); assert.equal(fxRateFreshness(em, 0, 12 * h + 1), 'EXPIRED')
+  assert.equal(fxVolatilityOutOfBand(major, 40), null); assert.match(fxVolatilityOutOfBand(major, 120)!, /outside the stable/)
+  assert.equal(convertWithMargin(10_000n, { from: 'THB', to: 'AED', rateScaled: 10_000_000n, bufferBp: 0, volatilityBp: 120, asOfMs: 0, maxAgeMs: em.maxAgeMs }, 1_000), 1_012n) // THB now supported
+})

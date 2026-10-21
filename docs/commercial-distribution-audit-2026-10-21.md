@@ -33,7 +33,10 @@ Pure, transport-agnostic, BigInt-only code in `@bedbanks/pricing`, 9 new tests (
 ## Deliberately not built
 No migration, route, contract or Admin screen. A schema change needs a reviewed Prisma migration and the ADR 0013 grant decision; a UI before its contract would break invariant 4. The cascade also changes pricing semantics, so it needs the shadow comparison in ADR 0080 P1 first.
 
-## Decisions needed from the business
+## Business decisions (answered 2026-10-21) and what remains
+Answers are recorded in ADR 0080. Remaining: confirm the parity reading (both thresholds must be exceeded), the cached-rate fallback policy (conflicts with invariant 5), and the chain-data source name.
+
+Original questions, for the record:
 1. Should layers compound (as proposed) or sum their markups against the original net?
 2. Parity tolerance and margin floors: values, and per tenant or per channel?
 3. Maximum FX rate age and the volatility margin per currency pair.

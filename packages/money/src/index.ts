@@ -27,6 +27,8 @@ const MINOR_UNIT_EXPONENTS: Record<string, number> = {
   QAR: 2,
   SAR: 2,
   SGD: 2,
+  THB: 2,
+  AZN: 2,
   USD: 2,
 };
 
