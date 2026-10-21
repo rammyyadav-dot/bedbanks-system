@@ -25,3 +25,11 @@ Finance → Booking postings shows the counts, every event that needs a person (
 
 ## Roll back
 Set the flags to anything but `true` (non-destructive; events simply accumulate). Ledger entries already appended are immutable and are never deleted: correct a wrong posting with a reviewed compensating entry. To remove the role: `deprovisionFinpostRole` (see `database/finance-posting-role.ts`). To drop the tables, follow the migration header, only while the worker is stopped.
+
+## Supplier settlements (ADR 0077)
+Records payments made to suppliers outside the system against the posted payables. Moves no money. Off until `SUPPLIER_SETTLEMENT_ENABLED=true` (reads always work).
+1. Migrate (`202612030001_supplier_settlements`), then **re-run** `ops:provision-finance-posting-role` and `ops:verify-finance-posting-role`: the role gains the settlement table.
+2. Grant `finance.settle.propose` and `finance.settle.approve` in Roles & Permissions to different people (the proposer can never approve their own).
+3. Set `SUPPLIER_SETTLEMENT_ENABLED=true`. Finance → Supplier settlements: choose a supplier and currency that still has an amount owed, enter the amount paid, the date, the bank reference, and propose. A different person approves or rejects (with a reason).
+4. Paid and Outstanding appear on Finance → Payables; aging applies approved payments to the oldest bookings first.
+A wrong *approved* settlement cannot be edited or deleted; raise it with engineering for a reviewed correction.

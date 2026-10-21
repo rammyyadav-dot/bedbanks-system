@@ -28,6 +28,8 @@ Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
 
 `BOOKING_FINANCE_POSTING_ENABLED`, `BOOKING_FINANCE_POSTING_WORKER_ENABLED` and `BOOKING_FINANCE_POSTING_DATABASE_URL` (ADR 0076) stay unset until the finance posting role is provisioned and certified and the agencies' accounts are open; follow `docs/runbooks/booking-finance-posting.md`.
 
+`SUPPLIER_SETTLEMENT_ENABLED` (ADR 0077) stays unset until the finance posting role has been re-provisioned after migration `202612030001` and two different people hold `finance.settle.propose` and `finance.settle.approve`.
+
 `FUNDING_ENABLED` (ADR 0028 slice 2) stays unset until finance is ready to record agency bank transfers. Before setting it to `true`: apply migration `202610220001_agency_funding_receipts` and grant `funding.manage` to at least two finance users (the declarer can never verify, clear or post the same receipt). Funding writes go to `Wallet` and `LedgerEntry`, which the strict runtime role does not write (ADR 0032), so they need the privileged database connection.
 
 ## Database credentials (P0-01)

@@ -99,6 +99,13 @@ enum SupplierPayableKind {
   REVERSAL
 }
 
+/// A supplier payment recorded against posted payables (ADR 0077). PROPOSED by one person, APPROVED (recorded) or REJECTED by another.
+enum SupplierSettlementStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
 enum BookingAmendmentStatus {
   REQUESTED
   APPROVED
@@ -724,6 +731,7 @@ model Tenant {
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
   bookingFinancePostings BookingFinancePosting[]
+  supplierSettlements SupplierSettlement[]
   supplierPayableEntries SupplierPayableEntry[]
   bookingAmendments BookingAmendment[]
   bookingSavedViews BookingSavedView[]
@@ -1698,6 +1706,7 @@ model Supplier {
   changeSets     SupplierChangeSet[]
   bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
   payableEntries SupplierPayableEntry[]
+  settlements    SupplierSettlement[]
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
 
@@ -2977,3 +2986,34 @@ model DistributionAccessToken {
   @@map("distribution_access_tokens")
 }
 
+/// A payment to a supplier, recorded against its posted payables (ADR 0077). The system records that a payment was made outside it (bank transfer, card, netting); it moves no money.
+/// Maker-checker: the proposer can never approve (database CHECK). Once APPROVED or REJECTED a row never changes. Integer minor units in the payable's currency; never converted.
+model SupplierSettlement {
+  id               String                   @id @default(cuid())
+  tenantId         String                   @map("tenant_id")
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierId       String                   @map("supplier_id")
+  supplier         Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  currency         String                   @db.Char(3)
+  amountMinor      BigInt                   @map("amount_minor")
+  /// The day the payment was made (UTC date). Never in the future.
+  paidOn           DateTime                 @db.Date @map("paid_on")
+  /// The bank or transfer reference. Unique per supplier, so the same payment cannot be recorded twice.
+  paymentReference String                   @map("payment_reference")
+  note             String?
+  status           SupplierSettlementStatus @default(PROPOSED)
+  /// Idempotency key of the proposal.
+  requestId        String                   @map("request_id")
+  proposedById     String                   @map("proposed_by_id")
+  decidedById      String?                  @map("decided_by_id")
+  decidedAt        DateTime?                @map("decided_at")
+  decisionReason   String?                  @map("decision_reason")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, supplierId, paymentReference])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, supplierId, currency, status])
+}

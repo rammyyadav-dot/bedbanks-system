@@ -101,12 +101,16 @@ export interface PostedPayableRow {
   reversalsMinor: string
   /** Accruals + adjustments + reversals. */
   balanceMinor: string
+  /** Supplier payments recorded and approved against this supplier and currency (ADR 0077). */
+  paidMinor: string
+  /** Balance less payments. Negative means the supplier has been paid more than is posted (a credit with the supplier). */
+  outstandingMinor: string
   entries: number
 }
 export interface PostedPayablesView { generatedAt: string; rows: PostedPayableRow[]; listLimit: number; truncated: boolean }
 
 /**
- * Aging of the posted supplier payables (ADR 0076). Each booking's open balance (the sum of its payable entries, when positive) is aged from the day of its FIRST accrual:
+ * Aging of the posted supplier payables (ADR 0076). Each booking's open balance (the sum of its payable entries, when positive) is aged from the day of its FIRST accrual, and approved supplier payments (ADR 0077) are applied to the oldest bookings first:
  * there are no payment terms, due dates or supplier payments in the system, so this is the age of what is owed, not how late it is. Per supplier and currency; never added across currencies.
  */
 export const PAYABLE_AGING_BUCKETS = [
@@ -120,3 +124,51 @@ export type PayableAgingBucketKey = (typeof PAYABLE_AGING_BUCKETS)[number]['key'
 export interface PayableAgingCell { bucket: PayableAgingBucketKey; amountMinor: string; bookings: number }
 export interface PayableAgingRow { supplierId: string; name: string | null; currency: string; buckets: PayableAgingCell[]; totalMinor: string; bookings: number }
 export interface PayablesAgingView { asOf: string; rows: PayableAgingRow[]; listLimit: number; truncated: boolean }
+
+/**
+ * Supplier settlements (ADR 0077): a payment to a supplier, recorded against its posted payables. The system records that a payment was made outside it; it moves no money.
+ * PROPOSED by one person (`finance.settle.propose`), APPROVED or REJECTED by another (`finance.settle.approve`; an approval by the proposer is refused). Integer minor units
+ * in the payable's currency, never converted.
+ */
+export const SETTLEMENT_STATUSES = ['PROPOSED', 'APPROVED', 'REJECTED'] as const
+export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number]
+export const settlementPermissions = { propose: 'finance.settle.propose', approve: 'finance.settle.approve' } as const
+
+export const SETTLEMENT_FAILURE = {
+  invalid: 'SETTLEMENT_INVALID', exceedsOwed: 'SETTLEMENT_EXCEEDS_OWED', selfApproval: 'SETTLEMENT_SELF_APPROVAL', notFound: 'SETTLEMENT_NOT_FOUND',
+  alreadyDecided: 'SETTLEMENT_ALREADY_DECIDED', disabled: 'SETTLEMENT_DISABLED', idempotencyConflict: 'SETTLEMENT_IDEMPOTENCY_CONFLICT', duplicateReference: 'SETTLEMENT_DUPLICATE_REFERENCE', unknownSupplier: 'SETTLEMENT_UNKNOWN_SUPPLIER',
+} as const
+
+/** Writes answer 503 with `SETTLEMENT_FAILURE.disabled` unless the deployment sets SUPPLIER_SETTLEMENT_ENABLED=true. Reads always work. */
+export interface SettlementProposeRequest {
+  supplierId: string
+  currency: string
+  /** Digits only, positive, integer minor units. */
+  amountMinor: string
+  /** The day the payment was made, YYYY-MM-DD (UTC), not in the future. */
+  paidOn: string
+  /** The bank or transfer reference (3 to 80 characters). The same reference cannot be recorded twice for a supplier. */
+  paymentReference: string
+  note?: string
+  /** Idempotency key (8 to 80 characters): repeating a request with the same key and content returns the same settlement. */
+  requestId: string
+}
+export interface SettlementDecisionRequest { reason?: string }
+
+export interface SettlementView {
+  id: string
+  supplierId: string
+  supplierName: string | null
+  currency: string
+  amountMinor: string
+  paidOn: string
+  paymentReference: string
+  note: string | null
+  status: SettlementStatus
+  proposedById: string
+  proposedAt: string
+  decidedById: string | null
+  decidedAt: string | null
+  decisionReason: string | null
+}
+export interface SettlementListView { items: SettlementView[]; listLimit: number; truncated: boolean }

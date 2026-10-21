@@ -43,14 +43,14 @@ export default function SupplierPayablesPage() {
       <p style={{ fontSize: 12, margin: '0 0 8px', color: '#3f565c' }}>
         What the booking Finance consumer has posted to each supplier: accruals on confirmation, price adjustments, and reversals on penalty-free cancellations (ADR 0076).
         This is a different basis from the accrual above, which reads the bookings themselves and works whether or not the consumer runs; the two can differ until the consumer has posted every booking.
-        Neither is an amount to pay: no supplier invoice, payment or settlement exists.
+        Neither is an amount to pay: no supplier invoice exists, and payments are only what has been recorded and approved under Supplier settlements.
       </p>
       <OpsState state={posted.state} onRetry={posted.reload} isEmpty={(d) => d.rows.length === 0} empty={{ title: 'Nothing posted yet', description: 'The query succeeded and the Finance consumer has posted no supplier payable entry.' }}>
         {(d) => (
           <div className="workspace-panel" data-testid="posted-payables">
             <ScrollRegion label="Posted supplier payables">
               <table style={tableStyle} aria-label="Posted supplier payables">
-                <thead><tr>{['Supplier', 'Currency', 'Accruals', 'Adjustments', 'Reversals', 'Balance', 'Entries'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{['Supplier', 'Currency', 'Accruals', 'Adjustments', 'Reversals', 'Balance', 'Paid', 'Outstanding', 'Entries'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                 <tbody>{d.rows.map((r) => (
                   <tr key={`${r.supplierId}-${r.currency}`}>
                     <td style={td}>{r.name ?? 'Unnamed supplier'}</td><td style={td}>{r.currency}</td>
@@ -58,6 +58,8 @@ export default function SupplierPayablesPage() {
                     <td style={{ ...td, textAlign: 'right' }}><Money minor={r.adjustmentsMinor} currency={r.currency} /></td>
                     <td style={{ ...td, textAlign: 'right' }}><Money minor={r.reversalsMinor} currency={r.currency} /></td>
                     <td style={{ ...td, textAlign: 'right' }}><Money minor={r.balanceMinor} currency={r.currency} /></td>
+                    <td style={{ ...td, textAlign: 'right' }}><Money minor={r.paidMinor} currency={r.currency} /></td>
+                    <td style={{ ...td, textAlign: 'right' }}><Money minor={r.outstandingMinor} currency={r.currency} /></td>
                     <td style={td}>{r.entries}</td>
                   </tr>))}</tbody>
               </table>
@@ -69,7 +71,7 @@ export default function SupplierPayablesPage() {
 
       <h2 style={{ fontSize: 14, margin: '18px 0 4px' }}>Age of posted payables</h2>
       <p style={{ fontSize: 12, margin: '0 0 8px', color: '#3f565c' }}>
-        What is still owed on each booking, by the age of its first accrual. There are no payment terms, due dates or supplier payments in the system yet, so this is how long a cost has been owed, not how late it is.
+        What is still owed on each booking, by the age of its first accrual. There are no payment terms or due dates in the system, so this is how long a cost has been owed, not how late it is. Approved supplier payments are applied to the oldest bookings first.
         Bookings fully reversed or fully adjusted away are not listed.
       </p>
       <OpsState state={aging.state} onRetry={aging.reload} isEmpty={(d) => d.rows.length === 0} empty={{ title: 'Nothing owed', description: 'The query succeeded and no booking has an open posted payable.' }}>

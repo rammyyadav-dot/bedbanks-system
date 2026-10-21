@@ -17,7 +17,11 @@ export class BookingPayablesService {
   constructor(private readonly db: BookingFinancePostingDatabase, private readonly prisma: PrismaService) {}
 
   async payables(tenantId: string, now = new Date()): Promise<PostedPayablesView> {
-    const groups = await this.db.withTenant(tenantId, (tx) => tx.supplierPayableEntry.groupBy({ by: ['supplierId', 'currency', 'kind'], where: { tenantId }, _sum: { amountMinor: true }, _count: { _all: true } }))
+    const [groups, paidGroups] = await this.db.withTenant(tenantId, (tx) => Promise.all([
+      tx.supplierPayableEntry.groupBy({ by: ['supplierId', 'currency', 'kind'], where: { tenantId }, _sum: { amountMinor: true }, _count: { _all: true } }),
+      tx.supplierSettlement.groupBy({ by: ['supplierId', 'currency'], where: { tenantId, status: 'APPROVED' }, _sum: { amountMinor: true } }),
+    ]))
+    const paid = new Map(paidGroups.map((g) => [`${g.supplierId}\u0000${g.currency}`, g._sum.amountMinor ?? 0n]))
     const rows = new Map<string, { supplierId: string; currency: string; accruals: bigint; adjustments: bigint; reversals: bigint; entries: number }>()
     for (const g of groups) {
       const key = `${g.supplierId}\u0000${g.currency}`
@@ -39,6 +43,7 @@ export class BookingPayablesService {
       rows: shown.map((r): PostedPayableRow => ({
         supplierId: r.supplierId, name: name.get(r.supplierId) ?? null, currency: r.currency, accrualsMinor: r.accruals.toString(), adjustmentsMinor: r.adjustments.toString(),
         reversalsMinor: r.reversals.toString(), balanceMinor: (r.accruals + r.adjustments + r.reversals).toString(), entries: r.entries,
+        paidMinor: (paid.get(`${r.supplierId}\u0000${r.currency}`) ?? 0n).toString(), outstandingMinor: (r.accruals + r.adjustments + r.reversals - (paid.get(`${r.supplierId}\u0000${r.currency}`) ?? 0n)).toString(),
       })),
     }
   }
@@ -49,18 +54,30 @@ export class BookingPayablesService {
    */
   async aging(tenantId: string, now = new Date()): Promise<PayablesAgingView> {
     const rows = await this.db.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ supplier_id: string; currency: string; bucket: PayableAgingBucketKey; amount: bigint; bookings: number }>>(Prisma.sql`
-      SELECT s."supplier_id", s."currency",
-             CASE WHEN s."age_days" <= 30 THEN 'D0_30' WHEN s."age_days" <= 60 THEN 'D31_60' WHEN s."age_days" <= 90 THEN 'D61_90' ELSE 'D91_PLUS' END AS "bucket",
-             SUM(s."balance")::bigint AS "amount", COUNT(*)::int AS "bookings"
-        FROM (
-          SELECT e."supplier_id", e."currency", e."booking_id", SUM(e."amount_minor") AS "balance",
-                 FLOOR(EXTRACT(EPOCH FROM (${now}::timestamp - MIN(e."created_at") FILTER (WHERE e."kind" = 'ACCRUAL'))) / 86400)::int AS "age_days"
-            FROM "SupplierPayableEntry" e
-           WHERE e."tenant_id" = ${tenantId}
-           GROUP BY e."supplier_id", e."currency", e."booking_id"
-          HAVING SUM(e."amount_minor") > 0 AND MIN(e."created_at") FILTER (WHERE e."kind" = 'ACCRUAL') IS NOT NULL
-        ) s
-       GROUP BY s."supplier_id", s."currency", 3`))
+      WITH per_booking AS (
+        SELECT e."supplier_id", e."currency", e."booking_id", SUM(e."amount_minor") AS "balance",
+               MIN(e."created_at") FILTER (WHERE e."kind" = 'ACCRUAL') AS "first_accrual"
+          FROM "SupplierPayableEntry" e
+         WHERE e."tenant_id" = ${tenantId}
+         GROUP BY e."supplier_id", e."currency", e."booking_id"
+        HAVING SUM(e."amount_minor") > 0 AND MIN(e."created_at") FILTER (WHERE e."kind" = 'ACCRUAL') IS NOT NULL
+      ), paid AS (
+        SELECT "supplier_id", "currency", SUM("amount_minor") AS "paid" FROM "SupplierSettlement" WHERE "tenant_id" = ${tenantId} AND "status" = 'APPROVED' GROUP BY "supplier_id", "currency"
+      ), running AS (
+        SELECT b.*, SUM(b."balance") OVER (PARTITION BY b."supplier_id", b."currency" ORDER BY b."first_accrual", b."booking_id") AS "cumulative"
+          FROM per_booking b
+      ), open_amounts AS (
+        -- Approved payments are applied to the oldest bookings first.
+        SELECT r."supplier_id", r."currency", r."first_accrual", GREATEST(0, LEAST(r."balance", r."cumulative" - COALESCE(p."paid", 0))) AS "open"
+          FROM running r LEFT JOIN paid p ON p."supplier_id" = r."supplier_id" AND p."currency" = r."currency"
+      )
+      SELECT o."supplier_id", o."currency",
+             CASE WHEN FLOOR(EXTRACT(EPOCH FROM (${now}::timestamp - o."first_accrual")) / 86400) <= 30 THEN 'D0_30'
+                  WHEN FLOOR(EXTRACT(EPOCH FROM (${now}::timestamp - o."first_accrual")) / 86400) <= 60 THEN 'D31_60'
+                  WHEN FLOOR(EXTRACT(EPOCH FROM (${now}::timestamp - o."first_accrual")) / 86400) <= 90 THEN 'D61_90' ELSE 'D91_PLUS' END AS "bucket",
+             SUM(o."open")::bigint AS "amount", COUNT(*)::int AS "bookings"
+        FROM open_amounts o WHERE o."open" > 0
+       GROUP BY o."supplier_id", o."currency", 3`))
     const grouped = new Map<string, { supplierId: string; currency: string; cells: Map<PayableAgingBucketKey, { amount: bigint; bookings: number }> }>()
     for (const r of rows) {
       const key = `${r.supplier_id}\u0000${r.currency}`

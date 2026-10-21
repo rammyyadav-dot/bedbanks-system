@@ -7,6 +7,7 @@ import { BookingFinancePostingService } from '../src/booking-finance-posting/boo
 import { BookingFinancePostingWorker } from '../src/booking-finance-posting/booking-finance-posting.worker'
 import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
 import { BookingFinancePostingBacklogService } from '../src/booking-finance-posting/booking-finance-posting-backlog.service'
+import { SupplierSettlementService } from '../src/booking-finance-posting/supplier-settlement.service'
 import { BookingPayablesService } from '../src/booking-finance-posting/booking-payables.service'
 import { BookingRevenueService } from '../src/booking-finance-posting/booking-revenue.service'
 import { OperationsLedgerIntegrityService } from '../src/admin-operations/operations-ledger-integrity.service'
@@ -27,7 +28,7 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
   let narrow: PrismaClient
   let service: BookingFinancePostingService
   let database: BookingFinancePostingDatabase
-  let tenantId = '', otherTenantId = '', agencyId = '', walletId = '', supplierId = '', actor = ''
+  let tenantId = '', otherTenantId = '', agencyId = '', walletId = '', supplierId = '', actor = '', approver = ''
   let seq = 0
 
   const sell = 100_000n
@@ -60,6 +61,7 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     tenantId = (await owner.tenant.create({ data: { name: suffix, slug: suffix } })).id
     otherTenantId = (await owner.tenant.create({ data: { name: `${suffix}-other`, slug: `${suffix}-other` } })).id
     actor = (await owner.user.create({ data: { email: `${suffix}@example.test` } })).id
+    approver = (await owner.user.create({ data: { email: `${suffix}-approver@example.test` } })).id
     supplierId = (await owner.supplier.create({ data: { tenantId, type: 'DMC', legalName: `${suffix} LLC`, displayName: 'Posting Supplier', countryCode: 'AE', defaultCurrency: 'AED' } })).id
     agencyId = (await owner.agency.create({ data: { tenantId, code: suffix.toUpperCase(), name: 'Posting Travel', createdById: actor } })).id
     walletId = (await owner.wallet.create({ data: { tenantId, agencyId, currency: 'AED' } })).id
@@ -73,7 +75,7 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
       await owner.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
         await tx.$executeRawUnsafe('DELETE FROM "Cancellation" WHERE booking_id IN (SELECT id FROM "Booking" WHERE tenant_id = $1)', id)
-        for (const table of ['SupplierPayableEntry', 'BookingFinancePosting', 'BookingFinanceEvent', 'BookingEvent', 'Booking', 'Wallet', 'Agency', 'AuditEvent', 'Supplier']) await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE tenant_id = $1`, id)
+        for (const table of ['SupplierSettlement', 'SupplierPayableEntry', 'BookingFinancePosting', 'BookingFinanceEvent', 'BookingEvent', 'Booking', 'Wallet', 'Agency', 'AuditEvent', 'Supplier']) await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE tenant_id = $1`, id)
         await tx.$executeRawUnsafe('DELETE FROM tenants WHERE id = $1', id)
       })
     }
@@ -430,6 +432,80 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     expect(view.truncated).toBe(false)
     expect((await payables.aging(otherTenantId, now)).rows).toEqual([])
     await expect(new BookingPayablesService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).aging(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
+  })
+
+  const code0 = (p: Promise<unknown>) => p.then(() => 'ok', (e) => (e as { response?: { code?: string } }).response?.code ?? 'error')
+  it('SETTLEMENT: propose, approve and reject with maker-checker, idempotency and an overpayment guard; approved payments reduce what is outstanding and are applied to the oldest bookings first', async () => {
+    const settlements = new SupplierSettlementService(database, owner, { SUPPLIER_SETTLEMENT_ENABLED: 'true' })
+    expect(await code0(new SupplierSettlementService(database, owner, {}).propose(tenantId, actor, { supplierId, currency: 'AED', amountMinor: '1', paidOn: '2026-10-01', paymentReference: 'WIRE-OFF-1', requestId: 'req-off-0001' }, 'off'))).toBe('SETTLEMENT_DISABLED')
+    expect(await code0(new SupplierSettlementService(database, owner, {}).approve(tenantId, approver, 'x', 'off'))).toBe('SETTLEMENT_DISABLED')
+    expect(await code0(new SupplierSettlementService(database, owner, {}).reject(tenantId, approver, 'x', { reason: 'nope' }, 'off'))).toBe('SETTLEMENT_DISABLED')
+    expect((await new SupplierSettlementService(database, owner, {}).list(tenantId, {})).items).toBeDefined()
+    const payables = new BookingPayablesService(database, owner)
+    const now = new Date()
+    const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000 - 3_600_000)
+    const supplier3 = (await owner.supplier.create({ data: { tenantId, type: 'DMC', legalName: `${suffix} Settle LLC`, displayName: 'Settle Supplier', countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    for (const [label, ago, amount] of [['old', 80, 6_000n], ['new', 5, 4_000n]] as const) {
+      const b = await booking(`settle-${label}`, { supplierId: supplier3 })
+      const e = await owner.bookingFinanceEvent.create({ data: { tenantId, bookingId: b.id, type: 'CONFIRMED', seq: ++seq, currency: 'AED', sellMinor: sell, paymentMode: 'CREDIT', payload: {}, createdAt: daysAgo(ago) } })
+      await owner.supplierPayableEntry.create({ data: { tenantId, bookingId: b.id, supplierId: supplier3, eventId: e.id, kind: 'ACCRUAL', currency: 'AED', amountMinor: amount, createdAt: daysAgo(ago) } })
+    }
+    const body = (over: Record<string, unknown> = {}) => ({ supplierId: supplier3, currency: 'AED', amountMinor: '4000', paidOn: iso(now), paymentReference: `WIRE-${seq}-${Math.random().toString(36).slice(2, 8)}`, requestId: `req-${Math.random().toString(36).slice(2, 12)}`, ...over })
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const code = (p: Promise<unknown>) => p.then(() => 'ok', (e) => (e as { response?: { code?: string } }).response?.code ?? 'error')
+
+    const first = body({ paymentReference: 'WIRE-A-0001', requestId: 'req-first-0001' })
+    const proposed = await settlements.propose(tenantId, actor, first as never, 'rq1')
+    expect(proposed).toMatchObject({ status: 'PROPOSED', amountMinor: '4000', supplierName: 'Settle Supplier', proposedById: actor, decidedById: null })
+    // idempotent replay returns the same settlement; the same key for different content is refused; a repeated payment reference is refused
+    expect((await settlements.propose(tenantId, actor, first as never, 'rq1b')).id).toBe(proposed.id)
+    expect(await code(settlements.propose(tenantId, actor, { ...first, amountMinor: '4001' } as never, 'rq1c'))).toBe('SETTLEMENT_IDEMPOTENCY_CONFLICT')
+    expect(await code(settlements.propose(tenantId, actor, body({ paymentReference: 'WIRE-A-0001', amountMinor: '100' }) as never, 'rq1d'))).toBe('SETTLEMENT_DUPLICATE_REFERENCE')
+    // overpayment guard counts proposals still waiting: 10,000 owed, 4,000 pending, so 6,001 is too much and 6,000 is not
+    expect(await code(settlements.propose(tenantId, actor, body({ amountMinor: '6001' }) as never, 'rq2'))).toBe('SETTLEMENT_EXCEEDS_OWED')
+    const second = await settlements.propose(tenantId, actor, body({ amountMinor: '6000', paymentReference: 'WIRE-B-0002' }) as never, 'rq3')
+    expect(await code(settlements.propose(tenantId, actor, body({ amountMinor: '1' }) as never, 'rq4'))).toBe('SETTLEMENT_EXCEEDS_OWED')
+    // other refusals
+    expect(await code(settlements.propose(tenantId, actor, body({ supplierId: 'nope' }) as never, 'rq5'))).toBe('SETTLEMENT_UNKNOWN_SUPPLIER')
+    expect(await code(settlements.propose(tenantId, actor, body({ currency: 'USD' }) as never, 'rq6'))).toBe('SETTLEMENT_EXCEEDS_OWED')
+    expect(await code(settlements.propose(tenantId, actor, body({ paidOn: iso(new Date(now.getTime() + 2 * 86_400_000)) }) as never, 'rq7'))).toBe('SETTLEMENT_INVALID')
+
+    // maker-checker: the proposer cannot approve; a different person can; a decided settlement cannot be decided again
+    expect(await code(settlements.approve(tenantId, actor, proposed.id, 'rq8'))).toBe('SETTLEMENT_SELF_APPROVAL')
+    const approved = await settlements.approve(tenantId, approver, proposed.id, 'rq9')
+    expect(approved).toMatchObject({ status: 'APPROVED', decidedById: approver })
+    expect(await code(settlements.approve(tenantId, approver, proposed.id, 'rq10'))).toBe('SETTLEMENT_ALREADY_DECIDED')
+    expect(await code(settlements.reject(tenantId, approver, proposed.id, { reason: 'too late' }, 'rq11'))).toBe('SETTLEMENT_ALREADY_DECIDED')
+    expect(await code(settlements.approve(tenantId, approver, 'missing', 'rq12'))).toBe('SETTLEMENT_NOT_FOUND')
+    // rejecting needs a reason, frees the amount, and is final
+    expect(await code(settlements.reject(tenantId, approver, second.id, {}, 'rq13'))).toBe('SETTLEMENT_INVALID')
+    expect(await settlements.reject(tenantId, approver, second.id, { reason: 'Wrong supplier account' }, 'rq14')).toMatchObject({ status: 'REJECTED', decisionReason: 'Wrong supplier account' })
+    expect(await code(settlements.propose(tenantId, actor, body({ amountMinor: '6000', paymentReference: 'WIRE-C-0003' }) as never, 'rq15'))).toBe('ok')
+
+    // audit: one event per step, by the acting user, no free text beyond the reference
+    const audits = await owner.auditEvent.findMany({ where: { tenantId, entityType: 'supplier_settlement', entityId: proposed.id }, orderBy: { createdAt: 'asc' } })
+    expect(audits.map((a) => [a.action, a.userId, a.actorType])).toEqual([['finance.settlement.proposed', actor, 'USER'], ['finance.settlement.approved', approver, 'USER']])
+
+    // the database enforces it too, even for the owner
+    await expect(owner.$executeRawUnsafe(`UPDATE "SupplierSettlement" SET amount_minor = 1 WHERE id = $1`, proposed.id)).rejects.toThrow(/immutable/i)
+    await expect(owner.$executeRawUnsafe(`DELETE FROM "SupplierSettlement" WHERE id = $1`, proposed.id)).rejects.toThrow(/never deleted/i)
+    const selfApproved = await owner.supplierSettlement.create({ data: { tenantId, supplierId: supplier3, currency: 'AED', amountMinor: 1n, paidOn: now, paymentReference: 'WIRE-SELF-1', requestId: 'req-self-0001', proposedById: actor } })
+    await expect(owner.$executeRawUnsafe(`UPDATE "SupplierSettlement" SET status = 'APPROVED', decided_by_id = proposed_by_id, decided_at = now() WHERE id = $1`, selfApproved.id)).rejects.toThrow(/second_person/)
+    await owner.$executeRawUnsafe(`UPDATE "SupplierSettlement" SET status = 'REJECTED', decided_by_id = $2, decided_at = now(), decision_reason = 'test cleanup' WHERE id = $1`, selfApproved.id, approver)
+
+    // approved payments reduce what is outstanding, and the aging applies them to the oldest bookings first: 4,000 paid clears 4,000 of the 80-day booking
+    const row = (await payables.payables(tenantId)).rows.find((r) => r.supplierId === supplier3)!
+    expect(row).toMatchObject({ balanceMinor: '10000', paidMinor: '4000', outstandingMinor: '6000' })
+    const aging = (await payables.aging(tenantId, now)).rows.find((r) => r.supplierId === supplier3)!
+    expect(aging.buckets.map((b) => [b.bucket, b.amountMinor, b.bookings])).toEqual([['D0_30', '4000', 1], ['D31_60', '0', 0], ['D61_90', '2000', 1], ['D91_PLUS', '0', 0]])
+    expect(aging.totalMinor).toBe('6000')
+
+    // listing: filters, newest first, names, tenant isolation, unavailable role
+    expect((await settlements.list(tenantId, { status: 'APPROVED', supplierId: supplier3 })).items.map((i) => i.id)).toEqual([proposed.id])
+    expect((await settlements.list(tenantId, { supplierId: supplier3 })).items.length).toBeGreaterThanOrEqual(4)
+    expect(await code(settlements.list(tenantId, { status: 'WHATEVER' }))).toBe('SETTLEMENT_INVALID')
+    expect((await settlements.list(otherTenantId, {})).items).toEqual([])
+    expect(await code(new SupplierSettlementService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner, { SUPPLIER_SETTLEMENT_ENABLED: 'true' }).list(tenantId, {}))).toBe('BOOKING_FINANCE_POSTING_UNAVAILABLE')
   })
 
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {

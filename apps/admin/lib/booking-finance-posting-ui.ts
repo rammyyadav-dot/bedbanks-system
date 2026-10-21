@@ -41,3 +41,6 @@ export const nextRetryAt = (lastAttemptIso: string) => new Date(new Date(lastAtt
 
 export const ALL_REVIEW_REASONS = POSTING_REVIEW_REASONS
 export const ALL_SKIP_REASONS = POSTING_SKIP_REASONS
+
+export const SETTLEMENT_STATUS_TEXT: Record<'PROPOSED' | 'APPROVED' | 'REJECTED', string> = { PROPOSED: 'Waiting for approval', APPROVED: 'Approved and recorded', REJECTED: 'Rejected' }
+export const settlementTone = (status: string): 'ok' | 'warn' | 'bad' | 'neutral' => (status === 'APPROVED' ? 'ok' : status === 'PROPOSED' ? 'warn' : status === 'REJECTED' ? 'bad' : 'neutral')

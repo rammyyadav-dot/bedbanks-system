@@ -270,6 +270,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   ReconciliationFinding: 'finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)',
   ReconciliationDecision: 'finance-gated: append-only history of dispute queue decisions (ADR 0070)',
   BookingFinancePosting: 'finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)',
+  SupplierSettlement: 'finance-gated: supplier payments recorded against posted payables, proposed and approved by different people; written only by the narrow finance posting role (ADR 0077)',
   SupplierPayableEntry: 'finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)',
   HotelSearchIndex: 'search-index maintenance (reindex) is an operator job; the runtime only reads the index',
   TenantControlProfile: 'dedicated tenant control authoring role only', Membership: 'dedicated tenant membership authoring role only', Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',

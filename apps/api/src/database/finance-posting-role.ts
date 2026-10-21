@@ -20,10 +20,12 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Read and append. LedgerEntry has no UPDATE or DELETE grant and a trigger forbids both besides. `Cancellation` is the record the ledger integrity monitor ties a cancelled, charged booking to (ADR 0068). */
-export const FINPOST_OWN_TABLES = ['BookingFinancePosting', 'SupplierPayableEntry', 'LedgerEntry', 'Cancellation'] as const
+export const FINPOST_OWN_TABLES = ['BookingFinancePosting', 'SupplierPayableEntry', 'LedgerEntry', 'Cancellation', 'SupplierSettlement'] as const
 /** The only columns the role may update: a posting that is under review is retried and finally closed. Identity columns are not here. */
 export const FINPOST_UPDATE_COLUMNS = {
   BookingFinancePosting: ['status', 'reason', 'attempts', 'wallet_id', 'agency_effect_minor', 'payable_effect_minor', 'sales_minor', 'refunds_minor', 'updated_at'],
+  /** A proposed supplier payment is decided once (ADR 0077); its identity and amount are not writable, and a trigger makes a decided row immutable. */
+  SupplierSettlement: ['status', 'decided_by_id', 'decided_at', 'decision_reason', 'updated_at'],
   /** The refund a cancellation record fixed, when a later decision or waiver changes it. The booking it belongs to is not writable. */
   Cancellation: ['refund_minor'],
   /** Lock only (`SELECT … FOR UPDATE` needs an UPDATE privilege). The balance, the limit and the identity of an account are not writable. */
@@ -148,6 +150,12 @@ export const FINPOST_PROBES: readonly FinpostProbe[] = [
   { name: 'SELECT Cancellation', sql: `SELECT "id", "booking_id", "refund_minor" FROM "Cancellation" WHERE false`, expect: 'allowed' },
   { name: 'INSERT Cancellation', sql: `INSERT INTO "Cancellation" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
   { name: 'UPDATE Cancellation.refund_minor', sql: `UPDATE "Cancellation" SET "refund_minor" = "refund_minor" WHERE false`, expect: 'allowed' },
+  { name: 'SELECT SupplierSettlement', sql: `SELECT "id", "status", "amount_minor" FROM "SupplierSettlement" WHERE false`, expect: 'allowed' },
+  { name: 'INSERT SupplierSettlement', sql: `INSERT INTO "SupplierSettlement" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
+  { name: 'UPDATE SupplierSettlement.status', sql: `UPDATE "SupplierSettlement" SET "status" = "status" WHERE false`, expect: 'allowed' },
+  { name: 'UPDATE SupplierSettlement.amount_minor', sql: `UPDATE "SupplierSettlement" SET "amount_minor" = "amount_minor" WHERE false`, expect: 'denied' },
+  { name: 'UPDATE SupplierSettlement.proposed_by_id', sql: `UPDATE "SupplierSettlement" SET "proposed_by_id" = "proposed_by_id" WHERE false`, expect: 'denied' },
+  { name: 'DELETE SupplierSettlement', sql: `DELETE FROM "SupplierSettlement" WHERE false`, expect: 'denied' },
   { name: 'INSERT AuditEvent', sql: `INSERT INTO "AuditEvent" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
   { name: 'UPDATE Cancellation.booking_id', sql: `UPDATE "Cancellation" SET "booking_id" = "booking_id" WHERE false`, expect: 'denied' },
   { name: 'DELETE Cancellation', sql: `DELETE FROM "Cancellation" WHERE false`, expect: 'denied' },

@@ -72,6 +72,8 @@ export const routes = {
   },
   // Backlog of the booking Finance consumer (ADR 0076). Read-only.
   adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging' },
+  // Supplier settlements (ADR 0077). Records payments made outside the system; moves no money.
+  adminSupplierSettlements: { list: '/admin/finance/supplier-settlements', approve: '/admin/finance/supplier-settlements/:settlementId/approve', reject: '/admin/finance/supplier-settlements/:settlementId/reject' },
   // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
   adminRateCertification: {
     summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',
