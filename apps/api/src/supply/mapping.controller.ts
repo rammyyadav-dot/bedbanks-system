@@ -4,13 +4,14 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { RequireSupplyPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { ACTIVE_TENANT_REQUEST_KEY, TenantContextGuard } from '../agent/tenant-context.guard'
-import type { HotelMappingApproveBody, HotelMappingSuggestionQuery } from '@bedbanks/contracts'
+import type { HotelMappingApproveBody, HotelMappingSuggestionQuery, SupplierRatePlanMappingDecisionBody } from '@bedbanks/contracts'
 import { MappingService } from './mapping.service'
+import { RatePlanMappingService } from './rate-plan-mapping.service'
 
 @Controller('supply/mappings')
 @UseGuards(SessionAuthGuard, TenantContextGuard)
 export class MappingController {
-  constructor(private readonly mapping: MappingService) {}
+  constructor(private readonly mapping: MappingService, private readonly ratePlanMappings: RatePlanMappingService) {}
   private context(req: Request) {
     return { tenantId: (req as unknown as Record<string, string>)[ACTIVE_TENANT_REQUEST_KEY],
       userId: (req as unknown as { user: AuthenticatedUser }).user.user.id, requestId: req.requestId }
@@ -33,4 +34,10 @@ export class MappingController {
   @Post('hotels/:mappingId/rooms/:roomMappingId/approve') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) approveRoom(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Body() body?: { reason?: string }) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'room', roomMappingId, 'approve', c.requestId, mappingId, body?.reason) }
   @Post('hotels/:mappingId/rooms/:roomMappingId/reject') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) rejectRoom(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Body() body?: { reason?: string }) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'room', roomMappingId, 'reject', c.requestId, mappingId, body?.reason) }
   @Post('hotels/:mappingId/rooms/:roomMappingId/reopen') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) reopenRoom(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Body() body?: { reason?: string }) { const c = this.context(req); return this.mapping.decide(c.tenantId, c.userId, 'room', roomMappingId, 'reopen', c.requestId, mappingId, body?.reason) }
+  @Get('hotels/:mappingId/rooms/:roomMappingId/rate-plan-options') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) ratePlanOptions(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string) { const c = this.context(req); return this.ratePlanMappings.options(c.tenantId, c.userId, mappingId, roomMappingId) }
+  @Get('hotels/:mappingId/rooms/:roomMappingId/rate-plans') @RequireSupplyPermission('supply.mappings.read') @UseGuards(SupplyPermissionGuard) ratePlanMappingList(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string) { const c = this.context(req); return this.ratePlanMappings.list(c.tenantId, c.userId, mappingId, roomMappingId) }
+  @Post('hotels/:mappingId/rooms/:roomMappingId/rate-plans') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) createRatePlanMapping(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Body() input: Record<string, unknown>) { const c = this.context(req); return this.ratePlanMappings.create(c.tenantId, c.userId, mappingId, roomMappingId, input, c.requestId) }
+  @Post('hotels/:mappingId/rooms/:roomMappingId/rate-plans/:ratePlanMappingId/approve') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) approveRatePlanMapping(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Param('ratePlanMappingId') id: string, @Body() body?: SupplierRatePlanMappingDecisionBody) { const c = this.context(req); return this.ratePlanMappings.decide(c.tenantId, c.userId, mappingId, roomMappingId, id, 'approve', body?.reason, c.requestId) }
+  @Post('hotels/:mappingId/rooms/:roomMappingId/rate-plans/:ratePlanMappingId/reject') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) rejectRatePlanMapping(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Param('ratePlanMappingId') id: string, @Body() body?: SupplierRatePlanMappingDecisionBody) { const c = this.context(req); return this.ratePlanMappings.decide(c.tenantId, c.userId, mappingId, roomMappingId, id, 'reject', body?.reason, c.requestId) }
+  @Post('hotels/:mappingId/rooms/:roomMappingId/rate-plans/:ratePlanMappingId/reopen') @RequireSupplyPermission('supply.mappings.manage') @UseGuards(SupplyPermissionGuard) reopenRatePlanMapping(@Req() req: Request, @Param('mappingId') mappingId: string, @Param('roomMappingId') roomMappingId: string, @Param('ratePlanMappingId') id: string, @Body() body?: SupplierRatePlanMappingDecisionBody) { const c = this.context(req); return this.ratePlanMappings.decide(c.tenantId, c.userId, mappingId, roomMappingId, id, 'reopen', body?.reason, c.requestId) }
 }
