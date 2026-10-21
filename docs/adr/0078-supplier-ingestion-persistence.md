@@ -9,7 +9,7 @@ status, but keeps nothing. Persisting them must not make supplier data sellable 
 ADR 0060 #5, ADR 0064).
 
 ## Decision
-Migration `202612020001_supplier_ingest_observations` adds four tenant-owned tables and two enums.
+Migration `202612020003_supplier_ingest_observations` adds four tenant-owned tables and two enums.
 
 1. **Observations, not inventory.** `SupplierRateObservation`, `SupplierAllotmentObservation` and
    `SupplierCancellationObservation` are keyed by *supplier* codes (hotel, room, rate plan, night). They are not
@@ -56,3 +56,6 @@ migration header. No other table, grant or permission changes.
 conflict, partial-run evidence, newer-wins, allotment/policy persistence, disabled and foreign-tenant connectors refused, database
 guards (append-only, positive money, composite tenant keys), and RLS as a non-owner role. Unit tests cover hashing and reject summaries.
 The runtime-role contract spec and the regenerated matrix in `docs/strict-runtime-db-role.md` pass. `pnpm check:architecture` passes.
+
+## Amendment 2026-10-21: migration ID
+The migration was first committed as `202612020001_supplier_ingest_observations`, which collided with `202612020001_booking_posting_revenue_columns` (ADR 0076) and failed the ledger guard. It is now `202612020003_supplier_ingest_observations`; the SQL is unchanged. `202612020002` does not depend on its tables, so the order change is safe on a fresh database. **Before deploying:** any database that already applied the old name holds a history row under it. Prisma would treat `202612020003` as new and try to create the tables again. On such a database, rename that row in `_prisma_migrations` (same checksum) in the owner session before running `migrate deploy`. Neither staging nor production applies migrations automatically, and the old name was on `main` for hours, so this is expected to affect only local or ad-hoc databases.
