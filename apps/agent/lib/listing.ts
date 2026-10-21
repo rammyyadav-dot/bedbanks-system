@@ -71,7 +71,7 @@ export function activeFilterChips(filters: Filters | undefined, currency: string
     const { minPriceMinor: _min, maxPriceMinor: _max, ...rest } = filters
     if (label) chips.push({ key: 'price', label, next: rest })
   }
-  return chips.map((chip) => ({ ...chip, next: Object.keys(chip.next).length ? chip.next : {} }))
+  return chips
 }
 
 /** Distinct boards offered by one hotel, in first-seen order. Used for the meal chips on the hotel page. */
