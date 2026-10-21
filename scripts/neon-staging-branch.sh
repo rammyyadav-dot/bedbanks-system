@@ -6,6 +6,8 @@
 #   scripts/neon-staging-branch.sh protect       [--production main] [--retention-days 7] [--allowed-ips CIDR[,CIDR...]]
 #   scripts/neon-staging-branch.sh restore-point [--production main] [--label <git sha or ticket>]
 #   scripts/neon-staging-branch.sh status        [--name staging] [--production main]
+#   scripts/neon-staging-branch.sh replica-create [--production main] [--min-cu 0.25] [--max-cu 1]
+#   scripts/neon-staging-branch.sh replica-status [--production main]
 #
 # Environment: NEON_API_KEY, NEON_PROJECT_ID (required); NEON_DATABASE (default neondb); NEON_OWNER_ROLE (default neondb_owner, the role that owns the
 # schema and runs migrations); NEONCTL (default: npx --yes neonctl@8.8.0, pinned).
@@ -23,6 +25,12 @@
 #                prints the exact point-in-time restore command for that moment.
 # status         Branches (name, default, protected, parent), the PITR window and the staging endpoint kind. No secrets.
 #
+# replica-create Adds a read-only compute (read replica) to the production branch. Neon replicas share the primary's storage: they scale reads and
+#                survive a primary compute restart, but they are NOT a disaster-recovery copy (restore points and the PITR window are). Idempotent: an
+#                existing read-only endpoint is reported, not duplicated. Provisions the endpoint only; no application reads from it until the API gains an
+#                explicit, reviewed read path (ADR 0079). Prints endpoint ids and states, never hosts' credentials.
+# replica-status Lists the production branch's endpoints (id, type, state, autoscaling range, pooler). No secrets.
+#
 # Never prints a connection string or password. Requires curl, node and (through npx) neonctl.
 set -Eeuo pipefail
 
@@ -31,12 +39,12 @@ NEON_DATABASE="${NEON_DATABASE:-neondb}"
 NEON_OWNER_ROLE="${NEON_OWNER_ROLE:-neondb_owner}"
 read -r -a NEONCTL_CMD <<< "${NEONCTL:-npx --yes neonctl@8.8.0}"
 
-usage() { sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 log() { printf '[neon] %s\n' "$*" >&2; }
 die() { log "$*"; exit 1; }
 
 COMMAND="${1:-}"; [ -n "$COMMAND" ] || usage; shift
-NAME=staging; PARENT=main; PRODUCTION=main; RESET=false; KEEP_PASSWORDS=false; ENV_FILE=""; RETENTION_DAYS=7; ALLOWED_IPS=""; LABEL=""
+NAME=staging; PARENT=main; PRODUCTION=main; RESET=false; KEEP_PASSWORDS=false; ENV_FILE=""; RETENTION_DAYS=7; ALLOWED_IPS=""; LABEL=""; MIN_CU=0.25; MAX_CU=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="${2:?}"; shift 2 ;;
@@ -48,6 +56,8 @@ while [ $# -gt 0 ]; do
     --retention-days) RETENTION_DAYS="${2:?}"; shift 2 ;;
     --allowed-ips) ALLOWED_IPS="${2:?}"; shift 2 ;;
     --label) LABEL="${2:?}"; shift 2 ;;
+    --min-cu) MIN_CU="${2:?}"; shift 2 ;;
+    --max-cu) MAX_CU="${2:?}"; shift 2 ;;
     -h|--help) usage ;;
     *) die "unknown option: $1" ;;
   esac
@@ -192,7 +202,37 @@ cmd_status() {
     })()'
 }
 
+cmd_replica_status() {
+  local prod_id; prod_id="$(require_branch "$PRODUCTION")"
+  neon_api GET "/projects/$NEON_PROJECT_ID/branches/$prod_id/endpoints" | PROD="$PRODUCTION" json '
+    (() => {
+      const rows = d.endpoints.map((e) => `  ${e.id.padEnd(28)} type=${e.type} state=${e.current_state} cu=${e.autoscaling_limit_min_cu}-${e.autoscaling_limit_max_cu} pooler=${Boolean(e.pooler_enabled)}`)
+      const replicas = d.endpoints.filter((e) => e.type === "read_only").length
+      return [`endpoints on "${process.env.PROD}":`, ...rows, `read replicas: ${replicas}`, ""].join("\n")
+    })()'
+}
+
+cmd_replica_create() {
+  [[ "$MIN_CU" =~ ^[0-9]+(\.[0-9]+)?$ && "$MAX_CU" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "--min-cu and --max-cu must be numbers (compute units)"
+  node -e 'process.exit(Number(process.argv[1]) <= Number(process.argv[2]) && Number(process.argv[1]) > 0 ? 0 : 1)' "$MIN_CU" "$MAX_CU" || die "--min-cu must be > 0 and <= --max-cu"
+  local prod_id existing body
+  prod_id="$(require_branch "$PRODUCTION")"
+  existing="$(neon_api GET "/projects/$NEON_PROJECT_ID/branches/$prod_id/endpoints" | json 'd.endpoints.filter((e) => e.type === "read_only").map((e) => e.id).join(" ")')"
+  if [ -n "$existing" ]; then
+    log "\"$PRODUCTION\" already has a read replica ($existing); nothing created"
+    cmd_replica_status
+    return
+  fi
+  body="$(BRANCH_ID="$prod_id" MIN="$MIN_CU" MAX="$MAX_CU" node -e '
+    process.stdout.write(JSON.stringify({ endpoint: { branch_id: process.env.BRANCH_ID, type: "read_only", autoscaling_limit_min_cu: Number(process.env.MIN), autoscaling_limit_max_cu: Number(process.env.MAX) } }))')"
+  log "adding a read-only compute to \"$PRODUCTION\" (${MIN_CU}-${MAX_CU} CU); production's data and primary compute are untouched"
+  wait_operations "$(neon_api POST "/projects/$NEON_PROJECT_ID/endpoints" "$body")"
+  cmd_replica_status
+}
+
 case "$COMMAND" in
+  replica-create) cmd_replica_create ;;
+  replica-status) cmd_replica_status ;;
   create) cmd_create ;;
   env) cmd_env ;;
   protect) cmd_protect ;;

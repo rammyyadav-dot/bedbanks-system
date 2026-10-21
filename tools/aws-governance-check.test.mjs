@@ -40,7 +40,7 @@ test('OIDC subject wildcard', () => assert.match(mutate([[`${T}/iam.tf`, 'ref:re
 test('OIDC StringLike', () => assert.match(mutate([[`${T}/iam.tf`, 'test     = "StringEquals"\n      variable = "token.actions.githubusercontent.com:sub"', 'test     = "StringLike"\n      variable = "token.actions.githubusercontent.com:sub"']]).join('\n'), /StringLike/))
 test('wildcard IAM action', () => assert.match(mutate([[`${T}/iam.tf`, 'actions   = ["ecs:UpdateService"]', 'actions   = ["ecs:*"]']]).join('\n'), /wildcard action/))
 test('terraform apply in a workflow', () => assert.match(mutate([['.github/workflows/terraform-check.yml', 'validate', 'validate\n      - run: terraform apply -auto-approve']]).join('\n'), /apply/))
-test('long-lived AWS keys in a workflow', () => assert.match(mutate([['.github/workflows/aws-deploy.yml', 'aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1', 'aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1\n        env:\n          AWS_ACCESS_KEY_ID: x']]).join('\n'), /long-lived/))
+test('long-lived AWS keys in a workflow', () => assert.match(mutate([['.github/workflows/aws-deploy.yml', /aws-actions\/configure-aws-credentials@[0-9a-f]{40} # v[\d.]+/, '$&\n        env:\n          AWS_ACCESS_KEY_ID: x']]).join('\n'), /long-lived/))
 test('owner database URL in Terraform', () => assert.match(mutate([[`${T}/variables.tf`, 'BOOKING_ENABLED = "false"', 'BOOKING_ENABLED = "false"\n    MIGRATION_DATABASE_URL = "x"']]).join('\n'), /owner database/))
 
 // ---- WP3 rules ----
