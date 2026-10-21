@@ -1,4 +1,4 @@
-import { COMMERCIAL_CONTROL_UNAVAILABLE, DATABASE_ROLE_NOT_PERMITTED, OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
+import { BOOKING_FINANCE_POSTING_UNAVAILABLE, COMMERCIAL_CONTROL_UNAVAILABLE, DATABASE_ROLE_NOT_PERMITTED, OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
 import { ApiResponseError } from './api/errors'
 
 /**
@@ -13,7 +13,7 @@ export function classifyOpsFailure(error: unknown): OpsFailure {
   if (error.status === 403) return 'forbidden'
   if (error.status === 404) return 'not-found'
   if (error.code === OPERATIONS_READ_DENIED) return 'denied'
-  if (error.code === DATABASE_ROLE_NOT_PERMITTED || error.code === COMMERCIAL_CONTROL_UNAVAILABLE) return 'not-configured'
+  if (error.code === DATABASE_ROLE_NOT_PERMITTED || error.code === COMMERCIAL_CONTROL_UNAVAILABLE || error.code === BOOKING_FINANCE_POSTING_UNAVAILABLE) return 'not-configured'
   if (error.status === 0 || error.status === 504) return 'unreachable'
   return 'error'
 }

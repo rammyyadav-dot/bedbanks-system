@@ -11,6 +11,7 @@ test('each failure class is distinct and none is "empty"', () => {
   assert.equal(classifyOpsFailure(new ApiResponseError('NOT_FOUND', 'x', 404)), 'not-found')
   assert.equal(classifyOpsFailure(new ApiResponseError(DATABASE_ROLE_NOT_PERMITTED, 'x', 503)), 'not-configured')
   assert.equal(classifyOpsFailure(new ApiResponseError(COMMERCIAL_CONTROL_UNAVAILABLE, 'x', 503)), 'not-configured')
+  assert.equal(classifyOpsFailure(new ApiResponseError('BOOKING_FINANCE_POSTING_UNAVAILABLE', 'x', 503)), 'not-configured')
   assert.equal(classifyOpsFailure(new ApiResponseError('NETWORK_ERROR', 'x', 0)), 'unreachable')
   assert.equal(classifyOpsFailure(new ApiResponseError('API_TIMEOUT', 'x', 504)), 'unreachable')
   assert.equal(classifyOpsFailure(new ApiResponseError('INTERNAL_SERVER_ERROR', 'x', 500)), 'error')

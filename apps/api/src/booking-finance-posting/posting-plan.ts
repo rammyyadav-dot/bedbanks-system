@@ -1,4 +1,4 @@
-import type { BookingFinanceEventType } from '@bedbanks/contracts'
+import type { BookingFinanceEventType, PostingReviewReason, PostingSkipReason } from '@bedbanks/contracts'
 import { refundWithin } from '@bedbanks/money'
 
 /**
@@ -65,14 +65,9 @@ export type PostingPlan =
   | { kind: 'SKIP'; reason: SkipReason }
   | { kind: 'REVIEW'; reason: ReviewReason }
 
-/** Final: the event moves no money (or the money was already moved by the Agent flow). */
-export type SkipReason =
-  | 'PAY_AT_HOTEL' | 'ZERO_SELL' | 'ALREADY_CHARGED_ON_LEDGER' | 'HOLD_ALREADY_POSTED' | 'NO_HOLD_ON_LEDGER' | 'HOLD_ALREADY_RELEASED'
-  | 'PENALTY_UNDETERMINED' | 'AWAITS_CANCELLATION' | 'NOT_CHARGED_ON_LEDGER' | 'NOTHING_TO_ADD' | 'AMENDMENT_ALREADY_REFLECTED'
-/** Not final: a person or an owner step must fix something, then the event is retried. Nothing was posted. */
-export type ReviewReason =
-  | 'PAYMENT_MODE_UNKNOWN' | 'NO_AGENCY' | 'NO_WALLET' | 'NO_SUPPLIER' | 'NET_UNKNOWN' | 'REFUND_EXCEEDS_CHARGE' | 'REFUND_WOULD_DECREASE' | 'EVENT_INCONSISTENT'
-  | 'HOLD_AMOUNT_DIFFERS' | 'AMENDMENT_NEEDS_LEDGER_ADJUSTMENT'
+/** Final: the event moves no money (or the money was already moved by the Agent flow). Not final: a person or an owner step must fix something, then the event is retried; nothing was posted. The codes live in @bedbanks/contracts. */
+export type SkipReason = PostingSkipReason
+export type ReviewReason = PostingReviewReason
 
 export const holdKey = (bookingId: string) => `booking:${bookingId}:authorize`
 export const releaseKey = (bookingId: string) => `${holdKey(bookingId)}:release`

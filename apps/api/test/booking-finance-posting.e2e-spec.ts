@@ -6,6 +6,7 @@ import { BookingFinancePostingDatabase } from '../src/booking-finance-posting/bo
 import { BookingFinancePostingService } from '../src/booking-finance-posting/booking-finance-posting.service'
 import { BookingFinancePostingWorker } from '../src/booking-finance-posting/booking-finance-posting.worker'
 import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
+import { BookingFinancePostingBacklogService } from '../src/booking-finance-posting/booking-finance-posting-backlog.service'
 import { OperationsLedgerIntegrityService } from '../src/admin-operations/operations-ledger-integrity.service'
 import { eraseLedger } from './ledger-erasure'
 
@@ -313,6 +314,29 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     const control = await new OperationsLedgerIntegrityService(owner).report(tenantId, {}, owner)
     expect(control.findings.filter((f) => f.bookingId === naive.id).map((f) => f.code)).toEqual(expect.arrayContaining(['CHARGE_WITHOUT_RESERVATION', 'SETTLEMENT_UNBALANCED']))
     expect(control.findings.filter((f) => f.severity === 'critical' && f.bookingId !== naive.id)).toEqual([])
+  })
+
+  it('BACKLOG: complete counts, the events that need a person with their stable reason, and what has not been attempted; nothing is written', async () => {
+    const review = await booking('backlog-review', { paymentMode: null })
+    const stuck = await fact(review.id, 'CONFIRMED', { paymentMode: null })
+    const behind = await fact(review.id, 'CANCELLED', { paymentMode: null, penaltyMinor: 0n, refundMinor: sell })
+    const pah = await booking('backlog-pah', { paymentMode: 'PAY_AT_HOTEL' })
+    await fact(pah.id, 'CONFIRMED', { paymentMode: 'PAY_AT_HOTEL' })
+    await service.drain(tenantId)
+    const backlog = new BookingFinancePostingBacklogService(database)
+    const before = await owner.bookingFinancePosting.count({ where: { tenantId } })
+    const view = await backlog.backlog(tenantId)
+    expect(await owner.bookingFinancePosting.count({ where: { tenantId } })).toBe(before)
+    expect(view.counts.posted).toBe(await owner.bookingFinancePosting.count({ where: { tenantId, status: 'POSTED' } }))
+    expect(view.counts.reviewRequired).toBe(view.review.length)
+    expect(view.review.find((r) => r.eventId === stuck.id)).toMatchObject({ reason: 'PAYMENT_MODE_UNKNOWN', bookingId: review.id, eventType: 'CONFIRMED', currency: 'AED', sellMinor: sell.toString(), attempts: 1 })
+    expect(view.review.map((r) => r.reason)).toContain('AMENDMENT_NEEDS_LEDGER_ADJUSTMENT')
+    expect(view.waiting.map((w) => w.eventId)).toContain(behind.id)
+    expect(view.counts.waiting).toBeGreaterThanOrEqual(1)
+    expect(view.skippedByReason).toEqual(expect.arrayContaining([expect.objectContaining({ reason: 'PAY_AT_HOTEL' }), expect.objectContaining({ reason: 'ALREADY_CHARGED_ON_LEDGER' })]))
+    expect(JSON.stringify(view)).not.toMatch(/email|password|guest/i)
+    await expect(new BookingFinancePostingBacklogService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL })).backlog(tenantId)).rejects.toMatchObject({ response: { code: 'BOOKING_FINANCE_POSTING_UNAVAILABLE' } })
+    expect((await backlog.backlog(otherTenantId)).counts.posted).toBe(0)
   })
 
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {
