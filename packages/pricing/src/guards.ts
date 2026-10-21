@@ -12,9 +12,9 @@ export function marginBp(netMinor: bigint, sellMinor: bigint): number | null {
   return Number(((sellMinor - netMinor) * 10_000n * 2n + sellMinor) / (sellMinor * 2n));
 }
 
-/** ADR 0080 defaults (business decision 2026-10-21): warn under 8.00% margin, block distribution under 3.00%. Tenant level, channel may override. */
+/** ADR 0080 defaults (business decision 2026-10-21): warn under 800 bp margin, block distribution under 300 bp. Tenant level, channel may override. */
 export const DEFAULT_MARGIN_POLICY = { warnBelowBp: 800, blockBelowBp: 300 } as const;
-/** Parity default: 0.50%, and a spread must also exceed one major unit of the currency (see `checkParityAgainstBaseline`). */
+/** Parity default: 50 bp, and a spread must also exceed one major unit of the currency (see `checkParityAgainstBaseline`). */
 export const DEFAULT_PARITY_TOLERANCE_BP = 50;
 
 export interface MarginFinding { code: 'MARGIN_NEGATIVE' | 'MARGIN_BLOCKED' | 'MARGIN_SQUEEZE'; severity: GuardSeverity; marginBp: number | null; marginMinor: bigint }
