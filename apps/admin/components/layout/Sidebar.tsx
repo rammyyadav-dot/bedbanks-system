@@ -9,10 +9,10 @@ import type { AuthenticatedUser } from '@/lib/api/auth-client';
 import { userInitials } from '@/lib/auth/identity';
 import { activeMembership } from '@/lib/api/tenant-context';
 
-export function Sidebar({ mobileOpen, onClose, identity }: { mobileOpen: boolean; onClose: () => void; identity: AuthenticatedUser }) {
+export function Sidebar({ mobileOpen, onClose, identity, activeTenantId }: { mobileOpen: boolean; onClose: () => void; identity: AuthenticatedUser; activeTenantId: string | null }) {
   const pathname = usePathname();
   const can = useCan();
-  const membership = activeMembership(identity.memberships);
+  const membership = activeMembership(identity.memberships, activeTenantId);
 
   return (
     <aside className={`enterprise-sidebar ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Admin navigation">

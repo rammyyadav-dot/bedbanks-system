@@ -56,7 +56,7 @@ test('shell labels use the same active tenant as API calls', () => {
   assert.equal(activeMembership([]), null)
   for (const file of ['Topbar.tsx', 'Sidebar.tsx']) {
     const src = readFileSync(join(root, 'components', 'layout', file), 'utf8')
-    assert.match(src, /activeMembership\(identity\.memberships\)/)
+    assert.match(src, /activeMembership\(identity\.memberships, activeTenantId\)/)
     assert.doesNotMatch(src, /memberships\[0\]/, `${file} must not label the wrong tenant`)
   }
 })

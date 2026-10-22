@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Menu, ChevronDown } from 'lucide-react';
 import { Breadcrumbs } from './Breadcrumbs';
+import { TenantSwitcher } from './TenantSwitcher';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import type { AuthenticatedUser } from '@/lib/api/auth-client';
 import { userInitials } from '@/lib/auth/identity';
@@ -11,12 +12,13 @@ import { activeMembership } from '@/lib/api/tenant-context';
 interface TopbarProps {
   onMenuClick: () => void;
   identity: AuthenticatedUser;
+  activeTenantId: string | null;
 }
 
-export function Topbar({ onMenuClick, identity }: TopbarProps) {
+export function Topbar({ onMenuClick, identity, activeTenantId }: TopbarProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const initials = userInitials(identity.user);
-  const primaryTenant = activeMembership(identity.memberships);
+  const primaryTenant = activeMembership(identity.memberships, activeTenantId);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export function Topbar({ onMenuClick, identity }: TopbarProps) {
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#c8dde1' }}>{identity.user.name ?? identity.user.email}</div>
                 {primaryTenant && <div style={{ fontSize: 9, color: '#6d9199', marginTop: 2 }}>{primaryTenant.role} · {primaryTenant.tenantName}</div>}
               </div>
+              <TenantSwitcher memberships={identity.memberships} activeTenantId={activeTenantId} />
               <LogoutButton />
             </div>
           )}
