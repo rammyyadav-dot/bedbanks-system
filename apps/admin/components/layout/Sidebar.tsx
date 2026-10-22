@@ -7,11 +7,12 @@ import { navSections, isActiveRoute } from './nav-config';
 import { useCan } from '@/lib/auth/capabilities';
 import type { AuthenticatedUser } from '@/lib/api/auth-client';
 import { userInitials } from '@/lib/auth/identity';
+import { activeMembership } from '@/lib/api/tenant-context';
 
 export function Sidebar({ mobileOpen, onClose, identity }: { mobileOpen: boolean; onClose: () => void; identity: AuthenticatedUser }) {
   const pathname = usePathname();
   const can = useCan();
-  const membership = identity.memberships[0];
+  const membership = activeMembership(identity.memberships);
 
   return (
     <aside className={`enterprise-sidebar ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Admin navigation">
@@ -34,7 +35,7 @@ export function Sidebar({ mobileOpen, onClose, identity }: { mobileOpen: boolean
               const active = isActiveRoute(pathname, item.href);
               const Icon = item.icon;
               return (
-                <Link key={item.href} href={item.href} className={active ? 'active' : ''} onClick={onClose}>
+                <Link key={item.href} href={item.href} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={onClose}>
                   <span className="nav-glyph"><Icon size={15} /></span>
                   {item.label}
                 </Link>

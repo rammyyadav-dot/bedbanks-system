@@ -14,3 +14,9 @@ export function pickActiveTenantId(memberships: ReadonlyArray<Pick<MembershipSum
 let activeTenantId: string | null = null
 export function setActiveTenantId(tenantId: string | null) { activeTenantId = tenantId }
 export function activeTenantHeaders(): Record<string, string> { return activeTenantId ? { 'x-fbeds-tenant-id': activeTenantId } : {} }
+
+/** The membership whose tenant is active for API calls, so every label in the shell matches the tenant actually in use. */
+export function activeMembership<M extends Pick<MembershipSummary, 'tenantId' | 'role'>>(memberships: ReadonlyArray<M>): M | null {
+  const tenantId = pickActiveTenantId(memberships)
+  return memberships.find((membership) => membership.tenantId === tenantId) ?? null
+}

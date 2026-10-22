@@ -1,9 +1,11 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCan, useCapabilityStatus } from '@/lib/auth/capabilities'
 import { resolveRouteAccess } from '@/lib/auth/route-access'
+import { firstAccessibleRoute } from '@/lib/shell-navigation'
 
 /** Renders a page only once the caller's permissions for the active tenant are known and allow the route. */
 export function RouteGuard({ children }: { children: ReactNode }) {
@@ -19,5 +21,11 @@ export function RouteGuard({ children }: { children: ReactNode }) {
       <button type="button" className="admin-btn" onClick={() => window.location.reload()}>Retry</button>
     </div>
   )
-  return <p role="alert" style={{ padding: 24 }}>You do not have permission to view this page. Contact your tenant administrator if you need access.</p>
+  const fallback = firstAccessibleRoute(can)
+  return (
+    <div role="alert" style={{ padding: 24 }}>
+      <p>You do not have permission to view this page. Contact your tenant administrator if you need access.</p>
+      {fallback && <Link href={fallback} className="admin-btn">Go to a page you can access</Link>}
+    </div>
+  )
 }

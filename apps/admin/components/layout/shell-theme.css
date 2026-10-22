@@ -1,0 +1,29 @@
+/*
+ * Admin shell theme tokens (ADR 0085). Single light theme; every shell surface reads these tokens
+ * so a future theme only has to redefine this block.
+ */
+:root {
+  --shell-topbar-bg: #fff;
+  --shell-topbar-border: #dbe6e9;
+  --shell-crumb-text: #566d74;
+  --shell-crumb-current: #29434e;
+  --shell-crumb-link: #0f7f8c;
+  --shell-menu-bg: #183d48;
+  --shell-menu-border: #315c66;
+  --shell-focus: #159eae;
+}
+
+.enterprise-topbar { background: var(--shell-topbar-bg); border-bottom-color: var(--shell-topbar-border); }
+.breadcrumb { color: var(--shell-crumb-text); }
+.breadcrumb strong { color: var(--shell-crumb-current); }
+.breadcrumb ol { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.breadcrumb li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.breadcrumb a { color: var(--shell-crumb-link); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.context-menu { background: var(--shell-menu-bg); border-color: var(--shell-menu-border); }
+
+.skip-link { position: absolute; left: 8px; top: -48px; z-index: 100; padding: 8px 14px; background: #0d2631; color: #fff; font-size: 12px; font-weight: 600; border-radius: 5px; }
+.skip-link:focus { top: 8px; }
+.enterprise-nav a:focus-visible, .breadcrumb a:focus-visible, .topbar-actions button:focus-visible,
+.mobile-nav-trigger:focus-visible, .context-menu button:focus-visible, main:focus-visible { outline: 2px solid var(--shell-focus); outline-offset: 2px; }
+main:focus { outline: none; }
