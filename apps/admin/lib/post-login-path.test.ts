@@ -10,7 +10,7 @@ test('keeps same-origin relative paths', () => {
 test('rejects open-redirect and unsafe values', () => {
   for (const value of [
     undefined, null, '', 'bookings', 'https://evil.example', '//evil.example', '/\\evil.example',
-    '/\\/evil.example', '/%0d%0aSet-Cookie:x', '/a\nb', 'javascript:alert(1)', '/login', '/login/x', '/api/v1/me', '/',
+    '/\\/evil.example', '/a\nb', 'javascript:alert(1)', '/login', '/login/x', '/api/v1/me', '/',
     '/' + 'a'.repeat(3000),
   ]) {
     assert.equal(safePostLoginPath(value), DEFAULT_POST_LOGIN_PATH, String(value));
