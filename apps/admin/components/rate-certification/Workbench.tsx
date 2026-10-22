@@ -44,14 +44,15 @@ export function Workbench({ ratePlanId, days, onSelect }: { ratePlanId: string; 
       </section>
       {plans.length === 0 ? <div className="admin-empty"><strong>No rate plans yet</strong><span>Create a contract and a rate plan first.</span></div>
         : !plans.some((p) => p.id === ratePlanId) ? <p role="status" style={{ fontSize: 12 }}>Choose a hotel, room and rate plan to see its findings and edit its rates.</p>
-        : <WorkbenchPlan key={ratePlanId} ratePlanId={ratePlanId} days={days} canQuickUpdate={canQuickUpdate} />}
+        : <WorkbenchPlan key={ratePlanId} ratePlanId={ratePlanId} hotelId={plans.find((p) => p.id === ratePlanId)!.roomType.hotel.id} days={days} canQuickUpdate={canQuickUpdate} />}
     </div>
   )
 }
 
-function WorkbenchPlan({ ratePlanId, days, canQuickUpdate }: { ratePlanId: string; days: number; canQuickUpdate: boolean }) {
+function WorkbenchPlan({ ratePlanId, hotelId, days, canQuickUpdate }: { ratePlanId: string; hotelId: string; days: number; canQuickUpdate: boolean }) {
   const audit = useOpsQuery(() => getRateCertificationPlan(ratePlanId, { days }), [ratePlanId, days])
   return (
+    <div style={{ display: 'grid', gap: 12 }}>
     <OpsState state={audit.state} onRetry={audit.reload}>
       {(d) => (
         <div style={{ display: 'grid', gap: 12 }} data-testid="workbench-plan" data-status={d.live ? d.status : 'NOT_LIVE'}>
@@ -67,15 +68,17 @@ function WorkbenchPlan({ ratePlanId, days, canQuickUpdate }: { ratePlanId: strin
           </section>
           <section className="workspace-panel" style={{ padding: 14 }} aria-label="Findings"><h2 style={{ margin: '0 0 8px', fontSize: 13 }}>Findings</h2><FindingList findings={d.findings} emptyText="No findings: every check passed for this plan." /></section>
           <section className="workspace-panel" aria-label="Rate grid"><NightGrid detail={d} /></section>
-          <section aria-label="Quick update">
-            <h2 style={{ margin: '0 0 8px', fontSize: 13 }}>Quick update</h2>
-            {canQuickUpdate
-              ? <WorkbenchQuickUpdate hotelId={d.hotelId} ratePlanId={d.ratePlanId} onChanged={audit.refresh} />
-              : <p role="status" style={{ fontSize: 12 }}>You have read-only access to rates and inventory, so editing is not available.</p>}
-          </section>
         </div>
       )}
     </OpsState>
+    {/* Outside the audit's loading state so changing the window or re-reading the audit never discards an unsaved draft or preview. */}
+    <section aria-label="Quick update">
+      <h2 style={{ margin: '0 0 8px', fontSize: 13 }}>Quick update</h2>
+      {canQuickUpdate
+        ? <WorkbenchQuickUpdate hotelId={hotelId} ratePlanId={ratePlanId} onChanged={audit.refresh} />
+        : <p role="status" style={{ fontSize: 12 }}>You have read-only access to rates and inventory, so editing is not available.</p>}
+    </section>
+    </div>
   )
 }
 
