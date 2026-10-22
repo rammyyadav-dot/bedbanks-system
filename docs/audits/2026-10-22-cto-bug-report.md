@@ -20,13 +20,13 @@
 | UX-01 | Fixed | Unavailable pages use a muted grey dot. |
 | UX-02 | Fixed | Disabled search box removed from the top bar. |
 | UX-03 | Fixed | Hotel detail uses a plain definition list. |
-| UX-04 | **Open** | Still needs an axe scan and a decision on grouping the unavailable nav items. |
+| UX-04 | Fixed (contrast); text size open | `tests/08-supplier-a11y.spec.ts` runs axe (WCAG 2.1 A/AA) over 15 supplier pages and passes. It first found colour-contrast failures only (ratios 2.5 to 4.4 against 4.5 needed) in the sidebar, page eyebrow, breadcrumbs, table headers and sub-text, and back link; colours were darkened or lightened to pass, and the blanket `opacity: .62` on unavailable nav items was removed. **Still open:** much supplier text is 7 to 9 px, which axe does not flag but is hard to read; that needs a design decision, as does grouping the unavailable nav items. |
 | UX-05 | Fixed | Dead `properties` page files deleted; the redirects stay. |
 | MAINT-01 | **Open** | Splitting `supply.service.ts` and `operations-hotels.service.ts` is a refactor that needs its own change. |
 | MAINT-02 | Fixed | One `formatCoordinate` helper in `hotel-setup/hotel-decimal.ts`. |
 | MAINT-03 | Started | `no-explicit-any` is now a lint warning in production code (not tests), so new uses show up. The existing uses are still to be removed. |
 
-Verified after the fixes: `pnpm check:architecture`, `pnpm type-check`, `pnpm lint` pass; API unit tests 1885 pass (23 new); supplier unit tests pass; live Playwright API-security (S1–S10), supplier (X1–X6) and screenshot specs pass, 19 of 19, against a fresh stack built from this branch.
+Verified after the fixes: `pnpm check:architecture`, `pnpm type-check`, `pnpm lint` pass; API unit tests 1885 pass (23 new); supplier unit tests pass; live Playwright API-security (S1–S10), supplier (X1–X6), screenshot and accessibility specs pass, against a fresh stack built from this branch.
 
 ## 2. Gate results (run on this branch)
 
