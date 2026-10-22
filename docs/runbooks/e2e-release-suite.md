@@ -24,6 +24,8 @@ The database login defaults to `postgres:postgres@127.0.0.1`. Override with `E2E
 
 Faster loop while writing tests: `pnpm --filter @bedbanks/e2e e2e:up` starts the stack and leaves it running, then `E2E_REUSE_STACK=1 pnpm --filter @bedbanks/e2e e2e`; stop it with `e2e:down`.
 
+Live Admin screenshots: `pnpm --filter @bedbanks/e2e e2e:screenshots` signs in as the preview admin and writes full-page PNGs of the primary Admin pages to `e2e/.artifacts/screenshots/admin/`. It is opt-in (`E2E_SCREENSHOTS=1`) and skipped in the normal suite. Pages show what the preview admin's role is permitted to see, so some dashboard tiles read "Not permitted".
+
 ## Safety
 It only ever drops and recreates the database named `fbeds_preview_xt`. Test passwords are random per run, kept in a private temporary file and deleted afterwards. It never turns on booking, payments or live suppliers.
 
