@@ -20,7 +20,7 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Read and append. LedgerEntry has no UPDATE or DELETE grant and a trigger forbids both besides. `Cancellation` is the record the ledger integrity monitor ties a cancelled, charged booking to (ADR 0068). */
-export const FINPOST_OWN_TABLES = ['BookingFinancePosting', 'SupplierPayableEntry', 'LedgerEntry', 'Cancellation', 'SupplierSettlement'] as const
+export const FINPOST_OWN_TABLES = ['BookingFinancePosting', 'SupplierPayableEntry', 'LedgerEntry', 'Cancellation', 'SupplierSettlement', 'SupplierPaymentTerms'] as const
 /** The only columns the role may update: a posting that is under review is retried and finally closed. Identity columns are not here. */
 export const FINPOST_UPDATE_COLUMNS = {
   BookingFinancePosting: ['status', 'reason', 'attempts', 'wallet_id', 'agency_effect_minor', 'payable_effect_minor', 'sales_minor', 'refunds_minor', 'updated_at'],
@@ -34,7 +34,7 @@ export const FINPOST_UPDATE_COLUMNS = {
 /** Column-level SELECT on tables the role reads but must not read whole. `tenant_id` must be readable for the row-level policy. */
 export const FINPOST_READ_COLUMNS = {
   BookingFinanceEvent: ['id', 'tenant_id', 'booking_id', 'type', 'seq', 'currency', 'sell_minor', 'net_minor', 'penalty_minor', 'refund_minor', 'adjustment_minor', 'payment_mode', 'created_at'],
-  Booking: ['id', 'tenant_id', 'status', 'currency', 'agency_id', 'supplier_id', 'payment_mode', 'net_minor'],
+  Booking: ['id', 'tenant_id', 'status', 'currency', 'agency_id', 'supplier_id', 'payment_mode', 'net_minor', 'check_in', 'check_out'],
   Wallet: ['id', 'tenant_id', 'agency_id', 'currency', 'credit_limit'],
 } as const
 /** INSERT-only: the audit trail. Not readable by the role. */
@@ -137,7 +137,7 @@ export interface FinpostProbeResult { name: string; expect: 'allowed' | 'denied'
 /** Privilege probes. Every statement is `WHERE false`, so PostgreSQL decides on privilege at plan time and no row is read or written. */
 export const FINPOST_PROBES: readonly FinpostProbe[] = [
   { name: 'SELECT BookingFinanceEvent amounts', sql: `SELECT "id", "type", "sell_minor", "net_minor", "penalty_minor", "refund_minor", "adjustment_minor", "payment_mode" FROM "BookingFinanceEvent" WHERE false`, expect: 'allowed' },
-  { name: 'SELECT Booking agency and supplier', sql: `SELECT "id", "agency_id", "supplier_id", "currency", "status", "payment_mode", "net_minor" FROM "Booking" WHERE false`, expect: 'allowed' },
+  { name: 'SELECT Booking agency and supplier', sql: `SELECT "id", "agency_id", "supplier_id", "currency", "status", "payment_mode", "net_minor", "check_in", "check_out" FROM "Booking" WHERE false`, expect: 'allowed' },
   { name: 'SELECT Wallet identity and limit', sql: `SELECT "id", "agency_id", "currency", "credit_limit" FROM "Wallet" WHERE false`, expect: 'allowed' },
   { name: 'LOCK Wallet row (FOR UPDATE)', sql: `SELECT "id" FROM "Wallet" WHERE false FOR UPDATE`, expect: 'allowed' },
   { name: 'SELECT LedgerEntry', sql: `SELECT "id", "wallet_id", "type", "amount_minor", "idempotency_key" FROM "LedgerEntry" WHERE false`, expect: 'allowed' },
@@ -156,6 +156,11 @@ export const FINPOST_PROBES: readonly FinpostProbe[] = [
   { name: 'UPDATE SupplierSettlement.amount_minor', sql: `UPDATE "SupplierSettlement" SET "amount_minor" = "amount_minor" WHERE false`, expect: 'denied' },
   { name: 'UPDATE SupplierSettlement.proposed_by_id', sql: `UPDATE "SupplierSettlement" SET "proposed_by_id" = "proposed_by_id" WHERE false`, expect: 'denied' },
   { name: 'DELETE SupplierSettlement', sql: `DELETE FROM "SupplierSettlement" WHERE false`, expect: 'denied' },
+  { name: 'SELECT SupplierPaymentTerms', sql: `SELECT "id", "basis", "days" FROM "SupplierPaymentTerms" WHERE false`, expect: 'allowed' },
+  { name: 'INSERT SupplierPaymentTerms', sql: `INSERT INTO "SupplierPaymentTerms" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
+  { name: 'UPDATE SupplierPaymentTerms', sql: `UPDATE "SupplierPaymentTerms" SET "days" = "days" WHERE false`, expect: 'denied' },
+  { name: 'DELETE SupplierPaymentTerms', sql: `DELETE FROM "SupplierPaymentTerms" WHERE false`, expect: 'denied' },
+  { name: 'SELECT Booking.guest dates only', sql: `SELECT "check_in", "check_out" FROM "Booking" WHERE false`, expect: 'allowed' },
   { name: 'INSERT AuditEvent', sql: `INSERT INTO "AuditEvent" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
   { name: 'UPDATE Cancellation.booking_id', sql: `UPDATE "Cancellation" SET "booking_id" = "booking_id" WHERE false`, expect: 'denied' },
   { name: 'DELETE Cancellation', sql: `DELETE FROM "Cancellation" WHERE false`, expect: 'denied' },

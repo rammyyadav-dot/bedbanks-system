@@ -6,8 +6,9 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { getSupplierPayables } from '@/lib/data/operations'
-import { PAYABLE_AGING_BUCKETS } from '@bedbanks/contracts'
-import { getPayablesAging, getPostedPayables } from '@/lib/data/booking-finance-postings'
+import { PAYABLE_AGING_BUCKETS, PAYABLE_DUE_BUCKETS } from '@bedbanks/contracts'
+import { termsText } from '@/lib/booking-finance-posting-ui'
+import { getPayablesAging, getPayablesDue, getPostedPayables } from '@/lib/data/booking-finance-postings'
 
 /**
  * Supplier payables, slice 1 (ADR 0054). A read-only accrual of recorded supplier net cost for confirmed stays. It is NOT an amount owed:
@@ -17,6 +18,7 @@ export default function SupplierPayablesPage() {
   const q = useOpsQuery(() => getSupplierPayables(), [])
   const posted = useOpsQuery(() => getPostedPayables(), [])
   const aging = useOpsQuery(() => getPayablesAging(), [])
+  const due = useOpsQuery(() => getPayablesDue(), [])
   return (
     <div className="admin-page">
       <PageHeader eyebrow="FINANCE · PAYABLES" title="Supplier payables (accrual)" description="Recorded supplier net cost of confirmed bookings, per supplier and currency. Read-only; not a settlement or an amount owed." />
@@ -90,6 +92,31 @@ export default function SupplierPayablesPage() {
               </table>
             </ScrollRegion>
             {d.truncated && <p style={{ fontSize: 11, padding: '4px 14px' }}>Showing the first {d.listLimit} supplier and currency rows.</p>}
+          </div>
+        )}
+      </OpsState>
+
+      <h2 style={{ fontSize: 14, margin: '18px 0 4px' }}>Due and overdue (against supplier payment terms)</h2>
+      <p style={{ fontSize: 12, margin: '0 0 8px', color: '#3f565c' }}>
+        Each booking's open balance against the supplier's agreed payment terms, set under Supplier settlements. The due date is the check-out, check-in or confirmation date plus the agreed days.
+        A supplier with no terms, or a booking with no date for the basis, has no due date and is never shown as overdue. Approved payments clear the earliest-due bookings first.
+      </p>
+      <OpsState state={due.state} onRetry={due.reload} isEmpty={(d) => d.rows.length === 0} empty={{ title: 'Nothing owed', description: 'The query succeeded and no booking has an open posted payable.' }}>
+        {(d) => (
+          <div className="workspace-panel" data-testid="payables-due">
+            <ScrollRegion label="Due and overdue supplier payables">
+              <table style={tableStyle} aria-label="Due and overdue supplier payables">
+                <thead><tr>{['Supplier', 'Currency', 'Terms', ...PAYABLE_DUE_BUCKETS.map((b) => b.label), 'Overdue', 'Total owed'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
+                <tbody>{d.rows.map((r) => (
+                  <tr key={`${r.supplierId}-${r.currency}`}>
+                    <td style={td}>{r.name ?? 'Unnamed supplier'}</td><td style={td}>{r.currency}</td><td style={td}>{termsText(r.basis, r.days)}</td>
+                    {r.buckets.map((b) => <td key={b.bucket} style={{ ...td, textAlign: 'right' }}><Money minor={b.amountMinor} currency={r.currency} />{b.bookings > 0 && <span style={{ fontSize: 10, color: '#3f565c' }}> · {b.bookings}</span>}</td>)}
+                    <td style={{ ...td, textAlign: 'right' }}>{r.overdueMinor !== '0' ? <Tag tone="bad"><Money minor={r.overdueMinor} currency={r.currency} /></Tag> : <Money minor={r.overdueMinor} currency={r.currency} />}</td>
+                    <td style={{ ...td, textAlign: 'right' }}><Money minor={r.totalMinor} currency={r.currency} /></td>
+                  </tr>))}</tbody>
+              </table>
+            </ScrollRegion>
+            <p style={{ fontSize: 11, padding: '4px 14px', color: '#3f565c' }}>As of {d.asOf} (UTC).{d.truncated ? ` Showing the first ${d.listLimit} rows.` : ''}</p>
           </div>
         )}
       </OpsState>

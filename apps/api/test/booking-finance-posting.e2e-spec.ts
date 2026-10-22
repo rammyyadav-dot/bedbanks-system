@@ -7,6 +7,7 @@ import { BookingFinancePostingService } from '../src/booking-finance-posting/boo
 import { BookingFinancePostingWorker } from '../src/booking-finance-posting/booking-finance-posting.worker'
 import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
 import { BookingFinancePostingBacklogService } from '../src/booking-finance-posting/booking-finance-posting-backlog.service'
+import { SupplierTermsService } from '../src/booking-finance-posting/supplier-terms.service'
 import { SupplierSettlementService } from '../src/booking-finance-posting/supplier-settlement.service'
 import { BookingPayablesService } from '../src/booking-finance-posting/booking-payables.service'
 import { BookingRevenueService } from '../src/booking-finance-posting/booking-revenue.service'
@@ -506,6 +507,75 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     expect(await code(settlements.list(tenantId, { status: 'WHATEVER' }))).toBe('SETTLEMENT_INVALID')
     expect((await settlements.list(otherTenantId, {})).items).toEqual([])
     expect(await code(new SupplierSettlementService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner, { SUPPLIER_SETTLEMENT_ENABLED: 'true' }).list(tenantId, {}))).toBe('BOOKING_FINANCE_POSTING_UNAVAILABLE')
+  })
+
+  it('TERMS AND DUE DATES: terms are append-only history; due dates follow the basis; approved payments clear the earliest-due bookings first; no terms or no date means no due date, never overdue', async () => {
+    const terms = new SupplierTermsService(database, owner, { SUPPLIER_SETTLEMENT_ENABLED: 'true' })
+    const settlements = new SupplierSettlementService(database, owner, { SUPPLIER_SETTLEMENT_ENABLED: 'true' })
+    const payables = new BookingPayablesService(database, owner)
+    const now = new Date()
+    const day = (n: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + n))
+    const code = (p: Promise<unknown>) => p.then(() => 'ok', (e) => (e as { response?: { code?: string } }).response?.code ?? 'error')
+    const supplier4 = (await owner.supplier.create({ data: { tenantId, type: 'DMC', legalName: `${suffix} Terms LLC`, displayName: 'Terms Supplier', countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    const supplier5 = (await owner.supplier.create({ data: { tenantId, type: 'DMC', legalName: `${suffix} NoTerms LLC`, displayName: 'No Terms Supplier', countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    const accrue = async (label: string, supplier: string, amount: bigint, checkOut: Date | null) => {
+      const b = await booking(`due-${label}`, { supplierId: supplier, ...(checkOut ? { checkIn: new Date(checkOut.getTime() - 2 * 86_400_000), checkOut } : {}) })
+      const e = await fact(b.id, 'CONFIRMED')
+      await owner.supplierPayableEntry.create({ data: { tenantId, bookingId: b.id, supplierId: supplier, eventId: e.id, kind: 'ACCRUAL', currency: 'AED', amountMinor: amount } })
+    }
+    await accrue('a', supplier4, 5_000n, day(-100))   // due 70 days ago
+    await accrue('b', supplier4, 3_000n, day(-40))    // due 10 days ago
+    await accrue('c', supplier4, 2_000n, day(-10))    // due in 20 days
+    await accrue('d', supplier4, 1_000n, null)        // no stay dates: no due date
+    await accrue('e', supplier5, 700n, day(-100))     // no terms at all
+    const cells = (rows: Awaited<ReturnType<BookingPayablesService['due']>>['rows'], supplierId: string) => Object.fromEntries(rows.find((r) => r.supplierId === supplierId)!.buckets.filter((b) => b.bookings > 0).map((b) => [b.bucket, b.amountMinor]))
+
+    // No terms yet: nothing is overdue
+    const none = await payables.due(tenantId, now)
+    expect(cells(none.rows, supplier4)).toEqual({ NO_DUE_DATE: '11000' })
+    expect(none.rows.find((r) => r.supplierId === supplier4)).toMatchObject({ basis: null, days: null, overdueMinor: '0' })
+
+    // Terms: refused without the switch, validated, set, idempotent, history kept
+    expect(await code(new SupplierTermsService(database, owner, {}).set(tenantId, actor, { supplierId: supplier4, basis: 'CHECK_OUT', days: 30 }, 'rq'))).toBe('TERMS_DISABLED')
+    expect(await code(terms.set(tenantId, actor, { supplierId: supplier4, basis: 'CHECK_OUT', days: -3 } as never, 'rq'))).toBe('TERMS_INVALID')
+    expect(await code(terms.set(tenantId, actor, { supplierId: 'nope', basis: 'CHECK_OUT', days: 30 }, 'rq'))).toBe('TERMS_UNKNOWN_SUPPLIER')
+    expect(await terms.set(tenantId, actor, { supplierId: supplier4, basis: 'CHECK_OUT', days: 30, note: 'Net 30 per contract' }, 'rq1')).toMatchObject({ basis: 'CHECK_OUT', days: 30, note: 'Net 30 per contract', setById: actor })
+    await terms.set(tenantId, actor, { supplierId: supplier4, basis: 'CHECK_OUT', days: 30, note: 'Net 30 per contract' }, 'rq1b')
+    expect(await owner.supplierPaymentTerms.count({ where: { tenantId, supplierId: supplier4 } })).toBe(1)
+
+    const due30 = await payables.due(tenantId, now)
+    expect(cells(due30.rows, supplier4)).toEqual({ OVERDUE_61_90: '5000', OVERDUE_1_30: '3000', NOT_DUE: '2000', NO_DUE_DATE: '1000' })
+    expect(due30.rows.find((r) => r.supplierId === supplier4)).toMatchObject({ basis: 'CHECK_OUT', days: 30, overdueMinor: '8000', totalMinor: '11000', bookings: 4 })
+    expect(cells(due30.rows, supplier5)).toEqual({ NO_DUE_DATE: '700' })
+
+    // An approved payment clears the earliest-due booking first (the 70-days-overdue one)
+    const paid = await settlements.propose(tenantId, actor, { supplierId: supplier4, currency: 'AED', amountMinor: '5000', paidOn: now.toISOString().slice(0, 10), paymentReference: 'WIRE-TERMS-1', requestId: 'req-terms-0001' }, 'rq2')
+    await settlements.approve(tenantId, approver, paid.id, 'rq3')
+    expect(cells((await payables.due(tenantId, now)).rows, supplier4)).toEqual({ OVERDUE_1_30: '3000', NOT_DUE: '2000', NO_DUE_DATE: '1000' })
+
+    // Longer terms move due dates: 45 days makes the 40-days-after-check-out booking not yet due; the old terms stay as history
+    await terms.set(tenantId, actor, { supplierId: supplier4, basis: 'CHECK_OUT', days: 45 }, 'rq4')
+    expect(await owner.supplierPaymentTerms.count({ where: { tenantId, supplierId: supplier4 } })).toBe(2)
+    expect(cells((await payables.due(tenantId, now)).rows, supplier4)).toEqual({ NOT_DUE: '5000', NO_DUE_DATE: '1000' })
+    const listed = (await terms.list(tenantId)).items
+    expect(listed.find((i) => i.supplierId === supplier4)).toMatchObject({ basis: 'CHECK_OUT', days: 45, name: 'Terms Supplier', owed: [{ currency: 'AED', outstandingMinor: '6000' }] })
+    expect(listed.find((i) => i.supplierId === supplier5)).toMatchObject({ basis: null, days: null, owed: [{ currency: 'AED', outstandingMinor: '700' }] })
+    const audits = await owner.auditEvent.findMany({ where: { tenantId, action: 'finance.supplier_terms.set', entityId: supplier4 }, orderBy: { createdAt: 'asc' } })
+    expect(audits.map((a) => (a.payload as { days: number; previousDays: number | null }))).toEqual([expect.objectContaining({ days: 30, previousDays: null }), expect.objectContaining({ days: 45, previousDays: 30 })])
+
+    // The confirmation basis counts from when the booking was accrued; the check-in basis from the check-in date
+    await terms.set(tenantId, actor, { supplierId: supplier4, basis: 'CONFIRMATION', days: 0 }, 'rq5')
+    expect(cells((await payables.due(tenantId, now)).rows, supplier4)).toEqual({ NOT_DUE: '6000' })   // accrued today, due today: not yet overdue, and it needs no stay date
+    await terms.set(tenantId, actor, { supplierId: supplier4, basis: 'CHECK_IN', days: 0 }, 'rq6')
+    expect(cells((await payables.due(tenantId, now)).rows, supplier4)).toEqual({ OVERDUE_31_60: '3000', OVERDUE_1_30: '2000', NO_DUE_DATE: '1000' })   // check-in was 42 and 12 days ago
+
+    // History cannot be edited, even by the owner; tenants are isolated; an unavailable role is the typed 503
+    const row = await owner.supplierPaymentTerms.findFirstOrThrow({ where: { tenantId, supplierId: supplier4 } })
+    await expect(owner.$executeRawUnsafe(`UPDATE "SupplierPaymentTerms" SET days = 1 WHERE id = $1`, row.id)).rejects.toThrow(/append-only/i)
+    await expect(owner.$executeRawUnsafe(`DELETE FROM "SupplierPaymentTerms" WHERE id = $1`, row.id)).rejects.toThrow(/append-only/i)
+    expect((await terms.list(otherTenantId)).items).toEqual([])
+    expect((await payables.due(otherTenantId, now)).rows).toEqual([])
+    expect(await code(new SupplierTermsService(new BookingFinancePostingDatabase({ DATABASE_URL: process.env.DATABASE_URL }), owner).list(tenantId))).toBe('BOOKING_FINANCE_POSTING_UNAVAILABLE')
   })
 
   it('ISOLATION: another tenant\'s events are never read or posted, and the due list names only tenants with work', async () => {

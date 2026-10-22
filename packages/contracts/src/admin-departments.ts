@@ -82,6 +82,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('finance.reconcile.resolve', 'finance', 'S3', 'Decide reconciliation exceptions; amounts at or above 100 currency units need a second person (never the proposer)'),
   enforced('finance.settle.propose', 'finance', 'S2', 'Record a proposed payment to a supplier against its posted payables (no money moves)'),
   enforced('finance.settle.approve', 'finance', 'S3', 'Approve or reject a proposed supplier payment (never the person who proposed it)'),
+  enforced('finance.terms.manage', 'finance', 'S3', 'Set the payment terms agreed with a supplier (each change is kept as history)'),
   enforced('audit.read', 'audit', 'S0', 'View tenant audit events'),
 
   enforced('agency.read', 'clients', 'S0', 'View agencies and their members'),

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { POSTING_REVIEW_REASONS, POSTING_SKIP_REASONS, BOOKING_FINANCE_EVENT_TYPES } from '@bedbanks/contracts'
-import { EVENT_TEXT, REVIEW_TEXT, SKIP_TEXT, nextRetryAt, reviewText } from './booking-finance-posting-ui'
+import { EVENT_TEXT, REVIEW_TEXT, SKIP_TEXT, nextRetryAt, reviewText, termsText } from './booking-finance-posting-ui'
 import { flatNav } from '../components/layout/nav-config'
 
 const root = join(import.meta.dirname, '..')
@@ -68,4 +68,22 @@ test('the settlements page is permission-gated, converts amounts with the shared
   assert.match(text, /can\('finance\.settle\.approve'\)/)
   assert.doesNotMatch(text, /parseFloat|Number\(|\.reduce\(|Math\./)
   assert.doesNotMatch(text, /proposedById\s*[!=]==?\s*/, 'the server, not the page, refuses a self-approval')
+})
+
+test('payment terms text reads naturally and never invents terms', () => {
+  assert.equal(termsText(null, null), 'No terms set')
+  assert.equal(termsText('CHECK_OUT', 30), '30 days after check-out')
+  assert.equal(termsText('CONFIRMATION', 1), '1 day after confirmation')
+})
+
+test('the due section says no terms or no date is never overdue, links terms to the settlements page, and adds nothing up', () => {
+  const text = readFileSync(join(root, 'app/(dashboard)/finance/payables/page.tsx'), 'utf8')
+  assert.match(text, /getPayablesDue/)
+  assert.match(text, /never shown as overdue/)
+  assert.match(text, /earliest-due bookings first/)
+  assert.match(text, /PAYABLE_DUE_BUCKETS/)
+  assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
+  const page = readFileSync(join(root, 'app/(dashboard)/finance/supplier-settlements/page.tsx'), 'utf8')
+  assert.match(page, /can\('finance\.terms\.manage'\)/)
+  assert.match(page, /kept as history/)
 })

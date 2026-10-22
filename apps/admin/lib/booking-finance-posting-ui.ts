@@ -44,3 +44,6 @@ export const ALL_SKIP_REASONS = POSTING_SKIP_REASONS
 
 export const SETTLEMENT_STATUS_TEXT: Record<'PROPOSED' | 'APPROVED' | 'REJECTED', string> = { PROPOSED: 'Waiting for approval', APPROVED: 'Approved and recorded', REJECTED: 'Rejected' }
 export const settlementTone = (status: string): 'ok' | 'warn' | 'bad' | 'neutral' => (status === 'APPROVED' ? 'ok' : status === 'PROPOSED' ? 'warn' : status === 'REJECTED' ? 'bad' : 'neutral')
+
+export const TERMS_BASIS_TEXT: Record<'CHECK_OUT' | 'CHECK_IN' | 'CONFIRMATION', string> = { CHECK_OUT: 'after check-out', CHECK_IN: 'after check-in', CONFIRMATION: 'after confirmation' }
+export const termsText = (basis: string | null, days: number | null) => (basis === null || days === null ? 'No terms set' : `${days} day${days === 1 ? '' : 's'} ${TERMS_BASIS_TEXT[basis as keyof typeof TERMS_BASIS_TEXT] ?? basis}`)

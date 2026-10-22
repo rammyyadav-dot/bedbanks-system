@@ -1,5 +1,5 @@
 // The backlog of the booking Finance consumer (ADR 0076). Read-only; no mock or fallback data lives here.
-import { routes, type PostingBacklogView, type PayablesAgingView, type SettlementListView, type SettlementProposeRequest, type SettlementView, type PostedPayablesView, type RevenueReportView } from '@bedbanks/contracts'
+import { routes, type PostingBacklogView, type PayablesAgingView, type PayablesDueView, type SupplierTermsListView, type SupplierTermsSetRequest, type SupplierTermsView, type SettlementListView, type SettlementProposeRequest, type SettlementView, type PostedPayablesView, type RevenueReportView } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import { opsQuery } from '../ops-state'
 
@@ -14,3 +14,6 @@ export const getSettlements = (p: { status?: string; supplierId?: string } = {})
 export const proposeSettlement = (body: SettlementProposeRequest) => post<SettlementView>(s.list, body)
 export const approveSettlement = (id: string) => post<SettlementView>(s.approve.replace(':settlementId', encodeURIComponent(id)), {})
 export const rejectSettlement = (id: string, reason: string) => post<SettlementView>(s.reject.replace(':settlementId', encodeURIComponent(id)), { reason })
+export const getPayablesDue = () => apiRequest<PayablesDueView>(routes.adminBookingFinancePostings.payablesDue)
+export const getSupplierTerms = () => apiRequest<SupplierTermsListView>(routes.adminSupplierTerms.list)
+export const setSupplierTerms = (body: SupplierTermsSetRequest) => post<SupplierTermsView>(routes.adminSupplierTerms.list, body)

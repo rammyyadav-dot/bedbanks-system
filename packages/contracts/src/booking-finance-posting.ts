@@ -172,3 +172,53 @@ export interface SettlementView {
   decisionReason: string | null
 }
 export interface SettlementListView { items: SettlementView[]; listLimit: number; truncated: boolean }
+
+/**
+ * Supplier payment terms and due dates (ADR 0078). The usual bedbank arrangement: a supplier is paid a number of days after the guest's check-out (or check-in, or the booking's
+ * confirmation for prepaid arrangements). Terms are append-only history; the latest is current. A supplier with no terms, or a booking with no date for the basis, has no due date:
+ * it is shown as such and never as overdue. Payments (ADR 0077) are applied to the earliest-due bookings first.
+ */
+export const SUPPLIER_TERMS_BASES = ['CHECK_OUT', 'CHECK_IN', 'CONFIRMATION'] as const
+export type SupplierTermsBasis = (typeof SUPPLIER_TERMS_BASES)[number]
+export const SUPPLIER_TERMS_MAX_DAYS = 365
+export const termsPermissions = { manage: 'finance.terms.manage' } as const
+export const TERMS_FAILURE = { invalid: 'TERMS_INVALID', unknownSupplier: 'TERMS_UNKNOWN_SUPPLIER', disabled: 'TERMS_DISABLED' } as const
+
+export interface SupplierTermsSetRequest { supplierId: string; basis: SupplierTermsBasis; days: number; note?: string }
+export interface SupplierTermsView {
+  supplierId: string
+  name: string | null
+  /** Null: no terms agreed, so no due dates. */
+  basis: SupplierTermsBasis | null
+  days: number | null
+  note: string | null
+  setAt: string | null
+  setById: string | null
+  /** Open posted payable balance by currency, so a supplier with money owed and no terms stands out. */
+  owed: Array<{ currency: string; outstandingMinor: string }>
+}
+export interface SupplierTermsListView { items: SupplierTermsView[]; listLimit: number; truncated: boolean }
+
+export const PAYABLE_DUE_BUCKETS = [
+  { key: 'NOT_DUE', label: 'Not yet due' },
+  { key: 'OVERDUE_1_30', label: '1–30 days overdue' },
+  { key: 'OVERDUE_31_60', label: '31–60 days overdue' },
+  { key: 'OVERDUE_61_90', label: '61–90 days overdue' },
+  { key: 'OVERDUE_91_PLUS', label: 'Over 90 days overdue' },
+  { key: 'NO_DUE_DATE', label: 'No due date' },
+] as const
+export type PayableDueBucketKey = (typeof PAYABLE_DUE_BUCKETS)[number]['key']
+export interface PayableDueCell { bucket: PayableDueBucketKey; amountMinor: string; bookings: number }
+export interface PayableDueRow {
+  supplierId: string
+  name: string | null
+  currency: string
+  basis: SupplierTermsBasis | null
+  days: number | null
+  buckets: PayableDueCell[]
+  totalMinor: string
+  /** The sum of the overdue buckets. */
+  overdueMinor: string
+  bookings: number
+}
+export interface PayablesDueView { asOf: string; rows: PayableDueRow[]; listLimit: number; truncated: boolean }

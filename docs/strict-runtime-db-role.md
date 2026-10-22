@@ -147,6 +147,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierHotelMapping`: mapping governance
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
+- `SupplierPaymentTerms`: finance-gated: append-only supplier payment terms (history kept); written only by the narrow finance posting role (ADR 0078)
 - `SupplierRoomMapping`: mapping governance
 - `SupplierSettlement`: finance-gated: supplier payments recorded against posted payables, proposed and approved by different people; written only by the narrow finance posting role (ADR 0077)
 - `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)

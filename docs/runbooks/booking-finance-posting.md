@@ -33,3 +33,10 @@ Records payments made to suppliers outside the system against the posted payable
 3. Set `SUPPLIER_SETTLEMENT_ENABLED=true`. Finance → Supplier settlements: choose a supplier and currency that still has an amount owed, enter the amount paid, the date, the bank reference, and propose. A different person approves or rejects (with a reason).
 4. Paid and Outstanding appear on Finance → Payables; aging applies approved payments to the oldest bookings first.
 A wrong *approved* settlement cannot be edited or deleted; raise it with engineering for a reviewed correction.
+
+## Supplier payment terms and due dates (ADR 0078)
+1. Migrate (`202612040001_supplier_payment_terms`) and **re-run** `ops:provision-finance-posting-role` and `ops:verify-finance-posting-role` (the role gains the terms table and the booking date columns).
+2. Grant `finance.terms.manage` to whoever agrees terms with suppliers.
+3. Finance → Supplier settlements → Payment terms: for each supplier set the number of days and what it counts from (check-out, check-in or confirmation). Suppliers with money owed and no terms are marked "No terms set": their payables have no due date and are never shown as overdue.
+4. Finance → Payables → Due and overdue shows what is not yet due and what is overdue, by supplier and currency, with approved payments applied to the earliest-due bookings first.
+Terms are history: change them and the old terms remain recorded; open payables are re-dated by the current terms.

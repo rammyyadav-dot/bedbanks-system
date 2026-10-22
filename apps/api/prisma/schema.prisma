@@ -106,6 +106,13 @@ enum SupplierSettlementStatus {
   REJECTED
 }
 
+/// What a supplier's payment terms count from (ADR 0078): the guest's check-out, the check-in, or the confirmation of the booking.
+enum SupplierTermsBasis {
+  CHECK_OUT
+  CHECK_IN
+  CONFIRMATION
+}
+
 enum BookingAmendmentStatus {
   REQUESTED
   APPROVED
@@ -732,6 +739,7 @@ model Tenant {
   bookingFinanceEvents BookingFinanceEvent[]
   bookingFinancePostings BookingFinancePosting[]
   supplierSettlements SupplierSettlement[]
+  supplierPaymentTerms SupplierPaymentTerms[]
   supplierPayableEntries SupplierPayableEntry[]
   bookingAmendments BookingAmendment[]
   bookingSavedViews BookingSavedView[]
@@ -1707,6 +1715,7 @@ model Supplier {
   bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
   payableEntries SupplierPayableEntry[]
   settlements    SupplierSettlement[]
+  paymentTerms   SupplierPaymentTerms[]
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
 
@@ -3016,4 +3025,23 @@ model SupplierSettlement {
   @@unique([tenantId, supplierId, paymentReference])
   @@index([tenantId, status, createdAt])
   @@index([tenantId, supplierId, currency, status])
+}
+
+/// A supplier's contracted payment terms (ADR 0078): pay `days` after the check-out, the check-in or the confirmation. Append-only: the latest row for a supplier is current, and every
+/// earlier row stays as history. Terms drive the due date of each payable; a supplier with no row has no due dates (shown as "no terms", never as overdue).
+model SupplierPaymentTerms {
+  id        String             @id @default(cuid())
+  tenantId  String             @map("tenant_id")
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierId String            @map("supplier_id")
+  supplier  Supplier           @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  basis     SupplierTermsBasis
+  /// Whole days after the basis date, 0 to 365.
+  days      Int
+  note      String?
+  setById   String             @map("set_by_id")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierId, createdAt])
 }
