@@ -49,7 +49,11 @@ Egress: tasks use NAT (suppliers, ECR, Secrets Manager); S3 is a gateway endpoin
 
 ## Cutover from Vercel (production; needs owner approval for each gate)
 1. Freeze: record the serving Vercel deployments and the current DNS records. Lower DNS TTL to 60 s a day ahead.
-2. Data: take a snapshot of the current database; stop writes (or start replication); dump and restore into RDS; recreate the three roles with new passwords (roles are not in a dump); run the migration task (a no-op if current); compare `_prisma_migrations` and per-table row counts; put the new URLs in Secrets Manager.
+2. Data (ADR 0079: RDS is the primary; Neon is the source until the switch). Start days ahead, in staging first:
+   - Neon: `scripts/neon-staging-branch.sh protect`, then `restore-point`; enable logical replication on the Neon project (it cannot be disabled afterwards), create a publication for the application tables with a dedicated replication role.
+   - RDS: apply migrations to an empty `fbeds` with the migrate task *at the same commit as Neon's `_prisma_migrations`* (schema must match; logical replication copies rows, not DDL, sequences, roles or grants). Create the subscription from the private subnets (short-lived SSM host, step 5), with `sslmode=require`. Neon must admit the NAT gateway addresses (allowlist, paid plan).
+   - Watch lag to zero; compare `_prisma_migrations` and per-table row counts and checksums; rebuild no indexes by hand (the migrations already created the vector and trigram indexes).
+   - Freeze window: stop writes to Neon (maintenance mode on the API), wait for lag zero, take an RDS snapshot, copy sequence values to RDS (`setval` to Neon's `last_value` plus a safety margin), drop the subscription, recreate the three runtime roles with new passwords and re-run the role provisioning, put the RDS URLs in Secrets Manager.
 3. Deploy the production services; verify through the ALB name as in step 6 with production data read-only.
 4. Set `create_portal_records=true` and apply: the four DNS records now point at AWS. Keep the Vercel projects, unaliased, for at least 14 days.
 5. Watch: alarms, 5xx, login success, supplier call logs, queue depth.

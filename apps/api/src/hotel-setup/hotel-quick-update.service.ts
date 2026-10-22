@@ -1,3 +1,4 @@
+import { assertRatesNotFeedManaged } from '../supply/feed-managed'
 import { createHash } from 'crypto'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
@@ -109,6 +110,7 @@ export class HotelQuickUpdateService {
     await this.requirePermissions(tenantId, userId, this.required(value))
     return this.prisma.withTenant(tenantId, async (tx) => {
       const loaded = await this.load(tx, tenantId, hotelId, value)
+      if (value.changes.price) await assertRatesNotFeedManaged(tx, tenantId, value.ratePlanIds)
       const planned = this.plan(loaded, value)
       const shown = planned.rows.slice(0, QUICK_UPDATE_LIMITS.reportedRows)
       return {
@@ -141,6 +143,7 @@ export class HotelQuickUpdateService {
         return { replayed: true, auditRequestId: p.requestId ?? '', records: p.records ?? 0, changed: p.changed ?? { rates: 0, availabilityRows: 0, poolDays: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
       }
       const loaded = await this.load(tx, tenantId, hotelId, value)
+      if (value.changes.price) await assertRatesNotFeedManaged(tx, tenantId, value.ratePlanIds)
       const planned = this.plan(loaded, value)
       if (planned.errors.length) throw new UnprocessableEntityException({ message: planned.errors, code: 'QUICK_UPDATE_INVALID' })
       if (planned.counts.invalid > 0) {

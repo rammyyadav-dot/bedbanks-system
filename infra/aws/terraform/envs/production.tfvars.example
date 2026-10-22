@@ -11,8 +11,9 @@ create_portal_records = false
 # monthly_budget_usd = 0
 # budget_emails      = ["finops@example.com"]
 
-# ADR 0055: production requires CloudFront in front of the ALB, which this stack does not implement yet.
-# A production apply is refused until that exists or the exception is approved and referenced here.
+# ADR 0055: production requires CloudFront in front of the ALB (edge.tf). Set cloudfront_enabled = true once the staging edge checks pass,
+# or reference the approved exception here; a production apply is refused with neither.
+# cloudfront_enabled = true
 # production_edge_exception_ref = "ADR-0055-exception-<ticket>"
 # dns_cutover_authorization_ref = "<recorded CTO GO>"   # required before create_portal_records = true
 

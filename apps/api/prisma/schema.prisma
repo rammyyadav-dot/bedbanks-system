@@ -1718,6 +1718,11 @@ model Supplier {
   paymentTerms   SupplierPaymentTerms[]
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
+  ingestRuns SupplierIngestRun[]
+  promotionRuns SupplierPromotionRun[]
+  rateObservations SupplierRateObservation[]
+  allotmentObservations SupplierAllotmentObservation[]
+  cancellationObservations SupplierCancellationObservation[]
 
   @@unique([tenantId, legalName])
   @@unique([tenantId, id])
@@ -1976,8 +1981,10 @@ model SupplierRoomMapping {
 
   supplierHotelMapping SupplierHotelMapping @relation(fields: [tenantId, supplierHotelMappingId, hotelId], references: [tenantId, id, hotelId], onDelete: Cascade)
   roomType RoomType @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  ratePlanMappings SupplierRatePlanMapping[]
 
   @@unique([supplierHotelMappingId, supplierRoomId])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@index([hotelId, roomTypeId])
 }
@@ -2257,8 +2264,10 @@ model RatePlan {
   guestPrices  RatePlanGuestPrice[]
   supplements  ContractSupplement[]
   promotions   RatePlanPromotion[]
+  supplierMappings SupplierRatePlanMapping[]
 
   @@unique([contractId, code])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@index([tenantId, derivedFromId])
   @@index([roomTypeId])
@@ -2515,6 +2524,7 @@ model DailyRate {
 model ConnectorDefinition {
   sandboxRuns SandboxContentRun[]
   sandboxLeases SandboxContentLease[]
+  ingestRuns SupplierIngestRun[]
   id                  String          @id @default(cuid())
   tenantId            String          @map("tenant_id")
   tenant              Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -3044,4 +3054,194 @@ model SupplierPaymentTerms {
 
   @@unique([tenantId, id])
   @@index([tenantId, supplierId, createdAt])
+}
+
+enum SupplierIngestKind {
+  RATES
+  ALLOTMENTS
+  CANCELLATION_POLICIES
+}
+
+/// Outcome of one normalized feed (ADR 0078). Only a COMPLETE run applies observations; PARTIAL and FAILED runs are kept as evidence and change nothing.
+enum SupplierIngestStatus {
+  COMPLETE
+  PARTIAL
+  FAILED
+}
+
+/// Append-only record of one ingestion attempt. Holds counts and reject codes, never payload content, guest data or credentials.
+model SupplierIngestRun {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  connectorId String @map("connector_id")
+  kind SupplierIngestKind
+  /// Caller-owned key, stable across retries of the same delivery. Same key and same request hash replays the stored outcome.
+  idempotencyKey String @map("idempotency_key")
+  /// SHA-256 hex of the normalized result. The same key with a different hash is refused.
+  requestHash String @map("request_hash") @db.Char(64)
+  status SupplierIngestStatus
+  extractedCount Int @map("extracted_count")
+  acceptedCount Int @map("accepted_count")
+  rejectedCount Int @map("rejected_count")
+  /// Counts keyed by `<code>:<field>`, capped. No row content.
+  rejectSummary Json @default("{}") @map("reject_summary")
+  /// True only when observations were written from this run.
+  applied Boolean
+  /// Supplier-stated feed time, or null. Never fabricated.
+  sourceUpdatedAt DateTime? @map("source_updated_at")
+  receivedAt DateTime @map("received_at")
+  /// Observations written by this run expire here (ADR 0030 #7). Required when applied.
+  freshUntil DateTime? @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  connector ConnectorDefinition @relation(fields: [tenantId, connectorId, supplierId], references: [tenantId, id, supplierId], onDelete: Restrict)
+  rateObservations SupplierRateObservation[]
+  allotmentObservations SupplierAllotmentObservation[]
+  cancellationObservations SupplierCancellationObservation[]
+
+  @@unique([tenantId, connectorId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierId, createdAt])
+}
+
+/// Latest supplier net for one supplier night. Supplier codes are NOT canonical ids; mapping governance (ADR 0004) resolves them. Never sellable by itself.
+model SupplierRateObservation {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  runId String @map("run_id")
+  supplierHotelCode String @map("supplier_hotel_code")
+  supplierRoomCode String @map("supplier_room_code")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  stayDate DateTime @map("stay_date") @db.Date
+  boardCode String? @map("board_code")
+  currency String @db.Char(3)
+  netMinor BigInt @map("net_minor")
+  /// null = the supplier did not say.
+  taxesIncluded Boolean? @map("taxes_included")
+  minStay Int? @map("min_stay")
+  maxStay Int? @map("max_stay")
+  closedToArrival Boolean @map("closed_to_arrival")
+  closedToDeparture Boolean @map("closed_to_departure")
+  receivedAt DateTime @map("received_at")
+  freshUntil DateTime @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  run SupplierIngestRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode, stayDate], map: "SupplierRateObservation_natural_key")
+  @@index([tenantId, supplierId, stayDate])
+  @@index([tenantId, runId])
+}
+
+/// Latest supplier stock statement for one night. A missing row is unknown, never zero (ADR 0030 #4). Never sellable by itself.
+model SupplierAllotmentObservation {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  runId String @map("run_id")
+  supplierHotelCode String @map("supplier_hotel_code")
+  supplierRoomCode String @map("supplier_room_code")
+  /// Empty string means the statement covers every plan of the room.
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  stayDate DateTime @map("stay_date") @db.Date
+  mode InventoryMode
+  available Int?
+  stopSell Boolean @map("stop_sell")
+  releaseDays Int? @map("release_days")
+  receivedAt DateTime @map("received_at")
+  freshUntil DateTime @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  run SupplierIngestRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode, stayDate], map: "SupplierAllotmentObservation_natural_key")
+  @@index([tenantId, supplierId, stayDate])
+  @@index([tenantId, runId])
+}
+
+/// Latest cancellation policy for one supplier rate plan. `windows` is the canonical ordered list produced by the connector ingest core. Never sellable by itself.
+model SupplierCancellationObservation {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  runId String @map("run_id")
+  supplierHotelCode String @map("supplier_hotel_code")
+  /// Empty string means the policy covers every room of the plan.
+  supplierRoomCode String @map("supplier_room_code")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  nonRefundable Boolean @map("non_refundable")
+  windows Json
+  receivedAt DateTime @map("received_at")
+  freshUntil DateTime @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  run SupplierIngestRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode], map: "SupplierCancellationObservation_natural_key")
+  @@index([tenantId, supplierId])
+  @@index([tenantId, runId])
+}
+
+/// Governed link from one supplier rate plan code (under an approved supplier room mapping) to one canonical contracted RatePlan (ADR 0081).
+/// Same lifecycle as hotel and room mappings (ADR 0004): PENDING, then approved, rejected or reopened by a person. Only MAPPED rows resolve ingested observations.
+/// A database trigger requires the plan to be of the mapped room type, of a contract with the mapped supplier, and the parent room mapping to be MAPPED before this one is.
+model SupplierRatePlanMapping {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierRoomMappingId String @map("supplier_room_mapping_id")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  ratePlanId String @map("rate_plan_id")
+  status MappingStatus @default(PENDING)
+  confidence Int?
+  sourceMetadata Json @default("{}") @map("source_metadata")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  roomMapping SupplierRoomMapping @relation(fields: [tenantId, supplierRoomMappingId], references: [tenantId, id], onDelete: Restrict)
+  ratePlan RatePlan @relation(fields: [tenantId, ratePlanId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierRoomMappingId, supplierRatePlanCode])
+  @@unique([tenantId, ratePlanId])
+  @@index([tenantId, status])
+}
+
+enum SupplierPromotionStatus {
+  APPLIED
+  HELD
+  NOTHING_TO_PROMOTE
+}
+
+/// Append-only record of one promotion of ingested observations into contracted rates, availability and pool capacity (ADR 0084). Counts and reason codes only: no payload, guest data or credentials.
+/// HELD means the batch guard stopped it and nothing was written; it waits for a person.
+model SupplierPromotionRun {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  /// Caller-owned key, stable across retries of the same promotion. Same key replays the stored outcome and writes nothing.
+  idempotencyKey String @map("idempotency_key")
+  profileKey String @map("profile_key")
+  status SupplierPromotionStatus
+  ratesConsidered Int @map("rates_considered")
+  ratesPromoted Int @map("rates_promoted")
+  stockConsidered Int @map("stock_considered")
+  nightsPromoted Int @map("nights_promoted")
+  poolNightsPromoted Int @map("pool_nights_promoted")
+  nightsClosed Int @map("nights_closed")
+  /// Counts keyed by stable code (blocks, sticky skips, hold reasons). Capped; no row content.
+  summary Json @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
 }

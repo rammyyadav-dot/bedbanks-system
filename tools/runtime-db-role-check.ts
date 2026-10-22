@@ -22,6 +22,10 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/verify-reconciliation-role.cli.ts', purpose: 'operator: read-only certification run AS the reconciliation login (no owner credential)', url: 'FINANCE_RECONCILIATION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-finance-posting-role.cli.ts', purpose: 'operator: provisions the booking finance posting login (ADR 0076)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-finance-posting-role.cli.ts', purpose: 'operator: read-only certification run AS the finance posting login (no owner credential)', url: 'BOOKING_FINANCE_POSTING_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/provision-supplier-ingest-role.cli.ts', purpose: 'operator: provisions the supplier ingestion login (ADR 0079)', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/verify-supplier-ingest-role.cli.ts', purpose: 'operator: read-only certification run AS the supplier ingestion login (no owner credential)', url: 'SUPPLIER_INGEST_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/provision-supplier-promotion-role.cli.ts', purpose: 'operator: provisions the supplier promotion login (ADR 0084)', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/verify-supplier-promotion-role.cli.ts', purpose: 'operator: read-only certification run AS the supplier promotion login (no owner credential)', url: 'SUPPLIER_PROMOTION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-rate-plan-ops-role.cli.ts', purpose: 'operator: provisions the rate plan lifecycle login', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-ops-role.cli.ts', purpose: 'operator: read-only certification run AS the rate plan lifecycle login (no owner credential)', url: 'RATE_PLAN_OPS_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-rate-plan-clone-role.cli.ts', purpose: 'operator: read-only certification run AS the rate plan clone login (no owner credential)', url: 'RATE_PLAN_CLONE_DATABASE_URL', runtime: false },
@@ -111,7 +115,7 @@ export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }>
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
   { file: 'apps/api/src/admin-operations/ledger-integrity-monitor.service.ts', url: 'LEDGER_INTEGRITY_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
-  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL / BOOKING_FINANCE_POSTING_DATABASE_URL / BOOKING_OPS_READ_REPLICA_URL (ADR 0074)' },
+  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL / BOOKING_FINANCE_POSTING_DATABASE_URL / SUPPLIER_INGEST_DATABASE_URL / SUPPLIER_PROMOTION_DATABASE_URL / BOOKING_OPS_READ_REPLICA_URL (ADR 0074, 0079, 0084)' },
 ]
 
 export function checkClientSource(file: string, text: string): string[] {
