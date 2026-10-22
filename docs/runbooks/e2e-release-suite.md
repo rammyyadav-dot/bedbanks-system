@@ -24,6 +24,9 @@ The database login defaults to `postgres:postgres@127.0.0.1`. Override with `E2E
 
 Faster loop while writing tests: `pnpm --filter @bedbanks/e2e e2e:up` starts the stack and leaves it running, then `E2E_REUSE_STACK=1 pnpm --filter @bedbanks/e2e e2e`; stop it with `e2e:down`.
 
+## Live screenshots of the Supplier extranet
+`tests/07-supplier-screenshots.spec.ts` signs in as the Alpha editor and saves full-page PNGs of every supplier route (plus a mobile view) to `e2e/.artifacts/screenshots/supplier/`. It records what a supplier sees today, including the "not available" states, and is part of the normal run. To refresh only the screenshots: `E2E_REUSE_STACK=1 pnpm --filter @bedbanks/e2e exec playwright test tests/07-supplier-screenshots.spec.ts`.
+
 ## Safety
 It only ever drops and recreates the database named `fbeds_preview_xt`. Test passwords are random per run, kept in a private temporary file and deleted afterwards. It never turns on booking, payments or live suppliers.
 
