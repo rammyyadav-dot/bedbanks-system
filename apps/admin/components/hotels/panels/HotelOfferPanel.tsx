@@ -7,7 +7,7 @@ import { blankPromotion, buildPromotionsInput, KIND_LABELS, type PromotionDraft 
 import { bulkApplyPromotion, type AdminRatePlan } from '@/lib/data'
 
 const KINDS = Object.keys(KIND_LABELS) as PromotionKind[]
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
 
 /**
  * Hotel-wide offer (ADR 0067, F-09): one promotion added to the selected plans in one atomic, audited write. The API validates each plan's whole
@@ -34,7 +34,7 @@ export function HotelOfferPanel({ hotelId, plans, onApplied }: { hotelId: string
   }
 
   return (
-    <section aria-label="Hotel-wide offer" data-testid="hotel-offer" style={{ borderTop: '1px solid #e6eef0', paddingTop: 12, display: 'grid', gap: 8 }}>
+    <section aria-label="Hotel-wide offer" data-testid="hotel-offer" style={{ borderTop: '1px solid var(--c-e6eef0)', paddingTop: 12, display: 'grid', gap: 8 }}>
       <h3 style={{ fontSize: 13, margin: 0 }}>Hotel-wide offer</h3>
       <p style={note}>Add one promotion to several plans at once. Each plan keeps its other promotions; nothing changes if any selected plan cannot take it.</p>
       <div className="admin-filter-bar">
@@ -53,7 +53,7 @@ export function HotelOfferPanel({ hotelId, plans, onApplied }: { hotelId: string
       </div>
       <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 12 }}>
         <legend style={{ fontSize: 11, marginBottom: 4 }}>Rate plans on this page ({selected.length} selected)</legend>
-        {plans.map((plan) => <label key={plan.id}><input type="checkbox" checked={selected.includes(plan.id)} onChange={() => toggle(plan.id)} /> {plan.code} <span style={{ color: '#3f565c' }}>({plan.status})</span></label>)}
+        {plans.map((plan) => <label key={plan.id}><input type="checkbox" checked={selected.includes(plan.id)} onChange={() => toggle(plan.id)} /> {plan.code} <span style={{ color: 'var(--c-3f565c)' }}>({plan.status})</span></label>)}
       </fieldset>
       <div><button type="button" className="button primary" disabled={busy} onClick={() => void apply()}>{busy ? 'Applying…' : 'Add to selected plans'}</button></div>
       {message ? <div role={message.ok ? 'status' : 'alert'} className={message.ok ? undefined : 'admin-error'} style={{ fontSize: 12 }}><strong>{message.text}</strong>{message.details.length ? <ul>{message.details.map((d) => <li key={d}>{d}</li>)}</ul> : null}</div> : null}

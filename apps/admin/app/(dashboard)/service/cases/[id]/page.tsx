@@ -10,8 +10,8 @@ import { Tag, when } from '@/components/ops/ops-ui'
 import { addCaseNote, assignCase, getCase, getCaseAssignees, transitionCase } from '@/lib/data/departments'
 import { describeApiError } from '@/lib/api/describe-error'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
-const field = { color: '#17333e' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
+const field = { color: 'var(--c-17333e)' } as const
 const verb: Record<string, string> = { IN_PROGRESS: 'Start work', OPEN: 'Reopen as open', RESOLVED: 'Mark resolved', CLOSED: 'Close case' }
 
 /** One case: its details, an append-only note trail, and the moves its status allows. */
@@ -35,7 +35,7 @@ export default function CaseDetailPage() {
             <PageHeader eyebrow={`CASE · ${c.reference}`} title={c.subject} description={`${c.category} · opened by ${c.openedByEmail} ${when(c.createdAt)}`} actions={<Link href="/service/cases">All cases</Link>} />
             <section className="workspace-panel" style={{ padding: '12px 18px', marginBottom: 12 }} data-testid="case-detail">
               <p style={{ whiteSpace: 'pre-wrap', margin: '0 0 8px' }}>{c.description}</p>
-              <p style={{ fontSize: 11, color: '#3f565c', margin: '0 0 8px' }}>
+              <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: '0 0 8px' }}>
                 <Tag tone={c.priority === 'URGENT' ? 'bad' : c.priority === 'HIGH' ? 'warn' : 'ok'}>{c.priority}</Tag>{' '}<Tag tone={c.status === 'CLOSED' || c.status === 'RESOLVED' ? 'ok' : c.status === 'IN_PROGRESS' ? 'warn' : 'bad'}>{c.status.split('_').join(' ')}</Tag>
                 {c.booking ? <> · Booking <Link href={`/bookings/${c.booking.id}`}>{c.booking.reference}</Link></> : null}{c.hotel ? <> · Hotel <Link href={`/hotels/${c.hotel.id}`}>{c.hotel.name}</Link></> : null}
                 {c.supplier ? <> · Supplier {c.supplier.name}</> : null}{c.agency ? <> · Agency {c.agency.name}</> : null}
@@ -54,13 +54,13 @@ export default function CaseDetailPage() {
             </section>
             <section className="workspace-panel" style={{ padding: '12px 18px' }} aria-labelledby="notes-h" data-testid="case-notes">
               <h2 id="notes-h" style={{ fontSize: 14 }}>Notes</h2>
-              {c.notes.length === 0 ? <p style={{ color: '#3f565c' }}>No notes yet.</p> : <ol style={{ paddingLeft: 18 }}>{c.notes.map((n) => <li key={n.id} style={{ marginBottom: 6 }}><div style={{ whiteSpace: 'pre-wrap' }}>{n.body}</div><div style={{ fontSize: 10, color: '#3f565c' }}>{n.authorEmail} · {when(n.createdAt)}</div></li>)}</ol>}
+              {c.notes.length === 0 ? <p style={{ color: 'var(--c-3f565c)' }}>No notes yet.</p> : <ol style={{ paddingLeft: 18 }}>{c.notes.map((n) => <li key={n.id} style={{ marginBottom: 6 }}><div style={{ whiteSpace: 'pre-wrap' }}>{n.body}</div><div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{n.authorEmail} · {when(n.createdAt)}</div></li>)}</ol>}
               {c.status !== 'CLOSED' ? (
                 <form onSubmit={(e) => { e.preventDefault(); const text = note; void act(async () => { await addCaseNote(c.id, text); setNote(''); return 'Note added.' }) }} style={{ display: 'grid', gap: 6, marginTop: 8 }}>
                   <label style={lab}>Add a note (notes cannot be edited or removed)<textarea style={{ ...field, minHeight: 60 }} value={note} onChange={(e) => setNote(e.target.value)} required maxLength={2000} /></label>
                   <div><button type="submit" className="admin-btn" disabled={busy || !note.trim()}>Add note</button></div>
                 </form>
-              ) : <p style={{ color: '#3f565c', fontSize: 11 }}>A closed case takes no more notes.</p>}
+              ) : <p style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>A closed case takes no more notes.</p>}
             </section>
           </>
         )}

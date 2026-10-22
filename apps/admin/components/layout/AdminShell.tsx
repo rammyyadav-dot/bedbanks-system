@@ -42,7 +42,7 @@ export function AdminShell({ children, identity, activeTenantId }: AdminShellPro
           type="button"
           aria-label="Close menu overlay"
           onClick={() => setMobileOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: '#08252b66', border: 0, zIndex: 15, cursor: 'default' }}
+          style={{ position: 'fixed', inset: 0, background: 'var(--c-08252b66)', border: 0, zIndex: 15, cursor: 'default' }}
         />
       )}
       <div className="enterprise-main">

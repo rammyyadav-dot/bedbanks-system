@@ -10,7 +10,7 @@ import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 import { ReadinessPanel } from './ReadinessPanel'
 import { SellabilityPanel } from './SellabilityPanel'
 
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
 const REASON: Record<string, string> = {
   HOTEL_NOT_PUBLISHED: 'The profile is not COMPLETE, so the hotel is not published to the catalogue.',
   HOTEL_SUSPENDED: 'The hotel is SUSPENDED and withdrawn from the catalogue.',
@@ -66,7 +66,7 @@ export function DistributionPanel({ hotelId, rooms }: { hotelId: string; rooms: 
                 <ScrollRegion label="Blockers by reason"><table style={tableStyle} aria-label="Blockers by reason">
                   <thead><tr>{['Reason', 'Nights', 'Dates', 'Rooms', 'Rate plans', 'Suppliers'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                   <tbody>{d.blockers.map((b) => (
-                    <tr key={b.reason} data-reason={b.reason}><td style={td} title={reasonText(b.reason)}><code>{b.reason}</code><div style={{ fontSize: 10, color: '#3f565c' }}>{reasonText(b.reason)}</div></td><td style={td}>{b.nights}</td><td style={td}>{b.dates.join(', ')}</td><td style={td}>{b.rooms.join(', ')}</td><td style={td}>{b.ratePlans.join(', ')}</td><td style={td}>{b.suppliers.join(', ')}</td></tr>
+                    <tr key={b.reason} data-reason={b.reason}><td style={td} title={reasonText(b.reason)}><code>{b.reason}</code><div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{reasonText(b.reason)}</div></td><td style={td}>{b.nights}</td><td style={td}>{b.dates.join(', ')}</td><td style={td}>{b.rooms.join(', ')}</td><td style={td}>{b.ratePlans.join(', ')}</td><td style={td}>{b.suppliers.join(', ')}</td></tr>
                   ))}</tbody></table></ScrollRegion>
               )}
             </section>

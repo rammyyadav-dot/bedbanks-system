@@ -11,6 +11,7 @@
     "start": "next start --port 3001",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
+    "theme:tokens": "node --import tsx scripts/generate-theme-tokens.ts",
     "test": "node --import tsx --test lib/*.test.ts"
   },
   "dependencies": {

@@ -48,12 +48,12 @@ export function DerivationPanel({ ratePlanId }: { ratePlanId: string }) {
     catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the derived pricing') }) } finally { setBusy(false) }
   }
 
-  if (loadError) return <p role="alert" style={{ color: '#a11d1d', fontSize: 12 }}>{loadError}</p>
+  if (loadError) return <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{loadError}</p>
   if (!view) return <p role="status" style={{ fontSize: 12 }}>Loading derived pricing…</p>
   return (
     <section className="workspace-panel" style={{ maxWidth: 760, padding: 22, marginTop: 16 }} aria-label="Derived pricing">
       <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>Derived pricing</h2>
-      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#3f565c' }}>
+      <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--c-3f565c)' }}>
         {view.derived ? `${describeDerivation({ parentCode: view.derived.parentCode, mode: view.derived.mode, adjustment: view.derived.adjustment }, view.currency)}. This plan has no rates of its own; its price follows the parent, night by night. It sells only while the parent is active.`
           : 'This plan has its own rates. A derived plan instead sells at another plan’s rate, adjusted by a percentage or a fixed amount.'}
       </p>
@@ -66,8 +66,8 @@ export function DerivationPanel({ ratePlanId }: { ratePlanId: string }) {
             <FormField label={draft.mode === 'PERCENT_BP' ? 'Percent (negative = cheaper)' : `Amount, ${view.currency} (negative = cheaper)`}><input inputMode="decimal" size={9} value={draft.amount} onChange={(e) => change({ amount: e.target.value })} aria-label="Adjustment" /></FormField>
           </div>
         ) : view.status !== 'DRAFT' && view.status !== 'SUSPENDED' ? <p style={{ fontSize: 12 }}>A {view.status.toLowerCase()} plan keeps its price source. Suspend it first to change how it is priced.</p> : null}
-      {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: '#a11d1d' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
-      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#a11d1d' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
+      {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: 'var(--c-a11d1d)' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
+      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-a11d1d)' : 'var(--c-1f7a5a)', fontSize: 12 }}>{message.text}</p> : null}
       {editable && !view.hasDerivedPlans && !(view.hasOwnRates && !view.derived) ? (
         <span style={{ display: 'flex', gap: 8 }}>
           <button type="button" className="admin-btn admin-btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : view.derived ? 'Save derived pricing' : 'Derive this plan'}</button>

@@ -18,7 +18,7 @@ export function LogoutButton() {
           cursor: 'pointer',
           padding: '7px 10px',
           fontSize: 11,
-          color: '#5c7d85',
+          color: 'var(--c-5c7d85)',
           textAlign: 'left',
         }}
       >

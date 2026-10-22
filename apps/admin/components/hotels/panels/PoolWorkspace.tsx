@@ -12,8 +12,8 @@ import { applyPoolCapacity, cancelPoolNightRequest, decidePoolNightRequest, getP
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
-const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as const
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
 const iso = /^\d{4}-\d{2}-\d{2}$/
 type Failure = { message: string; details: string[]; requestId: string | null; code: string | null }
 
@@ -180,11 +180,11 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
           <label style={field}>End date<input type="date" className="input-wrap" value={end} min={start || hotelToday || undefined} onChange={(e) => { setEnd(e.target.value); invalidate() }} /></label>
           <label style={field}>New capacity (rooms)<input className="input-wrap" inputMode="numeric" value={capacity} aria-describedby="capacity-help" onChange={(e) => { setCapacity(e.target.value); invalidate() }} style={{ width: 130 }} /></label>
         </div>
-        <fieldset style={{ border: '1px solid #e6eef0', margin: 0, padding: 8 }}><legend style={{ fontSize: 12 }}>Weekdays (none selected = every day)</legend>
+        <fieldset style={{ border: '1px solid var(--c-e6eef0)', margin: 0, padding: 8 }}><legend style={{ fontSize: 12 }}>Weekdays (none selected = every day)</legend>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>{QUICK_UPDATE_WEEKDAYS.map((w) => (
             <label key={w} style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}><input type="checkbox" checked={weekdays.includes(w)} onChange={(e) => { setWeekdays((s) => e.target.checked ? [...s, w] : s.filter((x) => x !== w)); invalidate() }} />{w}</label>))}</div></fieldset>
         <p id="capacity-help" style={note}>Whole number 0–{POOL_CAPACITY_LIMITS.maxCapacity}. Leave blank to change nothing; enter 0 to set a capacity of zero.</p>
-        {problems.length > 0 && (start !== '' || end !== '' || capacity !== '') && <ul role="status" data-testid="editor-problems" style={{ margin: 0, fontSize: 12, color: '#a11d1d' }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
+        {problems.length > 0 && (start !== '' || end !== '' || capacity !== '') && <ul role="status" data-testid="editor-problems" style={{ margin: 0, fontSize: 12, color: 'var(--c-a11d1d)' }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
         <div><button type="submit" className="button primary" data-testid="preview-button" disabled={busy !== null || !valid || !canPreview || archived}>{busy === 'preview' ? 'Previewing…' : 'Preview change'}</button></div>
       </form>
 
@@ -199,7 +199,7 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
       {preview && (
         <div style={{ display: 'grid', gap: 8 }} data-testid="preview" aria-label="Preview of the capacity change">
           <p style={{ margin: 0, fontSize: 12 }} data-testid="preview-counts"><strong>{preview.result.counts.willChange}</strong> to change · <strong>{preview.result.counts.unchanged}</strong> unchanged · <strong>{preview.result.counts.invalid}</strong> invalid (of {preview.result.counts.dates} nights, hotel time {preview.result.timeZone}).{preview.result.truncated ? ` Showing the first ${preview.result.rows.length}.` : ''}</p>
-          {preview.result.errors.length > 0 && <ul role="alert" style={{ margin: 0, fontSize: 12, color: '#a11d1d' }}>{preview.result.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+          {preview.result.errors.length > 0 && <ul role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--c-a11d1d)' }}>{preview.result.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
           <ScrollRegion label="Capacity preview" maxHeight={320}><table style={tableStyle} aria-label="Capacity preview by night" data-testid="preview-table">
             <thead><tr>{['Date', 'Day', 'Before: capacity · sold · held · available', 'After: capacity · available', 'Result'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
             <tbody>{preview.result.rows.map((r) => (
@@ -207,7 +207,7 @@ function CapacityEditor({ hotelId, poolId, hotelToday, archived, onApplied }: { 
                 <td style={td}>{r.date}</td><td style={td}>{r.weekday}</td>
                 <td style={td}>{r.before ? `${r.before.capacity} · ${r.before.sold} · ${r.before.held} · ${r.before.available}` : 'no stock row (unknown)'}</td>
                 <td style={td}>{r.after ? `${r.after.capacity} · ${r.after.available}` : '—'}</td>
-                <td style={td}><Chip tone={r.outcome === 'INVALID' ? 'bad' : r.outcome === 'UNCHANGED' ? 'neutral' : 'ok'}>{r.outcome}</Chip>{r.problems.map((p) => <div key={p} style={{ fontSize: 11, color: '#a11d1d' }}>{p}</div>)}</td>
+                <td style={td}><Chip tone={r.outcome === 'INVALID' ? 'bad' : r.outcome === 'UNCHANGED' ? 'neutral' : 'ok'}>{r.outcome}</Chip>{r.problems.map((p) => <div key={p} style={{ fontSize: 11, color: 'var(--c-a11d1d)' }}>{p}</div>)}</td>
               </tr>))}</tbody></table></ScrollRegion>
           <ul style={{ ...note, paddingLeft: 16 }}>{preview.result.notes.map((n) => <li key={n}>{n}</li>)}</ul>
           {canApply ? (
@@ -267,7 +267,7 @@ function NightRequests({ hotelId, poolId, hotelToday, archived, onChanged }: { h
             <label style={field}>Capacity for each new night<input className="input-wrap" inputMode="numeric" value={capacity} onChange={(e) => { setCapacity(e.target.value); key.current = null }} /></label>
           </div>
           <label style={field}>Reason (kept with the request)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { setReason(e.target.value); key.current = null }} /></label>
-          {problems.length > 0 && (start !== '' || end !== '' || capacity !== '' || reason !== '') && <ul role="status" data-testid="request-problems" style={{ margin: 0, fontSize: 12, color: '#a11d1d' }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
+          {problems.length > 0 && (start !== '' || end !== '' || capacity !== '' || reason !== '') && <ul role="status" data-testid="request-problems" style={{ margin: 0, fontSize: 12, color: 'var(--c-a11d1d)' }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
           <div><button type="submit" className="button primary" data-testid="request-button" disabled={busy !== null || !valid}>{busy === 'request the nights' ? 'Sending…' : 'Request these nights'}</button></div>
         </form>
       )}

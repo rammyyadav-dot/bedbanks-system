@@ -23,7 +23,7 @@ export default function BookingPostingsPage() {
           <div className="workspace-panel" data-testid="booking-postings">
             <dl style={{ display: 'flex', gap: 24, padding: '10px 14px', margin: 0, flexWrap: 'wrap' }} aria-label="Posting counts">
               {([['Posted', d.counts.posted], ['Skipped (no money to move)', d.counts.skipped], ['Needs a person', d.counts.reviewRequired], ['Waiting', d.counts.waiting]] as const).map(([label, n]) => (
-                <div key={label}><dt style={{ fontSize: 11, color: '#3f565c' }}>{label}</dt><dd style={{ margin: 0, fontSize: 20, fontWeight: 600 }} data-testid={`count-${label.split(' ')[0].toLowerCase()}`}>{n}</dd></div>
+                <div key={label}><dt style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{label}</dt><dd style={{ margin: 0, fontSize: 20, fontWeight: 600 }} data-testid={`count-${label.split(' ')[0].toLowerCase()}`}>{n}</dd></div>
               ))}
             </dl>
 
@@ -74,12 +74,12 @@ export default function BookingPostingsPage() {
             {d.counts.waiting > d.waiting.length && <p style={{ fontSize: 11, padding: '4px 14px' }}>Showing the oldest {d.waiting.length} of {d.counts.waiting}. Events behind one that needs a person wait for it.</p>}
 
             {d.skippedByReason.length > 0 && (
-              <details style={{ fontSize: 11, color: '#3f565c', padding: '6px 14px' }}>
+              <details style={{ fontSize: 11, color: 'var(--c-3f565c)', padding: '6px 14px' }}>
                 <summary>Why events were skipped</summary>
                 <ul>{d.skippedByReason.map((s) => <li key={s.reason}><strong>{s.count}</strong> · {skipText(s.reason)}</li>)}</ul>
               </details>
             )}
-            <p style={{ fontSize: 11, color: '#3f565c', padding: '6px 14px' }}>Generated {when(d.generatedAt)}. The consumer runs only where Finance has enabled it for this deployment; an unavailable consumer is shown as a failure above, not as an empty list.</p>
+            <p style={{ fontSize: 11, color: 'var(--c-3f565c)', padding: '6px 14px' }}>Generated {when(d.generatedAt)}. The consumer runs only where Finance has enabled it for this deployment; an unavailable consumer is shown as a failure above, not as an empty list.</p>
           </div>
         )}
       </OpsState>

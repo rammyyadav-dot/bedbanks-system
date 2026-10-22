@@ -20,7 +20,7 @@ export function DetailDrawer({ open, onClose, title, subtitle, children }: { ope
           <X size={18} />
         </button>
         <h2>{title}</h2>
-        {subtitle && <p style={{ color: '#7c949a', fontSize: 11, margin: '0 0 16px' }}>{subtitle}</p>}
+        {subtitle && <p style={{ color: 'var(--c-7c949a)', fontSize: 11, margin: '0 0 16px' }}>{subtitle}</p>}
         {children}
       </div>
     </div>

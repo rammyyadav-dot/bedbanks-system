@@ -33,7 +33,7 @@ export default function ContractsPage() {
   }, [contracts, search, status])
 
   const columns: DataTableColumn<AdminContract>[] = [
-    { key: 'code', header: 'Contract', render: (c) => <Link href={`/contracts/${c.id}`} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{c.code}</Link> },
+    { key: 'code', header: 'Contract', render: (c) => <Link href={`/contracts/${c.id}`} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{c.code}</Link> },
     { key: 'supplier', header: 'Supplier', render: (c) => c.supplier.displayName },
     { key: 'validity', header: 'Validity', render: (c) => `${c.validFrom.slice(0, 10)} → ${c.validTo.slice(0, 10)}` },
     { key: 'currency', header: 'Currency', render: (c) => c.settlementCurrency },

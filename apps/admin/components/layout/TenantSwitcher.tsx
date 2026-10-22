@@ -35,7 +35,7 @@ export function TenantSwitcher({ memberships, activeTenantId }: { memberships: M
           </button>
         );
       })}
-      {error && <p role="alert" style={{ margin: 0, padding: '6px 12px', fontSize: 10, color: '#f0c3bd' }}>{error}</p>}
+      {error && <p role="alert" style={{ margin: 0, padding: '6px 12px', fontSize: 10, color: 'var(--k-f0c3bd)' }}>{error}</p>}
     </div>
   );
 }

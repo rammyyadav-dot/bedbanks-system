@@ -8,6 +8,7 @@ import { useCan } from '@/lib/auth/capabilities'
 import { getHotel360, getHotelsCommercial } from '@/lib/data/hotel-commercial'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { TenantSwitcher } from './TenantSwitcher'
+import { ThemeToggle } from './ThemeToggle'
 import { LogoutButton } from '@/components/auth/LogoutButton'
 import type { AuthenticatedUser } from '@/lib/api/auth-client'
 import { navSections } from './nav-config'
@@ -65,7 +66,7 @@ export function HotelAdminHeader({ identity, activeTenantId }: { identity: Authe
         </div>
       </details>
       {can('booking.read') && <Link className="hotel-header-action" href="/bookings"><ClipboardList size={13} />Reservations</Link>}
-      <details name="hotel-admin-menu" className="hotel-account"><summary aria-label="User account">{identity.user.name ?? identity.user.email}<ChevronDown size={12} /></summary><div className="hotel-admin-dropdown"><p>{identity.user.email}</p><TenantSwitcher memberships={identity.memberships} activeTenantId={activeTenantId} /><LogoutButton /></div></details>
+      <details name="hotel-admin-menu" className="hotel-account"><summary aria-label="User account">{identity.user.name ?? identity.user.email}<ChevronDown size={12} /></summary><div className="hotel-admin-dropdown"><p>{identity.user.email}</p><TenantSwitcher memberships={identity.memberships} activeTenantId={activeTenantId} /><ThemeToggle /><LogoutButton /></div></details>
     </div>
     <nav className="hotel-admin-nav" aria-label="Primary">
       <Link className="hotel-nav-link" href="/dashboard">Dashboard</Link>

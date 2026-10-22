@@ -35,12 +35,12 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
     catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the guest prices') }) } finally { setBusy(false) }
   }
 
-  if (loadError) return <p role="alert" style={{ color: '#a11d1d', fontSize: 12 }}>{loadError}</p>
+  if (loadError) return <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{loadError}</p>
   if (!state) return <p role="status" style={{ fontSize: 12 }}>Loading guest prices…</p>
   return (
     <section className="workspace-panel" style={{ maxWidth: 760, padding: 22, marginTop: 16 }} aria-label="Child and extra-adult prices">
       <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>Children and extra adults</h2>
-      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#3f565c' }}>The nightly rate is for {state.occupancy} adult{state.occupancy === 1 ? '' : 's'}. {drafts.length === 0 ? 'With no lines below, the plan sells only a party of exactly that size, priced flat, unless its contract has child bands.' : 'Each child is priced per night by their age band, each adult beyond the base by the extra-adult line. A child no band covers is not sold. NET or SELL must match the nightly rate.'} {drafts.some((d) => d.kind === 'CHILD') ? 'These child lines replace the contract child policy for this plan.' : 'With no child line here, the contract child policy prices children for this plan.'} Children may fill base places adults leave empty at no extra charge.</p>
+      <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--c-3f565c)' }}>The nightly rate is for {state.occupancy} adult{state.occupancy === 1 ? '' : 's'}. {drafts.length === 0 ? 'With no lines below, the plan sells only a party of exactly that size, priced flat, unless its contract has child bands.' : 'Each child is priced per night by their age band, each adult beyond the base by the extra-adult line. A child no band covers is not sold. NET or SELL must match the nightly rate.'} {drafts.some((d) => d.kind === 'CHILD') ? 'These child lines replace the contract child policy for this plan.' : 'With no child line here, the contract child policy prices children for this plan.'} Children may fill base places adults leave empty at no extra charge.</p>
       {drafts.map((line, index) => (
         <div key={index} data-testid="guest-line" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 6 }}>
           <FormField label="Guest"><select value={line.kind} onChange={(e) => patch(index, blankLineFor(e.target.value as GuestLineDraft['kind'], line))} disabled={!canManage}><option value="CHILD">Child by age</option><option value="EXTRA_ADULT">Extra adult</option></select></FormField>
@@ -55,8 +55,8 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
           {canManage ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => cur.filter((_, i) => i !== index)) }}>Remove</button> : null}
         </div>
       ))}
-      {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: '#a11d1d' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
-      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#a11d1d' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
+      {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: 'var(--c-a11d1d)' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
+      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-a11d1d)' : 'var(--c-1f7a5a)', fontSize: 12 }}>{message.text}</p> : null}
       {canManage ? (
         <span style={{ display: 'flex', gap: 8 }}>
           <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankLine('CHILD')]) }}>Add child band</button>

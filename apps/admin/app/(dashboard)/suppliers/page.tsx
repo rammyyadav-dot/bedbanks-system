@@ -34,7 +34,7 @@ export default function SuppliersPage() {
   }, [search])
 
   const columns = useMemo<DataTableColumn<SupplySupplier>[]>(() => [
-    { key: 'displayName', header: 'Supplier', render: (s) => <Link href={`/suppliers/${s.id}`} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{s.displayName}</Link> },
+    { key: 'displayName', header: 'Supplier', render: (s) => <Link href={`/suppliers/${s.id}`} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{s.displayName}</Link> },
     { key: 'legalName', header: 'Legal Name', render: (s) => s.legalName },
     { key: 'type', header: 'Type', render: (s) => s.type.split('_').join(' ') },
     { key: 'countryCode', header: 'Country', render: (s) => s.countryCode },

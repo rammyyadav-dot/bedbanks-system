@@ -24,7 +24,7 @@ export function GovernanceSlices() {
                 <Stat label="Hotels" value={m.totalHotels} href="/hotels" />
                 <Stat label="Destinations" value={m.destinations.length} href="/markets" />
               </ul>
-              <p style={{ fontSize: 11, color: '#3f565c', margin: 0 }}>
+              <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: 0 }}>
                 {m.destinations.slice(0, 3).map((d) => <a key={`${d.countryCode}-${d.city}`} href={listHref({ destination: d.city })} style={{ marginRight: 10 }}>{d.city}: {d.ready} ready / {d.hotels}</a>)}
               </p>
             </>

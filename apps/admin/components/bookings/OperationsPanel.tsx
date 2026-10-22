@@ -12,9 +12,9 @@ import { formatInZone, statusLabel } from '@/lib/booking-ui'
 import { acknowledgeOpsCase, answerOpsCase, assignOpsCase, clearOpsCase, escalateOpsCase, getOpsAssignees, noteOpsCase, postBookingSupplier } from '@/lib/data/operations'
 import { Modal } from './Modal'
 
-const muted: React.CSSProperties = { color: '#3f565c' }
+const muted: React.CSSProperties = { color: 'var(--c-3f565c)' }
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
-const input: React.CSSProperties = { border: '1px solid #c5d4d8', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
+const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(150px, 220px) 1fr', gap: '6px 14px', margin: 0, fontSize: 12 }
 type Dialog = null | 'assign' | 'escalate' | 'note' | 'clear' | 'answer'
 
@@ -27,7 +27,7 @@ function FormDialog({ title, submitLabel, intro, onClose, onDone, run, children,
       <form onSubmit={submit} noValidate style={{ display: 'grid', gap: 10 }} data-testid="ops-dialog">
         {intro && <p style={{ margin: 0, ...muted, fontSize: 12 }}>{intro}</p>}
         {children}
-        {error && <div role="alert" data-testid="ops-dialog-error" style={{ color: '#a11d1d', fontSize: 12 }}>{error.message}{error.requestId ? <div style={{ fontSize: 11, ...muted }}>Reference: request {error.requestId}</div> : null}</div>}
+        {error && <div role="alert" data-testid="ops-dialog-error" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{error.message}{error.requestId ? <div style={{ fontSize: 11, ...muted }}>Reference: request {error.requestId}</div> : null}</div>}
         <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="admin-btn admin-btn-primary" disabled={busy || !valid} aria-busy={busy}>{busy ? 'Working…' : submitLabel}</button></div>
       </form>
     </Modal>
@@ -65,8 +65,8 @@ export function OperationsPanel({ d, onChanged, refresh }: { d: BookingDetailVie
           <span data-testid="ops-remaining">{formatRemaining(i.slaRemainingSeconds)}</span>
         </div>
       )}
-      {unknown && <div role="alert" data-testid="ops-unknown" style={{ border: '1px solid #e0b4b4', background: '#fff7f7', padding: 10, borderRadius: 6, fontSize: 12 }}><strong>Supplier answer unknown.</strong> The supplier may already hold this booking, so it has <u>not</u> been marked failed and it must not be sent again: a second request could create a duplicate booking. Sync with the supplier, or record the supplier’s answer once you have it.</div>}
-      {cancelFailed && <div role="alert" data-testid="ops-cancel-failed" style={{ border: '1px solid #e0b4b4', background: '#fff7f7', padding: 10, borderRadius: 6, fontSize: 12 }}><strong>Urgent — supplier cancellation not confirmed.</strong> The booking is still Cancel requested and the guest may still be exposed to the hotel’s penalty. Settle it with the supplier and record the outcome.</div>}
+      {unknown && <div role="alert" data-testid="ops-unknown" style={{ border: '1px solid var(--c-e0b4b4)', background: 'var(--c-fff7f7)', padding: 10, borderRadius: 6, fontSize: 12 }}><strong>Supplier answer unknown.</strong> The supplier may already hold this booking, so it has <u>not</u> been marked failed and it must not be sent again: a second request could create a duplicate booking. Sync with the supplier, or record the supplier’s answer once you have it.</div>}
+      {cancelFailed && <div role="alert" data-testid="ops-cancel-failed" style={{ border: '1px solid var(--c-e0b4b4)', background: 'var(--c-fff7f7)', padding: 10, borderRadius: 6, fontSize: 12 }}><strong>Urgent — supplier cancellation not confirmed.</strong> The booking is still Cancel requested and the guest may still be exposed to the hotel’s penalty. Settle it with the supplier and record the outcome.</div>}
       <dl style={dl}>
         <dt style={muted}>Booking status</dt><dd style={{ margin: 0 }}>{statusLabel(i.status)}</dd>
         <dt style={muted}>Supplier</dt><dd style={{ margin: 0 }}>{i.supplier.name}{i.supplier.configured ? '' : ' (no supplier connection)'}</dd>
@@ -95,7 +95,7 @@ export function OperationsPanel({ d, onChanged, refresh }: { d: BookingDetailVie
           {unknown && !supplierOps.includes('send') && <span style={{ ...muted, fontSize: 11 }} data-testid="ops-send-withheld">“Send to supplier” is withheld while the answer is unknown.</span>}
         </div>
       )}
-      {error && <div role="alert" data-testid="ops-error" style={{ color: '#a11d1d', fontSize: 12 }}>{error}</div>}
+      {error && <div role="alert" data-testid="ops-error" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{error}</div>}
       <div>
         <h3 style={{ fontSize: 12, margin: '0 0 4px' }}>Operations timeline</h3>
         {op.timeline.length === 0 ? <p style={{ ...muted, fontSize: 12, margin: 0 }}>Nothing recorded yet.</p> : (

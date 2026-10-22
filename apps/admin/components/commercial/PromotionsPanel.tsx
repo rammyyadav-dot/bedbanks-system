@@ -36,12 +36,12 @@ export function PromotionsPanel({ ratePlanId }: { ratePlanId: string }) {
     catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the promotions') }) } finally { setBusy(false) }
   }
 
-  if (loadError) return <p role="alert" style={{ color: '#a11d1d', fontSize: 12 }}>{loadError}</p>
+  if (loadError) return <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{loadError}</p>
   if (updatedAt === null) return <p role="status" style={{ fontSize: 12 }}>Loading promotions…</p>
   return (
     <section className="workspace-panel" style={{ maxWidth: 760, padding: 22, marginTop: 16 }} aria-label="Promotions">
       <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>Promotions</h2>
-      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#3f565c' }}>{drafts.length === 0 ? 'No promotions: the plan sells at its rate.' : 'Only one promotion applies to a stay: the one that saves the buyer the most. They never stack. The discount comes off the net before the markup.'}</p>
+      <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--c-3f565c)' }}>{drafts.length === 0 ? 'No promotions: the plan sells at its rate.' : 'Only one promotion applies to a stay: the one that saves the buyer the most. They never stack. The discount comes off the net before the markup.'}</p>
       {drafts.map((row, index) => (
         <div key={index} data-testid="promotion-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
           <FormField label="Kind"><select value={row.kind} onChange={(e) => patch(index, blankPromotionFor(e.target.value as PromotionKind, row))} disabled={!canManage}>{(Object.keys(KIND_LABELS) as PromotionKind[]).map((kind) => <option key={kind} value={kind}>{KIND_LABELS[kind]}</option>)}</select></FormField>
@@ -61,8 +61,8 @@ export function PromotionsPanel({ ratePlanId }: { ratePlanId: string }) {
           {canManage ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => cur.filter((_, i) => i !== index)) }}>Remove</button> : null}
         </div>
       ))}
-      {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: '#a11d1d' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
-      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? '#a11d1d' : '#1f7a5a', fontSize: 12 }}>{message.text}</p> : null}
+      {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: 'var(--c-a11d1d)' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
+      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-a11d1d)' : 'var(--c-1f7a5a)', fontSize: 12 }}>{message.text}</p> : null}
       {canManage ? (
         <span style={{ display: 'flex', gap: 8 }}>
           <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankPromotion('EARLY_BIRD')]) }}>Add promotion</button>

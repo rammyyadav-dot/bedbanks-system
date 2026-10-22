@@ -6,7 +6,7 @@ export function PageHeader({
   return (
     <div className="admin-page-header">
       <div>
-        <div className="admin-eyebrow"><i className="status-dot" style={{ background: '#22c4a5', width: 6, height: 6, borderRadius: '50%', display: 'inline-block' }} />{eyebrow}</div>
+        <div className="admin-eyebrow"><i className="status-dot" style={{ background: 'var(--c-22c4a5)', width: 6, height: 6, borderRadius: '50%', display: 'inline-block' }} />{eyebrow}</div>
         <h1>{title}</h1>
         <p>{description}</p>
       </div>

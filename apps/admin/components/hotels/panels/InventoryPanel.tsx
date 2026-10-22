@@ -14,8 +14,8 @@ import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 import { PoolWorkspace } from './PoolWorkspace'
 import { RatesInventoryPanel } from './RatesInventoryPanel'
 
-const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as const
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
 const MODE_HELP: Record<string, string> = {
   ALLOTMENT: 'Sells while stock remains',
   FREE_SALE: 'Sells without counting stock',
@@ -162,7 +162,7 @@ function CreatePool({ hotelId, data, onChanged }: { hotelId: string; data: Hotel
         <label style={field}>Pool name<input className="input-wrap" value={name} maxLength={INVENTORY_LIMITS.poolNameMax} onChange={(e) => setName(e.target.value)} /></label>
         <label style={field}>Supplier<select className="input-wrap" value={supplierId} onChange={(e) => { setSupplierId(e.target.value); setPicked([]) }}><option value="">Choose…</option>{suppliers.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       </div>
-      {supplierId && <fieldset style={{ border: '1px solid #e6eef0', margin: 0, padding: 8 }}><legend style={{ fontSize: 12 }}>Rate plans to include</legend>
+      {supplierId && <fieldset style={{ border: '1px solid var(--c-e6eef0)', margin: 0, padding: 8 }}><legend style={{ fontSize: 12 }}>Rate plans to include</legend>
         {candidates.length === 0 ? <span style={note}>No unpooled rate plan for this supplier.</span> : candidates.map((c) => (
           <label key={c.ratePlanId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}><input type="checkbox" checked={picked.includes(c.ratePlanId)} onChange={(e) => setPicked((s) => e.target.checked ? [...s, c.ratePlanId] : s.filter((x) => x !== c.ratePlanId))} />{c.ratePlanCode} · {c.roomName} · {c.boardCode}</label>))}
       </fieldset>}

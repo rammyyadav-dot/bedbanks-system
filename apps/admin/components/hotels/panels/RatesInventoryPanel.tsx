@@ -38,7 +38,7 @@ export function RatesInventoryPanel({ hotelId, rooms }: { hotelId: string; rooms
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.rows.length === 0} empty={{ title: 'No rate plans', description: 'This hotel has no rate plan, so there is no rate or inventory to show.' }}>
         {(data) => (
           <div data-testid="calendar">
-            <p style={{ color: '#3f565c', fontSize: 11, marginTop: 0 }}>{data.window.from} → {data.window.to} · remaining = stock − sold − held, from the shared pool for pooled plans · missing inventory means unknown, zero means unavailable · amounts are integer minor units shown as currency{data.truncated ? ' · first plans only (limit reached)' : ''}</p>
+            <p style={{ color: 'var(--c-3f565c)', fontSize: 11, marginTop: 0 }}>{data.window.from} → {data.window.to} · remaining = stock − sold − held, from the shared pool for pooled plans · missing inventory means unknown, zero means unavailable · amounts are integer minor units shown as currency{data.truncated ? ' · first plans only (limit reached)' : ''}</p>
             {data.rows.map((row, index) => {
               const sellable = row.cells.filter((c) => c.sellable).length
               return (

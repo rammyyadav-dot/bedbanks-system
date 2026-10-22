@@ -11,17 +11,17 @@ export function ChartCard({ title, subtitle, bars, actions }: { title: string; s
     <div className="panel">
       <div className="panel-header">
         <div>
-          <div className="panel-kicker"><i className="status-dot" style={{ background: '#22c4a5', width: 6, height: 6, borderRadius: '50%', display: 'inline-block' }} /></div>
+          <div className="panel-kicker"><i className="status-dot" style={{ background: 'var(--c-22c4a5)', width: 6, height: 6, borderRadius: '50%', display: 'inline-block' }} /></div>
           <h2>{title}</h2>
         </div>
         {actions}
       </div>
-      <div style={{ padding: '4px 18px 18px', color: '#7c949a', fontSize: 10 }}>{subtitle}</div>
+      <div style={{ padding: '4px 18px 18px', color: 'var(--c-7c949a)', fontSize: 10 }}>{subtitle}</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '0 18px 20px', height: 120 }}>
         {bars.map((bar) => (
           <div key={bar.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: '100%', height: Math.max(6, (bar.value / max) * 90), background: '#18bed0', borderRadius: 3 }} title={`${bar.label}: ${bar.value}`} />
-            <span style={{ fontSize: 8, color: '#92a5a9', fontFamily: "'Courier New', monospace" }}>{bar.label}</span>
+            <div style={{ width: '100%', height: Math.max(6, (bar.value / max) * 90), background: 'var(--c-18bed0)', borderRadius: 3 }} title={`${bar.label}: ${bar.value}`} />
+            <span style={{ fontSize: 8, color: 'var(--c-92a5a9)', fontFamily: "'Courier New', monospace" }}>{bar.label}</span>
           </div>
         ))}
       </div>

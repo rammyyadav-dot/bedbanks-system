@@ -31,7 +31,7 @@ export default function RoomsPage() {
   const hotelNames = useMemo(() => new Map(hotels.map(hotel => [hotel.id, hotel.name])), [hotels])
   const filtered = useMemo(() => rooms.filter(room => `${room.name} ${room.code} ${hotelNames.get(room.hotelId) ?? ''}`.toLowerCase().includes(search.toLowerCase())), [rooms, search, hotelNames])
   const columns: DataTableColumn<Room>[] = [
-    { key: 'name', header: 'Room type', render: room => <Link href={`/hotels/${room.hotelId}/rooms/${room.id}`} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{room.name}</Link> },
+    { key: 'name', header: 'Room type', render: room => <Link href={`/hotels/${room.hotelId}/rooms/${room.id}`} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{room.name}</Link> },
     { key: 'hotel', header: 'Hotel', render: room => hotelNames.get(room.hotelId) ?? '—' },
     { key: 'code', header: 'Code', render: room => room.code },
     { key: 'occupancy', header: 'Occupancy', render: room => `${room.maxAdults}A + ${room.maxChildren}C · max ${room.maxOccupancy}` },

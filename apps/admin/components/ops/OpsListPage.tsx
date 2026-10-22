@@ -70,11 +70,11 @@ export function OpsListPage<T>({ eyebrow, title, description, filters = [], load
           <div className="workspace-panel">
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead><tr>{columns.map(c => <th key={c.key} scope="col" style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: '#3f565c', borderBottom: '1px solid #e6eef0', whiteSpace: 'nowrap' }}>{c.header}</th>)}</tr></thead>
+                <thead><tr>{columns.map(c => <th key={c.key} scope="col" style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap' }}>{c.header}</th>)}</tr></thead>
                 <tbody>
                   {data.items.map(row => (
-                    <tr key={getRowId(row)} style={{ borderBottom: '1px solid #edf2f3' }}>
-                      {columns.map(c => <td key={c.key} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: '#2c4a55', verticalAlign: 'middle' }}>{c.render(row)}</td>)}
+                    <tr key={getRowId(row)} style={{ borderBottom: '1px solid var(--c-edf2f3)' }}>
+                      {columns.map(c => <td key={c.key} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-2c4a55)', verticalAlign: 'middle' }}>{c.render(row)}</td>)}
                     </tr>
                   ))}
                 </tbody>

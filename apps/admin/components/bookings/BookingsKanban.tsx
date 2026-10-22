@@ -9,8 +9,8 @@ import { getOpsBookings } from '@/lib/data/operations'
 import { bookingHref, deadlineUrgency, urgencyBadgeView } from '@/lib/booking-ui'
 import { KANBAN_CARD_LIMIT, kanbanListQuery, kanbanOverflow, kanbanParams, kanbanTitle, visibleKanbanStatuses, type KanbanStatus } from '@/lib/booking-kanban-ui'
 
-const small: React.CSSProperties = { display: 'block', color: '#3f565c', fontSize: 10, marginTop: 2 }
-const accent = (status: KanbanStatus) => ({ ok: '#22a58a', warn: '#d9962b', bad: '#c0443f', neutral: '#8aa0a6' }[bookingTone(status)])
+const small: React.CSSProperties = { display: 'block', color: 'var(--c-3f565c)', fontSize: 10, marginTop: 2 }
+const accent = (status: KanbanStatus) => ({ ok: 'var(--c-22a58a)', warn: 'var(--c-d9962b)', bad: 'var(--c-c0443f)', neutral: 'var(--c-8aa0a6)' }[bookingTone(status)])
 
 /**
  * The Bookings board (ADR 0039, Phase 6D). One column per working status, each loaded independently from the same list API with the person's filters, so one slow or
@@ -32,14 +32,14 @@ function KanbanColumn({ status, query, now }: { status: KanbanStatus; query: Boo
   const key = JSON.stringify(params)
   const { state, reload } = useOpsQuery(() => getOpsBookings(params), [key])
   return (
-    <section aria-label={kanbanTitle(status)} data-testid="kanban-column" data-status={status} style={{ background: '#f5f8f9', border: '1px solid #e1eaec', borderTop: `3px solid ${accent(status)}`, borderRadius: 6, padding: 8, minHeight: 120 }}>
+    <section aria-label={kanbanTitle(status)} data-testid="kanban-column" data-status={status} style={{ background: 'var(--c-f5f8f9)', border: '1px solid var(--c-e1eaec)', borderTop: `3px solid ${accent(status)}`, borderRadius: 6, padding: 8, minHeight: 120 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '2px 4px 8px' }}>
         <strong style={{ fontSize: 12 }}>{kanbanTitle(status)}</strong>
-        <span data-testid="kanban-count" style={{ fontSize: 11, color: '#3f565c' }}>{state.status === 'ready' ? state.data.total : '…'}</span>
+        <span data-testid="kanban-count" style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{state.status === 'ready' ? state.data.total : '…'}</span>
       </header>
       <OpsState state={state} onRetry={reload}>
         {(data) => data.items.length === 0
-          ? <p style={{ fontSize: 11, color: '#3f565c', margin: '6px 4px' }}>Nothing here.</p>
+          ? <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: '6px 4px' }}>Nothing here.</p>
           : (
             <>
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
@@ -59,7 +59,7 @@ function KanbanCard({ row, now }: { row: BookingListRow; now: Date }) {
   const urgency = deadlineUrgency(row.cancelDeadline, now)
   const urgent = urgencyBadgeView(row.urgency)
   return (
-    <Link href={`/bookings/${row.id}`} data-testid="kanban-card" aria-label={`Open booking ${row.reference}`} style={{ display: 'block', background: '#fff', border: '1px solid #e1eaec', borderRadius: 5, padding: '8px 10px', color: 'inherit', textDecoration: 'none', fontSize: 11 }}>
+    <Link href={`/bookings/${row.id}`} data-testid="kanban-card" aria-label={`Open booking ${row.reference}`} style={{ display: 'block', background: 'var(--c-ffffff)', border: '1px solid var(--c-e1eaec)', borderRadius: 5, padding: '8px 10px', color: 'inherit', textDecoration: 'none', fontSize: 11 }}>
       <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}><strong>{row.reference}</strong><Money minor={row.sellMinor} currency={row.currency} /></span>
       <span style={small}>{row.hotel.name ?? 'Hotel not readable'}</span>
       <span style={small}>{row.leadGuest ? row.leadGuest.name : '—'}{row.guests ? ` · ${row.guests.adults} AD${row.guests.children ? ` · ${row.guests.children} C` : ''}` : ''}</span>
