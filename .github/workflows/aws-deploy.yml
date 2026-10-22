@@ -34,6 +34,7 @@ jobs:
   gate:
     name: Promotion gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Require green release checks, and for production main plus a successful staging deployment of the same commit
         env:
@@ -66,6 +67,7 @@ jobs:
   deploy:
     needs: gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     environment: ${{ inputs.environment }}
     steps:
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0

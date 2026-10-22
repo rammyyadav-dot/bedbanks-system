@@ -6,7 +6,9 @@
 - pnpm ≥ 9 (`pnpm -v`, install with `npm i -g pnpm`)
 - PostgreSQL ≥ 15 running locally (`psql --version`)
 
-Create the normal development database once:
+Easiest: `docker compose up -d --wait` starts PostgreSQL 16 with pgvector (database `fbeds_dev`, user and password `postgres`, 127.0.0.1 only) and Redis at the same pinned images CI uses, then use `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/fbeds_dev?schema=public`. Skip the manual step below if you do.
+
+Otherwise create the normal development database once:
 
 ```bash
 psql -U postgres -c "CREATE DATABASE fbeds_dev;"

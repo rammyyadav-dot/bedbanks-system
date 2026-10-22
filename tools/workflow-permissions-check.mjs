@@ -18,6 +18,14 @@ export function check(name, text) {
     if (!/@sha256:[0-9a-f]{64}$/.test(image)) problems.push(`${name}: container image ${image} is not pinned to a digest`)
   }
   if (/^\s*runs-on:\s*['"]?[\w-]*-latest\b/m.test(text)) problems.push(`${name}: runs-on uses a floating -latest runner image`)
+  // A hung job otherwise runs for the 6-hour default, holding an environment lock and burning minutes. Every job declares an explicit limit.
+  const jobs = text.split(/^jobs:\s*$/m)[1]
+  if (jobs) {
+    for (const block of jobs.split(/^(?=  [A-Za-z0-9_-]+:\s*$)/m)) {
+      const id = /^  ([A-Za-z0-9_-]+):\s*$/m.exec(block)?.[1]
+      if (id && !/^ {4}timeout-minutes:\s*\d+\s*$/m.test(block) && !/^ {4}uses:/m.test(block)) problems.push(`${name}: job ${id} has no timeout-minutes`)
+    }
+  }
   return problems
 }
 
@@ -26,5 +34,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))
   const problems = files.flatMap((f) => check(f, readFileSync(new URL(f, dir), 'utf8')))
   if (problems.length) { console.error(`Workflow permission check failed:\n- ${problems.join('\n- ')}`); process.exit(1) }
-  console.log(`Workflow permission check: ${files.length} workflows declare least-privilege permissions and pin actions, runners and images.`)
+  console.log(`Workflow permission check: ${files.length} workflows declare least-privilege permissions, pin actions, runners and images, and set job timeouts.`)
 }

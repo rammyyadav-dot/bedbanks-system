@@ -24,6 +24,7 @@ permissions:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
@@ -49,6 +50,7 @@ jobs:
   build:
     needs: plan
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     # The build role may only be assumed from main (see infra/aws/terraform/iam.tf).
     if: github.ref == 'refs/heads/main'
     environment: ${{ inputs.environment }}
