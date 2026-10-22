@@ -12,21 +12,21 @@
 
 | ID | Status | What changed |
 | --- | --- | --- |
-| BUG-01 | **Open** | Needs the CI database setup to reproduce; not attempted here. |
+| BUG-01 | Re-diagnosed, mitigated | With the CI database steps reproduced locally (fresh `fbeds_ci`, migrations deployed) the full e2e suite **passes**: 117 suites, 1170 tests, no crash. The earlier crash was caused by my missing database setup, so the original description below overstated it. The real finding: one process accumulates heap from about 1.1 GB to a **1948 MB peak against a 2096 MB limit** (Node 22 in this container; the 4 GB CI runner default is higher, but the margin is thin). `test:e2e` and `test:unit` now set `--max-old-space-size=4096`, and `test:e2e` logs heap per suite (`--logHeapUsage`) so a rising trend is visible in CI. The underlying accumulation (apps or clients not released between suites) is not yet found. |
 | BUG-02 | Fixed | `js-yaml@^5` override to `^5.4.1` in root `package.json`; `pnpm audit --prod` now lists only BUG-03. |
-| BUG-03 | **Open, tracked** | Waits on a Prisma release that carries `deepmerge-ts` 8. Allowlist expires 2026-12-31. |
+| BUG-03 | Fixed | The fix only ships in Prisma 8 (still a release candidate), so instead of upgrading Prisma, `deepmerge-ts@^7` is overridden to `^8.0.2`. Verified with `prisma:validate`, `prisma:generate`, `prisma:migrate:deploy` of every migration on a fresh database, `prisma:migrate:status` and `prisma:migrate:drift` (no drift). `pnpm audit --prod` reports no known vulnerabilities and the allowlist entry is removed. Re-check this override when Prisma is next upgraded. |
 | BUG-04 | Fixed | `SupplierPermissionGuard` plus `@RequireSupplierPermission` on all 17 supplier routes; fails closed. Test walks every route. See ADR 0088. Service checks kept. |
 | BUG-05 | Decided | No key needed for a replace-style note save. Recorded in ADR 0088. |
 | UX-01 | Fixed | Unavailable pages use a muted grey dot. |
 | UX-02 | Fixed | Disabled search box removed from the top bar. |
 | UX-03 | Fixed | Hotel detail uses a plain definition list. |
-| UX-04 | Fixed (contrast); text size open | `tests/08-supplier-a11y.spec.ts` runs axe (WCAG 2.1 A/AA) over 15 supplier pages and passes. It first found colour-contrast failures only (ratios 2.5 to 4.4 against 4.5 needed) in the sidebar, page eyebrow, breadcrumbs, table headers and sub-text, and back link; colours were darkened or lightened to pass, and the blanket `opacity: .62` on unavailable nav items was removed. **Still open:** much supplier text is 7 to 9 px, which axe does not flag but is hard to read; that needs a design decision, as does grouping the unavailable nav items. |
+| UX-04 | Fixed (contrast, text size); nav grouping open | `tests/08-supplier-a11y.spec.ts` runs axe (WCAG 2.1 A/AA) over 15 supplier pages and passes. It first found colour-contrast failures only (ratios 2.5 to 4.4 against 4.5 needed); colours were corrected and the blanket `opacity: .62` on unavailable nav items was removed. Text that was 7 to 9 px is now 10 to 11 px, and nav item spacing was tightened so all 14 items still fit at 900 px height. Not done: grouping the unavailable nav items is a product decision. |
 | UX-05 | Fixed | Dead `properties` page files deleted; the redirects stay. |
-| MAINT-01 | **Open** | Splitting `supply.service.ts` and `operations-hotels.service.ts` is a refactor that needs its own change. |
+| MAINT-01 | **Open, deliberately** | `SupplyService` method names are pinned by string in `runtime-role-contract.ts` (for example `SupplyService.createHotel`), which defines per-call-site database permissions, and the runtime-role and tenant-filter checks reference the class. A split must update that contract and its tests together, so it needs its own reviewed change with an ADR, not a drive-by edit. `operations-hotels.service.ts` has the same shape of risk. |
 | MAINT-02 | Fixed | One `formatCoordinate` helper in `hotel-setup/hotel-decimal.ts`. |
 | MAINT-03 | Started | `no-explicit-any` is now a lint warning in production code (not tests), so new uses show up. The existing uses are still to be removed. |
 
-Verified after the fixes: `pnpm check:architecture`, `pnpm type-check`, `pnpm lint` pass; API unit tests 1885 pass (23 new); supplier unit tests pass; live Playwright API-security (S1–S10), supplier (X1–X6), screenshot and accessibility specs pass, against a fresh stack built from this branch.
+Verified after the fixes (latest round included): API e2e suite 117 suites / 1170 tests pass against a CI-equivalent database; `pnpm check:architecture`, `pnpm type-check`, `pnpm lint` pass; API unit tests 1885 pass (23 new); supplier unit tests pass; live Playwright API-security (S1–S10), supplier (X1–X6), screenshot and accessibility specs pass, against a fresh stack built from this branch.
 
 ## 2. Gate results (run on this branch)
 
@@ -48,7 +48,7 @@ Not a bug, but note it: this container runs Node 22 and the repo requires 24. Ev
 
 Severity: **High** blocks release; **Medium** fix this sprint; **Low** schedule.
 
-### BUG-01 (Medium, verified here, not yet confirmed in CI): API e2e suite crashes with a V8 heap out of memory
+### BUG-01 (Medium; see the status table, re-diagnosed): API e2e suite has thin memory headroom
 - **Evidence:** `pnpm test` exited 134. The `@bedbanks/api` e2e stage (`jest --config ./test/jest-e2e.json --runInBand`) died with `FATAL ERROR: Ineffective mark-compacts near heap limit` at about 2 GB, after several DB-backed specs failed (`rate-plan-approval`, `booking-finance`, `rate-plan-derived`, `inventory-admin`, `hotel-readiness`). Those failures are probably because I did not provision the CI database environment here, so I cannot say the suite itself is broken.
 - **What is real:** one process runs every e2e spec in sequence and its heap grows until it hits the default limit. Failures made it worse here, and with more specs it can happen in CI too.
 - **Fix:**
