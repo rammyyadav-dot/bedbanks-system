@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { RatePlanOpsDatabase } from '../src/supply/rate-plan-ops-database'
 import { RatePlanExpirySweeper } from '../src/supply/rate-plan-expiry-sweeper.service'
+import { hotelToday } from '../src/supply/rate-plan-expiry'
 import { deprovisionRatePlanOpsRole, provisionRatePlanOpsRole, RATE_PLAN_OPS_LOGIN_ROLE, verifyRatePlanOpsRole } from '../src/database/rate-plan-ops-role'
 import { certifyRatePlanOpsRole } from '../src/database/rate-plan-ops-verify'
 
@@ -11,7 +12,10 @@ import { certifyRatePlanOpsRole } from '../src/database/rate-plan-ops-verify'
 const prisma = new PrismaClient()
 const ownerUrl = process.env.DATABASE_URL as string
 const DAY = 86_400_000
-const day = (offset: number) => new Date(Math.floor(Date.now() / DAY) * DAY + offset * DAY)
+// The sweeper judges plans in the hotel's calendar, so "today" here is the hotel's day. The fixtures' hotels are in Asia/Dubai; a UTC day is one day
+// behind for them between 20:00 and 24:00 UTC, which made the last-sale-day plan expire on the first pass.
+const HOTEL_TIME_ZONE = 'Asia/Dubai'
+const day = (offset: number) => new Date(Date.parse(`${hotelToday(new Date(), HOTEL_TIME_ZONE)!}T00:00:00.000Z`) + offset * DAY)
 
 describe('Rate plan expiry sweeper (lifecycle role)', () => {
   const suffix = `expiry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
