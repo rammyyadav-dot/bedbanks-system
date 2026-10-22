@@ -35,8 +35,8 @@ ADR 0077-0081 normalize, store and resolve supplier feeds; ADR 0082 and 0083 rec
 ## Not built (invariant 10: do not present as capability)
 - **Nothing invokes the writer.** No worker, schedule, route, permission or Admin screen; no environment flag exists. It runs only when code calls `promote`, on a connection that holds the role. Nothing is deployed or provisioned.
 - **A held batch has no review workflow.** HELD is evidence only; there is no screen, no approve-and-apply action, and no automatic retry. Applying a held batch needs a person and a new, reviewed mechanism.
-- **Not verified end to end against Agent search.** Tests prove what is written, with which provenance and freshness; they do not run search, recheck or a hold over promoted rows. NET rates still need an ACTIVE markup rule and the
-  contract and plan must be sellable under the existing evaluator.
+- **Sellability is verified for search and recheck only.** `supplier-promotion-sellability.e2e-spec.ts` shows promoted rows are what Agent search and recheck sell. Holds, prebook and booking were not exercised
+  (booking is disabled platform-wide, ADR 0007), and the test uses a synthetic supplier and an ACTIVE contract linked to an approved hotel mapping.
 - Cancellation policies are not promoted; neither are minimum stay, maximum stay, closed to arrival or departure (undecided, ADR 0083).
 - Manual allotment-count edits on a feed-managed plan are still not refused (ADR 0083).
 - Rates for nights a feed drops are not withdrawn (only availability is closed); they count toward the 20% guard and otherwise stay until a person or a later feed changes them.
@@ -51,4 +51,9 @@ and must be corrected by people). No other table, grant or permission changes.
 ## Verification
 `test/supplier-promotion.e2e-spec.ts` (PostgreSQL 16, full chain replayed, no drift, narrow role): verifier and all probes pass; rates, plan stock and pool capacity promoted with provenance and freshness; blocks reported;
 run evidence and SYSTEM audit; idempotent replay; REMAINING respects sold and held; manual close not reopened; omitted night closed only for feed-promoted nights; 30% move holds the batch with nothing written; undeclared
-profile promotes nothing; the role is refused outside its lane and isolated by tenant. `supplier-promotion-role.spec.ts` covers the grants. The full API unit suite and `pnpm check:architecture` pass.
+profile promotes nothing; the role is refused outside its lane and isolated by tenant. `supplier-promotion-role.spec.ts` covers the grants.
+
+**Sellability** (`test/supplier-promotion-sellability.e2e-spec.ts`, 8 tests, real `ContractedInventoryAdapter`, no mocks): nothing is sold before promotion; a promoted NET rate with stock is still not sold without an ACTIVE markup rule
+(ADR 0018); with one, the plan is sold at net plus integer markup (82,500 net, 8,250 markup, 90,750 sell for two nights) and recheck confirms the same price; a REMAINING count of 1 shows `limited`, 0 hides the plan and a larger count
+restores it; room-wide stock in a pool makes two plans share one unit (both `limited`, both hidden once it is sold); a plan failing the tax-flag rule is never promoted and never sold; a held batch leaves the previous price selling;
+expired promoted stock hides the offer (a feed that stops fails closed); a night the complete feed drops is closed, removing every stay through it while a stay avoiding it still sells. The full API unit suite and `pnpm check:architecture` pass.
