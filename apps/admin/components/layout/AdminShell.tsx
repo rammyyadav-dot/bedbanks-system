@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import './hotel-admin.css';
+import './shell-theme.css';
 import { HotelAdminHeader } from './HotelAdminHeader';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
@@ -20,12 +21,19 @@ export function AdminShell({ children, identity }: AdminShellProps) {
   const pathname = usePathname();
   const hotelLayout = pathname === '/hotels' || pathname.startsWith('/hotels/');
   const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileOpen(false); };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [mobileOpen]);
   // Set during render so it is in place before any child effect issues its first API call.
   const activeTenantId = pickActiveTenantId(identity.memberships);
   setActiveTenantId(activeTenantId);
 
   return (
     <CapabilityProvider tenantId={activeTenantId}>
+    <a href="#main-content" className="skip-link">Skip to main content</a>
     <div className={hotelLayout ? 'hotel-admin-shell' : undefined} style={{ display: 'flex', minHeight: '100vh' }}>
       {!hotelLayout && <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} identity={identity} />}
       {mobileOpen && (
@@ -38,7 +46,7 @@ export function AdminShell({ children, identity }: AdminShellProps) {
       )}
       <div className="enterprise-main">
         {hotelLayout ? <HotelAdminHeader key={pathname} identity={identity} /> : <Topbar identity={identity} onMenuClick={() => setMobileOpen(true)} />}
-        <main><RouteGuard>{children}</RouteGuard></main>
+        <main id="main-content" tabIndex={-1}><RouteGuard>{children}</RouteGuard></main>
       </div>
     </div>
     </CapabilityProvider>

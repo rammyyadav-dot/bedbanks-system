@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu, ChevronDown } from 'lucide-react';
 import { Breadcrumbs } from './Breadcrumbs';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import type { AuthenticatedUser } from '@/lib/api/auth-client';
 import { userInitials } from '@/lib/auth/identity';
+import { activeMembership } from '@/lib/api/tenant-context';
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -15,7 +16,17 @@ interface TopbarProps {
 export function Topbar({ onMenuClick, identity }: TopbarProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const initials = userInitials(identity.user);
-  const primaryTenant = identity.memberships[0];
+  const primaryTenant = activeMembership(identity.memberships);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const outside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setUserMenuOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setUserMenuOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [userMenuOpen]);
 
   return (
     <header className="enterprise-topbar">
@@ -25,7 +36,7 @@ export function Topbar({ onMenuClick, identity }: TopbarProps) {
       <Breadcrumbs />
       <div style={{ flex: 1 }} />
       <div className="topbar-actions">
-        <div style={{ position: 'relative' }}>
+        <div ref={menuRef} style={{ position: 'relative' }}>
           <button
             type="button"
             onClick={() => setUserMenuOpen((v) => !v)}
