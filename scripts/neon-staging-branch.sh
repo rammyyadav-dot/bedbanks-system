@@ -32,6 +32,8 @@
 # replica-status Lists the production branch's endpoints (id, type, state, autoscaling range, pooler). No secrets.
 #
 # Never prints a connection string or password. Requires curl, node and (through npx) neonctl.
+# SC2016: the single-quoted strings are JavaScript for `json`, not shell. SC2015: `[[ ok ]] && [ ok ] || die` is a guard; die never returns.
+# shellcheck disable=SC2016,SC2015
 set -Eeuo pipefail
 
 NEON_API="${NEON_API_URL:-https://console.neon.tech/api/v2}"
