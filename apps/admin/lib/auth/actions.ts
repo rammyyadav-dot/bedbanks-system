@@ -6,6 +6,7 @@ import { parseSessionCookie } from './session-cookie';
 import { authApi, ApiResponseError } from '../api/auth-client';
 import { ACTIVE_TENANT_COOKIE } from './active-tenant';
 import { getSession } from './session';
+import { safePostLoginPath } from './post-login-path';
 
 const COOKIE_NAME = process.env.AUTH_COOKIE_NAME ?? 'fbeds_session';
 
@@ -46,7 +47,8 @@ export async function loginAction(
     return { error: 'Unable to reach the authentication service. Please try again.' };
   }
 
-  redirect('/dashboard');
+  // `from` is client-supplied (hidden field fed by the proxy's ?from=), so it is re-validated here, never trusted.
+  redirect(safePostLoginPath(formData.get('from')));
 }
 
 /**
