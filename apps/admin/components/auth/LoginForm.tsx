@@ -5,11 +5,12 @@ import { loginAction } from '@/lib/auth/actions';
 
 const initialState = { error: null };
 
-export function LoginForm() {
+export function LoginForm({ from }: { from?: string }) {
   const [state, dispatch, isPending] = useActionState(loginAction, initialState);
 
   return (
     <form action={dispatch}>
+      {from && <input type="hidden" name="from" value={from} />}
       {state.error && (
         <div
           role="alert"
