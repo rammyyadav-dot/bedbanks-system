@@ -16,6 +16,7 @@ jobs:
   schema-integrity:
     name: Schema integrity
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -38,6 +39,7 @@ jobs:
   prisma-migration-certification:
     name: Prisma migration certification
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     services:
       postgres:
         image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
@@ -104,6 +106,7 @@ jobs:
 
   verify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     services:
       postgres:
         image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a

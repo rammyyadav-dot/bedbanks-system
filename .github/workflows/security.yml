@@ -19,6 +19,7 @@ jobs:
   dependency-audit:
     name: Dependency audit (production)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -37,6 +38,7 @@ jobs:
   codeql:
     name: CodeQL (JavaScript and TypeScript)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -53,6 +55,7 @@ jobs:
   secret-scan:
     name: Secret scan (full history)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
