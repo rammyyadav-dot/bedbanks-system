@@ -34,6 +34,7 @@ import { HOTEL_EXPORT_MAX_ROWS, HOTEL_EXPORT_STREAM_BATCH, HOTEL_EXPORT_STREAM_M
 import { SEARCH_MONITOR_ACTIONS, SEARCH_MONITOR_READ_CAP, buildSearchMonitor } from './search-monitor'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { MAX_PAGE_SIZE, dayParam, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
+import { formatCoordinate } from '../hotel-setup/hotel-decimal'
 
 const stringList = (value: Prisma.JsonValue): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 40).slice(0, 100) : [])
 
@@ -750,9 +751,8 @@ export class OperationsHotelsService {
     try {
       const [profile, activeRooms, primaryImages] = await Promise.all([tx.hotelProfile.findFirst({ where: { hotelId: hotel.id, tenantId } }), tx.roomType.count({ where: { hotelId: hotel.id, isActive: true } }), tx.hotelImage.count({ where: { hotelId: hotel.id, tenantId, isPrimary: true } })])
       await tx.$executeRawUnsafe('RELEASE SAVEPOINT readiness_profile_read')
-      const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).replace(/\.?0+$/, '') || '0')
       return assessCompleteness({
-        name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
+        name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: formatCoordinate(hotel.latitude), longitude: formatCoordinate(hotel.longitude), timeZone: hotel.timeZone,
         starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
         contacts: (profile?.contacts && typeof profile.contacts === 'object' && !Array.isArray(profile.contacts) ? profile.contacts : {}) as HotelContacts, activeRooms, hasPrimaryImage: primaryImages > 0,
       })

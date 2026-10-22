@@ -12,6 +12,7 @@ import { lockHotelSetup, setupToken } from './hotel-setup-shared'
 import { assessCompleteness, normaliseSave, regressions, type CurrentSetup } from './hotel-setup-rules'
 import { assessContentQuality } from './hotel-content-quality'
 import { possibleDuplicatesFor } from './hotel-duplicate-lookup'
+import { formatCoordinate } from './hotel-decimal'
 
 const STATUS_CHANGED = 'hotel.setup.status_changed'
 const SAVED = 'hotel.setup.updated'
@@ -24,7 +25,6 @@ type ProfileRow = NonNullable<Awaited<ReturnType<Tx['hotelProfile']['findFirst']
 const asContacts = (value: Prisma.JsonValue | undefined): HotelContacts => (value && typeof value === 'object' && !Array.isArray(value) ? (value as HotelContacts) : {})
 const asPolicies = (value: Prisma.JsonValue | undefined): HotelPolicies => (value && typeof value === 'object' && !Array.isArray(value) ? (value as HotelPolicies) : {})
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null)
-const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).replace(/\.?0+$/, '') || '0')
 
 /**
  * Hotel Setup (ADR 0021): descriptive and operational hotel content with optimistic concurrency, idempotent saves, audit with the
@@ -60,7 +60,7 @@ export class HotelSetupService {
 
   current(hotel: HotelRow, profile: ProfileRow | null, activeRooms: number, hasPrimaryImage: boolean): CurrentSetup {
     return {
-      name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone,
+      name: hotel.name, propertyType: hotel.propertyType, countryCode: hotel.countryCode, city: hotel.city, address: hotel.address, latitude: formatCoordinate(hotel.latitude), longitude: formatCoordinate(hotel.longitude), timeZone: hotel.timeZone,
       starRating: hotel.starRating, starVerified: Boolean(profile?.starVerifiedAt), shortDescription: profile?.shortDescription ?? null, checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null,
       contacts: asContacts(profile?.contacts), activeRooms, hasPrimaryImage,
     }
@@ -72,7 +72,7 @@ export class HotelSetupService {
     return {
       generatedAt: new Date().toISOString(), hotelId: hotel.id, concurrencyToken: this.token(hotel, profile), profileExists: profile !== null,
       identity: { name: hotel.name, propertyType: hotel.propertyType, legalName: profile?.legalName ?? null, chainName: profile?.chainName ?? null, brandName: profile?.brandName ?? null, code: hotel.externalRef, externalIdentifiers: identifiers.map((i) => ({ scheme: i.scheme, value: i.value, createdAt: i.createdAt.toISOString() })) },
-      location: { countryCode: hotel.countryCode, city: hotel.city, area: profile?.area ?? null, address: hotel.address, postalCode: profile?.postalCode ?? null, latitude: dec(hotel.latitude), longitude: dec(hotel.longitude), timeZone: hotel.timeZone },
+      location: { countryCode: hotel.countryCode, city: hotel.city, area: profile?.area ?? null, address: hotel.address, postalCode: profile?.postalCode ?? null, latitude: formatCoordinate(hotel.latitude), longitude: formatCoordinate(hotel.longitude), timeZone: hotel.timeZone },
       classification: { starRating: hotel.starRating, source: profile?.starSource ?? null, verified: Boolean(profile?.starVerifiedAt), verifiedAt: iso(profile?.starVerifiedAt), verifiedById: profile?.starVerifiedById ?? null },
       content: { shortDescription: profile?.shortDescription ?? null, fullDescription: profile?.fullDescription ?? null, languages: profile?.languages ?? [] },
       operations: { checkInTime: profile?.checkInTime ?? null, checkOutTime: profile?.checkOutTime ?? null, notes: profile?.operationalNotes ?? null },

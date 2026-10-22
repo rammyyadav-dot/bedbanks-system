@@ -12,4 +12,10 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_', ignoreRestSiblings: true }],
     },
   },
+  {
+    // Burn-down: new `any` shows up as a warning in production code. Tests may still use it.
+    files: ['apps/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
+    ignores: ['**/*.spec.ts', '**/*.test.ts', '**/*.e2e-spec.ts', '**/test/**', 'e2e/**'],
+    rules: { '@typescript-eslint/no-explicit-any': 'warn' },
+  },
 );

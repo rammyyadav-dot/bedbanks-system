@@ -16,7 +16,7 @@ export function SupplyWorkflowUnavailable({
 
   return (
     <div className="supplier-page">
-      <PageHeader eyebrow={eyebrow} title={title} description={description} />
+      <PageHeader eyebrow={eyebrow} title={title} description={description} tone="muted" />
       <section className="panel" aria-labelledby="workflow-api-status">
         <div style={{ display: 'grid', gap: 14, padding: 24, maxWidth: 720 }}>
           <CircleAlert aria-hidden="true" color="#d90429" size={28} />

@@ -9,10 +9,11 @@ import { SupplierChangeSetsController } from './supplier-change-sets.controller'
 import { SupplierChangeSetsService } from './supplier-change-sets.service'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { SupplierOrganizationGuard } from './supplier-organization.guard'
+import { SupplierPermissionGuard } from './supplier-permission.guard'
 
 @Module({
   imports: [AuthModule],
   controllers: [SupplierExtranetController, SupplierChangeSetsController],
-  providers: [SupplierExtranetService, SupplierBookingsService, SupplierBookingAnswerService, SupplierChangeSetsService, BookingOpsDatabase, SupplierOrganizationGuard, TenantContextGuard],
+  providers: [SupplierExtranetService, SupplierBookingsService, SupplierBookingAnswerService, SupplierChangeSetsService, BookingOpsDatabase, SupplierOrganizationGuard, SupplierPermissionGuard, TenantContextGuard],
 })
 export class SupplierExtranetModule {}

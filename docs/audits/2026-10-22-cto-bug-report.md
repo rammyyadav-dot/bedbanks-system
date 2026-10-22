@@ -8,6 +8,26 @@
 
 **Amber, unchanged.** All automated gates pass, no critical defect was found, and the tenant, permission, money and secret controls I sampled held up. The open items are a test suite that does not finish locally, one untracked dependency advisory, a structural gap against the constitution (permissions are enforced but not declared on supplier controllers), and a supplier UI that is honest about being mostly unavailable but has rough edges.
 
+## Fix status (updated the same day)
+
+| ID | Status | What changed |
+| --- | --- | --- |
+| BUG-01 | **Open** | Needs the CI database setup to reproduce; not attempted here. |
+| BUG-02 | Fixed | `js-yaml@^5` override to `^5.4.1` in root `package.json`; `pnpm audit --prod` now lists only BUG-03. |
+| BUG-03 | **Open, tracked** | Waits on a Prisma release that carries `deepmerge-ts` 8. Allowlist expires 2026-12-31. |
+| BUG-04 | Fixed | `SupplierPermissionGuard` plus `@RequireSupplierPermission` on all 17 supplier routes; fails closed. Test walks every route. See ADR 0088. Service checks kept. |
+| BUG-05 | Decided | No key needed for a replace-style note save. Recorded in ADR 0088. |
+| UX-01 | Fixed | Unavailable pages use a muted grey dot. |
+| UX-02 | Fixed | Disabled search box removed from the top bar. |
+| UX-03 | Fixed | Hotel detail uses a plain definition list. |
+| UX-04 | **Open** | Still needs an axe scan and a decision on grouping the unavailable nav items. |
+| UX-05 | Fixed | Dead `properties` page files deleted; the redirects stay. |
+| MAINT-01 | **Open** | Splitting `supply.service.ts` and `operations-hotels.service.ts` is a refactor that needs its own change. |
+| MAINT-02 | Fixed | One `formatCoordinate` helper in `hotel-setup/hotel-decimal.ts`. |
+| MAINT-03 | Started | `no-explicit-any` is now a lint warning in production code (not tests), so new uses show up. The existing uses are still to be removed. |
+
+Verified after the fixes: `pnpm check:architecture`, `pnpm type-check`, `pnpm lint` pass; API unit tests 1885 pass (23 new); supplier unit tests pass; live Playwright API-security (S1–S10), supplier (X1–X6) and screenshot specs pass, 19 of 19, against a fresh stack built from this branch.
+
 ## 2. Gate results (run on this branch)
 
 | Gate | Result |

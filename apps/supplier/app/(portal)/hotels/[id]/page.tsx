@@ -20,12 +20,12 @@ export default async function HotelDetailPage({ params }: { params: Promise<{ id
         <PageHeader eyebrow={`${hotel.city}, ${hotel.countryCode}`} title={hotel.name} description="This is the mapped hotel record. Profile edits, photos, and publication are unavailable." actions={<Link className="btn btn-primary" href={`/hotels/${hotel.id}/rooms`}>View rooms</Link>} />
         <section className="panel">
           <div className="form-section">
-            <div className="form-grid">
-              <label>Property type<input defaultValue={hotel.propertyType} readOnly /></label>
-              <label>Content status<input defaultValue={hotel.contentStatus} readOnly /></label>
-              <label>Mapping<input defaultValue={hotel.mappingStatus} readOnly /></label>
-              <label>City<input defaultValue={hotel.city} readOnly /></label>
-            </div>
+            <dl className="detail-list">
+              <div><dt>Property type</dt><dd>{hotel.propertyType}</dd></div>
+              <div><dt>Content status</dt><dd>{hotel.contentStatus}</dd></div>
+              <div><dt>Mapping</dt><dd>{hotel.mappingStatus}</dd></div>
+              <div><dt>City</dt><dd>{hotel.city}</dd></div>
+            </dl>
           </div>
         </section>
       </div>
