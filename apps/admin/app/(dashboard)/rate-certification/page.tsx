@@ -9,11 +9,12 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Chip } from '@/components/hotels/ui'
 import { HotelsTab, MarkupTab, PlansTab, RemediationTab } from '@/components/rate-certification/Tabs'
 import { ReportTab } from '@/components/rate-certification/ReportTab'
+import { Workbench } from '@/components/rate-certification/Workbench'
 import { Simulator } from '@/components/rate-certification/Simulator'
 import { getRateCertificationSummary } from '@/lib/data/rate-certification'
 import { ROW_CLASS_HELP, WINDOW_OPTIONS } from '@/lib/rate-certification-ui'
 
-const TABS = [['hotels', 'Hotels'], ['plans', 'Rate plans'], ['remediation', 'Remediation'], ['markup', 'Markup rules'], ['simulator', 'Price simulator'], ['report', 'Report']] as const
+const TABS = [['hotels', 'Hotels'], ['plans', 'Rate plans'], ['workbench', 'Workbench'], ['remediation', 'Remediation'], ['markup', 'Markup rules'], ['simulator', 'Price simulator'], ['report', 'Report']] as const
 type TabId = (typeof TABS)[number][0]
 const card = { padding: '10px 14px', minWidth: 150 } as const
 
@@ -52,6 +53,7 @@ function RateCertification() {
       </div>
       {tab === 'hotels' && <HotelsTab window={{ days }} />}
       {tab === 'plans' && <PlansTab window={{ days }} />}
+      {tab === 'workbench' && <Workbench ratePlanId={params.get('ratePlanId') ?? ''} days={days} onSelect={(ratePlanId) => go({ ratePlanId })} />}
       {tab === 'remediation' && <RemediationTab window={{ days }} />}
       {tab === 'markup' && <MarkupTab />}
       {tab === 'simulator' && <Simulator initialRatePlanId={params.get('ratePlanId') ?? ''} />}

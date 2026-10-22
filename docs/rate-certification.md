@@ -5,7 +5,7 @@ Decision record: [ADR 0033](adr/0033-rate-plan-audit-and-distribution-certificat
 ## What it is, and is not
 - A report on stored rate data, computed with the same evaluator Agent search uses. Admin: **Rates & Inventory > Rate Certification** (needs `supply.rates.read`).
 - Not a switch. Nothing is stored or read back: certifying a plan does not change what Agents can search or book.
-- Not an editor. It repairs, merges, deletes and publishes nothing. The only POST is the simulator, which writes nothing.
+- Not an editor. The audit routes repair, merge, delete and publish nothing; the only audit POST is the simulator, which writes nothing. The **Workbench** tab ([ADR 0088](adr/0088-rate-certification-workbench.md)) shows one plan's findings and night grid beside the hotel's existing Quick Update (preview, reason, idempotency and audit event unchanged), then re-reads the audit.
 
 ## Routes (`routes.adminRateCertification` in `@bedbanks/contracts`)
 | Route | Purpose |
