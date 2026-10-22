@@ -19,7 +19,7 @@ export function MarkupImpact({ version }: { version: number }) {
       <OpsState state={state} onRetry={reload}>
         {(i) => (
           <>
-            <p style={{ color: '#3f565c', fontSize: 11, margin: '0 0 6px' }}>Plan-nights of active rate plans, {i.window.from} to {i.window.to} ({i.window.days} nights){i.scanCapped ? '. Counts cover the first alphabetical hotels only.' : '.'}</p>
+            <p style={{ color: 'var(--c-3f565c)', fontSize: 11, margin: '0 0 6px' }}>Plan-nights of active rate plans, {i.window.from} to {i.window.to} ({i.window.days} nights){i.scanCapped ? '. Counts cover the first alphabetical hotels only.' : '.'}</p>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
               {[
                 { label: 'NET priced by a rule', value: i.planNights.netPriced },
@@ -28,14 +28,14 @@ export function MarkupImpact({ version }: { version: number }) {
                 { label: 'Basis not verified (not sellable)', value: i.planNights.basisUnverified, href: listHref({ issue: 'CURRENCY_OR_BASIS' }) },
               ].map((t) => (
                 <li key={t.label} className="workspace-panel" style={{ padding: '10px 14px' }}>
-                  {t.href ? <Link href={t.href} style={{ textDecoration: 'none', color: 'inherit' }}><strong style={{ font: '700 20px system-ui', color: '#17333e' }}>{t.value}</strong><div style={{ fontSize: 11, color: '#3f565c' }}>{t.label}</div></Link>
-                    : <><strong style={{ font: '700 20px system-ui', color: '#17333e' }}>{t.value}</strong><div style={{ fontSize: 11, color: '#3f565c' }}>{t.label}</div></>}
+                  {t.href ? <Link href={t.href} style={{ textDecoration: 'none', color: 'inherit' }}><strong style={{ font: '700 20px system-ui', color: 'var(--c-17333e)' }}>{t.value}</strong><div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{t.label}</div></Link>
+                    : <><strong style={{ font: '700 20px system-ui', color: 'var(--c-17333e)' }}>{t.value}</strong><div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{t.label}</div></>}
                 </li>
               ))}
             </ul>
-            {i.currencies.length > 0 && <p style={{ fontSize: 11, color: '#3f565c' }}>Priced NET nights: {i.currencies.map((c) => `${c.currency} cost ${formatMinorUnits(c.netMinor, c.currency)}, markup ${formatMinorUnits(c.markupMinor, c.currency)}`).join(' · ')}</p>}
+            {i.currencies.length > 0 && <p style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Priced NET nights: {i.currencies.map((c) => `${c.currency} cost ${formatMinorUnits(c.netMinor, c.currency)}, markup ${formatMinorUnits(c.markupMinor, c.currency)}`).join(' · ')}</p>}
             {i.affectedHotelCount > 0 && (
-              <p style={{ fontSize: 11, color: '#3f565c' }}>
+              <p style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>
                 {i.affectedHotelCount} hotel(s) have NET rates with no rule: {i.affectedHotels.map((h) => <Link key={h.hotelId} href={hotelHref(h.hotelId, 'rates')} style={{ marginRight: 8 }}>{h.hotelName} ({h.unpricedNights})</Link>)}
               </p>
             )}

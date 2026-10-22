@@ -14,12 +14,12 @@ export function LoginForm() {
         <div
           role="alert"
           style={{
-            background: '#fff0ef',
-            border: '1px solid #f5c6c2',
+            background: 'var(--c-fff0ef)',
+            border: '1px solid var(--c-f5c6c2)',
             borderRadius: 4,
             padding: '10px 12px',
             fontSize: 11,
-            color: '#8c2e2a',
+            color: 'var(--c-8c2e2a)',
             marginBottom: 14,
           }}
         >

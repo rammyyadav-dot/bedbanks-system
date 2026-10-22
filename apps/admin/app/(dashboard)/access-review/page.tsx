@@ -30,15 +30,15 @@ export default function AccessReviewPage() {
           <section aria-label="Access summary" data-testid="access-summary" style={{ marginBottom: 12 }}>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
               {[['Members', s.members.total], ['Active', s.members.active], ['Inactive', s.members.inactive], ['Never logged in', s.members.neverLoggedIn], [`No login in ${s.staleLoginDays}d`, s.members.staleLogin], ['No role', s.members.noRole], ['Hold sensitive permissions', s.members.holdingSensitive]].map(([label, value]) => (
-                <li key={label as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 22px system-ui', color: '#17333e' }}>{value}</div><div style={{ color: '#3f565c', fontSize: 11 }}>{label}</div></li>
+                <li key={label as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 22px system-ui', color: 'var(--c-17333e)' }}>{value}</div><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{label}</div></li>
               ))}
             </ul>
           </section>
         )}
       </OpsState>
       <form aria-label="Access filters" onSubmit={(e) => e.preventDefault()} style={{ marginBottom: 8 }}>
-        <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#3f565c' }}><span>Flag</span>
-          <select style={{ color: '#17333e' }} value={flag} onChange={(e) => { setFlag(e.target.value); setPage(1) }}><option value="">All members</option>{FLAGS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
+        <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' }}><span>Flag</span>
+          <select style={{ color: 'var(--c-17333e)' }} value={flag} onChange={(e) => { setFlag(e.target.value); setPage(1) }}><option value="">All members</option>{FLAGS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
         </label>
       </form>
       <OpsState state={users.state} onRetry={users.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No members match', description: 'The review succeeded and no member has this flag.' }}>

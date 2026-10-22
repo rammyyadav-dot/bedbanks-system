@@ -9,8 +9,8 @@ import { approveReconDecision, getReconException, proposeReconDecision, rejectRe
 import { describeApiError } from '@/lib/api/describe-error'
 import { ACTION_LABEL, STATUS_LABEL, TYPE_LABEL, severityTone, statusTone } from '@/lib/reconciliation-ui'
 
-const lab = { display: 'grid', gap: 4, fontSize: 11, color: '#3f565c' } as const
-const dt = { color: '#6d858c', fontSize: 11 } as const
+const lab = { display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-3f565c)' } as const
+const dt = { color: 'var(--c-6d858c)', fontSize: 11 } as const
 
 /**
  * One exception of the dispute queue. It shows what the server says about the exception and offers only the decisions the server lists.
@@ -53,7 +53,7 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
         <strong style={{ fontSize: 13 }}>{TYPE_LABEL[e.type]}</strong>
         <Tag tone={statusTone(e.status)}>{STATUS_LABEL[e.status]}</Tag>
       </div>
-      <p style={{ margin: 0, fontSize: 12, color: '#3f565c' }}>{e.hint}</p>
+      <p style={{ margin: 0, fontSize: 12, color: 'var(--c-3f565c)' }}>{e.hint}</p>
       <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '8px 18px', margin: 0 }}>
         <div><dt style={dt}>Supplier</dt><dd style={{ margin: 0 }}>{e.supplier.displayName}</dd></div>
         <div><dt style={dt}>Statement</dt><dd style={{ margin: 0 }}><code>{e.statementRef}</code>{e.lineNo !== null && ` · line ${e.lineNo}`}</dd></div>
@@ -65,7 +65,7 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
       </dl>
 
       {e.status === 'PENDING_APPROVAL' && (
-        <div role="group" aria-label="Pending decision" style={{ border: '1px solid #ecd9a8', background: '#fffaf0', borderRadius: 6, padding: 10 }}>
+        <div role="group" aria-label="Pending decision" style={{ border: '1px solid var(--c-ecd9a8)', background: 'var(--c-fffaf0)', borderRadius: 6, padding: 10 }}>
           <p style={{ margin: 0, fontSize: 12 }}>Proposed: <strong>{e.proposedAction ? ACTION_LABEL[e.proposedAction] : ''}</strong>. A second person must confirm it.</p>
           {canResolve && e.canDecide ? (
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
@@ -75,7 +75,7 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
                 <button type="button" className="admin-btn" disabled={busy || !reasonOk} data-testid="recon-send-back" onClick={() => void run(() => rejectReconDecision(e.id, { reason }), 'Sent back to the queue.')}>Send back</button>
               </div>
             </div>
-          ) : <p style={{ margin: '6px 0 0', fontSize: 11, color: '#6d5a1a' }}>{e.proposedById ? 'You proposed this, or you cannot decide it. A different person with the resolve permission must approve.' : ''}</p>}
+          ) : <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--c-6d5a1a)' }}>{e.proposedById ? 'You proposed this, or you cannot decide it. A different person with the resolve permission must approve.' : ''}</p>}
         </div>
       )}
 
@@ -86,18 +86,18 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
               {e.allowedActions.map((a) => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}
             </select>
           </label>
-          {chosen && <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>{d.secondApprovalRequired[chosen] ? 'This amount needs a second person to approve before the exception closes.' : 'No second person is needed for this decision.'} Nothing is posted to the ledger.</p>}
+          {chosen && <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>{d.secondApprovalRequired[chosen] ? 'This amount needs a second person to approve before the exception closes.' : 'No second person is needed for this decision.'} Nothing is posted to the ledger.</p>}
           <label style={lab}>Reason (required, kept in the history)<textarea className="input-wrap" style={{ height: 56, padding: 6 }} maxLength={500} value={reason} onChange={(ev) => setReason(ev.target.value)} data-testid="recon-reason" /></label>
           <div><button type="submit" className="admin-btn" disabled={busy || !reasonOk} data-testid="recon-submit">{chosen && d.secondApprovalRequired[chosen] ? 'Propose decision' : 'Record decision'}</button></div>
         </form>
       )}
-      {error && <p role="alert" style={{ margin: 0, color: '#a11d1d', fontSize: 12 }}>{error}</p>}
+      {error && <p role="alert" style={{ margin: 0, color: 'var(--c-a11d1d)', fontSize: 12 }}>{error}</p>}
 
       <div>
         <h3 style={{ fontSize: 12, margin: '0 0 6px' }}>History</h3>
-        {d.history.length === 0 ? <p style={{ margin: 0, fontSize: 11, color: '#6d858c' }}>No decisions yet.</p> : (
+        {d.history.length === 0 ? <p style={{ margin: 0, fontSize: 11, color: 'var(--c-6d858c)' }}>No decisions yet.</p> : (
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 11, display: 'grid', gap: 4 }}>
-            {d.history.map((h) => <li key={h.id}>{when(h.createdAt)} · <strong>{h.action.replace(/_/g, ' ').toLowerCase()}</strong> · {STATUS_LABEL[h.fromStatus]} → {STATUS_LABEL[h.toStatus]}{h.actorId ? '' : ' (automatic)'}{h.reason && <span style={{ color: '#52696f' }}> — {h.reason}</span>}</li>)}
+            {d.history.map((h) => <li key={h.id}>{when(h.createdAt)} · <strong>{h.action.replace(/_/g, ' ').toLowerCase()}</strong> · {STATUS_LABEL[h.fromStatus]} → {STATUS_LABEL[h.toStatus]}{h.actorId ? '' : ' (automatic)'}{h.reason && <span style={{ color: 'var(--c-52696f)' }}> — {h.reason}</span>}</li>)}
           </ol>
         )}
       </div>

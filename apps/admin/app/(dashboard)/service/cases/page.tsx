@@ -13,8 +13,8 @@ import { createCase, getCaseAssignees, getCases, getServiceSummary } from '@/lib
 import { describeApiError } from '@/lib/api/describe-error'
 
 const PAGE_SIZE = 25
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
-const field = { color: '#17333e' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
+const field = { color: 'var(--c-17333e)' } as const
 const prioTone = (p: CasePriority) => (p === 'URGENT' ? 'bad' : p === 'HIGH' ? 'warn' : 'ok') as 'bad' | 'warn' | 'ok'
 const caseStatusTone = (s: CaseView['status']) => (s === 'CLOSED' ? 'ok' : s === 'RESOLVED' ? 'ok' : s === 'IN_PROGRESS' ? 'warn' : 'bad') as 'ok' | 'warn' | 'bad'
 
@@ -31,7 +31,7 @@ export default function CasesPage() {
         {(s) => (
           <ul data-testid="service-summary" style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
             {[['Open', s.byStatus.open], ['In progress', s.byStatus.inProgress], ['Resolved', s.byStatus.resolved], ['Unassigned', s.unassigned], ['Urgent unresolved', s.urgentUnresolved]].map(([l, v]) => (
-              <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: '#17333e' }}>{v}</div><div style={{ color: '#3f565c', fontSize: 11 }}>{l}</div></li>
+              <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: 'var(--c-17333e)' }}>{v}</div><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{l}</div></li>
             ))}
           </ul>
         )}

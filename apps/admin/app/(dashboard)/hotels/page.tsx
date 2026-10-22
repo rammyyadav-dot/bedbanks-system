@@ -52,7 +52,7 @@ function HotelsList() {
     <div className="admin-page">
       <PageHeader eyebrow="HOTEL SUPPLY · HOTELS" title="Hotels" description="Hotel master data and commercial readiness. Readiness is computed by the API with the same rules Agents are sold by." actions={can('supply.hotels.manage') ? <Link href="/hotels/new" className="button primary">+ Add hotel</Link> : undefined} />
       {summary.state.status === 'ready' && <HotelsSummary summary={summary.state.data} />}
-      {summary.state.status === 'failed' && <p role="status" data-testid="summary-unavailable" style={{ color: '#8a5a00', fontSize: 12 }}>Commercial summary unavailable ({summary.state.failure}). The list below is unaffected.</p>}
+      {summary.state.status === 'failed' && <p role="status" data-testid="summary-unavailable" style={{ color: 'var(--c-8a5a00)', fontSize: 12 }}>Commercial summary unavailable ({summary.state.failure}). The list below is unaffected.</p>}
       <form onSubmit={(event) => { event.preventDefault(); go({ ...filters, search: search.trim() || undefined, countryCode: country.trim().toUpperCase() || undefined }) }} aria-label="Hotel filters">
         <TableToolbar>
           <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11 }}><span>Search hotels (ID, name, city, supplier reference)</span><input type="search" value={search} maxLength={64} placeholder="Hotel ID, name, city or supplier reference" onChange={(event) => setSearch(event.target.value)} style={{ minWidth: 200 }} /></label>
@@ -93,26 +93,26 @@ function HotelsList() {
                   {data.items.map((hotel) => (
                     <tr key={hotel.id} data-hotel-id={hotel.id}>
                       {canManage && <td style={td}><input type="checkbox" aria-label={`Select ${hotel.name}`} checked={Boolean(picked[hotel.id])} onChange={() => toggle(hotel.id, hotel.name)} /></td>}
-                      <td style={{ ...td, minWidth: 190 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><HotelThumb hotel={hotel} /><div><Link href={hotelHref(hotel.id)} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.propertyType}{hotel.code ? ` · ${hotel.code}` : ''}{hotel.profile?.externalIdentifiers.length ? ` · ${hotel.profile.externalIdentifiers.map((i) => `${i.scheme} ${i.value}`).join(', ')}` : ''}</div></div></div></td>
+                      <td style={{ ...td, minWidth: 190 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><HotelThumb hotel={hotel} /><div><Link href={hotelHref(hotel.id)} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{hotel.name}</Link><div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{hotel.propertyType}{hotel.code ? ` · ${hotel.code}` : ''}{hotel.profile?.externalIdentifiers.length ? ` · ${hotel.profile.externalIdentifiers.map((i) => `${i.scheme} ${i.value}`).join(', ')}` : ''}</div></div></div></td>
                       <td style={td}><code data-testid="hotel-canonical-id" style={{ fontSize: 10 }}>{hotel.id}</code></td>
-                      <td style={td}>{hotel.countryCode} · {hotel.city}{hotel.profile?.area ? <div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile.area}</div> : null}</td>
-                      <td style={td} title={starsText(hotel.starRating)}>{hotel.starRating ? <><span aria-hidden="true">{'★'.repeat(hotel.starRating)}</span><span className="sr-only">{starsText(hotel.starRating)}</span><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile ? (hotel.profile.starVerified ? 'Verified' : 'Unverified') : ''}</div></> : <span>Unrated</span>}</td>
-                      <td style={td}><MappingChip value={hotel.hotelMapping} /><div style={{ color: '#3f565c', fontSize: 10, marginTop: 2 }}>{hotel.verifiedMappings} verified{hotel.suppliers.length ? ` · ${hotel.suppliers.map((s) => s.displayName).join(', ')}` : ''}</div></td>
-                      <td style={td}>{hotel.rooms.active} active{hotel.rooms.total !== hotel.rooms.active ? ` / ${hotel.rooms.total}` : ''}<div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.rooms.mapped} mapped</div></td>
-                      <td style={td}><StatusBadge status={entityStatus(hotel.contentStatus)} /> <span style={{ fontSize: 10 }}>{hotel.contentStatus}</span><div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile ? `${hotel.profile.completenessPercent}% complete${hotel.profile.exists ? '' : ' · no setup saved'}` : 'Profile unavailable'}</div></td>
+                      <td style={td}>{hotel.countryCode} · {hotel.city}{hotel.profile?.area ? <div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{hotel.profile.area}</div> : null}</td>
+                      <td style={td} title={starsText(hotel.starRating)}>{hotel.starRating ? <><span aria-hidden="true">{'★'.repeat(hotel.starRating)}</span><span className="sr-only">{starsText(hotel.starRating)}</span><div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{hotel.profile ? (hotel.profile.starVerified ? 'Verified' : 'Unverified') : ''}</div></> : <span>Unrated</span>}</td>
+                      <td style={td}><MappingChip value={hotel.hotelMapping} /><div style={{ color: 'var(--c-3f565c)', fontSize: 10, marginTop: 2 }}>{hotel.verifiedMappings} verified{hotel.suppliers.length ? ` · ${hotel.suppliers.map((s) => s.displayName).join(', ')}` : ''}</div></td>
+                      <td style={td}>{hotel.rooms.active} active{hotel.rooms.total !== hotel.rooms.active ? ` / ${hotel.rooms.total}` : ''}<div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{hotel.rooms.mapped} mapped</div></td>
+                      <td style={td}><StatusBadge status={entityStatus(hotel.contentStatus)} /> <span style={{ fontSize: 10 }}>{hotel.contentStatus}</span><div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{hotel.profile ? `${hotel.profile.completenessPercent}% complete${hotel.profile.exists ? '' : ' · no setup saved'}` : 'Profile unavailable'}</div></td>
                       <td style={td}><ContractChip value={hotel.contractState} days={hotel.contractDaysToExpiry} /></td>
                       <td style={td}><RatesChip value={hotel.rates} /></td>
                       <td style={td}><InventoryChip value={hotel.inventory} /></td>
-                      <td style={td}><ReadinessChip value={hotel.readiness} blockers={hotel.blockers} /><div style={{ color: '#3f565c', fontSize: 10 }}>{data.window.days} nights from {data.window.from}</div></td>
+                      <td style={td}><ReadinessChip value={hotel.readiness} blockers={hotel.blockers} /><div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{data.window.days} nights from {data.window.from}</div></td>
                       <td style={{ ...td, minWidth: 190 }}>{hotel.issues.total === 0 ? '—' : <span title={hotel.blockers.map(reasonText).join('; ')}>{hotel.issues.total} issue{hotel.issues.total === 1 ? '' : 's'} · {hotel.issues.critical} critical · {hotel.issues.high} high</span>}{hotel.blockers[0] && <div style={{ fontSize: 10, whiteSpace: 'nowrap' }}><code>{hotel.blockers[0]}</code></div>}</td>
-                      <td style={td}>{new Date(hotel.updatedAt).toLocaleDateString()}{hotel.profile?.updatedBy ? <div style={{ color: '#3f565c', fontSize: 10 }}>{hotel.profile.updatedBy}</div> : null}</td>
+                      <td style={td}>{new Date(hotel.updatedAt).toLocaleDateString()}{hotel.profile?.updatedBy ? <div style={{ color: 'var(--c-3f565c)', fontSize: 10 }}>{hotel.profile.updatedBy}</div> : null}</td>
                       <td style={td}><Link href={hotelHref(hotel.id)}>Open</Link>{can('supply.rates.read') && <div><Link href={hotelHref(hotel.id, 'sellability')} style={{ fontSize: 11 }}>Re-check readiness</Link></div>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </ScrollRegion>
-            <p style={{ color: '#3f565c', fontSize: 10, padding: '6px 14px', margin: 0 }}>{data.profilesAvailable ? '' : 'Profile details are unavailable to the API database role. '}Assessed for {data.window.from} → {data.window.to} ({data.window.days} nights).{data.scanCapped ? ' Filters covered only the first alphabetical hotels (scan limit reached).' : ''}</p>
+            <p style={{ color: 'var(--c-3f565c)', fontSize: 10, padding: '6px 14px', margin: 0 }}>{data.profilesAvailable ? '' : 'Profile details are unavailable to the API database role. '}Assessed for {data.window.from} → {data.window.to} ({data.window.days} nights).{data.scanCapped ? ' Filters covered only the first alphabetical hotels (scan limit reached).' : ''}</p>
             <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={(p) => go(filters, p)} />
           </div>
         )}
@@ -125,7 +125,7 @@ export default function HotelsPage() { return <Suspense fallback={<LoadingState 
 
 /** The hotel's primary image, or its initial. No picture is ever invented (ADR 0027). */
 function HotelThumb({ hotel }: { hotel: { id: string; name: string; primaryImage: { imageId: string; altText: string } | null } }) {
-  const box = { width: 56, height: 42, borderRadius: 6, flex: 'none', overflow: 'hidden', background: '#eef3f5', color: '#3f565c', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16 } as const
+  const box = { width: 56, height: 42, borderRadius: 6, flex: 'none', overflow: 'hidden', background: 'var(--c-eef3f5)', color: 'var(--c-3f565c)', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16 } as const
   const initial = <div style={box} aria-hidden="true" data-testid="hotel-initial">{hotel.name.trim().charAt(0).toUpperCase() || 'H'}</div>
   if (!hotel.primaryImage) return initial
   return <div style={box} data-testid="hotel-thumb"><AuthImage contentPath={`/admin/hotels/${hotel.id}/images/${hotel.primaryImage.imageId}/content`} alt={hotel.primaryImage.altText} width={56} height={42} fallback={initial} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>

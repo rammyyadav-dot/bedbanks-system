@@ -17,8 +17,8 @@ import { applyQuickUpdate, previewQuickUpdate } from '@/lib/data/hotel-quick-upd
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
-const field = { display: 'grid', gap: 2, fontSize: 12, color: '#17333e' } as const
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
 type Flag = '' | QuickUpdateFlag
 type Panels = { price: boolean; availability: boolean; restrictions: boolean }
 
@@ -85,7 +85,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
 
   const togglePlan = (id: string) => edited(() => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : s.length < QUICK_UPDATE_LIMITS.plans ? [...s, id] : s)))
   const panelBox = (key: keyof Panels, label: string, enabled: boolean, children: React.ReactNode, why: string) => (
-    <fieldset className="workspace-panel" style={{ padding: 14, margin: 0, display: 'grid', gap: 8, border: '1px solid #e6eef0' }} data-panel={key}>
+    <fieldset className="workspace-panel" style={{ padding: 14, margin: 0, display: 'grid', gap: 8, border: '1px solid var(--c-e6eef0)' }} data-panel={key}>
       <legend style={{ fontSize: 13, fontWeight: 600, padding: '0 6px' }}>{label}</legend>
       <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}><input type="checkbox" checked={panels[key]} disabled={!enabled} onChange={(e) => edited(() => setPanels((p) => ({ ...p, [key]: e.target.checked })))} /> Change {label.toLowerCase()}</label>
       {!enabled && <p style={note}>{why}</p>}
@@ -115,7 +115,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
               </tr>) })}</tbody></table></ScrollRegion>
         )}
         <p style={note}>Up to {QUICK_UPDATE_LIMITS.plans} rate plans and {QUICK_UPDATE_LIMITS.records} plan-nights per update.{currencies.length > 1 ? ' The selected plans use different currencies, so a price cannot be changed in one update.' : ''}</p>
-        <fieldset style={{ border: '1px solid #e6eef0', padding: 12, margin: 0, display: 'grid', gap: 8 }}>
+        <fieldset style={{ border: '1px solid var(--c-e6eef0)', padding: 12, margin: 0, display: 'grid', gap: 8 }}>
           <legend style={{ fontSize: 12, fontWeight: 600 }}>Dates (hotel local, up to {QUICK_UPDATE_LIMITS.ranges} ranges)</legend>
           {ranges.map((r, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
@@ -168,10 +168,10 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
       {preview && (
         <section className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10 }} aria-label="Preview" data-testid="qu-preview-result">
           <h2 style={{ fontSize: 14, margin: 0 }}>3. Review</h2>
-          {!previewIsCurrent && <p role="status" data-testid="qu-stale-form" style={{ ...note, color: '#8a5a00' }}>You changed the form after this preview. Preview again before applying.</p>}
-          <p style={{ fontSize: 12, margin: 0 }} data-testid="qu-counts">{preview.data.counts.records} record{preview.data.counts.records === 1 ? '' : 's'} over {preview.data.dates.length} night{preview.data.dates.length === 1 ? '' : 's'} (hotel today is {preview.data.hotelToday}, {preview.data.timeZone}): <strong>{preview.data.counts.willChange} will change</strong>, {preview.data.counts.unchanged} already match, <strong style={{ color: preview.data.counts.invalid ? '#a11d1d' : undefined }}>{preview.data.counts.invalid} invalid</strong>.</p>
-          {preview.data.errors.length > 0 && <ul role="alert" data-testid="qu-errors" style={{ color: '#a11d1d', fontSize: 12 }}>{preview.data.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-          {preview.data.counts.invalid > 0 && <p role="alert" style={{ fontSize: 12, color: '#a11d1d', margin: 0 }}>The batch is applied as a whole or not at all. Fix the invalid records or narrow the scope before applying.</p>}
+          {!previewIsCurrent && <p role="status" data-testid="qu-stale-form" style={{ ...note, color: 'var(--c-8a5a00)' }}>You changed the form after this preview. Preview again before applying.</p>}
+          <p style={{ fontSize: 12, margin: 0 }} data-testid="qu-counts">{preview.data.counts.records} record{preview.data.counts.records === 1 ? '' : 's'} over {preview.data.dates.length} night{preview.data.dates.length === 1 ? '' : 's'} (hotel today is {preview.data.hotelToday}, {preview.data.timeZone}): <strong>{preview.data.counts.willChange} will change</strong>, {preview.data.counts.unchanged} already match, <strong style={{ color: preview.data.counts.invalid ? 'var(--c-a11d1d)' : undefined }}>{preview.data.counts.invalid} invalid</strong>.</p>
+          {preview.data.errors.length > 0 && <ul role="alert" data-testid="qu-errors" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{preview.data.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+          {preview.data.counts.invalid > 0 && <p role="alert" style={{ fontSize: 12, color: 'var(--c-a11d1d)', margin: 0 }}>The batch is applied as a whole or not at all. Fix the invalid records or narrow the scope before applying.</p>}
           {preview.data.rows.length > 0 && (
             <ScrollRegion label="Preview rows" maxHeight={380}><table style={tableStyle} aria-label="Preview of changes">
               <thead><tr>{['Date', 'Rate plan', 'Outcome', 'Changes (old → new)', 'Problems'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
@@ -180,7 +180,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: str
                   <td style={td}>{row.date}</td><td style={td}><code>{plan?.code ?? row.ratePlanId}</code></td>
                   <td style={td}><Chip tone={row.outcome === 'CHANGE' ? 'ok' : row.outcome === 'INVALID' ? 'bad' : 'neutral'}>{row.outcome === 'NO_CHANGE' ? 'NO CHANGE' : row.outcome}</Chip></td>
                   <td style={td}>{row.changes.length ? row.changes.map((c) => <div key={c.field}>{c.field === 'price' ? `price: ${c.from === null ? 'none' : formatMinorUnits(String(c.from), c.currency ?? '')} → ${formatMinorUnits(String(c.to), c.currency ?? '')}` : `${c.field}: ${c.from === null ? 'none' : String(c.from)} → ${String(c.to)}`}</div>) : '—'}</td>
-                  <td style={td}>{row.problems.length ? row.problems.map((p) => <div key={p} style={{ color: '#a11d1d' }}>{p}</div>) : '—'}</td>
+                  <td style={td}>{row.problems.length ? row.problems.map((p) => <div key={p} style={{ color: 'var(--c-a11d1d)' }}>{p}</div>) : '—'}</td>
                 </tr>) })}</tbody></table></ScrollRegion>
           )}
           {preview.data.truncated && <p style={note}>Only the first {QUICK_UPDATE_LIMITS.reportedRows} records are listed. All of them are validated and applied.</p>}

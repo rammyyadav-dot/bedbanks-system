@@ -30,7 +30,7 @@ export function HotelSuggestionPanel({ onUse }: Props) {
     } finally { setLoading(false) }
   }
 
-  return <div style={{ borderBottom: '1px solid #E5E7EB', paddingBottom: 16, marginBottom: 16 }}>
+  return <div style={{ borderBottom: '1px solid var(--c-e5e7eb)', paddingBottom: 16, marginBottom: 16 }}>
     <h3>Find the canonical hotel</h3>
     <p>Describe the supplier&apos;s hotel and we will suggest matching hotels from your catalogue. Suggestions are advisory; you still create a pending mapping that a second person approves.</p>
     <form onSubmit={search} style={{ display: 'grid', gap: 12, maxWidth: 720 }}>
@@ -46,7 +46,7 @@ export function HotelSuggestionPanel({ onUse }: Props) {
       {view?.kind === 'none' && <p>No close match in your catalogue. Choose the hotel manually below, or create the hotel first.</p>}
     </div>
     {view?.kind === 'matches' && <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
-      {view.suggestions.map(item => <li key={item.hotelId} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', borderTop: '1px solid #E5E7EB', padding: '12px 0' }}>
+      {view.suggestions.map(item => <li key={item.hotelId} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', borderTop: '1px solid var(--c-e5e7eb)', padding: '12px 0' }}>
         <div>
           <strong>{item.name}</strong> · {item.city}, {item.countryCode}
           <div style={{ fontWeight: 600 }}>{TIER_LABEL[item.tier]} · score {item.confidence}/100</div>

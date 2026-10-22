@@ -31,7 +31,7 @@ export function ActivationApprovalPanel({ plan, onClose, onDone }: { plan: Admin
   }
 
   return (
-    <section aria-label={`activation approval ${plan.code}`} style={{ border: '1px solid #e5e7eb', background: '#f7f8fa', padding: 12, display: 'grid', gap: 8 }}>
+    <section aria-label={`activation approval ${plan.code}`} style={{ border: '1px solid var(--c-e5e7eb)', background: 'var(--c-f7f8fa)', padding: 12, display: 'grid', gap: 8 }}>
       <h3 style={{ margin: 0, fontSize: 13 }}>Activate <code>{plan.code}</code> · needs a second person</h3>
       <OpsState state={approval.state} onRetry={approval.reload}>
         {(current) => {
@@ -48,7 +48,7 @@ export function ActivationApprovalPanel({ plan, onClose, onDone }: { plan: Admin
                         {r.checks.map((c) => <li key={c.code} data-check={c.code} data-ok={c.ok} style={{ padding: '2px 0' }}><Chip tone={c.ok ? 'ok' : 'bad'}>{c.ok ? 'PASS' : 'FAIL'}</Chip> <strong>{c.label}</strong>: {c.message}</li>)}
                       </ul>
                       <label style={{ fontSize: 11 }}>Why this plan should go live (shown to the approver) <input value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Request reason" maxLength={500} style={{ width: '100%' }} /></label>
-                      <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>The approver reviews exactly these terms and rates. Changing a price, a term or loading another night afterwards voids the approval.</p>
+                      <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>The approver reviews exactly these terms and rates. Changing a price, a term or loading another night afterwards voids the approval.</p>
                       <button type="button" className="admin-btn admin-btn-primary" disabled={busy || !r.ready || reason.trim().length < 3} onClick={() => act(() => requestRatePlanActivation(plan.id, { requestId, reason: reason.trim(), expectedUpdatedAt: r.updatedAt }))}>{busy ? 'Sending…' : 'Request activation'}</button>
                     </>
                   )}
@@ -76,7 +76,7 @@ export function ActivationApprovalPanel({ plan, onClose, onDone }: { plan: Admin
           )
         }}
       </OpsState>
-      {error ? <p role="alert" style={{ color: '#a11d1d', fontSize: 12, margin: 0 }}>{error}</p> : null}
+      {error ? <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12, margin: 0 }}>{error}</p> : null}
       {failedChecks.length ? (
         <ul data-testid="server-failed-checks" aria-label="Checks the server rejected" style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 12 }}>
           {failedChecks.map((c) => <li key={c.code} data-check={c.code}><Chip tone="bad">FAIL</Chip> <strong>{c.label}</strong>: {c.message}</li>)}

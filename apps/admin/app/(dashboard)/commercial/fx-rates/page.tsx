@@ -41,8 +41,8 @@ export default function FxRatesPage() {
       <PageHeader eyebrow="COMMERCIAL" title="FX rates" description="Controlled exchange rates from a contract's currency into a selling currency. Without an active rate a contract is not offered in that currency. A rate is immutable, and activating one needs a second person's approval." />
       <CreateRate onCreated={(text) => { setNotice({ tone: 'ok', text }); reload() }} />
       {notice && <div className={notice.tone === 'bad' ? 'admin-error' : 'workspace-panel'} role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="fx-notice" style={{ margin: '8px 0' }}>{notice.text}</div>}
-      <form aria-label="FX rate filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: '#3f565c', fontSize: 11 }}>
-        <label style={{ display: 'grid', gap: 2, color: '#3f565c' }}>Status<select style={{ color: '#17333e' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{FX_RATE_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
+      <form aria-label="FX rate filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: 'var(--c-3f565c)', fontSize: 11 }}>
+        <label style={{ display: 'grid', gap: 2, color: 'var(--c-3f565c)' }}>Status<select style={{ color: 'var(--c-17333e)' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{FX_RATE_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
       </form>
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No FX rates', description: 'No rate matches. Contracts are offered only in their own currency until a rate is active.' }}>
         {(d) => (
@@ -105,8 +105,8 @@ function CreateRate({ onCreated }: { onCreated: (text: string) => void }) {
       setReason(''); onCreated('Draft rate created. It changes no price until it is activated.')
     } catch (e) { setError(describeApiError(e, 'create the rate')) } finally { setBusy(false) }
   }
-  const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
-  const field = { color: '#17333e' } as const
+  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
+  const field = { color: 'var(--c-17333e)' } as const
   return (
     <form onSubmit={submit} aria-label="New FX rate" className="workspace-panel" style={{ padding: '12px 18px', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }} data-testid="fx-form">
       <label style={lab} title="The contract (settlement) currency">From<input style={{ ...field, width: 60 }} maxLength={3} value={baseCurrency} onChange={(e) => setBase(e.target.value.toUpperCase())} required /></label>

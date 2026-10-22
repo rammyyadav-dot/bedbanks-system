@@ -4,7 +4,7 @@ import type { BookingDetailView } from '@bedbanks/contracts'
 import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { describeProposal } from '@/lib/booking-amendment-ui'
 
-const muted: React.CSSProperties = { color: '#3f565c', fontSize: 12 }
+const muted: React.CSSProperties = { color: 'var(--c-3f565c)', fontSize: 12 }
 const tone = (s: string) => (s === 'APPROVED' ? 'ok' : s === 'REJECTED' ? 'neutral' : 'warn') as 'ok' | 'neutral' | 'warn'
 
 /** Every structured amendment of the booking, newest first: what was asked, the booking as it was, and, once approved, the recorded price and difference. Display only. */

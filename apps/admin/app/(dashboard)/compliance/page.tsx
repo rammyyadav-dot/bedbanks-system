@@ -36,8 +36,8 @@ export default function CompliancePage() {
   const summary = useOpsQuery(() => getComplianceSummary(), [])
   const records = useOpsQuery(() => getComplianceRecords({ ...Object.fromEntries(Object.entries(applied).filter(([, v]) => v !== '')), page, pageSize: PAGE_SIZE }), [applied, page])
   const select = (key: keyof typeof draft, label: string, options: Array<[string, string]>) => (
-    <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#3f565c' }}><span>{label}</span>
-      <select style={{ color: '#17333e' }} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}><option value="">All</option>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+    <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' }}><span>{label}</span>
+      <select style={{ color: 'var(--c-17333e)' }} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}><option value="">All</option>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
     </label>
   )
   return (
@@ -46,13 +46,13 @@ export default function CompliancePage() {
       <OpsState state={summary.state} onRetry={summary.reload}>
         {(s) => (
           <section aria-label="Compliance summary" data-testid="compliance-summary" style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: '#3f565c', marginBottom: 6 }}>Captured {s.window.from} to {s.window.to} ({s.window.days} days)</div>
+            <div style={{ fontSize: 11, color: 'var(--c-3f565c)', marginBottom: 6 }}>Captured {s.window.from} to {s.window.to} ({s.window.days} days)</div>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
               {[...s.byCategory.map((c) => [CATEGORY_LABELS[c.category], c.count] as const), ['Cross-border bookings', s.bookings.crossBorder] as const, ['Bookings, countries unknown', s.bookings.unknown] as const].map(([label, value]) => (
-                <li key={label} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 22px system-ui', color: '#17333e' }}>{value}</div><div style={{ color: '#3f565c', fontSize: 11 }}>{label}</div></li>
+                <li key={label} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 22px system-ui', color: 'var(--c-17333e)' }}>{value}</div><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{label}</div></li>
               ))}
             </ul>
-            <div className="workspace-panel" data-testid="compliance-export" style={{ padding: '10px 14px', marginTop: 8, fontSize: 12, color: '#17333e' }}>
+            <div className="workspace-panel" data-testid="compliance-export" style={{ padding: '10px 14px', marginTop: 8, fontSize: 12, color: 'var(--c-17333e)' }}>
               {s.export.state === 'unavailable' ? <span>Export status is not readable by the API database role. <Tag tone="bad">UNAVAILABLE</Tag></span> : (
                 <span>
                   <strong>Export chain:</strong> {s.export.data.stored} of {s.export.data.batches} batch(es) stored{s.export.data.sealedNotStored ? <> · <Tag tone="warn">{s.export.data.sealedNotStored} SEALED, NOT STORED</Tag></> : null}
@@ -71,7 +71,7 @@ export default function CompliancePage() {
         {select('exportState', 'Export', (Object.keys(EXPORT_LABELS) as ComplianceExportState[]).map((s) => [s, EXPORT_LABELS[s]]))}
         {select('crossBorder', 'Jurisdiction', [['true', 'Cross-border'], ['false', 'Domestic']])}
         {(['from', 'to'] as const).map((key) => (
-          <label key={key} style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#3f565c' }}><span>{key === 'from' ? 'From' : 'To'}</span>
+          <label key={key} style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' }}><span>{key === 'from' ? 'From' : 'To'}</span>
             <input type="date" value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
           </label>
         ))}

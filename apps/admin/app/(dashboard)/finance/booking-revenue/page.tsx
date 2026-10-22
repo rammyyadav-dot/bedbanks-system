@@ -24,7 +24,7 @@ export default function BookingRevenuePage() {
         <label style={{ fontSize: 12 }}>From<br /><input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} className="admin-input" /></label>
         <label style={{ fontSize: 12 }}>To (inclusive)<br /><input type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} className="admin-input" /></label>
         <button type="submit" className="admin-btn">Show</button>
-        <span style={{ fontSize: 11, color: '#3f565c' }}>Empty dates mean this month to date. At most 366 days.</span>
+        <span style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Empty dates mean this month to date. At most 366 days.</span>
       </form>
       <OpsState state={q.state} onRetry={q.reload} isEmpty={(d) => d.currencies.length === 0} empty={{ title: 'Nothing posted in this period', description: 'The query succeeded and the consumer posted no booking charge, refund or supplier accrual in these dates.' }}>
         {(d) => (
@@ -35,9 +35,9 @@ export default function BookingRevenuePage() {
                 <h2 style={{ fontSize: 14, margin: '8px 0' }}>{c.currency}</h2>
                 <dl style={{ display: 'flex', gap: 24, flexWrap: 'wrap', margin: 0 }}>
                   {([['Sales', c.salesMinor], ['Refunds', c.refundsMinor], ['Net revenue', c.netRevenueMinor], ['Supplier cost', c.supplierCostMinor], ['Indicative margin', c.marginMinor]] as const).map(([label, minor]) => (
-                    <div key={label}><dt style={{ fontSize: 11, color: '#3f565c' }}>{label}</dt><dd style={{ margin: 0, fontSize: 16, fontWeight: 600 }}><Money minor={minor} currency={c.currency} /></dd></div>
+                    <div key={label}><dt style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{label}</dt><dd style={{ margin: 0, fontSize: 16, fontWeight: 600 }}><Money minor={minor} currency={c.currency} /></dd></div>
                   ))}
-                  <div><dt style={{ fontSize: 11, color: '#3f565c' }}>Charging events</dt><dd style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{c.chargedEvents}</dd></div>
+                  <div><dt style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Charging events</dt><dd style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{c.chargedEvents}</dd></div>
                 </dl>
                 <ScrollRegion label={`${c.currency} by agency`}>
                   <table style={tableStyle} aria-label={`${c.currency} revenue by agency`}>
@@ -61,7 +61,7 @@ export default function BookingRevenuePage() {
                 )}
               </section>
             ))}
-            <ul style={{ fontSize: 11, color: '#3f565c', padding: '6px 30px' }}>{d.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+            <ul style={{ fontSize: 11, color: 'var(--c-3f565c)', padding: '6px 30px' }}>{d.notes.map((n) => <li key={n}>{n}</li>)}</ul>
           </div>
         )}
       </OpsState>

@@ -8,7 +8,7 @@ export function Money({ minor, currency }: { minor: string | null; currency: str
 }
 
 export function Tag({ tone = 'neutral', children }: { tone?: 'ok' | 'warn' | 'bad' | 'neutral'; children: ReactNode }) {
-  const colors = { ok: ['#e6f7f2', '#0b6b55'], warn: ['#fff4dc', '#8a5a00'], bad: ['#fde8e8', '#a11d1d'], neutral: ['#eef3f4', '#2c4a55'] }[tone]
+  const colors = { ok: ['var(--c-e6f7f2)', 'var(--c-0b6b55)'], warn: ['var(--c-fff4dc)', 'var(--c-8a5a00)'], bad: ['var(--c-fde8e8)', 'var(--c-a11d1d)'], neutral: ['var(--c-eef3f4)', 'var(--c-2c4a55)'] }[tone]
   return <span style={{ background: colors[0], color: colors[1], padding: '2px 8px', borderRadius: 10, font: "600 10px 'Courier New', monospace", whiteSpace: 'nowrap' }}>{children}</span>
 }
 
@@ -28,6 +28,6 @@ export const ATTENTION_HELP: Record<string, string> = {
   CANCELLATION_RECORD_MISSING: 'Booking is CANCELLED but has no cancellation record.',
 }
 export function AttentionTags({ flags }: { flags: string[] }) {
-  if (flags.length === 0) return <span style={{ color: '#3f565c' }}>—</span>
+  if (flags.length === 0) return <span style={{ color: 'var(--c-3f565c)' }}>—</span>
   return <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>{flags.map(f => <span key={f} title={ATTENTION_HELP[f]}><Tag tone="bad">{f}</Tag></span>)}</span>
 }

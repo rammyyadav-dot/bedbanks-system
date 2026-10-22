@@ -11,11 +11,11 @@ import { bookingFinanceDocumentUrl, getBookingFinance, issueBookingDocument, pos
 import { parseMajorToMinor } from '@/lib/minor-units'
 import { Modal } from './Modal'
 
-const muted: React.CSSProperties = { color: '#3f565c' }
-const th: React.CSSProperties = { textAlign: 'left', padding: '4px 8px', fontSize: 11, color: '#3f565c' }
+const muted: React.CSSProperties = { color: 'var(--c-3f565c)' }
+const th: React.CSSProperties = { textAlign: 'left', padding: '4px 8px', fontSize: 11, color: 'var(--c-3f565c)' }
 const td: React.CSSProperties = { padding: '4px 8px', fontSize: 12, verticalAlign: 'top' }
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(150px, 230px) 1fr', gap: '6px 14px', margin: 0, fontSize: 12 }
-const input: React.CSSProperties = { border: '1px solid #c5d4d8', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
+const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
 
 function PenaltyDialog({ f, mode, onClose, onDone }: { f: BookingFinanceView; mode: 'decide' | 'waive'; onClose: () => void; onDone: (message: string) => void }) {
   const [amount, setAmount] = useState(''); const [reason, setReason] = useState('')
@@ -37,7 +37,7 @@ function PenaltyDialog({ f, mode, onClose, onDone }: { f: BookingFinanceView; mo
         </p>
         <label style={{ display: 'grid', gap: 3, fontSize: 12 }}><span>New penalty ({f.currency})</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} style={input} placeholder="0.00" /></label>
         <label style={{ display: 'grid', gap: 3, fontSize: 12 }}><span>Reason (required)</span><textarea rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} style={input} /><span style={{ ...muted, fontSize: 11 }}>Do not enter guest personal details.</span></label>
-        {note && <p role="alert" style={{ margin: 0, color: '#a11d1d', fontSize: 12 }}>{note}</p>}
+        {note && <p role="alert" style={{ margin: 0, color: 'var(--c-a11d1d)', fontSize: 12 }}>{note}</p>}
         <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="admin-btn admin-btn-primary" disabled={busy} aria-busy={busy}>{busy ? 'Working…' : mode === 'waive' ? 'Waive' : 'Decide'}</button></div>
       </form>
     </Modal>
@@ -112,7 +112,7 @@ function Body({ f, onChanged }: { f: BookingFinanceView; onChanged: (message: st
               </tr>
             )
           })}</tbody></table>
-        {error && <div role="alert" data-testid="finance-error" style={{ color: '#a11d1d', fontSize: 12 }}>{error}</div>}
+        {error && <div role="alert" data-testid="finance-error" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{error}</div>}
       </section>
 
       <section className="workspace-panel" style={{ padding: 16, display: 'grid', gap: 8, overflowX: 'auto' }} aria-labelledby="fin-events" data-testid="finance-events">

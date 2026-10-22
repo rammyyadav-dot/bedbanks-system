@@ -12,7 +12,7 @@ import { ApproveAmendmentDialog, RequestAmendmentDialog } from './AmendmentDialo
 import { Modal } from './Modal'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
-const input: React.CSSProperties = { border: '1px solid #c5d4d8', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
+const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
 
 /** Before an operator asks for a cancellation they see what it costs (spec F.1). Shown only to callers who may see booking finance; absent otherwise, never zero. */
 function useCancellationPreview(d: BookingDetailView, action: BookingAvailableAction): React.ReactNode {
@@ -20,15 +20,15 @@ function useCancellationPreview(d: BookingDetailView, action: BookingAvailableAc
   const [view, setView] = useState<Awaited<ReturnType<typeof getBookingFinance>> | 'failed' | null>(null)
   useEffect(() => { if (!allowed) return; let live = true; getBookingFinance(d.booking.id).then((v) => { if (live) setView(v) }, () => { if (live) setView('failed') }); return () => { live = false } }, [allowed, d.booking.id])
   if (!allowed) return null
-  if (view === null) return <p role="status" style={{ margin: 0, fontSize: 12, color: '#3f565c' }}>Working out the penalty…</p>
-  if (view === 'failed' || !view.cancellationPreview) return <p role="status" data-testid="cancel-preview" style={{ margin: 0, fontSize: 12, color: '#8a5a00' }}>The penalty could not be worked out here. It will be recorded when you ask for the cancellation.</p>
+  if (view === null) return <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--c-3f565c)' }}>Working out the penalty…</p>
+  if (view === 'failed' || !view.cancellationPreview) return <p role="status" data-testid="cancel-preview" style={{ margin: 0, fontSize: 12, color: 'var(--c-8a5a00)' }}>The penalty could not be worked out here. It will be recorded when you ask for the cancellation.</p>
   const q = view.cancellationPreview
   return (
-    <div role="status" data-testid="cancel-preview" style={{ border: '1px solid #e6d3a0', background: '#fffaf0', padding: 10, borderRadius: 6, fontSize: 12 }}>
+    <div role="status" data-testid="cancel-preview" style={{ border: '1px solid var(--c-e6d3a0)', background: 'var(--c-fffaf0)', padding: 10, borderRadius: 6, fontSize: 12 }}>
       {q.status === 'quotable'
         ? <strong>Cancelling now costs a penalty of <Money minor={q.penaltyMinor} currency={view.currency} />; <Money minor={q.refundMinor} currency={view.currency} /> would be refunded.</strong>
         : <strong>The penalty cannot be worked out automatically; a person will decide it.</strong>}
-      <div style={{ color: '#3f565c', fontSize: 11, marginTop: 2 }}>{quoteSummary(q)} The penalty is fixed when you submit this request.</div>
+      <div style={{ color: 'var(--c-3f565c)', fontSize: 11, marginTop: 2 }}>{quoteSummary(q)} The penalty is fixed when you submit this request.</div>
     </div>
   )
 }
@@ -58,7 +58,7 @@ function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; ac
   return (
     <Modal title={action.label} onClose={busy ? () => undefined : onClose}>
       <form onSubmit={submit} noValidate style={{ display: 'grid', gap: 10 }} data-testid="booking-action-form">
-        <p style={{ margin: 0, color: '#3f565c', fontSize: 12 }}>{d.booking.reference}: {statusLabel(d.booking.status)} → <strong>{statusLabel(action.to)}</strong>. {action.effect}</p>
+        <p style={{ margin: 0, color: 'var(--c-3f565c)', fontSize: 12 }}>{d.booking.reference}: {statusLabel(d.booking.status)} → <strong>{statusLabel(action.to)}</strong>. {action.effect}</p>
         {preview}
         {fields.map((f) => (
           <label key={f} style={field}>
@@ -66,7 +66,7 @@ function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; ac
             {f === 'reason'
               ? <textarea rows={3} maxLength={MAX_LENGTH.reason} value={form.reason} onChange={(e) => set({ reason: e.target.value })} style={input} aria-invalid={missing.includes('reason')} aria-describedby="reason-note" />
               : <input type="text" maxLength={MAX_LENGTH[f]} value={form[f] as string} onChange={(e) => set({ [f]: e.target.value } as Partial<ActionFormState>)} style={input} aria-invalid={missing.includes(f)} autoComplete="off" />}
-            {f === 'reason' && <span id="reason-note" style={{ color: '#3f565c', fontSize: 11 }}>Do not enter guest personal details. Kept in the booking’s timeline for operators.</span>}
+            {f === 'reason' && <span id="reason-note" style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>Do not enter guest personal details. Kept in the booking’s timeline for operators.</span>}
           </label>
         ))}
         {action.needsSecondConfirmation && (
@@ -75,10 +75,10 @@ function ActionDialog({ d, action, onClose, onDone }: { d: BookingDetailView; ac
             <span>I understand this booking is not known to be refundable, and a penalty may apply.</span>
           </label>
         )}
-        {missing.length > 0 && <p role="alert" style={{ margin: 0, color: '#a11d1d', fontSize: 12 }}>Required: {missing.map((m) => FIELD_LABEL[m as keyof typeof FIELD_LABEL]).join(', ')}.</p>}
+        {missing.length > 0 && <p role="alert" style={{ margin: 0, color: 'var(--c-a11d1d)', fontSize: 12 }}>Required: {missing.map((m) => FIELD_LABEL[m as keyof typeof FIELD_LABEL]).join(', ')}.</p>}
         {error && (
-          <div role="alert" data-testid="booking-action-error" style={{ color: '#a11d1d', fontSize: 12 }}>
-            {error.message}{error.requestId ? <div style={{ fontSize: 11, color: '#3f565c' }}>Reference: request {error.requestId}</div> : null}
+          <div role="alert" data-testid="booking-action-error" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>
+            {error.message}{error.requestId ? <div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Reference: request {error.requestId}</div> : null}
             {error.reload && <div><button type="button" className="admin-btn" onClick={() => onDone('')}>Reload booking</button></div>}
           </div>
         )}
@@ -110,11 +110,11 @@ function ReferencesDialog({ d, onClose, onDone }: { d: BookingDetailView; onClos
   return (
     <Modal title="Edit references" onClose={busy ? () => undefined : onClose}>
       <form onSubmit={submit} noValidate style={{ display: 'grid', gap: 10 }} data-testid="booking-references-form">
-        <p style={{ margin: 0, color: '#3f565c', fontSize: 12 }}>Changes the references only; the status stays {statusLabel(b.status)}. Clear a field to remove its reference.</p>
+        <p style={{ margin: 0, color: 'var(--c-3f565c)', fontSize: 12 }}>Changes the references only; the status stays {statusLabel(b.status)}. Clear a field to remove its reference.</p>
         {row('Supplier reference', 'supplierRef')}{row('Hotel confirmation number', 'hotelConfirmationNo')}{row('Agency’s own reference', 'agentRef')}
         <label style={field}><span>Reason (required)</span><textarea rows={2} maxLength={500} value={vals.reason} onChange={(e) => setVals((v) => ({ ...v, reason: e.target.value }))} style={input} /></label>
-        {note && <p role="alert" style={{ margin: 0, color: '#a11d1d', fontSize: 12 }}>{note}</p>}
-        {error && <div role="alert" style={{ color: '#a11d1d', fontSize: 12 }}>{error.message}{error.requestId ? <div style={{ fontSize: 11, color: '#3f565c' }}>Reference: request {error.requestId}</div> : null}</div>}
+        {note && <p role="alert" style={{ margin: 0, color: 'var(--c-a11d1d)', fontSize: 12 }}>{note}</p>}
+        {error && <div role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{error.message}{error.requestId ? <div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Reference: request {error.requestId}</div> : null}</div>}
         <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="admin-btn admin-btn-primary" disabled={busy}>{busy ? 'Working…' : 'Save references'}</button></div>
       </form>
     </Modal>

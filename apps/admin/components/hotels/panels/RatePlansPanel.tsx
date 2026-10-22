@@ -17,8 +17,8 @@ const STATUSES = ['DRAFT', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const
 const PAGE_SIZE = 25
 // The Actions column stays visible while the table scrolls sideways, so Activate/Suspend/Clone are never clipped off-screen.
 const nowrap: React.CSSProperties = { ...td, whiteSpace: 'nowrap' }
-const actionsTh: React.CSSProperties = { ...th, position: 'sticky', right: 0, zIndex: 1, borderLeft: '1px solid #e6eef0' }
-const actionsTd: React.CSSProperties = { ...td, whiteSpace: 'nowrap', position: 'sticky', right: 0, background: '#fff', borderLeft: '1px solid #e6eef0' }
+const actionsTh: React.CSSProperties = { ...th, position: 'sticky', right: 0, zIndex: 1, borderLeft: '1px solid var(--c-e6eef0)' }
+const actionsTd: React.CSSProperties = { ...td, whiteSpace: 'nowrap', position: 'sticky', right: 0, background: 'var(--c-ffffff)', borderLeft: '1px solid var(--c-e6eef0)' }
 const statusTone = (status: string) => (status === 'ACTIVE' ? 'ok' : status === 'DRAFT' ? 'neutral' : 'warn') as 'ok' | 'neutral' | 'warn'
 const OCCUPANCY_LABEL: Record<number, string> = { 1: 'SGL', 2: 'DBL', 3: 'TPL', 4: 'QUAD' }
 const markets = (value: unknown): string => (Array.isArray(value) && value.length ? value.join(', ') : 'All markets')
@@ -47,7 +47,7 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.total === 0 && !search && !status} empty={{ title: 'No rate plans', description: 'This hotel has no rate plan yet. Create one against a contract and room type to start loading rates.' }}>
         {(data) => (
           <>
-            <div role="toolbar" aria-label="Rate plan toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 2, paddingBottom: 8 }}>
+            <div role="toolbar" aria-label="Rate plan toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', position: 'sticky', top: 0, background: 'var(--c-ffffff)', zIndex: 2, paddingBottom: 8 }}>
               <span data-testid="plan-counts" style={{ fontSize: 12 }}>
                 <strong>{rooms.length}</strong> room types · <strong>{data.statusCounts ? Object.values(data.statusCounts).reduce((a, b) => a + b, 0) : data.total}</strong> rate plans
                 {data.statusCounts ? <> · {data.statusCounts.ACTIVE} active · {data.statusCounts.DRAFT + data.statusCounts.SUSPENDED + data.statusCounts.EXPIRED} inactive ({data.statusCounts.DRAFT} draft, {data.statusCounts.SUSPENDED} suspended, {data.statusCounts.EXPIRED} expired)</> : null}
@@ -61,7 +61,7 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
               </span>
             </div>
             {blockedNotices.length ? (
-              <div role="note" data-testid="capability-notice" style={{ border: '1px solid #e5d9a8', background: '#fffbe6', padding: '8px 12px', fontSize: 12, display: 'grid', gap: 2 }}>
+              <div role="note" data-testid="capability-notice" style={{ border: '1px solid var(--c-e5d9a8)', background: 'var(--c-fffbe6)', padding: '8px 12px', fontSize: 12, display: 'grid', gap: 2 }}>
                 {blockedNotices.map((notice) => <span key={notice}>{notice}</span>)}
               </div>
             ) : null}
@@ -79,10 +79,10 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
                       <td style={td}><Chip tone={statusTone(plan.status)}>{plan.status}</Chip></td>
                       <td style={td}>{roomName(plan.roomTypeId)}</td>
                       <td style={td} title={plan.boardBasis.name}>{plan.boardBasis.code}</td>
-                      <td style={nowrap}><Link href={`/contracts/${plan.contract.id}`}>{plan.contract.code}</Link><div style={{ fontSize: 10, color: '#3f565c' }}>{plan.contract.supplier.displayName}{plan.contract.status ? ` · ${plan.contract.status}` : ''}</div></td>
+                      <td style={nowrap}><Link href={`/contracts/${plan.contract.id}`}>{plan.contract.code}</Link><div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{plan.contract.supplier.displayName}{plan.contract.status ? ` · ${plan.contract.status}` : ''}</div></td>
                       <td style={td}>{plan.currency}</td>
                       <td style={nowrap}>{OCCUPANCY_LABEL[plan.occupancy] ?? `${plan.occupancy} pax`} · stay {plan.minStay}{plan.maxStay ? `–${plan.maxStay}` : '+'}</td>
-                      <td style={nowrap}>{plan.contract.validFrom && plan.contract.validTo ? `${plan.contract.validFrom.slice(0, 10)} → ${plan.contract.validTo.slice(0, 10)}` : '—'}<div style={{ fontSize: 10, color: '#3f565c' }}>contract term</div></td>
+                      <td style={nowrap}>{plan.contract.validFrom && plan.contract.validTo ? `${plan.contract.validFrom.slice(0, 10)} → ${plan.contract.validTo.slice(0, 10)}` : '—'}<div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>contract term</div></td>
                       <td style={td}>{plan.refundable ? <Chip tone="neutral" title="Uses the contract's cancellation schedule">Contract schedule</Chip> : <Chip tone="warn">Non-refundable</Chip>}</td>
                       <td style={td}>{markets(plan.contract.salesMarkets)}</td>
                       <td style={actionsTd}>
@@ -103,7 +103,7 @@ export function RatePlansPanel({ hotelId, rooms }: { hotelId: string; rooms: Hot
               <span>Page {data.page} · {data.total} match{data.total === 1 ? '' : 'es'}</span>
               <button type="button" className="admin-btn" disabled={!data.hasMore} onClick={() => setPage(page + 1)}>Next</button>
             </nav>
-            <p style={{ color: '#3f565c', fontSize: 11, margin: 0 }}>Activation runs the API's readiness checklist; a plan with any failed check stays in its current state. Per-plan market eligibility is inherited from the contract: there is no separate plan-level distribution setting.</p>
+            <p style={{ color: 'var(--c-3f565c)', fontSize: 11, margin: 0 }}>Activation runs the API's readiness checklist; a plan with any failed check stays in its current state. Per-plan market eligibility is inherited from the contract: there is no separate plan-level distribution setting.</p>
             {canManage ? <HotelOfferPanel hotelId={hotelId} plans={data.items.filter((plan) => plan.status !== 'EXPIRED')} onApplied={reload} /> : null}
           </>
         )}
@@ -137,7 +137,7 @@ function ActionPanel({ pending, rooms, onClose, onDone }: { pending: Pending; ro
   }
 
   return (
-    <section aria-label={`${action} ${plan.code}`} style={{ border: '1px solid #e5e7eb', background: '#f7f8fa', padding: 12, display: 'grid', gap: 8 }}>
+    <section aria-label={`${action} ${plan.code}`} style={{ border: '1px solid var(--c-e5e7eb)', background: 'var(--c-f7f8fa)', padding: 12, display: 'grid', gap: 8 }}>
       <h3 style={{ margin: 0, fontSize: 13 }}>{action === 'activate' ? 'Activate' : action === 'suspend' ? 'Suspend' : 'Clone'} <code>{plan.code}</code></h3>
       {action === 'clone' ? (
         <>
@@ -157,7 +157,7 @@ function ActionPanel({ pending, rooms, onClose, onDone }: { pending: Pending; ro
               ) : (
                 <label style={{ fontSize: 11 }}>Reason (recorded in the audit history) <input value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Suspension reason" style={{ width: '100%' }} /></label>
               )}
-              {error ? <p role="alert" style={{ color: '#a11d1d', fontSize: 12, margin: 0 }}>{error}</p> : null}
+              {error ? <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12, margin: 0 }}>{error}</p> : null}
               {failedChecks.length ? (
                 <ul data-testid="server-failed-checks" aria-label="Checks the server rejected" style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 12 }}>
                   {failedChecks.map((c) => <li key={c.code} data-check={c.code}><Chip tone="bad">FAIL</Chip> <strong>{c.label}</strong>: {c.message}</li>)}
@@ -167,12 +167,12 @@ function ActionPanel({ pending, rooms, onClose, onDone }: { pending: Pending; ro
                 <button type="button" className="admin-btn admin-btn-primary" disabled={busy || (action === 'activate' ? !r.ready : reason.trim().length < 3)} onClick={() => run(r.updatedAt)}>{busy ? 'Saving…' : action === 'activate' ? 'Confirm activation' : 'Confirm suspension'}</button>
                 <button type="button" className="admin-btn" onClick={onClose}>Cancel</button>
               </span>
-              {action === 'suspend' ? <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>Suspending stops this plan from being offered in Agent search. Existing bookings keep their stored references.</p> : null}
+              {action === 'suspend' ? <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>Suspending stops this plan from being offered in Agent search. Existing bookings keep their stored references.</p> : null}
             </>
           )}
         </OpsState>
       )}
-      {action === 'clone' && error ? <p role="alert" style={{ color: '#a11d1d', fontSize: 12, margin: 0 }}>{error}</p> : null}
+      {action === 'clone' && error ? <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12, margin: 0 }}>{error}</p> : null}
     </section>
   )
 }

@@ -46,8 +46,8 @@ export function DataTable<T>({
                 <th
                   key={col.key}
                   style={{
-                    textAlign: col.align ?? 'left', padding: '10px 18px', color: '#92a5a9',
-                    font: "8px 'Courier New', monospace", letterSpacing: '.8px', borderBottom: '1px solid #e6eef0', whiteSpace: 'nowrap',
+                    textAlign: col.align ?? 'left', padding: '10px 18px', color: 'var(--c-92a5a9)',
+                    font: "8px 'Courier New', monospace", letterSpacing: '.8px', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap',
                   }}
                 >
                   {col.header}
@@ -60,11 +60,11 @@ export function DataTable<T>({
               <tr
                 key={getRowId(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                style={{ borderBottom: '1px solid #edf2f3', cursor: onRowClick ? 'pointer' : 'default' }}
+                style={{ borderBottom: '1px solid var(--c-edf2f3)', cursor: onRowClick ? 'pointer' : 'default' }}
                 className={onRowClick ? 'hotel-row' : undefined}
               >
                 {columns.map((col) => (
-                  <td key={col.key} style={{ textAlign: col.align ?? 'left', padding: '12px 18px', color: '#2c4a55', verticalAlign: 'middle' }}>
+                  <td key={col.key} style={{ textAlign: col.align ?? 'left', padding: '12px 18px', color: 'var(--c-2c4a55)', verticalAlign: 'middle' }}>
                     {col.render(row)}
                   </td>
                 ))}

@@ -25,12 +25,12 @@ export function ComplianceReportPanel() {
     } catch (error) { setNote(describeActionError(error).message) } finally { setBusy(null) }
   }
   return (
-    <section className="workspace-panel" aria-label="Compliance report" data-testid="compliance-report" style={{ padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#17333e' }}>
+    <section className="workspace-panel" aria-label="Compliance report" data-testid="compliance-report" style={{ padding: '10px 14px', marginBottom: 12, fontSize: 12, color: 'var(--c-17333e)' }}>
       <strong>Period report</strong>
-      <span style={{ color: '#3f565c' }}> · every record of the period with counts, export coverage and an attestation hash; at most {COMPLIANCE_REPORT_MAX_DAYS} days. Each download is audited.</span>
+      <span style={{ color: 'var(--c-3f565c)' }}> · every record of the period with counts, export coverage and an attestation hash; at most {COMPLIANCE_REPORT_MAX_DAYS} days. Each download is audited.</span>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 8 }}>
-        <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#3f565c' }}><span>From</span><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#3f565c' }}><span>To</span><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' }}><span>From</span><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+        <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' }}><span>To</span><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         <button type="button" className="admin-btn" disabled={busy !== null || !from || !to} aria-busy={busy === 'csv'} onClick={() => void run('csv')}>{busy === 'csv' ? 'Preparing…' : 'Download CSV'}</button>
         <button type="button" className="admin-btn" disabled={busy !== null || !from || !to} aria-busy={busy === 'json'} onClick={() => void run('json')}>{busy === 'json' ? 'Preparing…' : 'Download JSON'}</button>
       </div>

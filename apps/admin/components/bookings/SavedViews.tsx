@@ -9,7 +9,7 @@ import { clearDefaultBookingView, createBookingView, deleteBookingView, getBooki
 import { Modal } from './Modal'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
-const input: React.CSSProperties = { border: '1px solid #c5d4d8', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
+const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
 
 type Dialog = { kind: 'save' } | { kind: 'rename' } | { kind: 'delete' } | null
 
@@ -28,8 +28,8 @@ function NameDialog({ title, initial, includeColumns, onClose, onSubmit }: { tit
         <label style={field}><span>Name (required)</span><input value={name} maxLength={SAVED_VIEW_NAME_MAX} onChange={(e) => setName(e.target.value)} style={input} autoComplete="off" aria-invalid={error !== null && !name.trim()} /></label>
         <label style={field}><span>Description (optional)</span><textarea rows={2} maxLength={SAVED_VIEW_DESCRIPTION_MAX} value={description} onChange={(e) => setDescription(e.target.value)} style={input} /></label>
         {includeColumns && <label style={{ ...field, gridAutoFlow: 'column', justifyContent: 'start', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={withColumns} onChange={(e) => setWithColumns(e.target.checked)} /><span>Also remember the columns I am showing</span></label>}
-        <p style={{ margin: 0, fontSize: 11, color: '#3f565c' }}>A view remembers filters, sort order and (optionally) columns. It is private to you and never widens what you are allowed to see.</p>
-        {error && <p role="alert" style={{ margin: 0, color: '#a11d1d', fontSize: 12 }}>{error}</p>}
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>A view remembers filters, sort order and (optionally) columns. It is private to you and never widens what you are allowed to see.</p>
+        {error && <p role="alert" style={{ margin: 0, color: 'var(--c-a11d1d)', fontSize: 12 }}>{error}</p>}
         <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="admin-btn admin-btn-primary" disabled={busy} aria-busy={busy}>{busy ? 'Working…' : 'Save'}</button></div>
       </form>
     </Modal>
@@ -97,11 +97,11 @@ export function SavedViews({ access, query, columns, activeId, urlIsBlank, onOpe
       </>}
       {active && can('booking.savedview.delete.own') && <button type="button" className="admin-btn" data-action="delete-view" onClick={() => setDialog({ kind: 'delete' })}>Delete…</button>}
       {can('booking.savedview.update.own') && items.some((v) => v.isDefault) && <button type="button" className="admin-btn" data-action="reset-default" disabled={busy} onClick={() => void run(async () => { await clearDefaultBookingView(); onReset() }, 'Reset to the system default.')}>Reset to system default</button>}
-      {active && modified && active.resolution.status === 'ok' && <span data-testid="view-modified" style={{ fontSize: 11, color: '#8a5a00' }}>Changed since saved</span>}
-      <span role="status" aria-live="polite" data-testid="view-note" style={{ fontSize: 11, color: note?.tone === 'bad' ? '#a11d1d' : '#3f565c' }}>{note?.text ?? ''}</span>
-      {views.state.status === 'failed' && <span role="alert" style={{ fontSize: 11, color: '#a11d1d' }}>Saved views could not be loaded.</span>}
-      {active && viewProblem(active) && <p role="alert" data-testid="view-problem" style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: '#a11d1d' }}>{viewProblem(active)}</p>}
-      {items.length > 0 && items.some((v) => v.resolution.status !== 'ok') && !active && <small style={{ flexBasis: '100%', color: '#3f565c' }}>Some views cannot be applied (their filters changed or are no longer allowed to you); choose one and rename or delete it.</small>}
+      {active && modified && active.resolution.status === 'ok' && <span data-testid="view-modified" style={{ fontSize: 11, color: 'var(--c-8a5a00)' }}>Changed since saved</span>}
+      <span role="status" aria-live="polite" data-testid="view-note" style={{ fontSize: 11, color: note?.tone === 'bad' ? 'var(--c-a11d1d)' : 'var(--c-3f565c)' }}>{note?.text ?? ''}</span>
+      {views.state.status === 'failed' && <span role="alert" style={{ fontSize: 11, color: 'var(--c-a11d1d)' }}>Saved views could not be loaded.</span>}
+      {active && viewProblem(active) && <p role="alert" data-testid="view-problem" style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: 'var(--c-a11d1d)' }}>{viewProblem(active)}</p>}
+      {items.length > 0 && items.some((v) => v.resolution.status !== 'ok') && !active && <small style={{ flexBasis: '100%', color: 'var(--c-3f565c)' }}>Some views cannot be applied (their filters changed or are no longer allowed to you); choose one and rename or delete it.</small>}
 
       {dialog?.kind === 'save' && <NameDialog title="Save current view" includeColumns onClose={() => setDialog(null)} onSubmit={async (v) => {
         const body = { name: v.name, description: v.description, ...currentViewPayload(query, v.withColumns ? columns : null) }

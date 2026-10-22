@@ -14,8 +14,8 @@ import { describeApiError } from '@/lib/api/describe-error'
 import { parseMajorToMinor } from '@/lib/minor-units'
 import { useCan } from '@/lib/auth/capabilities'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
-const note = { color: '#3f565c', fontSize: 11, margin: 0 } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
+const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
 const tone = (s: string) => (s === 'POSTED' ? 'ok' : s === 'REJECTED' ? 'bad' : s === 'VERIFIED' ? 'warn' : 'neutral') as 'ok' | 'bad' | 'warn' | 'neutral'
 const ask = (label: string) => (typeof window === 'undefined' ? null : window.prompt(label)?.trim() ?? null)
 

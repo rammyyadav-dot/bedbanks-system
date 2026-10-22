@@ -12,7 +12,7 @@ import { describeApiError } from '@/lib/api/describe-error'
 import { RUN_ERROR_TEXT, RUN_LABEL, runIsActive, runTone } from '@/lib/reconciliation-ui'
 import { StatementImport } from './StatementImport'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
 
 /** Imported statements, their latest matching run and settlement figures. Running the match is the only action and posts nothing. */
 export function ReconciliationStatements({ canRun, onMessage, onOpenQueue }: { canRun: boolean; onMessage: (m: string) => void; onOpenQueue: (statementId: string) => void }) {
@@ -58,7 +58,7 @@ export function ReconciliationStatements({ canRun, onMessage, onOpenQueue }: { c
                     </td>
                     <td style={td}>
                       <div style={{ fontSize: 11 }}>{s.exceptions.open} open · {s.exceptions.disputed} disputed · {s.exceptions.pendingApproval} awaiting</div>
-                      <div style={{ fontSize: 10, color: '#6d858c' }}>{s.exceptions.resolved} resolved</div>
+                      <div style={{ fontSize: 10, color: 'var(--c-6d858c)' }}>{s.exceptions.resolved} resolved</div>
                     </td>
                     <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {canRun && <button type="button" className="admin-btn" disabled={busy || runIsActive(s.latestRun?.status)} data-testid="recon-run" onClick={() => void run(s.id)}>{s.latestRun ? 'Re-run matching' : 'Run matching'}</button>}
@@ -81,7 +81,7 @@ export function ReconciliationStatements({ canRun, onMessage, onOpenQueue }: { c
 function Settlement({ id }: { id: string }) {
   const q = useOpsQuery(() => getReconStatement(id), [id])
   return (
-    <div style={{ padding: '10px 18px', borderTop: '1px solid #e5eef0' }}>
+    <div style={{ padding: '10px 18px', borderTop: '1px solid var(--c-e5eef0)' }}>
       <OpsState state={q.state} onRetry={q.reload}>
         {(d) => (
           <div>
@@ -97,7 +97,7 @@ function Settlement({ id }: { id: string }) {
                   <td style={{ ...td, textAlign: 'right' }}><Money minor={r.exceptionMinor} currency={r.currency} /></td>
                 </tr>))}</tbody>
             </table>
-            <details style={{ fontSize: 11, color: '#3f565c', marginTop: 6 }}><summary>What these numbers mean</summary><ul>{Object.entries(d.definitions).map(([k, v]) => <li key={k}><strong>{k}</strong>: {v}</li>)}</ul></details>
+            <details style={{ fontSize: 11, color: 'var(--c-3f565c)', marginTop: 6 }}><summary>What these numbers mean</summary><ul>{Object.entries(d.definitions).map(([k, v]) => <li key={k}><strong>{k}</strong>: {v}</li>)}</ul></details>
           </div>
         )}
       </OpsState>

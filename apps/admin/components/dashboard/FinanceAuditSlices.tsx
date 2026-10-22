@@ -21,7 +21,7 @@ export function Card({ id, children, window }: { id: DepartmentId; children: Rea
 function Denied() { return <div role="status" data-state="denied"><strong>{OPS_FAILURE_COPY.denied.title}</strong><p>{OPS_FAILURE_COPY.denied.body}</p></div> }
 export function Section<T>({ section, children }: { section: SectionState<T>; children: (data: T) => React.ReactNode }) { return section.state === 'unavailable' ? <Denied /> : <>{children(section.data)}</> }
 export const Stat = ({ label, value, href }: { label: string; value: number | string; href?: string }) => {
-  const body = <><strong style={{ font: '700 18px system-ui', color: '#17333e' }}>{value}</strong><div style={{ fontSize: 12, color: '#3f565c' }}>{label}</div></>
+  const body = <><strong style={{ font: '700 18px system-ui', color: 'var(--c-17333e)' }}>{value}</strong><div style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{label}</div></>
   return <li>{href ? <Link href={href} style={{ textDecoration: 'none', color: 'inherit' }}>{body}</Link> : body}</li>
 }
 export const grid = { listStyle: 'none', margin: '0 0 8px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 } as const
@@ -67,7 +67,7 @@ export function FinanceAuditSlices() {
                   <Stat label="Unknown supplier outcomes" value={e.attention.unknownSupplierOutcomes} href="/reconciliation" />
                   <Stat label="Self-approval attempts" value={e.attention.selfApprovalAttempts} href="/audit" />
                 </ul>
-                {e.byDomain.length > 0 && <p style={{ fontSize: 11, color: '#3f565c', margin: 0 }}>{e.byDomain.slice(0, 5).map((d) => `${d.domain} ${d.events}`).join(' · ')}</p>}
+                {e.byDomain.length > 0 && <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: 0 }}>{e.byDomain.slice(0, 5).map((d) => `${d.domain} ${d.events}`).join(' · ')}</p>}
               </>
             )}</Section>
           )}

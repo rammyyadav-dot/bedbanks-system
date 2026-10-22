@@ -13,7 +13,7 @@ import { approveSettlement, getPostedPayables, getSettlements, getSupplierTerms,
 import { parseMajorToMinor } from '@/lib/minor-units'
 import { SETTLEMENT_STATUS_TEXT, TERMS_BASIS_TEXT, settlementTone, termsText } from '@/lib/booking-finance-posting-ui'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: '#3f565c' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
 
 /**
  * Supplier settlements (ADR 0077): payments made to suppliers outside the system, recorded against their posted payables. One person proposes, a different person approves or
@@ -37,7 +37,7 @@ export default function SupplierSettlementsPage() {
         </OpsState>
       )}
       <h2 style={{ fontSize: 14, margin: '4px 0' }}>Payment terms</h2>
-      <p style={{ fontSize: 12, margin: '0 0 6px', color: '#3f565c' }}>The terms agreed with each supplier: pay a number of days after the guest's check-out, check-in or the booking's confirmation. They set the due date of each payable. Every change is kept as history.</p>
+      <p style={{ fontSize: 12, margin: '0 0 6px', color: 'var(--c-3f565c)' }}>The terms agreed with each supplier: pay a number of days after the guest's check-out, check-in or the booking's confirmation. They set the due date of each payable. Every change is kept as history.</p>
       <OpsState state={terms.state} onRetry={terms.reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No suppliers owed', description: 'The query succeeded and no supplier has a posted payable or agreed terms.' }}>
         {(d) => (
           <div className="workspace-panel" data-testid="supplier-terms" style={{ marginBottom: 14 }}>
@@ -136,9 +136,9 @@ function ProposeForm({ options, onDone }: { options: Array<{ supplierId: string;
         <label style={lab}>Note (optional)<input className="input-wrap" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} /></label>
         <button type="button" className="admin-btn" disabled={!ready || busy} onClick={submit} data-testid="settlement-submit">Propose</button>
       </div>
-      {picked && <p style={{ fontSize: 11, color: '#3f565c', margin: '6px 0 0' }}>Still owed to this supplier in {picked.currency}: <Money minor={picked.outstandingMinor} currency={picked.currency} />. A payment can never exceed what is owed, counting proposals still waiting.</p>}
-      {amount && picked && minor === null && <p role="alert" style={{ fontSize: 12, color: '#b42318' }}>Enter a positive amount with at most the currency's decimal places.</p>}
-      {error && <p role="alert" style={{ fontSize: 12, color: '#b42318' }}>{error}</p>}
+      {picked && <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: '6px 0 0' }}>Still owed to this supplier in {picked.currency}: <Money minor={picked.outstandingMinor} currency={picked.currency} />. A payment can never exceed what is owed, counting proposals still waiting.</p>}
+      {amount && picked && minor === null && <p role="alert" style={{ fontSize: 12, color: 'var(--c-b42318)' }}>Enter a positive amount with at most the currency's decimal places.</p>}
+      {error && <p role="alert" style={{ fontSize: 12, color: 'var(--c-b42318)' }}>{error}</p>}
     </section>
   )
 }
