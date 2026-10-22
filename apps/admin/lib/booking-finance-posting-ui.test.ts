@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { POSTING_REVIEW_REASONS, POSTING_SKIP_REASONS, BOOKING_FINANCE_EVENT_TYPES } from '@bedbanks/contracts'
-import { EVENT_TEXT, REVIEW_TEXT, SKIP_TEXT, nextRetryAt, reviewText } from './booking-finance-posting-ui'
+import { EVENT_TEXT, REVIEW_TEXT, SKIP_TEXT, nextRetryAt, reviewText, termsText } from './booking-finance-posting-ui'
 import { flatNav } from '../components/layout/nav-config'
 
 const root = join(import.meta.dirname, '..')
@@ -30,7 +30,8 @@ test('the booking postings page is a real, permission-gated, read-only module wi
   for (const f of files) {
     const text = readFileSync(join(root, f), 'utf8')
     assert.doesNotMatch(text, /BigInt\(|Number\(.*Minor|parseFloat|\bMath\./, f)
-    assert.doesNotMatch(text, /method:\s*'(POST|PUT|PATCH|DELETE)'/, f)
+    // The data file also holds the settlement writes (ADR 0077); the postings, revenue and payables pages themselves never write.
+    if (f.endsWith('page.tsx')) assert.doesNotMatch(text, /method:\s*'(POST|PUT|PATCH|DELETE)'|proposeSettlement|approveSettlement|rejectSettlement/, f)
   }
 })
 
@@ -45,6 +46,7 @@ test('the payables page shows the consumer\'s posted payables as a separate, lab
   assert.match(text, /getPostedPayables/)
   assert.match(text, /different basis/)
   assert.match(text, /Neither is an amount to pay/)
+  assert.match(text, /Outstanding/)
   assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
 })
 
@@ -52,6 +54,36 @@ test('the aging section says what its age means, has its own failure state, and 
   const text = readFileSync(join(root, 'app/(dashboard)/finance/payables/page.tsx'), 'utf8')
   assert.match(text, /getPayablesAging/)
   assert.match(text, /not how late it is/)
+  assert.match(text, /oldest bookings first/)
   assert.match(text, /PAYABLE_AGING_BUCKETS/)
   assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
+})
+
+test('the settlements page is permission-gated, converts amounts with the shared BigInt helper only, and never decides who may approve', () => {
+  const item = flatNav.find((n) => n.href === '/finance/supplier-settlements')
+  assert.ok(item, 'listed in navigation'); assert.equal(item.requires, 'finance.read')
+  const text = readFileSync(join(root, 'app/(dashboard)/finance/supplier-settlements/page.tsx'), 'utf8')
+  assert.match(text, /parseMajorToMinor/)
+  assert.match(text, /can\('finance\.settle\.propose'\)/)
+  assert.match(text, /can\('finance\.settle\.approve'\)/)
+  assert.doesNotMatch(text, /parseFloat|Number\(|\.reduce\(|Math\./)
+  assert.doesNotMatch(text, /proposedById\s*[!=]==?\s*/, 'the server, not the page, refuses a self-approval')
+})
+
+test('payment terms text reads naturally and never invents terms', () => {
+  assert.equal(termsText(null, null), 'No terms set')
+  assert.equal(termsText('CHECK_OUT', 30), '30 days after check-out')
+  assert.equal(termsText('CONFIRMATION', 1), '1 day after confirmation')
+})
+
+test('the due section says no terms or no date is never overdue, links terms to the settlements page, and adds nothing up', () => {
+  const text = readFileSync(join(root, 'app/(dashboard)/finance/payables/page.tsx'), 'utf8')
+  assert.match(text, /getPayablesDue/)
+  assert.match(text, /never shown as overdue/)
+  assert.match(text, /earliest-due bookings first/)
+  assert.match(text, /PAYABLE_DUE_BUCKETS/)
+  assert.doesNotMatch(text, /\.reduce\(|BigInt|Number\(/)
+  const page = readFileSync(join(root, 'app/(dashboard)/finance/supplier-settlements/page.tsx'), 'utf8')
+  assert.match(page, /can\('finance\.terms\.manage'\)/)
+  assert.match(page, /kept as history/)
 })

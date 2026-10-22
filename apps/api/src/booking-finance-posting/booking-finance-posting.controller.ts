@@ -27,4 +27,7 @@ export class BookingFinancePostingController {
 
   @Get('payables/aging') @RequirePermission(PERMISSIONS.viewFinance) @UseGuards(AgentRbacGuard)
   payablesAging(@ActiveTenant() tenantId: string) { return this.payables.aging(tenantId) }
+
+  @Get('payables/due') @RequirePermission(PERMISSIONS.viewFinance) @UseGuards(AgentRbacGuard)
+  payablesDue(@ActiveTenant() tenantId: string) { return this.payables.due(tenantId) }
 }

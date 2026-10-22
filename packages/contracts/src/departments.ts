@@ -11,6 +11,10 @@ export const departmentPermissions = {
   fundingManage: 'funding.manage',
   /** Supplier statement reconciliation (ADR 0070). Formal role assignments only. `run` imports a statement and runs matching; `resolve` proposes, approves and rejects exception decisions. */
   financeReconcileRun: 'finance.reconcile.run', financeReconcileResolve: 'finance.reconcile.resolve',
+  /** Supplier settlements (ADR 0077). Formal role assignments only. `propose` records a payment for approval; `approve` approves or rejects one (never the proposer's own). */
+  financeSettlePropose: 'finance.settle.propose', financeSettleApprove: 'finance.settle.approve',
+  /** Supplier payment terms (ADR 0078). Formal role assignments only. */
+  financeTermsManage: 'finance.terms.manage',
   /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */
   bookingViewAgency: 'booking.view.agency', bookingViewNet: 'booking.view.net', bookingPiiView: 'booking.pii.view',
   /** Booking lifecycle actions (ADR 0039, Phase 2). Each authorises one named action in `booking-lifecycle.ts`; none is a generic "update status". */

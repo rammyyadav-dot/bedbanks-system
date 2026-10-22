@@ -271,6 +271,8 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   ReconciliationFinding: 'finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)',
   ReconciliationDecision: 'finance-gated: append-only history of dispute queue decisions (ADR 0070)',
   BookingFinancePosting: 'finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)',
+  SupplierPaymentTerms: 'finance-gated: append-only supplier payment terms (history kept); written only by the narrow finance posting role (ADR 0078)',
+  SupplierSettlement: 'finance-gated: supplier payments recorded against posted payables, proposed and approved by different people; written only by the narrow finance posting role (ADR 0077)',
   SupplierPayableEntry: 'finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)',
   SupplierPromotionRun: 'promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)',
   SupplierIngestRun: 'ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)',
