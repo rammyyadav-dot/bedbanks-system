@@ -24,6 +24,9 @@ The database login defaults to `postgres:postgres@127.0.0.1`. Override with `E2E
 
 Faster loop while writing tests: `pnpm --filter @bedbanks/e2e e2e:up` starts the stack and leaves it running, then `E2E_REUSE_STACK=1 pnpm --filter @bedbanks/e2e e2e`; stop it with `e2e:down`.
 
+## Live screenshots of the Supplier extranet
+`tests/07-supplier-screenshots.spec.ts` signs in as the Alpha editor and saves full-page PNGs of every supplier route (plus a mobile view) to `e2e/.artifacts/screenshots/supplier/`. It records what a supplier sees today, including the "not available" states, and is part of the normal run. To refresh only the screenshots: `E2E_REUSE_STACK=1 pnpm --filter @bedbanks/e2e exec playwright test tests/07-supplier-screenshots.spec.ts`.
+
 Live Admin screenshots: `pnpm --filter @bedbanks/e2e e2e:screenshots` signs in as the preview admin and writes full-page PNGs of the primary Admin pages to `e2e/.artifacts/screenshots/admin/`. It is opt-in (`E2E_SCREENSHOTS=1`) and skipped in the normal suite. Pages show what the preview admin's role is permitted to see, so some dashboard tiles read "Not permitted".
 
 ## Safety

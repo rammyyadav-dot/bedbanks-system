@@ -74,6 +74,7 @@ button { cursor: pointer; }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
 .page-header h1 { margin: 8px 0 5px; color: #182233; font-size: 25px; letter-spacing: -.7px; }
 .page-header > div > p:last-child { max-width: 720px; margin: 0; color: #6b7280; font-size: 11px; line-height: 1.5; }
+.page-eyebrow.is-muted i { background: #9aa5b4; box-shadow: none; }
 .page-eyebrow { display: flex; align-items: center; gap: 8px; margin: 0; color: #7b8796; font: 8px 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase; }
 .page-actions { display: flex; gap: 8px; }
 .btn { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid #d4dae1; border-radius: 4px; color: #435064; background: white; font-size: 10px; font-weight: 700; text-decoration: none; }
@@ -141,6 +142,7 @@ button { cursor: pointer; }
 
 .environment-pill.is-offline i { background: var(--warning); box-shadow: 0 0 0 3px #ff9f1c22; }
 .global-search input:disabled { cursor: not-allowed; }
+.topbar-spacer { flex: 1; }
 .supplier-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .supplier-login-card { width: min(440px, 100%); display: grid; gap: 8px; padding: 28px; border: 1px solid var(--border); border-radius: 8px; background: white; }
 .supplier-login-card h1 { margin: 0; font-size: 22px; }
@@ -159,3 +161,4 @@ main:focus { outline: none; }
 .supplier-nav a.is-unavailable { opacity: .62; }
 .nav-tag { margin-left: auto; padding: 1px 5px; border: 1px solid #3a475b; border-radius: 3px; color: #8a97ab; font-size: 8px; letter-spacing: .3px; text-transform: uppercase; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+.detail-list { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 13px; margin: 0; }.detail-list dt { color: #687486; font-size: 8px; font-weight: 700; }.detail-list dd { margin: 5px 0 0; color: #374151; font-size: 10px; font-weight: 600; }@media (max-width: 760px) { .detail-list { grid-template-columns: 1fr; } }

@@ -2,10 +2,10 @@ import type { Prisma } from '@prisma/client'
 import type { HotelContacts, HotelRowProfile } from '@bedbanks/contracts'
 import { isBookingReadDenied } from '../admin-dashboard/admin-dashboard.service'
 import { assessCompleteness } from './hotel-setup-rules'
+import { formatCoordinate } from './hotel-decimal'
 
 export interface ProfileSummaryHotel { id: string; name: string; propertyType: string; countryCode: string; city: string; address: string | null; latitude: Prisma.Decimal | null; longitude: Prisma.Decimal | null; timeZone: string; starRating: number | null }
 
-const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(6).replace(/\.?0+$/, '') || '0')
 
 /**
  * Profile summaries and verified-mapping counts for one page of hotels, in a fixed number of queries. A SAVEPOINT keeps a denied
@@ -34,7 +34,7 @@ export async function loadProfileSummaries(tx: Prisma.TransactionClient, tenantI
     for (const h of hotels) {
       const p = byHotel.get(h.id) ?? null
       const c = assessCompleteness({
-        name: h.name, propertyType: h.propertyType, countryCode: h.countryCode, city: h.city, address: h.address, latitude: dec(h.latitude), longitude: dec(h.longitude), timeZone: h.timeZone, starRating: h.starRating,
+        name: h.name, propertyType: h.propertyType, countryCode: h.countryCode, city: h.city, address: h.address, latitude: formatCoordinate(h.latitude), longitude: formatCoordinate(h.longitude), timeZone: h.timeZone, starRating: h.starRating,
         starVerified: Boolean(p?.starVerifiedAt), shortDescription: p?.shortDescription ?? null, checkInTime: p?.checkInTime ?? null, checkOutTime: p?.checkOutTime ?? null,
         contacts: (p?.contacts && typeof p.contacts === 'object' && !Array.isArray(p.contacts) ? p.contacts : {}) as HotelContacts, activeRooms: activeRooms.get(h.id) ?? 0, hasPrimaryImage: withPrimary.has(h.id),
       })

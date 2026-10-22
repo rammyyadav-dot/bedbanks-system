@@ -14,10 +14,7 @@ export function Topbar({ onMenuClick, initials }: { onMenuClick: () => void; ini
         <button type="button" className="mobile-menu" onClick={onMenuClick} aria-label="Open navigation"><Menu size={20} /></button>
         <div className="breadcrumbs"><span>Supplier Extranet</span><b>/</b><strong>{item?.label ?? 'Workspace'}</strong></div>
       </div>
-      <label className="global-search">
-        <span className="sr-only" id="search-unavailable">Workspace search is not available.</span>
-        <input disabled placeholder="Search is not available" aria-describedby="search-unavailable" />
-      </label>
+      <div className="topbar-spacer" aria-hidden="true" />
       <div className="topbar-actions">
         <span className="environment-pill is-offline"><i />NO LIVE SUPPLY</span>
         <span className="topbar-user">{initials}</span>
