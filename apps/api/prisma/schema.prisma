@@ -354,6 +354,25 @@ enum MarkupScope {
   HOTEL
 }
 
+/// ADR 0080: the fixed cascade order a rule sits on, and how it adjusts the running amount.
+enum MarkupLayer {
+  SUPPLIER_CONTRACT
+  AGENCY_TIER
+  CLIENT
+  GLOBAL_OVERRIDE
+}
+
+enum MarkupAdjustmentKind {
+  PERCENT
+  FIXED
+  SET_SELL
+}
+
+enum MarkupBase {
+  RUNNING
+  NET
+}
+
 enum MarkupRuleStatus {
   DRAFT
   ACTIVE
@@ -378,6 +397,10 @@ model FxRate {
   rateScaled    BigInt       @map("rate_scaled")
   /// Added on top of the rate to cover movement until settlement, 0 to 2000 basis points.
   bufferBp      Int          @default(0) @map("buffer_bp")
+  /// ADR 0080: intraday volatility margin on top of the buffer, 0 to 500 bp, buffer plus volatility at most 2500. Applied against the buyer.
+  volatilityBp  Int          @default(0) @map("volatility_bp")
+  /// When the mid rate was quoted. Null on legacy rows, which the loader treats as expired.
+  asOf          DateTime?    @map("as_of")
   status        FxRateStatus @default(DRAFT)
   reason        String
   createdById   String       @map("created_by_id")
@@ -406,6 +429,16 @@ model CommercialMarkupRule {
   market      String?          @db.Char(2)
   excludedHotelIds    String[] @default([]) @map("excluded_hotel_ids")
   excludedSupplierIds String[] @default([]) @map("excluded_supplier_ids")
+  /// ADR 0080 cascade: layer, adjustment kind, flat-base toggle, fixed or set-sell amount (integer minor units plus currency) and attribute targets.
+  layer           MarkupLayer          @default(SUPPLIER_CONTRACT)
+  adjustmentKind  MarkupAdjustmentKind @default(PERCENT) @map("adjustment_kind")
+  base            MarkupBase           @default(RUNNING)
+  fixedAmountMinor BigInt?             @map("fixed_amount_minor")
+  fixedCurrency   String?              @map("fixed_currency") @db.Char(3)
+  countryCode     String?              @map("country_code") @db.Char(2)
+  city            String?
+  starRating      Int?                 @map("star_rating")
+  chainCode       String?              @map("chain_code")
   /// 0 to 10000 (zero to one hundred percent). Integer basis points only.
   basisPoints Int              @map("basis_points")
   /// First and last night the rule applies to (inclusive). validTo null means open-ended.
@@ -421,6 +454,7 @@ model CommercialMarkupRule {
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
   @@index([tenantId, status])
+  @@index([tenantId, layer, status])
   @@index([tenantId, scope, supplierId, hotelId])
 }
 
@@ -1727,6 +1761,8 @@ model Hotel {
   name          String
   propertyType  String        @map("property_type")
   starRating    Int?          @map("star_rating")
+  /// ADR 0080: canonical chain identifier (nullable). Sourced canonical registry, then supplier feed, then operator-verified mapping.
+  chainCode     String?       @map("chain_code")
   address       String?
   city          String
   countryCode   String        @db.Char(2) @map("country_code")
@@ -1747,6 +1783,7 @@ model Hotel {
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
+  @@index([tenantId, chainCode])
   @@index([tenantId, contentStatus])
   @@index([tenantId, name, id])
 }

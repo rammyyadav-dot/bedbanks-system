@@ -1,6 +1,8 @@
-# ADR 0080, phase 2: migration draft (NOT applied)
+# ADR 0080, phase 2: migration (superseded draft)
 
-Status: **draft for review.** This is deliberately outside `apps/api/prisma/migrations` so no deploy can run it. CLAUDE.md: a database change needs a reviewed Prisma migration, rollback notes and a tenant-index review, and the runtime-role grant decision from ADR 0013 / 0031. Do not use `prisma migrate dev` to generate production history.
+**Superseded by `apps/api/prisma/migrations/202612030001_commercial_cascade_fx_margin_chain`**, created 2026-10-22 on the owner's go-ahead. The SQL below was the first sketch and had wrong table names; the migration file is the source of truth. Differences: quoted PascalCase table names; `agency_tier_id` removed (no tier table exists, so it would have no foreign key; it follows the tier-model decision); enum types instead of text; the backfill sets `CLIENT` for rules naming an agency or market. Not yet applied to any persistent environment: the ADR 0013 runtime-grant decision still stands before that.
+
+Original status line: **draft for review.** This was deliberately outside `apps/api/prisma/migrations`. CLAUDE.md: a database change needs a reviewed Prisma migration, rollback notes and a tenant-index review, and the runtime-role grant decision from ADR 0013 / 0031. Do not use `prisma migrate dev` to generate production history.
 
 ## Shape (expand-only, additive, nullable or defaulted)
 ```sql
