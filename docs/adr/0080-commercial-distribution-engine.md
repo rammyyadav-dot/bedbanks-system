@@ -24,8 +24,8 @@ The audit in `docs/commercial-distribution-audit-2026-10-21.md` found that marku
 ## Phases (each a separate reviewed change)
 | Phase | Content | Needs |
 |---|---|---|
-| P1 | Adopt `cascade.ts` in `supply/markup-rules.ts` behind a per-tenant flag; keep today's result when only one layer is configured | Shadow comparison against live rules |
-| P2 | Migration: `layer`, `adjustment_kind`, `fixed_amount_minor`, target columns on markup rules; `volatility_bp`, `max_age_seconds` on FX rates. Forced RLS, `(tenant_id, status)` and `(tenant_id, layer)` indexes, expand-only, rollback notes | Prisma migration review, ADR 0013 runtime grant decision |
+| P1 | **Done as an adapter:** `supply/markup-cascade-adapter.ts` prices today's rules through the cascade engine; `markup-cascade-adapter.spec.ts` proves the same sell price and refusal for every rule set, buyer and net tested. Not called by the evaluator, so no flag is needed yet: with one layer there is nothing to shadow. A flag and shadow run become meaningful when P2 allows more layers | Done |
+| P2 | Draft in [0080-phase2-migration-draft.md](0080-phase2-migration-draft.md), not applied. Migration: `layer`, `adjustment_kind`, `fixed_amount_minor`, target columns on markup rules; `volatility_bp`, `max_age_seconds` on FX rates. Forced RLS, `(tenant_id, status)` and `(tenant_id, layer)` indexes, expand-only, rollback notes | Prisma migration review, ADR 0013 runtime grant decision |
 | P3 | Contracts in `@bedbanks/contracts`, then API `GET/POST /admin/commercial/markups` v2, permission `supply.rates.manage`, audit events | Contract check |
 | P4 | Admin: layered rule editor and trace in the Simulator; FX volatility and age columns | P3 shipped |
 | P5 | Restrictions (LOS, windows, blackouts) and channel overrides; `distribution.rule.approve` is already catalogued as planned | Permission promotion to enforced |
