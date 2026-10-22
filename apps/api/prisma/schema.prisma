@@ -1701,6 +1701,7 @@ model Supplier {
   supplierStatements SupplierStatement[]
   reconciliationFindings ReconciliationFinding[]
   ingestRuns SupplierIngestRun[]
+  promotionRuns SupplierPromotionRun[]
   rateObservations SupplierRateObservation[]
   allotmentObservations SupplierAllotmentObservation[]
   cancellationObservations SupplierCancellationObservation[]
@@ -1962,8 +1963,10 @@ model SupplierRoomMapping {
 
   supplierHotelMapping SupplierHotelMapping @relation(fields: [tenantId, supplierHotelMappingId, hotelId], references: [tenantId, id, hotelId], onDelete: Cascade)
   roomType RoomType @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  ratePlanMappings SupplierRatePlanMapping[]
 
   @@unique([supplierHotelMappingId, supplierRoomId])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@index([hotelId, roomTypeId])
 }
@@ -2243,8 +2246,10 @@ model RatePlan {
   guestPrices  RatePlanGuestPrice[]
   supplements  ContractSupplement[]
   promotions   RatePlanPromotion[]
+  supplierMappings SupplierRatePlanMapping[]
 
   @@unique([contractId, code])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@index([tenantId, derivedFromId])
   @@index([roomTypeId])
@@ -3116,4 +3121,59 @@ model SupplierCancellationObservation {
   @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode], map: "SupplierCancellationObservation_natural_key")
   @@index([tenantId, supplierId])
   @@index([tenantId, runId])
+}
+
+/// Governed link from one supplier rate plan code (under an approved supplier room mapping) to one canonical contracted RatePlan (ADR 0081).
+/// Same lifecycle as hotel and room mappings (ADR 0004): PENDING, then approved, rejected or reopened by a person. Only MAPPED rows resolve ingested observations.
+/// A database trigger requires the plan to be of the mapped room type, of a contract with the mapped supplier, and the parent room mapping to be MAPPED before this one is.
+model SupplierRatePlanMapping {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierRoomMappingId String @map("supplier_room_mapping_id")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  ratePlanId String @map("rate_plan_id")
+  status MappingStatus @default(PENDING)
+  confidence Int?
+  sourceMetadata Json @default("{}") @map("source_metadata")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  roomMapping SupplierRoomMapping @relation(fields: [tenantId, supplierRoomMappingId], references: [tenantId, id], onDelete: Restrict)
+  ratePlan RatePlan @relation(fields: [tenantId, ratePlanId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierRoomMappingId, supplierRatePlanCode])
+  @@unique([tenantId, ratePlanId])
+  @@index([tenantId, status])
+}
+
+enum SupplierPromotionStatus {
+  APPLIED
+  HELD
+  NOTHING_TO_PROMOTE
+}
+
+/// Append-only record of one promotion of ingested observations into contracted rates, availability and pool capacity (ADR 0084). Counts and reason codes only: no payload, guest data or credentials.
+/// HELD means the batch guard stopped it and nothing was written; it waits for a person.
+model SupplierPromotionRun {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  /// Caller-owned key, stable across retries of the same promotion. Same key replays the stored outcome and writes nothing.
+  idempotencyKey String @map("idempotency_key")
+  profileKey String @map("profile_key")
+  status SupplierPromotionStatus
+  ratesConsidered Int @map("rates_considered")
+  ratesPromoted Int @map("rates_promoted")
+  stockConsidered Int @map("stock_considered")
+  nightsPromoted Int @map("nights_promoted")
+  poolNightsPromoted Int @map("pool_nights_promoted")
+  nightsClosed Int @map("nights_closed")
+  /// Counts keyed by stable code (blocks, sticky skips, hold reasons). Capped; no row content.
+  summary Json @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
 }

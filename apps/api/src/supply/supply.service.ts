@@ -1,3 +1,4 @@
+import { assertRatesNotFeedManaged } from './feed-managed'
 import { assertHotelIdentityAvailable } from '../hotel-setup/hotel-identity'
 import { assertRoomActivationAllowed, lockHotelSetup, touchSetup } from '../hotel-setup/hotel-setup-shared'
 import { isIanaTimeZone, assessCompleteness, regressions } from '../hotel-setup/hotel-setup-rules'
@@ -949,6 +950,8 @@ export class SupplyService {
         const ids = [...new Set([...rates, ...availability].map(row => row.ratePlanId))].sort()
         const plans = await tx.ratePlan.findMany({ where: { tenantId, id: { in: ids } }, include: { contract: true, roomType: { select: { maxOccupancy: true } } } })
         if (plans.length !== ids.length) throw new BadRequestException('Rate plan unavailable in this tenant')
+        // ADR 0082: a plan handed to a supplier feed has the feed as the only writer of its prices.
+        await assertRatesNotFeedManaged(tx, tenantId, [...new Set(rates.map(row => row.ratePlanId))])
         // ADR 0058, S10b: a derived plan's price is its parent's. The database refuses the row as well; this answers with a typed reason first.
         const derivedTarget = plans.find(plan => typeof plan.derivedFromId === 'string' && rates.some(row => row.ratePlanId === plan.id))
         if (derivedTarget) throw new BadRequestException({ code: 'RATE_PLAN_IS_DERIVED', message: `Rate plan ${derivedTarget.code} is derived from another plan and has no rates of its own. Change the parent plan or the adjustment.` })

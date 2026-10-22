@@ -226,6 +226,10 @@ export class MappingService {
       if (!prior) throw new NotFoundException('Mapping not found')
       if ((decision === 'reopen') === (prior.status === 'PENDING')) throw new BadRequestException('Invalid mapping transition')
       if (kind === 'room' && decision === 'approve' && parent!.status !== 'MAPPED') throw new BadRequestException('Approve the hotel mapping first')
+      if (kind === 'room' && decision !== 'approve') {
+        const approvedPlans = await tx.supplierRatePlanMapping.count({ where: { supplierRoomMappingId: mappingId, status: 'MAPPED', tenantId } })
+        if (approvedPlans) throw new BadRequestException('Reopen approved rate plan mappings first')
+      }
       if (kind === 'hotel' && decision !== 'approve') {
         const approvedRooms = await tx.supplierRoomMapping.count({ where: { supplierHotelMappingId: mappingId, status: 'MAPPED', tenantId } })
         if (approvedRooms) throw new BadRequestException('Reopen approved room mappings first')

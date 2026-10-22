@@ -81,6 +81,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `supplier_memberships` | yes | - | - | - | forced tenant | read only |
 | `supplier_room_drafts` | yes | yes | yes | - | forced tenant | INSERT: SupplierExtranetService.upsertRoomDraft; PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft; supplier room-note drafts (ADR 0011) / UPDATE: SupplierExtranetService.upsertRoomDraft; PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft; edit an own draft |
 | `SupplierHotelMapping` | yes | - | - | - | forced tenant | read only |
+| `SupplierRatePlanMapping` | yes | - | - | - | forced tenant | governed supplier rate plan to canonical RatePlan links (ADR 0081); writes are the privileged mapping-governance path |
 | `SupplierRoomMapping` | yes | - | - | - | forced tenant | read only |
 | `tenants` | yes | - | - | - | none (auth) | read only |
 | `UserRole` | yes | - | - | - | forced tenant | read only |
@@ -150,7 +151,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierIngestRun`: ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)
 - `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
 - `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
+- `SupplierPromotionRun`: promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)
 - `SupplierRateObservation`: ingestion-gated: latest supplier net per supplier night, an observation that is never sellable by itself (ADR 0078)
+- `SupplierRatePlanMapping`: mapping governance (ADR 0081)
 - `SupplierRoomMapping`: mapping governance
 - `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)
 - `SupplierStatementLine`: finance-gated: immutable statement lines (ADR 0070)

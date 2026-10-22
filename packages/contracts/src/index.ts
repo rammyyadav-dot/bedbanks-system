@@ -38,3 +38,4 @@ export * from './agent-search';
 export * from './agent-checkout';
 export * from './distribution-search';
 export * from './distribution-auth';
+export * from './supplier-rate-plan-mapping';
