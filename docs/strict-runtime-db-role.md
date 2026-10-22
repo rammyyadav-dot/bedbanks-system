@@ -118,6 +118,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
 - `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
 - `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
+- `ConnectorCredentialReference`: connector administration (ADR 0085): references only, never values; a privileged supply authoring path
+- `ConnectorDefinition`: connector administration (ADR 0085): the supply authoring path; creating, suspending and activating connectors is privileged, so on a strict role it answers the typed 403
 - `Contract`: supply authoring
 - `ContractSupplement`: supply authoring
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)

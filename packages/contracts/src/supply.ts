@@ -64,6 +64,8 @@ export const supplyRoutes = {
 export const supplyPermissions = {
   mappingsRead: 'supply.mappings.read', mappingsManage: 'supply.mappings.manage',
   suppliersRead: 'supply.suppliers.read', suppliersManage: 'supply.suppliers.manage',
+  /** Connector administration (ADR 0085). Reading never exposes a credential reference value; every change, and every approval step, needs manage. Granted to no role by default. */
+  connectorsRead: 'supply.connectors.read', connectorsManage: 'supply.connectors.manage',
   hotelsRead: 'supply.hotels.read', hotelsManage: 'supply.hotels.manage', /** Download the filtered hotel directory as CSV (ADR 0051). Granted to no role by default. */ hotelsExport: 'supply.hotels.export', roomsRead: 'supply.rooms.read', roomsManage: 'supply.rooms.manage', contractsRead: 'supply.contracts.read', contractsManage: 'supply.contracts.manage', ratesRead: 'supply.rates.read', ratesManage: 'supply.rates.manage', availabilityRead: 'supply.availability.read', availabilityManage: 'supply.availability.manage',
   /** Pool capacity editor (ADR 0036): previewing an edit and applying it are separate grants. Viewing pools and consumption stays supply.availability.read. */
   poolCapacityPreview: 'supply.pool_capacity.preview', poolCapacityApply: 'supply.pool_capacity.apply',

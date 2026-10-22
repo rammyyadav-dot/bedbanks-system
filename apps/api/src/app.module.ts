@@ -20,6 +20,7 @@ import { FundingModule } from './funding/funding.module';
 import { FinanceReconciliationModule } from './finance-reconciliation/finance-reconciliation.module';
 import { BookingFinancePostingModule } from './booking-finance-posting/booking-finance-posting.module';
 import { SupplierIngestModule } from './supplier-ingest/supplier-ingest.module';
+import { ConnectorsModule } from './connectors/connectors.module';
 import { SupplierPromotionModule } from './supplier-promotion/supplier-promotion.module';
 import { HotelSetupModule } from './hotel-setup/hotel-setup.module';
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
@@ -49,6 +50,7 @@ import { DistributionModule } from './distribution/distribution.module';
     FinanceReconciliationModule,
     BookingFinancePostingModule,
     SupplierIngestModule,
+    ConnectorsModule,
     SupplierPromotionModule,
     HotelSetupModule,
     AdminSettingsModule,
