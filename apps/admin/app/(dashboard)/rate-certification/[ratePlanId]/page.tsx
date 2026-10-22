@@ -5,11 +5,11 @@ import { useParams } from 'next/navigation'
 import { PageHeader } from '@/components/common/PageHeader'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
-import { Money } from '@/components/ops/ops-ui'
-import { Chip, ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
+import { Chip } from '@/components/hotels/ui'
 import { FindingList } from '@/components/rate-certification/FindingList'
+import { NightGrid } from '@/components/rate-certification/NightGrid'
 import { getRateCertificationPlan } from '@/lib/data/rate-certification'
-import { hotelHref, reasonText } from '@/lib/hotel-ui'
+import { hotelHref } from '@/lib/hotel-ui'
 import { certificationTone, ROW_CLASS_HELP, rowClassTone } from '@/lib/rate-certification-ui'
 
 export default function RatePlanAuditPage() {
@@ -39,20 +39,7 @@ export default function RatePlanAuditPage() {
               {(d.contract.salesMarkets.length > 0 || d.contract.nationalities.length > 0) && <p style={{ fontSize: 12, margin: '8px 0 0' }}>Sold only to these buyer markets and guest nationalities (enforced by Agent search): markets {d.contract.salesMarkets.join(', ') || '—'} · nationalities {d.contract.nationalities.join(', ') || '—'}.</p>}
             </section>
             <section className="workspace-panel" aria-label="Night by night">
-              <ScrollRegion label="Night by night">
-                <table style={tableStyle} aria-label="Night by night" data-testid="calendar">
-                  <thead><tr>{['Night', 'Stored rate', 'Basis', 'Row class', 'Evaluator', 'Reasons'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
-                  <tbody>{d.calendar.map((c) => (
-                    <tr key={c.date} data-sellable={String(c.sellable)}>
-                      <td style={td}>{c.date}</td>
-                      <td style={td}><Money minor={c.rateMinor} currency={d.currency} /></td>
-                      <td style={td}>{c.basis ?? '—'}</td>
-                      <td style={td}>{c.rowClass ? <Chip tone={rowClassTone(c.rowClass)}>{c.rowClass.split('_').join(' ')}</Chip> : '—'}</td>
-                      <td style={td}><Chip tone={c.sellable ? 'ok' : 'neutral'}>{c.sellable ? 'SELLABLE' : 'NOT SELLABLE'}</Chip></td>
-                      <td style={td}>{c.reasons.length === 0 ? '—' : c.reasons.map((r) => <span key={r} title={reasonText(r)} style={{ marginRight: 6 }}><code>{r}</code></span>)}</td>
-                    </tr>))}</tbody>
-                </table>
-              </ScrollRegion>
+              <NightGrid detail={d} />
             </section>
           </div>
         )}

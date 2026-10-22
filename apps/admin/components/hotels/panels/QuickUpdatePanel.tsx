@@ -26,16 +26,16 @@ type Panels = { price: boolean; availability: boolean; restrictions: boolean }
  * Quick Update: select a scope, opt each panel in, preview, review, apply. The server validates and applies; nothing here prices,
  * rounds or decides. An untouched panel or blank field is not sent, so it stays exactly as stored.
  */
-export function QuickUpdatePanel({ hotelId, data, onChanged }: { hotelId: string; data: HotelCommercial360; onChanged?: () => void }) {
+export function QuickUpdatePanel({ hotelId, data, onChanged, initialRatePlanIds }: { hotelId: string; data: HotelCommercial360; onChanged?: () => void; initialRatePlanIds?: string[] }) {
   const { state, reload } = useOpsQuery(() => getHotelContracts(hotelId), [hotelId])
-  return <OpsState state={state} onRetry={reload}>{(contracts) => <QuickUpdateForm hotelId={hotelId} data={data} contracts={contracts} onChanged={onChanged} />}</OpsState>
+  return <OpsState state={state} onRetry={reload}>{(contracts) => <QuickUpdateForm hotelId={hotelId} data={data} contracts={contracts} onChanged={onChanged} initialRatePlanIds={initialRatePlanIds} />}</OpsState>
 }
 
-function QuickUpdateForm({ hotelId, data, contracts, onChanged }: { hotelId: string; data: HotelCommercial360; contracts: HotelContractsView; onChanged?: () => void }) {
+function QuickUpdateForm({ hotelId, data, contracts, onChanged, initialRatePlanIds }: { hotelId: string; data: HotelCommercial360; contracts: HotelContractsView; onChanged?: () => void; initialRatePlanIds?: string[] }) {
   const can = useCan()
   const canRates = can('supply.rates.manage'); const canAvail = can('supply.availability.manage')
   const [contractId, setContractId] = useState(''); const [roomId, setRoomId] = useState('')
-  const [selected, setSelected] = useState<string[]>([])
+  const [selected, setSelected] = useState<string[]>(() => (initialRatePlanIds ?? []).filter((id) => contracts.ratePlans.some((p) => p.id === id)))
   const [ranges, setRanges] = useState([{ from: '', to: '' }])
   const [weekdays, setWeekdays] = useState<QuickUpdateWeekday[]>([])
   const [panels, setPanels] = useState<Panels>({ price: false, availability: false, restrictions: false })
