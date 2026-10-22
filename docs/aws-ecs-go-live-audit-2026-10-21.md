@@ -2,6 +2,9 @@
 
 Scope: ECS Fargate task definitions, ALB routing rules, Neon PostgreSQL production replicas, and production go-live readiness. Method: read the actual Terraform, workflows, runbooks, ADRs and scripts; ran the offline checks that can run here. **No AWS or Neon API call was made and nothing was provisioned.** Production remains **NO-GO** (it was NO-GO in `docs/aws-wp3-release-readiness.md`; nothing below changes the owner-side blockers).
 
+## Decision (2026-10-22)
+Owner instructed: follow the recommendation. **RDS is the production primary; no Neon replicas** (ADR 0079, accepted). Data moves by logical replication from Neon (runbook, Cutover step 2). Findings 1, 6 and 8 below are addressed by this decision and the wording fix; the rest remain open.
+
 ## Verdict
 | Item | Status | Evidence |
 |---|---|---|
@@ -28,7 +31,7 @@ Scope: ECS Fargate task definitions, ALB routing rules, Neon PostgreSQL producti
 - ADR 0079 (proposed).
 
 ## Go-live gate list (in order; owners in brackets)
-1. Decide ADR 0079: RDS vs Neon primary, region and DR expectation [owner/CTO].
+1. ~~Decide ADR 0079~~ done: RDS primary. Still owner-side: confirm Neon plan supports logical replication and an IP allowlist, and the RPO for RDS backups (14 days now).
 2. Run `infra/aws/audit/account-audit.sh`; resolve FAIL/UNKNOWN [owner].
 3. Create state backend; staging ingress CIDRs; budget ceiling and recipients; activate cost tags [owner].
 4. Run CI `Terraform check` green; read a real `terraform plan` for staging [engineer + CTO].

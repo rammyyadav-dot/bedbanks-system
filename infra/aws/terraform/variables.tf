@@ -154,7 +154,7 @@ variable "public_ingress_cidrs" {
 variable "production_edge_exception_ref" {
   type        = string
   default     = ""
-  description = "Production requires CloudFront (ADR 0055), which this stack does not implement yet. Until it does, a production apply is refused unless this names the approved exception (ADR or ticket reference)."
+  description = "Production requires CloudFront (ADR 0055): set cloudfront_enabled = true, or name the approved written exception (ADR or ticket reference) here. A production apply is refused with neither."
 }
 variable "dns_cutover_authorization_ref" {
   type        = string
