@@ -56,6 +56,13 @@ export const routes = {
     fxRates: '/admin/commercial/fx-rates', fxRateRetire: '/admin/commercial/fx-rates/:rateId/retire', fxRateRequestActivation: '/admin/commercial/fx-rates/:rateId/request-activation',
     fxApprovalApprove: '/admin/commercial/fx-rates/approvals/:approvalId/approve', fxApprovalReject: '/admin/commercial/fx-rates/approvals/:approvalId/reject',
     fxApprovalCancel: '/admin/commercial/fx-rates/approvals/:approvalId/cancel', fxApprovalExecute: '/admin/commercial/fx-rates/approvals/:approvalId/execute',
+    // Hotel deals and promotions (ADR 0089): draft, validate, preview, submit, approve, activate, pause, expire. Approval and activation are separate calls.
+    promotions: '/admin/commercial/promotions', promotionSummary: '/admin/commercial/promotions/summary', promotionApprovalQueue: '/admin/commercial/promotions/approval-queue', promotionReconcile: '/admin/commercial/promotions/reconcile',
+    promotion: '/admin/commercial/promotions/:dealId', promotionValidate: '/admin/commercial/promotions/:dealId/validate', promotionPreview: '/admin/commercial/promotions/:dealId/preview',
+    promotionSubmit: '/admin/commercial/promotions/:dealId/submit', promotionWithdraw: '/admin/commercial/promotions/:dealId/withdraw', promotionPause: '/admin/commercial/promotions/:dealId/pause',
+    promotionResume: '/admin/commercial/promotions/:dealId/resume', promotionSuspend: '/admin/commercial/promotions/:dealId/suspend', promotionReturnToDraft: '/admin/commercial/promotions/:dealId/return-to-draft',
+    promotionArchive: '/admin/commercial/promotions/:dealId/archive', promotionAudit: '/admin/commercial/promotions/:dealId/audit-log', promotionPerformance: '/admin/commercial/promotions/:dealId/performance',
+    promotionApprovalApprove: '/admin/commercial/promotions/approvals/:approvalId/approve', promotionApprovalReject: '/admin/commercial/promotions/approvals/:approvalId/reject', promotionApprovalExecute: '/admin/commercial/promotions/approvals/:approvalId/execute',
   },
   // Read-only operational views over the authoritative transaction chain, plus one confirmed reconciliation action.
   adminFunding: {

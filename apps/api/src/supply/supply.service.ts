@@ -11,6 +11,7 @@ import { AgentAuditService } from '../agent/audit.service'
 import type { Prisma } from '@prisma/client'
 import { evaluateContractedStay } from './contracted-sellability'
 import { assessPlanSelect } from './assess-plan-select'
+import { loadDealRulesInTx } from './deal-rules.loader'
 import { evaluatePlanNight, occupancySplit, starRatingValid, type AssessPlan } from './commercial-assessment'
 import { buildStaySnapshot } from './stay-snapshot'
 import { markupResolverFor } from './markup-rules'
@@ -1033,7 +1034,8 @@ export class SupplyService {
     return this.prisma.withTenant(tenantId, async (tx) => {
       const raw = await tx.ratePlan.findFirst({ where: { id: input.ratePlanId, tenantId }, select: assessPlanSelect(tenantId, { gte: checkIn, lte: new Date(checkIn.getTime() + (nights - 1) * 86_400_000) }) })
       if (!raw) return { eligible: false, status: 'NOT_ELIGIBLE' as const, reasons: ['RATE_PLAN_MISSING'], warnings: [] as string[] }
-      const derived = withDerivedRates(raw) as unknown as AssessPlan
+      // ADR 0089: the plan's ACTIVE hotel deals, so the inspector prices exactly as the Agent does.
+      const derived = { ...withDerivedRates(raw), dealRules: (await loadDealRulesInTx(tx, tenantId, [raw.id])).get(raw.id) ?? [] } as unknown as AssessPlan
       // A single night is judged at the plan's own occupancy; a stay uses the Agent's occupancy choice (ADR 0067, F-05), so it gets every occupancy.
       const plan: AssessPlan = derived
       const own: AssessPlan = { ...derived, dailyRates: derived.dailyRates.filter((rate) => rate.occupancy === derived.occupancy) }

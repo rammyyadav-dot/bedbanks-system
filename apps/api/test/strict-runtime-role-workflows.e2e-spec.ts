@@ -98,8 +98,12 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   afterAll(async () => {
     await app?.close()
     if (previousUrl) process.env.DATABASE_URL = previousUrl
+    // Deals are archived, never deleted, so the scope trigger refuses a delete; the disposable rows are removed with it switched off.
+    await owner.$executeRawUnsafe('ALTER TABLE "HotelDealRatePlan" DISABLE TRIGGER "HotelDealRatePlan_guard"').catch(() => undefined)
     for (const t of [tenantA, tenantB].filter(Boolean)) {
       for (const q of [
+        `DELETE FROM "HotelDealRatePlan" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelDeal" WHERE tenant_id = '${t}'`, `DELETE FROM "DailyAvailability" WHERE tenant_id = '${t}'`, `DELETE FROM "DailyRate" WHERE tenant_id = '${t}'`,
+        `DELETE FROM "RatePlan" WHERE tenant_id = '${t}'`, `DELETE FROM "Contract" WHERE tenant_id = '${t}'`, `DELETE FROM "SupplierHotelMapping" WHERE tenant_id = '${t}'`, `DELETE FROM "BoardBasis" WHERE tenant_id = '${t}'`,
         `DELETE FROM "AuditEvent" WHERE tenant_id = '${t}'`, `DELETE FROM "ApprovalRequest" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelImage" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelAmenity" WHERE tenant_id = '${t}'`,
         `DELETE FROM "RoomAmenity" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelExternalIdentifier" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelProfile" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCaseNote" WHERE tenant_id = '${t}'`, `DELETE FROM "ServiceCase" WHERE tenant_id = '${t}'`,
         `DELETE FROM "DistributionRestriction" WHERE tenant_id = '${t}'`, `DELETE FROM "AgencyCreditLimit" WHERE tenant_id = '${t}'`, `DELETE FROM "AgencyMember" WHERE tenant_id = '${t}'`, `DELETE FROM "Agency" WHERE tenant_id = '${t}'`,
@@ -107,6 +111,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
         `DELETE FROM "UserRole" WHERE tenant_id = '${t}'`, `DELETE FROM "RolePermission" WHERE role_id IN (SELECT id FROM "Role" WHERE tenant_id = '${t}')`, `DELETE FROM "Role" WHERE tenant_id = '${t}'`, `DELETE FROM memberships WHERE tenant_id = '${t}'`,
       ]) await owner.$executeRawUnsafe(q).catch(() => undefined)
     }
+    await owner.$executeRawUnsafe('ALTER TABLE "HotelDealRatePlan" ENABLE TRIGGER "HotelDealRatePlan_guard"').catch(() => undefined)
     await owner.session.deleteMany({ where: { userId: { in: userIds } } }); await owner.user.deleteMany({ where: { id: { in: userIds } } }); await owner.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB].filter(Boolean) } } })
     await owner.$disconnect()
   }, 60_000)
@@ -144,6 +149,31 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     } finally {
       if (previous === undefined) delete process.env.SETTLEMENT_CURRENCIES; else process.env.SETTLEMENT_CURRENCIES = previous
     }
+  })
+
+  it('W-01c hotel deal: draft, edit the draft and its scope, submit, approve (other user), activate, pause and resume (ADR 0089)', async () => {
+    // The catalogue a deal needs is arranged at the owner connection: a contract and two ACTIVE rate plans on the first hotel.
+    const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
+    const room = await owner.roomType.findFirstOrThrow({ where: { hotelId } })
+    const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'BB', name: `B&B ${suffix}` } })
+    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId, supplierHotelId: `${suffix}-deal`, status: 'MAPPED' } })
+    const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-deal`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
+    const plans = await Promise.all(['A', 'B'].map((code) => owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `DEAL-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })))
+    const base = '/admin/commercial/promotions'
+    const terms = (over: Record<string, unknown> = {}) => ({ name: 'Workflow deal', kind: 'PERCENT_OFF', percentBp: 1500, ...over })
+    const draft = (await call('post', base, 'maker', { hotelId, idempotencyKey: key(), code: `WF${suffix.slice(-8)}`.toUpperCase(), ...terms(), ratePlanIds: [plans[0].id] }).expect(201)).body.data
+    // Editing the draft replaces its scope: one row is removed and two are added, on the strict role.
+    const edited = (await call('put', `${base}/${draft.id}`, 'maker', { code: draft.code, ...terms({ name: 'Workflow deal edited' }), ratePlanIds: [plans[1].id, plans[0].id], expectedVersion: draft.version }).expect(200)).body.data
+    expect(edited).toMatchObject({ version: 2, planCount: 2, name: 'Workflow deal edited' })
+    const submitted = (await call('post', `${base}/${draft.id}/submit`, 'maker', { expectedVersion: 2, requestId: key(), reason: 'Ready for review' }).expect(200)).body.data
+    await call('post', `${base}/approvals/${submitted.approval.id}/approve`, 'maker', { reason: 'Self approval' }).expect(403)
+    await call('post', `${base}/approvals/${submitted.approval.id}/approve`, 'checker', { reason: 'Terms checked' }).expect(200)
+    await call('post', `${base}/approvals/${submitted.approval.id}/execute`, 'maker').expect(200)
+    expect((await owner.hotelDeal.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe('ACTIVE')
+    await call('post', `${base}/${draft.id}/pause`, 'maker', { reason: 'Hold for the season review' }).expect(200)
+    await call('post', `${base}/${draft.id}/resume`, 'maker', {}).expect(200)
+    expect(await owner.hotelDealRatePlan.count({ where: { dealId: draft.id } })).toBe(2)
+    expect(await owner.auditEvent.count({ where: { tenantId: tenantA, entityType: 'hotel_deal', entityId: draft.id } })).toBe(7)
   })
 
   it('W-02 agency: create, edit, add and remove a member, suspend and reinstate through maker-checker (suspension is enforced on the strict role)', async () => {
