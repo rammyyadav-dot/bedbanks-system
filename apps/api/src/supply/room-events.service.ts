@@ -10,7 +10,6 @@ import { dayParam, enumParam, textParam, idParam, pageParams, paged } from '../a
 /** The permission-catalogue key (S3, approval-only, refines supply.room_events.manage). */
 export const ROOM_EVENT_APPROVAL_ACTION = 'room_event.approve'
 const ENTITY_TYPE = 'room_event'
-const OPEN = new Set(['PENDING', 'APPROVED'])
 const day = (d: Date): string => d.toISOString().slice(0, 10)
 
 /**
@@ -122,7 +121,7 @@ export class RoomEventsService {
       proposedState: { name: current.name, destinationCity: current.destinationCity, eventStartDate: day(current.eventStartDate), eventEndDate: day(current.eventEndDate) },
     })
     const moved = await this.prisma.withTenant(tenantId, (tx) => tx.roomEvent.updateMany({ where: { id: current.id, tenantId, status: 'DRAFT' }, data: { status: 'PENDING_APPROVAL' } }))
-    if (moved.count !== 1 && current.status !== 'PENDING_APPROVAL') throw new ConflictException('Only a draft event can be submitted')
+    if (moved.count !== 1) throw new ConflictException('Only a draft event can be submitted')
     await this.audit.record({ tenantId, userId, action: 'room_event.submitted', entityType: ENTITY_TYPE, entityId: current.id, payload: { approvalId: approval.id } })
     return { ...this.view(await this.row(tenantId, roomEventId)), approval: this.approvalView(approval, userId) }
   }

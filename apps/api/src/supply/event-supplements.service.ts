@@ -20,7 +20,8 @@ interface SupplementTerms {
   currency: string; taxTreatment: EventSupplementTaxTreatment; validFrom: string; validTo: string; stackable: boolean; priority: number
 }
 function fingerprint(terms: SupplementTerms): string {
-  const ordered = Object.keys(terms).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = (terms as Record<string, unknown>)[k]; return acc }, {})
+  const unordered = terms as unknown as Record<string, unknown>
+  const ordered = Object.keys(unordered).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = unordered[k]; return acc }, {})
   return createHash('sha256').update(JSON.stringify(ordered)).digest('hex')
 }
 const termsOf = (r: EventSupplement): SupplementTerms => ({
@@ -71,7 +72,7 @@ export class EventSupplementsService {
     let ratePlan: { contractId: string } | null = null
     if (roomEventId) roomEvent = await this.prisma.withTenant(tenantId, (tx) => tx.roomEvent.findFirst({ where: { id: roomEventId, tenantId }, select: { status: true } }))
     if (!roomEvent) errors.push('roomEventId does not name a room event of this tenant')
-    else if (roomEvent.status !== 'APPROVED') errors.push('roomEventId must name an APPROVED room event (validation 10.3: never attach terms to an unapproved event)')
+    else if (roomEvent.status !== 'APPROVED') errors.push('roomEventId must name an APPROVED room event (never attach commercial terms to an unapproved event)')
     if (contractId) contract = await this.prisma.withTenant(tenantId, (tx) => tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true, tenantId: true } }))
     if (!contract) errors.push('contractId does not name a contract of this tenant')
     if (ratePlanId) {
@@ -147,7 +148,7 @@ export class EventSupplementsService {
     const terms = termsOf(current)
     const approval = await this.approvals.request({ tenantId, requesterId: userId, action: EVENT_SUPPLEMENT_APPROVAL_ACTION, entityType: ENTITY_TYPE, entityId: current.id, requestId: key, reason, proposedState: { fingerprint: fingerprint(terms), ...terms } })
     const moved = await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.updateMany({ where: { id: current.id, tenantId, status: 'DRAFT' }, data: { status: 'PENDING_APPROVAL' } }))
-    if (moved.count !== 1 && current.status !== 'PENDING_APPROVAL') throw new ConflictException('Only a draft supplement can be submitted')
+    if (moved.count !== 1) throw new ConflictException('Only a draft supplement can be submitted')
     await this.audit.record({ tenantId, userId, action: 'event_supplement.submitted', entityType: ENTITY_TYPE, entityId: current.id, payload: { approvalId: approval.id } })
     return { ...this.view(await this.row(tenantId, id)), approval: this.approvalView(approval, userId) }
   }
