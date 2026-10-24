@@ -157,3 +157,5 @@ Failures observed and their cause, not hidden:
 Defects found by this verification and fixed: an approval request left pending when submit lost a race (now withdrawn); a pending request of a deal that had moved on offered for decision (history now shows only the bound or a settled request); two concurrent creates with one idempotency key (second now replays the first; a real code clash still answers `DEAL_CODE_TAKEN`).
 
 Not run: the migration against a production-shaped database copy, load or performance tests, an accessibility scanner (no dependency in the repository), booking-time revalidation end to end (booking is not writable by the API runtime role; the recheck path is covered).
+
+Follow-up (2026-10-24): the local cluster was switched to `scram-sha-256` for TCP connections and `booking-ops-role` and `rate-plan-clone-role` were re-run: 2 suites, 21 tests, PASS. The two failures above were caused by `trust` authentication, not by the code.
