@@ -909,6 +909,8 @@ model Tenant {
   supplierMemberships SupplierMembership[]
   supplierRoomDrafts SupplierRoomDraft[]
   supplierChangeSets SupplierChangeSet[]
+  roomEvents RoomEvent[]
+  eventSupplements EventSupplement[]
 
   @@map("tenants")
 }
@@ -2298,6 +2300,7 @@ model Contract {
   leadTimeRules         BookingLeadTimeRule[]
   versions              ContractVersion[]
   supplements           ContractSupplement[]
+  eventSupplements      EventSupplement[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
@@ -2381,6 +2384,7 @@ model RatePlan {
   dailyRates   DailyRate[]
   guestPrices  RatePlanGuestPrice[]
   supplements  ContractSupplement[]
+  eventSupplements EventSupplement[]
   promotions   RatePlanPromotion[]
   deals        HotelDealRatePlan[]
   supplierMappings SupplierRatePlanMapping[]
@@ -2459,6 +2463,152 @@ model ContractSupplement {
   createdAt    DateTime            @default(now()) @map("created_at")
 
   @@index([contractId])
+}
+
+enum RoomEventType {
+  EXHIBITION
+  TRADE_FAIR
+  CONFERENCE
+  FESTIVAL
+  PEAK_SEASON
+  OTHER
+}
+
+enum RoomEventStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  CANCELLED
+  ARCHIVED
+}
+
+/// Event catalogue (ADR 0089, Phase 2): the event itself, independent of any hotel's commercial terms. An `EventSupplement` links an
+/// APPROVED event to a hotel's contract. Event dates (the exhibition itself) are deliberately separate from an EventSupplement's own
+/// valid-from/to window: a hotel may charge on nights before or after the event, and not every hotel need charge the full event period.
+model RoomEvent {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name            String           @db.VarChar(160)
+  eventType       RoomEventType    @map("event_type")
+  destinationCity String           @map("destination_city") @db.VarChar(120)
+  destinationCountry String        @map("destination_country") @db.Char(2)
+  eventStartDate  DateTime         @map("event_start_date") @db.Date
+  eventEndDate    DateTime         @map("event_end_date") @db.Date
+  status          RoomEventStatus  @default(DRAFT)
+  /// Supplier notice, contract amendment or official event reference. Never the document itself.
+  referenceRef    String?          @map("reference_ref") @db.VarChar(200)
+  internalNotes   String?          @map("internal_notes")
+  /// Plain actor ids (no foreign key), like `Contract.ownerUserId`.
+  createdById     String           @map("created_by_id")
+  approvedById    String?          @map("approved_by_id")
+  approvedAt      DateTime?        @map("approved_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  supplements EventSupplement[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, destinationCity, eventStartDate, eventEndDate])
+}
+
+enum EventSupplementStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+/// How the amount is expressed: FIXED uses `basis`/`frequency`/`amountMinor` (ContractSupplement's shape); PERCENTAGE uses `percentBp` of
+/// the eligible contracted base (never of another supplement — invariant from the spec).
+enum EventSupplementAmountKind {
+  FIXED
+  PERCENTAGE
+}
+
+enum EventSupplementTaxTreatment {
+  INCLUSIVE
+  EXCLUSIVE
+}
+
+/// A hotel/contract-specific commercial rule applying an approved RoomEvent to contracted inventory (ADR 0089, Phase 2). Added to the
+/// DailyRate at calculation time in the plan's basis, after the promotion and before markup — never written back to DailyRate. Mirrors
+/// ContractSupplement's shape (basis/frequency/amount) plus an EVENT-specific percentage mode, approval lifecycle, stacking and priority.
+model EventSupplement {
+  id             String                     @id @default(cuid())
+  tenantId       String                     @map("tenant_id")
+  tenant         Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  roomEventId    String                     @map("room_event_id")
+  roomEvent      RoomEvent                  @relation(fields: [roomEventId], references: [id], onDelete: Restrict)
+  contractId     String                     @map("contract_id")
+  contract       Contract                   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// Null applies to every rate plan of the contract (hotel-wide); the contract must explicitly permit this (service-layer check, not yet
+  /// a contract column — see ADR 0089 Phase 1 gap 6).
+  ratePlanId     String?                    @map("rate_plan_id")
+  ratePlan       RatePlan?                  @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  amountKind     EventSupplementAmountKind  @map("amount_kind")
+  basis          SupplementBasis?
+  frequency      SupplementFrequency?
+  amountMinor    BigInt?                    @map("amount_minor")
+  /// Basis points of the eligible contracted base tariff. Required (and only meaningful) for PERCENTAGE.
+  percentBp      Int?                       @map("percent_bp")
+  currency       String                     @db.Char(3)
+  taxTreatment   EventSupplementTaxTreatment @default(EXCLUSIVE) @map("tax_treatment")
+  /// The supplement's own application window (may differ from the event's own dates; may cover pre/post-event nights).
+  validFrom      DateTime                   @map("valid_from") @db.Date
+  validTo        DateTime                   @map("valid_to") @db.Date
+  /// Whether this rule may combine with another approved, active, eligible supplement on the same night.
+  stackable      Boolean                    @default(false)
+  /// Deterministic precedence among non-stackable, overlapping eligible rules: higher wins. Equal priority on an eligible overlap is an
+  /// ambiguous configuration and must fail closed (ADR 0089 gap 3), never pick arbitrarily.
+  priority       Int                        @default(0)
+  /// Supplier confirmation or authorized contract amendment reference. Never the document itself.
+  evidenceRef    String                     @map("evidence_ref") @db.VarChar(200)
+  status         EventSupplementStatus      @default(DRAFT)
+  version        Int                        @default(1)
+  createdById    String                     @map("created_by_id")
+  approvedById   String?                    @map("approved_by_id")
+  activatedAt    DateTime?                  @map("activated_at")
+  suspendedAt    DateTime?                  @map("suspended_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+
+  versions EventSupplementVersion[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, roomEventId])
+  @@index([contractId])
+  @@index([ratePlanId])
+  @@index([tenantId, validFrom, validTo])
+}
+
+enum EventSupplementVersionKind {
+  ACTIVATION
+  AMENDMENT
+}
+
+/// Immutable snapshot of an EventSupplement's reviewed terms, directly modeled on ContractVersion (ADR 0067, F-01). One row per approved
+/// activation or amendment; never updated or deleted (database trigger).
+model EventSupplementVersion {
+  id                 String                      @id @default(cuid())
+  tenantId           String                      @map("tenant_id")
+  eventSupplementId  String                      @map("event_supplement_id")
+  eventSupplement    EventSupplement             @relation(fields: [eventSupplementId], references: [id], onDelete: Restrict)
+  version            Int
+  kind               EventSupplementVersionKind
+  terms              Json
+  fingerprint        String                      @db.Char(64)
+  approvalId         String                      @map("approval_id")
+  requestedById      String                      @map("requested_by_id")
+  approvedById       String                      @map("approved_by_id")
+  appliedById        String                      @map("applied_by_id")
+  reason             String
+  createdAt          DateTime                    @default(now()) @map("created_at")
+
+  @@unique([eventSupplementId, version])
+  @@index([tenantId, eventSupplementId])
 }
 
 model ChildPolicy {

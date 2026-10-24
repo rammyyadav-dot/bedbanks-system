@@ -190,6 +190,17 @@ const READ_WRITE: readonly RuntimeGrant[] = [
   { table: 'ServiceCaseNote', model: 'ServiceCaseNote', read: true, rls: 'forced-tenant', writes: [
     { op: 'INSERT', service: 'ServiceCasesService.addNote/transition/assign', endpoints: ['POST /admin/service/cases/:caseId/notes'], reason: 'append a note (notes are immutable)' },
   ] },
+  { table: 'RoomEvent', model: 'RoomEvent', read: true, rls: 'forced-tenant', note: 'also read by assessPlanSelect when an event supplement is priced (ADR 0089)', writes: [
+    { op: 'INSERT', service: 'RoomEventsService.create', endpoints: ['POST /admin/room-events'], reason: 'draft an event master record' },
+    { op: 'UPDATE', service: 'RoomEventsService.update/submit/decide/cancelApproval/cancel/archive', endpoints: ['PATCH /admin/room-events/:roomEventId', 'POST /admin/room-events/:roomEventId/submit', 'POST /admin/room-events/:roomEventId/{cancel,archive}', 'POST /admin/room-event-approvals/:approvalId/{approve,reject,cancel}'], reason: 'edit a draft, move it through the maker-checker lifecycle, or cancel/archive it' },
+  ] },
+  { table: 'EventSupplement', model: 'EventSupplement', read: true, rls: 'forced-tenant', note: 'also read by assessPlanSelect and the Agent search contract include for pricing (ADR 0089); only ACTIVE rows of an APPROVED RoomEvent are ever loaded there', writes: [
+    { op: 'INSERT', service: 'EventSupplementsService.create', endpoints: ['POST /admin/event-supplements'], reason: 'draft an event supplement' },
+    { op: 'UPDATE', service: 'EventSupplementsService.submit/decide/cancelApproval/activate/suspend', endpoints: ['POST /admin/event-supplements/:eventSupplementId/submit', 'POST /admin/event-supplements/:eventSupplementId/{activate,suspend}', 'POST /admin/event-supplement-approvals/:approvalId/{approve,reject,cancel}'], reason: 'move it through the maker-checker lifecycle, activate an approved rule, or suspend an active one' },
+  ] },
+  { table: 'EventSupplementVersion', model: 'EventSupplementVersion', read: true, rls: 'forced-tenant', note: 'immutable event supplement term snapshots (ADR 0089, modeled on ContractVersion/ADR 0067 F-01); appended only on activation, never updated or deleted (trigger)', writes: [
+    { op: 'INSERT', service: 'EventSupplementsService.activate', endpoints: ['POST /admin/event-supplements/:eventSupplementId/activate'], reason: 'append the reviewed terms snapshot the moment the rule goes live' },
+  ] },
 
   { table: 'Hotel', model: 'Hotel', read: true, rls: 'forced-tenant', note: 'INSERT, plus column-level UPDATE only; DELETE and every other column stay with the privileged supply-authoring path', writes: [
     { op: 'INSERT', service: 'SupplyService.createHotel', endpoints: ['POST /supply/hotels (Admin "Add hotel")'], reason: 'create a draft hotel, the first step of the setup journey (publication stays a separate maker-checker step)' },

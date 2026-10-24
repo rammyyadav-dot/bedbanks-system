@@ -4,6 +4,7 @@ import { effectiveGuestLines, type GuestPriceLine } from './guest-pricing'
 import type { DiscountBase, PromotionKind, PromotionRule, StayWindowMode } from './promotions'
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
 import { supplementsForPlan } from './supplements'
+import { eventSupplementsForPlan } from './event-supplements'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
 
@@ -42,7 +43,13 @@ export interface StayPlanInput {
   boardBasis: { isActive: boolean }
   /** ADR 0067 F-02: the contract's booking lead-time rule (zero or one row). Required so a loader that forgot it fails type-check instead of selling inside the cut-off. */
   /** ADR 0067 F-03: the contract child bands, inherited by a plan without CHILD lines of its own. Required for the same reason. */
-  contract: { minStayMode: string; supplements: Array<{ kind: string; name: string; boardBasisId: string | null; ratePlanId: string | null; basis: string; frequency: string; amountMinor: bigint; currency: string; stayFrom: Date | null; stayTo: Date | null }>; childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string } }
+  contract: {
+    minStayMode: string
+    supplements: Array<{ kind: string; name: string; boardBasisId: string | null; ratePlanId: string | null; basis: string; frequency: string; amountMinor: bigint; currency: string; stayFrom: Date | null; stayTo: Date | null }>
+    /** ADR 0089: approved, ACTIVE event/exhibition supplements eligible for this contract. The loader filters to ACTIVE status, an APPROVED RoomEvent, and a window overlapping the query range; this snapshot only re-scopes by rate plan. */
+    eventSupplements: Array<{ id: string; roomEventId: string; roomEvent: { name: string }; ratePlanId: string | null; amountKind: string; basis: string | null; frequency: string | null; amountMinor: bigint | null; percentBp: number | null; currency: string; validFrom: Date; validTo: Date; stackable: boolean; priority: number }>
+    childPolicies: Array<{ minAge: number; maxAge: number; supplementMinor: bigint | null; currency: string | null }>; leadTimeRules: Array<{ minLeadHours: number; maxLeadDays: number | null }>; cancellationPolicies: Array<{ policySet: string | null }>; status: string; validFrom: Date; validTo: Date; settlementCurrency: string; salesMarkets?: unknown; nationalities?: unknown; supplier: { status: string }
+  }
   dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; releaseDays: number | null; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
 }
@@ -87,6 +94,7 @@ export function buildStaySnapshot(
   if (plan.contract.leadTimeRules === undefined) throw new Error('CONTRACT_LEAD_TIME_NOT_LOADED')
   if (plan.contract.childPolicies === undefined) throw new Error('CONTRACT_CHILD_POLICY_NOT_LOADED')
   if (plan.contract.supplements === undefined) throw new Error('CONTRACT_SUPPLEMENTS_NOT_LOADED')
+  if (plan.contract.eventSupplements === undefined) throw new Error('CONTRACT_EVENT_SUPPLEMENTS_NOT_LOADED')
   if (plan.contract.minStayMode !== 'STAY_THROUGH' && plan.contract.minStayMode !== 'ARRIVAL') throw new Error('CONTRACT_MIN_STAY_MODE_NOT_LOADED')
   // A loader may bring several occupancies (ADR 0057, S6). ADR 0067 F-05: a plan may be contracted per occupancy (single, double, triple). The
   // party's adult count prices the stay when EVERY night has a rate for it; otherwise the plan's base occupancy does, with guest lines on top
@@ -135,6 +143,7 @@ export function buildStaySnapshot(
     leadTimeRule: plan.contract.leadTimeRules[0] ? { minLeadHours: plan.contract.leadTimeRules[0].minLeadHours, maxLeadDays: plan.contract.leadTimeRules[0].maxLeadDays } : null,
     minStayMode: plan.contract.minStayMode,
     supplements: supplementsForPlan({ id: plan.id, boardBasisId: plan.boardBasisId }, plan.contract.supplements),
+    eventSupplements: eventSupplementsForPlan({ id: plan.id }, plan.contract.eventSupplements),
     ratePlanValidFrom: plan.validFrom ? dayKey(plan.validFrom) : null,
     ratePlanValidTo: plan.validTo ? dayKey(plan.validTo) : null,
     marketRules: parseMarketRules(plan.contract),

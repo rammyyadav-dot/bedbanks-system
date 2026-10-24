@@ -59,6 +59,11 @@ export const supplyRoutes = {
   roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
   suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
   hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId', contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', ratePlan: '/supply/rate-plans/:ratePlanId', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk', availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability', capabilities: '/supply/capabilities',
+  // ADR 0089: Room Event Master and event/exhibition supplements.
+  roomEvents: '/admin/room-events', roomEvent: '/admin/room-events/:roomEventId', roomEventSubmit: '/admin/room-events/:roomEventId/submit', roomEventCancel: '/admin/room-events/:roomEventId/cancel', roomEventArchive: '/admin/room-events/:roomEventId/archive',
+  roomEventApprovalApprove: '/admin/room-event-approvals/:approvalId/approve', roomEventApprovalReject: '/admin/room-event-approvals/:approvalId/reject', roomEventApprovalCancel: '/admin/room-event-approvals/:approvalId/cancel',
+  eventSupplements: '/admin/event-supplements', eventSupplement: '/admin/event-supplements/:eventSupplementId', eventSupplementSubmit: '/admin/event-supplements/:eventSupplementId/submit', eventSupplementActivate: '/admin/event-supplements/:eventSupplementId/activate', eventSupplementSuspend: '/admin/event-supplements/:eventSupplementId/suspend', eventSupplementPreview: '/admin/event-supplements/preview',
+  eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel',
 } as const
 
 export const supplyPermissions = {
@@ -69,8 +74,45 @@ export const supplyPermissions = {
   poolCapacityPreview: 'supply.pool_capacity.preview', poolCapacityApply: 'supply.pool_capacity.apply',
   /** Request (maker) and decide (checker) opening new pool nights (ADR 0036 Amendment 3). A request cannot be decided by its maker. */
   poolNightsRequest: 'supply.pool_nights.request', poolNightsDecide: 'supply.pool_nights.decide',
+  /** Room Event Master and event/exhibition supplements (ADR 0089). The approval-only `room_event.approve` and `event_supplement.approve`
+   * keys (admin-departments.ts) refine these and gate the maker-checker lifecycle; a request cannot be decided by its maker. */
+  roomEventsRead: 'supply.room_events.read', roomEventsManage: 'supply.room_events.manage',
+  eventSupplementsRead: 'supply.event_supplements.read', eventSupplementsManage: 'supply.event_supplements.manage',
 } as const
 export type SupplyPermission = (typeof supplyPermissions)[keyof typeof supplyPermissions]
+
+// ADR 0089: Room Event Master and event/exhibition supplements.
+export const ROOM_EVENT_TYPES = ['EXHIBITION', 'TRADE_FAIR', 'CONFERENCE', 'FESTIVAL', 'PEAK_SEASON', 'OTHER'] as const
+export type RoomEventType = (typeof ROOM_EVENT_TYPES)[number]
+export const ROOM_EVENT_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'CANCELLED', 'ARCHIVED'] as const
+export type RoomEventStatus = (typeof ROOM_EVENT_STATUSES)[number]
+export interface RoomEventWrite { name: string; eventType: RoomEventType; destinationCity: string; destinationCountry: string; eventStartDate: SupplyDate; eventEndDate: SupplyDate; referenceRef?: string | null; internalNotes?: string | null }
+export interface RoomEventUpdate extends Partial<RoomEventWrite> {}
+export interface RoomEventRead { id: string; tenantId: string; name: string; eventType: RoomEventType; destinationCity: string; destinationCountry: string; eventStartDate: SupplyDate; eventEndDate: SupplyDate; status: RoomEventStatus; referenceRef: string | null; internalNotes: string | null; createdById: string; approvedById: string | null; approvedAt: string | null; createdAt: string; updatedAt: string }
+export interface RoomEventTransitionInput { reason: string }
+export interface RoomEventApprovalDecisionInput { reason: string }
+
+export const EVENT_SUPPLEMENT_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const
+export type EventSupplementStatus = (typeof EVENT_SUPPLEMENT_STATUSES)[number]
+export type EventSupplementAmountKind = 'FIXED' | 'PERCENTAGE'
+export type EventSupplementTaxTreatment = 'INCLUSIVE' | 'EXCLUSIVE'
+/** FIXED carries basis/frequency/amountMinor (reuses ContractSupplement's shape) and no percentBp; PERCENTAGE carries percentBp of the
+ * eligible contracted base and none of the fixed fields. Exactly one shape, enforced by the API and a database check constraint. */
+export type EventSupplementAmount =
+  | { amountKind: 'FIXED'; basis: 'PER_ADULT' | 'PER_CHILD' | 'PER_PERSON' | 'PER_ROOM'; frequency: 'PER_NIGHT' | 'PER_STAY'; amountMinor: string }
+  | { amountKind: 'PERCENTAGE'; percentBp: number }
+export type EventSupplementWrite = EventSupplementAmount & {
+  roomEventId: string; contractId: string; ratePlanId?: string | null; currency: string; taxTreatment?: EventSupplementTaxTreatment
+  validFrom: SupplyDate; validTo: SupplyDate; stackable?: boolean; priority?: number; evidenceRef: string
+}
+export interface EventSupplementRead { id: string; tenantId: string; roomEventId: string; contractId: string; ratePlanId: string | null; amountKind: EventSupplementAmountKind; basis: string | null; frequency: string | null; amountMinor: string | null; percentBp: number | null; currency: string; taxTreatment: EventSupplementTaxTreatment; validFrom: SupplyDate; validTo: SupplyDate; stackable: boolean; priority: number; evidenceRef: string; status: EventSupplementStatus; version: number; createdById: string; approvedById: string | null; activatedAt: string | null; suspendedAt: string | null; createdAt: string; updatedAt: string }
+export interface EventSupplementActivationRequestInput { reason: string; requestId?: string }
+export interface EventSupplementApprovalDecisionInput { reason: string }
+export interface EventSupplementSuspendInput { reason: string }
+/** Price impact preview (spec section 7, "Rate Impact Preview"): never a mutation. */
+export interface EventSupplementPreviewRequest { ratePlanId: string; stayDates: SupplyDate[]; rooms: number; adults: number; children: number }
+export interface EventSupplementPreviewNight { date: SupplyDate; contractedBaseMinor: string; eventSupplementMinor: string; adjustedNetMinor: string }
+export interface EventSupplementPreviewResult { currency: string; nights: EventSupplementPreviewNight[]; eventSupplements: Array<{ roomEventId: string; roomEventName: string; amountMinor: string }> }
 
 export function serializeSupply<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString() : item)) as T
