@@ -1,4 +1,5 @@
 import { assessPlanSelect } from '../supply/assess-plan-select'
+import { loadDealRulesInTx, withDealRules } from '../supply/deal-rules.loader'
 import { withDerivedRates } from '../supply/derived-rates'
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
@@ -101,7 +102,8 @@ export class OperationsHotelsService {
       tx.supplierRoomMapping.findMany({ where: { tenantId, hotelId: { in: ids } }, select: { id: true, supplierHotelMappingId: true, roomTypeId: true, supplierRoomId: true, status: true, confidence: true, updatedAt: true }, orderBy: [{ id: 'asc' }] }),
       tx.contract.findMany({ where: { tenantId, supplierHotelMapping: { is: { hotelId: { in: ids } } } }, select: { id: true, code: true, status: true, validFrom: true, validTo: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } }, supplierHotelMapping: { select: { hotelId: true } } } }),
     ])
-    const plans = rawPlans.map(withDerivedRates)
+    // ADR 0089: the plans' ACTIVE hotel deals, so Admin judges the price exactly as the Agent does. A denied read shows the plan's own price (a diagnostic view, not a quote).
+    const plans = withDealRules(rawPlans.map(withDerivedRates), await loadDealRulesInTx(tx, tenantId, rawPlans.map((plan) => plan.id)))
     for (const hotel of hotels) {
       out.set(hotel.id, {
         hotel: { id: hotel.id, name: hotel.name, contentStatus: hotel.contentStatus, starRating: hotel.starRating },

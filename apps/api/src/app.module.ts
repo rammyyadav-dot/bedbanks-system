@@ -15,6 +15,7 @@ import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
 import { AdminOperationsModule } from './admin-operations/admin-operations.module';
 import { RateCertificationModule } from './rate-certification/rate-certification.module';
 import { CommercialModule } from './commercial/commercial.module';
+import { PromotionsModule } from './promotions/promotions.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { FundingModule } from './funding/funding.module';
 import { FinanceReconciliationModule } from './finance-reconciliation/finance-reconciliation.module';
@@ -44,6 +45,7 @@ import { DistributionModule } from './distribution/distribution.module';
     AdminOperationsModule,
     RateCertificationModule,
     CommercialModule,
+    PromotionsModule,
     DepartmentsModule,
     FundingModule,
     FinanceReconciliationModule,

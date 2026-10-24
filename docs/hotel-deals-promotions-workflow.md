@@ -1,121 +1,108 @@
-# Hotel Deals & Promotions: workflow and mechanism (CTO draft)
+# Hotel deals and promotions: lifecycle, pricing semantics, API and controls
 
-Status: **Proposed. Nothing in sections 3 to 9 is built.** Section 1 is what exists today, verified in code. Section 2 is the gap with the "Create New Promotion" screen. Promote to ADR 0089 (next free number is to be confirmed) before any implementation, per the change protocol.
+Status: **Implemented for the scope in ADR 0089** (this replaces the 2026-10-23 proposal that first sat in this file). What is not built is listed in section 11 and is not shown as a capability anywhere. Evidence and test results: `docs/audits/2026-10-23-hotel-deals-promotions-audit.md`. Operations: `docs/runbooks/hotel-deals-promotions.md`.
 
-## 0. Terminology trap
-"Promotion" is used for two unrelated things in this repo. This document covers only the first.
-1. **Hotel promotion / deal**: a discount a hotel offers a buyer (ADR 0058, ADR 0067 F-09). Table `RatePlanPromotion`.
-2. **Supplier promotion / feed promotion**: moving supplier-feed observations into contracted rates and stock (ADR 0082, 0083, 0084, `apps/api/src/supplier-promotion`, `mapping/promotion-rules.ts`). Not a discount.
+Terminology: "promotion" also names the supplier-feed promotion of ADR 0082 to 0084 (moving feed observations into contracted rates). That is unrelated and untouched.
 
-## 1. What exists today (verified)
-| Area | Fact | Where |
-|---|---|---|
-| Model | One promotion belongs to **one rate plan**. 4 kinds: `EARLY_BIRD`, `LAST_MINUTE`, `LONG_STAY`, `FREE_NIGHTS`. Percent in basis points (1..9000). | `schema.prisma` `RatePlanPromotion`, `supply/promotions.ts` |
-| Conditions | Booking window, stay window (`WHOLE_STAY` or `NIGHTS_IN_WINDOW`), lead days, min nights, `discountBase` (`ROOM_AND_GUESTS` / `ROOM_ONLY`). Lead is counted in the **hotel's** calendar; unknown time zone means "does not apply". | `promotions.ts` |
-| Selection | One promotion per stay (largest saving, tie to lowest id). Promotions flagged `combinable` may stack (FREE_NIGHTS first, then by id) only if the stack beats the best single. Max 20 per plan. | `selectPromotion`, ADR 0058, ADR 0067 F-09 |
-| Pricing position | `base rate + guest lines - promotion = net after (>= 1 minor unit); + markup = sell`. One evaluator prices search, recheck, hold, simulator, readiness. | ADR 0058 |
-| API | `GET/PUT /rate-plans/:id/promotions` (PUT replaces the full set atomically, version-checked), `POST /hotels/:id/promotions/bulk-apply` (idempotent, all-or-nothing). Permissions `supply.rates.read` / `supply.rates.manage`. | `supply.controller.ts:64-66`, contracts `rate-plan-lifecycle.ts` |
-| Governance | Save moves the plan version, so an activation approval filed earlier is void; promotions are in the approval fingerprint; audit with before/after; clone does not copy promotions. | ADR 0058, 0057 |
-| Admin UI | Per-plan `PromotionsPanel` and hotel-wide `HotelOfferPanel` (bulk apply). The tab "Deals & Promos" opens the `promotions` view of the rate-plan tab. | `apps/admin/components/commercial/PromotionsPanel.tsx`, `hotels/panels/HotelOfferPanel.tsx`, `HotelManagementTabs.tsx:19` |
-| Not decided (ADR 0058) | Fixed-amount promotions, coupon codes, channel-only promotions, loyalty/member, contract or hotel scope, per-date guest lines. | ADR 0058 "Not decided here" |
+## 1. Model
+`HotelDeal` (one per promotion, tenant and hotel scoped) and `HotelDealRatePlan` (the plans it applies to). A deal is **not** copied into `RatePlanPromotion`: ACTIVE deals are read at pricing time and become `PromotionRule` objects for the one evaluator.
 
-I found no hotel-level promotion entity, no draft/activate lifecycle, no promotion approval and no promotion API outside the rate plan. The Admin department map still lists Promotions as `todo` (`packages/contracts/src/admin-departments.ts:194`). If the "Create New Promotion" screen exists in a branch I did not inspect, it is not on this one.
+| Concern | Rule |
+|---|---|
+| Tenant | `tenant_id` on both tables, forced RLS through `fbeds_current_tenant_id()`, composite foreign keys `(tenant_id, hotel_id)` and `(tenant_id, rate_plan_id)`, tenant taken only from the session |
+| Identity | unique per tenant: `code` (case-insensitive), `idempotency_key`; never deleted (ARCHIVED), no DELETE grant |
+| Deletion | `ON DELETE RESTRICT` everywhere; a plan in a deal cannot be deleted |
+| Version | `version` starts at 1, +1 on every draft edit and every return to draft; approvals bind to `(version, SHA-256 fingerprint of the canonical terms)` |
+| Concurrency | `expectedVersion` on edit, submit and return-to-draft; `SELECT ... FOR UPDATE` and conditional `UPDATE ... WHERE status AND version` on every transition |
+| Money | integer minor units (`BIGINT`) plus an ISO-4217 currency (FIXED_OFF only); percentages in basis points; sent over the API as decimal strings |
+| Time | `active_from/to`, book and stay windows and weekdays are dates in the **hotel's** calendar (`Hotel.time_zone`); an unknown hotel day means the deal does not apply |
+| Retention | deals, approvals and audit events are kept; nothing is purged |
 
-## 2. Gap: the "Create New Promotion" screen versus the backend
-Invariant 10: a screen is not a capability. Each control below is classified so nothing is shown as live before it works.
-
-| Screen control | Backend today | Verdict |
-|---|---|---|
-| Percent Off, Early Bird, Flash Sale (last minute), Stay X Pay Y / Free Night | Covered by `LONG_STAY`, `EARLY_BIRD`, `LAST_MINUTE`, `FREE_NIGHTS` | Wire now (P1) |
-| Travel period, booking window, min length of stay | `stayFrom/To`, `bookFrom/To`, `minNights` | Wire now (P1) |
-| Day-of-week applicability | Not in model | New rule (P2) |
-| Room Types / Rate Plans scope | Per rate plan only | Wire via expansion (P1) |
-| Fixed Amount Off | Undecided (ADR 0058) | Needs decision (P3) |
-| Discount Subsequent Nights, Package Add-On | Not modelled | Needs decision (P3) |
-| Channels, Source Markets, Agency Segments | No promotion field; channel overrides exist only as a proposal (ADR 0080 P5) | New audience rule (P2) |
-| Member Only, Member Tiers | No loyalty concept | Hide until decided (P3) |
-| Promotion Code | No coupon concept; redemption caps and abuse handling absent | Hide (P4+) |
-| Priority "higher applied first" | **Contradicts** ADR 0058 "largest saving wins" | Decision D1 |
-| Stacking Policy, Stacking Group, Compatible / Incompatible IDs, Same-Family Stacking | Only the boolean `combinable` | Decision D1 |
-| Funding Source (Supplier funded) | No concept | Decision D3 |
-| Min Sell Floor, Min Margin %, Max Discount %, Allow Below Net | Margin guards exist as pure functions (ADR 0080) and are not wired; net >= 1 floor exists | P2, after ADR 0080 P6 |
-| Draft / Activate / Save & Activate | No lifecycle | P1 |
-| Preview Simulator | Rate-plan simulator exists; no promotion preview | P1, must call the real evaluator |
-
-## 3. Proposed model
-**Deal** is the authoring aggregate at hotel level. It is **compiled into `RatePlanPromotion` rows** on the plans it targets. The evaluator stays the only pricing path (ADR 0058 principle 2); a deal never prices anything itself.
-
+## 2. Lifecycle
 ```
-HotelDeal (tenant_id, hotel_id, code?, name, kind, status, version, rule JSON-free columns,
-           scope: room_type_ids[] , rate_plan_ids[], audience, guard policy, funding)
-   ──compile on ACTIVATE──▶  RatePlanPromotion (one per targeted plan, deal_id FK)
+DRAFT -> PENDING_APPROVAL -> APPROVED -> SCHEDULED -> ACTIVE -> PAUSED <-> ACTIVE
+   ^           |   |            |           |          |  \-> SUSPENDED -> DRAFT (new version) | ARCHIVED
+   |<----------+   +-> REJECTED -+-> DRAFT   +-> EXPIRED -> ARCHIVED
 ```
-- Money: percent as basis points; fixed amounts as integer minor units plus ISO-4217 currency, never floats (invariant 3). Launch currency AED (ADR 0029).
-- Columns, not an opaque JSON blob, for anything the evaluator reads; the evaluator input type stays in `packages/domain`/`supply`, transport-agnostic (dependency direction).
-- Every table carries `tenant_id`, forced RLS and a `(tenant_id, hotel_id, status)` index. Tenant comes from the session only (invariant 1).
-
-## 4. Lifecycle
-```
-DRAFT ──submit──▶ PENDING_APPROVAL ──approve──▶ SCHEDULED ──start date──▶ ACTIVE ──end/stop──▶ EXPIRED
-  ▲                    │ reject                       │                       │ pause
-  └────────────────────┘                              └──cancel──▶ CANCELLED  └──▶ PAUSED ──resume──▶ ACTIVE
-```
-- **Maker-checker** on activation, as for hotel publication (ADR 0022) and rate plan terms (ADR 0057). Maker holds `supply.rates.manage`; checker holds a new `supply.promotions.approve` (to be catalogued; the checker cannot be the maker). Pausing is allowed to the maker (emergency stop must be fast); resuming goes through the checker if any rule changed.
-- Editing an ACTIVE or SCHEDULED deal creates a new version in DRAFT; the live version keeps selling until the new one is approved. No in-place edit of a live price rule.
-- Activation is blocked unless every targeted plan is ACTIVE or being activated, is AED-denominated, has valid rates, and passes the guards in section 6.
-- Start and end are enforced by the evaluator through the stay and booking windows, evaluated in the **hotel's** calendar, not by a cron that flips rows. A cron only moves status labels (SCHEDULED to ACTIVE to EXPIRED) and cannot make a promotion apply or stop applying.
-
-## 5. Mechanism at search, recheck and booking
-1. Search resolves tenant, channel, market and agency from the authenticated distribution credential (invariant 1). **Audience filters narrow, never grant**, and never come from a request field.
-2. For each room and plan, the evaluator loads the plan's active promotions and runs the ADR 0058 order: base, guest lines, promotion, markup, sell.
-3. Selection follows ADR 0058 and 0067: one best promotion, or a combinable stack when it saves more. Any new stacking rule (D1) lands in the evaluator and its spec first.
-4. The offer carries the applied promotion id, name, kind and saving; the booking snapshot stores the same so a later change to the deal cannot reprice or dispute a confirmed booking.
-5. Recheck and hold re-run the same evaluation; if the promotion no longer applies (expired, paused, window closed) the price changes visibly, never silently.
-6. Failure policy: an unreadable rule, unknown hotel time zone or ambiguous audience means the promotion **does not apply** with a typed reason. It never discounts on a guess, and never returns a zero price (net after promotion >= 1).
-
-## 6. Commercial guards (all pure functions, one place)
-- Net after promotion >= 1 minor unit (exists).
-- `MARGIN_NEGATIVE` FAIL, `MARGIN_SQUEEZE` WARN at 8%, `MARGIN_BLOCKED` below 3% (ADR 0080, tenant default). A deal whose worst case across its date range breaches FAIL cannot be submitted. "Allow below net" is not offered; any override is a separate, audited, approver-only decision (D2).
-- Maximum discount cap and minimum sell floor per deal, stored as basis points and integer minor units.
-- Conflict detection at submit: overlapping deals on the same plan and dates are listed with the selection outcome, so the maker sees which would win.
-- Surfaced in the Commercial Integrity strip as a new "Promotion issues" counter and in rate certification findings. A hotel with promotion issues is **not** blocked from publishing unless an ACTIVE deal is in FAIL.
-
-## 7. API and contracts (contracts first, invariant 4)
-All in `@bedbanks/contracts` before the frontend consumes them; every controller declares and verifies a permission.
-
-| Route | Permission | Notes |
+| Step | Who | What the server does |
 |---|---|---|
-| `GET /hotels/:id/deals` | `supply.rates.read` | filter by status, date |
-| `POST /hotels/:id/deals` | `supply.rates.manage` | creates DRAFT; `Idempotency-Key` |
-| `PUT /hotels/:id/deals/:dealId` | `supply.rates.manage` | version-checked |
-| `POST .../deals/:dealId/preview` | `supply.rates.read` | read-only; runs the real evaluator; writes nothing |
-| `POST .../deals/:dealId/submit`, `approve`, `reject`, `pause`, `resume`, `cancel` | manage / `supply.promotions.approve` | all idempotent; state machine in one pure module |
+| Create / edit draft | `supply.rates.manage` | Parses with an allow-list (unknown fields refused), checks scope inside the hotel and tenant, audits field-level changes. Saving never activates. |
+| Validate | `supply.rates.read` | Returns findings against the live catalogue. ERRORs block submit and activation. |
+| Submit | `supply.rates.manage` | Re-validates, fingerprints the terms, files approval `promotion.activate` (idempotent on `requestId`), locks the deal. |
+| Approve / reject | a **different** `supply.rates.manage` holder | `ApprovalService` refuses the maker (403) and a second decision (409). A reason is required and kept. |
+| Activate | `supply.rates.manage` (may be the maker) | Single-use. Re-checks status, version, fingerprint, validation and that the window has not ended under a row lock. Becomes ACTIVE, or SCHEDULED when `activeFrom` is in the hotel's future. Records `activatedBy`. |
+| Pause / resume | `supply.rates.manage` | Pause needs a reason; resume re-validates. |
+| Suspend | `supply.rates.manage` | Reason required, always allowed. Coming back needs return-to-draft, a new version and a new approval. |
+| Return to draft | `supply.rates.manage` | From REJECTED, SUSPENDED or APPROVED. Raises `version`, clears fingerprint, approval and activation; earlier approvals can never activate the new version. |
+| Expire | the calendar | `effectiveStatus` is EXPIRED the day after `activeTo`; the evaluator stops applying it that day. "Update statuses" persists the label. |
+| Archive | `supply.rates.manage` | From DRAFT, REJECTED, PAUSED, SUSPENDED or EXPIRED. |
 
-Every mutation writes an immutable audit event with before and after (invariant 8). No supplier payloads, tokens or guest PII are logged (invariant 7).
+The same graph is enforced by the database trigger `fbeds_hotel_deal_guard`.
 
-## 8. Admin UX flow
-1. **List** (current empty state kept): status, kind, scope, dates, saving preview, issues. Counter in the tab label counts ACTIVE deals.
-2. **Create**: only controls whose backend exists are enabled. Unbuilt controls are **absent**, not disabled and not labelled "coming soon" in a production build.
-3. **Preview**: runs the evaluator for a chosen room, plan, dates and booking date and shows nightly net, promotion, markup and sell with the margin result. The preview inputs (net, B2B sell) are read from the plan's real rates, not typed in, so the preview cannot be made to disagree with the engine.
-4. **Submit for approval**, then **Activate** appears only for the checker after approval. "Save & Activate" is removed for makers.
-5. Rate plan view keeps showing compiled promotions read-only with a link to their deal; direct edits to a compiled row are refused.
+## 3. Supported types: exact semantics
+All types discount the **supplier net** of an eligible night before the markup (ADR 0058), so the platform margin follows. A night never falls below 1 minor unit. Rounding: half up on integer minor units, per night. Taxes and fees are not separate in contracted rates (taxes inclusive per plan flags) so nothing is split; supplements are added **after** the deal and are never discounted. "Eligible night" means the night is inside the travel window when the mode is `NIGHTS_IN_WINDOW`, and on one of the deal's weekdays when a weekday list is set.
 
-## 9. Phasing
-| Phase | Scope | Gate |
+| Type | Applies when | Effect | Required fields |
+|---|---|---|---|
+| `PERCENT_OFF` | stay has at least `minNights` (default 1) | `percentBp` off every eligible night | `percentBp` |
+| `EARLY_BIRD` | booking lead (hotel days from today to check-in) >= `minLeadDays` | `percentBp` off every eligible night | `percentBp`, `minLeadDays` |
+| `FLASH_SALE` | today is inside `bookFrom..bookTo` (both required) | `percentBp` off every eligible night | `percentBp`, `bookFrom`, `bookTo` |
+| `STAY_X_PAY_Y` | nights >= X (`minNights`) and the stay keeps a paid night | the cheapest `freeNights` (X minus Y) eligible nights are free, **once per stay**; ties: the later date is free | `minNights`, `freeNights` |
+| `SUBSEQUENT_NIGHTS` | nights >= `fromNight` | night 1 up to `fromNight`-1 full price; `percentBp` off from `fromNight` on | `percentBp`, `fromNight` (2 to 365) |
+| `EVERY_NTH_FREE` | nights >= N (`minNights`) | one cheapest eligible night free per **full block** of N nights (7 nights, N=3: two free) | `minNights` = N |
+| `FIXED_OFF` | plan currency equals the deal currency | `amountMinor` off each eligible night (`PER_NIGHT`) or split over the eligible nights in integers, first nights taking the remainder (`PER_STAY`); a night is capped at net minus 1 and, with a room-only base, at the room rate; capped nights simply take less | `amountMinor`, `currency`, `amountScope` |
+| `PACKAGE_ADD_ON` | **refused** (`PROMOTION_TYPE_UNSUPPORTED`) | it changes what is sold, not the price | n/a |
+
+Common options: `stayWindowMode` (whole stay inside the window, or only the nights inside), `discountBase` (room and guest lines, or room only), `weekdays`, `activeFrom/To`, `priority`, `combinable`, `stackingGroup`, `incompatibleDealIds`, audience lists and guards.
+
+Expected outputs: the Agent offer carries `promotion { name, kind }` and the total already includes the saving; recheck reprices through the same path; the Admin simulator returns per-night base net, deal, supplements, net after, markup and sell, totals with and without the deal, margin, and a trace of every rule considered.
+
+## 4. Pricing order and safeguards
+`rate + guest lines` then **one** promotion (or a combinable stack) then `+ supplements` then `+ markup` then `sell` (then one FX conversion). One evaluator prices every surface; a deal never prices itself.
+- **Selection:** the larger saving wins; equal savings go to the higher `priority`, then the lower id. Priority never overrides a guard, an eligibility rule or a larger saving. The same deal id applies once.
+- **Stacking:** only `combinable` deals, never in the same `stackingGroup`, never when either lists the other in `incompatibleDealIds`; free-night types first, then by id; used only when the stack saves more than the best single, and every guard is judged on the whole stack.
+- **Guards** (per deal, judged on the nights it changed, on net plus markup): `maxDiscountBp` (of the net before the deal), `minSellFloorMinor`, `minMarginBp` (on the sell price). A breach, or a guard that cannot be verified (a SELL-basis rate has no known net; no markup information), means the deal is not applied and the buyer gets the base rate. A discount above 50% must carry a sell floor.
+- **Below net:** impossible. There is no override, no field and no permission for it. Any request carrying one is refused.
+- **Fail closed:** unreadable deals stop search (`provider_unavailable`); an invalid or ineligible deal is simply not applied and the base rate stands; a base rate that cannot be sold stays unsellable (a deal never rescues it); an unknown buyer, market, channel or hotel day never satisfies a restriction.
+- **Audience:** `channels` (`PORTAL`, `API`), `sourceMarkets` (buying agency country), `agencyIds`: allow-lists that narrow and never grant. The channel is stated by the pricing caller. No segment or tier exists.
+
+## 5. API (`@bedbanks/contracts`, `routes.adminCommercial`)
+Read = `supply.rates.read`; write = `supply.rates.manage`. Errors use the standard envelope; codes below are in `error.code`.
+
+| Route | Purpose |
+|---|---|
+| `GET /admin/commercial/promotions` (`hotelId`, `status` as it applies today, `kind`, `q`, `page`, `pageSize`) | list |
+| `GET .../summary`, `GET .../approval-queue` | counts by what applies today; promotions awaiting a decision with live validation |
+| `POST .../` | create draft (`idempotencyKey`, `hotelId` required) |
+| `GET/PUT .../:dealId` | read with capabilities; replace a draft (`expectedVersion`) |
+| `POST .../:dealId/validate`, `/preview` | findings; read-only price simulation (writes nothing) |
+| `POST .../:dealId/submit`, `/withdraw`, `/pause`, `/resume`, `/suspend`, `/return-to-draft`, `/archive` | lifecycle |
+| `POST .../approvals/:approvalId/approve`, `/reject`, `/execute` | decision (a different person), activation (single use) |
+| `POST .../reconcile` | persist started and ended labels (idempotent) |
+| `GET .../:dealId/audit-log`, `/performance` | approvals and audit events; honest operations data |
+
+Notable codes: `DEAL_FIELD_NOT_ALLOWED`, `PROMOTION_TYPE_UNSUPPORTED`, `DEAL_FUNDING_UNSUPPORTED`, `DEAL_CODE_TAKEN` (409), `IDEMPOTENCY_KEY_REUSED` (409), `DEAL_CHANGED` (409), `DEAL_TERMS_LOCKED` (409), `DEAL_VALIDATION_FAILED` (409 with findings), `DEAL_TRANSITION_NOT_ALLOWED` (409), `DEAL_NOT_AWAITING_ACTIVATION` (409), `DEAL_NOT_FOUND` / `NOT_FOUND` (404 for another tenant's id, identical to a missing one).
+
+## 6. RBAC and approval matrix
+| Action | Permission | Separation of duties |
 |---|---|---|
-| P0 | ADR for this design; resolve D1 to D4 | Owner decisions |
-| P1 | `HotelDeal` for the four existing kinds, scope expansion to plans, compile to `RatePlanPromotion`, lifecycle with maker-checker, preview, audit, list/create UI | Reviewed Prisma migration, rollback notes, tenant-index review, contracts, e2e |
-| P2 | Day-of-week rule, audience (channel, market, agency segment) via authenticated credential, margin and cap guards | ADR 0080 P5/P6, evaluator specs |
-| P3 | Fixed-amount, subsequent-night discount, add-on, member tiers | Own ADRs |
-| P4 | Coupon codes with redemption caps and anti-abuse | Own ADR |
+| Read, list, validate, preview, audit | `supply.rates.read` | none |
+| Create, edit, submit, withdraw, pause, resume, suspend, archive, return to draft, reconcile | `supply.rates.manage` | none |
+| Approve / reject | `supply.rates.manage` (approval action `promotion.activate`, S3) | decider must differ from the requester |
+| Activate | `supply.rates.manage` | needs an APPROVED request bound to the current version and fingerprint; recorded separately from the decision |
+Tenant scope only: the catalogue marks region and property scope as business scope until the backend enforces it (ADR 0015). A dedicated grantable approver permission is a later change.
 
-Rollback for P1: feature flag off hides the screens and stops compilation; compiled `RatePlanPromotion` rows remain valid on their own, so pricing is unchanged. The migration is expand-only.
+## 7. Validation findings (ERROR blocks, WARNING informs)
+ERROR: invalid hotel time zone, window already ended, rate plan missing or of another hotel, no ACTIVE plan, fixed-amount currency matches no plan, unknown agency or incompatible deal, a deal incompatible with itself. WARNING: plan or contract not ACTIVE, plan currency mismatch, dates outside plan or contract validity, no stored rates ahead, discount not below the lowest rate, margin guard on SELL-basis rates, sell floor above existing SELL rates, API channel not distributed, overlap with another live or pending deal.
 
-## 10. Decisions needed from the owner
-- **D1 Stacking and priority.** Keep ADR 0058 "largest saving wins, optional combinable stack", and drop Priority and Stacking Group from the screen (recommended); or introduce priority-ordered application, which changes the order of operations and every price.
-- **D2 Below-net override.** Recommended: not offered in P1 to P2.
-- **D3 Who funds a discount.** Today it is a supplier-side saving and the markup follows it (ADR 0058). Hotel-funded, platform-funded or shared funding changes ledger and settlement treatment (ADR 0062, 0077) and needs finance sign-off before any funding field is shown.
-- **D4 Feed-managed plans.** The feed owns prices on a feed-managed plan (ADR 0082). Recommended: promotions are allowed there, since they are discounts on top of the feed price and never overwrite it, but this must be stated explicitly.
+## 8. Audit
+`promotion.deal.created|updated|submitted|approved|rejected|activated|paused|resumed|suspended|returned_to_draft|archived|started|expired`, plus `approval.requested|approved|rejected|executed|cancelled` and `permission.denied`. Each carries actor, tenant, deal id, request id and the change (field names and values; never notes or descriptions). `AuditEvent` is insert-only for the runtime role.
 
-## 11. Test and release plan
-Pure unit specs for the state machine and each new rule; evaluator specs that prove one price for search, recheck, hold and preview; e2e for maker-checker, idempotent replay, tenant isolation (a second tenant cannot read or preview a deal) and permission denial on every route. Run `pnpm check:architecture`, `pnpm type-check`, `pnpm lint`, `pnpm test` and the affected builds before merge.
+## 9. Error behaviour summary
+400 invalid input (all problems listed together); 403 no permission or self-approval; 404 unknown or other tenant's id; 409 state, version, idempotency or validation conflict; 503/`provider_unavailable` only for an unreadable mandatory control. Nothing is written on a refused request.
+
+## 10. Channels and distribution
+Only the Agent portal prices deals. The distribution API has scopes but no search route yet, so `API`-limited deals apply nowhere and the Admin shows the channel as not published. No connector accepts promotion publication; none is simulated.
+
+## 11. Not built, not shown as capability
+Package add-on; agency segments; member tiers and loyalty; platform- or hotel-funded discounts; a below-net override; guest-redeemed promotion codes; redemption, attributed-revenue and margin reporting (booking tables are not writable by the API role); external channel publication; a periodic status sweeper (needs a dedicated role); a dedicated approver permission; changes to the legacy per-plan promotion editor.

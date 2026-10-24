@@ -96,7 +96,8 @@ export interface SearchRateOffer {
   /** Charges the guest pays the hotel directly, NOT included in the total (ADR 0067, F-04), each with an estimate for this stay and party. */
   payAtHotel?: PayAtHotelCharge[]
   /** The hotel promotion already included in the price (ADR 0058). Informational: the total is final, nothing is deducted again. */
-  promotion?: { name: string; kind: 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS' }
+  /** ADR 0089: a hotel deal adds PERCENT_OFF, FLASH_SALE, SUBSEQUENT_NIGHTS, EVERY_NTH_FREE and FIXED_OFF; STAY_X_PAY_Y prices as FREE_NIGHTS. */
+  promotion?: { name: string; kind: 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS' | 'PERCENT_OFF' | 'FLASH_SALE' | 'SUBSEQUENT_NIGHTS' | 'EVERY_NTH_FREE' | 'FIXED_OFF' }
   /** Board and compulsory supplements already included in the total (ADR 0067), each for all rooms of the stay. Informational. */
   supplements?: Array<{ name: string; kind: 'BOARD' | 'COMPULSORY'; amountMinor: number }>
   source: 'hotel_direct' | 'dmc' | 'bedbank' | 'channel_manager' | 'gds'

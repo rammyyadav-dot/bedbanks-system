@@ -693,6 +693,120 @@ model RatePlanPromotion {
   @@index([tenantId, ratePlanId])
 }
 
+/// Hotel deals and promotions (ADR 0089). A deal is authored at hotel level, approved by a second person, and priced by the ONE stay evaluator
+/// (ADR 0058): ACTIVE deals are loaded next to RatePlanPromotion rows and become PromotionRule objects. Nothing is compiled into RatePlanPromotion.
+enum HotelDealKind {
+  PERCENT_OFF
+  EARLY_BIRD
+  FLASH_SALE
+  STAY_X_PAY_Y
+  SUBSEQUENT_NIGHTS
+  EVERY_NTH_FREE
+  FIXED_OFF
+}
+
+enum HotelDealStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  SUSPENDED
+  EXPIRED
+  ARCHIVED
+}
+
+enum HotelDealAmountScope {
+  PER_NIGHT
+  PER_STAY
+}
+
+model HotelDeal {
+  id                String                @id @default(cuid())
+  tenantId          String                @map("tenant_id")
+  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId           String                @map("hotel_id")
+  hotel             Hotel                 @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  code              String                @db.VarChar(40)
+  codeKey           String                @map("code_key") @db.VarChar(40)
+  name              String                @db.VarChar(80)
+  kind              HotelDealKind
+  status            HotelDealStatus       @default(DRAFT)
+  /// Only a tie-break between equal savings. Never overrides a commercial guard or an eligibility rule.
+  priority          Int                   @default(0)
+  percentBp         Int?                  @map("percent_bp")
+  amountMinor       BigInt?               @map("amount_minor")
+  currency          String?               @db.Char(3)
+  amountScope       HotelDealAmountScope? @map("amount_scope")
+  minNights         Int?                  @map("min_nights")
+  freeNights        Int?                  @map("free_nights")
+  fromNight         Int?                  @map("from_night")
+  minLeadDays       Int?                  @map("min_lead_days")
+  bookFrom          DateTime?             @map("book_from") @db.Date
+  bookTo            DateTime?             @map("book_to") @db.Date
+  stayFrom          DateTime?             @map("stay_from") @db.Date
+  stayTo            DateTime?             @map("stay_to") @db.Date
+  /// Bit 0 Monday .. bit 6 Sunday of the NIGHT's hotel-local date. Null means every day.
+  weekdays          Int?
+  stayWindowMode    PromotionStayWindowMode @default(WHOLE_STAY) @map("stay_window_mode")
+  discountBase      PromotionDiscountBase   @default(ROOM_AND_GUESTS) @map("discount_base")
+  combinable        Boolean               @default(false)
+  stackingGroup     String?               @map("stacking_group") @db.VarChar(40)
+  incompatibleDealIds String[]            @default([]) @map("incompatible_deal_ids")
+  /// Channels the deal applies to (PORTAL, API). Empty means every channel the platform can name.
+  channels          String[]              @default([])
+  /// Buyer markets (the buying agency's country, ISO alpha-2). Empty means every market.
+  sourceMarkets     String[]              @default([]) @map("source_markets")
+  /// Explicit agencies of this tenant. Empty means every agency.
+  agencyIds         String[]              @default([]) @map("agency_ids")
+  maxDiscountBp     Int?                  @map("max_discount_bp")
+  minSellFloorMinor BigInt?               @map("min_sell_floor_minor")
+  minMarginBp       Int?                  @map("min_margin_bp")
+  /// SUPPLIER only (the discount reduces the supplier net, ADR 0058). Any other funding needs a finance decision.
+  fundingSource     String                @default("SUPPLIER") @map("funding_source") @db.VarChar(16)
+  activeFrom        DateTime?             @map("active_from") @db.Date
+  activeTo          DateTime?             @map("active_to") @db.Date
+  publicDescription String?               @map("public_description") @db.VarChar(500)
+  internalNotes     String?               @map("internal_notes") @db.VarChar(2000)
+  version           Int                   @default(1)
+  /// SHA-256 of the canonical terms, set when the deal is submitted; an approval is bound to it.
+  termsFingerprint  String?               @map("terms_fingerprint") @db.Char(64)
+  approvalId        String?               @map("approval_id")
+  statusReason      String?               @map("status_reason") @db.VarChar(500)
+  statusChangedAt   DateTime?             @map("status_changed_at")
+  statusChangedById String?               @map("status_changed_by_id")
+  activatedAt       DateTime?             @map("activated_at")
+  activatedById     String?               @map("activated_by_id")
+  idempotencyKey    String                @map("idempotency_key") @db.VarChar(80)
+  createdById       String                @map("created_by_id")
+  createdBy         User                  @relation("HotelDealCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  ratePlans HotelDealRatePlan[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, codeKey])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, hotelId, status])
+  @@index([tenantId, status])
+}
+
+/// The rate plans a deal applies to. Editable only while the deal is a DRAFT (database trigger); a plan must belong to the deal's hotel.
+model HotelDealRatePlan {
+  tenantId   String    @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  dealId     String    @map("deal_id")
+  deal       HotelDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict)
+  ratePlanId String    @map("rate_plan_id")
+  ratePlan   RatePlan  @relation(fields: [tenantId, ratePlanId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([dealId, ratePlanId])
+  @@index([tenantId, ratePlanId])
+}
+
 /// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
 /// intentionally nullable and therefore not sellable until explicitly classified.
 enum RateAmountBasis {
@@ -762,6 +876,8 @@ model Tenant {
   serviceCaseNotes ServiceCaseNote[]
   distributionRestrictions DistributionRestriction[]
   fxRates FxRate[]
+  hotelDeals HotelDeal[]
+  hotelDealRatePlans HotelDealRatePlan[]
   markupRules CommercialMarkupRule[]
   id        String   @id @default(cuid())
   name      String
@@ -837,6 +953,7 @@ model User {
   restrictionsCreated DistributionRestriction[] @relation("RestrictionCreator")
   markupRulesCreated CommercialMarkupRule[] @relation("MarkupRuleCreator")
   fxRatesCreated FxRate[] @relation("FxRateCreator")
+  hotelDealsCreated HotelDeal[] @relation("HotelDealCreator")
   id           String    @id @default(cuid())
   email        String    @unique
   name         String?
@@ -1762,6 +1879,7 @@ model Hotel {
   searchIndex HotelSearchIndex?
   supplierRoomDrafts SupplierRoomDraft[]
   supplierChangeSets SupplierChangeSet[]
+  deals HotelDeal[]
 
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
@@ -2264,6 +2382,7 @@ model RatePlan {
   guestPrices  RatePlanGuestPrice[]
   supplements  ContractSupplement[]
   promotions   RatePlanPromotion[]
+  deals        HotelDealRatePlan[]
   supplierMappings SupplierRatePlanMapping[]
 
   @@unique([contractId, code])

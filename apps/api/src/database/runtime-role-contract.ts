@@ -51,6 +51,9 @@ export const ROOM_WRITE_COLUMNS = ['name', 'code', 'max_adults', 'max_children',
 /** Amenity columns the runtime may update (a fee type change). The hotel, room and tenant a row belongs to are immutable for the role (ADR 0032 amendment). */
 export const AMENITY_UPDATE_COLUMNS = ['fee_type', 'updated_by_id', 'updated_at'] as const
 
+/** HotelDeal columns the deal workflows update. Identity (id, tenant, hotel, creator, idempotency key, created_at) is immutable for the role and by trigger (ADR 0089). */
+export const HOTEL_DEAL_UPDATE_COLUMNS = ['code', 'code_key', 'name', 'kind', 'status', 'priority', 'percent_bp', 'amount_minor', 'currency', 'amount_scope', 'min_nights', 'free_nights', 'from_night', 'min_lead_days', 'book_from', 'book_to', 'stay_from', 'stay_to', 'weekdays', 'stay_window_mode', 'discount_base', 'combinable', 'stacking_group', 'incompatible_deal_ids', 'channels', 'source_markets', 'agency_ids', 'max_discount_bp', 'min_sell_floor_minor', 'min_margin_bp', 'funding_source', 'active_from', 'active_to', 'public_description', 'internal_notes', 'version', 'terms_fingerprint', 'approval_id', 'status_reason', 'status_changed_at', 'status_changed_by_id', 'activated_at', 'activated_by_id', 'updated_at'] as const
+
 /** Existing-night capacity only: identity, stock and provenance/freshness stay protected (ADR 0037). */
 export const POOL_DAY_CAPACITY_COLUMNS = ['capacity', 'updated_at'] as const
 
@@ -167,6 +170,14 @@ const READ_WRITE: readonly RuntimeGrant[] = [
   { table: 'FxRate', model: 'FxRate', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck when a contract in another currency is priced (mandatory commercial control, ADR 0067 F-12)', writes: [
     { op: 'INSERT', service: 'CommercialFxService.create', endpoints: ['POST /admin/commercial/fx-rates'], reason: 'draft a controlled FX rate' },
     { op: 'UPDATE', service: 'CommercialFxService.retire/execute', endpoints: ['POST /admin/commercial/fx-rates/:rateId/retire', 'POST /admin/commercial/fx-rates/approvals/:approvalId/execute'], reason: 'activate or retire a rate (rates are otherwise immutable)' },
+  ] },
+  { table: 'HotelDeal', model: 'HotelDeal', read: true, rls: 'forced-tenant', note: 'also read by Agent search, recheck and hold: ACTIVE deals price a stay through the one evaluator (mandatory commercial control, ADR 0089)', writes: [
+    { op: 'INSERT', service: 'HotelDealService.create', endpoints: ['POST /admin/commercial/promotions'], reason: 'draft a deal; the database starts every deal as a DRAFT' },
+    { op: 'UPDATE', columns: HOTEL_DEAL_UPDATE_COLUMNS, service: 'HotelDealService.update/transition/execute', endpoints: ['PATCH /admin/commercial/promotions/:dealId', 'POST /admin/commercial/promotions/:dealId/{submit,withdraw,pause,resume,suspend,return-to-draft,archive,reconcile}', 'POST /admin/commercial/promotions/approvals/:approvalId/execute'], reason: 'edit a draft, move a deal along the lifecycle, activate it once after approval; a trigger refuses any change to the terms of a deal that is not a DRAFT, and any transition the state machine does not allow' },
+  ] },
+  { table: 'HotelDealRatePlan', model: 'HotelDealRatePlan', read: true, rls: 'forced-tenant', note: 'also read by Agent search, recheck and hold to find the ACTIVE deals of a plan (ADR 0089)', writes: [
+    { op: 'INSERT', service: 'HotelDealService.create/update', endpoints: ['POST /admin/commercial/promotions', 'PATCH /admin/commercial/promotions/:dealId'], reason: 'set the rate plans a draft deal applies to; a trigger refuses a plan of another hotel' },
+    { op: 'DELETE', service: 'HotelDealService.update', endpoints: ['PATCH /admin/commercial/promotions/:dealId'], reason: 'replace the scope of a draft deal; a trigger refuses it once the deal has left DRAFT' },
   ] },
   { table: 'DistributionRestriction', model: 'DistributionRestriction', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck (mandatory commercial control)', writes: [
     { op: 'INSERT', service: 'DistributionService.create', endpoints: ['POST /admin/distribution/restrictions'], reason: 'restrict a hotel or supplier for an agency' },

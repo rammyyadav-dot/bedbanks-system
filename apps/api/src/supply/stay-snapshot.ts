@@ -30,6 +30,8 @@ export interface StayPlanInput {
   derivedProblem: string | null
   /** ADR 0058 S10a promotions. Required: a loader that forgot them would silently sell at full price a plan the hotel discounted. */
   promotions: Array<{ id: string; kind: string; name: string; percentBp: number | null; minLeadDays: number | null; maxLeadDays: number | null; minNights: number | null; freeNights: number | null; bookFrom: Date | null; bookTo: Date | null; stayFrom: Date | null; stayTo: Date | null; combinable: boolean; stayWindowMode: string; discountBase: string }>
+  /** ADR 0089: the plan's ACTIVE hotel deals as ready rules (see `loadDealRules`). Required: a loader that forgot them would sell at full price a stay the hotel discounted, and Admin would disagree with the Agent. */
+  dealRules: PromotionRule[]
   /** ADR 0057 S3 allow-lists. Required (any JSON) so a loader that forgot them fails loudly rather than reading as unrestricted. */
   salesMarkets: unknown
   nationalities: unknown
@@ -81,6 +83,7 @@ export function buildStaySnapshot(
   if (plan.guestPrices === undefined) throw new Error('RATE_PLAN_GUEST_PRICES_NOT_LOADED')
   if (plan.derivedProblem === undefined) throw new Error('RATE_PLAN_DERIVED_NOT_RESOLVED')
   if (plan.promotions === undefined) throw new Error('RATE_PLAN_PROMOTIONS_NOT_LOADED')
+  if (plan.dealRules === undefined) throw new Error('RATE_PLAN_DEALS_NOT_LOADED')
   if (plan.contract.leadTimeRules === undefined) throw new Error('CONTRACT_LEAD_TIME_NOT_LOADED')
   if (plan.contract.childPolicies === undefined) throw new Error('CONTRACT_CHILD_POLICY_NOT_LOADED')
   if (plan.contract.supplements === undefined) throw new Error('CONTRACT_SUPPLEMENTS_NOT_LOADED')
@@ -127,7 +130,7 @@ export function buildStaySnapshot(
     contractCurrency: plan.contract.settlementCurrency,
     guestPrices: effectiveGuestLines(plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })), plan.contract.childPolicies, plan.currency),
     derivedProblem: plan.derivedProblem,
-    promotions: plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null , combinable: promo.combinable, stayWindowMode: promo.stayWindowMode as StayWindowMode, discountBase: promo.discountBase as DiscountBase})),
+    promotions: [...plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null , combinable: promo.combinable, stayWindowMode: promo.stayWindowMode as StayWindowMode, discountBase: promo.discountBase as DiscountBase})), ...plan.dealRules],
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
     leadTimeRule: plan.contract.leadTimeRules[0] ? { minLeadHours: plan.contract.leadTimeRules[0].minLeadHours, maxLeadDays: plan.contract.leadTimeRules[0].maxLeadDays } : null,
     minStayMode: plan.contract.minStayMode,

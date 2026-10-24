@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import type { HotelCommercial360 } from '@bedbanks/contracts'
 import { useCan } from '@/lib/auth/capabilities'
 import { HOTEL_TABS, hotelHref, type HotelTabId } from '@/lib/hotel-ui'
+import { useOpsQuery } from '@/components/ops/useOpsQuery'
+import { getDealSummary } from '@/lib/data/hotel-deals'
 
 type ManagementTab = { label: string; tab?: HotelTabId; view?: string; href?: string; unavailable?: string; secondary?: boolean }
 
@@ -12,11 +14,14 @@ export function HotelManagementTabs({ data, tab, visibleTabs }: { data: HotelCom
   const can = useCan()
   const view = useSearchParams().get('view')
   const counts = data.rooms.reduce((sum, room) => sum + room.ratePlans.total, 0)
+  // The number of deals that apply today, from the API. While it loads, or if it fails, the tab shows no number rather than a made-up one.
+  const deals = useOpsQuery(() => getDealSummary({ hotelId: data.hotel.id }), [data.hotel.id])
+  const liveDeals = deals.state.status === 'ready' ? deals.state.data.byStatus.ACTIVE : null
   const primary: ManagementTab[] = [
     { label: 'Hotel Setup', tab: 'overview' },
     { label: `Room Types (${data.rooms.length})`, tab: 'rooms' },
     { label: `Rate Plans (${counts})`, tab: 'rateplans' },
-    { label: 'Deals & Promos', tab: 'rateplans', view: 'promotions' },
+    { label: liveDeals === null ? 'Deals & Promos' : `Deals & Promos (${liveDeals})`, tab: 'rateplans', view: 'promotions' },
     { label: 'Rate Grid', tab: 'rates', view: 'grid', unavailable: can('supply.rates.manage') ? undefined : 'Editing the rate grid requires rate management permission.' },
     { label: 'Event Master', unavailable: 'Event Master is not available in this application.' },
     { label: 'Meal Plans', href: can('supply.rates.read') ? '/board-basis' : undefined, unavailable: can('supply.rates.read') ? undefined : 'Meal plans require rate read permission.' },

@@ -1,9 +1,9 @@
 import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 import { releaseAllows, zonedLocalToUtc } from './zoned-time'
 import { hotelToday } from './rate-plan-expiry'
-import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } from './promotions'
+import { evaluatePromotions, leadDays, type AppliedPromotion, type PromotionConsideration, type PromotionRule } from './promotions'
 import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
-import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
+import { marketReasons, normalizeCountry, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 import { supplementNights, type SupplementKind, type SupplementRule } from './supplements'
 import { convertMinor, type FxQuote } from './fx'
 /**
@@ -66,7 +66,7 @@ export interface ContractedStaySnapshot {
   guestPrices: GuestPriceLine[]
   /** Why a derived plan cannot be priced (ADR 0058, S10b), or null. Required so a caller cannot omit it. */
   derivedProblem: string | null
-  /** The plan's promotions (ADR 0058, S10a). Empty means none. Required so a caller cannot omit them and skip a discount the buyer was promised. */
+  /** The plan's promotions (ADR 0058, S10a) and its ACTIVE hotel deals (ADR 0089), as ready rules. Empty means none. Required so a caller cannot omit them and skip a discount the buyer was promised. */
   promotions: PromotionRule[]
   /** True when the plan names a cancellation rule set that has no rules (ADR 0057). Required so a caller cannot omit it. */
   cancellationPolicyMissing: boolean
@@ -112,6 +112,13 @@ export interface StayRequest {
    * Admin diagnostics are buyer-independent and omit it, so they never report a plan unsellable because of a market.
    */
   buyer?: BuyerContext
+  /**
+   * ADR 0089: the channel the stay is priced for (`PORTAL`, `API`). A deal restricted to channels applies only when the caller names one of them. A caller that does
+   * not know its channel omits it and then sees no channel-restricted deal: never a guess.
+   */
+  channel?: string | null
+  /** ADR 0089: ask for the per-night breakdown and the promotion trace in the decision (the Admin simulator). Off by default so every other caller sees the same shape as before. */
+  detail?: boolean
 }
 
 export interface StayDecision {
@@ -129,6 +136,10 @@ export interface StayDecision {
   minRemaining: number | null
   /** The one promotion that priced this stay (ADR 0058), with its saving on the net across all rooms; null when none applied. */
   promotion?: (AppliedPromotion & { rooms: number }) | null
+  /** ADR 0089: every promotion the evaluator looked at and why it did or did not apply (eligibility, no saving, guard breach, outranked, stack rule). Absent when the plan has none. */
+  promotionTrace?: PromotionConsideration[]
+  /** ADR 0089: the price of each night for ONE room in the pricing currency (before any FX conversion), for the Admin simulator. Absent when the stay is not priced. */
+  nightly?: Array<{ date: string; netBeforeMinor: bigint; promotionMinor: bigint; supplementMinor: bigint; netMinor: bigint; markupMinor: bigint; sellMinor: bigint }>
   /** Board and compulsory supplements included in the total, each across all rooms (ADR 0067). Absent when none applied. */
   supplements?: Array<{ name: string; kind: SupplementKind; amountMinor: bigint }>
   /** The controlled rate the amounts were converted with (ADR 0067, F-12). Absent when priced in the contract currency. */
@@ -273,17 +284,31 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let perRoom = 0n
   let perRoomNet = 0n
   let promotion: StayDecision['promotion'] = null
+  let promotionTrace: PromotionConsideration[] | undefined
+  let nightly: StayDecision['nightly']
   let supplements: NonNullable<StayDecision['supplements']> = []
   const priced = snapshot.nights.length > 0 && nightNets.length === snapshot.nights.length && nightNets.every((entry) => entry !== undefined && entry !== null)
   if (priced) {
     const entries = nightNets as Array<{ net: bigint; bp: number | null; base: bigint }>
     let nets = entries.map((entry) => entry.net)
-    const selected = snapshot.promotions.length === 0 ? null : selectPromotion(snapshot.promotions, { today: hotelToday(request.now, snapshot.hotelTimeZone), checkIn: request.checkIn, dates: snapshot.nights.map((night) => night.date) }, nets, entries.map((entry) => entry.base))
+    const evaluated = snapshot.promotions.length === 0 ? null : evaluatePromotions(snapshot.promotions, {
+      today: hotelToday(request.now, snapshot.hotelTimeZone), checkIn: request.checkIn, dates: snapshot.nights.map((night) => night.date),
+      // ADR 0089: audience, channel, currency and per-night markup, for a deal's lists and commercial guards. Anything unknown fails closed in the rule.
+      buyer: request.buyer ? { market: normalizeCountry(request.buyer.market), agencyId: request.buyer.agencyId ?? null } : null, channel: request.channel ?? null, currency: pricingCurrency, markups: entries.map((entry) => entry.bp),
+    }, nets, entries.map((entry) => entry.base))
+    promotionTrace = evaluated?.considered
+    const selected = evaluated?.selected ?? null
     if (selected) { nets = selected.nets; promotion = { ...selected.applied, rooms: request.rooms } }
+    const afterPromotion = nets
     const extras = supplementNights(snapshot.supplements, snapshot.nights.map((night) => night.date), { adults: request.adults, children: request.children })
     nets = nets.map((net, i) => net + extras.perNight[i]!)
     supplements = extras.applied.map((item) => ({ ...item, amountMinor: item.amountMinor * BigInt(request.rooms) }))
-    nets.forEach((net, i) => { perRoomNet += net; perRoom += net + (entries[i]!.bp === null ? 0n : markupMinor(net, entries[i]!.bp!)) })
+    nightly = []
+    nets.forEach((net, i) => {
+      const markup = entries[i]!.bp === null ? 0n : markupMinor(net, entries[i]!.bp!)
+      perRoomNet += net; perRoom += net + markup
+      nightly!.push({ date: snapshot.nights[i]!.date, netBeforeMinor: entries[i]!.net, promotionMinor: entries[i]!.net - afterPromotion[i]!, supplementMinor: extras.perNight[i]!, netMinor: net, markupMinor: markup, sellMinor: net + markup })
+    })
   }
 
   const unique = [...new Set(reasons)]
@@ -299,7 +324,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
     supplements = supplements.map((item) => ({ ...item, amountMinor: convertMinor(item.amountMinor, fx) }))
   }
   if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
-  const included = { ...(supplements.length ? { supplements } : {}), ...(fx ? { fx } : {}) }
+  const included = { ...(supplements.length ? { supplements } : {}), ...(fx ? { fx } : {}), ...(request.detail && promotionTrace ? { promotionTrace } : {}), ...(request.detail && nightly ? { nightly } : {}) }
   if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion, ...included }
   return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion, ...included }
 }
