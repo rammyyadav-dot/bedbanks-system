@@ -33,6 +33,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     leadTimeRule: null,
     minStayMode: 'STAY_THROUGH',
     supplements: [],
+    eventSupplements: [],
     planMarketRules: { salesMarkets: [], nationalities: [] },
     ratePlanValidFrom: null,
     ratePlanValidTo: null,
@@ -178,6 +179,54 @@ describe('contracted stay sellability', () => {
     })
     it('never prices a supplement in another currency', () => {
       expect(evaluateContractedStay(snapshot({ supplements: [{ ...gala, currency: 'USD' }] }), request).reasons).toContain('SUPPLEMENT_CURRENCY_MISMATCH')
+    })
+  })
+
+  describe('event and exhibition supplements (ADR 0089)', () => {
+    const fixedRule = { id: 'es1', roomEventId: 'ev1', roomEventName: 'Gulfood 2027', amountKind: 'FIXED' as const, basis: 'PER_ROOM' as const, frequency: 'PER_NIGHT' as const, amountMinor: 15_000n, percentBp: null, currency: 'AED', validFrom: '2026-10-15', validTo: '2026-10-17', stackable: false, priority: 0 }
+    const percentRule = { id: 'es2', roomEventId: 'ev2', roomEventName: 'Dubai Airshow', amountKind: 'PERCENTAGE' as const, basis: null, frequency: null, amountMinor: null, percentBp: 1_000, currency: 'AED', validFrom: '2026-10-15', validTo: '2026-10-17', stackable: false, priority: 0 }
+
+    it('adds a FIXED event supplement per room per night and names the event', () => {
+      const decision = evaluateContractedStay(snapshot({ eventSupplements: [fixedRule] }), request)
+      expect(decision).toMatchObject({ eligible: true, totalMinor: 89_700n + 45_000n, eventSupplements: [{ roomEventId: 'ev1', roomEventName: 'Gulfood 2027', amountMinor: 45_000n }] })
+    })
+
+    it('prices a PERCENTAGE event supplement on the night\'s own contracted base', () => {
+      // 10% of 29_900n per night, three nights: 2_990n * 3 = 8_970n.
+      const decision = evaluateContractedStay(snapshot({ eventSupplements: [percentRule] }), request)
+      expect(decision).toMatchObject({ eligible: true, totalMinor: 89_700n + 8_970n, eventSupplements: [{ amountMinor: 8_970n }] })
+    })
+
+    it('stacks a stackable rule on top of a non-stackable winner', () => {
+      const stackable = { ...percentRule, id: 'es3', stackable: true }
+      const decision = evaluateContractedStay(snapshot({ eventSupplements: [fixedRule, stackable] }), request)
+      expect(decision.totalMinor).toBe(89_700n + 45_000n + 8_970n)
+      expect(decision.eventSupplements).toHaveLength(2)
+    })
+
+    it('applies only the highest-priority non-stackable rule on an overlapping night', () => {
+      const low = { ...fixedRule, priority: 0 }
+      const high = { ...percentRule, priority: 1 }
+      const decision = evaluateContractedStay(snapshot({ eventSupplements: [low, high] }), request)
+      expect(decision.totalMinor).toBe(89_700n + 8_970n)
+      expect(decision.eventSupplements).toEqual([{ roomEventId: 'ev2', roomEventName: 'Dubai Airshow', amountMinor: 8_970n }])
+    })
+
+    it('fails closed on an ambiguous tie between non-stackable rules of equal priority', () => {
+      const other = { ...percentRule, id: 'es3', roomEventId: 'ev3', priority: 0 }
+      const decision = evaluateContractedStay(snapshot({ eventSupplements: [fixedRule, other] }), request)
+      expect(decision.eligible).toBe(false)
+      expect(decision.reasons).toContain('EVENT_SUPPLEMENT_CONFLICT')
+    })
+
+    it('skips a rule whose window misses the stay', () => {
+      const outside = { ...fixedRule, validFrom: '2026-12-31', validTo: '2026-12-31' }
+      const decision = evaluateContractedStay(snapshot({ eventSupplements: [outside] }), request)
+      expect(decision.totalMinor).toBe(89_700n); expect(decision.eventSupplements).toBeUndefined()
+    })
+
+    it('never prices an event supplement in another currency', () => {
+      expect(evaluateContractedStay(snapshot({ eventSupplements: [{ ...fixedRule, currency: 'USD' }] }), request).reasons).toContain('EVENT_SUPPLEMENT_CURRENCY_MISMATCH')
     })
   })
 

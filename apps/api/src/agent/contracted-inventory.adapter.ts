@@ -285,6 +285,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
             cancellationPolicies: true,
             leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
             supplements: true,
+            // ADR 0089: only approved, active, eligible event supplements are ever loaded for pricing.
+            eventSupplements: { where: { status: 'ACTIVE', roomEvent: { status: 'APPROVED' }, validFrom: { lte: lastNight }, validTo: { gte: checkIn } }, include: { roomEvent: { select: { name: true } } } },
             childPolicies: { select: { minAge: true, maxAge: true, supplementMinor: true, currency: true } },
             supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
           },
@@ -520,6 +522,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
       // ADR 0067: supplements are inside the total; the offer names them so the agent can tell the guest what is included.
       ...(decision.supplements?.length ? { supplements: decision.supplements.map((item) => ({ name: item.name, kind: item.kind, amountMinor: Number(item.amountMinor) })) } : {}),
+      // ADR 0089: event supplements are inside the total; the offer names them so the agent can tell the guest what is included.
+      ...(decision.eventSupplements?.length ? { eventSupplements: decision.eventSupplements.map((item) => ({ roomEventId: item.roomEventId, roomEventName: item.roomEventName, amountMinor: Number(item.amountMinor) })) } : {}),
       source: sourceFor(plan.contract.supplier.type),
     }
     const latitude = decimalText(plan.roomType.hotel.latitude)

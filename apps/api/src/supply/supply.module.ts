@@ -14,6 +14,14 @@ import { RatePlanCloneDatabase } from './rate-plan-clone-database'
 import { RatePlanExpirySweeper } from './rate-plan-expiry-sweeper.service'
 import { ContractApprovalController } from './contract-approval.controller'
 import { ContractApprovalService } from './contract-approval.service'
+import { RoomEventsController } from './room-events.controller'
+import { RoomEventsService } from './room-events.service'
+import { EventSupplementsController } from './event-supplements.controller'
+import { EventSupplementsService } from './event-supplements.service'
 
-@Module({ imports: [AuthModule, ApprovalsModule], controllers: [SupplyController, MappingController, RatePlanApprovalController, ContractApprovalController], providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService] })
+@Module({
+  imports: [AuthModule, ApprovalsModule],
+  controllers: [SupplyController, MappingController, RatePlanApprovalController, ContractApprovalController, RoomEventsController, EventSupplementsController],
+  providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService, RoomEventsService, EventSupplementsService],
+})
 export class SupplyModule {}

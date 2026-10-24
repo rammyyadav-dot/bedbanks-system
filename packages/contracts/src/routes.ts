@@ -149,6 +149,11 @@ export const routes = {
     contractApprovalApprove: '/supply/contract-approvals/:approvalId/approve', contractApprovalReject: '/supply/contract-approvals/:approvalId/reject', contractApprovalCancel: '/supply/contract-approvals/:approvalId/cancel', contractApprovalExecute: '/supply/contract-approvals/:approvalId/execute',
     contractCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/:policyId', contractChildPolicy: '/supply/contracts/:contractId/policies/child/:policyId', contractSupplements: '/supply/contracts/:contractId/supplements', contractSupplement: '/supply/contracts/:contractId/supplements/:supplementId',
     availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability', capabilities: '/supply/capabilities',
+    // ADR 0089: Room Event Master and event/exhibition supplements.
+    roomEvents: '/admin/room-events', roomEvent: '/admin/room-events/:roomEventId', roomEventSubmit: '/admin/room-events/:roomEventId/submit', roomEventCancel: '/admin/room-events/:roomEventId/cancel', roomEventArchive: '/admin/room-events/:roomEventId/archive',
+    roomEventApprovalApprove: '/admin/room-event-approvals/:approvalId/approve', roomEventApprovalReject: '/admin/room-event-approvals/:approvalId/reject', roomEventApprovalCancel: '/admin/room-event-approvals/:approvalId/cancel',
+    eventSupplements: '/admin/event-supplements', eventSupplement: '/admin/event-supplements/:eventSupplementId', eventSupplementSubmit: '/admin/event-supplements/:eventSupplementId/submit', eventSupplementActivate: '/admin/event-supplements/:eventSupplementId/activate', eventSupplementSuspend: '/admin/event-supplements/:eventSupplementId/suspend', eventSupplementPreview: '/admin/event-supplements/preview',
+    eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel',
   },
   partner: {},
   /** B2B Distribution API for machine partners (ADR 0075). Authenticated by API key or OAuth2 bearer token, never by a session. */
