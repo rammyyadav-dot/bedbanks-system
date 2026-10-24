@@ -64,8 +64,10 @@ export function supplementsForPlan(plan: { id: string; boardBasisId: string }, r
     .map((row) => ({ name: row.name, kind: row.kind as SupplementKind, basis: row.basis as SupplementBasis, frequency: row.frequency as SupplementFrequency, amountMinor: row.amountMinor, currency: row.currency, stayFrom: day(row.stayFrom), stayTo: day(row.stayTo) }))
 }
 
-const units = (basis: SupplementBasis, party: { adults: number; children: number }): bigint =>
+/** How many units (adults, children, people or rooms) a PER_ADULT/PER_CHILD/PER_PERSON/PER_ROOM amount counts for this party. Shared with event supplements (ADR 0089). */
+export const supplementUnits = (basis: SupplementBasis, party: { adults: number; children: number }): bigint =>
   BigInt(basis === 'PER_ADULT' ? party.adults : basis === 'PER_CHILD' ? party.children : basis === 'PER_PERSON' ? party.adults + party.children : 1)
+const units = supplementUnits
 
 /**
  * Per room, the amount each night carries and the supplements that applied. A PER_STAY supplement is charged once, on the first stay night in

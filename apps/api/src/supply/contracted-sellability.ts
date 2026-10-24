@@ -5,6 +5,7 @@ import { leadDays, selectPromotion, type AppliedPromotion, type PromotionRule } 
 import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 import { supplementNights, type SupplementKind, type SupplementRule } from './supplements'
+import { eventSupplementNights, type EventSupplementRule } from './event-supplements'
 import { convertMinor, type FxQuote } from './fx'
 /**
  * Shared commercial gates for contracted inventory: the ONE evaluator Agent search, recheck, hold, Admin readiness, the hotel assessment, rate
@@ -76,6 +77,8 @@ export interface ContractedStaySnapshot {
   minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
   /** Board and compulsory supplements of the contract for this plan (ADR 0067). Empty means none. Required so a caller cannot drop a mandatory charge. */
   supplements: SupplementRule[]
+  /** Approved, active, eligible event/exhibition supplements of the contract for this plan (ADR 0089). Empty means none. Required so a caller cannot drop a mandatory event charge. */
+  eventSupplements: EventSupplementRule[]
   /** ADR 0067 F-12: the controlled rate that sells this contract in the request currency. Absent or null: the request must be in the contract currency. */
   fx?: FxQuote | null
   ratePlanStatus: string
@@ -131,6 +134,8 @@ export interface StayDecision {
   promotion?: (AppliedPromotion & { rooms: number }) | null
   /** Board and compulsory supplements included in the total, each across all rooms (ADR 0067). Absent when none applied. */
   supplements?: Array<{ name: string; kind: SupplementKind; amountMinor: bigint }>
+  /** Event/exhibition supplements included in the total, each across all rooms (ADR 0089). Absent when none applied. */
+  eventSupplements?: Array<{ roomEventId: string; roomEventName: string; amountMinor: bigint }>
   /** The controlled rate the amounts were converted with (ADR 0067, F-12). Absent when priced in the contract currency. */
   fx?: FxQuote
 }
@@ -267,6 +272,8 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
 
   // ADR 0067: supplements are priced in the plan's currency; anything else is not guessed at.
   if (snapshot.supplements.some((rule) => rule.currency !== snapshot.ratePlanCurrency)) reasons.push('SUPPLEMENT_CURRENCY_MISMATCH')
+  // ADR 0089: event supplements are priced in the plan's currency; a mismatch is never silently skipped or converted on a guess.
+  if (snapshot.eventSupplements.some((rule) => rule.currency !== snapshot.ratePlanCurrency)) reasons.push('EVENT_SUPPLEMENT_CURRENCY_MISMATCH')
 
   // ADR 0058: order is rate + guest lines -> ONE promotion -> markup on the discounted net. Only a fully priced stay is discounted.
   // ADR 0067: supplements are added after the promotion (never discounted) and before the markup (a NET rate's supplement is marked up with it).
@@ -274,6 +281,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let perRoomNet = 0n
   let promotion: StayDecision['promotion'] = null
   let supplements: NonNullable<StayDecision['supplements']> = []
+  let eventSupplements: NonNullable<StayDecision['eventSupplements']> = []
   const priced = snapshot.nights.length > 0 && nightNets.length === snapshot.nights.length && nightNets.every((entry) => entry !== undefined && entry !== null)
   if (priced) {
     const entries = nightNets as Array<{ net: bigint; bp: number | null; base: bigint }>
@@ -283,6 +291,11 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
     const extras = supplementNights(snapshot.supplements, snapshot.nights.map((night) => night.date), { adults: request.adults, children: request.children })
     nets = nets.map((net, i) => net + extras.perNight[i]!)
     supplements = extras.applied.map((item) => ({ ...item, amountMinor: item.amountMinor * BigInt(request.rooms) }))
+    // ADR 0089: event supplements price on the night's own contracted base (entries[i].base), never on the promotion-discounted or board/compulsory-adjusted net.
+    const eventExtras = eventSupplementNights(snapshot.eventSupplements, snapshot.nights.map((night) => night.date), { adults: request.adults, children: request.children }, entries.map((entry) => entry.base))
+    if (eventExtras.ambiguous) reasons.push('EVENT_SUPPLEMENT_CONFLICT')
+    nets = nets.map((net, i) => net + eventExtras.perNight[i]!)
+    eventSupplements = eventExtras.applied.map((item) => ({ ...item, amountMinor: item.amountMinor * BigInt(request.rooms) }))
     nets.forEach((net, i) => { perRoomNet += net; perRoom += net + (entries[i]!.bp === null ? 0n : markupMinor(net, entries[i]!.bp!)) })
   }
 
@@ -297,9 +310,10 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (fx) {
     if (promotion) promotion = { ...promotion, savingMinor: convertMinor(promotion.savingMinor, fx) }
     supplements = supplements.map((item) => ({ ...item, amountMinor: convertMinor(item.amountMinor, fx) }))
+    eventSupplements = eventSupplements.map((item) => ({ ...item, amountMinor: convertMinor(item.amountMinor, fx) }))
   }
   if (total < 0n || total > BigInt(Number.MAX_SAFE_INTEGER)) return { eligible: false, reasons: ['DAILY_RATE_MISSING_OR_INVALID'], totalMinor: null, netMinor: null, markupMinor: null, availabilityStatus: 'unavailable', minRemaining: null, promotion: null }
-  const included = { ...(supplements.length ? { supplements } : {}), ...(fx ? { fx } : {}) }
+  const included = { ...(supplements.length ? { supplements } : {}), ...(eventSupplements.length ? { eventSupplements } : {}), ...(fx ? { fx } : {}) }
   if (onRequestOnly) return { eligible: false, reasons: unique, totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'on_request', minRemaining: null, promotion, ...included }
   return { eligible: true, reasons: [], totalMinor: total, netMinor: net, markupMinor: total - net, availabilityStatus: 'available', minRemaining, promotion, ...included }
 }
