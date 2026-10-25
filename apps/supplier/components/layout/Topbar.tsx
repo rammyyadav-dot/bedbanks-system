@@ -4,7 +4,7 @@ import { Menu } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { flatNav } from './nav-config'
 
-export function Topbar({ onMenuClick, initials }: { onMenuClick: () => void; initials: string }) {
+export function Topbar({ onMenuClick, initials, userLabel, organizationName }: { onMenuClick: () => void; initials: string; userLabel: string; organizationName: string | null }) {
   const pathname = usePathname()
   const item = flatNav.find((navItem) => pathname === navItem.href || pathname.startsWith(`${navItem.href}/`))
 
@@ -17,7 +17,10 @@ export function Topbar({ onMenuClick, initials }: { onMenuClick: () => void; ini
       <div className="topbar-spacer" aria-hidden="true" />
       <div className="topbar-actions">
         <span className="environment-pill is-offline"><i />NO LIVE SUPPLY</span>
-        <span className="topbar-user">{initials}</span>
+        <div className="topbar-person">
+          <div><strong>{userLabel}</strong><small>{organizationName ?? 'No organization selected'}</small></div>
+          <span className="topbar-user" aria-hidden="true">{initials}</span>
+        </div>
       </div>
     </header>
   )

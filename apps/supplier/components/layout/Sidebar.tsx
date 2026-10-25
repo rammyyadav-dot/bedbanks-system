@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ShieldCheck, X } from 'lucide-react'
+import { Lock, ShieldCheck, X } from 'lucide-react'
+import { BrandLogo } from '../brand/BrandLogo'
 import { formatSupplierType } from '../../lib/format'
 import { logoutAction, selectOrganizationAction } from '../../lib/actions'
 import { navSections } from './nav-config'
@@ -31,8 +32,10 @@ export function Sidebar({
   return (
     <aside className={`supplier-sidebar ${mobileOpen ? 'is-open' : ''}`} aria-label="Supplier navigation">
       <div className="supplier-brand">
-        <span className="supplier-brand-mark">f</span>
-        <span><strong>fBeds</strong><small>SUPPLIER EXTRANET</small></span>
+        <Link className="supplier-brand-link" href="/dashboard" aria-label="fabBeds supplier extranet home" onClick={onClose}>
+          <BrandLogo width={150} />
+          <span className="supplier-brand-tag"><i />Supplier extranet</span>
+        </Link>
         <button className="sidebar-close" type="button" onClick={onClose} aria-label="Close navigation"><X size={18} /></button>
       </div>
 
@@ -59,7 +62,7 @@ export function Sidebar({
                 <Link key={item.href} href={item.href} className={`${activeLink ? 'active' : ''}${item.live ? '' : ' is-unavailable'}`} aria-current={activeLink ? 'page' : undefined} onClick={onClose}>
                   <Icon size={16} aria-hidden="true" />
                   <span>{item.label}</span>
-                  {!item.live && <small className="nav-tag">Not available</small>}
+                  {!item.live && <><Lock className="nav-lock" size={13} aria-hidden="true" /><span className="sr-only">(not available)</span></>}
                 </Link>
               )
             })}
