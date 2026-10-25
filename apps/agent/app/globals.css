@@ -63,6 +63,8 @@ button { cursor: pointer; }
 .access-form { display: grid; gap: 18px; padding: 28px; border: 1px solid #E5E7EB; border-radius: 24px; background: #FFFFFF; box-shadow: 0 14px 34px rgba(15, 23, 42, .06); }
 .access-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; align-items: start; }
 .access-form, .access-form input, .access-form select, .access-form textarea, .access-form button { font-family: var(--font-body); }
+/* A legacy global `label` rule sets 8px Courier New with letter spacing; the form's labels must use the body face. */
+.access-form label, .access-form legend { font-family: var(--font-body); letter-spacing: normal; margin-bottom: 0; }
 .access-field { display: grid; gap: 6px; color: #374151; font-size: 13px; font-weight: 600; }
 .access-field input, .access-field select, .access-field textarea { width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; background: #FFFFFF; color: #1F2937; padding: 10px 12px; font: inherit; font-weight: 400; }
 .access-field input, .access-field select { height: 44px; padding-top: 0; padding-bottom: 0; }
