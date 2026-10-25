@@ -210,9 +210,11 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   it('W-01d room event and event supplement: draft, edit, submit, approve (other user), then a supplement is drafted, submitted, approved, activated and suspended (ADR 0089)', async () => {
     // A contract and a rate plan the supplement attaches to are arranged at the owner connection.
     const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
-    const room = await owner.roomType.findFirstOrThrow({ where: { hotelId } })
+    // Its own hotel: a supplier maps to a hotel once, and W-01c already maps the first one.
+    const planHotel = (await owner.hotel.create({ data: { tenantId: tenantA, name: `${suffix} event plans`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'DRAFT' } })).id
+    const room = await owner.roomType.create({ data: { hotelId: planHotel, name: 'Deluxe', code: `D-${suffix.slice(-6)}`, maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'RO', name: `Room only ${suffix}` } })
-    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId, supplierHotelId: `${suffix}-evt`, status: 'MAPPED' } })
+    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId: planHotel, supplierHotelId: `${suffix}-evt`, status: 'MAPPED' } })
     const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-evt`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
     const plan = await owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `EVT-${suffix.slice(-6)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
     // The event: INSERT (draft), UPDATE (edit the draft, submit, approve by another user).
