@@ -149,7 +149,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | R3 Ledger to cancellations | Charged cancellations carry exactly their recorded refund | Daily | BUILT (ADR 0068) |
 | R4 Ledger to funding receipts | Each POSTED receipt has its CREDIT and each funding CREDIT its receipt | Daily | BUILT (ADR 0068) |
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
-| R6 Receipts to bank statement | Every POSTED receipt appears on the bank statement; every statement credit is a receipt or in suspense | Daily | PROPOSED |
+| R6 Receipts and supplier payments to bank statement | Every POSTED receipt and recorded settlement appears on the bank statement; every statement movement is one of them or in suspense | Daily | PARTIAL: MT940, camt.053 and CSV parsers and the matcher are built and tested (ADR 0093); import, storage, worker and queue are not |
 | R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
 | R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
 
