@@ -24,6 +24,8 @@ The commands run in this order and GitHub stops the job at the first failure. Th
 - `contract-check.yml` verifies that declared NestJS controller paths exist in the shared API contracts.
 - `tenancy-check.yml` runs tenant-context authorization coverage.
 - `docker-build.yml` builds every shipped image (api runner, api migrator, four portals) without pushing, lints the Dockerfiles, checks the images run as non-root, scans them with Trivy (fixable HIGH/CRITICAL fail), and uploads a CycloneDX SBOM. Runs on PRs that touch image inputs, on main, and weekly (ADR 0086).
+- `staging-release.yml` is the staging pipeline (ADR 0090): CI green on main → images for that commit → deploy → smoke test. Inert until the repository variable `STAGING_PIPELINE_ENABLED` is `true`. If migrations changed it builds but holds the deploy; the owner runs `scripts/ecs-migrate.sh staging <sha>` and re-dispatches with `migrations_applied=true`. CI never holds migration credentials.
+- `aws-images.yml` / `aws-deploy.yml` are the manual entry points (production uses them directly) and are also called by the staging pipeline. The image build job intentionally has no `environment:` so its OIDC subject matches the main-only build role.
 - `aws-rollback.yml` is the manual, environment-gated way to put one ECS service back on an earlier task definition revision (`docs/runbooks/rollback.md`).
 - Every job must declare `timeout-minutes`; `tools/workflow-permissions-check.mjs` enforces it.
 - `deploy.yml` is a manual deployment gate. It does not deploy automatically; provider-specific deployment configuration remains separate.
