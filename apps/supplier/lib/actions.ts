@@ -23,7 +23,7 @@ export async function loginAction(_previous: ActionState, formData: FormData): P
   const password = String(formData.get('password') ?? '')
   if (!email || !password) return { error: 'Email and password are required.' }
   try {
-    const headers = await loginRequest(email, password)
+    const headers = await loginRequest(email, password, formData.get('rememberMe') === 'on')
     const cookie = parseSessionCookie(headers, SESSION_COOKIE_NAME)
     const cookieStore = await cookies()
     cookieStore.set(SESSION_COOKIE_NAME, cookie.value, cookie.options)

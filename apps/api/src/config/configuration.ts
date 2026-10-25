@@ -12,6 +12,8 @@ export interface AppConfig {
   };
   auth: {
     sessionTtlSeconds: number;
+    /** Absolute lifetime of an opt-in "remember me" session (ADR 0091). */
+    rememberSessionTtlSeconds: number;
     cookieName: string;
     cookieSecure: boolean;
     cookieSameSite: 'lax' | 'strict' | 'none';
@@ -40,6 +42,7 @@ export default (): AppConfig => ({
   },
   auth: {
     sessionTtlSeconds: parseInt(process.env.AUTH_SESSION_TTL_SECONDS ?? '28800', 10),
+    rememberSessionTtlSeconds: parseInt(process.env.AUTH_REMEMBER_TTL_SECONDS ?? '1296000', 10),
     cookieName: process.env.AUTH_COOKIE_NAME ?? 'fbeds_session',
     cookieSecure: (process.env.AUTH_COOKIE_SECURE ?? 'true') === 'true',
     cookieSameSite: (process.env.AUTH_COOKIE_SAME_SITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax',

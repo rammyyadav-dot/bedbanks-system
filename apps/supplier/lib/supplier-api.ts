@@ -278,13 +278,13 @@ export async function answerBooking(bookingId: string, body: ExtranetBookingAnsw
   return { bookingId: data.bookingId, reference: data.reference, status: data.status as ExtranetBookingAnswerResult['status'], replayed: data.replayed }
 }
 
-export async function loginRequest(email: string, password: string): Promise<string[]> {
+export async function loginRequest(email: string, password: string, rememberMe = false): Promise<string[]> {
   let response: Response
   try {
     response = await fetch(`${apiInternalUrl()}${routes.auth.login}`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json', Origin: supplierOrigin() },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(rememberMe ? { rememberMe: true } : {}) }),
       cache: 'no-store',
       signal: AbortSignal.timeout(10000),
     })

@@ -22,12 +22,12 @@ export class AuthController {
     @Inject(LoginThrottle) private readonly throttle: LoginThrottle,
   ) {}
 
-  private cookieOptions(): { name: string; httpOnly: true; sameSite: 'lax' | 'strict' | 'none'; secure: boolean; path: string; maxAge: number } {
+  private cookieOptions(ttlOverrideSeconds?: number): { name: string; httpOnly: true; sameSite: 'lax' | 'strict' | 'none'; secure: boolean; path: string; maxAge: number } {
     const name = this.configService.get('auth.cookieName', { infer: true }) ?? 'fbeds_session';
     const sameSite = this.configService.get('auth.cookieSameSite', { infer: true }) ?? 'lax';
     const secure = this.configService.get('auth.cookieSecure', { infer: true }) ?? true;
     const ttlSeconds = this.configService.get('auth.sessionTtlSeconds', { infer: true }) ?? 28800;
-    return { name, httpOnly: true, sameSite, secure, path: '/', maxAge: ttlSeconds * 1000 };
+    return { name, httpOnly: true, sameSite, secure, path: '/', maxAge: (ttlOverrideSeconds ?? ttlSeconds) * 1000 };
   }
 
   @Post('login')
@@ -43,14 +43,14 @@ export class AuthController {
     }
     let result: Awaited<ReturnType<AuthService['login']>>;
     try {
-      result = await this.authService.login(dto.email, dto.password);
+      result = await this.authService.login(dto.email, dto.password, dto.rememberMe === true);
     } catch (error) {
       if (error instanceof UnauthorizedException) this.throttle.recordFailure(dto.email, address);
       throw error;
     }
     this.throttle.recordSuccess(dto.email, address);
-    const { rawToken, identity } = result;
-    const { name, ...options } = this.cookieOptions();
+    const { rawToken, identity, ttlSeconds } = result;
+    const { name, ...options } = this.cookieOptions(ttlSeconds);
     res.cookie(name, rawToken, options);
     return identity;
   }

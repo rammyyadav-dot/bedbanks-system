@@ -56,6 +56,11 @@ class EnvironmentVariables {
   @IsOptional()
   AUTH_SESSION_TTL_SECONDS: number = 28800; // 8 hours
 
+  @IsInt()
+  @Min(60, { message: 'AUTH_REMEMBER_TTL_SECONDS should be at least 60 seconds' })
+  @IsOptional()
+  AUTH_REMEMBER_TTL_SECONDS: number = 1296000; // 15 days; clamped to 30 days at runtime (ADR 0091)
+
   @IsString()
   @IsOptional()
   @Matches(/^[A-Za-z0-9_-]+$/)
@@ -104,6 +109,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     // Environment values are strings. tsx does not emit design:type metadata, so
     // class-transformer cannot turn this one into a number on its own.
     AUTH_SESSION_TTL_SECONDS: integerEnv(config.AUTH_SESSION_TTL_SECONDS, 28800),
+    AUTH_REMEMBER_TTL_SECONDS: integerEnv(config.AUTH_REMEMBER_TTL_SECONDS, 1296000),
   }
   const validatedConfig = plainToInstance(EnvironmentVariables, normalizedConfig, {
     enableImplicitConversion: true,

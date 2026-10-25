@@ -8,6 +8,10 @@ import { DUMMY_HASH, hashPassword, verifyPassword } from './utils/password';
 import { generateSessionToken, hashSessionToken, isSessionToken } from './utils/session-token';
 import type { AuthenticatedUser, MembershipSummary, SafeUser } from './interfaces/authenticated-user.interface';
 
+/** 15 days by default, hard ceiling 30 days. */
+export const REMEMBER_DEFAULT_SECONDS = 15 * 24 * 3600;
+export const REMEMBER_MAX_SECONDS = 30 * 24 * 3600;
+
 interface UserRow {
   id: string;
   email: string;
@@ -24,12 +28,16 @@ function toSafeUser(user: UserRow): SafeUser {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly sessionTtlSeconds: number;
+  private readonly rememberTtlSeconds: number;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly configService: ConfigService<AppConfig>,
   ) {
     this.sessionTtlSeconds = this.configService.get('auth.sessionTtlSeconds', { infer: true }) ?? 28800;
+    // Business rule (ADR 0091): a remembered session is never shorter than the standard one and never longer than 30 days, whatever the environment says.
+    const configured = this.configService.get('auth.rememberSessionTtlSeconds', { infer: true }) ?? REMEMBER_DEFAULT_SECONDS;
+    this.rememberTtlSeconds = Math.min(Math.max(configured, this.sessionTtlSeconds), REMEMBER_MAX_SECONDS);
   }
 
   /**
@@ -99,7 +107,7 @@ export class AuthService {
    * email, wrong password, suspended user) — the caller can't tell
    * which one happened, which is the point (account enumeration).
    */
-  async login(rawEmail: string, password: string): Promise<{ rawToken: string; identity: AuthenticatedUser }> {
+  async login(rawEmail: string, password: string, rememberMe = false): Promise<{ rawToken: string; identity: AuthenticatedUser; ttlSeconds: number }> {
     const email = this.normalizeEmail(rawEmail);
     const user = await this.prisma.user.findUnique({ where: { email } });
 
@@ -117,7 +125,9 @@ export class AuthService {
 
     const rawToken = generateSessionToken();
     const tokenHash = hashSessionToken(rawToken);
-    const expiresAt = new Date(Date.now() + this.sessionTtlSeconds * 1000);
+    // Absolute expiry: validateSession never extends it, so a remembered session cannot outlive its window.
+    const ttlSeconds = rememberMe ? this.rememberTtlSeconds : this.sessionTtlSeconds;
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
     await this.prisma.$transaction([
       this.prisma.session.create({ data: { userId: user.id, tokenHash, expiresAt } }),
@@ -125,9 +135,9 @@ export class AuthService {
     ]);
 
     const memberships = await this.loadActiveMemberships(user.id);
-    await this.recordAudit('auth.login.success', { membershipCount: memberships.length }, user.id)
+    await this.recordAudit('auth.login.success', { membershipCount: memberships.length, remembered: rememberMe }, user.id)
 
-    return { rawToken, identity: { user: toSafeUser(user), memberships, servicingMemberships: await this.loadServicingMemberships(user.id) } };
+    return { rawToken, ttlSeconds, identity: { user: toSafeUser(user), memberships, servicingMemberships: await this.loadServicingMemberships(user.id) } };
   }
 
   /**
