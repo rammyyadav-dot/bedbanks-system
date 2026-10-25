@@ -207,6 +207,32 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     expect(await owner.auditEvent.count({ where: { tenantId: tenantA, entityType: 'hotel_deal', entityId: draft.id } })).toBe(7)
   })
 
+  it('W-01d room event and event supplement: draft, edit, submit, approve (other user), then a supplement is drafted, submitted, approved, activated and suspended (ADR 0089)', async () => {
+    // A contract and a rate plan the supplement attaches to are arranged at the owner connection.
+    const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
+    const room = await owner.roomType.findFirstOrThrow({ where: { hotelId } })
+    const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'RO', name: `Room only ${suffix}` } })
+    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId, supplierHotelId: `${suffix}-evt`, status: 'MAPPED' } })
+    const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-evt`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
+    const plan = await owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `EVT-${suffix.slice(-6)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    // The event: INSERT (draft), UPDATE (edit the draft, submit, approve by another user).
+    const event = (await call('post', '/admin/room-events', 'maker', { name: 'Workflow expo', eventType: 'EXHIBITION', destinationCity: 'Dubai', destinationCountry: 'AE', eventStartDate: day(40), eventEndDate: day(44), referenceRef: `${suffix}-ref` }).expect(201)).body.data
+    await call('patch', `/admin/room-events/${event.id}`, 'maker', { name: 'Workflow expo edited' }).expect(200)
+    const submittedEvent = (await call('post', `/admin/room-events/${event.id}/submit`, 'maker', { reason: 'Dates confirmed by the organiser' }).expect(201)).body.data
+    await call('post', `/admin/room-event-approvals/${submittedEvent.approval.id}/approve`, 'maker', { reason: 'Self approval' }).expect(403)
+    await call('post', `/admin/room-event-approvals/${submittedEvent.approval.id}/approve`, 'checker', { reason: 'Dates checked' }).expect(201)
+    expect((await owner.roomEvent.findUniqueOrThrow({ where: { id: event.id } })).status).toBe('APPROVED')
+    // The supplement: INSERT (draft), UPDATE (submit, approve), then activation appends the immutable version row.
+    const supplement = (await call('post', '/admin/event-supplements', 'maker', { roomEventId: event.id, contractId: contract.id, ratePlanId: plan.id, amountKind: 'FIXED', basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: '5000', currency: 'AED', taxTreatment: 'EXCLUSIVE', validFrom: day(40), validTo: day(44), evidenceRef: `${suffix}-evidence` }).expect(201)).body.data
+    const submittedSupplement = (await call('post', `/admin/event-supplements/${supplement.id}/submit`, 'maker', { reason: 'Supplier confirmed the surcharge', requestId: key() }).expect(201)).body.data
+    await call('post', `/admin/event-supplement-approvals/${submittedSupplement.approval.id}/approve`, 'checker', { reason: 'Evidence checked' }).expect(201)
+    await call('post', `/admin/event-supplements/${supplement.id}/activate`, 'maker', { reason: 'Event confirmed' }).expect(201)
+    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('ACTIVE')
+    expect(await owner.eventSupplementVersion.count({ where: { eventSupplementId: supplement.id } })).toBe(1)
+    await call('post', `/admin/event-supplements/${supplement.id}/suspend`, 'maker', { reason: 'Event postponed' }).expect(201)
+    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('SUSPENDED')
+  })
+
   it('W-02 agency: create, edit, add and remove a member, suspend and reinstate through maker-checker (suspension is enforced on the strict role)', async () => {
     const agency = (await call('post', '/admin/clients/agencies', 'maker', { code: `AG-${randomBytes(3).toString('hex').toUpperCase()}`, name: 'Workflow agency', countryCode: 'AE' }).expect(201)).body.data
     ids.agency = agency.id
