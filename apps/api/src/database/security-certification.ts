@@ -20,6 +20,7 @@ export const NON_TENANT_TABLES: Readonly<Record<string, { rls: 'forced' | 'none'
   _prisma_migrations: { rls: 'none', reason: 'migration history; no restricted role has a grant' },
   users: { rls: 'none', reason: 'authentication directory; read by the session guard before a tenant exists' },
   sessions: { rls: 'none', reason: 'opaque session store (ADR 0001); token is stored as a SHA-256 hash only' },
+  password_reset_tokens: { rls: 'none', reason: 'single-use password-reset tokens (ADR 0091); user-scoped like sessions because a reset runs before any tenant context exists; only the SHA-256 of the token is stored' },
   tenants: { rls: 'none', reason: 'tenant directory; the tenant-control provisioning adds forced RLS with its own policies' },
   Permission: { rls: 'none', reason: 'global permission catalogue; no tenant data' },
   PlatformPermission: { rls: 'none', reason: 'platform permission catalogue; no tenant data' },
