@@ -36,7 +36,25 @@ locals {
     AUTH_COOKIE_SECURE = "true"
     ADMIN_ORIGIN       = "https://${local.portals.admin.host}"
     TRUSTED_ORIGINS    = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
-  }, local.email_env, var.api_env) : { name = k, value = v }])
+  }, local.email_env, var.api_env) : { name = k, value = v }], local.tracing_env)
+  tracing_env = var.tracing_enabled ? [
+    { name = "OTEL_TRACING_ENABLED", value = "true" },
+    { name = "OTEL_SERVICE_NAME", value = "fbeds-api-${var.environment}" },
+    { name = "OTEL_TRACE_SAMPLE_RATIO", value = var.tracing_sample_ratio },
+    { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4318" }, # the sidecar shares the task network namespace
+  ] : []
+  # Not essential: a collector outage drops traces, it never takes the API down.
+  adot_container = {
+    name         = "adot-collector"
+    image        = var.adot_collector_image
+    essential    = false
+    command      = ["--config=/etc/ecs/ecs-xray.yaml"] # built-in: OTLP receiver -> AWS X-Ray exporter
+    portMappings = []
+    logConfiguration = {
+      logDriver = "awslogs"
+      options   = { "awslogs-group" = aws_cloudwatch_log_group.this["api"].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "adot" }
+    }
+  }
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },
     { name = "REDIS_URL", valueFrom = aws_secretsmanager_secret.redis_url.arn },
@@ -57,7 +75,7 @@ resource "aws_ecs_task_definition" "this" {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
   }
-  container_definitions = jsonencode([{
+  container_definitions = jsonencode(concat([{
     name            = each.key
     image           = "${aws_ecr_repository.this[each.key].repository_url}:${var.initial_image_tag}"
     essential       = true
@@ -70,7 +88,7 @@ resource "aws_ecs_task_definition" "this" {
       logDriver = "awslogs"
       options   = { "awslogs-group" = aws_cloudwatch_log_group.this[each.key].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = each.key }
     }
-  }])
+  }], each.key == "api" && var.tracing_enabled ? [local.adot_container] : []))
   # CI registers new revisions; Terraform owns only the first one.
   lifecycle { ignore_changes = [container_definitions] }
 }

@@ -164,3 +164,41 @@ describe('supplierAdapterFromEnvironment', () => {
     }
   })
 })
+
+describe('AggregatingSupplierAdapter tracing', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node')
+  const exporter = new InMemorySpanExporter()
+  const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+  beforeAll(() => provider.register())
+  afterAll(() => provider.shutdown())
+  beforeEach(() => exporter.reset())
+
+  it('records one fan-out span with a child per supplier, the failure as an error code, and no payload', async () => {
+    const aggregate = new AggregatingSupplierAdapter([
+      member(adapter('contracted-inventory', async () => ok(['h1'])), 'ci'),
+      member(adapter('bedbank-a', async () => { throw new SupplierProviderError('transport') }), 'ba'),
+    ], silent)
+    await aggregate.search(criteria, searchContext)
+
+    const spans = exporter.getFinishedSpans()
+    const root = spans.find((s: { name: string }) => s.name === 'supplier.fanout.search')
+    const legs = spans.filter((s: { name: string }) => s.name === 'supplier.search')
+    expect(root.attributes).toMatchObject({ 'supplier.count': 2, 'supplier.queried': 2, 'supplier.succeeded': 1, 'supplier.failed': 1, 'supplier.offers': 1 })
+    expect(root.events.map((e: { name: string }) => e.name)).toEqual(['supplier_leg', 'supplier_leg'])
+    expect(legs).toHaveLength(2)
+    for (const leg of legs) expect(leg.parentSpanContext?.spanId ?? leg.parentSpanId).toBe(root.spanContext().spanId)
+    const failed = legs.find((s: { attributes: Record<string, unknown> }) => s.attributes['supplier.id'] === 'bedbank-a')
+    expect(failed.attributes['error.code']).toBe('transport')
+    expect(JSON.stringify(spans.map((s: { attributes: unknown; events: unknown }) => [s.attributes, s.events]))).not.toContain('Dubai')
+  })
+
+  it('marks the fan-out span as failed when every supplier fails', async () => {
+    const aggregate = new AggregatingSupplierAdapter([member(adapter('bedbank-a', async () => { throw new SupplierProviderError('transport') }), 'ba')], silent)
+    await expect(aggregate.search(criteria, searchContext)).rejects.toBeInstanceOf(SupplierProviderError)
+    const root = exporter.getFinishedSpans().find((s: { name: string }) => s.name === 'supplier.fanout.search')
+    expect(root.attributes['error.code']).toBe('transport')
+  })
+})
