@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
+import { randomBytes } from 'crypto'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
 import { PrismaClient } from '@prisma/client'
@@ -619,12 +620,14 @@ describe('Hotel deals and promotions (ADR 0089)', () => {
     it('forced row-level security hides another tenant\'s deals from a restricted role even without an application filter', async () => {
       const deal = await create()
       const role = `deal_probe_${Date.now().toString(36)}`
-      await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB`)
+      // A password is required: the CI database service authenticates TCP logins (a passwordless role is rejected with P1000).
+      const password = randomBytes(24).toString('hex')
+      await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB`)
       await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${role}"`)
       await prisma.$executeRawUnsafe(`GRANT SELECT ON "HotelDeal", "HotelDealRatePlan" TO "${role}"`)
       await prisma.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION "fbeds_current_tenant_id"() TO "${role}"`)
       const url = new URL(process.env.DATABASE_URL!)
-      url.username = role; url.password = ''
+      url.username = role; url.password = password
       const probe = new PrismaClient({ datasourceUrl: url.toString() })
       try {
         const visibleTo = async (tenant: string | null) => probe.$transaction(async (tx) => {

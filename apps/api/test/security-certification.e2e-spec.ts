@@ -62,7 +62,9 @@ const GUARD_FOR_KEY: Record<string, string> = {
   'fbeds:booking-action-permissions': 'BookingAccessGuard',
   platform_permission: 'PlatformRbacGuard',
 }
-const PUBLIC_ROUTES = new Set(['GET /health', 'GET /health/ready', 'POST /auth/login', 'POST /auth/logout'])
+// ADR 0091: sign-in capability flags and the password-reset pair run before a session exists. The request route always answers the same way and is throttled
+// by email and address; the confirm route needs a valid single-use token. Neither reads or writes tenant data.
+const PUBLIC_ROUTES = new Set(['GET /health', 'GET /health/ready', 'POST /auth/login', 'POST /auth/logout', 'GET /auth/capabilities', 'POST /auth/password-reset/request', 'POST /auth/password-reset/confirm'])
 /** The OAuth token endpoint authenticates the partner client itself (client secret), so it carries no guard; nothing else may. */
 const PARTNER_TOKEN_ROUTES = new Set(['POST /distribution/v1/oauth/token'])
 const PARTNER_SCOPE_KEY = 'fbeds:distribution-scope'
