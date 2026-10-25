@@ -42,6 +42,23 @@ describe('opaque session lifecycle', () => {
     expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 60000);
     expect(result.identity.user).not.toHaveProperty('passwordHash');
   });
+  it('keeps the standard lifetime unless the caller opts in, and gives an opted-in session the remember window', async () => {
+    const standard = await service.login(user.email, 'correct-password');
+    expect(standard.ttlSeconds).toBe(60);
+    const remembered = new AuthService(db as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60, rememberSessionTtlSeconds: 1296000 } }));
+    const result = await remembered.login(user.email, 'correct-password', true);
+    expect(result.ttlSeconds).toBe(1296000);
+    const data = db.session.create.mock.calls.at(-1)[0].data;
+    expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 1295000 * 1000);
+  });
+  it.each([[10, 60], [99999999, 2592000]])('clamps a misconfigured remember window of %i s to %i s', async (configured, expected) => {
+    const clamped = new AuthService(db as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60, rememberSessionTtlSeconds: configured } }));
+    expect((await clamped.login(user.email, 'correct-password', true)).ttlSeconds).toBe(expected);
+  });
+  it('does not honour rememberMe for a rejected login', async () => {
+    await expect(service.login(user.email, 'wrong', true)).rejects.toThrow('Invalid email or password');
+    expect(db.session.create).not.toHaveBeenCalled();
+  });
   it.each(['missing', 'passwordless', 'wrong', 'suspended'])('rejects %s login generically', async (kind) => {
     db.user.findUnique.mockResolvedValue(kind === 'missing' ? null : { ...user, passwordHash: kind === 'passwordless' ? null : user.passwordHash, status: kind === 'suspended' ? 'SUSPENDED' : 'ACTIVE' });
     await expect(service.login(user.email, kind === 'wrong' ? 'wrong' : 'correct-password')).rejects.toThrow('Invalid email or password');

@@ -1,8 +1,10 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { ShieldCheck } from 'lucide-react'
 import { BrandLogo } from '../../components/brand/BrandLogo'
 import { LoginForm } from '../../components/auth/LoginForm'
-import { loadIdentity, SupplierApiError } from '../../lib/supplier-api'
+import { homeUrl } from '../../lib/server-env'
+import { loadAuthCapabilities, loadIdentity, SupplierApiError } from '../../lib/supplier-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +15,9 @@ export default async function LoginPage() {
   } catch (error) {
     if (!(error instanceof SupplierApiError)) throw error
   }
+
+  const home = homeUrl()
+  const { passwordReset } = await loadAuthCapabilities()
 
   return (
     <main className="supplier-login">
@@ -27,6 +32,12 @@ export default async function LoginPage() {
           <h1 id="login-title">Sign in</h1>
           <p className="login-lede">Use your fabBeds account to manage your hotels, contracts and bookings.</p>
           <LoginForm />
+          {(home || passwordReset) && (
+            <p className="login-links">
+              {home ? <a href={home}>Home</a> : <span />}
+              {passwordReset && <Link href="/forgot-password">Forgot your password?</Link>}
+            </p>
+          )}
           <p className="login-foot"><ShieldCheck size={16} aria-hidden="true" /><span>Access is checked against your supplier-organization membership after sign-in. Need access? Ask your fabBeds account manager.</span></p>
         </div>
       </section>

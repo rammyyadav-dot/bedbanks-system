@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import { PageHeader } from '../../components/ui/PageHeader'
 
 export default function PortalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
@@ -12,10 +13,12 @@ export default function PortalError({ error, reset }: { error: Error & { digest?
   return (
     <div className="supplier-page" role="alert">
       <PageHeader eyebrow="Error" title="This page could not be loaded" description="Something went wrong while loading this page. No substitute data is shown and nothing was changed." />
-      <section className="panel">
-        <div style={{ display: 'grid', gap: 12, padding: 24, maxWidth: 720 }}>
-          {error.digest && <p style={{ margin: 0, color: '#4b5563' }}>Reference for support: <code>{error.digest}</code></p>}
-          <div><button className="btn btn-primary" type="button" onClick={reset}>Try again</button></div>
+      <section className="panel unavailable-panel">
+        <span className="capability-icon is-danger"><TriangleAlert size={26} aria-hidden="true" /></span>
+        <div>
+          <h2>Something went wrong</h2>
+          {error.digest && <p>Reference for support: <code>{error.digest}</code></p>}
+          <div className="unavailable-actions"><button className="btn btn-primary" type="button" onClick={reset}>Try again</button></div>
         </div>
       </section>
     </div>

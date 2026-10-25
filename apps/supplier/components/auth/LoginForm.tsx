@@ -18,10 +18,14 @@ export function LoginForm() {
       <div className="float-field">
         <input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder=" " required minLength={8} disabled={pending} />
         <label htmlFor="password">Password</label>
-        <button className="field-toggle" type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}>
+        <button className="field-toggle" type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Hide characters' : 'Show characters'} aria-pressed={showPassword}>
           {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
         </button>
       </div>
+      <label className="remember-row" htmlFor="rememberMe">
+        <input id="rememberMe" name="rememberMe" type="checkbox" disabled={pending} />
+        <span><strong>Remember me for 15 days</strong><small>Only select on your trusted personal device</small></span>
+      </label>
       <button className="btn btn-primary login-submit" type="submit" disabled={pending}>{pending ? 'Signing in…' : 'Sign in'}</button>
     </form>
   )

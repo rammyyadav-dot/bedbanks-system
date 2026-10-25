@@ -5,7 +5,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { EXTRANET_BOOKING_ANSWERS, type ExtranetBookingAnswer, type ExtranetBookingStatus } from '@bedbanks/contracts'
-import { SupplierApiError, answerBooking, loadContext, loginRequest, logoutRequest, saveRoomDraft } from './supplier-api'
+import { SupplierApiError, answerBooking, confirmPasswordReset, loadContext, loginRequest, logoutRequest, requestPasswordReset, saveRoomDraft } from './supplier-api'
 import { parseSessionCookie } from './session-cookie'
 import { SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE } from './server-env'
 
@@ -23,7 +23,7 @@ export async function loginAction(_previous: ActionState, formData: FormData): P
   const password = String(formData.get('password') ?? '')
   if (!email || !password) return { error: 'Email and password are required.' }
   try {
-    const headers = await loginRequest(email, password)
+    const headers = await loginRequest(email, password, formData.get('rememberMe') === 'on')
     const cookie = parseSessionCookie(headers, SESSION_COOKIE_NAME)
     const cookieStore = await cookies()
     cookieStore.set(SESSION_COOKIE_NAME, cookie.value, cookie.options)
@@ -121,4 +121,36 @@ export async function answerBookingAction(_previous: AnswerState, formData: Form
     if (error instanceof SupplierApiError && (error.status === 400 || error.status === 422)) return { error: 'That answer is not available for this booking, or a required field is missing. Nothing was sent.' }
     return { error: 'The answer could not be confirmed. Reload the booking to see whether it was recorded before trying again.' }
   }
+}
+
+export interface ResetState extends ActionState {
+  /** Set after the request was accepted: the page then shows the same confirmation for every address. */
+  requested?: boolean
+  done?: boolean
+}
+
+export async function requestPasswordResetAction(_previous: ResetState, formData: FormData): Promise<ResetState> {
+  const email = String(formData.get('email') ?? '').trim()
+  if (!email || email.length > 254 || !email.includes('@')) return { error: 'Enter the email address of your account.' }
+  try {
+    await requestPasswordReset(email)
+  } catch {
+    return { error: 'Password reset is unavailable right now. Try again later.' }
+  }
+  return { error: null, requested: true }
+}
+
+export async function confirmPasswordResetAction(_previous: ResetState, formData: FormData): Promise<ResetState> {
+  const token = String(formData.get('token') ?? '')
+  const password = String(formData.get('password') ?? '')
+  const confirm = String(formData.get('confirm') ?? '')
+  if (!/^[a-f0-9]{64}$/.test(token)) return { error: 'This reset link is invalid or has expired. Request a new one.' }
+  if (password !== confirm) return { error: 'The two passwords do not match.' }
+  try {
+    const result = await confirmPasswordReset(token, password)
+    if (!result.ok) return { error: result.message }
+  } catch {
+    return { error: 'Password reset is unavailable right now. Try again later.' }
+  }
+  return { error: null, done: true }
 }

@@ -43,7 +43,7 @@ describe('API runtime role contract (the single definition)', () => {
 
   it('every writable tenant table has forced row-level security declared (a privilege never replaces RLS)', () => {
     for (const grant of RUNTIME_ROLE_GRANTS.filter((g) => g.writes.length)) {
-      if (grant.rls === 'none') expect(['users', 'sessions']).toContain(grant.table)
+      if (grant.rls === 'none') expect(['users', 'sessions', 'password_reset_tokens']).toContain(grant.table)
     }
   })
 

@@ -278,13 +278,13 @@ export async function answerBooking(bookingId: string, body: ExtranetBookingAnsw
   return { bookingId: data.bookingId, reference: data.reference, status: data.status as ExtranetBookingAnswerResult['status'], replayed: data.replayed }
 }
 
-export async function loginRequest(email: string, password: string): Promise<string[]> {
+export async function loginRequest(email: string, password: string, rememberMe = false): Promise<string[]> {
   let response: Response
   try {
     response = await fetch(`${apiInternalUrl()}${routes.auth.login}`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json', Origin: supplierOrigin() },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(rememberMe ? { rememberMe: true } : {}) }),
       cache: 'no-store',
       signal: AbortSignal.timeout(10000),
     })
@@ -305,4 +305,48 @@ export async function logoutRequest(cookieHeader: string): Promise<void> {
     signal: AbortSignal.timeout(10000),
   })
   if (!response.ok) throw new SupplierApiError(response.status)
+}
+
+/** Public. A deployment that cannot really send email reports false, and the sign-in page then shows no reset link. Any failure also reads as false. */
+export const loadAuthCapabilities = cache(async (): Promise<{ passwordReset: boolean }> => {
+  try {
+    const response = await fetch(`${apiInternalUrl()}${routes.auth.capabilities}`, { headers: { Accept: 'application/json', Origin: supplierOrigin() }, cache: 'no-store', signal: AbortSignal.timeout(5000) })
+    const payload = await readJson(response)
+    const data = isRecord(payload) && payload.success === true && isRecord(payload.data) ? payload.data : null
+    return { passwordReset: response.ok && data?.passwordReset === true }
+  } catch {
+    return { passwordReset: false }
+  }
+})
+
+async function publicPost(path: string, body: unknown): Promise<{ status: number; code: string | null; message: string | null }> {
+  let response: Response
+  try {
+    response = await fetch(`${apiInternalUrl()}${path}`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Origin: supplierOrigin() },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
+    })
+  } catch {
+    throw new SupplierApiError(503)
+  }
+  const payload = await readJson(response).catch(() => null)
+  const error = isRecord(payload) && isRecord(payload.error) ? payload.error : isRecord(payload) ? payload : {}
+  return { status: response.status, code: typeof error.code === 'string' ? error.code : null, message: typeof error.message === 'string' ? error.message : null }
+}
+
+/** Always resolves the same way for a well-formed request; the API does not say whether the account exists. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const result = await publicPost(routes.auth.passwordResetRequest, { email })
+  if (result.status !== 202 && result.status !== 429) throw new SupplierApiError(result.status)
+}
+
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<{ ok: true } | { ok: false; code: 'RESET_TOKEN_INVALID' | 'WEAK_PASSWORD'; message: string }> {
+  const result = await publicPost(routes.auth.passwordResetConfirm, { token, newPassword })
+  if (result.status === 200) return { ok: true }
+  if (result.status === 422 && result.code === 'WEAK_PASSWORD') return { ok: false, code: 'WEAK_PASSWORD', message: result.message ?? 'Choose a stronger password.' }
+  if (result.status === 400) return { ok: false, code: 'RESET_TOKEN_INVALID', message: 'This reset link is invalid or has expired.' }
+  throw new SupplierApiError(result.status)
 }

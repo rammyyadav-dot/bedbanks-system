@@ -1,10 +1,15 @@
 import Link from 'next/link'
+import { BellRing, Boxes, ChevronRight, CircleCheck, Search } from 'lucide-react'
+import { EmptyState } from '../../../components/ui/EmptyState'
+import { Pager } from '../../../components/ui/Pager'
+import { SummaryStrip } from '../../../components/ui/SummaryStrip'
+import { needsSupplierAnswer, statusLabel } from '../../../lib/status'
 import { PageHeader } from '../../../components/ui/PageHeader'
 import { StatusBadge } from '../../../components/ui/StatusBadge'
 import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 import { listBookings } from '../../../lib/supplier-api'
 import { loadPortal } from '../../../lib/portal'
-import { formatNetMinor, NET_STATUS_LABEL } from '../../../lib/format'
+import { formatNetMinor, NET_STATUS_LABEL, NOT_RECORDED } from '../../../lib/format'
 import { bookingFilters, BOOKING_STATUS_OPTIONS, filtersToQuery } from '../../../lib/booking-filters'
 
 export default async function BookingsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -20,45 +25,60 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
   try {
     const result = await listBookings({ ...filters.values, limit: 25 })
     const nextHref = result.nextCursor ? `/bookings?${filtersToQuery({ ...filters.values, cursor: result.nextCursor })}` : null
+    const awaiting = result.bookings.filter((booking) => needsSupplierAnswer(booking.status)).length
+    const confirmed = result.bookings.filter((booking) => booking.status === 'CONFIRMED').length
+    const filtered = Boolean(filters.values.reference || filters.values.status || filters.values.checkInFrom || filters.values.checkInTo)
     return (
       <div className="supplier-page">
         <PageHeader eyebrow="Operations" title="Bookings" description="Bookings placed on your organization's contracted inventory. Open a booking to answer it when it awaits your answer. Amounts are your net per room; a missing figure is shown as Not recorded." />
+        <SummaryStrip items={[
+          { label: 'Bookings on this page', value: String(result.bookings.length), hint: nextHref ? 'More on the next page' : 'End of list', icon: Boxes, tone: 'blue' },
+          { label: 'Need your answer', value: String(awaiting), hint: 'On this page', icon: BellRing, tone: 'red' },
+          { label: 'Confirmed', value: String(confirmed), hint: 'On this page', icon: CircleCheck, tone: 'green' },
+        ]} />
         <section className="panel">
-          <form method="get" action="/bookings" className="form-grid" style={{ padding: 16 }}>
-            <label>Reference starts with<input name="reference" defaultValue={filters.values.reference ?? ''} maxLength={40} /></label>
-            <label>Status
+          <form method="get" action="/bookings" className="filter-form">
+            <label className="filter-field"><span>Reference starts with</span><input name="reference" defaultValue={filters.values.reference ?? ''} maxLength={40} placeholder="e.g. FB-2026" /></label>
+            <label className="filter-field"><span>Status</span>
               <select name="status" defaultValue={filters.values.status ?? ''}>
-                <option value="">All</option>
-                {BOOKING_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status.replace(/_/g, ' ').toLowerCase()}</option>)}
+                <option value="">All statuses</option>
+                {BOOKING_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
               </select>
             </label>
-            <label>Arrival from<input type="date" name="checkInFrom" defaultValue={filters.values.checkInFrom ?? ''} /></label>
-            <label>Arrival to<input type="date" name="checkInTo" defaultValue={filters.values.checkInTo ?? ''} /></label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
-              <button className="btn btn-primary" type="submit">Filter</button>
-              <Link className="btn" href="/bookings">Clear</Link>
+            <label className="filter-field"><span>Arrival from</span><input type="date" name="checkInFrom" defaultValue={filters.values.checkInFrom ?? ''} /></label>
+            <label className="filter-field"><span>Arrival to</span><input type="date" name="checkInTo" defaultValue={filters.values.checkInTo ?? ''} /></label>
+            <div className="filter-actions">
+              <button className="btn btn-primary" type="submit"><Search size={15} aria-hidden="true" />Filter</button>
+              {filtered && <Link className="btn" href="/bookings">Clear</Link>}
             </div>
           </form>
-          {filters.ignored.length > 0 && <p role="status" style={{ padding: '0 16px' }}>Ignored invalid filter: {filters.ignored.join(', ')}.</p>}
-          <div className="table-wrap">
-            <table className="data-table"><caption className="sr-only">Bookings</caption>
-              <thead><tr><th>Reference</th><th>Hotel</th><th>Stay</th><th>Lead guest</th><th>Status</th><th>Net</th></tr></thead>
-              <tbody>
-                {result.bookings.length === 0 && <tr><td colSpan={6}>No bookings match.</td></tr>}
-                {result.bookings.map((booking) => (
-                  <tr key={booking.id}>
-                    <td><Link href={`/bookings/${booking.id}`}>{booking.reference}</Link>{booking.supplierRef && <small>Your ref {booking.supplierRef}</small>}</td>
-                    <td>{booking.hotelName ?? 'Not recorded'}</td>
-                    <td>{booking.checkIn ?? 'Not recorded'} to {booking.checkOut ?? 'Not recorded'}{booking.nights !== null && <small>{booking.nights} nights</small>}</td>
-                    <td>{booking.leadGuestName ?? 'Not recorded'}</td>
-                    <td><StatusBadge>{booking.status.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}</StatusBadge></td>
-                    <td>{booking.netStatus === 'RECORDED' ? formatNetMinor(booking.netMinor, booking.currency) : NET_STATUS_LABEL[booking.netStatus]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {nextHref && <p style={{ padding: 16 }}><Link className="btn" href={nextHref}>Next page</Link></p>}
+          {filters.ignored.length > 0 && <p className="inline-notice" role="status">Ignored invalid filter: {filters.ignored.join(', ')}.</p>}
+          {result.bookings.length === 0 ? (
+            <EmptyState icon={Boxes} title="No bookings match">{filtered ? 'Try widening the dates or clearing the filters.' : 'Bookings appear here when they are placed on your inventory.'}</EmptyState>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table"><caption className="sr-only">Bookings</caption>
+                <thead><tr><th>Reference</th><th>Hotel</th><th>Stay</th><th>Lead guest</th><th>Status</th><th className="num">Net</th><th><span className="sr-only">Action</span></th></tr></thead>
+                <tbody>
+                  {result.bookings.map((booking) => {
+                    const waiting = needsSupplierAnswer(booking.status)
+                    return (
+                      <tr key={booking.id} className={waiting ? 'row-attention' : undefined}>
+                        <td><Link href={`/bookings/${booking.id}`}>{booking.reference}</Link>{booking.supplierRef && <small>Your ref {booking.supplierRef}</small>}</td>
+                        <td>{booking.hotelName ?? NOT_RECORDED}</td>
+                        <td className="nowrap">{booking.checkIn ?? NOT_RECORDED} <span className="muted">to</span> {booking.checkOut ?? NOT_RECORDED}{booking.nights !== null && <small>{booking.nights} {booking.nights === 1 ? 'night' : 'nights'}</small>}</td>
+                        <td>{booking.leadGuestName ?? NOT_RECORDED}</td>
+                        <td><StatusBadge raw={booking.status}>{booking.status}</StatusBadge></td>
+                        <td className="num">{booking.netStatus === 'RECORDED' ? formatNetMinor(booking.netMinor, booking.currency) : NET_STATUS_LABEL[booking.netStatus]}</td>
+                        <td className="row-end"><Link className={waiting ? 'btn btn-primary btn-sm' : 'row-link'} href={`/bookings/${booking.id}`} aria-label={`${waiting ? 'Answer' : 'Open'} booking ${booking.reference}`}>{waiting ? 'Answer' : <ChevronRight size={18} aria-hidden="true" />}</Link></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pager shown={result.bookings.length} noun="bookings" firstHref={filters.values.cursor ? `/bookings?${filtersToQuery({ ...filters.values, cursor: undefined })}` : null} nextHref={nextHref} />
         </section>
       </div>
     )

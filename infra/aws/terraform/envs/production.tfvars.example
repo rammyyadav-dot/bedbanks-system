@@ -21,3 +21,7 @@ create_portal_records = false
 # Archived objects cannot be deleted by anyone until their retention ends; the bucket outlives terraform destroy for that long.
 # compliance_export_enabled = true
 # compliance_retention_days = 2557
+
+# ADR 0091: password reset by email. Leave both empty to keep it OFF (no SES permission, no reset link on sign-in).
+# email_from       = "fabBeds <no-reply@your-verified-domain.example>"
+# ses_identity_arn = "arn:aws:ses:<region>:<account-id>:identity/your-verified-domain.example"
