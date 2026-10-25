@@ -46,13 +46,13 @@ Every portal that signs in through `/auth/login` can send `rememberMe`. Only the
 
 ### Data and privileges
 
-`password_reset_tokens(id, token_hash UNIQUE, expires_at, used_at, created_at, user_id → users ON DELETE CASCADE)`, indexed on `user_id` and `expires_at`. User-scoped like `sessions`, so no tenant column and no RLS policy (listed in `RLS_EXEMPT_TABLES`). Migrations `202612070001_password_reset_tokens` (table) and `202612070002_strict_runtime_role_password_reset` (grants). Rollback: `DROP TABLE "password_reset_tokens"`; `REVOKE UPDATE ("password_hash") ON "users" FROM fbeds_api`.
+`password_reset_tokens(id, token_hash UNIQUE, expires_at, used_at, created_at, user_id → users ON DELETE CASCADE)`, indexed on `user_id` and `expires_at`. User-scoped like `sessions`, so no tenant column and no RLS policy (listed in `RLS_EXEMPT_TABLES`). Migration `202612070001_password_reset_tokens` creates the table. It grants nothing: since `202610270001` runtime grants come only from provisioning (`runtime-role-contract.ts`, enforced by strict-runtime-role-replay SR-07). Rollback: `DROP TABLE "password_reset_tokens"`; `REVOKE UPDATE ("password_hash") ON "users" FROM fbeds_api`.
 
 The strict runtime contract grants `fbeds_api` exactly: `SELECT, INSERT` and `UPDATE ("used_at")` on `password_reset_tokens` (no DELETE), and `password_hash` added to the existing `UPDATE` column list on `users`. `docs/strict-runtime-db-role.md` is regenerated from the contract.
 
 ### Infrastructure
 
-Terraform variables `email_from` and `ses_identity_arn` (both empty by default, which keeps reset off). When set, the API gets `EMAIL_FROM`, `EMAIL_SES_REGION` and `PASSWORD_RESET_ORIGINS` (the supplier host), and its task role gets one statement: `ses:SendEmail` on that identity. Operator steps: verify the SES identity, request SES production access (a sandbox account can only email verified addresses), then set the two variables and apply.
+Terraform variables `email_from` and `ses_identity_arn` (both empty by default, which keeps reset off). When set, the API gets `EMAIL_FROM`, `EMAIL_SES_REGION` and `PASSWORD_RESET_ORIGINS` (the supplier host), and its task role gets one statement: `ses:SendEmail` on that identity. Operator steps: verify the SES identity, request SES production access (a sandbox account can only email verified addresses), then set the two variables and apply, run migration `202612070001`, and re-provision the runtime role (`ops:strict-role-rollout`, see `docs/runbooks/strict-role-rollout.md`) so `fbeds_api` receives the new grants.
 
 ### Not covered
 

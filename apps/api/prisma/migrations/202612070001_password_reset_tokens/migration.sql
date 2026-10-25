@@ -7,7 +7,7 @@
 -- runs before sign-in). It therefore has no tenant_id and no RLS policy. Lookups are by the unique token_hash; user_id and expires_at
 -- are indexed for supersede-on-request and for expiry clean-up. Only SHA-256(token) is stored.
 --
--- Rollback: DROP TABLE "password_reset_tokens"; (nothing else references it and no existing table changes).
+-- Rollback: DROP TABLE "password_reset_tokens"; REVOKE UPDATE ("password_hash") ON "users" FROM fbeds_api; (nothing else references it and no existing table changes).
 
 CREATE TABLE "password_reset_tokens" (
     "id" TEXT NOT NULL,
@@ -26,4 +26,5 @@ CREATE INDEX "password_reset_tokens_expires_at_idx" ON "password_reset_tokens"("
 
 ALTER TABLE "password_reset_tokens" ADD CONSTRAINT "password_reset_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Runtime privileges are granted by 202612070002_strict_runtime_role_password_reset, which mirrors runtime-role-contract.ts.
+-- Runtime privileges are NOT granted here: after 202610270001 the only source of runtime grants is provisioning from runtime-role-contract.ts
+-- (strict-runtime-role-replay SR-07). Run the strict-role provisioning step after this migration, before enabling password reset.

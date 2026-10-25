@@ -25,7 +25,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
       <div className="float-field">
         <input id="password" name="password" type={show ? 'text' : 'password'} autoComplete="new-password" placeholder=" " required minLength={12} maxLength={128} disabled={pending} aria-describedby="password-help" />
         <label htmlFor="password">New password</label>
-        <button className="field-toggle" type="button" onClick={() => setShow((value) => !value)} aria-label={show ? 'Hide password' : 'Show password'} aria-pressed={show}>
+        <button className="field-toggle" type="button" onClick={() => setShow((value) => !value)} aria-label={show ? 'Hide characters' : 'Show characters'} aria-pressed={show}>
           {show ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
         </button>
       </div>
