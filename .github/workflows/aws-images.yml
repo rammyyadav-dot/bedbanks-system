@@ -93,7 +93,10 @@ jobs:
           REGION: ${{ vars.AWS_REGION }}
           ROLE: ${{ vars.AWS_BUILD_ROLE_ARN }}
         run: |
-          [ -n "$REGION" ] && [ -n "$ROLE" ] || { echo "AWS_REGION and AWS_BUILD_ROLE_ARN must be set on the ${{ inputs.environment }} environment" >&2; exit 1; }
+          if [ -z "$REGION" ] || [ -z "$ROLE" ]; then
+            echo "AWS_REGION and AWS_BUILD_ROLE_ARN must be set on the ${{ inputs.environment }} environment" >&2
+            exit 1
+          fi
 
   build:
     needs: [plan, config]
