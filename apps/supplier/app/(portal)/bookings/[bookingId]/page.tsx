@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { BookingAnswerForm } from '../../../../components/bookings/BookingAnswerForm'
 import { PageHeader } from '../../../../components/ui/PageHeader'
@@ -22,32 +23,32 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
     const canAnswer = portal.permissions.includes('supplier.extranet.bookings.answer') && answers.length > 0
     return (
       <div className="supplier-page">
-        <Link className="back-link" href="/bookings">Back to bookings</Link>
+        <Link className="back-link" href="/bookings"><ArrowLeft size={15} aria-hidden="true" />Back to bookings</Link>
         <PageHeader eyebrow={canAnswer ? 'Awaiting your answer' : 'Booking'} title={booking.reference} description={canAnswer ? 'Review the booking, then confirm it, put it on request or reject it. No other change can be made here.' : 'This page shows the booking as recorded. It cannot be changed from here.'} />
-        <section className="panel">
-          <div className="form-section">
-            <div className="form-grid">
-              <label>Status<span><StatusBadge>{booking.status.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}</StatusBadge></span></label>
-              <label>Hotel<input value={booking.hotelName ?? NOT_RECORDED} readOnly /></label>
-              <label>Arrival<input value={booking.checkIn ?? NOT_RECORDED} readOnly /></label>
-              <label>Departure<input value={booking.checkOut ?? NOT_RECORDED} readOnly /></label>
-              <label>Nights<input value={booking.nights === null ? NOT_RECORDED : String(booking.nights)} readOnly /></label>
-              <label>Lead guest<input value={booking.leadGuestName ?? NOT_RECORDED} readOnly /></label>
-              <label>Your reference<input value={booking.supplierRef ?? NOT_RECORDED} readOnly /></label>
-              <label>Hotel confirmation number<input value={booking.hotelConfirmationNo ?? NOT_RECORDED} readOnly /></label>
-            </div>
+        <section className="panel booking-summary">
+          <div className="booking-summary-head">
+            <div><small>Status</small></div>
+            <StatusBadge raw={booking.status}>{booking.status}</StatusBadge>
+          </div>
+          <div className="booking-facts">
+            <div><small>Hotel</small><strong>{booking.hotelName ?? NOT_RECORDED}</strong></div>
+            <div><small>Stay</small><strong>{booking.checkIn ?? NOT_RECORDED} to {booking.checkOut ?? NOT_RECORDED}</strong><span>{booking.nights === null ? NOT_RECORDED : `${booking.nights} ${booking.nights === 1 ? 'night' : 'nights'}`}</span></div>
+            <div><small>Lead guest</small><strong>{booking.leadGuestName ?? NOT_RECORDED}</strong></div>
+            <div><small>Booking net</small><strong>{booking.netStatus === 'RECORDED' ? formatNetMinor(booking.netMinor, booking.currency) : NET_STATUS_LABEL[booking.netStatus]}</strong></div>
+            <div><small>Your reference</small><strong>{booking.supplierRef ?? NOT_RECORDED}</strong></div>
+            <div><small>Hotel confirmation no.</small><strong>{booking.hotelConfirmationNo ?? NOT_RECORDED}</strong></div>
           </div>
         </section>
         {canAnswer && (
-          <section className="panel">
+          <section className="panel answer-panel">
             <BookingAnswerForm bookingId={booking.id} expectedStatus={booking.status} idempotencyKey={randomUUID()} answers={[...answers]} />
           </section>
         )}
         <section className="panel">
           <div className="table-wrap">
             <table className="data-table">
-              <caption style={{ textAlign: 'left', padding: 16 }}>Rooms and your net amount per room</caption>
-              <thead><tr><th>#</th><th>Room</th><th>Board</th><th>Rooms</th><th>Guests</th><th>Net</th></tr></thead>
+              <caption className="table-caption">Rooms and your net amount per room</caption>
+              <thead><tr><th>#</th><th>Room</th><th>Board</th><th>Rooms</th><th>Guests</th><th className="num">Net</th></tr></thead>
               <tbody>
                 {booking.rooms.length === 0 && <tr><td colSpan={6}>No room lines are recorded.</td></tr>}
                 {booking.rooms.map((room) => (
@@ -57,19 +58,19 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
                     <td>{room.boardCode ?? NOT_RECORDED}</td>
                     <td>{room.quantity}</td>
                     <td>{room.adults} adults{room.children > 0 ? `, ${room.children} children` : ''}</td>
-                    <td>{formatNetMinor(room.netMinor, booking.currency)}</td>
+                    <td className="num">{formatNetMinor(room.netMinor, booking.currency)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
                   <th colSpan={5} scope="row">Booking net ({NET_STATUS_LABEL[booking.netStatus]})</th>
-                  <td>{booking.netStatus === 'RECORDED' ? formatNetMinor(booking.netMinor, booking.currency) : NOT_RECORDED}</td>
+                  <td className="num"><strong>{booking.netStatus === 'RECORDED' ? formatNetMinor(booking.netMinor, booking.currency) : NOT_RECORDED}</strong></td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          {booking.netStatus === 'MISMATCH' && <p role="status" style={{ padding: 16 }}>The room amounts do not match the stored booking total, so no total is shown. Contact support quoting {booking.reference}.</p>}
+          {booking.netStatus === 'MISMATCH' && <p className="inline-notice warning" role="status">The room amounts do not match the stored booking total, so no total is shown. Contact support quoting {booking.reference}.</p>}
         </section>
       </div>
     )

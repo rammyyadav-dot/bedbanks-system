@@ -10,13 +10,13 @@ export function BookingAnswerForm({ bookingId, expectedStatus, idempotencyKey, a
   const label = { CONFIRMED: 'Confirm the booking', ON_REQUEST: 'Put on request', REJECTED: 'Reject the booking' } as const
 
   if (state.saved) {
-    return <p role="status" style={{ padding: 16 }}>Answer recorded. The booking is now {state.answered?.replace(/_/g, ' ').toLowerCase()}.</p>
+    return <p className="inline-notice success" role="status">Answer recorded. The booking is now {state.answered?.replace(/_/g, ' ').toLowerCase()}.</p>
   }
 
   return (
     <form action={dispatch} className="form-section" aria-labelledby="answer-heading">
-      <h2 id="answer-heading" style={{ margin: 0 }}>Answer this booking</h2>
-      <p style={{ color: '#4b5563' }}>Your answer is recorded against this booking and cannot be undone from this page.</p>
+      <h2 id="answer-heading" className="form-title">Answer this booking</h2>
+      <p className="form-lede">Your answer is recorded against this booking and cannot be undone from this page.</p>
       <input type="hidden" name="bookingId" value={bookingId} />
       <input type="hidden" name="expectedStatus" value={expectedStatus} />
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
@@ -31,8 +31,8 @@ export function BookingAnswerForm({ bookingId, expectedStatus, idempotencyKey, a
         <label>Hotel confirmation number (optional)<input name="hotelConfirmationNo" maxLength={120} disabled={pending} /></label>
         <label>Reason (required to reject, at least 10 characters)<textarea name="reason" maxLength={500} disabled={pending} /></label>
       </div>
-      <div style={{ marginTop: 12 }}><button className="btn btn-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send answer'}</button></div>
-      {state.error && <p role="alert">{state.error}</p>}
+      <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send answer'}</button></div>
+      {state.error && <p className="inline-notice danger" role="alert">{state.error}</p>}
     </form>
   )
 }

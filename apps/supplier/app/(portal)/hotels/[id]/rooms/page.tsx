@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { ArrowLeft, BedDouble } from 'lucide-react'
+import { EmptyState } from '../../../../../components/ui/EmptyState'
 import { notFound } from 'next/navigation'
 import { PageHeader } from '../../../../../components/ui/PageHeader'
 import { SupplyWorkflowUnavailable } from '../../../../../components/supply/SupplyWorkflowUnavailable'
@@ -18,20 +20,21 @@ export default async function HotelRoomsPage({ params }: { params: Promise<{ id:
     const result = await listRooms(id)
     return (
       <div className="supplier-page">
-        <Link className="back-link" href={`/hotels/${result.hotelId}`}>Back to hotel</Link>
+        <Link className="back-link" href={`/hotels/${result.hotelId}`}><ArrowLeft size={15} aria-hidden="true" />Back to hotel</Link>
         <PageHeader eyebrow="Private draft" title={result.hotelName} description="A private note is stored for your organization only. It does not change the room, rates, availability, or publication." />
-        <section className="panel">
-          <div style={{ display: 'grid', gap: 18, padding: 18 }}>
-            {result.rooms.length === 0 && <p>No rooms are recorded for this hotel.</p>}
-            {result.rooms.map((room) => (
-              <article key={room.id}>
-                <h2 style={{ margin: 0 }}>{room.name}</h2>
-                <p style={{ margin: '6px 0 0', color: '#4b5563' }}>{room.code} · {room.maxAdults} adults · {room.maxOccupancy} occupancy</p>
-                <RoomDraftForm hotelId={result.hotelId} roomId={room.id} initialNotes={room.draft?.supplierNotes ?? ''} canEdit={canEdit} />
-              </article>
-            ))}
-          </div>
-        </section>
+        {result.rooms.length === 0 && <section className="panel"><EmptyState icon={BedDouble} title="No rooms recorded">No rooms are recorded for this hotel.</EmptyState></section>}
+        <div className="room-list">
+          {result.rooms.map((room) => (
+            <article key={room.id} className="panel room-card">
+              <header>
+                <span className="capability-icon"><BedDouble size={20} aria-hidden="true" /></span>
+                <div><h2>{room.name}</h2><p>{room.code}</p></div>
+                <ul className="plan-chips"><li><span>{room.maxAdults} {room.maxAdults === 1 ? 'adult' : 'adults'}</span><span>{room.maxChildren} {room.maxChildren === 1 ? 'child' : 'children'}</span><span>Max {room.maxOccupancy}</span></li></ul>
+              </header>
+              <RoomDraftForm hotelId={result.hotelId} roomId={room.id} initialNotes={room.draft?.supplierNotes ?? ''} canEdit={canEdit} />
+            </article>
+          ))}
+        </div>
       </div>
     )
   } catch (error) {

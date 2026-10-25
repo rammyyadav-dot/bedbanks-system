@@ -1,12 +1,23 @@
-import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import { databaseErrorCode } from '../database/db-errors';
 import type { AppConfig } from '../config/configuration';
 import { DUMMY_HASH, hashPassword, verifyPassword } from './utils/password';
+import { PasswordResetMailer } from './password-reset-email';
+import { passwordPolicyProblem } from './utils/password-policy';
 import { generateSessionToken, hashSessionToken, isSessionToken } from './utils/session-token';
 import type { AuthenticatedUser, MembershipSummary, SafeUser } from './interfaces/authenticated-user.interface';
+
+/** ADR 0091: a reset link works once and for this long. */
+export const PASSWORD_RESET_TTL_MINUTES = 30;
+
+export type PasswordResetResult = { ok: true } | { ok: false; code: 'RESET_TOKEN_INVALID' } | { ok: false; code: 'WEAK_PASSWORD'; message: string };
+
+/** 15 days by default, hard ceiling 30 days. */
+export const REMEMBER_DEFAULT_SECONDS = 15 * 24 * 3600;
+export const REMEMBER_MAX_SECONDS = 30 * 24 * 3600;
 
 interface UserRow {
   id: string;
@@ -24,12 +35,17 @@ function toSafeUser(user: UserRow): SafeUser {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly sessionTtlSeconds: number;
+  private readonly rememberTtlSeconds: number;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly configService: ConfigService<AppConfig>,
+    @Optional() @Inject(PasswordResetMailer) private readonly mailer?: PasswordResetMailer,
   ) {
     this.sessionTtlSeconds = this.configService.get('auth.sessionTtlSeconds', { infer: true }) ?? 28800;
+    // Business rule (ADR 0091): a remembered session is never shorter than the standard one and never longer than 30 days, whatever the environment says.
+    const configured = this.configService.get('auth.rememberSessionTtlSeconds', { infer: true }) ?? REMEMBER_DEFAULT_SECONDS;
+    this.rememberTtlSeconds = Math.min(Math.max(configured, this.sessionTtlSeconds), REMEMBER_MAX_SECONDS);
   }
 
   /**
@@ -99,7 +115,7 @@ export class AuthService {
    * email, wrong password, suspended user) — the caller can't tell
    * which one happened, which is the point (account enumeration).
    */
-  async login(rawEmail: string, password: string): Promise<{ rawToken: string; identity: AuthenticatedUser }> {
+  async login(rawEmail: string, password: string, rememberMe = false): Promise<{ rawToken: string; identity: AuthenticatedUser; ttlSeconds: number }> {
     const email = this.normalizeEmail(rawEmail);
     const user = await this.prisma.user.findUnique({ where: { email } });
 
@@ -117,7 +133,9 @@ export class AuthService {
 
     const rawToken = generateSessionToken();
     const tokenHash = hashSessionToken(rawToken);
-    const expiresAt = new Date(Date.now() + this.sessionTtlSeconds * 1000);
+    // Absolute expiry: validateSession never extends it, so a remembered session cannot outlive its window.
+    const ttlSeconds = rememberMe ? this.rememberTtlSeconds : this.sessionTtlSeconds;
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
     await this.prisma.$transaction([
       this.prisma.session.create({ data: { userId: user.id, tokenHash, expiresAt } }),
@@ -125,9 +143,9 @@ export class AuthService {
     ]);
 
     const memberships = await this.loadActiveMemberships(user.id);
-    await this.recordAudit('auth.login.success', { membershipCount: memberships.length }, user.id)
+    await this.recordAudit('auth.login.success', { membershipCount: memberships.length, remembered: rememberMe }, user.id)
 
-    return { rawToken, identity: { user: toSafeUser(user), memberships, servicingMemberships: await this.loadServicingMemberships(user.id) } };
+    return { rawToken, ttlSeconds, identity: { user: toSafeUser(user), memberships, servicingMemberships: await this.loadServicingMemberships(user.id) } };
   }
 
   /**
@@ -178,6 +196,69 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     await this.recordAudit('auth.logout', {}, session?.userId)
+  }
+
+  /** True when this deployment can really deliver a reset email and knows which portal hosts the reset page (ADR 0091). */
+  passwordResetAvailable(): boolean {
+    return Boolean(this.mailer?.enabled()) && this.resetOrigins().length > 0;
+  }
+
+  private resetOrigins(): string[] {
+    return this.configService.get('auth.passwordResetOrigins', { infer: true }) ?? [];
+  }
+
+  /**
+   * Issues a single-use reset token and emails the link. Returns nothing on purpose: the caller answers every request identically and
+   * does not wait for this, so neither the response body nor its timing reveals whether the account exists (ADR 0091).
+   * The link origin is checked against the configured allowlist, never taken on trust from the request.
+   */
+  async requestPasswordReset(rawEmail: string, origin: string | undefined): Promise<void> {
+    if (!this.passwordResetAvailable() || !origin || !this.resetOrigins().includes(origin)) return;
+    const email = this.normalizeEmail(rawEmail);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || !user.passwordHash || user.status !== 'ACTIVE') {
+      await this.recordAudit('auth.password_reset.requested', { outcome: 'ignored' }, user?.id);
+      return;
+    }
+    const rawToken = generateSessionToken();
+    const now = new Date();
+    await this.prisma.$transaction([
+      // Earlier unused links stop working: only the newest email is valid.
+      this.prisma.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } }),
+      this.prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: hashSessionToken(rawToken), expiresAt: new Date(now.getTime() + PASSWORD_RESET_TTL_MINUTES * 60_000) } }),
+    ]);
+    const sent = await this.mailer!.send(user.email, `${origin}/reset-password?token=${rawToken}`, PASSWORD_RESET_TTL_MINUTES);
+    await this.recordAudit('auth.password_reset.requested', { outcome: sent ? 'sent' : 'delivery_failed' }, user.id);
+  }
+
+  /**
+   * Sets a new password from a valid, unused, unexpired token, and ends every session of that user. The token is consumed in the same
+   * transaction as the password change, so a replay or a race can succeed at most once. A weak password is refused without consuming the token.
+   */
+  async confirmPasswordReset(rawToken: string, newPassword: string): Promise<PasswordResetResult> {
+    if (!isSessionToken(rawToken)) return { ok: false, code: 'RESET_TOKEN_INVALID' };
+    const record = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash: hashSessionToken(rawToken) }, include: { user: true } });
+    if (!record || record.usedAt || record.expiresAt <= new Date() || record.user.status !== 'ACTIVE') {
+      await this.recordAudit('auth.password_reset.failed', { reason: !record ? 'unknown' : record.usedAt ? 'used' : record.expiresAt <= new Date() ? 'expired' : 'inactive' }, record?.userId);
+      return { ok: false, code: 'RESET_TOKEN_INVALID' };
+    }
+    const problem = passwordPolicyProblem(newPassword, record.user.email);
+    if (problem) return { ok: false, code: 'WEAK_PASSWORD', message: problem };
+    const passwordHash = await hashPassword(newPassword);
+    const consumed = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const claim = await tx.passwordResetToken.updateMany({ where: { id: record.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+      if (claim.count !== 1) return false;
+      await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
+      await tx.session.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: now } });
+      return true;
+    });
+    if (!consumed) {
+      await this.recordAudit('auth.password_reset.failed', { reason: 'raced' }, record.userId);
+      return { ok: false, code: 'RESET_TOKEN_INVALID' };
+    }
+    await this.recordAudit('auth.password_reset.completed', {}, record.userId);
+    return { ok: true };
   }
 
   async register(email: string, password: string, name?: string): Promise<SafeUser> {

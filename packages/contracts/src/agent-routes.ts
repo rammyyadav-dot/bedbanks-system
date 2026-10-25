@@ -1,6 +1,12 @@
 // Routes the Agent portal calls (ADR 0075). Kept in their own module so `@bedbanks/contracts/agent` carries no other audience's paths;
 // `routes` in routes.ts composes them.
-export const authRoutes = { login: '/auth/login', logout: '/auth/logout', me: '/auth/me' } as const
+export const authRoutes = {
+  login: '/auth/login', logout: '/auth/logout', me: '/auth/me',
+  /** Public: which optional sign-in features this deployment really supports (ADR 0091). */
+  capabilities: '/auth/capabilities',
+  passwordResetRequest: '/auth/password-reset/request',
+  passwordResetConfirm: '/auth/password-reset/confirm',
+} as const
 
 export const agentRoutes = {
   context: '/agent/context', destinations: '/agent/destinations', searchFacets: '/agent/search-facets', hotelImage: '/agent/hotels/:hotelId/images/:imageId/content', searchStatus: '/agent/search/status', search: '/agent/search', smartSearchParse: '/agent/search/parse', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', releaseHold: '/agent/holds/:holdId', prebook: '/agent/prebook',
