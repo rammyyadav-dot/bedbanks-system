@@ -36,13 +36,7 @@ export const emptyAccessRequest: AccessRequest = {
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-/** Consumer mailbox domains are not accepted as a work address for a trade account. */
-const consumerDomains = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com'])
 const phonePattern = /^\+?[0-9][0-9\s().-]{5,24}$/
-
-export function emailDomain(email: string): string {
-  return email.trim().toLowerCase().split('@')[1] ?? ''
-}
 
 export function validateAccessRequest(input: AccessRequest): AccessErrors {
   const errors: AccessErrors = {}
@@ -52,7 +46,6 @@ export function validateAccessRequest(input: AccessRequest): AccessErrors {
   if (text(input.jobTitle).length < 2) errors.jobTitle = 'Enter your job title.'
   if (text(input.agencyName).length < 2) errors.agencyName = 'Enter your agency or company name.'
   if (!emailPattern.test(text(input.workEmail)) || text(input.workEmail).length > 254) errors.workEmail = 'Enter a valid work email address.'
-  else if (consumerDomains.has(emailDomain(input.workEmail))) errors.workEmail = 'Use your agency email address. Personal mailboxes cannot be reviewed for a trade account.'
   if (!errors.workEmail && text(input.confirmEmail).toLowerCase() !== text(input.workEmail).toLowerCase()) errors.confirmEmail = 'The email addresses do not match.'
   if (!phonePattern.test(text(input.phone))) errors.phone = 'Enter a business phone number with country code, for example +971 4 000 0000.'
   if (text(input.country).length < 2) errors.country = 'Enter the country where your company is registered.'
