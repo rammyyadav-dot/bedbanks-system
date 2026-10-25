@@ -4,7 +4,23 @@ name: AWS images
 # (docs/runbooks/aws-ecs-deployment.md). ADR 0055: agent, admin, supplier and api images are environment-neutral (the portals resolve the API origin at
 # request time), so the same digest is promoted between environments. Only the website bakes public, non-secret URLs (canonical/SEO) at build time and
 # is therefore built per environment.
+# The build job deliberately declares NO `environment:`. A job that names an environment gets the OIDC subject `repo:<repo>:environment:<name>`, which
+# the build role (trust: `repo:<repo>:ref:refs/heads/main`, iam.tf) rejects, so every build would fail at "Configure AWS credentials". The
+# environment-scoped variables are read by the credential-free `config` job and handed over as job outputs instead (none is a secret).
+# Also callable (staging-release.yml) with the exact commit CI verified.
 on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      apps:
+        required: true
+        type: string
+      sha:
+        description: Full commit SHA to build (must be on main)
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       environment:
@@ -27,12 +43,21 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
+      sha: ${{ steps.m.outputs.sha }}
     steps:
       - id: m
         env:
           APPS: ${{ inputs.apps }}
+          SHA: ${{ inputs.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA" >&2; exit 1; }
+          # The build role is main-only; an image for a commit that is not on main must never be pushed.
+          rel=$(gh api "repos/$REPO/compare/main...$SHA" --jq .status)
+          case "$rel" in identical|behind) ;; *) echo "$SHA is not on main (compare: $rel)" >&2; exit 1 ;; esac
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           json='['
           for a in $APPS; do
             case "$a" in
@@ -47,22 +72,47 @@ jobs:
           done
           echo "matrix={\"include\":${json%,}]}" >> "$GITHUB_OUTPUT"
 
-  build:
+  # Environment-scoped, credential-free: required reviewers on the environment still gate the build, and its variables reach `build` as outputs.
+  config:
     needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: github.ref == 'refs/heads/main'
+    environment: ${{ inputs.environment }}
+    outputs:
+      region: ${{ vars.AWS_REGION }}
+      build_role_arn: ${{ vars.AWS_BUILD_ROLE_ARN }}
+      site_url: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+      agent_url: ${{ vars.NEXT_PUBLIC_AGENT_URL }}
+      admin_url: ${{ vars.NEXT_PUBLIC_ADMIN_URL }}
+      supplier_url: ${{ vars.NEXT_PUBLIC_SUPPLIER_URL }}
+      contact_email: ${{ vars.NEXT_PUBLIC_CONTACT_EMAIL }}
+    steps:
+      - name: Require the environment variables the build needs
+        env:
+          REGION: ${{ vars.AWS_REGION }}
+          ROLE: ${{ vars.AWS_BUILD_ROLE_ARN }}
+        run: |
+          [ -n "$REGION" ] && [ -n "$ROLE" ] || { echo "AWS_REGION and AWS_BUILD_ROLE_ARN must be set on the ${{ inputs.environment }} environment" >&2; exit 1; }
+
+  build:
+    needs: [plan, config]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     # The build role may only be assumed from main (see infra/aws/terraform/iam.tf).
     if: github.ref == 'refs/heads/main'
-    environment: ${{ inputs.environment }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ needs.config.outputs.build_role_arn }}
+          aws-region: ${{ needs.config.outputs.region }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -71,15 +121,21 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           APP: ${{ matrix.app }}
           PACKAGE: ${{ matrix.package }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          SITE_URL: ${{ needs.config.outputs.site_url }}
+          AGENT_URL: ${{ needs.config.outputs.agent_url }}
+          ADMIN_URL: ${{ needs.config.outputs.admin_url }}
+          SUPPLIER_URL: ${{ needs.config.outputs.supplier_url }}
+          CONTACT_EMAIL: ${{ needs.config.outputs.contact_email }}
         run: |
           set -euo pipefail
-          image="$REGISTRY/fbeds/$APP:${GITHUB_SHA}"
-          if aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+          image="$REGISTRY/fbeds/$APP:$SHA"
+          if aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$SHA" >/dev/null 2>&1; then
             echo "$image already exists (tags are immutable); nothing to do"; exit 0
           fi
           if [ "$APP" = api ]; then
             # Two targets of one recipe (ADR 0075): the runtime image (compiled JS, no prisma CLI) and the one-off migration task image.
-            if ! aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$GITHUB_SHA-migrate" >/dev/null 2>&1; then
+            if ! aws ecr describe-images --repository-name "fbeds/$APP" --image-ids imageTag="$SHA-migrate" >/dev/null 2>&1; then
               docker buildx build --file apps/api/Dockerfile --target migrator --tag "$image-migrate" --push .
             fi
             docker buildx build --file apps/api/Dockerfile --target runner --tag "$image" --push .
@@ -87,10 +143,10 @@ jobs:
           else
             docker buildx build --file Dockerfile.web --tag "$image" --push \
               --build-arg APP="$APP" --build-arg PACKAGE="$PACKAGE" \
-              --build-arg NEXT_PUBLIC_SITE_URL="${{ vars.NEXT_PUBLIC_SITE_URL }}" \
-              --build-arg NEXT_PUBLIC_AGENT_URL="${{ vars.NEXT_PUBLIC_AGENT_URL }}" \
-              --build-arg NEXT_PUBLIC_ADMIN_URL="${{ vars.NEXT_PUBLIC_ADMIN_URL }}" \
-              --build-arg NEXT_PUBLIC_SUPPLIER_URL="${{ vars.NEXT_PUBLIC_SUPPLIER_URL }}" \
-              --build-arg NEXT_PUBLIC_CONTACT_EMAIL="${{ vars.NEXT_PUBLIC_CONTACT_EMAIL }}" .
+              --build-arg NEXT_PUBLIC_SITE_URL="$SITE_URL" \
+              --build-arg NEXT_PUBLIC_AGENT_URL="$AGENT_URL" \
+              --build-arg NEXT_PUBLIC_ADMIN_URL="$ADMIN_URL" \
+              --build-arg NEXT_PUBLIC_SUPPLIER_URL="$SUPPLIER_URL" \
+              --build-arg NEXT_PUBLIC_CONTACT_EMAIL="$CONTACT_EMAIL" .
           fi
           echo "pushed $image" >> "$GITHUB_STEP_SUMMARY"
