@@ -9,7 +9,7 @@ Reference: the WebBeds "Travel Buyers - Join Us" form (`webbeds.com/forms/buyer-
 | Area | Behaviour |
 |---|---|
 | Route | `GET /access` in the agent portal. Public, no session. |
-| Layout | Brand header and Agent Sign In, breadcrumb, headline, four-step "How a request works", agency form with a "Before you apply" sidebar, supplier redirect note, shared footer. fabBeds red `#D90429`, white and `#F7F8FA` surfaces, rounded 8 px fields, 20 to 24 px cards. |
+| Layout | Split hero modelled on the WebBeds buyer page: red kicker, headline ending in a red full stop, one-line hook ("Search, recheck, book."), three short capability pills and an HD resort image. Then a three-step strip, the agency form, and a short hotel-or-supplier block with a second image. Sidebar and long explanatory copy removed. fabBeds red `#D90429`, white and `#F7F8FA` surfaces, rounded fields and 28 px image cards. |
 | Form | Agency and contact fields modelled on the WebBeds buyer form (see section 3). Validated in the browser by `lib/access-request.ts`. |
 | Submit | **Opens the visitor's own email client** addressed to `hello@fbeds.com` with the details filled in, then shows the same text to copy. No network call, no storage, no cookie. |
 | Honesty | The page says online submission is not configured, that sending is the visitor's step, and that nothing is active until the team sets it up. No turnaround time, approval rate or volume claim is published. |

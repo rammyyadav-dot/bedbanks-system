@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { AccessRequestForm } from '@/components/entrance/access-request-form'
 import { TradeFooter, TradeMark } from '@/components/entrance/trade-frame'
-import { accessCopy, contactEmail, editorialPages } from '@/lib/marketplace-content'
+import { accessCopy, brandTagline, contactEmail, editorialPages } from '@/lib/marketplace-content'
+
+const supplierMail = `mailto:${contactEmail}?subject=${encodeURIComponent(accessCopy.supplier.subject)}`
 
 export default function AccessPage() {
   const page = editorialPages.access
@@ -12,43 +14,43 @@ export default function AccessPage() {
         <Link className="trade-button" href="/">Agent Sign In</Link>
       </header>
       <main className="access-main">
-        <nav className="access-crumbs" aria-label="Breadcrumb"><Link href="/">Home</Link> <span aria-hidden="true">›</span> <span>Request Agent Access</span></nav>
+        <nav className="access-crumbs" aria-label="Breadcrumb"><Link href="/">Home</Link> <span aria-hidden="true">›</span> <span>{page.kicker}</span></nav>
 
-        <section className="access-hero">
-          <p className="trade-kicker">{page.kicker}</p>
-          <h1>{page.title}</h1>
-          <p className="trade-lead">{page.summary}</p>
-          <p className="trade-muted">Access is granted only after the fabBeds team reviews the request. Online submission is not configured, so you send the final email yourself to <a href={`mailto:${contactEmail}`}>{contactEmail}</a>.</p>
+        <section className="access-hero" aria-labelledby="access-title">
+          <div className="access-hero-copy">
+            <p className="trade-kicker">{page.kicker}<span aria-hidden="true">.</span></p>
+            <h1 id="access-title">{page.title}<span className="access-dot" aria-hidden="true">.</span></h1>
+            <p className="access-hook">{accessCopy.hook} <span>{brandTagline}</span></p>
+            <p className="trade-muted">{page.summary}</p>
+            <ul className="access-perks" aria-label="Why agencies use fabBeds">
+              {accessCopy.perks.map((perk) => <li key={perk}>{perk}</li>)}
+            </ul>
+            <a className="trade-button" href="#request">Request access</a>
+          </div>
+          <figure className="access-hero-media">
+            <img src="/access-resort.jpg" alt="Aerial view of a coastal resort with pool terraces beside the sea at sunset." width={1376} height={768} fetchPriority="high" />
+          </figure>
         </section>
 
-        <section aria-labelledby="access-steps-title" className="access-steps-section">
-          <h2 id="access-steps-title">How a request works</h2>
-          <ol className="access-steps">
-            {accessCopy.steps.map((step, index) => (
-              <li key={step.title}><span aria-hidden="true">{index + 1}</span><div><h3>{step.title}</h3><p>{step.text}</p></div></li>
-            ))}
-          </ol>
-        </section>
+        <ol className="access-steps" aria-label="How a request works">
+          {accessCopy.steps.map((step, index) => <li key={step}><span aria-hidden="true">{index + 1}</span>{step}</li>)}
+        </ol>
 
-        <div className="access-layout">
+        <section id="request" className="access-request" aria-label={accessCopy.formTitle}>
+          <p className="access-prepare">{accessCopy.prepare}</p>
           <AccessRequestForm />
-          <aside className="access-aside" aria-label="Before you apply">
-            <section>
-              <h2>{accessCopy.prepareTitle}</h2>
-              <ul>{accessCopy.prepare.map((item) => <li key={item}>{item}</li>)}</ul>
-            </section>
-            <section>
-              <h2>{accessCopy.reviewTitle}</h2>
-              {accessCopy.review.map((item) => <p key={item.title}><strong>{item.title}.</strong> {item.text}</p>)}
-            </section>
-          </aside>
-        </div>
+        </section>
 
         <section className="access-supplier" aria-labelledby="access-supplier-title">
-          <h2 id="access-supplier-title">{accessCopy.supplierTitle}</h2>
-          <p>{accessCopy.supplierText}</p>
+          <figure className="access-supplier-media">
+            <img src="/dubai-marina-entrance.jpg" alt="Dubai marina waterfront in late afternoon light, with towers reflected in calm water." width={1280} height={720} loading="lazy" />
+          </figure>
+          <div>
+            <h2 id="access-supplier-title">{accessCopy.supplier.title}<span className="access-dot" aria-hidden="true">?</span></h2>
+            <p>{accessCopy.supplier.text}</p>
+            <a className="access-link" href={supplierMail}>{accessCopy.supplier.cta} <span aria-hidden="true">→</span></a>
+          </div>
         </section>
-        <p><Link href="/">Return to the agent workspace</Link></p>
       </main>
       <TradeFooter />
     </div>
