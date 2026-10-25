@@ -32,11 +32,27 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = data.aws_iam_policy_document.execution_secrets.json
 }
 
-# Task roles carry no AWS permissions: the apps call no AWS API. Separate roles so a grant can be added per service later.
+# Task roles carry no AWS permissions except the API role's ses:SendEmail on one verified identity (below, only when ses_identity_arn is set). Separate roles so a grant can be added per service.
 resource "aws_iam_role" "task" {
   for_each           = local.services
   name               = "${local.name}-${each.key}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+}
+
+# ADR 0091: the API sends password-reset email through SES. One action, one identity, nothing else.
+data "aws_iam_policy_document" "api_ses" {
+  count = var.ses_identity_arn == "" ? 0 : 1
+  statement {
+    actions   = ["ses:SendEmail"]
+    resources = [var.ses_identity_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "api_ses" {
+  count  = var.ses_identity_arn == "" ? 0 : 1
+  name   = "ses-send-email"
+  role   = aws_iam_role.task["api"].id
+  policy = data.aws_iam_policy_document.api_ses[0].json
 }
 
 # One-off migration task: the only principal that may read the database OWNER secret.

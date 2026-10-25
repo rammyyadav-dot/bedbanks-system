@@ -67,6 +67,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
 | `InventoryPoolDay` | yes | - | cols (2) | - | forced tenant | UPDATE (capacity, updated_at): PoolCapacityService.apply; POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply; set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged |
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
+| `password_reset_tokens` | yes | yes | cols (1) | - | none (auth) | INSERT: AuthService.requestPasswordReset; POST /auth/password-reset/request; issue a single-use reset token (hash only) / UPDATE (used_at): AuthService.requestPasswordReset, AuthService.confirmPasswordReset; POST /auth/password-reset/request, POST /auth/password-reset/confirm; consume a token, or supersede earlier unused tokens, by stamping used_at |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
 | `RatePlanGuestPrice` | yes | - | - | - | forced tenant | per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path |
@@ -90,7 +91,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `SupplierRoomMapping` | yes | - | - | - | forced tenant | read only |
 | `tenants` | yes | - | - | - | none (auth) | read only |
 | `UserRole` | yes | - | - | - | forced tenant | read only |
-| `users` | yes | - | cols (2) | - | none (auth) | UPDATE (last_login_at, updated_at): AuthService.login; POST /auth/login; record the last successful sign-in |
+| `users` | yes | - | cols (3) | - | none (auth) | UPDATE (last_login_at, password_hash, updated_at): AuthService.login, AuthService.confirmPasswordReset; POST /auth/login, POST /auth/password-reset/confirm; record the last successful sign-in; store the new password hash after a verified single-use reset (ADR 0091) |
 
 Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC function is denied):
 

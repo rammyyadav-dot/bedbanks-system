@@ -14,6 +14,8 @@ export interface AppConfig {
     sessionTtlSeconds: number;
     /** Absolute lifetime of an opt-in "remember me" session (ADR 0091). */
     rememberSessionTtlSeconds: number;
+    /** Exact portal origins that host the /reset-password page. Empty means password reset is off (ADR 0091). */
+    passwordResetOrigins: string[];
     cookieName: string;
     cookieSecure: boolean;
     cookieSameSite: 'lax' | 'strict' | 'none';
@@ -43,6 +45,7 @@ export default (): AppConfig => ({
   auth: {
     sessionTtlSeconds: parseInt(process.env.AUTH_SESSION_TTL_SECONDS ?? '28800', 10),
     rememberSessionTtlSeconds: parseInt(process.env.AUTH_REMEMBER_TTL_SECONDS ?? '1296000', 10),
+    passwordResetOrigins: parseOriginList(process.env.PASSWORD_RESET_ORIGINS),
     cookieName: process.env.AUTH_COOKIE_NAME ?? 'fbeds_session',
     cookieSecure: (process.env.AUTH_COOKIE_SECURE ?? 'true') === 'true',
     cookieSameSite: (process.env.AUTH_COOKIE_SAME_SITE as 'lax' | 'strict' | 'none' | undefined) ?? 'lax',

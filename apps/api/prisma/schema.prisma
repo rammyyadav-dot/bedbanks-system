@@ -967,6 +967,7 @@ model User {
 
   memberships Membership[]
   sessions    Session[]
+  passwordResetTokens PasswordResetToken[]
   roles       UserRole[]
   supplierMemberships SupplierMembership[]
   platformRoleAssignments PlatformRoleAssignment[]
@@ -1040,6 +1041,23 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// ADR 0091: single-use password-reset token. Only SHA-256(token) is stored, never the token itself.
+/// User-scoped like Session (a user exists before any tenant context), so there is no tenant column or RLS policy.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model Permission {

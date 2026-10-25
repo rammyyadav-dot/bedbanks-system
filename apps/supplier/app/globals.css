@@ -372,3 +372,10 @@ a.capability-card:hover { transform: translateY(-2px); border-color: #c5d4ea; bo
 @media (max-width: 950px) { .booking-facts { grid-template-columns: 1fr 1fr; } .booking-facts div:nth-child(3n) { border-right: 1px solid #edf0f3; } .booking-facts div:nth-child(2n) { border-right: 0; } .booking-facts div:nth-child(-n+3) { border-top: 1px solid #edf0f3; } .booking-facts div:nth-child(-n+2) { border-top: 0; } }
 @media (max-width: 780px) { .booking-facts { grid-template-columns: 1fr; } .booking-facts div { border-right: 0 !important; border-top: 1px solid #edf0f3 !important; } .booking-facts div:first-child { border-top: 0 !important; } }
 .draft-note .btn { justify-self: start; }
+.login-links { display: flex; justify-content: space-between; gap: 12px; }
+.login-links a { color: var(--blue); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.login-status { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
+.login-status svg { flex: 0 0 auto; margin-top: 1px; }
+.login-submit-secondary { min-height: 48px; justify-content: center; }
+.field-help { margin: -8px 0 0; color: #6b7686; font-size: 12px; line-height: 1.5; }
+.login-error a { color: inherit; font-weight: 700; text-decoration: underline; }

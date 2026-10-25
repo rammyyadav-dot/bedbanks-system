@@ -120,7 +120,11 @@ const READ_WRITE: readonly RuntimeGrant[] = [
     { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`], reason: 'set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged' },
   ] },
   { table: 'users', model: 'User', read: true, rls: 'none', writes: [
-    { op: 'UPDATE', columns: ['last_login_at', 'updated_at'], service: 'AuthService.login', endpoints: ['POST /auth/login'], reason: 'record the last successful sign-in' },
+    { op: 'UPDATE', columns: ['last_login_at', 'password_hash', 'updated_at'], service: 'AuthService.login, AuthService.confirmPasswordReset', endpoints: ['POST /auth/login', 'POST /auth/password-reset/confirm'], reason: 'record the last successful sign-in; store the new password hash after a verified single-use reset (ADR 0091)' },
+  ] },
+  { table: 'password_reset_tokens', model: 'PasswordResetToken', read: true, rls: 'none', note: 'user-scoped like sessions: a reset runs before any tenant context exists; only the SHA-256 of the token is stored (ADR 0091)', writes: [
+    { op: 'INSERT', service: 'AuthService.requestPasswordReset', endpoints: ['POST /auth/password-reset/request'], reason: 'issue a single-use reset token (hash only)' },
+    { op: 'UPDATE', columns: ['used_at'], service: 'AuthService.requestPasswordReset, AuthService.confirmPasswordReset', endpoints: ['POST /auth/password-reset/request', 'POST /auth/password-reset/confirm'], reason: 'consume a token, or supersede earlier unused tokens, by stamping used_at' },
   ] },
   { table: 'sessions', model: 'Session', read: true, rls: 'none', writes: [
     { op: 'INSERT', service: 'AuthService.login', endpoints: ['POST /auth/login'], reason: 'create the opaque session (ADR 0001)' },

@@ -22,6 +22,12 @@ locals {
     admin    = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "AUTH_API_ORIGIN", value = "https://${local.portals.admin.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
     supplier = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "SUPPLIER_ORIGIN", value = "https://${local.portals.supplier.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
   }
+  # Password reset is on only when a sender is configured; the reset page lives on the supplier portal (ADR 0091).
+  email_env = var.email_from == "" ? {} : {
+    EMAIL_FROM             = var.email_from
+    EMAIL_SES_REGION       = var.region
+    PASSWORD_RESET_ORIGINS = "https://${local.portals.supplier.host}"
+  }
   api_environment = concat([for k, v in merge({
     NODE_ENV           = "production"
     API_HOST           = "0.0.0.0"
@@ -30,7 +36,7 @@ locals {
     AUTH_COOKIE_SECURE = "true"
     ADMIN_ORIGIN       = "https://${local.portals.admin.host}"
     TRUSTED_ORIGINS    = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
-  }, var.api_env) : { name = k, value = v }])
+  }, local.email_env, var.api_env) : { name = k, value = v }])
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },
     { name = "REDIS_URL", valueFrom = aws_secretsmanager_secret.redis_url.arn },

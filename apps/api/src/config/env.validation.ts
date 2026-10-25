@@ -87,6 +87,11 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   TRUSTED_ORIGINS?: string;
+
+  /** Exact portal origins that host /reset-password (ADR 0091). Unset leaves password reset off. */
+  @IsString()
+  @IsOptional()
+  PASSWORD_RESET_ORIGINS?: string;
 }
 
 /**
@@ -151,6 +156,18 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   }
   if ([Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV) && origin.protocol !== 'https:') {
     throw new Error('Staging and production require an HTTPS ADMIN_ORIGIN');
+  }
+
+  for (const origin of parseOriginList(validatedConfig.PASSWORD_RESET_ORIGINS)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error('PASSWORD_RESET_ORIGINS must be a comma-separated list of exact HTTPS origins');
+    }
+    if (parsed.origin !== origin || (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && validatedConfig.NODE_ENV !== Environment.Production && validatedConfig.NODE_ENV !== Environment.Staging))) {
+      throw new Error('PASSWORD_RESET_ORIGINS must be a comma-separated list of exact HTTPS origins without paths');
+    }
   }
 
   const production = [Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV);
