@@ -197,7 +197,7 @@ export const accessCopy = {
   ],
   reviewTitle: 'What the team looks at',
   review: [
-    { title: 'Who you are', text: 'Registered company name and country, website and a work email on your agency domain.' },
+    { title: 'Who you are', text: 'Registered company name and country, website and a contact email address.' },
     { title: 'How you sell', text: 'Business type, markets and the connection you plan to use: booking website, API or both.' },
     { title: 'Fit for the workspace', text: 'Today the workspace offers a Dubai search pilot with authoritative recheck. Booking is enabled per agency.' },
   ],

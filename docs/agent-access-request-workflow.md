@@ -45,8 +45,8 @@ No transition skips a state. Every transition writes an audit event (invariant 8
 ### 2.2 Step by step
 
 1. **Intake.** Public endpoint `POST /public/agent-applications`. Tenant is resolved server-side from the deployment, never from the body (invariant 1). Idempotency key required (invariant 6): the form generates one per page load, so a double-click or retry returns the original reference.
-2. **Automated checks (synchronous, cheap).** Honeypot field, per-IP and per-email rate limit, payload size limit, field validation (section 4), disposable and consumer mailbox rejection, blocklist match on domain or company number.
-3. **Email verification.** A single-use link, token stored hashed (SHA-256), valid 24 hours, sent to the work email. The application does not enter IN_REVIEW until verified. This proves the applicant controls the domain they claim.
+2. **Automated checks (synchronous, cheap).** Honeypot field, per-IP and per-email rate limit, payload size limit, field validation (section 4), disposable mailbox rejection, blocklist match on domain or company number.
+3. **Email verification.** A single-use link, token stored hashed (SHA-256), valid 24 hours, sent to the work email. The application does not enter IN_REVIEW until verified. This proves the applicant controls the address. It does not prove the agency's identity: that comes from the diligence checklist.
 4. **Triage.** Review queue sorted oldest first. Reviewer claims an item (soft lock, released after inactivity).
 5. **Due diligence checklist** (reviewer ticks each, with notes):
    - Company exists in the stated country and number matches the registry or licence.
@@ -67,7 +67,7 @@ No transition skips a state. Every transition writes an audit event (invariant 8
 | First name, last name | Yes | |
 | Job title | Yes | |
 | Agency or company name | Yes | Max 160 |
-| Work email, repeat work email | Yes | Must match. Consumer and disposable domains rejected. |
+| Work email, repeat work email | Yes | Must match. Any mailbox provider is accepted, including Gmail. Disposable domains rejected. |
 | Business phone | Yes | Country code expected |
 | Country the company is registered in | Yes | Becomes an ISO-3166 alpha-2 select in the real intake |
 | Business type | Yes | Leisure travel agent, corporate travel agent, DMC or groups, OTA, wholesaler or reseller, other (with free text) |
@@ -85,7 +85,7 @@ WebBeds fields deliberately **not** copied: "Region you are based" (derived from
 1. **Access is never automatic.** No rule, score or timer approves an agency. A human with the approve permission decides.
 2. **Application is not an account.** An application has no credentials, session or role. Only provisioning creates them.
 3. **One agency per verified domain.** A second application from a registered domain is routed to the existing agency admin, not a new agency.
-4. **Work email only.** Consumer, disposable and role mailboxes (`info@`, `sales@`) are accepted only at reviewer discretion with a note.
+4. **Any mailbox accepted.** Personal providers such as Gmail are allowed and raise no error at intake. A personal or role mailbox (`info@`) adds a mandatory reviewer check: identity is then established by licence, company number and website, not by email domain. Disposable domains are rejected.
 5. **Supplier requests are out of scope.** Hotels and suppliers are redirected to the supplier onboarding path. Misrouted applications can be re-typed by a reviewer, not silently dropped.
 6. **Sanctions and restricted markets** are screened before APPROVED. A hit blocks approval and requires compliance sign-off.
 7. **Money.** Credit limit and settlement currency are set at provisioning by finance in integer minor units with an ISO-4217 code (invariant 3). The applicant's volume band never feeds a credit decision.

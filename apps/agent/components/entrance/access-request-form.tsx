@@ -83,7 +83,7 @@ export function AccessRequestForm() {
         {field('lastName', 'Last name', { required: true, autoComplete: 'family-name' })}
         {field('jobTitle', 'Job title', { required: true, autoComplete: 'organization-title' })}
         {field('agencyName', 'Agency or company name', { required: true, autoComplete: 'organization' })}
-        {field('workEmail', 'Work email', { required: true, type: 'email', autoComplete: 'email', placeholder: 'you@youragency.com', hint: 'Use your agency domain. Personal mailboxes are not reviewed.' })}
+        {field('workEmail', 'Work email', { required: true, type: 'email', autoComplete: 'email', placeholder: 'you@youragency.com', hint: 'We reply to this address.' })}
         {field('confirmEmail', 'Repeat work email', { required: true, type: 'email', autoComplete: 'off', placeholder: 'you@youragency.com' })}
         {field('phone', 'Business phone', { required: true, type: 'tel', autoComplete: 'tel', placeholder: '+971 4 000 0000' })}
         {field('country', 'Country your company is registered in', { required: true, autoComplete: 'country-name' })}
