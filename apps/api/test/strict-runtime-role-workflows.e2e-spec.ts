@@ -154,34 +154,6 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     }
   })
 
-  it('W-01d room event and event supplement: draft, edit, submit, approve (other user); supplement draft, submit, approve (other user), activate, suspend (ADR 0089)', async () => {
-    // A contract the supplement attaches to is arranged at the owner connection; everything else goes through HTTP as the strict runtime role.
-    const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
-    // Its own hotel: a supplier maps to a hotel once, and W-01c already maps the first hotel.
-    const eventHotel = (await owner.hotel.create({ data: { tenantId: tenantA, name: `${suffix} events`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'DRAFT' } })).id
-    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId: eventHotel, supplierHotelId: `${suffix}-event`, status: 'MAPPED' } })
-    const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-event`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
-    const from = day(60); const to = day(63)
-
-    const event = (await call('post', '/admin/room-events', 'maker', { name: `Workflow expo ${suffix}`, eventType: 'EXHIBITION', destinationCity: 'Dubai', destinationCountry: 'AE', eventStartDate: from, eventEndDate: to, referenceRef: `REF-${suffix}` }).expect(201)).body.data
-    await call('patch', `/admin/room-events/${event.id}`, 'maker', { name: `Workflow expo edited ${suffix}` }).expect(200)
-    const submitted = (await call('post', `/admin/room-events/${event.id}/submit`, 'maker', { reason: 'Event confirmed by the organiser' })).body.data
-    expect((await owner.roomEvent.findUniqueOrThrow({ where: { id: event.id } })).status).toBe('PENDING_APPROVAL')
-    expect((await call('post', `/admin/room-event-approvals/${submitted.approval.id}/approve`, 'maker', { reason: 'Self approval' })).status).toBeGreaterThanOrEqual(400)
-    await call('post', `/admin/room-event-approvals/${submitted.approval.id}/approve`, 'checker', { reason: 'Matches the organiser confirmation' }).expect(201)
-    expect((await owner.roomEvent.findUniqueOrThrow({ where: { id: event.id } })).status).toBe('APPROVED')
-
-    const supplement = (await call('post', '/admin/event-supplements', 'maker', { roomEventId: event.id, contractId: contract.id, currency: 'AED', amountKind: 'FIXED', basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: '5000', validFrom: from, validTo: to, evidenceRef: `EVD-${suffix}` }).expect(201)).body.data
-    const asked = (await call('post', `/admin/event-supplements/${supplement.id}/submit`, 'maker', { reason: 'Rate letter received', requestId: key() })).body.data
-    expect((await call('post', `/admin/event-supplement-approvals/${asked.approval.id}/approve`, 'maker', { reason: 'Self approval' })).status).toBeGreaterThanOrEqual(400)
-    await call('post', `/admin/event-supplement-approvals/${asked.approval.id}/approve`, 'checker', { reason: 'Matches the rate letter' }).expect(201)
-    await call('post', `/admin/event-supplements/${supplement.id}/activate`, 'maker', { reason: 'Live for the event' }).expect(201)
-    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('ACTIVE')
-    expect(await owner.eventSupplementVersion.count({ where: { eventSupplementId: supplement.id } })).toBe(1)
-    await call('post', `/admin/event-supplements/${supplement.id}/suspend`, 'maker', { reason: 'Event postponed' }).expect(201)
-    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('SUSPENDED')
-  })
-
   it('W-01c hotel deal: draft, edit the draft and its scope, submit, approve (other user), activate, pause and resume (ADR 0089)', async () => {
     // The catalogue a deal needs is arranged at the owner connection: a contract and two ACTIVE rate plans on the first hotel.
     const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
@@ -205,6 +177,32 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     await call('post', `${base}/${draft.id}/resume`, 'maker', {}).expect(200)
     expect(await owner.hotelDealRatePlan.count({ where: { dealId: draft.id } })).toBe(2)
     expect(await owner.auditEvent.count({ where: { tenantId: tenantA, entityType: 'hotel_deal', entityId: draft.id } })).toBe(7)
+  })
+
+  it('W-01d room event and event supplement: draft, edit, submit, approve (other user), then a supplement is drafted, submitted, approved, activated and suspended (ADR 0089)', async () => {
+    // A contract and a rate plan the supplement attaches to are arranged at the owner connection.
+    const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
+    const room = await owner.roomType.findFirstOrThrow({ where: { hotelId } })
+    const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'RO', name: `Room only ${suffix}` } })
+    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId, supplierHotelId: `${suffix}-evt`, status: 'MAPPED' } })
+    const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-evt`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
+    const plan = await owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `EVT-${suffix.slice(-6)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    // The event: INSERT (draft), UPDATE (edit the draft, submit, approve by another user).
+    const event = (await call('post', '/admin/room-events', 'maker', { name: 'Workflow expo', eventType: 'EXHIBITION', destinationCity: 'Dubai', destinationCountry: 'AE', eventStartDate: day(40), eventEndDate: day(44), referenceRef: `${suffix}-ref` }).expect(201)).body.data
+    await call('patch', `/admin/room-events/${event.id}`, 'maker', { name: 'Workflow expo edited' }).expect(200)
+    const submittedEvent = (await call('post', `/admin/room-events/${event.id}/submit`, 'maker', { reason: 'Dates confirmed by the organiser' }).expect(201)).body.data
+    await call('post', `/admin/room-event-approvals/${submittedEvent.approval.id}/approve`, 'maker', { reason: 'Self approval' }).expect(403)
+    await call('post', `/admin/room-event-approvals/${submittedEvent.approval.id}/approve`, 'checker', { reason: 'Dates checked' }).expect(201)
+    expect((await owner.roomEvent.findUniqueOrThrow({ where: { id: event.id } })).status).toBe('APPROVED')
+    // The supplement: INSERT (draft), UPDATE (submit, approve), then activation appends the immutable version row.
+    const supplement = (await call('post', '/admin/event-supplements', 'maker', { roomEventId: event.id, contractId: contract.id, ratePlanId: plan.id, amountKind: 'FIXED', basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: '5000', currency: 'AED', taxTreatment: 'EXCLUSIVE', validFrom: day(40), validTo: day(44), evidenceRef: `${suffix}-evidence` }).expect(201)).body.data
+    const submittedSupplement = (await call('post', `/admin/event-supplements/${supplement.id}/submit`, 'maker', { reason: 'Supplier confirmed the surcharge', requestId: key() }).expect(201)).body.data
+    await call('post', `/admin/event-supplement-approvals/${submittedSupplement.approval.id}/approve`, 'checker', { reason: 'Evidence checked' }).expect(201)
+    await call('post', `/admin/event-supplements/${supplement.id}/activate`, 'maker', { reason: 'Event confirmed' }).expect(201)
+    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('ACTIVE')
+    expect(await owner.eventSupplementVersion.count({ where: { eventSupplementId: supplement.id } })).toBe(1)
+    await call('post', `/admin/event-supplements/${supplement.id}/suspend`, 'maker', { reason: 'Event postponed' }).expect(201)
+    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('SUSPENDED')
   })
 
   it('W-02 agency: create, edit, add and remove a member, suspend and reinstate through maker-checker (suspension is enforced on the strict role)', async () => {

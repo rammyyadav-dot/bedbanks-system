@@ -501,8 +501,8 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
     // The number of SQL statements must not depend on how many hotels are assessed (no per-hotel loop).
     expect(row('list: 100 hotels, 7 nights').statements).toBe(row('list: 25 hotels (page 1)').statements)
     expect(row('summary: 100 hotels, 7 nights').statements).toBeLessThanOrEqual(row('list: 100 hotels, 7 nights').statements + 2)
-    // The ceiling is a fixed count (nested loads of guest prices, promotions, the derived parent and, since ADR 0089, event supplements and their event add a few); growth per hotel is ruled out by the equality checks above. It is the measured maximum (list: 33, was 32): raise it only deliberately.
-    for (const r of runs) expect({ label: r.label, bounded: r.statements <= 33 }).toEqual({ label: r.label, bounded: true })
+    // The ceiling is a fixed count (nested loads of guest prices, promotions, the derived parent and, since ADR 0089, the active deals and the event supplements add two fixed reads); growth per hotel is ruled out by the equality checks above. Same budget as HOTEL-OPS-21 in hotel-commercial.e2e-spec.ts (was 32): raise it only deliberately.
+    for (const r of runs) expect({ label: r.label, bounded: r.statements <= 34 }).toEqual({ label: r.label, bounded: true })
     // A loose ceiling only (a regression guard, not a benchmark); the measured values are recorded below.
     for (const r of runs) expect({ label: r.label, ok: r.ms < 15_000 }).toEqual({ label: r.label, ok: true })
     measured.adminPerf = Object.fromEntries(runs.flatMap((r) => [[`${r.label} ms`, r.ms], [`${r.label} statements`, r.statements]]))

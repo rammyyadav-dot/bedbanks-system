@@ -687,6 +687,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     }
   })
 
+  const QUERY_BUDGET = 34
   it('HOTEL-OPS-21 performance: a 14-hotel list, summary and exceptions each run in a fixed number of queries (no per-hotel loops)', async () => {
     const queries: string[] = []
     const probe = new PrismaService({ log: [{ emit: 'event', level: 'query' }] } as never)
@@ -695,8 +696,9 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     const service = new OperationsHotelsService(probe)
     const measure = async (label: string, run: () => Promise<unknown>) => { queries.length = 0; await run(); return { label, selects: queries.filter((q) => /^SELECT/i.test(q)).length } }
     const small = [await measure('list', () => service.list(tenantA, { from: FROM, days: '5', pageSize: '100' })), await measure('summary', () => service.summary(tenantA, { from: FROM, days: '5' })), await measure('exceptions', () => service.exceptions(tenantA, { from: FROM, days: '5' }))]
-    // Fixed ceiling = the measured maximum (list: 33; was 32 before ADR 0089 added the event-supplement rules, with their event, to the shared plan select). Raise it only deliberately; growth per hotel is ruled out by the equality check below.
-    for (const m of small) expect({ ...m, bounded: m.selects <= 33 }).toEqual({ ...m, bounded: true })
+    // Budget: 32 plus one fixed read each for the ACTIVE hotel deals (ADR 0089) and the event supplements (ADR 0089) a priced plan needs. It is a ceiling on the
+    // number of statements, not a count per hotel: the equality check below is what proves there is no per-hotel loop. All three are asserted together so a failure shows every count.
+    expect(small.map((m) => ({ ...m, bounded: m.selects <= QUERY_BUDGET }))).toEqual(small.map((m) => ({ ...m, bounded: true })))
     // the same call over 1 hotel and over 14 hotels uses the same number of statements: query count does not grow with hotels
     const one = await measure('one', () => service.list(tenantA, { from: FROM, days: '5', pageSize: '1' }))
     const many = await measure('many', () => service.list(tenantA, { from: FROM, days: '5', pageSize: '100' }))
