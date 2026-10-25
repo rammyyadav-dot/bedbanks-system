@@ -15,8 +15,8 @@ test('requires every mandatory field and consent', () => {
   for (const key of ['firstName', 'lastName', 'jobTitle', 'agencyName', 'workEmail', 'phone', 'country', 'agencyType', 'connectivity', 'monthlyVolume', 'consent']) assert.ok(errors[key], key)
 })
 
-test('rejects personal mailboxes and mismatched confirmation', () => {
-  assert.match(validateAccessRequest({ ...valid, workEmail: 'amal@gmail.com', confirmEmail: 'amal@gmail.com' }).workEmail, /agency email/)
+test('accepts personal mailboxes and rejects a mismatched confirmation', () => {
+  assert.deepEqual(validateAccessRequest({ ...valid, workEmail: 'amal@gmail.com', confirmEmail: 'amal@gmail.com' }), {})
   assert.ok(validateAccessRequest({ ...valid, confirmEmail: 'other@gulftravel.example' }).confirmEmail)
 })
 
