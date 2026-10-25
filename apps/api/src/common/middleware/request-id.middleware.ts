@@ -1,6 +1,7 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
+import { tagActiveSpanWithRequestId } from '../../observability/tracing';
 
 export const REQUEST_ID_HEADER = 'X-Request-ID';
 /** A caller-supplied id is reused only if it is short and inert; it reaches logs, audit payloads and supplier correlation ids. */
@@ -31,6 +32,7 @@ export class RequestIdMiddleware implements NestMiddleware {
 
     req.requestId = requestId;
     res.setHeader(REQUEST_ID_HEADER, requestId);
+    tagActiveSpanWithRequestId(requestId);
 
     next();
   }

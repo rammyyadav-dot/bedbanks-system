@@ -244,3 +244,24 @@ variable "origin_verify_rotation_id" {
   default     = { a = "1", b = "1" }
   description = "Per-slot rotation counter; changing a slot's value regenerates that slot's secret."
 }
+
+# ---- distributed tracing (ADR 0093) ----
+variable "tracing_enabled" {
+  type        = bool
+  default     = false
+  description = "Run an ADOT collector sidecar in the api task and export spans to AWS X-Ray. Existing task definitions are not changed by Terraform (CI owns later revisions): see docs/runbooks/distributed-tracing.md."
+}
+variable "tracing_sample_ratio" {
+  type        = string
+  default     = "0.1"
+  description = "Fraction of root requests traced (0..1). Requests the load balancer already sampled stay sampled."
+  validation {
+    condition     = can(regex("^(0(\\.[0-9]+)?|1(\\.0+)?)$", var.tracing_sample_ratio))
+    error_message = "tracing_sample_ratio must be a number between 0 and 1."
+  }
+}
+variable "adot_collector_image" {
+  type        = string
+  default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.43.3"
+  description = "AWS Distro for OpenTelemetry collector. Pin by digest before production (the tag was not resolved from the build environment)."
+}

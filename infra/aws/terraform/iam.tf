@@ -55,6 +55,22 @@ resource "aws_iam_role_policy" "api_ses" {
   policy = data.aws_iam_policy_document.api_ses[0].json
 }
 
+# ADR 0093: the ADOT sidecar runs under the api task role and may only write traces and read X-Ray sampling rules. No read of trace data.
+data "aws_iam_policy_document" "api_xray" {
+  count = var.tracing_enabled ? 1 : 0
+  statement {
+    actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets", "xray:GetSamplingStatisticSummaries"]
+    resources = ["*"] # X-Ray write actions do not support resource-level permissions
+  }
+}
+
+resource "aws_iam_role_policy" "api_xray" {
+  count  = var.tracing_enabled ? 1 : 0
+  name   = "xray-write-traces"
+  role   = aws_iam_role.task["api"].id
+  policy = data.aws_iam_policy_document.api_xray[0].json
+}
+
 # One-off migration task: the only principal that may read the database OWNER secret.
 resource "aws_iam_role" "migrate_execution" {
   name               = "${local.name}-migrate-execution"

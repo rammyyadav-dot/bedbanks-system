@@ -1,3 +1,5 @@
+// Must stay the first import: tracing patches http/express as they load (ADR 0093).
+import './observability/tracing-bootstrap';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
