@@ -32,7 +32,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   let seq = 0
   const key = () => `${suffix}-${++seq}-${randomBytes(4).toString('hex')}`
 
-  const KEYS = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage', 'case.read', 'case.manage']
+  const KEYS = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage', 'case.read', 'case.manage', 'supply.room_events.read', 'supply.room_events.manage', 'supply.event_supplements.read', 'supply.event_supplements.manage']
   async function user(label: string, tenantId: string, keys: string[]) {
     const email = `${suffix}-${label}@example.test`
     const u = await owner.user.create({ data: { email, name: label, passwordHash: await hashPassword(password), status: 'ACTIVE' } }); userIds.push(u.id); ids[label] = u.id
@@ -100,8 +100,10 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     if (previousUrl) process.env.DATABASE_URL = previousUrl
     // Deals are archived, never deleted, so the scope trigger refuses a delete; the disposable rows are removed with it switched off.
     await owner.$executeRawUnsafe('ALTER TABLE "HotelDealRatePlan" DISABLE TRIGGER "HotelDealRatePlan_guard"').catch(() => undefined)
+    await owner.$executeRawUnsafe('ALTER TABLE "EventSupplementVersion" DISABLE TRIGGER "EventSupplementVersion_immutable"').catch(() => undefined)
     for (const t of [tenantA, tenantB].filter(Boolean)) {
       for (const q of [
+        `DELETE FROM "EventSupplementVersion" WHERE tenant_id = '${t}'`, `DELETE FROM "EventSupplement" WHERE tenant_id = '${t}'`, `DELETE FROM "RoomEvent" WHERE tenant_id = '${t}'`,
         `DELETE FROM "HotelDealRatePlan" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelDeal" WHERE tenant_id = '${t}'`, `DELETE FROM "DailyAvailability" WHERE tenant_id = '${t}'`, `DELETE FROM "DailyRate" WHERE tenant_id = '${t}'`,
         `DELETE FROM "RatePlan" WHERE tenant_id = '${t}'`, `DELETE FROM "Contract" WHERE tenant_id = '${t}'`, `DELETE FROM "SupplierHotelMapping" WHERE tenant_id = '${t}'`, `DELETE FROM "BoardBasis" WHERE tenant_id = '${t}'`,
         `DELETE FROM "AuditEvent" WHERE tenant_id = '${t}'`, `DELETE FROM "ApprovalRequest" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelImage" WHERE tenant_id = '${t}'`, `DELETE FROM "HotelAmenity" WHERE tenant_id = '${t}'`,
@@ -112,6 +114,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
       ]) await owner.$executeRawUnsafe(q).catch(() => undefined)
     }
     await owner.$executeRawUnsafe('ALTER TABLE "HotelDealRatePlan" ENABLE TRIGGER "HotelDealRatePlan_guard"').catch(() => undefined)
+    await owner.$executeRawUnsafe('ALTER TABLE "EventSupplementVersion" ENABLE TRIGGER "EventSupplementVersion_immutable"').catch(() => undefined)
     await owner.session.deleteMany({ where: { userId: { in: userIds } } }); await owner.user.deleteMany({ where: { id: { in: userIds } } }); await owner.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB].filter(Boolean) } } })
     await owner.$disconnect()
   }, 60_000)
@@ -149,6 +152,34 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     } finally {
       if (previous === undefined) delete process.env.SETTLEMENT_CURRENCIES; else process.env.SETTLEMENT_CURRENCIES = previous
     }
+  })
+
+  it('W-01d room event and event supplement: draft, edit, submit, approve (other user); supplement draft, submit, approve (other user), activate, suspend (ADR 0089)', async () => {
+    // A contract the supplement attaches to is arranged at the owner connection; everything else goes through HTTP as the strict runtime role.
+    const supplier = await owner.supplier.findFirstOrThrow({ where: { tenantId: tenantA } })
+    // Its own hotel: a supplier maps to a hotel once, and W-01c already maps the first hotel.
+    const eventHotel = (await owner.hotel.create({ data: { tenantId: tenantA, name: `${suffix} events`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'DRAFT' } })).id
+    const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId: eventHotel, supplierHotelId: `${suffix}-event`, status: 'MAPPED' } })
+    const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-event`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
+    const from = day(60); const to = day(63)
+
+    const event = (await call('post', '/admin/room-events', 'maker', { name: `Workflow expo ${suffix}`, eventType: 'EXHIBITION', destinationCity: 'Dubai', destinationCountry: 'AE', eventStartDate: from, eventEndDate: to, referenceRef: `REF-${suffix}` }).expect(201)).body.data
+    await call('patch', `/admin/room-events/${event.id}`, 'maker', { name: `Workflow expo edited ${suffix}` }).expect(200)
+    const submitted = (await call('post', `/admin/room-events/${event.id}/submit`, 'maker', { reason: 'Event confirmed by the organiser' })).body.data
+    expect((await owner.roomEvent.findUniqueOrThrow({ where: { id: event.id } })).status).toBe('PENDING_APPROVAL')
+    expect((await call('post', `/admin/room-event-approvals/${submitted.approval.id}/approve`, 'maker', { reason: 'Self approval' })).status).toBeGreaterThanOrEqual(400)
+    await call('post', `/admin/room-event-approvals/${submitted.approval.id}/approve`, 'checker', { reason: 'Matches the organiser confirmation' }).expect(201)
+    expect((await owner.roomEvent.findUniqueOrThrow({ where: { id: event.id } })).status).toBe('APPROVED')
+
+    const supplement = (await call('post', '/admin/event-supplements', 'maker', { roomEventId: event.id, contractId: contract.id, currency: 'AED', amountKind: 'FIXED', basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: '5000', validFrom: from, validTo: to, evidenceRef: `EVD-${suffix}` }).expect(201)).body.data
+    const asked = (await call('post', `/admin/event-supplements/${supplement.id}/submit`, 'maker', { reason: 'Rate letter received', requestId: key() })).body.data
+    expect((await call('post', `/admin/event-supplement-approvals/${asked.approval.id}/approve`, 'maker', { reason: 'Self approval' })).status).toBeGreaterThanOrEqual(400)
+    await call('post', `/admin/event-supplement-approvals/${asked.approval.id}/approve`, 'checker', { reason: 'Matches the rate letter' }).expect(201)
+    await call('post', `/admin/event-supplements/${supplement.id}/activate`, 'maker', { reason: 'Live for the event' }).expect(201)
+    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('ACTIVE')
+    expect(await owner.eventSupplementVersion.count({ where: { eventSupplementId: supplement.id } })).toBe(1)
+    await call('post', `/admin/event-supplements/${supplement.id}/suspend`, 'maker', { reason: 'Event postponed' }).expect(201)
+    expect((await owner.eventSupplement.findUniqueOrThrow({ where: { id: supplement.id } })).status).toBe('SUSPENDED')
   })
 
   it('W-01c hotel deal: draft, edit the draft and its scope, submit, approve (other user), activate, pause and resume (ADR 0089)', async () => {
