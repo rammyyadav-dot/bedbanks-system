@@ -1,4 +1,6 @@
 import { redirect } from 'next/navigation'
+import { ShieldCheck } from 'lucide-react'
+import { BrandLogo } from '../../components/brand/BrandLogo'
 import { LoginForm } from '../../components/auth/LoginForm'
 import { loadIdentity, SupplierApiError } from '../../lib/supplier-api'
 
@@ -14,12 +16,19 @@ export default async function LoginPage() {
 
   return (
     <main className="supplier-login">
-      <section className="supplier-login-card">
-        <span className="supplier-brand-mark" aria-hidden="true">f</span>
-        <p className="page-eyebrow"><i />SUPPLIER EXTRANET</p>
-        <h1>Sign in</h1>
-        <p>Use your fBeds account. The server checks supplier-organization membership after sign-in.</p>
-        <LoginForm />
+      <div className="login-scene" aria-hidden="true" />
+      <section className="supplier-login-card" aria-labelledby="login-title">
+        <div className="login-card-head">
+          <BrandLogo width={150} priority />
+          <p className="supplier-brand-tag"><i />Supplier extranet</p>
+          <svg viewBox="0 0 400 38" preserveAspectRatio="none" aria-hidden="true"><path d="M0 24 C 90 6, 230 2, 400 14 L400 38 L0 38 Z" fill="#ffffff" /><path d="M0 24 C 90 6, 230 2, 400 14" fill="none" stroke="#e3e6ea" strokeWidth="6" /></svg>
+        </div>
+        <div className="login-card-body">
+          <h1 id="login-title">Sign in</h1>
+          <p className="login-lede">Use your fabBeds account to manage your hotels, contracts and bookings.</p>
+          <LoginForm />
+          <p className="login-foot"><ShieldCheck size={16} aria-hidden="true" /><span>Access is checked against your supplier-organization membership after sign-in. Need access? Ask your fabBeds account manager.</span></p>
+        </div>
       </section>
     </main>
   )

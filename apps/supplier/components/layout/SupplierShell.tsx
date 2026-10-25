@@ -26,7 +26,7 @@ export function SupplierShell({
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userLabel={userLabel} userDetail={userDetail} organizations={organizations} active={active} />
       {mobileOpen && <button className="supplier-overlay" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
       <div className="supplier-main">
-        <Topbar onMenuClick={() => setMobileOpen(true)} initials={initials} />
+        <Topbar onMenuClick={() => setMobileOpen(true)} initials={initials} userLabel={userLabel} organizationName={active?.displayName ?? null} />
         <main id="main-content" tabIndex={-1}>{children}</main>
       </div>
     </div>
