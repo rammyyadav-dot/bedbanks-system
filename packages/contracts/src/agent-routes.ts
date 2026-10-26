@@ -11,4 +11,6 @@ export const authRoutes = {
 export const agentRoutes = {
   context: '/agent/context', destinations: '/agent/destinations', searchFacets: '/agent/search-facets', hotelImage: '/agent/hotels/:hotelId/images/:imageId/content', searchStatus: '/agent/search/status', search: '/agent/search', smartSearchParse: '/agent/search/parse', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', releaseHold: '/agent/holds/:holdId', prebook: '/agent/prebook',
   bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', fundingReceipts: '/agent/funding/receipts', audit: '/agent/audit',
+  // Quotation builder (ADR 0092): white-label proposals built from search/offer results, exported as PDF or Excel.
+  quotations: '/agent/quotations', quotation: '/agent/quotations/:id', quotationExport: '/agent/quotations/:id/export', quotationExportJob: '/agent/quotations/:id/export/:jobId',
 } as const

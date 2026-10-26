@@ -1,4 +1,4 @@
-import { routes, type AgentFundingReceiptView, type AgentFundingView, type FundingDeclareRequest, type SmartSearchParseResponse } from '@bedbanks/contracts/agent'
+import { routes, type AgentFundingReceiptView, type AgentFundingView, type CreateQuotationRequest, type FundingDeclareRequest, type Quotation, type QuotationExportFormat, type QuotationExportJob, type SmartSearchParseResponse, type UpdateQuotationRequest } from '@bedbanks/contracts/agent'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
 import { NON_EXPIRING_PATHS, announceSessionExpired } from './session-events.mjs'
@@ -86,4 +86,29 @@ export function declareFundingReceipt(tenantId: string, body: FundingDeclareRequ
 /** Smart Search (ADR 0065): the server reads search fields from pasted text. The text is not stored or logged. */
 export async function parseSmartSearch(text: string, tenantId: string): Promise<SmartSearchParseResponse> {
   return request<SmartSearchParseResponse>(routes.agent.smartSearchParse, { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify({ text }) })
+}
+
+/**
+ * Quotation builder (ADR 0092). The server re-verifies every line item's sourceOfferId and recomputes totalMinor and
+ * clientPriceMinor; nothing the client sends here is trusted as the final figure on a saved or exported quotation.
+ */
+export function createQuotation(tenantId: string, body: CreateQuotationRequest) {
+  return request<Quotation>(routes.agent.quotations, { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify(body) })
+}
+
+export function getQuotation(tenantId: string, quotationId: string) {
+  return request<Quotation>(routes.agent.quotation.replace(':id', quotationId), { headers: { 'x-fbeds-tenant-id': tenantId } })
+}
+
+export function updateQuotation(tenantId: string, quotationId: string, body: UpdateQuotationRequest) {
+  return request<Quotation>(routes.agent.quotation.replace(':id', quotationId), { method: 'PUT', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify(body) })
+}
+
+/** Starts PDF/Excel generation for a saved quotation. Returns a job to poll; the download URL is time-limited and signed server-side. */
+export function requestQuotationExport(tenantId: string, quotationId: string, format: QuotationExportFormat, idempotencyKey: string) {
+  return request<QuotationExportJob>(routes.agent.quotationExport.replace(':id', quotationId), { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify({ quotationId, format, idempotencyKey }) })
+}
+
+export function getQuotationExportJob(tenantId: string, quotationId: string, jobId: string) {
+  return request<QuotationExportJob>(routes.agent.quotationExportJob.replace(':id', quotationId).replace(':jobId', jobId), { headers: { 'x-fbeds-tenant-id': tenantId } })
 }
