@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import type { EventSupplement, Prisma } from '@prisma/client'
-import { EVENT_SUPPLEMENT_STATUSES, type EventSupplementActivationRequestInput, type EventSupplementAmountKind, type EventSupplementApprovalDecisionInput, type EventSupplementRead, type EventSupplementStatus, type EventSupplementSuspendInput, type EventSupplementTaxTreatment, type EventSupplementWrite } from '@bedbanks/contracts'
+import { EVENT_SUPPLEMENT_STATUSES, type EventSupplementActivationRequestInput, type EventSupplementAmountKind, type EventSupplementApprovalDecisionInput, type EventSupplementPreviewRequest, type EventSupplementPreviewResult, type EventSupplementRead, type EventSupplementStatus, type EventSupplementSuspendInput, type EventSupplementTaxTreatment, type EventSupplementWrite } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import { ApprovalService, type ApprovalView } from '../approvals/approval.service'
 import { dayParam, enumParam, textParam, idParam, pageParams, paged } from '../admin-operations/query-params'
+import { eventSupplementNights, eventSupplementsForPlan } from './event-supplements'
 
 /** The permission-catalogue key (S3, approval-only, refines supply.event_supplements.manage). */
 export const EVENT_SUPPLEMENT_APPROVAL_ACTION = 'event_supplement.approve'
@@ -219,5 +220,57 @@ export class EventSupplementsService {
     await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.update({ where: { id: current.id, tenantId }, data: { status: 'SUSPENDED', suspendedAt: new Date() } }))
     await this.audit.record({ tenantId, userId, action: 'event_supplement.suspended', entityType: ENTITY_TYPE, entityId: current.id, payload: { reason } })
     return this.view(await this.row(tenantId, id))
+  }
+
+  /**
+   * Rate Impact Preview (spec section 7): compares the contracted base, the event-supplement total and the adjusted net, per room per
+   * night, for a rate plan and a set of stay dates. Read-only: never mutates, never writes DailyRate. Reuses the exact pure functions
+   * (`eventSupplementsForPlan`, `eventSupplementNights`) the authoritative evaluator uses, so a preview can never disagree with what
+   * search, the tariff calendar or checkout would actually charge. Markup is not shown here: it depends on the buyer, which this
+   * contract-and-plan-level preview does not take (CLAUDE.md invariant 10: never present a figure this endpoint cannot actually compute).
+   */
+  async preview(tenantId: string, body: EventSupplementPreviewRequest): Promise<EventSupplementPreviewResult> {
+    const ratePlanId = idParam('ratePlanId', body?.ratePlanId)
+    if (!ratePlanId) throw new BadRequestException('ratePlanId is required')
+    const dates = Array.isArray(body?.stayDates) ? [...new Set(body.stayDates)].sort() : []
+    if (dates.length < 1 || dates.length > 60) throw new BadRequestException('stayDates: 1 to 60 distinct calendar days')
+    for (const date of dates) if (!dayParam('stayDates', date)) throw new BadRequestException(`stayDates: invalid day ${String(date)}`)
+    const rooms = body?.rooms
+    const adults = body?.adults
+    const children = body?.children ?? 0
+    if (!Number.isSafeInteger(rooms) || rooms < 1 || rooms > 20) throw new BadRequestException('rooms: an integer from 1 to 20')
+    if (!Number.isSafeInteger(adults) || adults < 1) throw new BadRequestException('adults: a positive integer')
+    if (!Number.isSafeInteger(children) || children < 0) throw new BadRequestException('children: a non-negative integer')
+
+    const plan = await this.prisma.withTenant(tenantId, (tx) => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, select: { id: true, contractId: true, occupancy: true, currency: true } }))
+    if (!plan) throw new NotFoundException('Rate plan not found')
+    const firstDate = new Date(`${dates[0]}T00:00:00.000Z`)
+    const lastDate = new Date(`${dates[dates.length - 1]}T00:00:00.000Z`)
+    const [rates, supplementRows] = await this.prisma.withTenant(tenantId, (tx) => Promise.all([
+      tx.dailyRate.findMany({ where: { tenantId, ratePlanId: plan.id, occupancy: plan.occupancy, stayDate: { in: dates.map((d) => new Date(`${d}T00:00:00.000Z`)) } }, select: { stayDate: true, amountMinor: true, currency: true } }),
+      tx.eventSupplement.findMany({
+        where: { tenantId, contractId: plan.contractId, status: 'ACTIVE', roomEvent: { status: 'APPROVED' }, validFrom: { lte: lastDate }, validTo: { gte: firstDate } },
+        select: { id: true, roomEventId: true, ratePlanId: true, amountKind: true, basis: true, frequency: true, amountMinor: true, percentBp: true, currency: true, validFrom: true, validTo: true, stackable: true, priority: true, roomEvent: { select: { name: true } } },
+      }),
+    ]))
+    const byDate = new Map(rates.map((r) => [day(r.stayDate), r]))
+    const missing = dates.filter((d) => !byDate.has(d))
+    if (missing.length) throw new ConflictException(`No contracted Daily Rate for: ${missing.join(', ')} (never manufactured from an event supplement)`)
+    const mismatched = rates.filter((r) => r.currency !== plan.currency)
+    if (mismatched.length) throw new ConflictException('RATE_CURRENCY_MISMATCH')
+    const nightBaseMinor = dates.map((d) => byDate.get(d)!.amountMinor)
+
+    const rules = eventSupplementsForPlan({ id: plan.id }, supplementRows)
+    if (rules.some((r) => r.currency !== plan.currency)) throw new ConflictException('EVENT_SUPPLEMENT_CURRENCY_MISMATCH')
+    const extras = eventSupplementNights(rules, dates, { adults, children }, nightBaseMinor)
+    if (extras.ambiguous) throw new ConflictException('EVENT_SUPPLEMENT_CONFLICT: two or more non-stackable rules of equal priority are eligible on the same night; review before pricing')
+
+    const nights = dates.map((d, i) => {
+      const base = nightBaseMinor[i]!
+      const extra = extras.perNight[i]!
+      return { date: d, contractedBaseMinor: base.toString(), eventSupplementMinor: extra.toString(), adjustedNetMinor: (base + extra).toString() }
+    })
+    const eventSupplements = extras.applied.map((item) => ({ roomEventId: item.roomEventId, roomEventName: item.roomEventName, amountMinor: (item.amountMinor * BigInt(rooms)).toString() }))
+    return { currency: plan.currency, nights, eventSupplements }
   }
 }

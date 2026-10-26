@@ -267,4 +267,52 @@ describe('Room Event Master and event supplements (ADR 0089)', () => {
       await api(outsider, otherTenantId).post(`/admin/event-supplement-approvals/${submitted.approval.id}/approve`, { reason: 'x' }).expect(404)
     })
   })
+
+  describe('Rate Impact Preview', () => {
+    const previewBody = (over: object = {}) => ({ ratePlanId, stayDates: [iso(10), iso(11)], rooms: 1, adults: 2, children: 0, ...over })
+    async function activatedSupplement() {
+      const approved = await approvedEvent()
+      const supplement = (await api(maker).post('/admin/event-supplements', fixedSupplement(approved.id, { ratePlanId })).expect(201)).body.data
+      const submitted = (await api(maker).post(`/admin/event-supplements/${supplement.id}/submit`, { reason: 'x' }).expect(201)).body.data
+      await api(checker).post(`/admin/event-supplement-approvals/${submitted.approval.id}/approve`, { reason: 'ok' }).expect(201)
+      const activated = (await api(maker).post(`/admin/event-supplements/${supplement.id}/activate`, { reason: 'x' }).expect(201)).body.data
+      return { approved, supplement: activated }
+    }
+
+    it('with no active supplement, the adjusted net equals the contracted base', async () => {
+      const preview = (await api(readOnly).post('/admin/event-supplements/preview', previewBody()).expect(201)).body.data
+      expect(preview).toMatchObject({
+        currency: 'AED',
+        nights: [{ date: iso(10), contractedBaseMinor: '29900', eventSupplementMinor: '0', adjustedNetMinor: '29900' }, { date: iso(11), contractedBaseMinor: '29900', eventSupplementMinor: '0', adjustedNetMinor: '29900' }],
+        eventSupplements: [],
+      })
+    })
+
+    it('reflects exactly what an ACTIVE supplement adds, never rewriting the contracted base', async () => {
+      const { supplement } = await activatedSupplement()
+      const preview = (await api(maker).post('/admin/event-supplements/preview', previewBody()).expect(201)).body.data
+      expect(preview).toMatchObject({
+        currency: 'AED',
+        nights: [{ date: iso(10), contractedBaseMinor: '29900', eventSupplementMinor: '15000', adjustedNetMinor: '44900' }, { date: iso(11), contractedBaseMinor: '29900', eventSupplementMinor: '15000', adjustedNetMinor: '44900' }],
+        eventSupplements: [{ roomEventId: supplement.roomEventId, amountMinor: '30000' }],
+      })
+      // Two rooms: the per-night fields stay per room, but the named supplement total scales with the party.
+      const twoRooms = (await api(maker).post('/admin/event-supplements/preview', previewBody({ rooms: 2 })).expect(201)).body.data
+      expect(twoRooms.eventSupplements).toMatchObject([{ amountMinor: '60000' }])
+      expect(twoRooms.nights[0]).toMatchObject({ eventSupplementMinor: '15000' })
+      await api(maker).post(`/admin/event-supplements/${supplement.id}/suspend`, { reason: 'cleanup' }).expect(201)
+    })
+
+    it('fails closed rather than manufacturing a rate for a night with none', async () => {
+      await api(maker).post('/admin/event-supplements/preview', previewBody({ stayDates: [iso(500)] })).expect(409)
+    })
+
+    it('validates ratePlanId, rooms, adults and stayDates; another tenant gets 404', async () => {
+      await api(maker).post('/admin/event-supplements/preview', previewBody({ ratePlanId: 'not-a-real-plan-id-00000000000000' })).expect(404)
+      await api(maker).post('/admin/event-supplements/preview', previewBody({ rooms: 0 })).expect(400)
+      await api(maker).post('/admin/event-supplements/preview', previewBody({ adults: 0 })).expect(400)
+      await api(maker).post('/admin/event-supplements/preview', previewBody({ stayDates: [] })).expect(400)
+      await api(outsider, otherTenantId).post('/admin/event-supplements/preview', previewBody()).expect(404)
+    })
+  })
 })

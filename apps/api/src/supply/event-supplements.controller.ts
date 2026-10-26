@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common'
 import type { Request } from 'express'
-import type { EventSupplementActivationRequestInput, EventSupplementApprovalDecisionInput, EventSupplementSuspendInput, EventSupplementWrite } from '@bedbanks/contracts'
+import type { EventSupplementActivationRequestInput, EventSupplementApprovalDecisionInput, EventSupplementPreviewRequest, EventSupplementSuspendInput, EventSupplementWrite } from '@bedbanks/contracts'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { TenantContextGuard, ACTIVE_TENANT_REQUEST_KEY } from '../agent/tenant-context.guard'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
@@ -23,6 +23,10 @@ export class EventSupplementsController {
 
   @Get('event-supplements/:eventSupplementId') @RequireSupplyPermission('supply.event_supplements.read') @UseGuards(SupplyPermissionGuard)
   get(@Req() req: Request, @Param('eventSupplementId') eventSupplementId: string) { const c = this.context(req); return this.eventSupplements.get(c.tenantId, eventSupplementId) }
+
+  /** Rate Impact Preview (spec section 7): read-only, never a mutation, so a read permission is enough. */
+  @Post('event-supplements/preview') @RequireSupplyPermission('supply.event_supplements.read') @UseGuards(SupplyPermissionGuard)
+  preview(@Req() req: Request, @Body() body: EventSupplementPreviewRequest) { const c = this.context(req); return this.eventSupplements.preview(c.tenantId, body) }
 
   @Post('event-supplements') @RequireSupplyPermission('supply.event_supplements.manage') @UseGuards(SupplyPermissionGuard)
   create(@Req() req: Request, @Body() body: EventSupplementWrite) { const c = this.context(req); return this.eventSupplements.create(c.tenantId, c.userId, body) }
