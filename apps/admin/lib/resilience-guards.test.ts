@@ -42,3 +42,9 @@ test('cookie names come from one server-env source', () => {
   assert.doesNotMatch(read('lib', 'auth', 'session.ts'), /process\.env/)
   assert.doesNotMatch(read('lib', 'auth', 'actions.ts'), /process\.env/)
 })
+
+test('rooms are paged, filtered and sorted by the API, with the hotel name joined server-side', () => {
+  const page = read('app', '(dashboard)', 'rooms', 'page.tsx')
+  assert.match(page, /getRoomTypePortfolio/)
+  assert.doesNotMatch(page, /\/supply\/hotels|\/supply\/room-types|\.filter\(/, 'no unbounded fetch or in-memory filtering')
+})
