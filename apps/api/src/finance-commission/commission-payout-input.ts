@@ -6,9 +6,12 @@ const CONTROL = /[\u0000-\u001f\u007f]/
 const ID = /^[A-Za-z0-9_.:-]{1,80}$/
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
-export interface CommissionPayoutProposal { requestId: string; agencyId: string; periodStart: string; periodEnd: string; currency: string; grossBookedMinor: bigint }
+export interface CommissionPayoutProposal { requestId: string; agencyId: string; periodStart: string; periodEnd: string; currency: string }
 
-/** Validates and normalises a proposal. Pure, so every refusal is unit-tested without a database. */
+/**
+ * Validates and normalises a proposal. Pure, so every refusal is unit-tested without a database.
+ * Gross booked volume is never accepted here: it is derived server-side from posted booking revenue (ADR 0098 update), so a caller cannot inflate its own commission.
+ */
 export function parseCommissionPayoutProposal(body: unknown): CommissionPayoutProposal {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw bad('A request body is required')
   const b = body as Record<string, unknown>
@@ -22,10 +25,8 @@ export function parseCommissionPayoutProposal(body: unknown): CommissionPayoutPr
   if (Date.parse(periodEnd) <= Date.parse(periodStart)) throw bad('periodEnd must be after periodStart')
   const currency = typeof b.currency === 'string' ? b.currency.trim().toUpperCase() : ''
   if (!/^[A-Z]{3}$/.test(currency)) throw bad('currency must be an ISO-4217 alpha code')
-  const gross = typeof b.grossBookedMinor === 'string' ? b.grossBookedMinor.trim() : ''
-  if (!/^(0|[1-9]\d{0,17})$/.test(gross)) throw bad('grossBookedMinor must be a non-negative whole number of minor units (digits only)')
   if (CONTROL.test(JSON.stringify(b))) throw bad('request body contains control characters')
-  return { requestId, agencyId, periodStart, periodEnd, currency, grossBookedMinor: BigInt(gross) }
+  return { requestId, agencyId, periodStart, periodEnd, currency }
 }
 
 /** A rejection reason (3 to 500 printable characters). */

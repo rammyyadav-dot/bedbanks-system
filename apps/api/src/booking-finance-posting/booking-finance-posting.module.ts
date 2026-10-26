@@ -18,6 +18,6 @@ import { BookingFinancePostingWorker } from './booking-finance-posting.worker'
   imports: [AuthModule, ApprovalsModule],
   controllers: [BookingFinancePostingController, SupplierSettlementController, SupplierTermsController],
   providers: [BookingFinancePostingDatabase, BookingFinancePostingService, BookingFinancePostingBacklogService, BookingRevenueService, BookingPayablesService, SupplierSettlementService, SupplierTermsService, BookingFinancePostingWorker],
-  exports: [BookingFinancePostingService],
+  exports: [BookingFinancePostingService, BookingFinancePostingDatabase],
 })
 export class BookingFinancePostingModule {}

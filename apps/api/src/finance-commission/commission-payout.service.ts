@@ -6,8 +6,10 @@ import { PrismaService } from '../database/prisma.service'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { sanitizeAuditPayload } from '../agent/audit-payload'
 import { enumParam, idParam, pageParams, paged } from '../admin-operations/query-params'
-import { calculateCommission } from './commission-tier'
+import { BookingFinancePostingDatabase } from '../booking-finance-posting/booking-finance-posting.database'
 import { parseCommissionPayoutProposal, parseDecisionReason } from './commission-payout-input'
+import { createCommissionPayoutRow } from './commission-payout-core'
+import { commissionGrossBookedVolume } from './commission-volume'
 
 const refuse = (status: 400 | 403 | 404 | 409 | 503, message: string, code: string) => {
   const body = { message, code }
@@ -33,7 +35,7 @@ type Row = AgencyCommissionPayout
  */
 @Injectable()
 export class CommissionPayoutService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly postings: BookingFinancePostingDatabase) {}
 
   private assertEnabled(env: NodeJS.ProcessEnv = process.env) {
     if (env.COMMISSION_PAYOUTS_ENABLED !== 'true') throw refuse(503, 'Commission payouts are not enabled on this deployment.', COMMISSION_PAYOUT_FAILURE.disabled)
@@ -71,37 +73,28 @@ export class CommissionPayoutService {
     return { agency, walletId: wallet[0].id }
   }
 
+  /**
+   * Proposes a payout for a closed period. `grossBookedMinor` is never read from the request: it is derived here, inside
+   * the same tenant transaction, from posted booking revenue (`commission-volume.ts`), so a caller can at most ask for a
+   * period and currency — never for an amount.
+   */
   async propose(tenantId: string, userId: string, body: unknown): Promise<AgencyCommissionPayoutView> {
     this.assertEnabled()
     const p = parseCommissionPayoutProposal(body)
     const replay = async () => {
       const existing = await this.prisma.withTenant(tenantId, (tx) => tx.agencyCommissionPayout.findFirst({ where: { tenantId, requestId: p.requestId } }))
       if (!existing) return null
-      if (existing.agencyId !== p.agencyId || isoDate(existing.periodStart) !== p.periodStart || isoDate(existing.periodEnd) !== p.periodEnd || existing.grossBookedMinor.toString() !== p.grossBookedMinor.toString()) {
+      if (existing.agencyId !== p.agencyId || isoDate(existing.periodStart) !== p.periodStart || isoDate(existing.periodEnd) !== p.periodEnd || existing.currency !== p.currency) {
         throw refuse(409, 'This requestId was already used for a different commission payout', COMMISSION_PAYOUT_FAILURE.requestReused)
       }
       return this.view(existing, userId)
     }
     const earlier = await replay()
     if (earlier) return earlier
-    const { tier, commissionBp, amountMinor } = calculateCommission(p.grossBookedMinor)
     try {
       return await this.prisma.withTenant(tenantId, async (tx) => {
-        const agency = await tx.agency.findFirst({ where: { id: p.agencyId, tenantId }, select: { id: true, code: true } })
-        if (!agency) throw refuse(404, 'Agency not found', COMMISSION_PAYOUT_FAILURE.agencyNotFound)
-        const overlap = await tx.agencyCommissionPayout.findFirst({ where: { tenantId, agencyId: p.agencyId, periodStart: new Date(p.periodStart), periodEnd: new Date(p.periodEnd) } })
-        if (overlap) throw refuse(409, 'A commission payout already exists for this agency and period', COMMISSION_PAYOUT_FAILURE.periodOverlap)
-        const last = await tx.agencyCommissionPayout.aggregate({ where: { tenantId, agencyId: p.agencyId }, _max: { seq: true } })
-        const seq = (last._max.seq ?? 0) + 1
-        const created = await tx.agencyCommissionPayout.create({
-          data: {
-            tenantId, agencyId: p.agencyId, seq, number: `COM-${agency.code}-P${seq}`, periodStart: new Date(p.periodStart), periodEnd: new Date(p.periodEnd),
-            currency: p.currency, grossBookedMinor: p.grossBookedMinor, tier, commissionBp, amountMinor, requestId: p.requestId, proposedById: userId,
-          },
-        })
-        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'finance.commission_payout.proposed', entityType: 'agency_commission_payout', entityId: created.id, payload: sanitizeAuditPayload({
-          agencyId: p.agencyId, number: created.number, periodStart: p.periodStart, periodEnd: p.periodEnd, currency: p.currency, grossBookedMinor: p.grossBookedMinor.toString(), tier, commissionBp, amountMinor: amountMinor.toString(),
-        }) } })
+        const grossBookedMinor = await commissionGrossBookedVolume(tx, this.postings, tenantId, p.agencyId, p.currency, p.periodStart, p.periodEnd)
+        const created = await createCommissionPayoutRow(tx, { tenantId, agencyId: p.agencyId, periodStart: p.periodStart, periodEnd: p.periodEnd, currency: p.currency, requestId: p.requestId, grossBookedMinor, actor: { kind: 'USER', userId } })
         return this.view(created, userId)
       })
     } catch (error) {
