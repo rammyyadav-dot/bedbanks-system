@@ -34,3 +34,43 @@ export interface SmartSearchParseResponse {
   unresolved: SmartSearchField[]
   notes: string[]
 }
+
+// Hotel search filter validation (ADR 0075). GET routes.agentLocal.searchFilters validates and normalises the filter query
+// parameters of the Agent portal. It is served by the portal itself (not the API behind /api/v1), is stateless, reads no tenant
+// data and authorises nothing: tenant identity and the `agent.search` permission are still enforced by POST routes.agent.search.
+
+/** Bounds enforced on every search filter parameter. Shared so the portal, the API and their tests cannot drift apart. */
+export const HOTEL_SEARCH_FILTER_LIMITS = {
+  /** Largest accepted price, in major units of the search currency. */
+  maxPriceMajor: 1_000_000,
+  maxPage: 10_000,
+  defaultPage: 1,
+  maxLimit: 100,
+  defaultLimit: 25,
+  maxRadiusKm: 200,
+  maxTextLength: 150,
+  /** Raw text above this is refused before any normalisation work is done. */
+  maxRawTextLength: 600,
+} as const
+
+export const HOTEL_SEARCH_FILTERS_ERROR_CODE = 'INVALID_SEARCH_FILTERS'
+
+/** Validated, normalised filters. Prices are integer minor units of `currency` (never floats). */
+export interface HotelSearchFilters {
+  stars?: number[]
+  currency?: string
+  minPriceMinor?: number
+  maxPriceMinor?: number
+  latitude?: number
+  longitude?: number
+  radiusKm?: number
+  page: number
+  limit: number
+  /** Zero-based offset derived from page and limit, matching SearchCriteria.offset. */
+  offset: number
+  destination?: string
+  hotelName?: string
+}
+
+/** One rejected parameter. The message never repeats the rejected value. */
+export interface HotelSearchFilterIssue { field: string; message: string }

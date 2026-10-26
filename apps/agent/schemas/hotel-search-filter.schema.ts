@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { majorUnitsToMinor, minorUnitExponent } from '@bedbanks/money'
+import { HOTEL_SEARCH_FILTER_LIMITS, type HotelSearchFilterIssue, type HotelSearchFilters } from '@bedbanks/contracts/agent'
 import type { SearchCriteria } from '@bedbanks/domain'
 
 /**
@@ -13,19 +14,8 @@ import type { SearchCriteria } from '@bedbanks/domain'
  * - Text is normalised and checked against an allow-list. That is input hygiene only; the database defence stays bind parameters.
  */
 
-export const HOTEL_SEARCH_FILTER_LIMITS = {
-  /** Largest accepted price, in major units of the search currency. */
-  maxPriceMajor: 1_000_000,
-  maxPage: 10_000,
-  defaultPage: 1,
-  maxLimit: 100,
-  defaultLimit: 25,
-  maxRadiusKm: 200,
-  maxTextLength: 150,
-  /** Raw text above this is refused before any normalisation work is done. */
-  maxRawTextLength: 600,
-} as const
 const L = HOTEL_SEARCH_FILTER_LIMITS
+export { HOTEL_SEARCH_FILTER_LIMITS }
 
 const ONCE = 'Provide this parameter once.'
 const PRICE_FORMAT = "Enter the price as a plain amount in the selected currency, using no more decimal places than that currency allows."
@@ -76,22 +66,6 @@ const rawSchema = z.object({
   hotelName: text('Hotel name'),
 })
 // Unknown keys (tenantId, agencyId, tracking parameters) are stripped by z.object, never trusted.
-
-export type HotelSearchFilters = {
-  stars?: number[]
-  currency?: string
-  minPriceMinor?: number
-  maxPriceMinor?: number
-  latitude?: number
-  longitude?: number
-  radiusKm?: number
-  page: number
-  limit: number
-  /** Zero-based offset derived from page and limit, matching SearchCriteria.offset. */
-  offset: number
-  destination?: string
-  hotelName?: string
-}
 
 export const hotelSearchFilterSchema = rawSchema.transform((raw, ctx): HotelSearchFilters => {
   const fail = (path: string, message: string) => { ctx.addIssue({ code: 'custom', path: [path], message }) }
@@ -162,11 +136,10 @@ export const hotelSearchFilterSchema = rawSchema.transform((raw, ctx): HotelSear
   return out
 })
 
-export type HotelSearchFilterError = { field: string; message: string }
 /** `status` is the HTTP status a route handler should answer with. Messages never echo the rejected input. */
 export type HotelSearchFilterResult =
   | { ok: true; value: HotelSearchFilters }
-  | { ok: false; status: 400; errors: HotelSearchFilterError[] }
+  | { ok: false; status: 400; errors: HotelSearchFilterIssue[] }
 
 const SEARCH_FILTER_KEYS = ['minPrice', 'maxPrice', 'currency', 'stars', 'latitude', 'longitude', 'radius', 'page', 'limit', 'destination', 'hotelName'] as const
 
