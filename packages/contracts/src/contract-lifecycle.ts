@@ -8,7 +8,7 @@
  */
 export type ContractLifecycleStatus = 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
 export type ContractApprovalKind = 'ACTIVATE' | 'AMEND'
-export type ContractApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+export type ContractApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED' | 'EXPIRED'
 
 /** ADR 0067 F-10: exactly one of percent, amount or nights. A NO_SHOW rule (days 0, one per set) applies when the guest does not arrive. `kind` defaults to CANCELLATION when sent. */
 export interface ContractCancellationTerm { policySet: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }

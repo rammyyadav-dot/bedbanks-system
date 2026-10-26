@@ -9,6 +9,7 @@ import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { PERMISSIONS } from '../agent/supplier.port'
 import { RequireDepartmentPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { FundingService } from './funding.service'
+import { RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 type Q = Record<string, unknown>
 
@@ -37,7 +38,7 @@ export class FundingController {
   @Post('receipts/:receiptId/clear-compliance') @HttpCode(200) @RequireDepartmentPermission('funding.manage') @UseGuards(SupplyPermissionGuard)
   clearCompliance(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('receiptId') receiptId: string, @Body() body: FundingNoteRequest) { return this.funding.clearCompliance(tenantId, identity.user.id, receiptId, body) }
 
-  @Post('receipts/:receiptId/post') @HttpCode(200) @RequireDepartmentPermission('funding.manage') @UseGuards(SupplyPermissionGuard)
+  @Post('receipts/:receiptId/post') @HttpCode(200) @RequireDepartmentPermission('funding.manage') @RequireStepUp('funding.manage', 'receiptId') @UseGuards(SupplyPermissionGuard, StepUpGuard)
   post(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('receiptId') receiptId: string) { return this.funding.post(tenantId, identity.user.id, receiptId) }
 
   @Post('receipts/:receiptId/reject') @HttpCode(200) @RequireDepartmentPermission('funding.manage') @UseGuards(SupplyPermissionGuard)

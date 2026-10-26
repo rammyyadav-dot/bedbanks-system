@@ -81,7 +81,7 @@ export interface HotelDealIssue { code: string; field?: string; message: string;
 
 export interface HotelDealApprovalView {
   id: string
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED' | 'EXPIRED'
   requestedById: string
   decidedById: string | null
   decisionReason: string | null

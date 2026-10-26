@@ -9,6 +9,7 @@ import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { PERMISSIONS } from '../agent/supplier.port'
 import { RequireDepartmentPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { BankReconciliationService } from './bank-reconciliation.service'
+import { RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 type Q = Record<string, unknown>
 
@@ -34,6 +35,6 @@ export class BankReconciliationController {
   @Get('exceptions') @RequirePermission(PERMISSIONS.viewFinance) @UseGuards(AgentRbacGuard)
   exceptions(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.bank.listExceptions(tenantId, identity.user.id, query) }
 
-  @Post('exceptions/:exceptionId/resolve') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.resolve') @UseGuards(SupplyPermissionGuard)
+  @Post('exceptions/:exceptionId/resolve') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.resolve') @RequireStepUp('finance.reconcile.resolve', 'exceptionId') @UseGuards(SupplyPermissionGuard, StepUpGuard)
   resolve(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('exceptionId') exceptionId: string, @Body() body: BankExceptionResolveRequest) { return this.bank.resolveException(tenantId, identity.user.id, exceptionId, body) }
 }

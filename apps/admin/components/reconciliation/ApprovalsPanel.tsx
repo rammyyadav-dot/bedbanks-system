@@ -9,8 +9,9 @@ import {
   cancelReconciliationApproval, decideReconciliationApproval, executeReconciliationApproval, getReconciliationApprovals, requestReconciliationApproval,
 } from '@/lib/data/operations'
 import { describeApiError } from '@/lib/api/describe-error'
+import { useStepUp } from '@/components/common/StepUpDialog'
 
-const tone = (s: ReconciliationApprovalView['status']) => (s === 'APPROVED' ? 'ok' : s === 'REJECTED' || s === 'CANCELLED' ? 'bad' : s === 'EXECUTED' ? 'ok' : 'warn') as 'ok' | 'bad' | 'warn'
+const tone = (s: ReconciliationApprovalView['status']) => (s === 'APPROVED' ? 'ok' : s === 'REJECTED' || s === 'CANCELLED' || s === 'EXPIRED' ? 'bad' : s === 'EXECUTED' ? 'ok' : 'warn') as 'ok' | 'bad' | 'warn'
 
 /**
  * Maker-checker for a reconciliation run (ADR 0017). Every button only calls the API; which buttons show comes from the
@@ -23,6 +24,7 @@ export function ApprovalsPanel({ onExecuted }: { onExecuted: () => void }) {
   const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const inFlight = useRef(false)
+  const { confirm, dialog } = useStepUp()
 
   async function act(key: string, work: () => Promise<string>) {
     if (inFlight.current) return
@@ -35,6 +37,7 @@ export function ApprovalsPanel({ onExecuted }: { onExecuted: () => void }) {
 
   return (
     <section className="workspace-panel" style={{ padding: '12px 18px', marginBottom: 12 }} aria-labelledby="recon-approvals" data-testid="recon-approvals">
+      {dialog}
       <h2 id="recon-approvals">Approvals</h2>
       <p style={{ color: 'var(--c-3f565c)', fontSize: 12 }}>A second person approves a run before it executes. The approver cannot be the requester, and each approval runs once with the parameters it was approved with.</p>
       <form onSubmit={(e) => { e.preventDefault(); void act('request', async () => { await requestReconciliationApproval({ requestId: crypto.randomUUID(), reason }); setReason(''); return 'Approval requested.' }) }} style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
@@ -56,7 +59,7 @@ export function ApprovalsPanel({ onExecuted }: { onExecuted: () => void }) {
                   <td style={{ padding: '8px 10px' }}>{a.decisionReason ? `${a.decisionReason}${a.decidedAt ? ` · ${when(a.decidedAt)}` : ''}` : '—'}</td>
                   <td style={{ padding: '8px 10px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {a.canDecide && <>
-                      <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const r = decideReason('approve'); if (r) void act(`a-${a.id}`, async () => { await decideReconciliationApproval(a.id, 'approve', r); return 'Approved.' }) }}>Approve</button>
+                      <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const r = decideReason('approve'); if (r) confirm({ title: 'Approve reconciliation run', description: 'Approve this reconciliation run. It still needs to be executed, and runs once with the parameters it was requested with.', run: async (password) => { await decideReconciliationApproval(a.id, 'approve', r, password); setNotice({ tone: 'ok', text: 'Approved.' }); reload() } }) }}>Approve</button>
                       <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const r = decideReason('reject'); if (r) void act(`r-${a.id}`, async () => { await decideReconciliationApproval(a.id, 'reject', r); return 'Rejected.' }) }}>Reject</button>
                     </>}
                     {a.canCancel && <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => void act(`c-${a.id}`, async () => { await cancelReconciliationApproval(a.id); return 'Request cancelled.' })}>Cancel request</button>}

@@ -1,6 +1,6 @@
 // Supplier statement reconciliation and the dispute queue (ADR 0070). No mock or fallback data lives here.
 import {
-  routes, type Paged, type ReconDecisionRequest, type ReconExceptionDetail, type ReconExceptionSummary, type ReconExceptionView, type ReconProposeRequest, type ReconRunRequest, type ReconRunView,
+  routes, STEP_UP_FIELD, type Paged, type ReconDecisionRequest, type ReconExceptionDetail, type ReconExceptionSummary, type ReconExceptionView, type ReconProposeRequest, type ReconRunRequest, type ReconRunView,
   type StatementDetail, type StatementImportRequest, type StatementView,
 } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
@@ -20,5 +20,5 @@ export const getReconExceptions = (p: Params) => apiRequest<Paged<ReconException
 export const getReconSummary = () => apiRequest<ReconExceptionSummary>(r.exceptionSummary)
 export const getReconException = (id: string) => apiRequest<ReconExceptionDetail>(fill(r.exception, 'exceptionId', id))
 export const proposeReconDecision = (id: string, body: ReconProposeRequest) => post<ReconExceptionDetail>(fill(r.propose, 'exceptionId', id), body)
-export const approveReconDecision = (id: string, body: ReconDecisionRequest) => post<ReconExceptionDetail>(fill(r.approve, 'exceptionId', id), body)
+export const approveReconDecision = (id: string, body: ReconDecisionRequest, stepUpPassword: string) => post<ReconExceptionDetail>(fill(r.approve, 'exceptionId', id), { ...body, [STEP_UP_FIELD]: stepUpPassword })
 export const rejectReconDecision = (id: string, body: ReconDecisionRequest) => post<ReconExceptionDetail>(fill(r.reject, 'exceptionId', id), body)
