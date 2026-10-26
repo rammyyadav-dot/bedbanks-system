@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { hashPassword } from '../src/auth/utils/password'
+import { STEP_UP_FIELD } from '@bedbanks/contracts'
 import { PrismaService } from '../src/database/prisma.service'
 import { provisionApiRuntimeRole, API_RUNTIME_LOGIN_ROLE } from '../src/database/api-runtime-role'
 import { loadActiveMarkupRules, loadActiveMarkupRulesInTx } from '../src/supply/markup-rules.loader'
@@ -77,7 +78,7 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
   const draft = async (patch: object = {}, who = 'maker') => (await call('post', '', who, { scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: day(-30), reason: 'Standard margin on NET contracts', ...patch }).expect(201)).body.data
   const activate = async (rule: { id: string }, maker = 'maker', checker = 'checker') => {
     const requested = (await call('post', `/${rule.id}/request-activation`, maker, { requestId: `${suffix}-${++seq}`, reason: 'Approved commercial policy' }).expect(200)).body.data
-    await call('post', `/approvals/${requested.approval.id}/approve`, checker, { reason: 'Matches the signed policy' }).expect(200)
+    await call('post', `/approvals/${requested.approval.id}/approve`, checker, { reason: 'Matches the signed policy', [STEP_UP_FIELD]: password }).expect(200)
     return (await call('post', `/approvals/${requested.approval.id}/execute`, maker).expect(200)).body.data
   }
   const clearRules = () => prisma.commercialMarkupRule.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
@@ -149,10 +150,10 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     const rule = await draft()
     const requested = (await call('post', `/${rule.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'Standard margin' }).expect(200)).body.data
     expect(requested.approval).toMatchObject({ status: 'PENDING', canDecide: false, canCancel: true })
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'self' }).expect(403)
-    await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(409) // not approved yet
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'self', [STEP_UP_FIELD]: password }).expect(403)
+    await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(403) // not approved yet: refused by the direct-call guard before the service (ADR 0095)
     expect(offerFor((await search().expect(201)).body, hotelA)).toBeUndefined()
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'ok', [STEP_UP_FIELD]: password }).expect(200)
     const done = (await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(200)).body.data
     expect(done.rule).toMatchObject({ status: 'ACTIVE' }); expect(done.replacedRuleId).toBeNull()
     const offer = offerFor((await search().expect(201)).body, hotelA)!
@@ -271,7 +272,7 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     expect((await call('get', '', 'bmaker').expect(200)).body.data.total).toBe(0)
     await call('post', `/${rule.id}/retire`, 'bmaker').expect(404)
     await call('post', `/${rule.id}/request-activation`, 'bmaker', { requestId: 'x', reason: 'x' }).expect(404)
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'bmaker', { reason: 'x' }).expect(404)
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'bmaker', { reason: 'x', [STEP_UP_FIELD]: password }).expect(404)
     await call('post', `/approvals/${requested.approval.id}/execute`, 'bmaker').expect(404)
     const bRule = (await call('post', '', 'bmaker', { scope: 'TENANT_DEFAULT', basisPoints: 5_000, validFrom: day(-1), reason: 'tenant B only' }).expect(201)).body.data
     expect(bRule.status).toBe('DRAFT')
@@ -283,15 +284,15 @@ describe('commercial markup rules (PostgreSQL, HTTP, two tenants)', () => {
     const first = (await call('post', `/${rule.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'ok' }).expect(200)).body.data
     await call('post', `/${rule.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'second' }).expect(409)
     await call('post', `/approvals/${first.approval.id}/reject`, 'checker', { reason: 'not yet' }).expect(200)
-    await call('post', `/approvals/${first.approval.id}/execute`, 'maker').expect(409)
+    await call('post', `/approvals/${first.approval.id}/execute`, 'maker').expect(403) // rejected, so never approved: refused by the direct-call guard (ADR 0095)
     const again = (await call('post', `/${rule.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'again' }).expect(200)).body.data
-    await call('post', `/approvals/${again.approval.id}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    await call('post', `/approvals/${again.approval.id}/approve`, 'checker', { reason: 'ok', [STEP_UP_FIELD]: password }).expect(200)
     await call('post', `/approvals/${again.approval.id}/execute`, 'maker').expect(200)
-    await call('post', `/approvals/${again.approval.id}/execute`, 'checker').expect(409) // single use
+    await call('post', `/approvals/${again.approval.id}/execute`, 'checker').expect(403) // single use: an executed approval is no longer APPROVED, so the direct-call guard refuses it (ADR 0095)
     // a retired rule cannot be activated by an approval that was granted earlier
     const second = await draft({ basisPoints: 700 })
     const req = (await call('post', `/${second.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'ok' }).expect(200)).body.data
-    await call('post', `/approvals/${req.approval.id}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    await call('post', `/approvals/${req.approval.id}/approve`, 'checker', { reason: 'ok', [STEP_UP_FIELD]: password }).expect(200)
     await call('post', `/${second.id}/retire`, 'maker').expect(200)
     await call('post', `/approvals/${req.approval.id}/execute`, 'maker').expect(409)
     expect((await prisma.approvalRequest.findUniqueOrThrow({ where: { id: req.approval.id } })).status).toBe('APPROVED') // released for the owner to deal with

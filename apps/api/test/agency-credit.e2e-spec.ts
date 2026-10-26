@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { hashPassword } from '../src/auth/utils/password'
+import { STEP_UP_FIELD } from '@bedbanks/contracts'
 import { PrismaService } from '../src/database/prisma.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
 
@@ -62,7 +63,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
   /** Request by admin, approve by checker, apply by admin. */
   const setLimit = async (agencyId: string, body: { currency?: string; limitMinor: string | null }) => {
     const made = (await ask(agencyId, 'admin', body).expect(200)).body.data.credit.open
-    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
+    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked', [STEP_UP_FIELD]: password }).expect(200)
     return (await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(200)).body.data
   }
   let holdSeq = 0
@@ -133,16 +134,16 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     expect(await credit(a)).toEqual({ limit: null, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '0', overdue: { state: 'CURRENT', unpaidMinor: '0', oldestUnpaidAt: null, daysOverdue: 0 }, nearLimit: false, open: null })
     const made = (await ask(a, 'admin', { currency: 'AED', limitMinor: '100000' }).expect(200)).body.data.credit.open
     expect(made).toMatchObject({ status: 'PENDING', currency: 'AED', limitMinor: '100000', previousLimitMinor: null, canDecide: false, canCancel: true })
-    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'admin', { reason: 'Self' }).expect(403)
-    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'reader', { reason: 'No' }).expect(403)
-    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'badmin', { reason: 'Other tenant' }).expect(404)
-    await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(409) // not approved
+    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'admin', { reason: 'Self', [STEP_UP_FIELD]: password }).expect(403)
+    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'reader', { reason: 'No', [STEP_UP_FIELD]: password }).expect(403)
+    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'badmin', { reason: 'Other tenant', [STEP_UP_FIELD]: password }).expect(404)
+    await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(403) // not approved: refused by the direct-call guard before the service (ADR 0095)
     expect((await credit(a)).limit).toBeNull()
-    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
+    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked', [STEP_UP_FIELD]: password }).expect(200)
     const done = (await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(200)).body.data
     expect(done.approval.status).toBe('EXECUTED')
     expect(done.agency.credit).toEqual({ limit: { currency: 'AED', limitMinor: '100000' }, currency: 'AED', balanceMinor: '0', pendingMinor: '0', committedMinor: '0', availableMinor: '100000', overdue: { state: 'CURRENT', unpaidMinor: '0', oldestUnpaidAt: null, daysOverdue: 0 }, nearLimit: false, open: null })
-    await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(409) // single use
+    await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(403) // single use: an executed approval is no longer APPROVED, so the direct-call guard refuses it (ADR 0095)
     const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, action: 'agency.credit_limit.changed', entityId: a } })
     expect(events).toHaveLength(1); expect(events[0].userId).toBe(ids.admin)
     expect(events[0].payload).toMatchObject({ approvalId: made.id, currency: 'AED', limitMinor: '100000', previousLimitMinor: null })
@@ -167,7 +168,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     await ask(a, 'admin', { limitMinor: '5000', currency: 'AED' }).expect(409) // same limit again
     // a change made after the request but before apply voids it
     const made = (await ask(a, 'admin', { limitMinor: '9000', currency: 'AED' }).expect(200)).body.data.credit.open
-    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
+    await api('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked', [STEP_UP_FIELD]: password }).expect(200)
     await prisma.agencyCreditLimit.update({ where: { agencyId: a }, data: { limitMinor: 7000n } })
     expect((await api('post', `${base}/credit-approvals/${made.id}/execute`, 'admin', {}).expect(409)).body.error.code).toBe('AGENCY_CREDIT_CHANGED_AFTER_REQUEST')
     expect((await credit(a)).limit.limitMinor).toBe('7000')

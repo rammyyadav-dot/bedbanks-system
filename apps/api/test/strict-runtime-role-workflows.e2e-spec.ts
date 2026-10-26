@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { hashPassword } from '../src/auth/utils/password'
+import { STEP_UP_FIELD } from '@bedbanks/contracts'
 import { API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole, verifyApiRuntimeRole } from '../src/database/api-runtime-role'
 import { RUNTIME_ROLE_GRANTS } from '../src/database/runtime-role-contract'
 
@@ -128,8 +129,8 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     const base = '/admin/commercial/markups'
     const rule = (await call('post', base, 'maker', { scope: 'TENANT_DEFAULT', basisPoints: 1_000, validFrom: day(-30), reason: 'Standard margin on NET contracts' }).expect(201)).body.data
     const requested = (await call('post', `${base}/${rule.id}/request-activation`, 'maker', { requestId: key(), reason: 'Approved commercial policy' }).expect(200)).body.data
-    await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'Self approval' }).expect(403)
-    await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches the signed policy' }).expect(200)
+    await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'Self approval', [STEP_UP_FIELD]: password }).expect(403)
+    await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches the signed policy', [STEP_UP_FIELD]: password }).expect(200)
     await call('post', `${base}/approvals/${requested.approval.id}/execute`, 'maker').expect(200)
     expect((await owner.commercialMarkupRule.findUniqueOrThrow({ where: { id: rule.id } })).status).toBe('ACTIVE')
     await call('post', `${base}/${rule.id}/retire`, 'maker').expect(200)
@@ -143,8 +144,8 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
       const base = '/admin/commercial/fx-rates'
       const rate = (await call('post', base, 'maker', { baseCurrency: 'AED', quoteCurrency: 'USD', rate: '0.27229', bufferBp: 100, reason: 'Treasury rate for the week' }).expect(201)).body.data
       const requested = (await call('post', `${base}/${rate.id}/request-activation`, 'maker', { requestId: key(), reason: 'Weekly treasury rate' }).expect(200)).body.data
-      await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'Self approval' }).expect(403)
-      await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches treasury' }).expect(200)
+      await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'Self approval', [STEP_UP_FIELD]: password }).expect(403)
+      await call('post', `${base}/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches treasury', [STEP_UP_FIELD]: password }).expect(200)
       await call('post', `${base}/approvals/${requested.approval.id}/execute`, 'maker').expect(200)
       expect((await owner.fxRate.findUniqueOrThrow({ where: { id: rate.id } })).status).toBe('ACTIVE')
       await call('post', `${base}/${rate.id}/retire`, 'maker').expect(200)
@@ -245,7 +246,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     const change = async (verb: 'SUSPEND' | 'REINSTATE') => {
       const asked = (await call('post', `/admin/clients/agencies/${agency.id}/request-suspension-change`, 'maker', { change: verb, requestId: key(), reason: 'Unpaid invoices escalated by finance' }).expect(200)).body.data.suspension.id
       const base = '/admin/clients/agencies/suspension-approvals'
-      await call('post', `${base}/${asked}/approve`, 'checker', { reason: 'Reviewed the ledger summary' }).expect(200)
+      await call('post', `${base}/${asked}/approve`, 'checker', { reason: 'Reviewed the ledger summary', [STEP_UP_FIELD]: password }).expect(200)
       await call('post', `${base}/${asked}/execute`, 'maker', {}).expect(200)
     }
     await change('SUSPEND')
@@ -258,7 +259,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     const base = '/admin/clients/agencies'
     const step = async (body: object) => {
       const made = (await call('post', `${base}/${ids.agency}/request-credit-limit`, 'maker', { requestId: key(), reason: 'Agreed with finance', ...body }).expect(200)).body.data.credit.open
-      await call('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked' }).expect(200)
+      await call('post', `${base}/credit-approvals/${made.id}/approve`, 'checker', { reason: 'Checked', [STEP_UP_FIELD]: password }).expect(200)
       return (await call('post', `${base}/credit-approvals/${made.id}/execute`, 'maker', {}).expect(200)).body.data
     }
     const first = (await step({ currency: 'AED', limitMinor: '100000' })).agency.credit
