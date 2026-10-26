@@ -12,6 +12,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { describeApiError } from '@/lib/api/describe-error'
+import { basisPointsToPercent } from '@/lib/promotions'
 import {
   activateEventSupplement, archiveRoomEvent, cancelEventSupplementApproval, cancelRoomEvent, cancelRoomEventApproval, createEventSupplement,
   decideEventSupplementApproval, decideRoomEventApproval, executeEventSupplementApproval, getEventSupplements, getRoomEvent, previewEventSupplements,
@@ -116,7 +117,7 @@ function EventSupplements({ roomEventId }: { roomEventId: string }) {
               <thead><tr>{['Amount', 'Scope', 'Valid', 'Status', 'Version', 'Evidence', 'Approval', 'Actions'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
               <tbody>{d.items.map((s: EventSupplementView) => (
                 <tr key={s.id} data-testid={`event-supplement-${s.status.toLowerCase()}`}>
-                  <td style={td}>{s.amountKind === 'FIXED' ? <><Money minor={s.amountMinor} currency={s.currency} /> <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{s.basis} / {s.frequency}</span></> : <>{(s.percentBp! / 100).toFixed(2)}% of base</>}</td>
+                  <td style={td}>{s.amountKind === 'FIXED' ? <><Money minor={s.amountMinor} currency={s.currency} /> <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{s.basis} / {s.frequency}</span></> : <>{basisPointsToPercent(s.percentBp!)}% of base</>}</td>
                   <td style={td}>{s.ratePlanId ? <span title={s.ratePlanId}>one rate plan</span> : 'hotel-wide (contract)'}{s.stackable ? <div style={{ fontSize: 10 }}>stackable, priority {s.priority}</div> : <div style={{ fontSize: 10 }}>exclusive, priority {s.priority}</div>}</td>
                   <td style={td}>{s.validFrom} → {s.validTo}</td>
                   <td style={td}><Tag tone={supplementTone(s.status)}>{s.status}</Tag></td>
