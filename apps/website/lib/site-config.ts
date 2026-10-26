@@ -12,12 +12,12 @@ const resolved = resolveWebsiteConfig({
 })
 
 export const siteConfig = {
-  brandName: 'fBeds',
-  legalName: 'fBeds',
+  brandName: 'fabbeds',
+  legalName: 'fabbeds',
   siteUrl: resolved.siteUrl,
   contactEmail: resolved.contactEmail,
-  defaultTitle: 'fBeds | Global B2B Hotel Distribution',
-  defaultDescription: 'fBeds is building a modern global B2B hotel distribution ecosystem for hotels, DMCs and travel professionals.',
+  defaultTitle: 'fabbeds | The World\'s Wholesale Marketplace',
+  defaultDescription: 'fabbeds is building a connected B2B hotel distribution marketplace for hotels, accommodation suppliers, DMCs, bedbanks, travel agencies and tour operators.',
   analyticsEnabled: process.env.NODE_ENV === 'production',
   portals: resolved.portals,
 } as const

@@ -1,4 +1,4 @@
-# fBeds public website
+# fabbeds public website
 
 The website is the public marketing, portal-routing and qualified-enquiry surface. It does not implement authentication or operational portal features.
 
@@ -64,7 +64,7 @@ The privacy page is a draft (legal approval BLOCKED; see `docs/website-privacy-r
 
 - `pnpm --filter @bedbanks/website test`: Node unit and security tests (fails if no tests are found).
 - `pnpm --filter @bedbanks/website check:links`: static route integrity.
-- Against a **started production build** (`NEXT_PUBLIC_SITE_URL=https://www.fbeds.com pnpm build`, then `pnpm exec next start -p 4710`): `pnpm check:site` verifies sitemap routes and canonical URLs, robots, navigation links, in-page and cross-page anchors and portal redirects; add `-- --external` for external links (transient failures warn, 404 and 410 fail). `pnpm test:e2e` runs Playwright: CSP violations, hydration, navigation, the lead form (validation, honeypot, rate limit), fonts, capability copy, axe accessibility (zero serious or critical WCAG 2.1 A/AA violations per page, including colour contrast and labels) and keyboard checks. CI runs all of this in the `website-production-checks` job.
+- Against a **started production build** (`NEXT_PUBLIC_SITE_URL=https://www.fabbeds.io pnpm build`, then `pnpm exec next start -p 4710`): `pnpm check:site` verifies sitemap routes and canonical URLs, robots, navigation links, in-page and cross-page anchors and portal redirects; add `-- --external` for external links (transient failures warn, 404 and 410 fail). `pnpm test:e2e` runs Playwright: CSP violations, hydration, navigation, the lead form (validation, honeypot, rate limit), fonts, capability copy, axe accessibility (zero serious or critical WCAG 2.1 A/AA violations per page, including colour contrast and labels) and keyboard checks. CI runs all of this in the `website-production-checks` job.
 - Install the browser once with `pnpm --filter @bedbanks/website exec playwright install chromium`.
 
 ## Sitemap dates

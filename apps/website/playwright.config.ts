@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 const port = Number(process.env.WEBSITE_E2E_PORT ?? 4710)
 export const baseURL = `http://localhost:${port}`
-export const expectedSiteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.fbeds.com'
+export const expectedSiteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.fabbeds.io'
 
 // Runs against a started PRODUCTION build (`pnpm build` first), never the dev server.
 export default defineConfig({
