@@ -96,7 +96,7 @@ charges age FIFO -> notice at 7 days -> new holds refused at 30 days -> payment 
 | One credit concept | The credit line is the agency's approved limit (ADR 0024), in its currency; another currency counts as zero. | BUILT |
 | Setting a limit | Request with reason, a different person approves, applied once; re-checked against the stored value (409 if it moved). | BUILT |
 | Lowering below commitments | Allowed; nothing existing is cancelled; new holds refused until it recovers. The integrity check shows it as `ACCOUNT_OVER_CREDIT_LINE` (warning). | BUILT |
-| Near limit | 80% of the line used: display tag only. | BUILT |
+| Near limit | 80% of the line used: WATCH. 90%: MARGIN_CALL in the finance queue with the payment to restore. A new hold taking the agency to 95%, or aged unpaid charges worth half the line, pauses new holds. | BUILT, SHADOW by default (`CREDIT_RISK_ENFORCEMENT=enforce`), global defaults (ADR 0095). No message is sent to the agency |
 | Overdue | Oldest unpaid charge 7 days: NOTICE (Admin, Receivables, agent banner). 30 days: new holds and bookings refused. Confirmed bookings are never cancelled by this. | BUILT (global constants) |
 | Suspension | Manual maker-checker action; not automatic at any age. | BUILT (ADR 0020) |
 | Per-agency payment terms | Net 7 / 14 / 30 per agency, invoicing cycle (per booking, weekly, monthly) | PROPOSED |

@@ -3,14 +3,14 @@ import type { Prisma } from '@prisma/client'
 import type {
   AuditEventView, BookingAttention, BookingOperations, BookingRow, CancellationRow, ConnectorExecutionView, ConnectorRow,
   HoldDetail, HoldNightView, HoldRow, InventoryHoldStatus, LedgerEntryView, Paged, ReconciliationCase, ReconciliationQueue,
-  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow, SupplierPayablesView, SupplierPayableRow, CreditNoteRow,
+  OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow, CreditRiskView, CreditRiskRow, SupplierPayablesView, SupplierPayableRow, CreditNoteRow,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
-import { AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
+import { AGENCY_CREDIT_RISK_POLICY, AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
 import { availableMinor } from '@bedbanks/money'
 import { totalsOf, walletBalanceMinor, walletTotals } from '../ledger/ledger-core'
 import { enabledSettlementCurrencies } from '../agent/currency'
-import { accountAging, creditLineResolver, overdueView } from '../agent/agency-account'
+import { accountAging, agencyPosition, creditLineResolver, creditRiskMode, overdueView, riskOf } from '../agent/agency-account'
 import { BookingReconciliationService } from '../agent/booking-reconciliation.service'
 import { documentKindFromRoute } from '../agent/booking-document.service'
 import { renderBookingDocument } from '../agent/booking-document.render'
@@ -345,6 +345,37 @@ export class OperationsTransactionsService {
       return {
         items: rows, counts: { notice: rows.filter(r => r.overdue.state === 'NOTICE').length, holdsRefused: rows.filter(r => r.overdue.state === 'HOLDS_REFUSED').length },
         noticeDays: AGENCY_CREDIT_TERMS.overdueNoticeDays, refuseHoldsAfterDays: AGENCY_CREDIT_TERMS.refuseHoldsAfterDays,
+      }
+    }))
+  }
+
+  /**
+   * Credit risk queue (ADR 0095): every agency account that is not OK under the dynamic risk policy, worst first, with the payment that would bring a MARGIN_CALL back below
+   * the watch level. Live from the ledger, holds and aging; nothing is stored, posted or sent. Capped like Receivables, and says so when it is.
+   */
+  async creditRisk(tenantId: string): Promise<CreditRiskView> {
+    const LIMIT = 500
+    return guardedRead(() => this.prisma.withTenant(tenantId, async tx => {
+      const accounts = await tx.wallet.findMany({ where: { tenantId, agencyId: { not: null } }, include: { agency: { select: { id: true, code: true, name: true, status: true } } }, orderBy: [{ id: 'asc' }], take: LIMIT + 1 })
+      const capped = accounts.length > LIMIT
+      const rows: CreditRiskRow[] = []
+      for (const a of accounts.slice(0, LIMIT)) {
+        if (!a.agency || !a.agencyId) continue
+        const position = await agencyPosition(tx, tenantId, a.agencyId, a.currency)
+        const aging = await accountAging(tx, tenantId, a.id)
+        const risk = riskOf(position, aging)
+        if (risk.state === 'OK') continue
+        rows.push({
+          accountId: a.id, agency: { id: a.agency.id, code: a.agency.code, name: a.agency.name, status: a.agency.status }, currency: a.currency, state: risk.state, reasons: risk.reasons,
+          balanceMinor: position.balanceMinor.toString(), creditLineMinor: position.creditLineMinor.toString(), pendingMinor: position.pendingMinor.toString(), drawnMinor: risk.drawnMinor.toString(),
+          utilisationBp: risk.utilisationBp === null ? null : Number(risk.utilisationBp), paymentToRestoreMinor: risk.paymentToRestoreMinor.toString(), overdue: overdueView(aging),
+        })
+      }
+      const rank = { PAUSED: 0, MARGIN_CALL: 1, WATCH: 2, OK: 3 } as const
+      rows.sort((x, y) => rank[x.state] - rank[y.state] || (y.utilisationBp ?? -1) - (x.utilisationBp ?? -1) || x.agency.code.localeCompare(y.agency.code))
+      return {
+        items: rows, counts: { watch: rows.filter(r => r.state === 'WATCH').length, marginCall: rows.filter(r => r.state === 'MARGIN_CALL').length, paused: rows.filter(r => r.state === 'PAUSED').length },
+        policy: { ...AGENCY_CREDIT_RISK_POLICY }, enforcement: creditRiskMode(), scanned: Math.min(accounts.length, LIMIT), scanCapped: capped,
       }
     }))
   }

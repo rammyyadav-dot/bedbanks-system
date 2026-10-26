@@ -186,6 +186,10 @@ export class OperationsController {
   @Get('receivables') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   receivables(@ActiveTenant() tenantId: string) { return this.tx.receivables(tenantId) }
 
+  // ADR 0095. Read-only.
+  @Get('credit-risk') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  creditRisk(@ActiveTenant() tenantId: string) { return this.tx.creditRisk(tenantId) }
+
   /** One agency's account position (ADR 0028 slice 1). Read-only; the statement is `ledger?walletId=`. */
   @Get('agencies/:agencyId/account') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   agencyAccount(@ActiveTenant() tenantId: string, @Param('agencyId') agencyId: string) { return this.tx.agencyAccount(tenantId, agencyId) }

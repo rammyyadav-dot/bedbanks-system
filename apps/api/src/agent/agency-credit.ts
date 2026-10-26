@@ -1,7 +1,7 @@
 import { ForbiddenException, HttpException, ServiceUnavailableException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { AGENCY_CREDIT_LIMIT_EXCEEDED_CODE, AGENCY_CREDIT_UNAVAILABLE_CODE } from '@bedbanks/contracts'
-import { accountAging, agencyPosition, assertNotOverdue } from './agency-account'
+import { accountAging, agencyPosition, assertNotOverdue, enforceCreditRisk } from './agency-account'
 
 /**
  * Refuses a new hold the caller's agency cannot pay for (ADR 0028 slice 3): available = balance + credit line - pending holds.
@@ -18,6 +18,7 @@ export async function assertAgencyCredit(tx: Prisma.TransactionClient, tenantId:
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agency-credit:${member.agencyId}`}, 0))`)
     const position = await agencyPosition(tx, tenantId, member.agencyId, currency)
     assertNotOverdue(await accountAging(tx, tenantId, position.accountId)) // ADR 0028 slice 4: 30 days unpaid refuses new holds
+    await enforceCreditRisk(tx, { tenantId, userId, agencyId: member.agencyId, currency, amountMinor, scope: 'HOLD' }) // ADR 0095: dynamic risk policy
     if (amountMinor > position.availableMinor) {
       const available = position.availableMinor > 0n ? position.availableMinor : 0n
       throw new ForbiddenException({ message: 'Your agency does not have enough funds or credit for this hold. Send a payment or contact your account manager.', code: AGENCY_CREDIT_LIMIT_EXCEEDED_CODE, details: { currency, availableMinor: available.toString() } })
