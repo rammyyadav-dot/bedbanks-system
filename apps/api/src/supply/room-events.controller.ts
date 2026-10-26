@@ -19,10 +19,10 @@ export class RoomEventsController {
   }
 
   @Get('room-events') @RequireSupplyPermission('supply.room_events.read') @UseGuards(SupplyPermissionGuard)
-  list(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.roomEvents.list(c.tenantId, query) }
+  list(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.roomEvents.list(c.tenantId, c.userId, query) }
 
   @Get('room-events/:roomEventId') @RequireSupplyPermission('supply.room_events.read') @UseGuards(SupplyPermissionGuard)
-  get(@Req() req: Request, @Param('roomEventId') roomEventId: string) { const c = this.context(req); return this.roomEvents.get(c.tenantId, roomEventId) }
+  get(@Req() req: Request, @Param('roomEventId') roomEventId: string) { const c = this.context(req); return this.roomEvents.get(c.tenantId, c.userId, roomEventId) }
 
   @Post('room-events') @RequireSupplyPermission('supply.room_events.manage') @UseGuards(SupplyPermissionGuard)
   create(@Req() req: Request, @Body() body: RoomEventWrite) { const c = this.context(req); return this.roomEvents.create(c.tenantId, c.userId, body) }

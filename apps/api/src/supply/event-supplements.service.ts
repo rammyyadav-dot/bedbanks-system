@@ -112,7 +112,7 @@ export class EventSupplementsService {
     return { roomEventId, contractId, ratePlanId, ...terms }
   }
 
-  async list(tenantId: string, query: Record<string, unknown>) {
+  async list(tenantId: string, userId: string, query: Record<string, unknown>) {
     const page = pageParams(query)
     const status = enumParam('status', query.status, EVENT_SUPPLEMENT_STATUSES)
     const roomEventId = idParam('roomEventId', query.roomEventId)
@@ -122,10 +122,22 @@ export class EventSupplementsService {
       tx.eventSupplement.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take }),
       tx.eventSupplement.count({ where }),
     ]))
-    return paged(rows.map((r) => this.view(r)), page, total)
+    const latest = await this.latestApprovals(tenantId, rows.map((r) => r.id))
+    return paged(rows.map((r) => ({ ...this.view(r), approval: this.approvalView(latest.get(r.id), userId) })), page, total)
   }
 
-  async get(tenantId: string, id: string): Promise<EventSupplementRead> { return this.view(await this.row(tenantId, id)) }
+  async get(tenantId: string, userId: string, id: string) {
+    const row = await this.row(tenantId, id)
+    const latest = await this.latestApprovals(tenantId, [row.id])
+    return { ...this.view(row), approval: this.approvalView(latest.get(row.id), userId) }
+  }
+
+  /** The most recent approval request per entity (open or decided), for a list/detail view to show without a second round trip. */
+  private async latestApprovals(tenantId: string, ids: string[]): Promise<Map<string, ApprovalView>> {
+    const latest = new Map<string, ApprovalView>()
+    for (const a of await this.approvals.listForEntities(tenantId, ENTITY_TYPE, ids)) if (!latest.has(a.entityId)) latest.set(a.entityId, a)
+    return latest
+  }
 
   async create(tenantId: string, userId: string, body: EventSupplementWrite): Promise<EventSupplementRead> {
     const errors: string[] = []
