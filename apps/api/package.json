@@ -24,6 +24,7 @@
     "prisma:migrate:drift": "node scripts/check-migration-drift.mjs",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=prisma/schema.prisma",
+    "ops:connection-budget": "tsx src/database/connection-budget.cli.ts",
     "ops:provision-hold-expiry-role": "tsx src/database/provision-hold-expiry-role.cli.ts",
     "ops:provision-booking-ops-role": "tsx src/database/provision-booking-ops-role.cli.ts",
     "ops:provision-rate-plan-ops-role": "tsx src/database/provision-rate-plan-ops-role.cli.ts",
