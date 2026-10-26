@@ -33,7 +33,7 @@
     "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {
-    "next": "16.4.2",
+    "next": "16.4.3",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
@@ -42,8 +42,8 @@
     "eslint": "^10.13.0",
     "prisma": "^6.2.1",
     "tsx": "^4.23.15",
-    "turbo": "^2.11.9",
-    "typescript-eslint": "^8.71.2"
+    "turbo": "^2.11.10",
+    "typescript-eslint": "^8.72.0"
   },
   "pnpm": {
     "overrides": {
