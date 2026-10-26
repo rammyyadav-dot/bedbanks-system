@@ -249,7 +249,7 @@ variable "origin_verify_rotation_id" {
 variable "tracing_enabled" {
   type        = bool
   default     = false
-  description = "Run an ADOT collector sidecar in the api task and export spans to AWS X-Ray. Existing task definitions are not changed by Terraform (CI owns later revisions): see docs/runbooks/distributed-tracing.md."
+  description = "Run an ADOT collector sidecar in the api, admin, agent and supplier tasks and export spans to AWS X-Ray. Existing task definitions are not changed by Terraform (CI owns later revisions): see docs/runbooks/distributed-tracing.md."
 }
 variable "tracing_sample_ratio" {
   type        = string

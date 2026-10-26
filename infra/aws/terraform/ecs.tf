@@ -36,15 +36,17 @@ locals {
     AUTH_COOKIE_SECURE = "true"
     ADMIN_ORIGIN       = "https://${local.portals.admin.host}"
     TRUSTED_ORIGINS    = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
-  }, local.email_env, var.api_env) : { name = k, value = v }], local.tracing_env)
-  tracing_env = var.tracing_enabled ? [
+  }, local.email_env, var.api_env) : { name = k, value = v }], lookup(local.tracing_env, "api", []))
+  # The website has no API dependency and renders no tenant data; it is not traced.
+  traced_services = var.tracing_enabled ? toset([for k, _ in local.services : k if k != "website"]) : toset([])
+  tracing_env = { for k in local.traced_services : k => [
     { name = "OTEL_TRACING_ENABLED", value = "true" },
-    { name = "OTEL_SERVICE_NAME", value = "fbeds-api-${var.environment}" },
+    { name = "OTEL_SERVICE_NAME", value = "fbeds-${k}-${var.environment}" },
     { name = "OTEL_TRACE_SAMPLE_RATIO", value = var.tracing_sample_ratio },
     { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4318" }, # the sidecar shares the task network namespace
-  ] : []
-  # Not essential: a collector outage drops traces, it never takes the API down.
-  adot_container = {
+  ] }
+  # Not essential: a collector outage drops traces, it never takes a service down.
+  adot_container = { for k in local.traced_services : k => {
     name         = "adot-collector"
     image        = var.adot_collector_image
     essential    = false
@@ -52,9 +54,9 @@ locals {
     portMappings = []
     logConfiguration = {
       logDriver = "awslogs"
-      options   = { "awslogs-group" = aws_cloudwatch_log_group.this["api"].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "adot" }
+      options   = { "awslogs-group" = aws_cloudwatch_log_group.this[k].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "adot" }
     }
-  }
+  } }
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },
     { name = "REDIS_URL", valueFrom = aws_secretsmanager_secret.redis_url.arn },
@@ -80,7 +82,7 @@ resource "aws_ecs_task_definition" "this" {
     image           = "${aws_ecr_repository.this[each.key].repository_url}:${var.initial_image_tag}"
     essential       = true
     portMappings    = [{ containerPort = each.value.port, protocol = "tcp" }]
-    environment     = each.key == "api" ? tolist(local.api_environment) : tolist(lookup(local.portal_env, each.key, []))
+    environment     = each.key == "api" ? tolist(local.api_environment) : tolist(concat(lookup(local.portal_env, each.key, []), lookup(local.tracing_env, each.key, [])))
     secrets         = each.key == "api" ? tolist(local.api_secrets) : []
     stopTimeout     = 30
     linuxParameters = { initProcessEnabled = true }
@@ -88,7 +90,7 @@ resource "aws_ecs_task_definition" "this" {
       logDriver = "awslogs"
       options   = { "awslogs-group" = aws_cloudwatch_log_group.this[each.key].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = each.key }
     }
-  }], each.key == "api" && var.tracing_enabled ? [local.adot_container] : []))
+  }], contains(local.traced_services, each.key) ? [local.adot_container[each.key]] : []))
   # CI registers new revisions; Terraform owns only the first one.
   lifecycle { ignore_changes = [container_definitions] }
 }
