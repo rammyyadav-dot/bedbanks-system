@@ -87,12 +87,13 @@ resource "aws_vpc_endpoint" "s3" {
 # (alb_public <-> portal, alb_internal <-> api <-> data), which terraform validate rejects.
 locals {
   security_groups = {
-    alb_public   = "alb-public"
-    portal       = "portal"
-    alb_internal = "alb-internal"
-    api          = "api"
-    data         = "data"
-    compliance   = "compliance" # scheduled compliance export/verify tasks (compliance.tf): Postgres and HTTPS only, no ingress
+    alb_public     = "alb-public"
+    portal         = "portal"
+    alb_internal   = "alb-internal"
+    api            = "api"
+    data           = "data"
+    compliance     = "compliance"     # scheduled compliance export/verify tasks (compliance.tf): Postgres and HTTPS only, no ingress
+    search_reindex = "search-reindex" # scheduled hotel search reindex task (search-reindex.tf): Postgres and HTTPS only, no ingress
   }
   # Rules between two groups: from -> to on a TCP port.
   sg_links = {
@@ -102,6 +103,7 @@ locals {
     api_to_data_postgres   = { from = "api", to = "data", port = 5432 }
     api_to_data_redis      = { from = "api", to = "data", port = 6379 }
     compliance_to_data     = { from = "compliance", to = "data", port = 5432 }
+    search_reindex_to_data = { from = "search_reindex", to = "data", port = 5432 }
   }
   # Ingress to the public ALB: one rule per (CIDR, port). Staging must not be 0.0.0.0/0 (ADR 0055; enforced by a precondition below).
   # With CloudFront the world-facing rules disappear: the ALB admits only the CloudFront origin-facing prefix list on 443 (edge.tf).
@@ -145,7 +147,7 @@ resource "aws_vpc_security_group_ingress_rule" "public" {
 # Tasks reach ECR, CloudWatch, Secrets Manager (via NAT), the internal API ALB (portal), suppliers (api) and KMS (compliance) over HTTPS only.
 # The compliance archive itself is reached through the S3 gateway endpoint.
 resource "aws_vpc_security_group_egress_rule" "https_out" {
-  for_each          = toset(["portal", "api", "compliance"])
+  for_each          = toset(["portal", "api", "compliance", "search_reindex"])
   security_group_id = aws_security_group.this[each.key].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"

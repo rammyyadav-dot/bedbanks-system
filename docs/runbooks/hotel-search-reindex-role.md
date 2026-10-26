@@ -10,3 +10,6 @@ ADR 0096. Executed by the **database owner**, not CI or an AI session.
 5. Rollback: see ADR 0096.
 
 Neon: `vector` and `pg_trgm` must already exist (migrations `202610010003`, `202610180001`). The role needs a direct endpoint; set `connection_limit` low (the role's own limit is 2).
+
+## Scheduled run (ADR 0097)
+Off by default. After steps 1-4: set `hotel_search_reindex_enabled = true` and `hotel_search_reindex_database_name` in the environment's Terraform variables, apply, then store the URL in the new secret `…/search-reindex/HOTEL_SEARCH_REINDEX_DATABASE_URL` (direct endpoint, `connection_limit=2`). Run the task once from the ECS console and look for `"appliedEqualsIndexable": true` in `/fbeds/<env>/search-reindex`. The `…-search-reindex-missing` alarm fires when no run succeeds within 180 minutes; check that log group first.
