@@ -39,6 +39,7 @@ Drop the membership policy only with the forward rollback in `202610010002_membe
 | Restricted runtime login `fbeds_api_login` (group `fbeds_api`) | `DATABASE_URL` | the API process | migrations, provisioning |
 | Booking module login (group `fbeds_booking`) | `BOOKING_OPS_DATABASE_URL` | the API's booking module only | everything else |
 | Hold-expiry login | `HOLD_EXPIRY_DATABASE_URL` | the sweeper (off by default) | everything else |
+| Commission scheduler login (group `fbeds_commission_scheduler`) | `COMMISSION_SCHEDULER_DATABASE_URL` | the commission payout scheduler (off by default, ADR 0098) | everything else |
 | Migration/owner | `MIGRATION_DATABASE_URL` (migrations), `PROVISION_DATABASE_URL` (provisioning, audit) | release jobs and operators, for one command | any running service, preview environments |
 
 Required invariants for every runtime login: not SUPERUSER, no BYPASSRLS, no CREATEROLE/CREATEDB/REPLICATION, owns no table, function or schema, not a member of a privileged role. The grants are exactly the contract in `runtime-role-contract.ts` (rendered in [strict-runtime-db-role.md](../strict-runtime-db-role.md)); there is no `GRANT ALL`.

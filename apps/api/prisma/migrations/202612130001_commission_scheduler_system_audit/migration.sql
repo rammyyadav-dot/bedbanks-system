@@ -1,0 +1,60 @@
+-- Commission payout scheduler background role: SYSTEM audit policy (ADR 0098 update, pattern of ADR 0005).
+--
+-- AuditEvent inserts with actor_type = 'SYSTEM' are rejected by every existing policy for roles that respect RLS.
+-- Automatically proposing an AgencyCommissionPayout for last month is a SYSTEM action (no human initiated it), so the
+-- scheduler needs one narrowly scoped exception, and that role must not gain the general audit-insert ability of
+-- ordinary tenant roles (in particular it must never be able to claim actor_type SYSTEM for any other action or entity).
+--
+-- Members of the group role "fbeds_commission_scheduler" (created out-of-band by the database owner; this migration
+-- creates no role, grants no table privilege and stores no secret — see docs/runbooks/commission-scheduler-role.md):
+--   * MAY insert only: tenant = current tenant, actor_type SYSTEM, no user, action
+--     'finance.commission_payout.proposed', entity_type 'agency_commission_payout';
+--   * MAY NOT use the general tenant insert policy (no USER-type events, and no other SYSTEM action or entity).
+-- The membership test reads pg_roles, so the migration is valid even when the role does not exist; the policies then
+-- behave exactly as before.
+--
+-- Tenant-index review: no table, column or index is added or changed. The predicate uses tenant_id, already covered by
+-- AuditEvent(tenant_id, created_at).
+--
+-- Rollback (forward migration, reviewed before use):
+--   DROP POLICY "AuditEvent_commission_scheduler_system_insert" ON "AuditEvent";
+--   DROP POLICY "AuditEvent_tenant_insert" ON "AuditEvent";
+--   CREATE POLICY "AuditEvent_tenant_insert" ON "AuditEvent"
+--     FOR INSERT WITH CHECK (
+--       NOT "fbeds_is_hold_expiry_role"()
+--       AND (
+--         ("tenant_id" = "fbeds_current_tenant_id"() AND "actor_type" <> 'SYSTEM')
+--         OR ("tenant_id" IS NULL AND "fbeds_platform_access_allowed"())
+--       )
+--     );
+--   DROP FUNCTION "fbeds_is_commission_scheduler_role"();
+
+CREATE FUNCTION "fbeds_is_commission_scheduler_role"()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM pg_roles r
+     WHERE r.rolname = 'fbeds_commission_scheduler'
+       AND pg_has_role(current_user, r.oid, 'MEMBER')
+  )
+$$ LANGUAGE SQL STABLE;
+
+DROP POLICY "AuditEvent_tenant_insert" ON "AuditEvent";
+CREATE POLICY "AuditEvent_tenant_insert" ON "AuditEvent"
+  FOR INSERT WITH CHECK (
+    NOT "fbeds_is_hold_expiry_role"()
+    AND NOT "fbeds_is_commission_scheduler_role"()
+    AND (
+      ("tenant_id" = "fbeds_current_tenant_id"() AND "actor_type" <> 'SYSTEM')
+      OR ("tenant_id" IS NULL AND "fbeds_platform_access_allowed"())
+    )
+  );
+
+CREATE POLICY "AuditEvent_commission_scheduler_system_insert" ON "AuditEvent"
+  FOR INSERT WITH CHECK (
+    "fbeds_is_commission_scheduler_role"()
+    AND "tenant_id" = "fbeds_current_tenant_id"()
+    AND "actor_type" = 'SYSTEM'
+    AND "user_id" IS NULL
+    AND "action" = 'finance.commission_payout.proposed'
+    AND "entity_type" = 'agency_commission_payout'
+  );
