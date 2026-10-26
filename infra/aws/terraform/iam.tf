@@ -160,11 +160,11 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = [for r in aws_ecr_repository.this : r.arn]
   }
   # No ecs:RunTask and no PassRole for the migrate role: migrations use the owner database credential and are an owner action,
-  # never reachable from the CI deploy role (ADR 0040, ADR 0055). The compliance task roles (compliance.tf, when enabled) are included so the deploy
-  # can register a compliance task revision with each API image; it still cannot run one (no ecs:RunTask), only the compliance scheduler can.
+  # never reachable from the CI deploy role (ADR 0040, ADR 0055). The compliance (compliance.tf) and search reindex (search-reindex.tf) task roles, when enabled, are included
+  # so the deploy can register a task revision with each API image; it still cannot run one (no ecs:RunTask), only each task's own scheduler can.
   statement {
     actions   = ["iam:PassRole"]
-    resources = concat([aws_iam_role.execution.arn], [for r in aws_iam_role.task : r.arn], [for r in aws_iam_role.compliance_execution : r.arn], [for r in aws_iam_role.compliance_task : r.arn])
+    resources = concat([aws_iam_role.execution.arn], [for r in aws_iam_role.task : r.arn], [for r in aws_iam_role.compliance_execution : r.arn], [for r in aws_iam_role.compliance_task : r.arn], [for r in aws_iam_role.search_reindex_execution : r.arn], [for r in aws_iam_role.search_reindex_task : r.arn])
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"

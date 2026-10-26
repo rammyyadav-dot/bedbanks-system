@@ -127,5 +127,14 @@ jobs:
                 carn=$(aws ecs register-task-definition --cli-input-json file://ctd-new.json --query taskDefinition.taskDefinitionArn --output text)
                 echo "$cfamily -> $carn" >> "$GITHUB_STEP_SUMMARY"
               done
+              # The scheduled hotel search reindex (ADR 0097) runs the same image. Absent when it is not enabled in this environment.
+              rfamily="$CLUSTER-search-reindex"
+              if aws ecs describe-task-definition --task-definition "$rfamily" --query taskDefinition > rtd.json 2>/dev/null; then
+                jq --arg img "$image" 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | (.containerDefinitions[] | select(.name=="search-reindex") | .image) = $img' rtd.json > rtd-new.json
+                rarn=$(aws ecs register-task-definition --cli-input-json file://rtd-new.json --query taskDefinition.taskDefinitionArn --output text)
+                echo "$rfamily -> $rarn" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "no $rfamily (search reindex not enabled)"
+              fi
             fi
           done
