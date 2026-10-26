@@ -43,3 +43,4 @@ export * from './distribution-search';
 export * from './distribution-auth';
 export * from './supplier-rate-plan-mapping';
 export * from './step-up';
+export * from './quotation';
