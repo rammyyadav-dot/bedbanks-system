@@ -21,6 +21,9 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   ...(standalone ? { output: 'standalone', outputFileTracingRoot: path.join(path.dirname(fileURLToPath(import.meta.url)), '../..') } : {}),
+  transpilePackages: ['@bedbanks/tracing'],
+  // OpenTelemetry patches Node modules at load time and must not be bundled (ADR 0093).
+  serverExternalPackages: ['@opentelemetry/api', '@opentelemetry/instrumentation', '@opentelemetry/instrumentation-http', '@opentelemetry/resources', '@opentelemetry/sdk-trace-base', '@opentelemetry/sdk-trace-node', '@opentelemetry/exporter-trace-otlp-http', '@opentelemetry/id-generator-aws-xray', '@opentelemetry/propagator-aws-xray'],
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
