@@ -5,7 +5,7 @@ const report = (verdict: LedgerIntegrityVerdict): LedgerIntegrityReport => ({
   generatedAt: '2026-10-18T00:00:00.000Z', verdict, staleReservationMinutes: 60,
   scan: { accounts: 1, entries: 1, bookings: 0, receipts: 0, entryLimit: 50_000, capped: verdict === 'INCOMPLETE' },
   counts: verdict === 'ISSUES' ? { critical: 1, warning: 0, byCode: [{ code: 'CANCELLED_REFUND_NOT_POSTED', severity: 'critical', count: 1 }] } : { critical: 0, warning: 0, byCode: [] },
-  totals: [], findings: [], findingsTruncated: false, definitions: {},
+  totals: [], findings: [], findingsTruncated: false, definitions: {}, chainHeads: [],
 })
 
 function runtime(verdicts: Record<string, LedgerIntegrityVerdict | Error>, extra: Partial<LedgerIntegrityRuntime> = {}): LedgerIntegrityRuntime & { closed: boolean } {

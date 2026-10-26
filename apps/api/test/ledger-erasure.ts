@@ -7,6 +7,8 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 export function eraseLedger(prisma: PrismaClient, args: Prisma.LedgerEntryDeleteManyArgs) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('fbeds.ledger_erasure', 'on', true)`
+    // The hash chain (ADR 0094) holds a RESTRICT foreign key to each entry, and is append-only under the same switch.
+    await tx.ledgerChainLink.deleteMany({ where: { ledgerEntry: args.where ?? {} } })
     return tx.ledgerEntry.deleteMany(args)
   })
 }

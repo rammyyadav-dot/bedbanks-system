@@ -3,7 +3,7 @@ import {
   LEDGER_INTEGRITY_ENTRY_LIMIT, LEDGER_INTEGRITY_FINDING_LIMIT, LEDGER_INTEGRITY_STALE_MINUTES_DEFAULT,
   type LedgerIntegrityCurrencyTotals, type LedgerIntegrityFindingView, type LedgerIntegrityReport, type LedgerIntegrityVerdict,
 } from '@bedbanks/contracts'
-import { bookingLedgerFacts, checkLedgerIntegrity, type IntegrityBooking, type IntegrityFinding, type IntegrityReport } from '@bedbanks/money'
+import { bookingLedgerFacts, checkLedgerIntegrity, type ChainBreak, type IntegrityBooking, type IntegrityFinding, type IntegrityReport } from '@bedbanks/money'
 import { PrismaService } from '../database/prisma.service'
 import { creditLineResolver } from '../agent/agency-account'
 import { guardedRead } from './operations-read'
@@ -19,6 +19,8 @@ const DEFINITIONS: Record<string, string> = {
   ENTRY_SIGN_INVALID: 'An entry is zero or carries the wrong sign for its kind (CREDIT, RELEASE, REFUND positive; DEBIT, HOLD negative).',
   ENTRY_CURRENCY_MISMATCH: 'An entry currency differs from its account currency. Amounts are never converted.',
   ENTRY_ACCOUNT_UNKNOWN: 'An entry references an account that is not readable in this tenant.',
+  LEDGER_CHAIN_BROKEN: 'The tamper-evident hash chain over this account\'s ledger does not verify: a link or an entry was changed, removed or inserted outside the application (ADR 0094). Treat as a security incident.',
+  LEDGER_CHAIN_ENTRY_UNCHAINED: 'A ledger entry has no link in the hash chain. The database writes the link with the entry, so the chain was bypassed or disabled (ADR 0094).',
   ACCOUNT_OVER_CREDIT_LINE: 'Balance is below minus the credit line. Allowed when a limit was lowered after spending (ADR 0024); new spending is refused until it recovers.',
   BOOKING_SPLIT_ACROSS_ACCOUNTS: 'One booking has postings on more than one account.',
   RESERVATION_OVER_RELEASED: 'More was released than was reserved for a booking, for example released and then also settled: the agency holds the stay at no net cost.',
@@ -62,8 +64,12 @@ export class OperationsLedgerIntegrityService {
       ])
       const capped = entries.length > LEDGER_INTEGRITY_ENTRY_LIMIT
       const scan = { accounts: wallets.length, entries: Math.min(entries.length, LEDGER_INTEGRITY_ENTRY_LIMIT), bookings: 0, receipts: receipts.length, entryLimit: LEDGER_INTEGRITY_ENTRY_LIMIT, capped }
-      if (capped) return this.view(now, staleReservationMinutes, scan, null, new Map())
+      if (capped) return this.view(now, staleReservationMinutes, scan, null, new Map(), [])
 
+      const [chainBreaks, chainHeads] = await Promise.all([
+        tx.$queryRaw<Array<{ wallet_id: string; entry_id: string | null; seq: number | null; reason: ChainBreak['reason'] }>>`SELECT "wallet_id", "entry_id", "seq", "reason" FROM fbeds_ledger_chain_breaks()`,
+        tx.$queryRaw<Array<{ wallet_id: string; seq: number; entry_hash: string }>>`SELECT "wallet_id", "seq", "entry_hash" FROM fbeds_ledger_chain_heads() ORDER BY "wallet_id"`,
+      ])
       const line = await creditLineResolver(tx, tenantId, wallets)
       const integrityEntries = entries.map(e => ({ id: e.id, accountId: e.walletId, type: e.type, amountMinor: e.amountMinor, currency: e.currency, reference: e.reference, idempotencyKey: e.idempotencyKey, at: e.immutableAt }))
       const bookingIds = [...bookingLedgerFacts(integrityEntries).keys()]
@@ -80,13 +86,14 @@ export class OperationsLedgerIntegrityService {
         accounts: wallets.map(w => ({ id: w.id, currency: w.currency, agencyId: w.agencyId, creditLineMinor: line(w) })),
         entries: integrityEntries, bookings,
         receipts: receipts.map(r => ({ id: r.id, status: r.status, accountId: r.walletId, ledgerEntryId: r.ledgerEntryId, amountMinor: r.amountMinor, currency: r.currency })),
+        chainBreaks: chainBreaks.map(b => ({ accountId: b.wallet_id, entryId: b.entry_id, seq: b.seq, reason: b.reason })),
         now, staleReservationMinutes,
       })
-      return this.view(now, staleReservationMinutes, { ...scan, bookings: report.bookingsChecked }, report, new Map(wallets.map(w => [w.id, w.agencyId])))
+      return this.view(now, staleReservationMinutes, { ...scan, bookings: report.bookingsChecked }, report, new Map(wallets.map(w => [w.id, w.agencyId])), chainHeads.map(h => ({ accountId: h.wallet_id, seq: h.seq, entryHash: h.entry_hash })))
     }))
   }
 
-  private view(now: Date, staleReservationMinutes: number, scan: LedgerIntegrityReport['scan'], report: IntegrityReport | null, agencyOf: Map<string, string | null>): LedgerIntegrityReport {
+  private view(now: Date, staleReservationMinutes: number, scan: LedgerIntegrityReport['scan'], report: IntegrityReport | null, agencyOf: Map<string, string | null>, chainHeads: LedgerIntegrityReport['chainHeads']): LedgerIntegrityReport {
     const findings = report?.findings ?? []
     const byCode = new Map<string, { code: string; severity: 'critical' | 'warning'; count: number }>()
     for (const f of findings) { const row = byCode.get(f.code) ?? { code: f.code, severity: f.severity, count: 0 }; row.count += 1; byCode.set(f.code, row) }
@@ -104,7 +111,7 @@ export class OperationsLedgerIntegrityService {
     return {
       generatedAt: now.toISOString(), verdict, staleReservationMinutes, scan,
       counts: { critical, warning: findings.length - critical, byCode: [...byCode.values()].sort((x, y) => (x.severity === y.severity ? x.code.localeCompare(y.code) : x.severity === 'critical' ? -1 : 1)) },
-      totals, findings: findings.slice(0, LEDGER_INTEGRITY_FINDING_LIMIT).map(findingView), findingsTruncated: findings.length > LEDGER_INTEGRITY_FINDING_LIMIT,
+      totals, findings: findings.slice(0, LEDGER_INTEGRITY_FINDING_LIMIT).map(findingView), findingsTruncated: findings.length > LEDGER_INTEGRITY_FINDING_LIMIT, chainHeads,
       definitions: DEFINITIONS,
     }
   }

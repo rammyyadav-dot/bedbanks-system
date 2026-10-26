@@ -17,6 +17,7 @@ immutable audit events (8); nothing shown as capability that is not built (10). 
 |---|---|---|
 | P1 | The ledger is the only book of record for agency money. A balance is the sum of its entries; any cached figure is never authority. | BUILT (ADR 0062) |
 | P2 | Append-only. A mistake is corrected by a new, reasoned entry, never by editing or deleting one. | BUILT: database CHECK and triggers for every role, the owner included (ADR 0069) |
+| P2a | Tamper-evident. Every entry is linked into a per-wallet SHA-256 chain written by the database; the daily integrity run recomputes it. | BUILT (ADR 0094). Detects edits made behind the application; catching removal of the newest entries needs the published chain heads stored outside the database (operator step, not automated) |
 | P3 | One currency per account. Currencies are never converted, added or netted; every report has one row per currency. Launch currency AED; net rates are tax-inclusive. | BUILT (ADR 0028, 0029) |
 | P4 | Every posting has an idempotency key and a business reference (`booking:<id>`, `funding:<receipt id>`). A replayed key with different intent is refused. | BUILT |
 | P5 | Money controls fail closed: if a position cannot be read, the spend is refused. | BUILT |
@@ -144,7 +145,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 
 | Reconciliation | What ties to what | Cadence | Status |
 |---|---|---|---|
-| R1 Ledger integrity | Every entry obeys sign, currency and account rules | Daily and before close | BUILT (ADR 0068); enforced at insert by the database (ADR 0069); daily run by the monitor (ADR 0069) |
+| R1 Ledger integrity | Every entry obeys sign, currency and account rules, and the hash chain over the ledger verifies (ADR 0094) | Daily and before close | BUILT (ADR 0068); enforced at insert by the database (ADR 0069); daily run by the monitor (ADR 0069) |
 | R2 Ledger to bookings | Reserved and charged amount = booking total; charged states charged; nothing reserved on closed bookings | Daily | BUILT (ADR 0068) |
 | R3 Ledger to cancellations | Charged cancellations carry exactly their recorded refund | Daily | BUILT (ADR 0068) |
 | R4 Ledger to funding receipts | Each POSTED receipt has its CREDIT and each funding CREDIT its receipt | Daily | BUILT (ADR 0068) |

@@ -844,6 +844,7 @@ model Tenant {
   bankStatements BankStatement[]
   bankStatementEntries BankStatementEntry[]
   bankMatchFindings BankMatchFinding[]
+  ledgerChainLinks LedgerChainLink[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
   bookingRooms BookingRoom[]
@@ -1784,6 +1785,7 @@ model Wallet {
   updatedAt   DateTime      @updatedAt @map("updated_at")
   entries     LedgerEntry[]
   fundingReceipts FundingReceipt[]
+  chainLinks LedgerChainLink[]
 
   @@unique([tenantId, agencyId, currency])
   @@index([tenantId])
@@ -1802,9 +1804,28 @@ model LedgerEntry {
   idempotencyKey String       @map("idempotency_key")
   immutableAt DateTime        @default(now()) @map("immutable_at")
   fundingReceipt FundingReceipt?
+  chainLink LedgerChainLink?
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])
+}
+
+/// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.
+model LedgerChainLink {
+  id            String      @id @default(cuid())
+  tenantId      String      @map("tenant_id")
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  walletId      String      @map("wallet_id")
+  wallet        Wallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  ledgerEntryId String      @unique @map("ledger_entry_id")
+  ledgerEntry   LedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  seq           Int
+  prevHash      String      @map("prev_hash") @db.Char(64)
+  entryHash     String      @map("entry_hash") @db.Char(64)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@unique([walletId, seq])
+  @@index([tenantId, walletId])
 }
 
 model AuditEvent {

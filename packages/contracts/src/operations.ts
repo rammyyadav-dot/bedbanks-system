@@ -273,6 +273,8 @@ export interface LedgerIntegrityReport {
   /** Critical first. At most LEDGER_INTEGRITY_FINDING_LIMIT; `findingsTruncated` says when more exist (counts are always complete). */
   findings: LedgerIntegrityFindingView[]
   findingsTruncated: boolean
+  /** Newest link of each wallet's hash chain (ADR 0094). Copy these outside the database: they are what proves no recent entries were removed. Empty when the scan was capped. */
+  chainHeads: Array<{ accountId: string; seq: number; entryHash: string }>
   definitions: Record<string, string>
 }
 
