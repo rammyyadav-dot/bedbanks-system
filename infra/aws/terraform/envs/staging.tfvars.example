@@ -23,3 +23,9 @@ public_ingress_cidrs = ["203.0.113.0/24"]
 # ADR 0091: password reset by email. Leave both empty to keep it OFF (no SES permission, no reset link on sign-in).
 # email_from       = "fabBeds <no-reply@your-verified-domain.example>"
 # ses_identity_arn = "arn:aws:ses:<region>:<account-id>:identity/your-verified-domain.example"
+
+# ADR 0093: distributed tracing. Adds an ADOT collector sidecar to api, admin, agent and supplier, and X-Ray write permission to their task roles.
+# Terraform only creates the first task definition revision: for a running environment follow docs/runbooks/distributed-tracing.md.
+# Confirm the collector image and its config path in staging before enabling in production.
+tracing_enabled      = true
+tracing_sample_ratio = "0.1"
