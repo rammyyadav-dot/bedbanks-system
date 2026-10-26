@@ -1,8 +1,7 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { authApi, type AuthenticatedUser, ApiResponseError } from '../api/auth-client';
-
-const COOKIE_NAME = process.env.AUTH_COOKIE_NAME ?? 'fbeds_session';
+import { SESSION_COOKIE_NAME as COOKIE_NAME } from '../api/server-env';
 
 /**
  * Reads the session cookie from the incoming request and validates it

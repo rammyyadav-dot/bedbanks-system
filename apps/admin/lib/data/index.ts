@@ -47,6 +47,11 @@ export interface SupplementRecord extends Omit<import('@bedbanks/contracts').Con
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
 export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
+/** Server-paginated, server-filtered and server-sorted contract list (the unpaged getContracts stays for pickers only). */
+export async function getContractPortfolio(params: Record<string, string | number | boolean>) {
+  const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))
+  return apiRequest<import('@bedbanks/contracts').Paged<AdminContract>>(`${supplyRoutes.contractPortfolio}?${query}`)
+}
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }

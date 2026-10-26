@@ -7,8 +7,7 @@ import { authApi, ApiResponseError } from '../api/auth-client';
 import { ACTIVE_TENANT_COOKIE } from './active-tenant';
 import { getSession } from './session';
 import { safePostLoginPath } from './post-login-path';
-
-const COOKIE_NAME = process.env.AUTH_COOKIE_NAME ?? 'fbeds_session';
+import { SESSION_COOKIE_NAME as COOKIE_NAME } from '../api/server-env';
 
 export interface LoginActionState {
   error: string | null;
