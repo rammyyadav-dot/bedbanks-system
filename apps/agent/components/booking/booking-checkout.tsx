@@ -24,9 +24,11 @@ type Done = { bookingId: string; reference: string; documents: { voucher: string
  * Bedbank checkout (ADR 0066): hold → every guest by room → agent reference and special requests → confirmation email → terms → confirm,
  * then a confirmation page with the voucher, invoice and the email's true state. All state shown comes from the API; a failure never looks like success.
  */
-export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId, request, onBooked, onViewBooking, service, agentEmail = null, timeZone }: {
+export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId, request, onBooked, onViewBooking, onPriceChanged, service, agentEmail = null, timeZone }: {
   tenantId: string; hotelName: string; roomName: string; rate: AgentRateOffer; searchId: string; request: SearchCriteria
   onBooked: () => void; onViewBooking: (bookingId: string) => void; service?: BookingService
+  /** Called when the hold is refused because the total changed: the parent re-quotes so the agent can accept the new price. */
+  onPriceChanged?: () => void
   /** The signed-in agent's account email: where the confirmation goes. */
   agentEmail?: string | null; timeZone?: string
 }) {
@@ -72,6 +74,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
     const out = result.data
     if (out.status === 'held' && out.holdId && out.expiresAt) { setHold({ holdId: out.holdId, expiresAt: out.expiresAt }); setNow(Date.now()); setPhase('held'); return }
     setPhase('idle')
+    if (out.status === 'price_changed' && onPriceChanged) { onPriceChanged(); return }
     setMessage(out.status === 'price_changed' ? `The price changed${out.currency && out.sellAmountMinor !== undefined ? ` to ${formatMinorAmount(out.sellAmountMinor, out.currency)}` : ''}. Recheck the rate to accept the new total.` : (HOLD_MESSAGES[out.status] ?? 'The rate could not be held.'))
   }
 
