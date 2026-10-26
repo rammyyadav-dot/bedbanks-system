@@ -16,7 +16,7 @@ The website is the public marketing, portal-routing and qualified-enquiry surfac
 
 URLs are normalized without trailing slashes. Local portal defaults are available only outside production; missing production portal URLs route to an explicit configuration notice instead of localhost.
 
-The website-specific local ports are `3000` for this public site, `3001` for Admin, `3003` for Agent and `3004` for Supplier. Start this app with `pnpm --filter @bedbanks/website dev -- -p 3000`.
+The local ports are `3000` for Agent, `3001` for Admin, `3002` for the API, `3003` for Supplier and `3004` for this public site. Start this app with `pnpm --filter @bedbanks/website dev`.
 
 ## Lead path and protections
 

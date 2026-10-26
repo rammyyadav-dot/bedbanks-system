@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3003",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3003",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
     "test": "node --import tsx --test lib/status.test.ts lib/runtime.test.ts lib/format.test.ts lib/booking-filters.test.ts components/layout/nav-config.test.ts"
