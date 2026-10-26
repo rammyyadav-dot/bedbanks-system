@@ -1,10 +1,11 @@
 /**
  * Owner-run HotelSearchIndex (re)population. DRY RUN BY DEFAULT.
  *
- *   MIGRATION_DATABASE_URL=<owner credential from your secret manager> \
+ *   HOTEL_SEARCH_REINDEX_DATABASE_URL=<narrow reindex credential, ADR 0096> \
  *   pnpm --filter @bedbanks/api ops:reindex-hotel-search [--tenant=<id>] [--apply] [--fail-on-stale] [--allow-remote --confirm-database=<name>]
  *
  * Exit codes: 0 ok, 2 applied rows did not reconcile, 3 --fail-on-stale and indexable hotels remain stale (use a dry run as a freshness gate).
+ * Prefers the narrow reindex login (ops:provision-hotel-search-reindex-role). MIGRATION_DATABASE_URL (the schema owner) is the fallback for a first run before that role exists.
  * Prints a JSON report (counts and hotel ids only). Remote targets need the owner's explicit confirmation flags. Use the direct
  * (non-pooled) endpoint. Idempotent: re-running writes only hotels that are missing, changed, or built by another embedding model.
  */
@@ -14,7 +15,7 @@ import { reindexExitCode, runHotelSearchReindex } from '../mapping/hotel-search-
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
-  const target = normalizeOpsDatabaseUrl(process.env.MIGRATION_DATABASE_URL)
+  const target = normalizeOpsDatabaseUrl(process.env.HOTEL_SEARCH_REINDEX_DATABASE_URL ?? process.env.MIGRATION_DATABASE_URL)
   if (target.pooled) throw new Error('Use the direct database endpoint, not the pooled one')
   if (!target.local) {
     const confirmed = args.find((a) => a.startsWith('--confirm-database='))?.slice('--confirm-database='.length)

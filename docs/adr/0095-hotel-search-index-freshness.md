@@ -12,7 +12,7 @@ Accepted. Closes the "index freshness" item left open in `docs/database-search-a
 - Exit codes: 0 ok, 2 applied rows did not reconcile (unchanged), 3 stale.
 - The suggestions route already reports `indexReady: false` for an unpopulated index rather than "no match" (invariant 5); a partially stale index is not distinguished by it.
 
-## Next step (not built)
+## Next step (role built in ADR 0096; scheduler not built)
 Automatic freshness needs a narrow reindex role in the existing pattern (hold-expiry, supplier-ingest): INSERT/UPDATE on `HotelSearchIndex` and SELECT on `Hotel`, provisioned by an owner CLI, with an ECS scheduled task. That needs its own migration or provisioning review, rollback notes and terraform review.
 
 ## Verification
