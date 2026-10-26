@@ -365,6 +365,36 @@ export class SupplyService {
   }
   async boardBases(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.boardBasis.findMany({ where: { tenantId, isActive: true }, orderBy: { code: 'asc' } })) }
   async contracts(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); return this.prisma.withTenant(tenantId, tx => tx.contract.findMany({ where: { tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } } }, orderBy: { validFrom: 'desc' } })) }
+  /** Server-side search, status filter, whitelisted sort and pagination for the Contracts workspace; the unpaged list stays for pickers. */
+  async contractPortfolio(tenantId: string, userId: string, query: Record<string, unknown>) {
+    await this.check(tenantId, userId, 'supply.contracts.read')
+    const number = (value: unknown, fallback: number, max: number) => {
+      if (value === undefined) return fallback
+      if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value) || Number(value) > max) throw new BadRequestException('Invalid pagination')
+      return Number(value)
+    }
+    const page = number(query.page, 1, 100000), pageSize = number(query.pageSize, 25, 100)
+    const scalar = (key: string) => {
+      const value = query[key]
+      if (value === undefined) return undefined
+      if (typeof value !== 'string' || value.length > 100) throw new BadRequestException(`Invalid ${key}`)
+      return value.trim() || undefined
+    }
+    const search = scalar('search'), status = scalar('status'), sortBy = scalar('sortBy') ?? 'validFrom', sortDir = scalar('sortDir') ?? 'desc'
+    if (status && !['DRAFT', 'REVIEW', 'ACTIVE', 'SUSPENDED', 'EXPIRED'].includes(status)) throw new BadRequestException('Invalid contract status')
+    if (!['code', 'validFrom', 'validTo', 'status', 'settlementCurrency'].includes(sortBy) || !['asc', 'desc'].includes(sortDir)) throw new BadRequestException('Invalid sort')
+    const where: Prisma.ContractWhereInput = {
+      tenantId, ...(status ? { status: status as 'DRAFT' | 'REVIEW' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED' } : {}),
+      ...(search ? { OR: [{ code: { contains: search, mode: 'insensitive' } }, { supplier: { tenantId, displayName: { contains: search, mode: 'insensitive' } } }] } : {}),
+    }
+    return this.prisma.withTenant(tenantId, async tx => {
+      const [items, total] = await Promise.all([
+        tx.contract.findMany({ where, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } } }, orderBy: [{ [sortBy]: sortDir }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
+        tx.contract.count({ where }),
+      ])
+      return { items, page, pageSize, total }
+    })
+  }
   async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true, supplements: { orderBy: { createdAt: 'asc' } } } })); if (!value) throw new NotFoundException('Contract not found'); return { ...value, supplements: value.supplements.map((p) => ({ ...p, amountMinor: p.amountMinor.toString() })) } }
   async createContract(tenantId: string, userId: string, input: any, requestId?: string) { if (input?.status !== undefined && input.status !== 'DRAFT') throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'A contract is created in DRAFT. Activation needs a second approver (ADR 0067).' }); const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { ...this.contractHeaderData(input, EMPTY_HEADER), ...(await this.contractGovernanceData(tx, tenantId, input)), tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
   async updateContract(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
