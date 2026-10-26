@@ -153,7 +153,8 @@ export const routes = {
     roomEvents: '/admin/room-events', roomEvent: '/admin/room-events/:roomEventId', roomEventSubmit: '/admin/room-events/:roomEventId/submit', roomEventCancel: '/admin/room-events/:roomEventId/cancel', roomEventArchive: '/admin/room-events/:roomEventId/archive',
     roomEventApprovalApprove: '/admin/room-event-approvals/:approvalId/approve', roomEventApprovalReject: '/admin/room-event-approvals/:approvalId/reject', roomEventApprovalCancel: '/admin/room-event-approvals/:approvalId/cancel',
     eventSupplements: '/admin/event-supplements', eventSupplement: '/admin/event-supplements/:eventSupplementId', eventSupplementSubmit: '/admin/event-supplements/:eventSupplementId/submit', eventSupplementActivate: '/admin/event-supplements/:eventSupplementId/activate', eventSupplementSuspend: '/admin/event-supplements/:eventSupplementId/suspend', eventSupplementPreview: '/admin/event-supplements/preview',
-    eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel',
+    eventSupplementAmendmentRequest: '/admin/event-supplements/:eventSupplementId/amendment-request',
+    eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel', eventSupplementApprovalExecute: '/admin/event-supplement-approvals/:approvalId/execute',
   },
   partner: {},
   /** B2B Distribution API for machine partners (ADR 0075). Authenticated by API key or OAuth2 bearer token, never by a session. */

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import type { EventSupplement, Prisma } from '@prisma/client'
+import type { EventSupplement, Prisma, SupplementBasis, SupplementFrequency } from '@prisma/client'
 import { EVENT_SUPPLEMENT_STATUSES, type EventSupplementActivationRequestInput, type EventSupplementAmountKind, type EventSupplementApprovalDecisionInput, type EventSupplementPreviewRequest, type EventSupplementPreviewResult, type EventSupplementRead, type EventSupplementStatus, type EventSupplementSuspendInput, type EventSupplementTaxTreatment, type EventSupplementWrite } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
@@ -18,7 +18,7 @@ const day = (d: Date): string => d.toISOString().slice(0, 10)
 interface SupplementTerms {
   roomEventId: string; contractId: string; ratePlanId: string | null
   amountKind: EventSupplementAmountKind; basis: string | null; frequency: string | null; amountMinor: string | null; percentBp: number | null
-  currency: string; taxTreatment: EventSupplementTaxTreatment; validFrom: string; validTo: string; stackable: boolean; priority: number
+  currency: string; taxTreatment: EventSupplementTaxTreatment; validFrom: string; validTo: string; stackable: boolean; priority: number; evidenceRef: string
 }
 function fingerprint(terms: SupplementTerms): string {
   const unordered = terms as unknown as Record<string, unknown>
@@ -28,7 +28,7 @@ function fingerprint(terms: SupplementTerms): string {
 const termsOf = (r: EventSupplement): SupplementTerms => ({
   roomEventId: r.roomEventId, contractId: r.contractId, ratePlanId: r.ratePlanId, amountKind: r.amountKind as EventSupplementAmountKind,
   basis: r.basis, frequency: r.frequency, amountMinor: r.amountMinor?.toString() ?? null, percentBp: r.percentBp,
-  currency: r.currency, taxTreatment: r.taxTreatment as EventSupplementTaxTreatment, validFrom: day(r.validFrom), validTo: day(r.validTo), stackable: r.stackable, priority: r.priority,
+  currency: r.currency, taxTreatment: r.taxTreatment as EventSupplementTaxTreatment, validFrom: day(r.validFrom), validTo: day(r.validTo), stackable: r.stackable, priority: r.priority, evidenceRef: r.evidenceRef,
 })
 
 /**
@@ -61,7 +61,34 @@ export class EventSupplementsService {
     return row
   }
 
-  /** Validates the amount shape against the same rule the database CHECK constraint enforces, and the cross-entity scope. */
+  /** The commercial-terms shape: the same rule the database CHECK constraint enforces. Shared by create and amendment validation —
+   * an amendment never changes which event, contract or rate plan the supplement is bound to, only these terms. Dates come back as
+   * YYYY-MM-DD strings (the `SupplementTerms` shape); a caller writing to Prisma converts them back to `Date`. */
+  private validateTerms(body: Record<string, unknown>, errors: string[]) {
+    const currency = typeof body.currency === 'string' ? body.currency.trim().toUpperCase() : ''
+    if (!CURRENCY.test(currency)) errors.push('currency: a 3-letter ISO-4217 code')
+    const validFromDate = dayParam('validFrom', body.validFrom)
+    const validToDate = dayParam('validTo', body.validTo)
+    if (!validFromDate || !validToDate) errors.push('validFrom and validTo are required calendar days')
+    else if (validToDate < validFromDate) errors.push('validTo must be on or after validFrom')
+    const evidenceRef = textParam('evidenceRef', body.evidenceRef, 200)
+    if (!evidenceRef) errors.push('evidenceRef is required: a supplier confirmation or authorized contract amendment reference')
+    const priority = typeof body.priority === 'number' ? body.priority : 0
+    if (!Number.isSafeInteger(priority)) errors.push('priority must be an integer')
+    if (body.amountKind === 'FIXED') {
+      if (!['PER_ADULT', 'PER_CHILD', 'PER_PERSON', 'PER_ROOM'].includes(body.basis as string)) errors.push('basis: one of PER_ADULT, PER_CHILD, PER_PERSON, PER_ROOM')
+      if (!['PER_NIGHT', 'PER_STAY'].includes(body.frequency as string)) errors.push('frequency: PER_NIGHT or PER_STAY')
+      if (!/^[1-9][0-9]{0,15}$/.test((body.amountMinor as string) ?? '')) errors.push('amountMinor: a positive whole number of minor units')
+    } else if (body.amountKind === 'PERCENTAGE') {
+      const percentBp = body.percentBp
+      if (!Number.isSafeInteger(percentBp) || (percentBp as number) <= 0 || (percentBp as number) > 10_000) errors.push('percentBp: an integer from 1 to 10000')
+    } else {
+      errors.push('amountKind: FIXED or PERCENTAGE')
+    }
+    return { currency, validFrom: validFromDate ? day(validFromDate) : undefined, validTo: validToDate ? day(validToDate) : undefined, evidenceRef, priority }
+  }
+
+  /** Validates the cross-entity scope on top of `validateTerms`, for creation only. */
   private async validateCreate(tenantId: string, body: EventSupplementWrite, errors: string[]) {
     const roomEventId = idParam('roomEventId', body.roomEventId)
     const contractId = idParam('contractId', body.contractId)
@@ -81,26 +108,8 @@ export class EventSupplementsService {
       if (!ratePlan) errors.push('ratePlanId does not name a rate plan of this tenant')
       else if (contractId && ratePlan.contractId !== contractId) errors.push('ratePlanId must belong to contractId')
     }
-    const currency = typeof body.currency === 'string' ? body.currency.trim().toUpperCase() : ''
-    if (!CURRENCY.test(currency)) errors.push('currency: a 3-letter ISO-4217 code')
-    const validFrom = dayParam('validFrom', body.validFrom)
-    const validTo = dayParam('validTo', body.validTo)
-    if (!validFrom || !validTo) errors.push('validFrom and validTo are required calendar days')
-    else if (validTo < validFrom) errors.push('validTo must be on or after validFrom')
-    const evidenceRef = textParam('evidenceRef', body.evidenceRef, 200)
-    if (!evidenceRef) errors.push('evidenceRef is required: a supplier confirmation or authorized contract amendment reference')
-    const priority = body.priority ?? 0
-    if (!Number.isSafeInteger(priority)) errors.push('priority must be an integer')
-    if (body.amountKind === 'FIXED') {
-      if (!['PER_ADULT', 'PER_CHILD', 'PER_PERSON', 'PER_ROOM'].includes(body.basis)) errors.push('basis: one of PER_ADULT, PER_CHILD, PER_PERSON, PER_ROOM')
-      if (!['PER_NIGHT', 'PER_STAY'].includes(body.frequency)) errors.push('frequency: PER_NIGHT or PER_STAY')
-      if (!/^[1-9][0-9]{0,15}$/.test(body.amountMinor ?? '')) errors.push('amountMinor: a positive whole number of minor units')
-    } else if (body.amountKind === 'PERCENTAGE') {
-      if (!Number.isSafeInteger(body.percentBp) || body.percentBp <= 0 || body.percentBp > 10_000) errors.push('percentBp: an integer from 1 to 10000')
-    } else {
-      errors.push('amountKind: FIXED or PERCENTAGE')
-    }
-    return { roomEventId, contractId, ratePlanId, currency, validFrom, validTo, evidenceRef, priority }
+    const terms = this.validateTerms(body as unknown as Record<string, unknown>, errors)
+    return { roomEventId, contractId, ratePlanId, ...terms }
   }
 
   async list(tenantId: string, query: Record<string, unknown>) {
@@ -127,7 +136,7 @@ export class EventSupplementsService {
         tenantId, roomEventId: scoped.roomEventId!, contractId: scoped.contractId!, ratePlanId: scoped.ratePlanId,
         amountKind: body.amountKind, basis: body.amountKind === 'FIXED' ? body.basis : null, frequency: body.amountKind === 'FIXED' ? body.frequency : null,
         amountMinor: body.amountKind === 'FIXED' ? BigInt(body.amountMinor) : null, percentBp: body.amountKind === 'PERCENTAGE' ? body.percentBp : null,
-        currency: scoped.currency, taxTreatment: body.taxTreatment ?? 'EXCLUSIVE', validFrom: scoped.validFrom!, validTo: scoped.validTo!,
+        currency: scoped.currency, taxTreatment: body.taxTreatment ?? 'EXCLUSIVE', validFrom: new Date(`${scoped.validFrom}T00:00:00.000Z`), validTo: new Date(`${scoped.validTo}T00:00:00.000Z`),
         stackable: body.stackable ?? false, priority: scoped.priority, evidenceRef: scoped.evidenceRef!, createdById: userId,
       },
     }))
@@ -147,7 +156,7 @@ export class EventSupplementsService {
     if (!reason) throw new BadRequestException('A reason is required')
     const key = body?.requestId ?? `${current.id}:submit:${current.updatedAt.toISOString()}`
     const terms = termsOf(current)
-    const approval = await this.approvals.request({ tenantId, requesterId: userId, action: EVENT_SUPPLEMENT_APPROVAL_ACTION, entityType: ENTITY_TYPE, entityId: current.id, requestId: key, reason, proposedState: { fingerprint: fingerprint(terms), ...terms } })
+    const approval = await this.approvals.request({ tenantId, requesterId: userId, action: EVENT_SUPPLEMENT_APPROVAL_ACTION, entityType: ENTITY_TYPE, entityId: current.id, requestId: key, reason, proposedState: { kind: 'ACTIVATION', fingerprint: fingerprint(terms), ...terms } })
     const moved = await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.updateMany({ where: { id: current.id, tenantId, status: 'DRAFT' }, data: { status: 'PENDING_APPROVAL' } }))
     if (moved.count !== 1) throw new ConflictException('Only a draft supplement can be submitted')
     await this.audit.record({ tenantId, userId, action: 'event_supplement.submitted', entityType: ENTITY_TYPE, entityId: current.id, payload: { approvalId: approval.id } })
@@ -160,15 +169,31 @@ export class EventSupplementsService {
     return a
   }
 
+  /** ACTIVATION (the default, for approvals filed before this field existed) or AMENDMENT — bound at request time, never guessed. */
+  private boundKind(a: ApprovalView): 'ACTIVATION' | 'AMENDMENT' {
+    return (a.proposedState as { kind?: string } | null)?.kind === 'AMENDMENT' ? 'AMENDMENT' : 'ACTIVATION'
+  }
+
+  /**
+   * Decides a request. An ACTIVATION decision moves the row itself (APPROVED, or back to DRAFT on rejection); an AMENDMENT decision only
+   * records the decision — the amendment is applied, and the version written, only by `execute` (the terms must not change until a
+   * second person has reviewed exactly what `execute` will apply, same as a contract amendment, ADR 0067 F-01).
+   */
   async decide(tenantId: string, userId: string, approvalId: string, decision: 'APPROVED' | 'REJECTED', body: EventSupplementApprovalDecisionInput) {
     const a = await this.assertApproval(tenantId, approvalId)
     const updated = await this.approvals.decide({ tenantId, approverId: userId, approvalId, decision, reason: String(body?.reason ?? '') })
-    if (updated.status === 'APPROVED') {
-      await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.updateMany({ where: { id: a.entityId, tenantId, status: 'PENDING_APPROVAL' }, data: { status: 'APPROVED', approvedById: userId } }))
-      await this.audit.record({ tenantId, userId, action: 'event_supplement.approved', entityType: ENTITY_TYPE, entityId: a.entityId, payload: { approvalId } })
+    if (this.boundKind(a) === 'ACTIVATION') {
+      if (updated.status === 'APPROVED') {
+        await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.updateMany({ where: { id: a.entityId, tenantId, status: 'PENDING_APPROVAL' }, data: { status: 'APPROVED', approvedById: userId } }))
+        await this.audit.record({ tenantId, userId, action: 'event_supplement.approved', entityType: ENTITY_TYPE, entityId: a.entityId, payload: { approvalId } })
+      } else if (updated.status === 'REJECTED') {
+        await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.updateMany({ where: { id: a.entityId, tenantId, status: 'PENDING_APPROVAL' }, data: { status: 'DRAFT' } }))
+        await this.audit.record({ tenantId, userId, action: 'event_supplement.rejected', entityType: ENTITY_TYPE, entityId: a.entityId, payload: { approvalId, reason: body?.reason } })
+      }
+    } else if (updated.status === 'APPROVED') {
+      await this.audit.record({ tenantId, userId, action: 'event_supplement.amendment_approved', entityType: ENTITY_TYPE, entityId: a.entityId, payload: { approvalId } })
     } else if (updated.status === 'REJECTED') {
-      await this.prisma.withTenant(tenantId, (tx) => tx.eventSupplement.updateMany({ where: { id: a.entityId, tenantId, status: 'PENDING_APPROVAL' }, data: { status: 'DRAFT' } }))
-      await this.audit.record({ tenantId, userId, action: 'event_supplement.rejected', entityType: ENTITY_TYPE, entityId: a.entityId, payload: { approvalId, reason: body?.reason } })
+      await this.audit.record({ tenantId, userId, action: 'event_supplement.amendment_rejected', entityType: ENTITY_TYPE, entityId: a.entityId, payload: { approvalId, reason: body?.reason } })
     }
     return { ...this.view(await this.row(tenantId, a.entityId)), approval: this.approvalView(updated, userId) }
   }
@@ -183,7 +208,9 @@ export class EventSupplementsService {
   /**
    * Activates an APPROVED supplement: re-validates that its RoomEvent is still APPROVED (never activate against a since-cancelled event),
    * appends an immutable EventSupplementVersion snapshot (ADR 0067 F-01's pattern; `requestedById <> approvedById` is already guaranteed by
-   * ApprovalService's self-approval refusal), and moves the row to ACTIVE. Nothing here writes DailyRate.
+   * ApprovalService's self-approval refusal), and moves the row to ACTIVE. Nothing here writes DailyRate. The ACTIVATION approval itself
+   * is claimed through `ApprovalService.execute` (APPROVED -> EXECUTED, single use) so it can never be read back as "open" by a later
+   * amendment request on the same supplement.
    */
   async activate(tenantId: string, userId: string, id: string, body: { reason: string }): Promise<EventSupplementRead> {
     const current = await this.row(tenantId, id)
@@ -192,23 +219,99 @@ export class EventSupplementsService {
     const reason = textParam('reason', body?.reason, 500)
     if (!reason) throw new BadRequestException('A reason is required')
     const approvals = await this.approvals.listForEntities(tenantId, ENTITY_TYPE, [current.id])
-    const approved = approvals.find((a) => a.action === EVENT_SUPPLEMENT_APPROVAL_ACTION && (a.status === 'APPROVED' || a.status === 'EXECUTED'))
-    if (!approved) throw new ConflictException('No approval request found for this supplement')
+    const approved = approvals.find((a) => a.action === EVENT_SUPPLEMENT_APPROVAL_ACTION && this.boundKind(a) === 'ACTIVATION' && a.status === 'APPROVED')
+    if (!approved) throw new ConflictException('No approved activation request found for this supplement')
     const roomEvent = await this.prisma.withTenant(tenantId, (tx) => tx.roomEvent.findFirst({ where: { id: current.roomEventId, tenantId }, select: { status: true } }))
     if (!roomEvent || roomEvent.status !== 'APPROVED') throw new ConflictException('The room event is no longer approved')
     const terms = termsOf(current)
     const print = fingerprint(terms)
-    const now = new Date()
-    const activated = await this.prisma.withTenant(tenantId, async (tx) => {
-      const updated = await tx.eventSupplement.updateMany({ where: { id: current.id, tenantId, status: 'APPROVED' }, data: { status: 'ACTIVE', activatedAt: now } })
-      if (updated.count !== 1) throw new ConflictException('Only an approved supplement can be activated')
-      await tx.eventSupplementVersion.create({ data: { tenantId, eventSupplementId: current.id, version: current.version, kind: 'ACTIVATION', terms: terms as unknown as Prisma.InputJsonValue, fingerprint: print, approvalId: approved.id, requestedById: approved.requestedById, approvedById: current.approvedById!, appliedById: userId, reason } })
-      const row = await tx.eventSupplement.findFirst({ where: { id: current.id, tenantId } })
-      if (!row) throw new NotFoundException('Event supplement not found')
-      return row
+    const out = await this.approvals.execute({ tenantId, executorId: userId, approvalId: approved.id, expectedAction: EVENT_SUPPLEMENT_APPROVAL_ACTION }, async (approval) => {
+      const now = new Date()
+      return this.prisma.withTenant(tenantId, async (tx) => {
+        const updated = await tx.eventSupplement.updateMany({ where: { id: current.id, tenantId, status: 'APPROVED' }, data: { status: 'ACTIVE', activatedAt: now } })
+        if (updated.count !== 1) throw new ConflictException('Only an approved supplement can be activated')
+        await tx.eventSupplementVersion.create({ data: { tenantId, eventSupplementId: current.id, version: current.version, kind: 'ACTIVATION', terms: terms as unknown as Prisma.InputJsonValue, fingerprint: print, approvalId: approval.id, requestedById: approval.requestedById, approvedById: current.approvedById!, appliedById: userId, reason } })
+        const row = await tx.eventSupplement.findFirst({ where: { id: current.id, tenantId } })
+        if (!row) throw new NotFoundException('Event supplement not found')
+        return row
+      })
     })
     await this.audit.record({ tenantId, userId, action: 'event_supplement.activated', entityType: ENTITY_TYPE, entityId: current.id, payload: { roomEventId: current.roomEventId, contractId: current.contractId, fingerprint: print } })
-    return this.view(activated)
+    return this.view(out.result)
+  }
+
+  /**
+   * Files a maker-checker request to change the commercial terms of an already-ACTIVE or SUSPENDED supplement (never which event,
+   * contract or rate plan it is bound to — that never changes). Nothing is written yet; `execute` applies it once approved, re-validating
+   * against the terms as they stand then (ADR 0067 F-01's amendment pattern).
+   */
+  async requestAmendment(tenantId: string, userId: string, id: string, body: { changes?: Record<string, unknown>; reason: string; requestId?: string }) {
+    const current = await this.row(tenantId, id)
+    if (current.status !== 'ACTIVE' && current.status !== 'SUSPENDED') throw new ConflictException('Only an active or suspended supplement can be amended')
+    const reason = textParam('reason', body?.reason, 500)
+    if (!reason) throw new BadRequestException('A reason is required')
+    const changes = (body?.changes && typeof body.changes === 'object' ? body.changes : {}) as Record<string, unknown>
+    const errors: string[] = []
+    const merged = this.mergedTerms(termsOf(current), changes, errors)
+    if (errors.length) throw new BadRequestException(errors.join('; '))
+    const print = fingerprint(merged)
+    if (print === fingerprint(termsOf(current))) throw new BadRequestException('The amendment changes nothing')
+    const open = (await this.approvals.listForEntities(tenantId, ENTITY_TYPE, [current.id])).find((a) => a.status === 'PENDING' || a.status === 'APPROVED')
+    if (open) throw new ConflictException('This supplement already has an open request')
+    const key = body?.requestId ?? `${current.id}:amend:${current.updatedAt.toISOString()}`
+    const approval = await this.approvals.request({ tenantId, requesterId: userId, action: EVENT_SUPPLEMENT_APPROVAL_ACTION, entityType: ENTITY_TYPE, entityId: current.id, requestId: key, reason, proposedState: { kind: 'AMENDMENT', fingerprint: print, changes, ...merged } })
+    await this.audit.record({ tenantId, userId, action: 'event_supplement.amendment_requested', entityType: ENTITY_TYPE, entityId: current.id, payload: { approvalId: approval.id } })
+    return { ...this.view(current), approval: this.approvalView(approval, userId) }
+  }
+
+  /** Merges amendable fields onto the current terms, validating the result as a whole (so a partial change can't produce an invalid shape, e.g. changing only percentBp on a FIXED row). */
+  private mergedTerms(current: SupplementTerms, changes: Record<string, unknown>, errors: string[]): SupplementTerms {
+    const candidate: Record<string, unknown> = { ...current }
+    for (const key of ['amountKind', 'basis', 'frequency', 'amountMinor', 'percentBp', 'currency', 'taxTreatment', 'validFrom', 'validTo', 'stackable', 'priority', 'evidenceRef'] as const) {
+      if (changes[key] !== undefined) candidate[key] = changes[key]
+    }
+    // Switching amountKind must clear the other shape's fields, exactly as a fresh create would (never a stale basis next to a percentBp).
+    if (changes.amountKind === 'FIXED') { candidate.percentBp = null }
+    else if (changes.amountKind === 'PERCENTAGE') { candidate.basis = null; candidate.frequency = null; candidate.amountMinor = null }
+    const terms = this.validateTerms(candidate, errors)
+    return { ...current, ...candidate, ...terms } as SupplementTerms
+  }
+
+  /** Applies an approved AMENDMENT: re-validates against the terms as they stand now, writes an immutable AMENDMENT version, and bumps
+   * `version`. An ACTIVATION approval is applied by `activate` instead (named by the entity, not the approval). */
+  async execute(tenantId: string, userId: string, approvalId: string, body: { reason: string }): Promise<EventSupplementRead> {
+    const a = await this.assertApproval(tenantId, approvalId)
+    if (this.boundKind(a) !== 'AMENDMENT') throw new BadRequestException('Not an amendment approval; activate the entity directly')
+    const reason = textParam('reason', body?.reason, 500)
+    if (!reason) throw new BadRequestException('A reason is required')
+    const out = await this.approvals.execute({ tenantId, executorId: userId, approvalId, expectedAction: EVENT_SUPPLEMENT_APPROVAL_ACTION }, async (approval) => {
+      const state = (approval.proposedState ?? {}) as { fingerprint: string; changes?: Record<string, unknown> }
+      return this.prisma.withTenant(tenantId, async (tx) => {
+        const current = await tx.eventSupplement.findFirst({ where: { id: approval.entityId, tenantId } })
+        if (!current) throw new NotFoundException('Event supplement not found')
+        if (current.status !== 'ACTIVE' && current.status !== 'SUSPENDED') throw new ConflictException('The supplement is no longer active or suspended')
+        const errors: string[] = []
+        const merged = this.mergedTerms(termsOf(current), (state.changes ?? {}) as Record<string, unknown>, errors)
+        if (errors.length) throw new BadRequestException(errors.join('; '))
+        const print = fingerprint(merged)
+        if (print !== state.fingerprint) throw new ConflictException('The supplement changed since this amendment was reviewed')
+        const nextVersion = current.version + 1
+        await tx.eventSupplement.update({
+          where: { id: current.id, tenantId },
+          data: {
+            amountKind: merged.amountKind, basis: merged.basis as SupplementBasis | null, frequency: merged.frequency as SupplementFrequency | null, amountMinor: merged.amountMinor === null ? null : BigInt(merged.amountMinor), percentBp: merged.percentBp,
+            currency: merged.currency, taxTreatment: merged.taxTreatment, validFrom: new Date(`${merged.validFrom}T00:00:00.000Z`), validTo: new Date(`${merged.validTo}T00:00:00.000Z`),
+            stackable: merged.stackable, priority: merged.priority, evidenceRef: merged.evidenceRef, version: nextVersion,
+          },
+        })
+        await tx.eventSupplementVersion.create({ data: { tenantId, eventSupplementId: current.id, version: nextVersion, kind: 'AMENDMENT', terms: merged as unknown as Prisma.InputJsonValue, fingerprint: print, approvalId: approval.id, requestedById: approval.requestedById, approvedById: approval.decidedById!, appliedById: userId, reason } })
+        const row = await tx.eventSupplement.findFirst({ where: { id: current.id, tenantId } })
+        if (!row) throw new NotFoundException('Event supplement not found')
+        return row
+      })
+    })
+    await this.audit.record({ tenantId, userId, action: 'event_supplement.amended', entityType: ENTITY_TYPE, entityId: out.result.id, payload: { approvalId, version: out.result.version } })
+    return this.view(out.result)
   }
 
   /** Single-actor: stops new applications without rewriting history (mirrors Contract.suspend, ADR 0067 F-01). */

@@ -266,6 +266,39 @@ describe('Room Event Master and event supplements (ADR 0089)', () => {
       const submitted = (await api(maker).post(`/admin/event-supplements/${supplement.id}/submit`, { reason: 'x' }).expect(201)).body.data
       await api(outsider, otherTenantId).post(`/admin/event-supplement-approvals/${submitted.approval.id}/approve`, { reason: 'x' }).expect(404)
     })
+
+    it('an amendment to an ACTIVE supplement is maker-checker, writes a second version, bumps version, and changes the price', async () => {
+      const approved = await approvedEvent()
+      const created = (await api(maker).post('/admin/event-supplements', fixedSupplement(approved.id, { ratePlanId })).expect(201)).body.data
+      const submitted = (await api(maker).post(`/admin/event-supplements/${created.id}/submit`, { reason: 'x' }).expect(201)).body.data
+      await api(checker).post(`/admin/event-supplement-approvals/${submitted.approval.id}/approve`, { reason: 'ok' }).expect(201)
+      const supplement = (await api(maker).post(`/admin/event-supplements/${created.id}/activate`, { reason: 'x' }).expect(201)).body.data
+      expect(supplement.version).toBe(1)
+
+      await api(maker).post(`/admin/event-supplements/${supplement.id}/amendment-request`, { changes: {}, reason: 'no-op' }).expect(400)
+      const draftOnly = (await api(maker).post('/admin/event-supplements', fixedSupplement(approved.id)).expect(201)).body.data
+      await api(maker).post(`/admin/event-supplements/${draftOnly.id}/amendment-request`, { changes: { amountMinor: '20000' }, reason: 'x' }).expect(409)
+
+      const amendment = expectStatus(await api(maker).post(`/admin/event-supplements/${supplement.id}/amendment-request`, { changes: { amountMinor: '20000' }, reason: 'Supplier revised the surcharge' }), 201).body.data
+      expect(amendment.version).toBe(1) // not applied yet
+      await api(maker).post(`/admin/event-supplements/${supplement.id}/amendment-request`, { changes: { amountMinor: '25000' }, reason: 'again' }).expect(409) // one open request at a time
+      await api(maker).post(`/admin/event-supplement-approvals/${amendment.approval.id}/approve`, { reason: 'self' }).expect(403)
+      await api(checker).post(`/admin/event-supplement-approvals/${amendment.approval.id}/approve`, { reason: 'Matches the supplier notice' }).expect(201)
+      expect((await api(maker).get(`/admin/event-supplements/${supplement.id}`).expect(200)).body.data.amountMinor).toBe('15000') // still not applied
+
+      await api(readOnly).post(`/admin/event-supplement-approvals/${amendment.approval.id}/execute`, { reason: 'x' }).expect(403)
+      const executed = expectStatus(await api(maker).post(`/admin/event-supplement-approvals/${amendment.approval.id}/execute`, { reason: 'Applying the supplier revision' }), 201).body.data
+      expect(executed).toMatchObject({ amountMinor: '20000', version: 2, status: 'ACTIVE' })
+      const versions = await prisma.eventSupplementVersion.findMany({ where: { eventSupplementId: supplement.id }, orderBy: { version: 'asc' } })
+      expect(versions.map((v) => ({ kind: v.kind, version: v.version }))).toEqual([{ kind: 'ACTIVATION', version: 1 }, { kind: 'AMENDMENT', version: 2 }])
+      expect(versions[1].requestedById).not.toBe(versions[1].approvedById)
+      await api(maker).post(`/admin/event-supplement-approvals/${amendment.approval.id}/execute`, { reason: 'x' }).expect(409) // single use
+
+      // AED 200.00 per room per night now, two nights: AED 400.00 added instead of AED 300.00.
+      const priced = sellAmount((await search().expect(201)).body)
+      expect(priced).toBe(59_800 + 40_000)
+      await api(maker).post(`/admin/event-supplements/${supplement.id}/suspend`, { reason: 'cleanup' }).expect(201)
+    })
   })
 
   describe('Rate Impact Preview', () => {
