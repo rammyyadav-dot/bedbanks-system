@@ -70,7 +70,7 @@ export function AccessRequestForm() {
 
   return (
     <form className="access-form" onSubmit={submit} noValidate aria-labelledby="access-form-title">
-      <h2 id="access-form-title">Agency information</h2>
+      <h2 id="access-form-title">{accessCopy.formTitle}</h2>
       {messages.length ? (
         <div className="trade-banner is-error" role="alert" tabIndex={-1} ref={summary}>
           <strong>Please fix {messages.length === 1 ? 'one field' : `${messages.length} fields`} before sending.</strong>
@@ -83,7 +83,7 @@ export function AccessRequestForm() {
         {field('lastName', 'Last name', { required: true, autoComplete: 'family-name' })}
         {field('jobTitle', 'Job title', { required: true, autoComplete: 'organization-title' })}
         {field('agencyName', 'Agency or company name', { required: true, autoComplete: 'organization' })}
-        {field('workEmail', 'Work email', { required: true, type: 'email', autoComplete: 'email', placeholder: 'you@youragency.com', hint: 'We reply to this address.' })}
+        {field('workEmail', 'Work email', { required: true, type: 'email', autoComplete: 'email', placeholder: 'you@youragency.com' })}
         {field('confirmEmail', 'Repeat work email', { required: true, type: 'email', autoComplete: 'off', placeholder: 'you@youragency.com' })}
         {field('phone', 'Business phone', { required: true, type: 'tel', autoComplete: 'tel', placeholder: '+971 4 000 0000' })}
         {field('country', 'Country your company is registered in', { required: true, autoComplete: 'country-name' })}
@@ -97,7 +97,7 @@ export function AccessRequestForm() {
 
       <div className="access-grid">
         {field('website', 'Company website', { type: 'url', autoComplete: 'url', placeholder: 'www.youragency.com' })}
-        {field('registrationNumber', 'Registered company number', { hint: 'Optional now. We may ask for it, and your trade licence, during review.' })}
+        {field('registrationNumber', 'Registered company number', { hint: 'Optional' })}
         <label className="access-field" htmlFor="access-monthlyVolume">
           <span>Estimated monthly room nights *</span>
           <select id="access-monthlyVolume" name="monthlyVolume" value={values.monthlyVolume} onChange={set('monthlyVolume')} aria-invalid={errors.monthlyVolume ? true : undefined}>
@@ -108,22 +108,21 @@ export function AccessRequestForm() {
         </label>
       </div>
 
-      <h2>Comments or questions</h2>
       <label className="access-field" htmlFor="access-comments">
         <span>Comments</span>
-        <textarea id="access-comments" name="comments" rows={5} maxLength={1500} value={values.comments} onChange={set('comments')} placeholder="Markets you sell, destinations you need, anything we should know." />
+        <textarea id="access-comments" name="comments" rows={5} maxLength={1500} value={values.comments} onChange={set('comments')} placeholder="Markets you sell, destinations you need." />
+        <small>No passwords, card numbers or guest details.</small>
         {errors.comments ? <small className="access-error">{errors.comments}</small> : null}
       </label>
-      <p className="access-warning">Do not enter passwords, card numbers or guest details.</p>
 
       <label className="access-consent">
         <input type="checkbox" name="consent" checked={values.consent} onChange={set('consent')} aria-invalid={errors.consent ? true : undefined} />
-        <span>I agree that fabBeds may use these details to review my agency and contact me about it. *</span>
+        <span>fabBeds may use these details to review my agency and contact me. *</span>
       </label>
       {errors.consent ? <small className="access-error">{errors.consent}</small> : null}
 
-      <p className="trade-muted">{accessCopy.privacyNote}</p>
       <button type="submit" className="trade-button">Prepare request email</button>
+      <p className="access-send-note">{accessCopy.sendNote}</p>
     </form>
   )
 }

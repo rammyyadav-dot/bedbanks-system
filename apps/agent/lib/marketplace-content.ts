@@ -129,8 +129,8 @@ export const editorialPages = {
   access: {
     path: '/access',
     kicker: 'Request Agent Access',
-    title: 'New to fabBeds? Tell us about your agency.',
-    summary: 'Complete the agency details below and send them to the fabBeds team. This page does not create an account or grant a role.',
+    title: 'Get your agency booking wholesale hotels',
+    summary: 'This page does not create an account or grant a role.',
     sections: [],
   },
 } as const satisfies Record<string, EditorialPage>
@@ -187,25 +187,20 @@ export const marketplaceHome = {
   residencyNote: 'A separate guest-residency field is not used. Nationality is the market value sent with search.',
 } as const
 
-/** Request Agent Access page. Process steps describe review, never turnaround time, volume or approval odds. */
+/** Request Agent Access page. Short on purpose; process copy describes review, never turnaround time, volume or approval odds. */
 export const accessCopy = {
-  steps: [
-    { title: 'Tell us about your agency', text: 'Complete the agency, contact and trading details. Fields marked * are required.' },
-    { title: 'Send the request', text: `Your email app opens with the details filled in. Send it to ${contactEmail}. This page does not transmit the form for you.` },
-    { title: 'The fabBeds team reviews it', text: 'Each agency is reviewed by a person. Review happens outside this page, and we may ask for supporting documents.' },
-    { title: 'Access is set up', text: 'If approved, the team creates your agency and sign-in. Nothing is active until then.' },
-  ],
-  reviewTitle: 'What the team looks at',
-  review: [
-    { title: 'Who you are', text: 'Registered company name and country, website and a contact email address.' },
-    { title: 'How you sell', text: 'Business type, markets and the connection you plan to use: booking website, API or both.' },
-    { title: 'Fit for the workspace', text: 'Today the workspace offers a Dubai search pilot with authoritative recheck. Booking is enabled per agency.' },
-  ],
-  prepareTitle: 'Have these ready',
-  prepare: ['Registered company name and number', 'Trade licence or travel-agency accreditation, if your country issues one', 'Company website and a work email address', 'The markets you sell and your estimated monthly room nights'],
-  supplierTitle: 'Are you a hotel or supplier?',
-  supplierText: `This form is for travel agencies. Hotels and suppliers should write to ${contactEmail} and say they are a supplier.`,
-  privacyNote: 'The details you enter stay in your browser until you send the email yourself. fabBeds stores nothing from this page.',
+  hook: 'Search, recheck, book.',
+  perks: ['Recheck before every hold', 'Stay totals in AED', 'Credit in one view'],
+  steps: ['Tell us about your agency', 'Send the email', 'The team reviews it'],
+  sendNote: 'Opens your email app. Nothing is sent from this page.',
+  prepare: 'Have ready: company number, trade licence, website.',
+  formTitle: 'Request access',
+  supplier: {
+    title: 'Hotel or supplier',
+    text: 'This form is for travel agencies.',
+    cta: 'Write to our supplier team',
+    subject: 'Supplier enquiry',
+  },
   successTitle: 'Your email app should now be open',
-  successText: `Send the message to ${contactEmail} to complete your request. If nothing opened, copy the text below and email it yourself. Your request is not received until you send it.`,
+  successText: `Send the message to ${contactEmail} to finish. If nothing opened, copy the text below. Your request is not received until you send it.`,
 } as const
