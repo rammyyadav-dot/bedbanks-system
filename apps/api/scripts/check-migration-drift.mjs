@@ -10,9 +10,10 @@ const TOLERATED = new Set([
   'DROP INDEX "Hotel_name_lower_trgm";',
   // 202611280001_hotel_search_hot_path: a generated column and its partial index, neither expressible in Prisma 6.
   'DROP INDEX "Hotel_tenant_id_city_key_complete_idx";',
-  'ALTER TABLE "Hotel" DROP COLUMN "city_key";',
+  // With "name_key" also present, Prisma drops both generated columns in one statement, which the line-wise comparison sees as two lines.
+  'ALTER TABLE "Hotel" DROP COLUMN "city_key",',
   // 202612120001_hotel_prefix_search_keys: a generated column and two collated partial indexes (ADR 0099).
-  'ALTER TABLE "Hotel" DROP COLUMN "name_key";',
+  'DROP COLUMN "name_key";',
   'DROP INDEX "Hotel_tenant_id_city_prefix_idx";',
   'DROP INDEX "Hotel_tenant_id_name_prefix_idx";',
   // 202611250001_hotel_search_indexes: generated tsvector column; Prisma 6 reads the generation expression as a default.
