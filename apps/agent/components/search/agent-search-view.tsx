@@ -18,7 +18,7 @@ import { activeFilterLabel, stayOccupancyLabel } from '@/lib/search-summary'
 import { canOpenCheckout, recheckOutcomeMessage, recheckOutcomeTitle } from '@/lib/recheck-copy'
 import { resultWindow } from '@/lib/result-window'
 import { BookingReview } from '@/components/booking/booking-review'
-import { priceChangeDisplay, recheckBaselineMinor, recheckResultApplies } from '@/lib/recheck-attempt'
+import { checkoutRate, priceChangeDisplay, recheckBaselineMinor, recheckResultApplies } from '@/lib/recheck-attempt'
 import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
 import { HotelThumbnail } from '@/components/search/hotel-thumbnail'
@@ -353,6 +353,13 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
     recheckGeneration.current = generation
     void runRecheck(selection.rate, accepted, generation)
   }
+  /** The hold refused the quoted total. Re-quote now so the agent sees the current price and decides, instead of a dead end. */
+  const requote = () => {
+    if (!selection) return
+    const generation = recheckGeneration.current + 1
+    recheckGeneration.current = generation
+    void runRecheck(selection.rate, acceptedMinor ?? selection.rate.sellAmountMinor, generation)
+  }
   const canAcceptChangedPrice = recheck?.status === 'price_changed' && recheck.currency === selection?.rate.total.currency && recheck.sellAmountMinor !== undefined
   const baselineMinor = selection ? recheckBaselineMinor(selection.rate.sellAmountMinor, acceptedMinor) : 0
   const priceMove = selection && recheck?.status === 'price_changed' && recheck.sellAmountMinor !== undefined
@@ -419,7 +426,7 @@ function LiveHotelDetail({ hotel, request, searchId, onBack, onRefresh, bookingE
       {(recheck?.status === 'provider_unavailable' || recheck?.status === 'rejected' || recheck?.status === 'mapping_invalid') && !rechecking && <button className="portal-primary" type="button" onClick={() => choose(selection.room, selection.rate)}>Try again</button>}
       {recheck && <RecheckOutcome result={recheck} currency={selection.rate.total.currency} priceMove={priceMove} bookingEnabled={bookingEnabled} />}
       {selection && reviewMinor !== null && <BookingReview hotelName={hotel.name} destination={hotel.destination} starRating={hotel.starRating} roomName={selection.room.name} rate={selection.rate} request={request} recheckedMinor={reviewMinor} bookingEnabled={bookingEnabled} expiresAt={recheck?.expiresAt} timeZone={hotel.timeZone} />}
-      {canOpenCheckout(bookingEnabled, recheck?.status) && searchId && <BookingCheckout key={selection.rate.offerId} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} rate={selection.rate} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} agentEmail={agentEmail} timeZone={hotel.timeZone} />}</div>}
+      {canOpenCheckout(bookingEnabled, recheck?.status) && searchId && <BookingCheckout key={`${selection.rate.offerId}:${checkoutRate(selection.rate, acceptedMinor).sellAmountMinor}`} rate={checkoutRate(selection.rate, acceptedMinor)} onPriceChanged={requote} tenantId={tenantId} hotelName={hotel.name} roomName={selection.room.name} searchId={searchId} request={request} onBooked={onBooked} onViewBooking={onViewBooking} agentEmail={agentEmail} timeZone={hotel.timeZone} />}</div>}
   </section>
 }
 
