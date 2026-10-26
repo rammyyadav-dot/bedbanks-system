@@ -128,7 +128,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | Funds after a hold expired | Credited as balance; the hold is not revived | BUILT |
 | Bank recall or chargeback | REVERSAL linked to the receipt; review; may suspend | PROPOSED |
 | Payment link or card | Provider, verified webhooks, fees policy | PROPOSED (slice 5) |
-| Unmatched bank credit | Held in a suspense list until matched to an agency | PROPOSED (needs bank statement import) |
+| Unmatched bank credit | Held in a suspense list until matched to an agency | PARTIAL: listed as `UNMATCHED_ENTRY` exceptions (ADR 0093); matching it to an agency and posting it are not built |
 
 ## 7. Supplier side (procure to pay)
 
@@ -149,7 +149,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | R3 Ledger to cancellations | Charged cancellations carry exactly their recorded refund | Daily | BUILT (ADR 0068) |
 | R4 Ledger to funding receipts | Each POSTED receipt has its CREDIT and each funding CREDIT its receipt | Daily | BUILT (ADR 0068) |
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
-| R6 Receipts and supplier payments to bank statement | Every POSTED receipt and recorded settlement appears on the bank statement; every statement movement is one of them or in suspense | Daily | PARTIAL: MT940, camt.053 and CSV parsers and the matcher are built and tested (ADR 0093); import, storage, worker and queue are not |
+| R6 Receipts and supplier payments to bank statement | Every POSTED receipt and recorded settlement appears on the bank statement; every statement movement is one of them or in suspense | Daily | PARTIAL: file upload (MT940, camt.053, CSV), matching, storage and the exception queue are built behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0093); no UI, bank feed, ERA or ledger posting |
 | R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
 | R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
 

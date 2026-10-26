@@ -101,6 +101,9 @@ Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC func
 
 Privileged paths (written by the API process somewhere, never by the runtime role):
 
+- `BankMatchFinding`: finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)
+- `BankStatement`: finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)
+- `BankStatementEntry`: finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
 - `BookingAmendment`: booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)

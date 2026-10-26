@@ -841,6 +841,9 @@ model Tenant {
   supplierStatements SupplierStatement[]
   supplierStatementLines SupplierStatementLine[]
   reconciliationRuns ReconciliationRun[]
+  bankStatements BankStatement[]
+  bankStatementEntries BankStatementEntry[]
+  bankMatchFindings BankMatchFinding[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
   bookingRooms BookingRoom[]
@@ -3191,6 +3194,121 @@ model ReconciliationDecision {
   createdAt  DateTime              @default(now()) @map("created_at")
 
   @@index([tenantId, findingId, createdAt])
+}
+
+enum BankStatementFormat {
+  MT940
+  CAMT053
+  CSV
+}
+
+enum BankDirection {
+  CREDIT
+  DEBIT
+}
+
+enum BankMatchType {
+  MATCHED
+  AMOUNT_MISMATCH
+  CURRENCY_MISMATCH
+  DIRECTION_MISMATCH
+  AMBIGUOUS_REFERENCE
+  DUPLICATE_ENTRY
+  DUPLICATE_PAYMENT
+  UNMATCHED_ENTRY
+  EXPECTED_NOT_ON_STATEMENT
+}
+
+enum BankExceptionStatus {
+  OPEN
+  RESOLVED
+}
+
+/// A bank statement (MT940, camt.053 or CSV), imported once and never edited (ADR 0093). The account number is kept only as a hash and its last four characters, and no remittance text is stored.
+model BankStatement {
+  id            String               @id @default(cuid())
+  tenantId      String               @map("tenant_id")
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  format        BankStatementFormat
+  statementRef  String               @map("statement_ref")
+  accountSha256 String               @map("account_sha256") @db.Char(64)
+  accountLast4  String               @map("account_last4")
+  currency      String               @db.Char(3)
+  periodStart   DateTime             @map("period_start") @db.Date
+  periodEnd     DateTime             @map("period_end") @db.Date
+  openingMinor  BigInt?              @map("opening_minor")
+  closingMinor  BigInt?              @map("closing_minor")
+  entryCount    Int                  @map("entry_count")
+  contentSha256 String               @map("content_sha256") @db.Char(64)
+  requestId     String               @map("request_id")
+  importedById  String               @map("imported_by_id")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  entries       BankStatementEntry[]
+  findings      BankMatchFinding[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, contentSha256])
+  @@unique([tenantId, accountSha256, statementRef])
+  @@index([tenantId, createdAt])
+}
+
+model BankStatementEntry {
+  id          String             @id @default(cuid())
+  tenantId    String             @map("tenant_id")
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId String             @map("statement_id")
+  statement   BankStatement      @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  entryNo     Int                @map("entry_no")
+  entryRef    String             @map("entry_ref")
+  direction   BankDirection
+  currency    String             @db.Char(3)
+  /// Positive magnitude in integer minor units; `direction` gives the sign.
+  amountMinor BigInt             @map("amount_minor")
+  bookingDate DateTime           @map("booking_date") @db.Date
+  valueDate   DateTime           @map("value_date") @db.Date
+  createdAt   DateTime           @default(now()) @map("created_at")
+  findings    BankMatchFinding[]
+
+  @@unique([tenantId, id])
+  @@unique([statementId, entryNo])
+  @@index([tenantId, statementId])
+}
+
+/// One row per bank movement and per expected payment missing from the statement. `isException` false rows are clean matches. An exception is closed by a person other than whoever imported the statement; closing it posts nothing.
+model BankMatchFinding {
+  id               String              @id @default(cuid())
+  tenantId         String              @map("tenant_id")
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId      String              @map("statement_id")
+  statement        BankStatement       @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  /// `entry:<n>` or `expected:<id>`; unique per statement.
+  findingKey       String              @map("finding_key")
+  entryId          String?             @map("entry_id")
+  entry            BankStatementEntry? @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  type             BankMatchType
+  isException      Boolean             @map("is_exception")
+  currency         String              @db.Char(3)
+  bankMinor        BigInt?             @map("bank_minor")
+  expectedMinor    BigInt?             @map("expected_minor")
+  /// bank - expected, same currency only.
+  varianceMinor    BigInt?             @map("variance_minor")
+  /// SUPPLIER_SETTLEMENT or FUNDING_RECEIPT, with the id of that record.
+  expectedKind     String?             @map("expected_kind")
+  expectedId       String?             @map("expected_id")
+  status           BankExceptionStatus @default(OPEN)
+  resolution       String?
+  resolutionReason String?             @map("resolution_reason")
+  raisedById       String              @map("raised_by_id")
+  resolvedById     String?             @map("resolved_by_id")
+  resolvedAt       DateTime?           @map("resolved_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, statementId, findingKey])
+  @@index([tenantId, isException, status, createdAt])
+  @@index([tenantId, statementId, status])
+  @@index([tenantId, type, expectedId])
 }
 
 /// B2B distribution API (ADR 0075, amendment 3). A partner system acting for exactly one agency; tenant and agency are fixed at creation.

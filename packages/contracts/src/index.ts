@@ -11,6 +11,7 @@ export * from './commercial';
 export * from './departments';
 export * from './funding';
 export * from './finance-reconciliation';
+export * from './bank-reconciliation';
 export * from './booking-finance-posting';
 export * from './hotel-setup';
 export * from './hotel-quality';

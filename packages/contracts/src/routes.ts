@@ -77,6 +77,11 @@ export const routes = {
     exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
     propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
   },
+  // Bank statement reconciliation (ADR 0093). Imports need a `requestId` in the body.
+  adminBankReconciliation: {
+    statements: '/admin/finance/bank-reconciliation/statements', statement: '/admin/finance/bank-reconciliation/statements/:statementId',
+    exceptions: '/admin/finance/bank-reconciliation/exceptions', resolve: '/admin/finance/bank-reconciliation/exceptions/:exceptionId/resolve',
+  },
   // Backlog of the booking Finance consumer (ADR 0076). Read-only.
   adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging', payablesDue: '/admin/finance/booking-postings/payables/due' },
   // Supplier payment terms (ADR 0078).

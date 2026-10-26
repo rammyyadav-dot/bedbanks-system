@@ -53,3 +53,9 @@ test('funding receipts match incoming credits', () => {
   const r = matchBankStatement([entry({ direction: 'CREDIT', references: ['AGY-FUND-77'], amountMinor: 120000n })], [pay('r1', { kind: 'FUNDING_RECEIPT', reference: 'AGY-FUND-77', direction: 'CREDIT', amountMinor: 120000n })], period)
   assert.equal(r.findings[0].type, 'MATCHED'); assert.equal(r.findings[0].expectedKind, 'FUNDING_RECEIPT')
 })
+
+test('a payment matched by an earlier statement is consumed: a new movement is a duplicate payment and it is never reported missing', () => {
+  const prior = new Set(['s1'])
+  assert.deepEqual(types(matchBankStatement([entry()], [pay('s1')], period, prior)), [['entry:1', 'DUPLICATE_PAYMENT']])
+  assert.deepEqual(types(matchBankStatement([], [pay('s1')], period, prior)), [])
+})
