@@ -447,6 +447,8 @@ enum ApprovalRequestStatus {
   CANCELLED
   /// An APPROVED request that its owning service has claimed and run. Single use.
   EXECUTED
+  /// Waited too long: PENDING past the TTL from the request, or APPROVED past the TTL from the decision (ADR 0095).
+  EXPIRED
 }
 
 model ApprovalRequest {

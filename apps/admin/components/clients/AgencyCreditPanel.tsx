@@ -5,6 +5,7 @@ import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Tag } from '@/components/ops/ops-ui'
 import { cancelAgencyCredit, decideAgencyCredit, executeAgencyCredit, getAgency, requestAgencyCreditLimit } from '@/lib/data/departments'
+import { useStepUp } from '@/components/common/StepUpDialog'
 import { formatMinorUnits, parseMajorToMinor } from '@/lib/minor-units'
 import { useCan } from '@/lib/auth/capabilities'
 
@@ -21,11 +22,13 @@ export function AgencyCreditPanel({ agencyId, version, busy, act }: { agencyId: 
   const detail = useOpsQuery(() => getAgency(agencyId), [agencyId, version])
   const [currency, setCurrency] = useState('AED'); const [amount, setAmount] = useState(''); const [reason, setReason] = useState('')
   const requestKey = useRef<string | null>(null)
+  const { confirm, dialog } = useStepUp()
   const minor = parseMajorToMinor(amount.trim(), currency.trim())
   const text = reason.trim()
   const newKey = () => (requestKey.current ??= crypto.randomUUID())
   return (
     <section className="workspace-panel" aria-label="Agency credit limit" data-testid="agency-credit" style={{ padding: '12px 18px', marginTop: 12 }}>
+      {dialog}
       <h2 style={{ fontSize: 14 }}>Credit limit</h2>
       <OpsState state={detail.state} onRetry={detail.reload}>
         {(a) => {
@@ -51,7 +54,7 @@ export function AgencyCreditPanel({ agencyId, version, busy, act }: { agencyId: 
                   {p.canDecide && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
                       <label style={lab}>Decision reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></label>
-                      <button type="button" className="admin-btn" disabled={busy || text.length < 3} data-testid="credit-approve" onClick={() => void act(async () => { await decideAgencyCredit(p.id, 'approve', text); setReason(''); return 'Approved.' })}>Approve</button>
+                      <button type="button" className="admin-btn" disabled={busy || text.length < 3} data-testid="credit-approve" onClick={() => confirm({ title: 'Approve credit limit change', description: p.limitMinor === null ? 'Approve removing this agency\'s credit limit. It still needs to be applied to take effect.' : `Approve setting the credit limit to ${formatMinorUnits(p.limitMinor, p.currency ?? '')}. It still needs to be applied to take effect.`, run: async (password) => { await decideAgencyCredit(p.id, 'approve', text, password); setReason(''); await act(async () => 'Approved.') /* refreshes the panel the same way every other step does */ } })}>Approve</button>
                       <button type="button" className="admin-btn" disabled={busy || text.length < 3} data-testid="credit-reject" onClick={() => void act(async () => { await decideAgencyCredit(p.id, 'reject', text); setReason(''); return 'Rejected.' })}>Reject</button>
                     </div>
                   )}

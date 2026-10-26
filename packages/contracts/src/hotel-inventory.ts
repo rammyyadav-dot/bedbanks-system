@@ -164,7 +164,7 @@ export interface PoolCapacityApplied { replayed: boolean; auditRequestId: string
  * records a maker-checker request; after a second person approves it, the database owner applies it with `ops:pool-nights --approval`. Nothing here
  * writes a night: `EXECUTED` is set only by that owner tool.
  */
-export type PoolNightRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED';
+export type PoolNightRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED' | 'EXPIRED';
 export interface PoolNightRequestBody { requestId: string; startDate: string; endDate: string; capacity: number; reason: string }
 export interface PoolNightDecision { reason: string }
 export interface PoolNightRequestView {

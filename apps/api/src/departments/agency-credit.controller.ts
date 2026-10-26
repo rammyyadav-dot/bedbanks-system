@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { RequireDepartmentPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { AgencyCreditService } from './agency-credit.service'
+import { DualApprovalGuard, RequireDualApproval, RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 /**
  * Agency credit limit changes (ADR 0024), kept apart from ClientsController on purpose: the Clients department has no money
@@ -21,7 +22,7 @@ export class AgencyCreditController {
   @Post('agencies/:agencyId/request-credit-limit') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
   requestCredit(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('agencyId') agencyId: string, @Body() body: AgencyCreditLimitRequest) { return this.credit.request(tenantId, identity.user.id, agencyId, body ?? ({} as AgencyCreditLimitRequest)) }
 
-  @Post('agencies/credit-approvals/:approvalId/approve') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
+  @Post('agencies/credit-approvals/:approvalId/approve') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @RequireStepUp('credit_limit.approve') @UseGuards(SupplyPermissionGuard, StepUpGuard)
   approveCredit(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string, @Body() body: AgencyCreditDecision) { return this.credit.decide(tenantId, identity.user.id, approvalId, 'APPROVED', body) }
 
   @Post('agencies/credit-approvals/:approvalId/reject') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
@@ -30,6 +31,6 @@ export class AgencyCreditController {
   @Post('agencies/credit-approvals/:approvalId/cancel') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
   withdrawCredit(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.credit.cancel(tenantId, identity.user.id, approvalId) }
 
-  @Post('agencies/credit-approvals/:approvalId/execute') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @UseGuards(SupplyPermissionGuard)
+  @Post('agencies/credit-approvals/:approvalId/execute') @HttpCode(200) @RequireDepartmentPermission('agency.manage') @RequireDualApproval('credit_limit.approve') @UseGuards(SupplyPermissionGuard, DualApprovalGuard)
   executeCredit(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.credit.execute(tenantId, identity.user.id, approvalId) }
 }

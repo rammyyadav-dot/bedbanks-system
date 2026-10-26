@@ -11,7 +11,8 @@ import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { clearFundingCompliance, declareFunding, getFundingReceipts, postFunding, rejectFunding, verifyFunding } from '@/lib/data/funding'
 import { getAgencies } from '@/lib/data/departments'
 import { describeApiError } from '@/lib/api/describe-error'
-import { parseMajorToMinor } from '@/lib/minor-units'
+import { useStepUp } from '@/components/common/StepUpDialog'
+import { formatMinorUnits, parseMajorToMinor } from '@/lib/minor-units'
 import { useCan } from '@/lib/auth/capabilities'
 
 const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
@@ -65,6 +66,7 @@ export default function FundingReceiptsPage() {
 }
 
 function Row({ r, busy, canManage, act }: { r: FundingReceiptView; busy: boolean; canManage: boolean; act: (w: () => Promise<string>) => Promise<void> }) {
+  const { confirm, dialog } = useStepUp()
   return (
     <tr data-testid={`funding-${r.status.toLowerCase()}`}>
       <td style={td}>{when(r.declaredAt)}<div style={{ fontSize: 10 }}>{r.channel === 'AGENT' ? 'by the agency' : 'by finance'}</div></td>
@@ -79,9 +81,10 @@ function Row({ r, busy, canManage, act }: { r: FundingReceiptView; busy: boolean
         {r.postBlockedReason && <div style={{ fontSize: 10 }}>{r.postBlockedReason}</div>}
       </td>
       <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {dialog}
         {canManage && r.canVerify && <button type="button" className="admin-btn" disabled={busy} data-testid="funding-verify" onClick={() => void act(async () => { await verifyFunding(r.id, ask('Verification note (optional), e.g. the statement line') ?? ''); return 'Verified.' })}>Verify</button>}
         {canManage && r.canClearCompliance && <button type="button" className="admin-btn" disabled={busy} data-testid="funding-clear" onClick={() => { const text = ask('Compliance note (required): what was checked'); if (text) void act(async () => { await clearFundingCompliance(r.id, text); return 'Compliance review cleared.' }) }}>Clear compliance</button>}
-        {canManage && r.canPost && <button type="button" className="admin-btn" disabled={busy} data-testid="funding-post" onClick={() => { if (window.confirm('Post this receipt? The amount is credited to the agency account and cannot be undone here.')) void act(async () => { await postFunding(r.id); return 'Posted to the agency account.' }) }}>Post</button>}
+        {canManage && r.canPost && <button type="button" className="admin-btn" disabled={busy} data-testid="funding-post" onClick={() => confirm({ title: 'Post funding receipt', description: `Post this receipt: ${formatMinorUnits(r.amountMinor, r.currency)} is credited to ${r.agency.name}'s account and cannot be undone here.`, run: async (password) => { await postFunding(r.id, password); await act(async () => 'Posted to the agency account.') /* refreshes the list like every other step */ } })}>Post</button>}
         {canManage && r.canReject && <button type="button" className="admin-btn" disabled={busy} data-testid="funding-reject" onClick={() => { const text = ask('Reason to reject (required)'); if (text) void act(async () => { await rejectFunding(r.id, text); return 'Rejected.' }) }}>Reject</button>}
       </td>
     </tr>

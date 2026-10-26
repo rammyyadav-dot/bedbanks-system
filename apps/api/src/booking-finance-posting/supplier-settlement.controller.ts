@@ -10,6 +10,7 @@ import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { PERMISSIONS } from '../agent/supplier.port'
 import { RequireDepartmentPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { SupplierSettlementService } from './supplier-settlement.service'
+import { RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 const requestIdOf = (req: Request) => String((req as Request & { id?: string }).id ?? req.headers['x-request-id'] ?? 'unknown').slice(0, 80)
 
@@ -29,7 +30,7 @@ export class SupplierSettlementController {
   @Post() @HttpCode(200) @RequireDepartmentPermission('finance.settle.propose') @UseGuards(SupplyPermissionGuard)
   propose(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Body() body: SettlementProposeRequest, @Req() req: Request) { return this.settlements.propose(tenantId, identity.user.id, body, requestIdOf(req)) }
 
-  @Post(':settlementId/approve') @HttpCode(200) @RequireDepartmentPermission('finance.settle.approve') @UseGuards(SupplyPermissionGuard)
+  @Post(':settlementId/approve') @HttpCode(200) @RequireDepartmentPermission('finance.settle.approve') @RequireStepUp('finance.settle.approve', 'settlementId') @UseGuards(SupplyPermissionGuard, StepUpGuard)
   approve(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('settlementId') settlementId: string, @Req() req: Request) { return this.settlements.approve(tenantId, identity.user.id, settlementId, requestIdOf(req)) }
 
   @Post(':settlementId/reject') @HttpCode(200) @RequireDepartmentPermission('finance.settle.approve') @UseGuards(SupplyPermissionGuard)

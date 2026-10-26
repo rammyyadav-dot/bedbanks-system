@@ -125,7 +125,7 @@ export interface ReconciliationCase {
 export interface ReconciliationQueue { generatedAt: string; staleMinutes: number; total: number; cases: ReconciliationCase[] }
 export interface ReconcileRequest { staleMinutes?: number; prebookMaxMinutes?: number }
 /** Maker-checker for a reconciliation run (ADR 0017). The approved parameters are the only ones the run may use. */
-export type ApprovalStatusName = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+export type ApprovalStatusName = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED' | 'EXPIRED'
 export interface ReconciliationApprovalView {
   id: string
   status: ApprovalStatusName
