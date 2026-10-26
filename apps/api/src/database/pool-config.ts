@@ -42,3 +42,59 @@ export function inspectPoolConfig(url: string | undefined): PoolConfigReport {
 
   return report;
 }
+
+export interface ConnectionBudgetInput {
+  /** Running API tasks, at the autoscaling maximum when that is what must be survived. */
+  tasks: number;
+  /** The database's `max_connections` (Neon: per compute size, or the PgBouncer-side limit when every URL is pooled). */
+  maxConnections: number;
+  /** Slots kept free for migrations, operators and monitoring. */
+  reserved: number;
+  /** Role label to connection URL, one entry per pool a task opens. */
+  urls: Record<string, string | undefined>;
+}
+
+export interface ConnectionBudgetReport {
+  verdict: 'WITHIN_BUDGET' | 'OVER_BUDGET' | 'UNPROVEN';
+  /** Σ connection_limit across the sized pools, per task. */
+  perTask: number;
+  worstCase: number;
+  available: number;
+  pools: Array<{ label: string; connectionLimit: number | null; pooledHost: boolean }>;
+  /** Labels and reasons only; never a URL, host or credential. */
+  findings: string[];
+}
+
+/**
+ * ADR 0067 / 0075: worst case is `tasks × Σ connection_limit` and must stay at or below
+ * `max_connections - reserved`. A pool without an explicit limit cannot be bounded
+ * (Prisma defaults to num_cpus * 2 + 1, and a container may see the host's cores), so the
+ * verdict is UNPROVEN rather than a guessed number.
+ */
+export function assessConnectionBudget(input: ConnectionBudgetInput): ConnectionBudgetReport {
+  const findings: string[] = [];
+  const pools = Object.entries(input.urls)
+    .filter(([, url]) => url !== undefined && url !== '')
+    .map(([label, url]) => {
+      const pool = inspectPoolConfig(url);
+      return { label, connectionLimit: pool.connectionLimit, pooledHost: pool.pooledHost };
+    });
+
+  const valid = Number.isInteger(input.tasks) && input.tasks >= 1 && Number.isInteger(input.maxConnections) && input.maxConnections >= 1 && Number.isInteger(input.reserved) && input.reserved >= 0;
+  const available = valid ? input.maxConnections - input.reserved : 0;
+  const perTask = pools.reduce((sum, pool) => sum + (pool.connectionLimit ?? 0), 0);
+  const worstCase = valid ? input.tasks * perTask : 0;
+
+  if (!valid) findings.push('tasks, max-connections and reserved must be whole numbers (tasks and max-connections at least 1)');
+  if (valid && available < 1) findings.push('reserved leaves no connections available');
+  if (pools.length === 0) findings.push('no database pool URLs were provided');
+  for (const pool of pools) {
+    if (pool.connectionLimit === null) findings.push(`${pool.label}: connection_limit is missing or invalid, so its share of the budget is unbounded`);
+  }
+
+  const unproven = !valid || pools.length === 0 || pools.some((pool) => pool.connectionLimit === null);
+  const verdict = unproven ? 'UNPROVEN' : worstCase > available ? 'OVER_BUDGET' : 'WITHIN_BUDGET';
+  if (verdict === 'OVER_BUDGET') findings.push(`worst case ${input.tasks} tasks x ${perTask} = ${worstCase} exceeds the ${available} connections available`);
+
+  return { verdict, perTask, worstCase, available, pools, findings };
+}
