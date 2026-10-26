@@ -4,7 +4,7 @@ name: Security
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: ['**']
   schedule:
     - cron: '17 4 * * 1'
 
@@ -31,9 +31,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs tools/framework-peer-check.test.mjs
-      - run: node tools/workflow-permissions-check.mjs
+      - name: Workflow pinning and permissions
+        run: tools/ci-step-summary.sh "Workflow pinning and permissions" "Pin every third-party action to a full 40-character commit SHA (keep the version in a trailing comment), declare top-level permissions, and set timeout-minutes on every job." node tools/workflow-permissions-check.mjs
       # Fails on any unaccepted high or critical advisory; accepted ones live in security/audit-allowlist.json with a reason and expiry.
-      - run: node tools/dependency-audit-check.mjs
+      - name: Dependency audit
+        run: tools/ci-step-summary.sh "Dependency audit (production)" "Upgrade the named package to its patched version, or add a reviewed, expiring entry to security/audit-allowlist.json." node tools/dependency-audit-check.mjs
 
   codeql:
     name: CodeQL (JavaScript and TypeScript)
@@ -53,20 +55,65 @@ jobs:
           category: /language:javascript-typescript
 
   secret-scan:
-    name: Secret scan (full history)
+    # Pull requests and branch pushes scan only the commits they add (fast); main, tags and the weekly schedule scan the full history.
+    name: Secret scan (gitleaks)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      GITLEAKS_VERSION: 8.21.2
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: gitleaks
+      - name: Install gitleaks (checksum verified)
         run: |
           set -euo pipefail
-          base=https://github.com/gitleaks/gitleaks/releases/download/v8.21.2
-          curl -sSfLO "$base/gitleaks_8.21.2_linux_x64.tar.gz"
-          curl -sSfL "$base/gitleaks_8.21.2_checksums.txt" -o checksums.txt
+          base=https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}
+          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o checksums.txt
           sha256sum --check --ignore-missing checksums.txt
-          tar -xzf gitleaks_8.21.2_linux_x64.tar.gz gitleaks
-          ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner --exit-code 1
+          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+      - name: Rule self-test (custom rules still detect what they should)
+        run: |
+          set -euo pipefail
+          probe="$RUNNER_TEMP/gitleaks-probe"; mkdir -p "$probe"
+          # Synthetic, non-functional values assembled at runtime so this workflow file never contains a matching literal.
+          p1='postgresql://neondb_owner:'; p2='Xk9fQ2mPz7Lw4Rt8@ep-cool-darkness-123456.us-east-2.aws.neon.tech/neondb'
+          printf "const a = '%s%s'\nconst b = 'napi_%s'\nconst awsSecretAccessKey = '%s'\nconst jwtSecret = '%s'\nconst hotelbedsApiKey = '%s'\n" \
+            "$p1" "$p2" "k3j4h5g6f7d8s9a0q1w2e3r4t5y6u7i8o9p0a1s2d3f4g5h6j7k8l9" "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQvZ8mN2pA" "Zq8vN3xLp0TmR7cYb2WkD5hGs9FjA1eU" "f3a9c1d27be84a65b0d1e9f742c8a3b6" > "$probe/probe.ts"
+          ./gitleaks detect --source "$probe" --config .gitleaks.toml --no-git --no-banner --redact --report-format json --report-path "$probe/out.json" || true
+          found=$(jq -r '[.[].RuleID] | unique | length' "$probe/out.json")
+          if [ "$found" -lt 5 ]; then echo "::error title=gitleaks self-test::only $found of 5 expected custom rules fired; .gitleaks.toml lost coverage"; exit 1; fi
+      - name: Scan for secrets
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          set -uo pipefail
+          zero=0000000000000000000000000000000000000000
+          range=""
+          if [ "$EVENT" = pull_request ]; then range="$PR_BASE_SHA..$PR_HEAD_SHA"
+          elif [ "$EVENT" = push ] && [ "$REF" != refs/heads/main ] && [[ "$REF" != refs/tags/* ]] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then range="$PUSH_BEFORE..$HEAD_SHA"
+          fi
+          args=(detect --source . --config .gitleaks.toml --redact --no-banner --exit-code 1 --report-format json --report-path gitleaks-report.json)
+          [ -n "$range" ] && args+=(--log-opts "$range")
+          echo "scan range: ${range:-full history}"
+          ./gitleaks "${args[@]}"
+          status=$?
+          {
+            if [ "$status" -eq 0 ]; then echo "### ✅ Secret scan clean (${range:-full history})"
+            else
+              echo "### ❌ Secret scan found $(jq length gitleaks-report.json) potential secret(s)"
+              echo
+              echo "| Rule | File | Line | Commit |"; echo "|---|---|---|---|"
+              jq -r '.[] | "| \(.RuleID) | `\(.File)` | \(.StartLine) | `\(.Commit[0:8])` |"' gitleaks-report.json
+              echo
+              echo "**How to fix:** treat the value as compromised and rotate it first (a later commit does not remove it from history). Then remove it from the code, load it from AWS Secrets Manager/SSM or an environment variable, and only if it is a verified false positive add the exact fingerprint to \`.gitleaksignore\` (or a scoped rule allowlist in \`.gitleaks.toml\`) with a review note."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
