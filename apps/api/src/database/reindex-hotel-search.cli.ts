@@ -2,14 +2,15 @@
  * Owner-run HotelSearchIndex (re)population. DRY RUN BY DEFAULT.
  *
  *   MIGRATION_DATABASE_URL=<owner credential from your secret manager> \
- *   pnpm --filter @bedbanks/api ops:reindex-hotel-search [--tenant=<id>] [--apply] [--allow-remote --confirm-database=<name>]
+ *   pnpm --filter @bedbanks/api ops:reindex-hotel-search [--tenant=<id>] [--apply] [--fail-on-stale] [--allow-remote --confirm-database=<name>]
  *
+ * Exit codes: 0 ok, 2 applied rows did not reconcile, 3 --fail-on-stale and indexable hotels remain stale (use a dry run as a freshness gate).
  * Prints a JSON report (counts and hotel ids only). Remote targets need the owner's explicit confirmation flags. Use the direct
  * (non-pooled) endpoint. Idempotent: re-running writes only hotels that are missing, changed, or built by another embedding model.
  */
 import { PrismaClient } from '@prisma/client'
 import { normalizeOpsDatabaseUrl } from './ops-database-url'
-import { runHotelSearchReindex } from '../mapping/hotel-search-reindex'
+import { reindexExitCode, runHotelSearchReindex } from '../mapping/hotel-search-reindex'
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
   try {
     const report = await runHotelSearchReindex(prisma, { apply: args.includes('--apply'), tenantIds: tenant ? [tenant] : undefined })
     console.log(JSON.stringify({ database: target.database, ...report }, null, 2))
-    if (!report.reconciliation.appliedEqualsIndexable) process.exitCode = 2
+    process.exitCode = reindexExitCode(report, { failOnStale: args.includes('--fail-on-stale') })
   } finally {
     await prisma.$disconnect()
   }

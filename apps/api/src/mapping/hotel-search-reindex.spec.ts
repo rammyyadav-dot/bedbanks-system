@@ -1,4 +1,4 @@
-import { runHotelSearchReindex } from './hotel-search-reindex'
+import { reindexExitCode, runHotelSearchReindex } from './hotel-search-reindex'
 
 const hotel = (id: string, countryCode = 'AE') => ({ id, name: `Hotel ${id}`, address: 'Main St', city: 'Dubai', countryCode, latitude: null, longitude: null })
 
@@ -36,5 +36,27 @@ describe('runHotelSearchReindex', () => {
     expect(report.totals.applied).toBe(1)
     expect(report.reconciliation.appliedEqualsIndexable).toBe(true)
     expect(writes).toHaveLength(1)
+  })
+})
+
+describe('reindexExitCode', () => {
+  it('is 0 for a clean index and 3 for a stale one only when failOnStale is set', async () => {
+    const stale = await runHotelSearchReindex(build([[hotel('a')]]).prisma, { apply: false, tenantIds: ['t1'] })
+    expect(reindexExitCode(stale, {})).toBe(0)
+    expect(reindexExitCode(stale, { failOnStale: true })).toBe(3)
+    const clean = await runHotelSearchReindex(build([]).prisma, { apply: false, tenantIds: ['t1'] })
+    expect(reindexExitCode(clean, { failOnStale: true })).toBe(0)
+  })
+
+  it('is 0 after a successful apply and ignores hotels that cannot be indexed', async () => {
+    const applied = await runHotelSearchReindex(build([[hotel('a')]]).prisma, { apply: true, tenantIds: ['t1'] })
+    expect(reindexExitCode(applied, { failOnStale: true })).toBe(0)
+    const invalidOnly = await runHotelSearchReindex(build([[hotel('x', '')]]).prisma, { apply: false, tenantIds: ['t1'] })
+    expect(reindexExitCode(invalidOnly, { failOnStale: true })).toBe(0)
+  })
+
+  it('is 2 when an applied run does not reconcile', () => {
+    const report = { reconciliation: { appliedEqualsIndexable: false }, totals: { stale: 1, applied: 0, skippedInvalid: 0 } } as never
+    expect(reindexExitCode(report, {})).toBe(2)
   })
 })
