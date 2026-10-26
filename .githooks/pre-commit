@@ -1,0 +1,10 @@
+#!/bin/sh
+# Enable once per clone: git config core.hooksPath .githooks  (or `pnpm hooks:install`)
+# Scans staged changes with the repo gitleaks config; CI (security.yml) remains the enforcing gate.
+set -e
+node tools/env-examples-check.mjs
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --config .gitleaks.toml --redact --no-banner
+else
+  echo "pre-commit: gitleaks not installed, skipping local scan (CI still scans). Install: https://github.com/gitleaks/gitleaks#installing" >&2
+fi
