@@ -39,15 +39,15 @@ function optionalUrl(value?: string, hosted = false): string | undefined {
 export function resolveWebsiteConfig(env: WebsiteEnvironment) {
   const production = env.NODE_ENV === 'production'
   const vercelHost = env.VERCEL_PROJECT_PRODUCTION_URL ?? env.VERCEL_URL
-  const siteUrl = optionalUrl(env.NEXT_PUBLIC_SITE_URL, production) ?? (production ? 'https://www.fabbeds.io' : optionalUrl(vercelHost) ?? 'http://localhost:3000')
+  const siteUrl = optionalUrl(env.NEXT_PUBLIC_SITE_URL, production) ?? (production ? 'https://www.fabbeds.io' : optionalUrl(vercelHost) ?? 'http://localhost:3004')
 
   return {
     production,
     siteUrl,
     contactEmail: env.NEXT_PUBLIC_CONTACT_EMAIL?.trim() || 'book@fabbeds.io',
     portals: {
-      agent: optionalUrl(env.NEXT_PUBLIC_AGENT_URL, production) ?? (production ? undefined : 'http://localhost:3003'),
-      supplier: optionalUrl(env.NEXT_PUBLIC_SUPPLIER_URL, production) ?? (production ? undefined : 'http://localhost:3004'),
+      agent: optionalUrl(env.NEXT_PUBLIC_AGENT_URL, production) ?? (production ? undefined : 'http://localhost:3000'),
+      supplier: optionalUrl(env.NEXT_PUBLIC_SUPPLIER_URL, production) ?? (production ? undefined : 'http://localhost:3003'),
       admin: optionalUrl(env.NEXT_PUBLIC_ADMIN_URL, production) ?? (production ? undefined : 'http://localhost:3001'),
     },
   }
