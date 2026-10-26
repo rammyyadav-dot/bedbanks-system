@@ -45,8 +45,8 @@ test('each document request gets a different nonce and every script tag carries 
 test('client-side navigation works under the CSP (no full reload)', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' })
   await page.evaluate(() => { (window as unknown as { __marker: string }).__marker = 'kept' })
-  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Platform' }).click()
-  await expect(page).toHaveURL(/\/platform$/)
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'How It Works' }).click()
+  await expect(page).toHaveURL(/\/how-it-works$/)
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   expect(await page.evaluate(() => (window as unknown as { __marker?: string }).__marker)).toBe('kept')
 })
@@ -85,7 +85,7 @@ test('capability copy distinguishes coming soon from available (no unsupported l
   await expect(page.getByRole('note').first()).toContainText('not generally available yet')
   await page.goto('/connectivity', { waitUntil: 'networkidle' })
   await expect(page.getByText('API and XML adapters (coming soon)')).toBeVisible()
-  for (const path of ['/', '/platform', '/inventory', '/connectivity', '/login']) {
+  for (const path of ['/', '/hotels-suppliers', '/travel-buyers', '/how-it-works', '/connectivity', '/login']) {
     await page.goto(path, { waitUntil: 'networkidle' })
     const text = (await page.locator('main').innerText()).toLowerCase()
     for (const claim of ['book instantly', 'real-time inventory', 'live inventory', 'instant confirmation', 'now live', 'sign in to book']) expect(text, `${path}: ${claim}`).not.toContain(claim)
