@@ -84,6 +84,8 @@ export const routes = {
   },
   // Partial credit notes to agencies (ADR 0095 part B). A proposal needs a `requestId` in the body.
   adminCreditNotes: { list: '/admin/finance/credit-notes', approve: '/admin/finance/credit-notes/:creditNoteId/approve', reject: '/admin/finance/credit-notes/:creditNoteId/reject' },
+  // Dynamic, tier-based agency commission payouts (ADR 0098). A proposal needs a `requestId` in the body.
+  adminCommissionPayouts: { list: '/admin/finance/commission-payouts', approve: '/admin/finance/commission-payouts/:payoutId/approve', reject: '/admin/finance/commission-payouts/:payoutId/reject' },
   // Backlog of the booking Finance consumer (ADR 0076). Read-only.
   adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging', payablesDue: '/admin/finance/booking-postings/payables/due' },
   // Supplier payment terms (ADR 0078).

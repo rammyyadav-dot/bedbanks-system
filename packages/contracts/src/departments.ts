@@ -15,6 +15,8 @@ export const departmentPermissions = {
   financeSettlePropose: 'finance.settle.propose', financeSettleApprove: 'finance.settle.approve',
   /** Credit notes (ADR 0095 part B). Formal role assignments only. `propose` asks for a partial credit to an agency; `approve` approves or rejects one (never the proposer's own). */
   financeCreditNotePropose: 'finance.creditnote.propose', financeCreditNoteApprove: 'finance.creditnote.approve',
+  /** Dynamic, tier-based agency commission payouts (ADR 0098). Formal role assignments only. `propose` records a payout for a closed period's gross booked volume; `approve` approves or rejects one (never the proposer's own). */
+  financeCommissionPropose: 'finance.commission.propose', financeCommissionApprove: 'finance.commission.approve',
   /** Supplier payment terms (ADR 0078). Formal role assignments only. */
   financeTermsManage: 'finance.terms.manage',
   /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */
