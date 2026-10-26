@@ -8,7 +8,7 @@ const refund = (amount: bigint, daysAgo: number, booking: string): AgingEntry =>
 
 describe('ageAccount (ADR 0028 slice 4, FIFO)', () => {
   it('an empty or fully prepaid account is CURRENT', () => {
-    expect(ageAccount([], now)).toEqual({ state: 'CURRENT', unpaidMinor: 0n, oldestUnpaidAt: null, daysOverdue: 0 })
+    expect(ageAccount([], now)).toEqual({ state: 'CURRENT', unpaidMinor: 0n, overdueUnpaidMinor: 0n, oldestUnpaidAt: null, daysOverdue: 0 })
     expect(ageAccount([credit(1000n, 40), debit(1000n, 35)], now).state).toBe('CURRENT')
   })
   it('notice from 7 whole days, holds refused from 30', () => {
@@ -28,5 +28,10 @@ describe('ageAccount (ADR 0028 slice 4, FIFO)', () => {
   })
   it('holds and releases are pending, not charges', () => {
     expect(ageAccount([{ type: 'HOLD', amountMinor: -100n, reference: 'booking:x', at: at(50) }], now).state).toBe('CURRENT')
+  })
+  it('splits out the unpaid amount that is at least 7 days old (the credit risk amount rule)', () => {
+    const a = ageAccount([debit(1000n, 10), debit(400n, 7), debit(250n, 6), debit(50n, 1)], now)
+    expect([a.unpaidMinor, a.overdueUnpaidMinor]).toEqual([1700n, 1400n])
+    expect(ageAccount([debit(1000n, 10), credit(1000n, 2)], now).overdueUnpaidMinor).toBe(0n)
   })
 })

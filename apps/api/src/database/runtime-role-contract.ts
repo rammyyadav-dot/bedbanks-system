@@ -299,6 +299,8 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   BankStatement: 'finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)',
   BankStatementEntry: 'finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)',
   BankMatchFinding: 'finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)',
+  BookingCreditNote: 'finance-gated: proposed and approved partial credit notes to agencies; approval posts a REFUND to LedgerEntry on the API connection, which the runtime role never writes (ADR 0095 part B)',
+  LedgerChainLink: 'finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)',
   BookingFinancePosting: 'finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)',
   SupplierPaymentTerms: 'finance-gated: append-only supplier payment terms (history kept); written only by the narrow finance posting role (ADR 0078)',
   SupplierSettlement: 'finance-gated: supplier payments recorded against posted payables, proposed and approved by different people; written only by the narrow finance posting role (ADR 0077)',

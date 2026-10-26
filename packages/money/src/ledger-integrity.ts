@@ -22,6 +22,8 @@ export type IntegrityCode =
   | 'CANCELLED_REFUND_NOT_POSTED' | 'REFUND_MISMATCH'
   // ledger <-> funding receipts
   | 'RECEIPT_NOT_IN_LEDGER' | 'CREDIT_WITHOUT_RECEIPT'
+  // tamper evidence (ADR 0094): the per-wallet hash chain over the ledger
+  | 'LEDGER_CHAIN_BROKEN' | 'LEDGER_CHAIN_ENTRY_UNCHAINED'
 
 export const INTEGRITY_SEVERITY: Readonly<Record<IntegrityCode, IntegritySeverity>> = {
   ENTRY_SIGN_INVALID: 'critical', ENTRY_CURRENCY_MISMATCH: 'critical', ENTRY_ACCOUNT_UNKNOWN: 'critical',
@@ -32,6 +34,8 @@ export const INTEGRITY_SEVERITY: Readonly<Record<IntegrityCode, IntegritySeverit
   BOOKING_NOT_FOUND: 'critical', CHARGE_AMOUNT_MISMATCH: 'critical', CONFIRMED_NOT_CHARGED: 'critical', CHARGED_NOT_CONFIRMED: 'critical',
   RESERVATION_ON_CLOSED_BOOKING: 'critical', CANCELLED_REFUND_NOT_POSTED: 'critical', REFUND_MISMATCH: 'critical',
   RECEIPT_NOT_IN_LEDGER: 'critical', CREDIT_WITHOUT_RECEIPT: 'critical',
+  // A broken link means an entry was changed, removed or inserted outside the application. There is no benign cause.
+  LEDGER_CHAIN_BROKEN: 'critical', LEDGER_CHAIN_ENTRY_UNCHAINED: 'critical',
 }
 
 export interface IntegrityAccount { id: string; currency: string; agencyId: string | null; creditLineMinor: bigint }
@@ -40,12 +44,17 @@ export interface IntegrityEntry { id: string; accountId: string; type: LedgerEnt
 export interface IntegrityBooking { id: string; status: string; currency: string; totalMinor: bigint; cancellationRefundMinor?: bigint | null }
 export interface IntegrityReceipt { id: string; status: string; accountId: string | null; ledgerEntryId: string | null; amountMinor: bigint; currency: string }
 
+/** One fault found by the database's chain verifier (`fbeds_ledger_chain_breaks`). `seq` is null for an entry that has no link at all. */
+export interface ChainBreak { accountId: string; entryId: string | null; seq: number | null; reason: 'SEQUENCE_GAP' | 'PREV_HASH_MISMATCH' | 'ENTRY_MISSING' | 'ENTRY_HASH_MISMATCH' | 'ENTRY_UNCHAINED' }
+
 export interface IntegrityInput {
   accounts: readonly IntegrityAccount[]
   entries: readonly IntegrityEntry[]
   /** Bookings referenced by the ledger (any not supplied is reported BOOKING_NOT_FOUND) and any other booking worth tying out. */
   bookings: readonly IntegrityBooking[]
   receipts: readonly IntegrityReceipt[]
+  /** Faults from the hash chain verifier. Omit when the chain was not checked. */
+  chainBreaks?: readonly ChainBreak[]
   now: Date
   /** A reservation older than this with no release or settlement is stale (the reconciliation sweep should have resolved it). */
   staleReservationMinutes: number
@@ -182,6 +191,12 @@ export function checkLedgerIntegrity(input: IntegrityInput): IntegrityReport {
     if (!receiptId) continue
     const r = receipts.get(receiptId)
     if (!r || r.status !== 'POSTED' || r.ledgerEntryId !== e.id) add('CREDIT_WITHOUT_RECEIPT', { currency: e.currency, accountId: e.accountId, entryId: e.id, receiptId }, { amountMinor: e.amountMinor })
+  }
+
+  // 4. The hash chain (ADR 0094): the database recomputed every link; each fault is a critical finding on the wallet and entry it names.
+  for (const b of input.chainBreaks ?? []) {
+    const account = accounts.get(b.accountId)
+    add(b.reason === 'ENTRY_UNCHAINED' ? 'LEDGER_CHAIN_ENTRY_UNCHAINED' : 'LEDGER_CHAIN_BROKEN', { currency: account?.currency ?? null, accountId: b.accountId, entryId: b.entryId }, b.seq === null ? {} : { seq: BigInt(b.seq) })
   }
 
   const order = (f: IntegrityFinding) => (f.severity === 'critical' ? 0 : 1)

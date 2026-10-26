@@ -13,6 +13,8 @@ export const departmentPermissions = {
   financeReconcileRun: 'finance.reconcile.run', financeReconcileResolve: 'finance.reconcile.resolve',
   /** Supplier settlements (ADR 0077). Formal role assignments only. `propose` records a payment for approval; `approve` approves or rejects one (never the proposer's own). */
   financeSettlePropose: 'finance.settle.propose', financeSettleApprove: 'finance.settle.approve',
+  /** Credit notes (ADR 0095 part B). Formal role assignments only. `propose` asks for a partial credit to an agency; `approve` approves or rejects one (never the proposer's own). */
+  financeCreditNotePropose: 'finance.creditnote.propose', financeCreditNoteApprove: 'finance.creditnote.approve',
   /** Supplier payment terms (ADR 0078). Formal role assignments only. */
   financeTermsManage: 'finance.terms.manage',
   /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */
@@ -80,6 +82,14 @@ export const AGENCY_REQUIRED_FOR_BOOKING_CODE = 'AGENCY_REQUIRED_FOR_BOOKING'
 export const AGENCY_CREDIT_TERMS = { overdueNoticeDays: 7, refuseHoldsAfterDays: 30 } as const
 /** New holds are refused because the agency's oldest unpaid charge is AGENCY_CREDIT_TERMS.refuseHoldsAfterDays old or more (slice 4). */
 export const AGENCY_CREDIT_OVERDUE_CODE = 'AGENCY_CREDIT_OVERDUE'
+/**
+ * Dynamic credit risk policy (ADR 0095), in integer basis points of the credit line. WATCH from 80% drawn, MARGIN_CALL from 90% (finance collects; holds still allowed),
+ * and a new hold that would take the agency to 95% or beyond, or any agency with aged unpaid charges worth half its line, is paused. The 7- and 30-day terms above still apply.
+ * These are defaults chosen by engineering, not an owner decision; ENFORCEMENT is shadow until `CREDIT_RISK_ENFORCEMENT=enforce` (see ADR 0095).
+ */
+export const AGENCY_CREDIT_RISK_POLICY = { watchBp: 8000, marginCallBp: 9000, pauseBp: 9500, overdueAfterDays: 7, overdueShareOfLineBp: 5000, refuseAfterDays: 30 } as const
+/** New holds are refused because the agency's credit exposure or overdue charges are beyond the risk policy (ADR 0095). */
+export const AGENCY_CREDIT_PAUSED_CODE = 'AGENCY_CREDIT_PAUSED'
 /** CURRENT: nothing unpaid, or the oldest unpaid charge is younger than the notice threshold. */
 export type AgencyOverdueState = 'CURRENT' | 'NOTICE' | 'HOLDS_REFUSED'
 /**

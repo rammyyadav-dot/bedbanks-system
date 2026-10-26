@@ -1,7 +1,14 @@
 import { AGENCY_CREDIT_TERMS, type AgencyOverdueState } from '@bedbanks/contracts'
 
 export interface AgingEntry { type: string; amountMinor: bigint; reference: string | null; at: Date }
-export interface Aging { state: AgencyOverdueState; unpaidMinor: bigint; oldestUnpaidAt: Date | null; daysOverdue: number }
+export interface Aging {
+  state: AgencyOverdueState
+  unpaidMinor: bigint
+  /** The part of `unpaidMinor` in charges at least `AGENCY_CREDIT_TERMS.overdueNoticeDays` old (the amount rule of the credit risk policy, ADR 0095). */
+  overdueUnpaidMinor: bigint
+  oldestUnpaidAt: Date | null
+  daysOverdue: number
+}
 
 const DAY_MS = 86_400_000
 
@@ -34,7 +41,9 @@ export function ageAccount(entries: readonly AgingEntry[], now: Date = new Date(
   const open = charges.filter(c => c.amount > 0n)
   const unpaid = open.reduce((sum, c) => sum + c.amount, 0n)
   const oldest = open.length ? open.reduce((a, c) => (c.at < a ? c.at : a), open[0].at) : null
+  const overdueBefore = now.getTime() - AGENCY_CREDIT_TERMS.overdueNoticeDays * DAY_MS
+  const overdueUnpaid = open.filter(c => c.at.getTime() <= overdueBefore).reduce((sum, c) => sum + c.amount, 0n)
   const days = oldest ? Math.max(0, Math.floor((now.getTime() - oldest.getTime()) / DAY_MS)) : 0
   const state: AgencyOverdueState = !oldest ? 'CURRENT' : days >= AGENCY_CREDIT_TERMS.refuseHoldsAfterDays ? 'HOLDS_REFUSED' : days >= AGENCY_CREDIT_TERMS.overdueNoticeDays ? 'NOTICE' : 'CURRENT'
-  return { state, unpaidMinor: unpaid, oldestUnpaidAt: oldest, daysOverdue: days }
+  return { state, unpaidMinor: unpaid, overdueUnpaidMinor: overdueUnpaid, oldestUnpaidAt: oldest, daysOverdue: days }
 }

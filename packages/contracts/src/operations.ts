@@ -187,6 +187,34 @@ export interface ReceivableRow {
   accountId: string; agency: AccountAgencyRef & { status: string }; currency: string; balanceMinor: MinorString
   overdue: AgencyOverdueView
 }
+export type CreditRiskStateName = 'OK' | 'WATCH' | 'MARGIN_CALL' | 'PAUSED'
+export interface CreditRiskRow {
+  accountId: string
+  agency: { id: string; code: string; name: string; status: string }
+  currency: string
+  state: CreditRiskStateName
+  /** Why the agency is paused (UTILISATION, OVERDUE_DAYS, OVERDUE_AMOUNT). Empty unless PAUSED. */
+  reasons: string[]
+  balanceMinor: MinorString
+  creditLineMinor: MinorString
+  pendingMinor: MinorString
+  /** What is owed against the line: the negative balance plus pending holds. */
+  drawnMinor: MinorString
+  /** Basis points of the credit line drawn; null for a prepaid agency. */
+  utilisationBp: number | null
+  /** MARGIN_CALL or worse: the payment that takes the agency back below the watch level. */
+  paymentToRestoreMinor: MinorString
+  overdue: AgencyOverdueView
+}
+/** Agencies that are not OK, worst first. Per currency account, never added across currencies. `enforcement` says whether a PAUSED agency is actually refused ('enforce') or only recorded ('shadow'). */
+export interface CreditRiskView {
+  items: CreditRiskRow[]
+  counts: { watch: number; marginCall: number; paused: number }
+  policy: Record<string, number>
+  enforcement: 'enforce' | 'shadow'
+  scanned: number
+  scanCapped: boolean
+}
 export interface ReceivablesView { items: ReceivableRow[]; counts: { notice: number; holdsRefused: number }; noticeDays: number; refuseHoldsAfterDays: number }
 export interface AgencyAccountView {
   agency: AccountAgencyRef & { status: string }
@@ -273,6 +301,8 @@ export interface LedgerIntegrityReport {
   /** Critical first. At most LEDGER_INTEGRITY_FINDING_LIMIT; `findingsTruncated` says when more exist (counts are always complete). */
   findings: LedgerIntegrityFindingView[]
   findingsTruncated: boolean
+  /** Newest link of each wallet's hash chain (ADR 0094). Copy these outside the database: they are what proves no recent entries were removed. Empty when the scan was capped. */
+  chainHeads: Array<{ accountId: string; seq: number; entryHash: string }>
   definitions: Record<string, string>
 }
 

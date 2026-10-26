@@ -98,3 +98,20 @@ test('critical findings sort before warnings', () => {
   const report = run({ accounts: [{ id: 'acc', currency: 'AED', agencyId: 'ag', creditLineMinor: 0n }], entries: [hold('b1', 1_000n, OLD), e('CREDIT', -1n, 'x', null)], bookings: [booking('b1', 'PENDING_SUPPLIER', 1_000n)] })
   assert.deepEqual(report.findings.map(f => f.severity), ['critical', 'warning', 'warning'])
 })
+
+test('hash chain faults from the database verifier become critical findings and make the report not clean (ADR 0094)', async () => {
+  const { checkLedgerIntegrity } = await import('./src/ledger-integrity.ts')
+  const input = { accounts: [{ id: 'w1', currency: 'AED', agencyId: null, creditLineMinor: 0n }], entries: [], bookings: [], receipts: [], now: new Date('2026-10-26T00:00:00Z'), staleReservationMinutes: 60 }
+  assert.deepEqual(checkLedgerIntegrity(input).findings, [])
+  assert.deepEqual(checkLedgerIntegrity({ ...input, chainBreaks: [] }).findings, [])
+  const r = checkLedgerIntegrity({ ...input, chainBreaks: [
+    { accountId: 'w1', entryId: 'e1', seq: 2, reason: 'ENTRY_HASH_MISMATCH' },
+    { accountId: 'w1', entryId: 'e9', seq: null, reason: 'ENTRY_UNCHAINED' },
+    { accountId: 'w1', entryId: 'e3', seq: 4, reason: 'SEQUENCE_GAP' },
+  ] })
+  assert.deepEqual(r.findings.map((f) => [f.code, f.severity, f.entryId, f.currency, f.amounts]), [
+    ['LEDGER_CHAIN_BROKEN', 'critical', 'e1', 'AED', { seq: 2n }],
+    ['LEDGER_CHAIN_BROKEN', 'critical', 'e3', 'AED', { seq: 4n }],
+    ['LEDGER_CHAIN_ENTRY_UNCHAINED', 'critical', 'e9', 'AED', {}],
+  ])
+})

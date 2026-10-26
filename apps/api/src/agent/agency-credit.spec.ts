@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client'
 import { assertAgencyCredit } from './agency-credit'
 
 type Fake = { entries?: unknown[]; member?: unknown; limit?: unknown; account?: unknown; balance?: bigint | null; pending?: bigint | null; throwOn?: 'member' | 'limit' | 'pending' | 'ledger' }
+const audits: unknown[] = []
 function tx(f: Fake): Prisma.TransactionClient {
   const boom = (where: string) => { if (f.throwOn === where) { const e = new Error('permission denied') as Error & { code: string }; e.code = '42501'; throw e } }
   return {
@@ -11,12 +12,14 @@ function tx(f: Fake): Prisma.TransactionClient {
     wallet: { findFirst: async () => f.account ?? null },
     ledgerEntry: { aggregate: async () => { boom('ledger'); return { _sum: { amountMinor: f.balance ?? null } } }, findMany: async () => f.entries ?? [] },
     agencyCreditLimit: { findFirst: async () => { boom('limit'); return f.limit ?? null } },
+    auditEvent: { create: async (args: unknown) => { audits.push(args); return {} } },
     inventoryHold: { aggregate: async () => { boom('pending'); return { _sum: { sellAmountMinor: f.pending ?? null } } } },
   } as unknown as Prisma.TransactionClient
 }
 const limit = (limitMinor: bigint, currency = 'AED') => ({ currency, limitMinor })
 const member = { agencyId: 'a' }
 const account = { id: 'w-a' }
+beforeEach(() => { audits.length = 0; delete process.env.CREDIT_RISK_ENFORCEMENT })
 const run = (f: Fake, amount = 100n, currency = 'AED') => assertAgencyCredit(tx(f), 't', 'u1', currency, amount)
 const code = async (p: Promise<unknown>) => { try { await p; return null } catch (e) { return (e as { getResponse: () => { code: string } }).getResponse().code } }
 
@@ -49,5 +52,13 @@ describe('assertAgencyCredit (ADR 0028 slice 3: balance + credit line - pending 
       await expect(p).rejects.toBeInstanceOf(ServiceUnavailableException)
       expect(await code(run({ member, account, limit: limit(1000n), throwOn }))).toBe('AGENCY_CREDIT_UNAVAILABLE')
     }
+  })
+  it('ADR 0095: shadow mode records a would-be pause and allows the hold; enforce mode refuses it', async () => {
+    // balance -900 with a 1000 line: 90% drawn; a 60 hold projects to 96%, past the 95% pause level, yet 60 <= the 100 still available.
+    await expect(run({ member, account, balance: -900n, limit: limit(1000n) }, 60n)).resolves.toBeUndefined()
+    expect(audits).toHaveLength(1)
+    process.env.CREDIT_RISK_ENFORCEMENT = 'enforce'
+    expect(await code(run({ member, account, balance: -900n, limit: limit(1000n) }, 60n))).toBe('AGENCY_CREDIT_PAUSED')
+    expect(audits).toHaveLength(1)
   })
 })
