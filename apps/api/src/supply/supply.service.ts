@@ -352,6 +352,36 @@ export class SupplyService {
     })
   }
   async roomTypes(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rooms.read'); return this.prisma.withTenant(tenantId, tx => tx.roomType.findMany({ where: { hotel: { tenantId } }, orderBy: { name: 'asc' } })) }
+  /** Server-side search, hotel filter, whitelisted sort and pagination for the Rooms workspace; the hotel name is joined so the page needs no second list. */
+  async roomTypePortfolio(tenantId: string, userId: string, query: Record<string, unknown>) {
+    await this.check(tenantId, userId, 'supply.rooms.read')
+    const number = (value: unknown, fallback: number, max: number) => {
+      if (value === undefined) return fallback
+      if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value) || Number(value) > max) throw new BadRequestException('Invalid pagination')
+      return Number(value)
+    }
+    const page = number(query.page, 1, 100000), pageSize = number(query.pageSize, 25, 100)
+    const scalar = (key: string) => {
+      const value = query[key]
+      if (value === undefined) return undefined
+      if (typeof value !== 'string' || value.length > 100) throw new BadRequestException(`Invalid ${key}`)
+      return value.trim() || undefined
+    }
+    const search = scalar('search'), hotelId = scalar('hotelId'), sortBy = scalar('sortBy') ?? 'name', sortDir = scalar('sortDir') ?? 'asc'
+    if (!['name', 'code', 'maxOccupancy', 'isActive'].includes(sortBy) || !['asc', 'desc'].includes(sortDir)) throw new BadRequestException('Invalid sort')
+    const where: Prisma.RoomTypeWhereInput = {
+      hotel: { tenantId },
+      ...(hotelId ? { hotelId } : {}),
+      ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { code: { contains: search, mode: 'insensitive' } }, { hotel: { tenantId, name: { contains: search, mode: 'insensitive' } } }] } : {}),
+    }
+    return this.prisma.withTenant(tenantId, async tx => {
+      const [items, total] = await Promise.all([
+        tx.roomType.findMany({ where, include: { hotel: { select: { id: true, name: true } } }, orderBy: [{ [sortBy]: sortDir }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
+        tx.roomType.count({ where }),
+      ])
+      return { items, page, pageSize, total }
+    })
+  }
   async createRoomType(tenantId: string, userId: string, input: any, requestId?: string) {
     if (!Number.isInteger(input.maxAdults) || !Number.isInteger(input.maxChildren ?? 0) || !Number.isInteger(input.maxOccupancy) || input.maxAdults < 1 || (input.maxChildren ?? 0) < 0 || input.maxOccupancy < input.maxAdults + (input.maxChildren ?? 0)) throw new BadRequestException('Invalid occupancy')
     return this.write(tenantId, userId, 'supply.rooms.manage', 'supply.room.created', 'room_type', requestId, async tx => {
