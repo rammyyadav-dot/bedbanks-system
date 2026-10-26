@@ -31,6 +31,8 @@
     "ops:verify-rate-plan-ops-role": "tsx src/database/verify-rate-plan-ops-role.cli.ts",
     "ops:provision-rate-plan-clone-role": "tsx src/database/provision-rate-plan-clone-role.cli.ts",
     "ops:verify-rate-plan-clone-role": "tsx src/database/verify-rate-plan-clone-role.cli.ts",
+    "ops:provision-hotel-search-reindex-role": "tsx src/database/provision-hotel-search-reindex-role.cli.ts",
+    "ops:verify-hotel-search-reindex-role": "tsx src/database/verify-hotel-search-reindex-role.cli.ts",
     "ops:provision-reconciliation-role": "tsx src/database/provision-reconciliation-role.cli.ts",
     "ops:verify-reconciliation-role": "tsx src/database/verify-reconciliation-role.cli.ts",
     "ops:provision-finance-posting-role": "tsx src/database/provision-finance-posting-role.cli.ts",
