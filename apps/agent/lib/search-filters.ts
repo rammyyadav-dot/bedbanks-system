@@ -1,4 +1,5 @@
 import type { SearchCriteria } from '@bedbanks/domain'
+import { parseHotelSearchFilters } from '../schemas/hotel-search-filter.schema.ts'
 import { majorUnitsToMinor, minorUnitExponent, minorUnitsToMajorInput } from '@bedbanks/money'
 
 export const SELLING_CURRENCIES = ['AED', 'USD', 'EUR', 'GBP', 'INR', 'SAR', 'QAR', 'OMR', 'KWD', 'BHD', 'SGD', 'AUD', 'CAD', 'JPY'] as const
@@ -34,18 +35,16 @@ export function minorToMajorInput(minor: number | undefined, currency: string): 
 
 export function criteriaFilters(draft: FilterDraft): { ok: true; filters?: NonNullable<SearchCriteria['filters']> } | { ok: false; reason: string } {
   const starRatings = [...new Set(draft.starRatings.filter((value) => Number.isInteger(value) && value >= 1 && value <= 5))].sort((a, b) => a - b)
-  const min = parseMajorAmount(draft.minPrice, draft.currency)
-  const max = parseMajorAmount(draft.maxPrice, draft.currency)
-  if (min.state === 'invalid' || max.state === 'invalid') return { ok: false, reason: `Enter the price range in ${draft.currency} using that currency's decimal places.` }
-  if (min.state === 'minor' && max.state === 'minor' && max.minor < min.minor) return { ok: false, reason: 'The maximum price must be at least the minimum price.' }
+  const price = draft.minPrice.trim() || draft.maxPrice.trim() ? parseHotelSearchFilters({ minPrice: draft.minPrice, maxPrice: draft.maxPrice, currency: draft.currency }) : null
+  if (price && !price.ok) return { ok: false, reason: price.errors[0].message }
   const boardBasisIds = [...new Set(draft.boardBasisIds.filter((value) => value.trim().length > 0))].sort()
   const propertyTypes = [...new Set(draft.propertyTypes.filter((value) => value.trim().length > 0))].sort()
   const brands = [...new Set(draft.brands.filter((value) => value.trim().length > 0))].sort()
   const filters: NonNullable<SearchCriteria['filters']> = {}
   if (starRatings.length) filters.starRatings = starRatings
   if (draft.refundableOnly) filters.refundableOnly = true
-  if (min.state === 'minor') filters.minPriceMinor = min.minor
-  if (max.state === 'minor') filters.maxPriceMinor = max.minor
+  if (price?.ok && price.value.minPriceMinor !== undefined) filters.minPriceMinor = price.value.minPriceMinor
+  if (price?.ok && price.value.maxPriceMinor !== undefined) filters.maxPriceMinor = price.value.maxPriceMinor
   if (boardBasisIds.length) filters.boardBasisIds = boardBasisIds
   if (propertyTypes.length) filters.propertyTypes = propertyTypes
   if (brands.length) filters.brands = brands
