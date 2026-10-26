@@ -19,10 +19,10 @@ export class EventSupplementsController {
   }
 
   @Get('event-supplements') @RequireSupplyPermission('supply.event_supplements.read') @UseGuards(SupplyPermissionGuard)
-  list(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.eventSupplements.list(c.tenantId, query) }
+  list(@Req() req: Request, @Query() query: Record<string, unknown>) { const c = this.context(req); return this.eventSupplements.list(c.tenantId, c.userId, query) }
 
   @Get('event-supplements/:eventSupplementId') @RequireSupplyPermission('supply.event_supplements.read') @UseGuards(SupplyPermissionGuard)
-  get(@Req() req: Request, @Param('eventSupplementId') eventSupplementId: string) { const c = this.context(req); return this.eventSupplements.get(c.tenantId, eventSupplementId) }
+  get(@Req() req: Request, @Param('eventSupplementId') eventSupplementId: string) { const c = this.context(req); return this.eventSupplements.get(c.tenantId, c.userId, eventSupplementId) }
 
   /** Rate Impact Preview (spec section 7): read-only, never a mutation, so a read permission is enough. */
   @Post('event-supplements/preview') @RequireSupplyPermission('supply.event_supplements.read') @UseGuards(SupplyPermissionGuard)

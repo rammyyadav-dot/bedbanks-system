@@ -45,7 +45,7 @@ export class RoomEventsService {
     if (body.destinationCountry !== undefined && (typeof body.destinationCountry !== 'string' || !/^[A-Z]{2}$/.test(body.destinationCountry.toUpperCase()))) errors.push('destinationCountry: a 2-letter ISO-3166 code')
   }
 
-  async list(tenantId: string, query: Record<string, unknown>) {
+  async list(tenantId: string, userId: string, query: Record<string, unknown>) {
     const page = pageParams(query)
     const status = enumParam('status', query.status, ROOM_EVENT_STATUSES)
     const destinationCity = textParam('destinationCity', query.destinationCity, 120)
@@ -54,10 +54,22 @@ export class RoomEventsService {
       tx.roomEvent.findMany({ where, orderBy: [{ eventStartDate: 'asc' }, { id: 'asc' }], skip: page.skip, take: page.take }),
       tx.roomEvent.count({ where }),
     ]))
-    return paged(rows.map((r) => this.view(r)), page, total)
+    const latest = await this.latestApprovals(tenantId, rows.map((r) => r.id))
+    return paged(rows.map((r) => ({ ...this.view(r), approval: this.approvalView(latest.get(r.id), userId) })), page, total)
   }
 
-  async get(tenantId: string, roomEventId: string): Promise<RoomEventRead> { return this.view(await this.row(tenantId, roomEventId)) }
+  async get(tenantId: string, userId: string, roomEventId: string) {
+    const row = await this.row(tenantId, roomEventId)
+    const latest = await this.latestApprovals(tenantId, [row.id])
+    return { ...this.view(row), approval: this.approvalView(latest.get(row.id), userId) }
+  }
+
+  /** The most recent approval request per entity (open or decided), for a list/detail view to show without a second round trip. */
+  private async latestApprovals(tenantId: string, ids: string[]): Promise<Map<string, ApprovalView>> {
+    const latest = new Map<string, ApprovalView>()
+    for (const a of await this.approvals.listForEntities(tenantId, ENTITY_TYPE, ids)) if (!latest.has(a.entityId)) latest.set(a.entityId, a)
+    return latest
+  }
 
   async create(tenantId: string, userId: string, body: RoomEventWrite): Promise<RoomEventRead> {
     const errors: string[] = []
