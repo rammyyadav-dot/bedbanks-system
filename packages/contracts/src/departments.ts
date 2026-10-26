@@ -13,6 +13,8 @@ export const departmentPermissions = {
   financeReconcileRun: 'finance.reconcile.run', financeReconcileResolve: 'finance.reconcile.resolve',
   /** Supplier settlements (ADR 0077). Formal role assignments only. `propose` records a payment for approval; `approve` approves or rejects one (never the proposer's own). */
   financeSettlePropose: 'finance.settle.propose', financeSettleApprove: 'finance.settle.approve',
+  /** Credit notes (ADR 0095 part B). Formal role assignments only. `propose` asks for a partial credit to an agency; `approve` approves or rejects one (never the proposer's own). */
+  financeCreditNotePropose: 'finance.creditnote.propose', financeCreditNoteApprove: 'finance.creditnote.approve',
   /** Supplier payment terms (ADR 0078). Formal role assignments only. */
   financeTermsManage: 'finance.terms.manage',
   /** Booking module (ADR 0039). Formal role assignments only, never implied by owner membership. `booking.read` stays the operator-level read. */

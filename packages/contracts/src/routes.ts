@@ -82,6 +82,8 @@ export const routes = {
     statements: '/admin/finance/bank-reconciliation/statements', statement: '/admin/finance/bank-reconciliation/statements/:statementId',
     exceptions: '/admin/finance/bank-reconciliation/exceptions', resolve: '/admin/finance/bank-reconciliation/exceptions/:exceptionId/resolve',
   },
+  // Partial credit notes to agencies (ADR 0095 part B). A proposal needs a `requestId` in the body.
+  adminCreditNotes: { list: '/admin/finance/credit-notes', approve: '/admin/finance/credit-notes/:creditNoteId/approve', reject: '/admin/finance/credit-notes/:creditNoteId/reject' },
   // Backlog of the booking Finance consumer (ADR 0076). Read-only.
   adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging', payablesDue: '/admin/finance/booking-postings/payables/due' },
   // Supplier payment terms (ADR 0078).

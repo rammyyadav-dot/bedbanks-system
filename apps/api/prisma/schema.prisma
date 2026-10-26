@@ -845,6 +845,7 @@ model Tenant {
   bankStatementEntries BankStatementEntry[]
   bankMatchFindings BankMatchFinding[]
   ledgerChainLinks LedgerChainLink[]
+  bookingCreditNotes BookingCreditNote[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
   bookingRooms BookingRoom[]
@@ -1144,6 +1145,7 @@ model PlatformRoleAssignment {
 model Booking {
   serviceCases ServiceCase[]
   reconciliationFindings ReconciliationFinding[]
+  creditNotes BookingCreditNote[]
   id             String         @id @default(cuid())
   tenantId       String         @map("tenant_id")
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -1805,9 +1807,56 @@ model LedgerEntry {
   immutableAt DateTime        @default(now()) @map("immutable_at")
   fundingReceipt FundingReceipt?
   chainLink LedgerChainLink?
+  creditNote BookingCreditNote?
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])
+}
+
+enum CreditNoteReason {
+  SUPPLIER_SERVICE_FAILURE
+  PRICE_CORRECTION
+  GOODWILL
+}
+
+enum CreditNoteStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// A partial credit to an agency for a charged, not cancelled booking (ADR 0095 part B). PROPOSED by one person, APPROVED or REJECTED by another. Approval posts exactly one REFUND to the agency
+/// account, in the same transaction, and links it here. Integer minor units in the booking currency; never more than the charge still unrefunded. Once decided a row never changes.
+model BookingCreditNote {
+  id             String           @id @default(cuid())
+  tenantId       String           @map("tenant_id")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId      String           @map("booking_id")
+  booking        Booking          @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  /// Per booking, from 1. The document number is `CN-<booking reference>-P<seq>`.
+  seq            Int
+  number         String
+  currency       String           @db.Char(3)
+  amountMinor    BigInt           @map("amount_minor")
+  reason         CreditNoteReason
+  note           String
+  status         CreditNoteStatus @default(PROPOSED)
+  requestId      String           @map("request_id")
+  proposedById   String           @map("proposed_by_id")
+  decidedById    String?          @map("decided_by_id")
+  decidedAt      DateTime?        @map("decided_at")
+  decisionReason String?          @map("decision_reason")
+  ledgerEntryId  String?          @unique @map("ledger_entry_id")
+  ledgerEntry    LedgerEntry?     @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, number])
+  @@unique([bookingId, seq])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, bookingId])
 }
 
 /// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.

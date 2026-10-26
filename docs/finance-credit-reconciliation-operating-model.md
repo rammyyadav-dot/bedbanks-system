@@ -55,7 +55,8 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | Cancelled, agent path | REFUND +R (`booking:<id>:cancel-refund`), R = total - penalty from the frozen terms | +R | BUILT |
 | Cancelled, operator or supplier path | REFUND +R (`booking:<id>:cancel-refund`), R = total - effective penalty; nothing while the penalty is undecided | +R | BUILT (ADR 0069) |
 | Penalty waived after settlement | REFUND +difference (`…:cancel-refund:<new total>`); a higher decision is never clawed back | +diff | BUILT (ADR 0069) |
-| Goodwill refund, correction | ADJUSTMENT with reason, two people | +/- | PROPOSED |
+| Partial credit on a charged booking (supplier service failure, price correction, goodwill) | REFUND +X (`booking:<id>:credit-note:<note id>`), proposed by one person and approved by another | +X | BUILT behind `CREDIT_NOTES_ENABLED` (ADR 0095 part B); revenue reports not netted |
+| Correction that is not a refund of a charge (a debit, or no booking) | ADJUSTMENT with reason, two people | +/- | PROPOSED |
 | Payment reversed | REVERSAL linked to the receipt; may take the account negative and triggers review | -X | PROPOSED |
 
 Booking ledger invariants, per booking (checked by ADR 0068):

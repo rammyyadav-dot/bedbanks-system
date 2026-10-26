@@ -1,6 +1,6 @@
 # ADR 0095: Dynamic credit risk policy
 
-Status: **Part A built (risk policy, enforcement at hold and prebook, admin queue), in SHADOW mode by default. Part B (credit notes) is recorded below when built.**
+Status: **Built. Part A: risk policy, enforcement at hold and prebook, finance queue, SHADOW by default. Part B: partial credit notes with maker-checker, off until `CREDIT_NOTES_ENABLED=true`.**
 
 ## Finding
 Credit control was a hard limit (`balance + credit line - pending holds`) plus two global ageing terms: notice at 7 days, new holds refused at 30 (ADR 0024, 0028). Nothing looked at how close to the
@@ -32,3 +32,27 @@ line an agency was running, or at how much of what it owed was already overdue. 
 - **No stored state.** A transition (OK to MARGIN_CALL) is not recorded when it happens, only when a hold is checked in shadow mode. A stored state history needs a table and a scheduled job.
 - **Global thresholds.** Per-agency terms, temporary increases and review dates remain open (operating model section 5).
 - **Shadow audit writes share the hold's transaction.** If that insert were refused by the database the hold would fail; the hold path already inserts audit events in the same transaction, so the grant exists.
+
+## Decision (Part B): partial credit notes
+Cancellation credits were already automatic (ADR 0069), and the existing `CREDIT_NOTE` document is one per booking and only for a cancelled booking. What did not exist was a controlled way to credit an agency
+part of a charge for a booking that stands: the hotel relocated the guest, the supplier failed to deliver a service, a price was wrong.
+1. **`BookingCreditNote`** (migration `202612100001_booking_credit_notes`): PROPOSED by one person, APPROVED or REJECTED by another (database CHECK: the decider is never the proposer). Once decided the row is
+   immutable and nothing is ever deleted (trigger). Forced RLS; composite tenant foreign key to the booking; permissions `finance.creditnote.propose` and `finance.creditnote.approve`, granted to no role by the migration.
+2. **Approval posts exactly one REFUND** to the agency account, in the same transaction that marks the note approved, under the booking row lock then the wallet row lock (the order every cancellation path uses).
+   The REFUND is keyed `booking:<id>:credit-note:<noteId>` and the note stores the entry id (unique), so a note cannot be posted twice. It reuses `appendLedgerEntry`, so sign rules, the single-writer check,
+   the database guards and the hash chain (ADR 0094) all apply unchanged. No new ledger entry kind was needed.
+3. **Never more than the charge.** A proposal may not exceed the charge not yet refunded *less the notes still waiting*; an approval re-checks against the refunds actually posted. Eight simultaneous proposals of 2,000
+   against a 10,000 charge: five are accepted, three refused; ten simultaneous approvals post five refunds once each.
+4. **Scope.** Only CONFIRMED, CHECKED_OUT and NO_SHOW bookings that were charged on the ledger. A cancelled booking is credited by the cancellation settlement (the integrity rule `REFUND_MISMATCH` compares its refund
+   to the cancellation record, so a separate credit would raise a false critical finding). If a booking is cancelled *after* a credit note, the settlement counts the credit as already refunded and tops up only the difference, or
+   sends the booking to review if the credit already exceeds what the cancellation would refund.
+5. **Numbering**: `CN-<booking reference>-P<n>`, unique per tenant. This is **not** a gapless legal sequence; gapless yearly numbering and tax lines remain open (ADR 0054).
+6. **API** `/admin/finance/credit-notes`: `GET` (`finance.read`), `POST` propose, `POST :id/approve`, `POST :id/reject`. Writes answer 503 `CREDIT_NOTES_DISABLED` until the deployment sets `CREDIT_NOTES_ENABLED=true`.
+   Every step writes an audit event with ids and amounts, never guest data.
+
+## Not built in Part B
+- **Supplier-side recovery.** A service failure usually also earns the bedbank a credit *from the supplier*. That is a supplier payable adjustment (ADR 0076/0077) and is not linked here; finance does it separately.
+- **Revenue and payables reports are not netted.** The booking finance events (`BookingFinanceEvent`) have no credit type, so margin and revenue reports do not reflect a credit note. Adding an event type touches the finance consumer and its posting plan and needs its own change.
+- **A rendered credit note document** (printable, with tax lines). The record, its number and its ledger entry exist; a document in the style of `CN-<ref>` is not generated.
+- **A threshold for a second approver**, withdrawal by the proposer, and an agency-facing view or notification.
+- **Credit notes for a cancelled or amended booking, for a pay-at-hotel booking (never charged on the ledger), and in a currency other than the booking's.**
