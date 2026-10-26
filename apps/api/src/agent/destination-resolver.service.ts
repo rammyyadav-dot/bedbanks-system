@@ -21,6 +21,67 @@ const isFacets = (value: unknown): value is Facets => {
   return !!candidate && Array.isArray(candidate.boards) && Array.isArray(candidate.propertyTypes) && Array.isArray(candidate.brands)
 }
 
+type HotelRow = { id: string; name: string; city: string; countryCode: string; citySim: number; nameSim: number }
+type PrefixCityRow = { city: string; countryCode: string }
+
+/** "key >= p AND key < p || U+10FFFF" under COLLATE "C" is exactly "key starts with p". Both operands are leakproof, so the runtime login may use the index. */
+const prefixBounds = (folded: string) => ({ low: folded, high: `${folded}\u{10FFFF}` })
+
+/** Distinct cities that start with the term, shortest (closest) first, from "Hotel_tenant_id_city_prefix_idx". */
+function prefixCitiesSql(tenantId: string, folded: string): Prisma.Sql {
+  const { low, high } = prefixBounds(folded)
+  return Prisma.sql`
+    SELECT min("city") AS "city", "country_code" AS "countryCode"
+      FROM "Hotel"
+     WHERE "tenant_id" = ${tenantId} AND "content_status" = 'COMPLETE'
+       AND ("city_key" COLLATE "C") >= ${low} AND ("city_key" COLLATE "C") < ${high}
+     GROUP BY "city_key", "country_code"
+     ORDER BY length("city_key") ASC, "city_key" ASC, "country_code" ASC
+     LIMIT ${QUERY_LIMIT}`
+}
+
+/** Hotels whose name starts with the term, shortest (closest) first, from "Hotel_tenant_id_name_prefix_idx". */
+function prefixHotelsSql(tenantId: string, folded: string): Prisma.Sql {
+  const { low, high } = prefixBounds(folded)
+  return Prisma.sql`
+    SELECT "id", "name", "city", "country_code" AS "countryCode"
+      FROM "Hotel"
+     WHERE "tenant_id" = ${tenantId} AND "content_status" = 'COMPLETE'
+       AND ("name_key" COLLATE "C") >= ${low} AND ("name_key" COLLATE "C") < ${high}
+     ORDER BY length("name_key") ASC, "name_key" ASC, "id" ASC
+     LIMIT ${QUERY_LIMIT}`
+}
+
+const matchesTerm = (value: string, similarity: number, folded: string) => value.toLocaleLowerCase('en-US').includes(folded) || similarity >= FUZZY_THRESHOLD
+/** Substring hits lead, then the closest fuzzy hits; ties keep the database order. */
+const rankTerm = (value: string, similarity: number, folded: string) => (value.toLocaleLowerCase('en-US').startsWith(folded) ? 2 : value.toLocaleLowerCase('en-US').includes(folded) ? 1 : 0) + similarity
+
+function citiesFrom(hotels: HotelRow[], folded: string): DestinationResolution[] {
+  const cities: DestinationResolution[] = []
+  const seen = new Set<string>()
+  for (const hotel of [...hotels].sort((a, b) => rankTerm(b.city, b.citySim, folded) - rankTerm(a.city, a.citySim, folded))) {
+    if (!matchesTerm(hotel.city, hotel.citySim, folded)) continue
+    const id = cityDestinationId(hotel.countryCode, hotel.city)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    cities.push({ type: 'city', id, name: hotel.city.trim(), countryCode: hotel.countryCode })
+    if (cities.length === QUERY_LIMIT) break
+  }
+  return cities
+}
+
+function propertiesFrom(hotels: HotelRow[], folded: string): DestinationResolution[] {
+  const properties: DestinationResolution[] = []
+  for (const hotel of [...hotels].sort((a, b) => rankTerm(b.name, b.nameSim, folded) - rankTerm(a.name, a.nameSim, folded))) {
+    if (!matchesTerm(hotel.name, hotel.nameSim, folded)) continue
+    const cityId = cityDestinationId(hotel.countryCode, hotel.city)
+    if (!cityId) continue
+    properties.push({ type: 'hotel', id: hotel.id, name: hotel.name, cityId, cityName: hotel.city.trim(), countryCode: hotel.countryCode })
+    if (properties.length === QUERY_LIMIT) break
+  }
+  return properties
+}
+
 @Injectable()
 export class DestinationResolverService {
   private readonly staticContent: CacheAside
@@ -40,13 +101,29 @@ export class DestinationResolverService {
     return this.staticContent.read(tenantCacheKey(tenantId, 'agent-destinations', folded), DESTINATIONS_TTL_MS, () => this.loadDestinations(tenantId, folded), { accept: isResolutions })
   }
 
+  /**
+   * Prefix hits come first from the "city_key"/"name_key" range indexes (ADR 0099): the runtime login is under forced row-level security, which refuses
+   * the trigram indexes (ADR 0074), so only a range comparison avoids scanning the tenant. A category with no prefix hit ("Dubia", "palm") falls back to
+   * the substring and word-similarity scan of ADR 0072, so typo tolerance and mid-string matches are unchanged when nothing starts with the term.
+   */
   private async loadDestinations(tenantId: string, folded: string): Promise<DestinationResolution[]> {
+    const { prefixCities, prefixHotels, scanned } = await this.prisma.withTenant(tenantId, async (tx) => {
+      const prefixCities = await tx.$queryRaw<PrefixCityRow[]>(prefixCitiesSql(tenantId, folded))
+      const prefixHotels = await tx.$queryRaw<HotelRow[]>(prefixHotelsSql(tenantId, folded))
+      const scanned = prefixCities.length && prefixHotels.length ? null : await this.scanDestinations(tx, tenantId, folded)
+      return { prefixCities, prefixHotels, scanned }
+    })
+    const cities = prefixCities.length ? citiesFrom(prefixCities.map((row) => ({ ...row, id: '', name: row.city, citySim: 0, nameSim: 0 })), folded) : citiesFrom(scanned ?? [], folded)
+    const properties = prefixHotels.length ? propertiesFrom(prefixHotels.map((row) => ({ ...row, citySim: 0, nameSim: 0 })), folded) : propertiesFrom(scanned ?? [], folded)
+    return [...cities, ...properties]
+  }
+
+  private async scanDestinations(tx: Prisma.TransactionClient, tenantId: string, folded: string): Promise<HotelRow[]> {
     const pattern = `%${folded.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
     // `term <% column` is word_similarity(term, column) >= pg_trgm.word_similarity_threshold. Unlike the function form it can use the
     // Hotel_*_lower_trgm GIN indexes (migration 202610180001). The threshold is transaction-local, so it is safe behind a pooler.
-    const hotels = await this.prisma.withTenant(tenantId, async (tx) => {
-      await tx.$executeRaw`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(FUZZY_THRESHOLD)}, true)`
-      return tx.$queryRaw<Array<{ id: string; name: string; city: string; countryCode: string; citySim: number; nameSim: number }>>(Prisma.sql`
+    await tx.$executeRaw`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(FUZZY_THRESHOLD)}, true)`
+    return tx.$queryRaw<HotelRow[]>(Prisma.sql`
       SELECT "id", "name", "city", "country_code" AS "countryCode",
              word_similarity(${folded}, lower("city"))::float8 AS "citySim",
              word_similarity(${folded}, lower("name"))::float8 AS "nameSim"
@@ -56,29 +133,6 @@ export class DestinationResolverService {
               OR ${folded} <% lower("city") OR ${folded} <% lower("name"))
        ORDER BY GREATEST(word_similarity(${folded}, lower("city")), word_similarity(${folded}, lower("name"))) DESC, "city" ASC, "name" ASC
        LIMIT 50`)
-    })
-    const matches = (value: string, similarity: number) => value.toLocaleLowerCase('en-US').includes(folded) || similarity >= FUZZY_THRESHOLD
-    // Substring hits lead, then the closest fuzzy hits; ties keep the database order.
-    const rank = (value: string, similarity: number) => (value.toLocaleLowerCase('en-US').startsWith(folded) ? 2 : value.toLocaleLowerCase('en-US').includes(folded) ? 1 : 0) + similarity
-    const cities: Array<DestinationResolution & { score: number }> = []
-    const seen = new Set<string>()
-    for (const hotel of [...hotels].sort((a, b) => rank(b.city, b.citySim) - rank(a.city, a.citySim))) {
-      if (!matches(hotel.city, hotel.citySim)) continue
-      const id = cityDestinationId(hotel.countryCode, hotel.city)
-      if (!id || seen.has(id)) continue
-      seen.add(id)
-      cities.push({ type: 'city', id, name: hotel.city.trim(), countryCode: hotel.countryCode, score: rank(hotel.city, hotel.citySim) })
-      if (cities.length === QUERY_LIMIT) break
-    }
-    const properties: DestinationResolution[] = []
-    for (const hotel of [...hotels].sort((a, b) => rank(b.name, b.nameSim) - rank(a.name, a.nameSim))) {
-      if (!matches(hotel.name, hotel.nameSim)) continue
-      const cityId = cityDestinationId(hotel.countryCode, hotel.city)
-      if (!cityId) continue
-      properties.push({ type: 'hotel', id: hotel.id, name: hotel.name, cityId, cityName: hotel.city.trim(), countryCode: hotel.countryCode })
-      if (properties.length === QUERY_LIMIT) break
-    }
-    return [...cities.map(({ score: _score, ...city }) => city as DestinationResolution), ...properties]
   }
 
   /** Tenant-keyed static content (cache-aside). A cache fault falls through to the database; see CacheAside. */
