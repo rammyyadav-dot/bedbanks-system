@@ -63,7 +63,8 @@ export const supplyRoutes = {
   roomEvents: '/admin/room-events', roomEvent: '/admin/room-events/:roomEventId', roomEventSubmit: '/admin/room-events/:roomEventId/submit', roomEventCancel: '/admin/room-events/:roomEventId/cancel', roomEventArchive: '/admin/room-events/:roomEventId/archive',
   roomEventApprovalApprove: '/admin/room-event-approvals/:approvalId/approve', roomEventApprovalReject: '/admin/room-event-approvals/:approvalId/reject', roomEventApprovalCancel: '/admin/room-event-approvals/:approvalId/cancel',
   eventSupplements: '/admin/event-supplements', eventSupplement: '/admin/event-supplements/:eventSupplementId', eventSupplementSubmit: '/admin/event-supplements/:eventSupplementId/submit', eventSupplementActivate: '/admin/event-supplements/:eventSupplementId/activate', eventSupplementSuspend: '/admin/event-supplements/:eventSupplementId/suspend', eventSupplementPreview: '/admin/event-supplements/preview',
-  eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel',
+  eventSupplementAmendmentRequest: '/admin/event-supplements/:eventSupplementId/amendment-request',
+  eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel', eventSupplementApprovalExecute: '/admin/event-supplement-approvals/:approvalId/execute',
 } as const
 
 export const supplyPermissions = {
@@ -109,6 +110,12 @@ export interface EventSupplementRead { id: string; tenantId: string; roomEventId
 export interface EventSupplementActivationRequestInput { reason: string; requestId?: string }
 export interface EventSupplementApprovalDecisionInput { reason: string }
 export interface EventSupplementSuspendInput { reason: string }
+/** Commercial terms only: never the event, contract or rate plan binding (those are fixed at creation, like a contract's supplier/hotel
+ * binding is never amendable, ADR 0067 F-01). */
+export type EventSupplementAmendment = Partial<EventSupplementAmount & Pick<EventSupplementWrite, 'currency' | 'taxTreatment' | 'validFrom' | 'validTo' | 'stackable' | 'priority' | 'evidenceRef'>>
+export interface EventSupplementAmendmentRequestInput { changes: EventSupplementAmendment; reason: string; requestId?: string }
+/** Executes an approved amendment or activation request, named by its approvalId (mirrors contractApprovalExecute). */
+export interface EventSupplementApprovalExecuteInput { reason: string }
 /** Price impact preview (spec section 7, "Rate Impact Preview"): never a mutation. */
 export interface EventSupplementPreviewRequest { ratePlanId: string; stayDates: SupplyDate[]; rooms: number; adults: number; children: number }
 export interface EventSupplementPreviewNight { date: SupplyDate; contractedBaseMinor: string; eventSupplementMinor: string; adjustedNetMinor: string }
