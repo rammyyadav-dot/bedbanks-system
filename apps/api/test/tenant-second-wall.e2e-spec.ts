@@ -63,7 +63,7 @@ describe('tenant second wall: services refuse another tenant with RLS out of the
     for (const tenantId of [A.tenant, B.tenant].filter(Boolean)) {
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
       // The ledger is append-only; a disposable fixture is removed with triggers off, in one transaction, as the other finance suites do.
-      await prisma.$transaction([prisma.$executeRawUnsafe('SET LOCAL session_replication_role = replica'), prisma.$executeRaw`DELETE FROM "LedgerEntry" WHERE tenant_id = ${tenantId}`])
+      await prisma.$transaction([prisma.$executeRawUnsafe('SET LOCAL session_replication_role = replica'), prisma.$executeRaw`DELETE FROM "LedgerChainLink" WHERE tenant_id = ${tenantId}`, prisma.$executeRaw`DELETE FROM "LedgerEntry" WHERE tenant_id = ${tenantId}`]) // the hash chain (ADR 0094) references the entries and the wallet
       await prisma.wallet.deleteMany({ where: { tenantId } })
       await prisma.hotelImage.deleteMany({ where: { tenantId } })
       await prisma.supplierHotelMapping.deleteMany({ where: { tenantId } })
