@@ -1,7 +1,7 @@
 # ADR 0095: Checker step-up, direct-call guard and approval expiry
 
 ## Status
-Accepted. Adds migration `202612090001_approval_request_expiry` (enum value and CHECK only; no table, column, index or grant). Not applied to any database in this change: it was not run against PostgreSQL, so it needs the ADR 0013 human decision and a disposable-database run first.
+Accepted. Adds migration `202612130001_approval_request_expiry` (enum value and CHECK only; no table, column, index or grant). Not applied to any database in this change: it was not run against PostgreSQL, so it needs the ADR 0013 human decision and a disposable-database run first.
 
 ## Context
 Maker-checker already exists (ADR 0016, 0017, 0018, 0024, 0067, 0070, 0077, 0093): the approval service and the database forbid a decider who is also the requester, and settlements, funding receipts, reconciliation exceptions, markups, FX rates and agency credit limits each separate maker and checker. Gaps found by inspection:
