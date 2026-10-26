@@ -5,7 +5,7 @@ import { isDatabasePermissionDenied } from './db-errors'
  * The narrow database role of supplier statement reconciliation (ADR 0070, ADR 0054 "dedicated restricted role").
  *
  * ADR 0032 keeps finance tables away from the strict API runtime role (`fbeds_api`). This login (`fbeds_recon_ops`, member of the NOLOGIN group `fbeds_recon`)
- * closes that gap without widening the runtime role: it may read and append the five reconciliation tables, update only the workflow columns of runs and
+ * closes that gap without widening the runtime role: it may read and append the reconciliation and bank statement tables, update only the workflow columns of runs and
  * findings, read exactly the booking columns the matcher needs, and append audit events. It can NEVER touch LedgerEntry, Wallet, a booking, a statement
  * after import (statements, lines and decisions have no UPDATE or DELETE), guest data, credentials or the audit log's contents. Row-level security still applies
  * (every use sets the tenant in its transaction). Only `ReconciliationStore` connects with it (`FINANCE_RECONCILIATION_DATABASE_URL`, which must differ from `DATABASE_URL`).
@@ -19,10 +19,11 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
 /** Read and append. */
-export const RECON_OWN_TABLES = ['SupplierStatement', 'SupplierStatementLine', 'ReconciliationRun', 'ReconciliationFinding', 'ReconciliationDecision'] as const
-/** The only columns the role may update. Statements, lines and decisions are not here: they are immutable. */
+export const RECON_OWN_TABLES = ['SupplierStatement', 'SupplierStatementLine', 'ReconciliationRun', 'ReconciliationFinding', 'ReconciliationDecision', 'BankStatement', 'BankStatementEntry', 'BankMatchFinding'] as const
+/** The only columns the role may update. Statements, lines, bank statements, bank entries and decisions are not here: they are immutable. */
 export const RECON_UPDATE_COLUMNS = {
   ReconciliationRun: ['status', 'claimed_at', 'started_at', 'finished_at', 'attempts', 'error_code', 'matched_count', 'exception_count'],
+  BankMatchFinding: ['status', 'resolution', 'resolution_reason', 'resolved_by_id', 'resolved_at'],
   ReconciliationFinding: ['type', 'rule', 'is_exception', 'booking_id', 'currency', 'statement_minor', 'ledger_minor', 'variance_minor', 'status', 'proposed_action', 'proposed_by_id', 'proposed_reason', 'second_approval_required', 'resolution', 'resolved_by_id', 'resolved_at', 'last_run_id', 'updated_at'],
 } as const
 /** Column-level SELECT on tables the role reads but must not read whole. `tenant_id` must be readable for the row-level policy. */
@@ -30,12 +31,16 @@ export const RECON_READ_COLUMNS = {
   Supplier: ['id', 'tenant_id', 'display_name'],
   Booking: ['id', 'tenant_id', 'reference', 'supplier_ref', 'supplier_id', 'currency', 'net_minor', 'status', 'check_out', 'created_at'],
   BookingFinanceEvent: ['id', 'tenant_id', 'booking_id', 'type', 'penalty_minor', 'created_at'],
+  /** The payments bank statements are matched against (ADR 0093). References, amounts and dates only: no payer name, notes or compliance data. */
+  SupplierSettlement: ['id', 'tenant_id', 'currency', 'amount_minor', 'paid_on', 'payment_reference', 'status'],
 } as const
 /** INSERT-only: the audit trail. Not readable by the role. */
 export const RECON_INSERT_ONLY_TABLES = ['AuditEvent'] as const
 /** Must stay unreadable and unwritable. Checked by the verifier. */
 export const RECON_FORBIDDEN_TABLES = ['users', 'sessions', 'memberships', 'LedgerEntry', 'Wallet', 'BookingGuest', 'InventoryHold', 'ConnectorCredentialReference', 'FundingReceipt', 'AuditEvent'] as const
 export const RECON_DUE_FUNCTION = 'fbeds_reconciliation_due_tenants()'
+/** Funding receipts for bank matching, through a tenant-filtered SECURITY DEFINER function: the role holds no grant on FundingReceipt itself (ADR 0093). */
+export const RECON_BANK_RECEIPTS_FUNCTION = 'fbeds_bank_expected_receipts(date, date, integer)'
 
 export function assertReconInput(loginRole: string, password: string): void {
   if (!IDENTIFIER.test(loginRole)) throw new Error('Login role must match [a-z][a-z0-9_]{2,62}')
@@ -54,6 +59,7 @@ export function reconGrantStatements(group = RECON_GROUP_ROLE): string[] {
     ...Object.entries(RECON_READ_COLUMNS).map(([table, columns]) => `GRANT SELECT (${cols(columns)}) ON "${table}" TO "${group}"`),
     ...RECON_INSERT_ONLY_TABLES.map((table) => `GRANT INSERT ON "${table}" TO "${group}"`),
     `GRANT EXECUTE ON FUNCTION ${RECON_DUE_FUNCTION} TO "${group}"`,
+    `GRANT EXECUTE ON FUNCTION ${RECON_BANK_RECEIPTS_FUNCTION} TO "${group}"`,
   ]
 }
 
@@ -121,6 +127,7 @@ export async function verifyReconRole(db: Pick<Executor, '$queryRawUnsafe'>): Pr
   }
   if (!(await count(`SELECT CASE WHEN has_table_privilege(current_user, '"AuditEvent"', 'INSERT') THEN 1 ELSE 0 END AS n`))) failures.push('role cannot append audit events')
   if (!(await count(`SELECT CASE WHEN has_function_privilege(current_user, '${RECON_DUE_FUNCTION}', 'EXECUTE') THEN 1 ELSE 0 END AS n`))) failures.push('role cannot list tenants with queued runs')
+  if (!(await count(`SELECT CASE WHEN has_function_privilege(current_user, '${RECON_BANK_RECEIPTS_FUNCTION}', 'EXECUTE') THEN 1 ELSE 0 END AS n`))) failures.push('role cannot read funding receipts for bank matching')
   if (await count(`SELECT count(*) AS n FROM unnest(ARRAY[${list(RECON_FORBIDDEN_TABLES)}]) t WHERE has_table_privilege(current_user, format('%I', t), 'SELECT')`) > 0) failures.push('role can read a table outside the reconciliation scope')
   return { ok: failures.length === 0, failures }
 }
@@ -141,6 +148,20 @@ export const RECON_PROBES: readonly ReconProbe[] = [
   { name: 'SELECT BookingFinanceEvent penalty', sql: `SELECT "booking_id", "penalty_minor" FROM "BookingFinanceEvent" WHERE false`, expect: 'allowed' },
   { name: 'SELECT Supplier name', sql: `SELECT "id", "display_name" FROM "Supplier" WHERE false`, expect: 'allowed' },
   { name: 'INSERT AuditEvent', sql: `INSERT INTO "AuditEvent" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
+  { name: 'INSERT BankStatement', sql: `INSERT INTO "BankStatement" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
+  { name: 'INSERT BankStatementEntry', sql: `INSERT INTO "BankStatementEntry" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
+  { name: 'INSERT BankMatchFinding', sql: `INSERT INTO "BankMatchFinding" ("id") SELECT 'x' WHERE false`, expect: 'allowed' },
+  { name: 'UPDATE BankMatchFinding.status', sql: `UPDATE "BankMatchFinding" SET "status" = "status" WHERE false`, expect: 'allowed' },
+  { name: 'SELECT SupplierSettlement reference and amount', sql: `SELECT "id", "payment_reference", "amount_minor", "paid_on", "status" FROM "SupplierSettlement" WHERE false`, expect: 'allowed' },
+  { name: 'EXECUTE fbeds_bank_expected_receipts', sql: `SELECT "id", "bank_reference" FROM fbeds_bank_expected_receipts('2000-01-01', '2000-01-01', 0)`, expect: 'allowed' },
+  { name: 'SELECT FundingReceipt', sql: `SELECT "id" FROM "FundingReceipt" WHERE false`, expect: 'denied' },
+  { name: 'UPDATE BankStatement', sql: `UPDATE "BankStatement" SET "statement_ref" = "statement_ref" WHERE false`, expect: 'denied' },
+  { name: 'UPDATE BankStatementEntry', sql: `UPDATE "BankStatementEntry" SET "amount_minor" = "amount_minor" WHERE false`, expect: 'denied' },
+  { name: 'DELETE BankMatchFinding', sql: `DELETE FROM "BankMatchFinding" WHERE false`, expect: 'denied' },
+  { name: 'UPDATE BankMatchFinding.bank_minor', sql: `UPDATE "BankMatchFinding" SET "bank_minor" = "bank_minor" WHERE false`, expect: 'denied' },
+  { name: 'SELECT FundingReceipt.payer_name', sql: `SELECT "payer_name" FROM "FundingReceipt" WHERE false`, expect: 'denied' },
+  { name: 'UPDATE FundingReceipt', sql: `UPDATE "FundingReceipt" SET "status" = "status" WHERE false`, expect: 'denied' },
+  { name: 'UPDATE SupplierSettlement', sql: `UPDATE "SupplierSettlement" SET "status" = "status" WHERE false`, expect: 'denied' },
   { name: 'UPDATE SupplierStatement', sql: `UPDATE "SupplierStatement" SET "statement_ref" = "statement_ref" WHERE false`, expect: 'denied' },
   { name: 'UPDATE SupplierStatementLine', sql: `UPDATE "SupplierStatementLine" SET "amount_minor" = "amount_minor" WHERE false`, expect: 'denied' },
   { name: 'UPDATE ReconciliationDecision', sql: `UPDATE "ReconciliationDecision" SET "reason" = "reason" WHERE false`, expect: 'denied' },

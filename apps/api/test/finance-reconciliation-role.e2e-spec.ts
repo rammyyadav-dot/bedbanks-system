@@ -7,6 +7,7 @@ import { ReconciliationDatabase, ReconciliationStore } from '../src/finance-reco
 import { ReconciliationService } from '../src/finance-reconciliation/reconciliation.service'
 import { ReconciliationRunner } from '../src/finance-reconciliation/reconciliation-runner.service'
 import { ReconciliationWorker } from '../src/finance-reconciliation/reconciliation-worker.service'
+import { BankReconciliationService } from '../src/finance-reconciliation/bank-reconciliation.service'
 
 /** ADR 0070: the whole workflow under the narrow reconciliation login, with no way to touch the ledger, a wallet or a booking. */
 describe('finance reconciliation under its narrow database role (ADR 0070, PostgreSQL)', () => {
@@ -39,7 +40,7 @@ describe('finance reconciliation under its narrow database role (ADR 0070, Postg
     await narrow.$disconnect()
     await owner.$transaction(async (tx) => {
       await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
-      for (const table of ['ReconciliationDecision', 'ReconciliationFinding', 'ReconciliationRun', 'SupplierStatementLine', 'SupplierStatement', 'Booking', 'AuditEvent', 'Supplier']) await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE tenant_id = $1`, tenantId)
+      for (const table of ['BankMatchFinding', 'BankStatementEntry', 'BankStatement', 'FundingReceipt', 'SupplierSettlement', 'Agency', 'ReconciliationDecision', 'ReconciliationFinding', 'ReconciliationRun', 'SupplierStatementLine', 'SupplierStatement', 'Booking', 'AuditEvent', 'Supplier']) await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE tenant_id = $1`, tenantId)
       await tx.$executeRawUnsafe('DELETE FROM tenants WHERE id = $1', tenantId)
     })
     await owner.user.deleteMany({ where: { email: { startsWith: suffix } } })
@@ -78,6 +79,29 @@ describe('finance reconciliation under its narrow database role (ADR 0070, Postg
       expect((await service.exceptionSummary(tenantId)).byStatus.RESOLVED).toBe(1)
       expect(await owner.ledgerEntry.count({ where: { tenantId } })).toBe(0)
       expect(await owner.auditEvent.count({ where: { tenantId, action: { startsWith: 'finance.reconciliation.' } } })).toBeGreaterThanOrEqual(5)
+    } finally { await database.onModuleDestroy() }
+  })
+
+  it('ROLE-BANK: a bank statement imports, matches settlements and funding receipts, and closes an exception as the narrow login, and the ledger stays untouched', async () => {
+    const database = new ReconciliationDatabase({ FINANCE_RECONCILIATION_DATABASE_URL: loginUrl, DATABASE_URL: process.env.DATABASE_URL })
+    const service = new BankReconciliationService(new ReconciliationStore(owner, database))
+    const agency = await owner.agency.create({ data: { tenant: { connect: { id: tenantId } }, createdBy: { connect: { id: users.a } }, name: `${suffix} agency`, code: `RB${randomBytes(3).toString("hex").toUpperCase()}` } as never })
+    await owner.supplierSettlement.create({ data: { tenantId, supplierId, currency: 'AED', amountMinor: 25050n, paidOn: new Date('2026-10-02T00:00:00Z'), paymentReference: `${suffix}-PAY`, status: 'APPROVED', requestId: `${suffix}-settle-1`, proposedById: users.a, decidedById: users.b, decidedAt: new Date() } })
+    await owner.fundingReceipt.create({ data: { tenantId, agencyId: agency.id, currency: 'AED', amountMinor: 120000n, method: 'BANK_TRANSFER', bankReference: `${suffix}-FUND`, valueDate: new Date('2026-10-02T00:00:00Z'), payerName: 'Payer', payerType: 'AGENCY', complianceReviewRequired: false, secondApprovalRequired: false, status: 'DECLARED', channel: 'ADMIN', requestId: `${suffix}-fund-1`, declaredById: users.a } as never })
+    const mt940 = [':20:ROLE1', ':25:AE99ROLE', ':60F:C261001AED1000,00',
+      `:61:2610021002D250,50NTRFNONREF//B1`, `:86:${suffix}-PAY`,
+      `:61:2610021002C1200,NTRFNONREF//B2`, `:86:${suffix}-FUND`,
+      `:61:2610021002C3,00NTRFNONREF//B3`, ':86:UNKNOWN',
+      ':62F:C261003AED1952,50', '-'].join('\n')
+    try {
+      const result = await service.importStatement(tenantId, users.a, { requestId: `${suffix}-bank-1`, format: 'MT940', content: mt940 })
+      expect(result.statement).toMatchObject({ matched: 2, exceptions: { open: 1, resolved: 0 } })
+      const [unmatched] = (await service.listExceptions(tenantId, users.b, { statementId: result.statement.id })).items
+      expect(unmatched).toMatchObject({ type: 'UNMATCHED_ENTRY', canResolve: true })
+      const done = await service.resolveException(tenantId, users.b, unmatched.id, { resolution: 'EXPLAINED', reason: 'Bank interest, confirmed with treasury' })
+      expect(done).toMatchObject({ status: 'RESOLVED', resolvedById: users.b })
+      expect(await owner.ledgerEntry.count({ where: { tenantId } })).toBe(0)
+      expect(await owner.auditEvent.count({ where: { tenantId, action: { startsWith: 'finance.bank_reconciliation.' } } })).toBe(2)
     } finally { await database.onModuleDestroy() }
   })
 

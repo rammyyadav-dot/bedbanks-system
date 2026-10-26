@@ -1,6 +1,6 @@
 # ADR 0093: Bank statement parsing and matching (R6, first slice)
 
-Status: **Built: pure parsers and matcher in `@bedbanks/money`. Not wired: no endpoint, table, worker or UI yet.**
+Status: **Built: pure parsers and matcher (`@bedbanks/money`), tables with RLS and immutability triggers, import and exception endpoints, narrow-role grants. Behind `FINANCE_RECONCILIATION_ENABLED`. No UI, no scheduled or automatic bank feed, no ERA, no ledger posting.**
 
 ## Finding
 The operating model lists R6 (receipts and supplier payments to the bank statement) as PROPOSED and says it needs a statement format. Supplier
@@ -22,13 +22,32 @@ actually moved. Finance has been told the formats are MT940, camt.053 and CSV.
    `DUPLICATE_PAYMENT`, `UNMATCHED_ENTRY` (the suspense list) and `EXPECTED_NOT_ON_STATEMENT`.
 5. The matcher classifies only. It posts nothing, pays nothing and edits nothing, in line with P8 (a break is a finding, never auto-corrected).
 
-## Not decided here (needs the owner, and a reviewed migration)
-- Persistence: a `BankStatement` / `BankStatementEntry` / `BankMatchFinding` set of tables with tenant RLS, a content hash for idempotent import,
-  and the exception workflow reused from ADR 0070. Rollback is dropping the tables. No migration is included in this change.
-- The ingestion worker, a `finance.reconcile.run`-guarded import endpoint and the contract in `@bedbanks/contracts` (invariant 4).
-- Which bank accounts belong to which tenant and currency, and who may release an unmatched credit from suspense.
-- Electronic remittance advice (ERA) per supplier: formats differ by supplier and none is in scope yet.
+## Persistence and API (migration `202612080001_bank_statement_reconciliation`)
+- `BankStatement`, `BankStatementEntry`, `BankMatchFinding`: tenant-led indexes, composite tenant foreign keys, forced RLS. A statement and its entries are immutable by trigger. A finding's facts
+  are immutable; only `OPEN -> RESOLVED` is allowed, once, and nothing is ever deleted. CHECK constraints enforce positive minor units, ISO currency, `variance = bank - expected`, and that
+  the closer is not the importer.
+- Privacy: the account number is kept only as `SHA-256(tenant | account)` and its last four characters. No remittance text, payer name or raw file is stored. Statement content is not
+  written to logs or errors.
+- Import is synchronous: parse, match and write happen in ONE tenant transaction (statement, entries, findings, audit event). Matching is in-memory and bounded, so there is no queue.
+  Idempotent on `requestId`; the same content under another `requestId` or number is refused (`BANK_STATEMENT_DUPLICATE_CONTENT`); a reused `requestId` with other content is `BANK_REQUEST_REUSED`.
+- Expected payments: APPROVED `SupplierSettlement` (money out) and DECLARED / VERIFIED / POSTED `FundingReceipt` (money in), loaded for the statement period plus or minus 60 days. More than
+  20,000 in that window is refused (`BANK_EXPECTED_SET_TOO_LARGE`) rather than truncated. A payment already matched by an earlier statement counts as consumed.
+- Narrow role (`fbeds_recon_ops`): INSERT on the three tables, UPDATE only of the resolution columns, column-level SELECT of settlement reference, amount, date and status. The role
+  keeps **no** grant on `FundingReceipt` (an existing test forbids it); receipts are read through the tenant-filtered `SECURITY DEFINER` function `fbeds_bank_expected_receipts`, which returns
+  reference, amount, currency, value date and status only. **Operator step: re-run the role provisioning after this migration** (`provision-reconciliation-role`), then `verify-reconciliation-role`.
+- API (`/admin/finance/bank-reconciliation`): `GET statements`, `GET statements/:id`, `GET exceptions` need `finance.read`; `POST statements` needs `finance.reconcile.run`;
+  `POST exceptions/:id/resolve` needs `finance.reconcile.resolve` and a different person than the importer. Resolutions are `EXPLAINED`, `BANK_CORRECTION_REQUESTED`,
+  `INTERNAL_CORRECTION_REQUESTED`: statements of what was done elsewhere. Nothing posts to `LedgerEntry` or `Wallet`.
+
+## Not built (needs the owner, or its own change)
+- A UI for the queue, and an automatic bank feed or SFTP pull. Today a person uploads the file.
+- Electronic remittance advice (ERA): formats differ by supplier and none is chosen.
+- Which bank accounts belong to which tenant and currency (any account in a file is accepted for the tenant that imports it), and the suspense process for an unmatched credit.
+- Posting anything from a finding (for example a bank fee, or an unidentified credit) to the ledger: needs ADJUSTMENT / REVERSAL entry kinds and a chart of accounts (operating model section 11).
+- Re-matching an old statement after a payment is recorded later. Matching happens once, at import.
+- Currencies outside the platform's supported exponent table are refused (`BANK_STATEMENT_UNSUPPORTED_CURRENCY`).
 
 ## Tests
-`packages/money/bank-statement.test.ts` and `bank-matching.test.ts`: balance integrity, reversals, bad dates and amounts, XXE refusal,
-pending entries, CSV quoting, whole-token matching, duplicates, ambiguity, suspense totals and period handling.
+- `packages/money`: `bank-statement.test.ts`, `bank-matching.test.ts` (parsers: balance integrity, reversals, bad dates and amounts, XXE refusal, pending entries, CSV quoting; matcher: whole-token matching, duplicates, ambiguity, suspense totals, period handling, earlier-statement consumption).
+- `apps/api/src/finance-reconciliation/bank-import.spec.ts`: validation, account hashing, content hash, stable 422 codes, contract parity.
+- PostgreSQL: `test/bank-reconciliation.e2e-spec.ts` (import, idempotency, duplicates, immutability, tenant isolation, separation of duties, ledger untouched) and `ROLE-BANK` in `test/finance-reconciliation-role.e2e-spec.ts` (the same flow as the narrow login, plus role certification).

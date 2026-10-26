@@ -87,7 +87,7 @@ const fingerprint = (e: BankStatementEntry): string => [e.entryRef, e.valueDate,
  * Matches `entries` against `expected`. Deterministic: findings come in statement order, then missing payments in input order.
  * A payment is consumed by at most one clean match; a second movement carrying the same reference is a DUPLICATE_PAYMENT.
  */
-export function matchBankStatement(entries: readonly BankStatementEntry[], expected: readonly ExpectedPayment[], period: { from: string; to: string }): BankMatchResult {
+export function matchBankStatement(entries: readonly BankStatementEntry[], expected: readonly ExpectedPayment[], period: { from: string; to: string }, alreadyMatchedIds: ReadonlySet<string> = new Set()): BankMatchResult {
   const byRef = new Map<string, ExpectedPayment[]>()
   for (const payment of expected) {
     const key = normalise(payment.reference)
@@ -98,7 +98,8 @@ export function matchBankStatement(entries: readonly BankStatementEntry[], expec
   }
 
   const findings: BankMatchFinding[] = []
-  const consumed = new Set<string>()
+  // Payments an earlier statement already matched count as consumed: a second movement for them is a duplicate payment, and they are never reported missing.
+  const consumed = new Set<string>(alreadyMatchedIds)
   const touched = new Set<string>()
   const seen = new Set<string>()
 
@@ -127,7 +128,7 @@ export function matchBankStatement(entries: readonly BankStatementEntry[], expec
   })
 
   for (const payment of expected) {
-    if (touched.has(payment.id) || payment.date < period.from || payment.date > period.to) continue
+    if (touched.has(payment.id) || consumed.has(payment.id) || payment.date < period.from || payment.date > period.to) continue
     findings.push({ key: `expected:${payment.id}`, type: 'EXPECTED_NOT_ON_STATEMENT', entryRef: null, expectedId: payment.id, expectedKind: payment.kind, currency: payment.currency, bankMinor: null, expectedMinor: payment.amountMinor, varianceMinor: null })
   }
 
