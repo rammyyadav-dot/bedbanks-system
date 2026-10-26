@@ -1030,6 +1030,15 @@ label, .field span { color: #5a5a55; }
   .site-cta { width: 100%; }
 }
 
+/* Programmatic SEO landing pages (ADR 0093) */
+.landing-points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 32px 0; padding: 0; list-style: none; }
+.landing-points li { border: 1px solid #E5E7EB; border-radius: 10px; padding: 18px; background: #FFFFFF; }
+.landing-points h2 { margin: 0 0 6px; font: 700 16px var(--font-display); color: #1F2937; }
+.landing-points p { margin: 0; color: #4B5563; font-size: 14px; }
+@media (max-width: 760px) {
+  .landing-points { grid-template-columns: 1fr; }
+}
+
 /* Quotation builder (ADR 0092) */
 .bb-quote-page { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
 .bb-quote-builder { display: flex; flex-direction: column; gap: 24px; }
