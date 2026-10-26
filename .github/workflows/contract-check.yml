@@ -61,8 +61,8 @@ jobs:
           # On a PR only the migrations it adds or changes are judged; on main the schema (foreign-key index) rules still run.
           if [ -n "$BASE_REF" ]; then
             git fetch --no-tags origin "$BASE_REF"
-            base="--base=origin/$BASE_REF"
-          else base=""; fi
+            base=("--base=origin/$BASE_REF")
+          else base=(); fi
           tools/ci-step-summary.sh "Prisma migration safety" \
             "Add the missing foreign-key index in a new forward-only migration, or put '-- migration-safety: allow <rule> <reason>' above a reviewed breaking statement. Large-table index builds and NOT NULL changes need a rollout plan and rollback notes (see apps/api/prisma/MIGRATIONS.md)." \
-            node tools/migration-safety-check.mjs $base
+            node tools/migration-safety-check.mjs "${base[@]}"
