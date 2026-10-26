@@ -22,6 +22,12 @@ locals {
     admin    = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "AUTH_API_ORIGIN", value = "https://${local.portals.admin.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
     supplier = [{ name = "API_INTERNAL_URL", value = local.api_origin }, { name = "SUPPLIER_ORIGIN", value = "https://${local.portals.supplier.host}" }, { name = "PORTAL_HOSTED", value = "1" }]
   }
+  # Password reset is on only when a sender is configured; the reset page lives on the supplier portal (ADR 0091).
+  email_env = var.email_from == "" ? {} : {
+    EMAIL_FROM             = var.email_from
+    EMAIL_SES_REGION       = var.region
+    PASSWORD_RESET_ORIGINS = "https://${local.portals.supplier.host}"
+  }
   api_environment = concat([for k, v in merge({
     NODE_ENV           = "production"
     API_HOST           = "0.0.0.0"
@@ -30,7 +36,27 @@ locals {
     AUTH_COOKIE_SECURE = "true"
     ADMIN_ORIGIN       = "https://${local.portals.admin.host}"
     TRUSTED_ORIGINS    = "https://${local.portals.agent.host},https://${local.portals.supplier.host}"
-  }, var.api_env) : { name = k, value = v }])
+  }, local.email_env, var.api_env) : { name = k, value = v }], lookup(local.tracing_env, "api", []))
+  # The website has no API dependency and renders no tenant data; it is not traced.
+  traced_services = var.tracing_enabled ? toset([for k, _ in local.services : k if k != "website"]) : toset([])
+  tracing_env = { for k in local.traced_services : k => [
+    { name = "OTEL_TRACING_ENABLED", value = "true" },
+    { name = "OTEL_SERVICE_NAME", value = "fbeds-${k}-${var.environment}" },
+    { name = "OTEL_TRACE_SAMPLE_RATIO", value = var.tracing_sample_ratio },
+    { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4318" }, # the sidecar shares the task network namespace
+  ] }
+  # Not essential: a collector outage drops traces, it never takes a service down.
+  adot_container = { for k in local.traced_services : k => {
+    name         = "adot-collector"
+    image        = var.adot_collector_image
+    essential    = false
+    command      = ["--config=/etc/ecs/ecs-xray.yaml"] # built-in: OTLP receiver -> AWS X-Ray exporter
+    portMappings = []
+    logConfiguration = {
+      logDriver = "awslogs"
+      options   = { "awslogs-group" = aws_cloudwatch_log_group.this[k].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = "adot" }
+    }
+  } }
   api_secrets = concat([
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.api_database_url.arn },
     { name = "REDIS_URL", valueFrom = aws_secretsmanager_secret.redis_url.arn },
@@ -51,12 +77,12 @@ resource "aws_ecs_task_definition" "this" {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
   }
-  container_definitions = jsonencode([{
+  container_definitions = jsonencode(concat([{
     name            = each.key
     image           = "${aws_ecr_repository.this[each.key].repository_url}:${var.initial_image_tag}"
     essential       = true
     portMappings    = [{ containerPort = each.value.port, protocol = "tcp" }]
-    environment     = each.key == "api" ? tolist(local.api_environment) : tolist(lookup(local.portal_env, each.key, []))
+    environment     = each.key == "api" ? tolist(local.api_environment) : tolist(concat(lookup(local.portal_env, each.key, []), lookup(local.tracing_env, each.key, [])))
     secrets         = each.key == "api" ? tolist(local.api_secrets) : []
     stopTimeout     = 30
     linuxParameters = { initProcessEnabled = true }
@@ -64,7 +90,7 @@ resource "aws_ecs_task_definition" "this" {
       logDriver = "awslogs"
       options   = { "awslogs-group" = aws_cloudwatch_log_group.this[each.key].name, "awslogs-region" = var.region, "awslogs-stream-prefix" = each.key }
     }
-  }])
+  }], contains(local.traced_services, each.key) ? [local.adot_container[each.key]] : []))
   # CI registers new revisions; Terraform owns only the first one.
   lifecycle { ignore_changes = [container_definitions] }
 }

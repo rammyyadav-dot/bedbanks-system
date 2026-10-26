@@ -56,6 +56,13 @@ export const routes = {
     fxRates: '/admin/commercial/fx-rates', fxRateRetire: '/admin/commercial/fx-rates/:rateId/retire', fxRateRequestActivation: '/admin/commercial/fx-rates/:rateId/request-activation',
     fxApprovalApprove: '/admin/commercial/fx-rates/approvals/:approvalId/approve', fxApprovalReject: '/admin/commercial/fx-rates/approvals/:approvalId/reject',
     fxApprovalCancel: '/admin/commercial/fx-rates/approvals/:approvalId/cancel', fxApprovalExecute: '/admin/commercial/fx-rates/approvals/:approvalId/execute',
+    // Hotel deals and promotions (ADR 0089): draft, validate, preview, submit, approve, activate, pause, expire. Approval and activation are separate calls.
+    promotions: '/admin/commercial/promotions', promotionSummary: '/admin/commercial/promotions/summary', promotionApprovalQueue: '/admin/commercial/promotions/approval-queue', promotionReconcile: '/admin/commercial/promotions/reconcile',
+    promotion: '/admin/commercial/promotions/:dealId', promotionValidate: '/admin/commercial/promotions/:dealId/validate', promotionPreview: '/admin/commercial/promotions/:dealId/preview',
+    promotionSubmit: '/admin/commercial/promotions/:dealId/submit', promotionWithdraw: '/admin/commercial/promotions/:dealId/withdraw', promotionPause: '/admin/commercial/promotions/:dealId/pause',
+    promotionResume: '/admin/commercial/promotions/:dealId/resume', promotionSuspend: '/admin/commercial/promotions/:dealId/suspend', promotionReturnToDraft: '/admin/commercial/promotions/:dealId/return-to-draft',
+    promotionArchive: '/admin/commercial/promotions/:dealId/archive', promotionAudit: '/admin/commercial/promotions/:dealId/audit-log', promotionPerformance: '/admin/commercial/promotions/:dealId/performance',
+    promotionApprovalApprove: '/admin/commercial/promotions/approvals/:approvalId/approve', promotionApprovalReject: '/admin/commercial/promotions/approvals/:approvalId/reject', promotionApprovalExecute: '/admin/commercial/promotions/approvals/:approvalId/execute',
   },
   // Read-only operational views over the authoritative transaction chain, plus one confirmed reconciliation action.
   adminFunding: {
@@ -70,6 +77,15 @@ export const routes = {
     exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
     propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
   },
+  // Bank statement reconciliation (ADR 0093). Imports need a `requestId` in the body.
+  adminBankReconciliation: {
+    statements: '/admin/finance/bank-reconciliation/statements', statement: '/admin/finance/bank-reconciliation/statements/:statementId',
+    exceptions: '/admin/finance/bank-reconciliation/exceptions', resolve: '/admin/finance/bank-reconciliation/exceptions/:exceptionId/resolve',
+  },
+  // Partial credit notes to agencies (ADR 0095 part B). A proposal needs a `requestId` in the body.
+  adminCreditNotes: { list: '/admin/finance/credit-notes', approve: '/admin/finance/credit-notes/:creditNoteId/approve', reject: '/admin/finance/credit-notes/:creditNoteId/reject' },
+  // Dynamic, tier-based agency commission payouts (ADR 0098). A proposal needs a `requestId` in the body.
+  adminCommissionPayouts: { list: '/admin/finance/commission-payouts', approve: '/admin/finance/commission-payouts/:payoutId/approve', reject: '/admin/finance/commission-payouts/:payoutId/reject' },
   // Backlog of the booking Finance consumer (ADR 0076). Read-only.
   adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging', payablesDue: '/admin/finance/booking-postings/payables/due' },
   // Supplier payment terms (ADR 0078).
@@ -103,7 +119,7 @@ export const routes = {
     bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
     reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
     cancellations: '/admin/operations/cancellations',
-    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', receivables: '/admin/operations/receivables', supplierPayables: '/admin/operations/supplier-payables', creditNotes: '/admin/operations/credit-notes', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
+    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', receivables: '/admin/operations/receivables', creditRisk: '/admin/operations/credit-risk', supplierPayables: '/admin/operations/supplier-payables', creditNotes: '/admin/operations/credit-notes', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
     reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
     commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
     complianceSummary: '/admin/operations/compliance/summary', complianceRecords: '/admin/operations/compliance/records', complianceReport: '/admin/operations/compliance/report',
@@ -135,7 +151,7 @@ export const routes = {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',
   },
   supply: {
-    ratePlanPortfolio: '/supply/rate-plan-portfolio', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
+    ratePlanPortfolio: '/supply/rate-plan-portfolio', contractPortfolio: '/supply/contract-portfolio', roomTypePortfolio: '/supply/room-type-portfolio', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
     hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',
     mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId', hotelMappingSuggestions: '/supply/mappings/hotels/suggestions',
     hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',

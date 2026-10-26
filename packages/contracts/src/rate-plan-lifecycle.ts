@@ -36,7 +36,7 @@ export interface RatePlanCapabilities {
  * Four-eye activation (ADR 0057, S5). A requester files a request bound to the exact plan content they reviewed; a different user with
  * `supply.rates.manage` approves or rejects it; the approved request is applied once, after readiness is re-run and the content is re-checked.
  */
-export type RatePlanApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+export type RatePlanApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED' | 'EXPIRED'
 export interface RatePlanActivationRequestInput { requestId: string; reason: string; expectedUpdatedAt: string }
 export interface RatePlanApprovalDecisionInput { reason: string }
 export interface RatePlanActivationApproval {

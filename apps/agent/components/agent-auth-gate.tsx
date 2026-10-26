@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AgentEntrance } from '@/components/entrance/agent-entrance'
 import { AgentWorkspace } from './agent-workspace'
@@ -8,7 +9,7 @@ import { clearGuestNationality } from '@/lib/guest-market'
 import { clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
 import { SESSION_EXPIRED_EVENT } from '@/lib/session-events.mjs'
 
-export function AgentAuthGate() {
+export function AgentAuthGate({ render }: { render?: (identity: AgentIdentity) => ReactNode } = {}) {
   const [identity, setIdentity] = useState<AgentIdentity | null>(null)
   const [loading, setLoading] = useState(true)
   const [sessionExpired, setSessionExpired] = useState(false)
@@ -72,7 +73,7 @@ export function AgentAuthGate() {
   }, [])
 
   if (loading) return <main className="trade-state" aria-live="polite"><p>Checking your secure session…</p></main>
-  if (identity) return <AgentWorkspace identity={identity} />
+  if (identity) return render ? render(identity) : <AgentWorkspace identity={identity} />
   return <AgentEntrance sessionExpired={sessionExpired} restoreError={restoreError} onRetry={() => { void restoreSession() }} onSignedIn={(signedIn) => { void acceptSignIn(signedIn) }} />
 }
 

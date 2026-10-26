@@ -17,6 +17,7 @@ immutable audit events (8); nothing shown as capability that is not built (10). 
 |---|---|---|
 | P1 | The ledger is the only book of record for agency money. A balance is the sum of its entries; any cached figure is never authority. | BUILT (ADR 0062) |
 | P2 | Append-only. A mistake is corrected by a new, reasoned entry, never by editing or deleting one. | BUILT: database CHECK and triggers for every role, the owner included (ADR 0069) |
+| P2a | Tamper-evident. Every entry is linked into a per-wallet SHA-256 chain written by the database; the daily integrity run recomputes it. | BUILT (ADR 0094). Detects edits made behind the application; catching removal of the newest entries needs the published chain heads stored outside the database (operator step, not automated) |
 | P3 | One currency per account. Currencies are never converted, added or netted; every report has one row per currency. Launch currency AED; net rates are tax-inclusive. | BUILT (ADR 0028, 0029) |
 | P4 | Every posting has an idempotency key and a business reference (`booking:<id>`, `funding:<receipt id>`). A replayed key with different intent is refused. | BUILT |
 | P5 | Money controls fail closed: if a position cannot be read, the spend is refused. | BUILT |
@@ -54,7 +55,8 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | Cancelled, agent path | REFUND +R (`booking:<id>:cancel-refund`), R = total - penalty from the frozen terms | +R | BUILT |
 | Cancelled, operator or supplier path | REFUND +R (`booking:<id>:cancel-refund`), R = total - effective penalty; nothing while the penalty is undecided | +R | BUILT (ADR 0069) |
 | Penalty waived after settlement | REFUND +difference (`…:cancel-refund:<new total>`); a higher decision is never clawed back | +diff | BUILT (ADR 0069) |
-| Goodwill refund, correction | ADJUSTMENT with reason, two people | +/- | PROPOSED |
+| Partial credit on a charged booking (supplier service failure, price correction, goodwill) | REFUND +X (`booking:<id>:credit-note:<note id>`), proposed by one person and approved by another | +X | BUILT behind `CREDIT_NOTES_ENABLED` (ADR 0095 part B); revenue reports not netted |
+| Correction that is not a refund of a charge (a debit, or no booking) | ADJUSTMENT with reason, two people | +/- | PROPOSED |
 | Payment reversed | REVERSAL linked to the receipt; may take the account negative and triggers review | -X | PROPOSED |
 
 Booking ledger invariants, per booking (checked by ADR 0068):
@@ -95,7 +97,7 @@ charges age FIFO -> notice at 7 days -> new holds refused at 30 days -> payment 
 | One credit concept | The credit line is the agency's approved limit (ADR 0024), in its currency; another currency counts as zero. | BUILT |
 | Setting a limit | Request with reason, a different person approves, applied once; re-checked against the stored value (409 if it moved). | BUILT |
 | Lowering below commitments | Allowed; nothing existing is cancelled; new holds refused until it recovers. The integrity check shows it as `ACCOUNT_OVER_CREDIT_LINE` (warning). | BUILT |
-| Near limit | 80% of the line used: display tag only. | BUILT |
+| Near limit | 80% of the line used: WATCH. 90%: MARGIN_CALL in the finance queue with the payment to restore. A new hold taking the agency to 95%, or aged unpaid charges worth half the line, pauses new holds. | BUILT, SHADOW by default (`CREDIT_RISK_ENFORCEMENT=enforce`), global defaults (ADR 0095). No message is sent to the agency |
 | Overdue | Oldest unpaid charge 7 days: NOTICE (Admin, Receivables, agent banner). 30 days: new holds and bookings refused. Confirmed bookings are never cancelled by this. | BUILT (global constants) |
 | Suspension | Manual maker-checker action; not automatic at any age. | BUILT (ADR 0020) |
 | Per-agency payment terms | Net 7 / 14 / 30 per agency, invoicing cycle (per booking, weekly, monthly) | PROPOSED |
@@ -128,7 +130,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | Funds after a hold expired | Credited as balance; the hold is not revived | BUILT |
 | Bank recall or chargeback | REVERSAL linked to the receipt; review; may suspend | PROPOSED |
 | Payment link or card | Provider, verified webhooks, fees policy | PROPOSED (slice 5) |
-| Unmatched bank credit | Held in a suspense list until matched to an agency | PROPOSED (needs bank statement import) |
+| Unmatched bank credit | Held in a suspense list until matched to an agency | PARTIAL: listed as `UNMATCHED_ENTRY` exceptions (ADR 0093); matching it to an agency and posting it are not built |
 
 ## 7. Supplier side (procure to pay)
 
@@ -144,12 +146,12 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 
 | Reconciliation | What ties to what | Cadence | Status |
 |---|---|---|---|
-| R1 Ledger integrity | Every entry obeys sign, currency and account rules | Daily and before close | BUILT (ADR 0068); enforced at insert by the database (ADR 0069); daily run by the monitor (ADR 0069) |
+| R1 Ledger integrity | Every entry obeys sign, currency and account rules, and the hash chain over the ledger verifies (ADR 0094) | Daily and before close | BUILT (ADR 0068); enforced at insert by the database (ADR 0069); daily run by the monitor (ADR 0069) |
 | R2 Ledger to bookings | Reserved and charged amount = booking total; charged states charged; nothing reserved on closed bookings | Daily | BUILT (ADR 0068) |
 | R3 Ledger to cancellations | Charged cancellations carry exactly their recorded refund | Daily | BUILT (ADR 0068) |
 | R4 Ledger to funding receipts | Each POSTED receipt has its CREDIT and each funding CREDIT its receipt | Daily | BUILT (ADR 0068) |
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
-| R6 Receipts to bank statement | Every POSTED receipt appears on the bank statement; every statement credit is a receipt or in suspense | Daily | PROPOSED |
+| R6 Receipts and supplier payments to bank statement | Every POSTED receipt and recorded settlement appears on the bank statement; every statement movement is one of them or in suspense | Daily | PARTIAL: file upload (MT940, camt.053, CSV), matching, storage and the exception queue are built behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0093); no UI, bank feed, ERA or ledger posting |
 | R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
 | R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
 

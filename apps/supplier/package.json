@@ -8,11 +8,21 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --import tsx --test lib/runtime.test.ts lib/format.test.ts lib/booking-filters.test.ts components/layout/nav-config.test.ts"
+    "test": "node --import tsx --test lib/status.test.ts lib/runtime.test.ts lib/format.test.ts lib/booking-filters.test.ts components/layout/nav-config.test.ts"
   },
   "dependencies": {
     "@bedbanks/contracts": "workspace:*",
     "@bedbanks/money": "workspace:*",
+    "@bedbanks/tracing": "workspace:*",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.200.0",
+    "@opentelemetry/id-generator-aws-xray": "3.0.0",
+    "@opentelemetry/instrumentation-http": "0.200.0",
+    "@opentelemetry/propagator-aws-xray": "3.0.0",
+    "@opentelemetry/instrumentation": "0.200.0",
+    "@opentelemetry/resources": "2.0.0",
+    "@opentelemetry/sdk-trace-node": "2.0.0",
+    "@opentelemetry/sdk-trace-base": "2.0.0",
     "lucide-react": "^1.59.0",
     "next": "16.4.2",
     "react": "19.3.1",

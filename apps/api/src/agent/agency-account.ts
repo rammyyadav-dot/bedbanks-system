@@ -1,7 +1,7 @@
-import { ForbiddenException } from '@nestjs/common'
+import { ForbiddenException, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { AGENCY_CREDIT_OVERDUE_CODE, AGENCY_CREDIT_TERMS, AGENCY_REQUIRED_FOR_BOOKING_CODE, type AgencyOverdueView } from '@bedbanks/contracts'
-import { availableMinor } from '@bedbanks/money'
+import { AGENCY_CREDIT_OVERDUE_CODE, AGENCY_CREDIT_PAUSED_CODE, AGENCY_CREDIT_RISK_POLICY, AGENCY_CREDIT_TERMS, AGENCY_REQUIRED_FOR_BOOKING_CODE, type AgencyOverdueView } from '@bedbanks/contracts'
+import { availableMinor, evaluateCreditRisk, type CreditRiskResult } from '@bedbanks/money'
 import { walletBalanceMinor } from '../ledger/ledger-core'
 import { ageAccount, type Aging } from './credit-aging'
 
@@ -76,6 +76,7 @@ export async function bookingAccountFor(tx: Prisma.TransactionClient, tenantId: 
   const account = await tx.wallet.findFirst({ where: { tenantId, agencyId: member.agencyId, currency }, select: { id: true } })
     ?? await tx.wallet.create({ data: { tenantId, agencyId: member.agencyId, currency }, select: { id: true } })
   assertNotOverdue(await accountAging(tx, tenantId, account.id))
+  await enforceCreditRisk(tx, { tenantId, userId, agencyId: member.agencyId, currency, amountMinor: 0n, scope: 'PREBOOK' })
   return { id: account.id, agencyId: member.agencyId }
 }
 
@@ -98,4 +99,45 @@ export function assertNotOverdue(aging: Aging): void {
     message: `Your agency has charges unpaid for ${aging.daysOverdue} days. New holds are refused after ${AGENCY_CREDIT_TERMS.refuseHoldsAfterDays} days until a payment is received.`,
     code: AGENCY_CREDIT_OVERDUE_CODE, details: { daysOverdue: aging.daysOverdue, unpaidMinor: aging.unpaidMinor.toString() },
   })
+}
+
+/** 'enforce' refuses a paused agency; anything else is 'shadow': the decision is recorded (log and audit event) and nothing is refused. Shadow is the default so a policy change never surprises live agencies. */
+export const creditRiskMode = (env: NodeJS.ProcessEnv = process.env): 'enforce' | 'shadow' => (env.CREDIT_RISK_ENFORCEMENT === 'enforce' ? 'enforce' : 'shadow')
+
+/** The risk of one agency account from its live position and aging. Read-only. */
+export async function agencyCreditRisk(tx: Prisma.TransactionClient, tenantId: string, agencyId: string, currency: string, newAmountMinor = 0n): Promise<{ position: AgencyPosition; aging: Aging; risk: CreditRiskResult }> {
+  const position = await agencyPosition(tx, tenantId, agencyId, currency)
+  const aging = await accountAging(tx, tenantId, position.accountId)
+  return { position, aging, risk: riskOf(position, aging, newAmountMinor) }
+}
+
+export function riskOf(position: Pick<AgencyPosition, 'balanceMinor' | 'creditLineMinor' | 'pendingMinor'>, aging: Aging, newAmountMinor = 0n): CreditRiskResult {
+  return evaluateCreditRisk({ balanceMinor: position.balanceMinor, creditLineMinor: position.creditLineMinor, pendingMinor: position.pendingMinor, unpaidMinor: aging.unpaidMinor, overdueUnpaidMinor: aging.overdueUnpaidMinor, daysOverdue: aging.daysOverdue }, AGENCY_CREDIT_RISK_POLICY, newAmountMinor)
+}
+
+const riskLogger = new Logger('CreditRisk')
+
+/**
+ * The dynamic credit control (ADR 0095) at the two points where an agency commits money: a new hold (scope HOLD, with the hold amount, so utilisation is projected) and prebook
+ * (scope PREBOOK, overdue rules only: the hold being booked is already counted). In enforce mode a PAUSED agency gets a 403 AGENCY_CREDIT_PAUSED. In shadow mode nothing is
+ * refused; the would-be refusal is logged (ids and codes only) and, for a hold, written as an audit event. Runs inside the caller's tenant transaction after the caller's own
+ * per-agency lock, so the position it reads cannot change under it.
+ */
+export async function enforceCreditRisk(tx: Prisma.TransactionClient, ctx: { tenantId: string; userId: string; agencyId: string; currency: string; amountMinor: bigint; scope: 'HOLD' | 'PREBOOK' }): Promise<void> {
+  const { position, aging, risk } = await agencyCreditRisk(tx, ctx.tenantId, ctx.agencyId, ctx.currency, ctx.scope === 'HOLD' ? ctx.amountMinor : 0n)
+  const reasons = risk.reasons.filter(r => ctx.scope === 'HOLD' || r !== 'UTILISATION')
+  if (reasons.length === 0) return
+  if (creditRiskMode() === 'enforce') {
+    throw new ForbiddenException({
+      message: 'Your agency credit is paused. Send a payment or contact your account manager.', code: AGENCY_CREDIT_PAUSED_CODE,
+      details: { reasons, currency: ctx.currency, paymentToRestoreMinor: risk.paymentToRestoreMinor.toString(), unpaidMinor: aging.unpaidMinor.toString() },
+    })
+  }
+  riskLogger.warn(`Credit risk shadow: would pause tenant=${ctx.tenantId} agency=${ctx.agencyId} scope=${ctx.scope} reasons=${reasons.join(',')}`)
+  if (ctx.scope === 'HOLD') {
+    await tx.auditEvent.create({ data: { tenantId: ctx.tenantId, userId: ctx.userId, actorType: 'USER', action: 'credit.risk.would_pause', entityType: 'agency', entityId: ctx.agencyId, payload: {
+      mode: 'shadow', scope: ctx.scope, currency: ctx.currency, reasons, utilisationBp: position.creditLineMinor > 0n ? Number(risk.utilisationBp) : null,
+      projectedUtilisationBp: risk.projectedUtilisationBp === null ? null : Number(risk.projectedUtilisationBp), holdAmountMinor: ctx.amountMinor.toString(), daysOverdue: aging.daysOverdue,
+    } } })
+  }
 }

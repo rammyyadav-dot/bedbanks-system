@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   title: { default: siteConfig.defaultTitle, template: `%s | ${siteConfig.brandName}` },
   description: siteConfig.defaultDescription,
   alternates: { canonical: '/' },
-  openGraph: { title: siteConfig.defaultTitle, description: siteConfig.defaultDescription, url: '/', siteName: siteConfig.brandName, type: 'website', images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: 'fBeds hotel distribution platform' }] },
+  openGraph: { title: siteConfig.defaultTitle, description: siteConfig.defaultDescription, url: '/', siteName: siteConfig.brandName, type: 'website', images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: 'fabbeds B2B hotel distribution marketplace' }] },
   twitter: { card: 'summary_large_image', title: siteConfig.defaultTitle, description: siteConfig.defaultDescription, images: ['/opengraph-image'] },
   icons: { icon: '/icon', apple: '/apple-icon' },
   manifest: '/manifest.webmanifest',

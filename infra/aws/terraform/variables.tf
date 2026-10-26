@@ -85,6 +85,25 @@ variable "api_env" {
     BOOKING_ENABLED = "false" # Agent booking stays unavailable until the owner decides otherwise.
   }
 }
+# ---- outbound email (ADR 0066, ADR 0091) ----
+variable "email_from" {
+  type        = string
+  default     = ""
+  description = "Sender for platform email, e.g. \"fabBeds <no-reply@example.com>\". Empty keeps email, and password reset, OFF. The domain or address must be a verified SES identity (ses_identity_arn)."
+  validation {
+    condition     = var.email_from == "" || can(regex("^([^<>\\r\\n]{1,64} <)?[^\\s@<>]{1,64}@[A-Za-z0-9.-]{1,190}\\.[A-Za-z]{2,}>?$", var.email_from))
+    error_message = "email_from must be an address or \"Name <address>\"."
+  }
+}
+variable "ses_identity_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of the verified SES identity (domain or address) the API may send as. Empty grants the API task role no SES permission."
+  validation {
+    condition     = var.ses_identity_arn == "" || can(regex("^arn:aws[a-z-]*:ses:[a-z0-9-]+:[0-9]{12}:identity/.+$", var.ses_identity_arn))
+    error_message = "ses_identity_arn must be an SES identity ARN."
+  }
+}
 variable "booking_ops_enabled" {
   type        = bool
   default     = false
@@ -224,4 +243,25 @@ variable "origin_verify_rotation_id" {
   type        = map(string)
   default     = { a = "1", b = "1" }
   description = "Per-slot rotation counter; changing a slot's value regenerates that slot's secret."
+}
+
+# ---- distributed tracing (ADR 0093) ----
+variable "tracing_enabled" {
+  type        = bool
+  default     = false
+  description = "Run an ADOT collector sidecar in the api, admin, agent and supplier tasks and export spans to AWS X-Ray. Existing task definitions are not changed by Terraform (CI owns later revisions): see docs/runbooks/distributed-tracing.md."
+}
+variable "tracing_sample_ratio" {
+  type        = string
+  default     = "0.1"
+  description = "Fraction of root requests traced (0..1). Requests the load balancer already sampled stay sampled."
+  validation {
+    condition     = can(regex("^(0(\\.[0-9]+)?|1(\\.0+)?)$", var.tracing_sample_ratio))
+    error_message = "tracing_sample_ratio must be a number between 0 and 1."
+  }
+}
+variable "adot_collector_image" {
+  type        = string
+  default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.43.3"
+  description = "AWS Distro for OpenTelemetry collector. Pin by digest before production (the tag was not resolved from the build environment)."
 }

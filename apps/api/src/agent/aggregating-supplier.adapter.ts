@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common'
 import { fanOutRead, type ConnectorGate, type FanoutLegEvent } from '@bedbanks/connectors-core'
 import type { SearchCriteria } from '@bedbanks/domain'
+import { currentTraceId, withSpan } from '../observability/tracing'
 import {
   SupplierProviderError,
   type PrebookRequest,
@@ -70,20 +71,39 @@ export class AggregatingSupplierAdapter implements SupplierAdapter {
   }
 
   async search(criteria: SearchCriteria, context: SupplierSearchContext): Promise<SupplierSearchResult> {
-    const result = await fanOutRead(this.members.map(member => ({
+    // One span for the whole fan-out and one child per supplier leg (ADR 0093): the slowest child is the bottleneck, and a leg that
+    // outlives the deadline shows up as a child that ends after its parent. No criteria, offers or payloads are attached.
+    return withSpan('supplier.fanout.search', { 'supplier.count': this.members.length, 'supplier.deadline_ms': this.options.searchDeadlineMs }, async span => {
+      const result = await this.fanOut(criteria, context, (event) => span.addEvent('supplier_leg', {
+        'supplier.id': event.supplierId,
+        'supplier.outcome': event.outcome,
+        'supplier.duration_ms': event.durationMs,
+        'supplier.fallback_used': event.fallbackUsed,
+      }))
+      const aggregated = this.aggregate(result)
+      span.setAttributes({ 'supplier.queried': aggregated.providerSummary.queried, 'supplier.succeeded': aggregated.providerSummary.succeeded, 'supplier.failed': aggregated.providerSummary.failed, 'supplier.offers': aggregated.offers.length })
+      return aggregated
+    })
+  }
+
+  private fanOut(criteria: SearchCriteria, context: SupplierSearchContext, onEvent: (event: FanoutLegEvent) => void) {
+    const log = this.options.event ?? (event => this.logger.log(JSON.stringify({ event: 'supplier_leg', traceId: currentTraceId(), ...event })))
+    return fanOutRead(this.members.map(member => ({
       supplierId: member.adapter.name,
       connectorId: member.adapter.name,
       gate: member.gate ?? NO_GATE,
       timeoutMs: member.searchTimeoutMs,
       // Member adapters do not take a signal yet: an abandoned search finishes in the background and its answer is discarded.
-      call: () => member.adapter.search(criteria, context),
+      call: () => withSpan('supplier.search', { 'supplier.id': member.adapter.name, 'supplier.timeout_ms': member.searchTimeoutMs }, () => member.adapter.search(criteria, context)),
     })), {
       operation: SEARCH,
       correlationId: correlationId(context.requestId),
       deadlineMs: this.options.searchDeadlineMs,
-      event: this.options.event ?? (event => this.logger.log(JSON.stringify({ event: 'supplier_leg', ...event }))),
+      event: event => { onEvent(event); log(event) },
     })
+  }
 
+  private aggregate(result: Awaited<ReturnType<AggregatingSupplierAdapter['fanOut']>>): SupplierSearchResult {
     const offers: SupplierSearchResult['offers'] = []
     const summary = { queried: 0, succeeded: 0, failed: 0 }
     for (const leg of result.legs) {

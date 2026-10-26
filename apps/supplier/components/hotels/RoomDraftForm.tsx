@@ -15,10 +15,10 @@ export function RoomDraftForm({ hotelId, roomId, initialNotes, canEdit }: { hote
       {canEdit ? (
         <button className="btn btn-primary" type="submit" disabled={pending}>Save private note</button>
       ) : (
-        <p>Saving is unavailable for this membership. The note cannot be changed.</p>
+        <p className="inline-notice">Saving is unavailable for this membership. The note cannot be changed.</p>
       )}
-      {state.error && <p role="alert">{state.error}</p>}
-      {state.saved && <p role="status">Private note saved for this organization.</p>}
+      {state.error && <p className="inline-notice danger" role="alert">{state.error}</p>}
+      {state.saved && <p className="inline-notice success" role="status">Private note saved for this organization.</p>}
     </form>
   )
 }

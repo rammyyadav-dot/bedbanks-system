@@ -56,6 +56,11 @@ class EnvironmentVariables {
   @IsOptional()
   AUTH_SESSION_TTL_SECONDS: number = 28800; // 8 hours
 
+  @IsInt()
+  @Min(60, { message: 'AUTH_REMEMBER_TTL_SECONDS should be at least 60 seconds' })
+  @IsOptional()
+  AUTH_REMEMBER_TTL_SECONDS: number = 1296000; // 15 days; clamped to 30 days at runtime (ADR 0091)
+
   @IsString()
   @IsOptional()
   @Matches(/^[A-Za-z0-9_-]+$/)
@@ -82,6 +87,11 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   TRUSTED_ORIGINS?: string;
+
+  /** Exact portal origins that host /reset-password (ADR 0091). Unset leaves password reset off. */
+  @IsString()
+  @IsOptional()
+  PASSWORD_RESET_ORIGINS?: string;
 }
 
 /**
@@ -104,6 +114,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     // Environment values are strings. tsx does not emit design:type metadata, so
     // class-transformer cannot turn this one into a number on its own.
     AUTH_SESSION_TTL_SECONDS: integerEnv(config.AUTH_SESSION_TTL_SECONDS, 28800),
+    AUTH_REMEMBER_TTL_SECONDS: integerEnv(config.AUTH_REMEMBER_TTL_SECONDS, 1296000),
   }
   const validatedConfig = plainToInstance(EnvironmentVariables, normalizedConfig, {
     enableImplicitConversion: true,
@@ -145,6 +156,18 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   }
   if ([Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV) && origin.protocol !== 'https:') {
     throw new Error('Staging and production require an HTTPS ADMIN_ORIGIN');
+  }
+
+  for (const origin of parseOriginList(validatedConfig.PASSWORD_RESET_ORIGINS)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error('PASSWORD_RESET_ORIGINS must be a comma-separated list of exact HTTPS origins');
+    }
+    if (parsed.origin !== origin || (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && validatedConfig.NODE_ENV !== Environment.Production && validatedConfig.NODE_ENV !== Environment.Staging))) {
+      throw new Error('PASSWORD_RESET_ORIGINS must be a comma-separated list of exact HTTPS origins without paths');
+    }
   }
 
   const production = [Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV);

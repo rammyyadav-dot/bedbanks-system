@@ -22,6 +22,12 @@ export interface HotelRecord { id: string; name: string; city: string; countryCo
 export async function getHotels() { return apiRequest<HotelRecord[]>('/supply/hotels'); }
 export async function getHotel(id: string) { return apiRequest(`/supply/hotels/${id}`); }
 export async function getRooms() { return apiRequest<RoomTypeRecord[]>('/supply/room-types'); }
+export interface RoomTypePortfolioRow { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean; hotel: { id: string; name: string } }
+/** Server-paginated, server-filtered and server-sorted room types (the unpaged getRooms stays for pickers only). */
+export async function getRoomTypePortfolio(params: Record<string, string | number | boolean>) {
+  const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))
+  return apiRequest<import('@bedbanks/contracts').Paged<RoomTypePortfolioRow>>(`${supplyRoutes.roomTypePortfolio}?${query}`)
+}
 export async function getRoomsByHotel(hotelId: string) { return apiRequest(`/supply/hotels/${hotelId}/rooms`); }
 export interface SupplySupplier { id: string; type: string; status: string; legalName: string; displayName: string; countryCode: string; defaultCurrency: string; contactMetadata: Record<string, unknown>; createdAt: string; updatedAt: string }
 export interface SupplierList { items: SupplySupplier[]; page: number; pageSize: number; total: number }
@@ -47,6 +53,11 @@ export interface SupplementRecord extends Omit<import('@bedbanks/contracts').Con
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
 export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
+/** Server-paginated, server-filtered and server-sorted contract list (the unpaged getContracts stays for pickers only). */
+export async function getContractPortfolio(params: Record<string, string | number | boolean>) {
+  const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))
+  return apiRequest<import('@bedbanks/contracts').Paged<AdminContract>>(`${supplyRoutes.contractPortfolio}?${query}`)
+}
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }

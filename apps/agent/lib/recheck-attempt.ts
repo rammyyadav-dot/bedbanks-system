@@ -1,3 +1,5 @@
+import type { AgentRateOffer } from '@bedbanks/domain'
+
 export interface RecheckAttempt {
   generation: number
   offerId: string
@@ -23,4 +25,9 @@ export function priceChangeDisplay(input: {
     currentMinor: input.currentMinor,
     searchQuoteMinor: input.baselineMinor === input.searchQuoteMinor ? null : input.searchQuoteMinor,
   }
+}
+
+/** Checkout holds against the total the agent accepted, not the stale search quote, or the hold would report price_changed again. */
+export function checkoutRate(rate: AgentRateOffer, acceptedMinor: number | null): AgentRateOffer {
+  return acceptedMinor === null ? rate : { ...rate, sellAmountMinor: acceptedMinor, total: { ...rate.total, amountMinor: acceptedMinor } }
 }

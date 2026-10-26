@@ -8,6 +8,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { describeApiError } from '@/lib/api/describe-error'
+import { useStepUp } from '@/components/common/StepUpDialog'
 import { useCan } from '@/lib/auth/capabilities'
 import { approveSettlement, getPostedPayables, getSettlements, getSupplierTerms, proposeSettlement, rejectSettlement, setSupplierTerms } from '@/lib/data/booking-finance-postings'
 import { parseMajorToMinor } from '@/lib/minor-units'
@@ -89,16 +90,20 @@ function DecisionButtons({ id, onDone }: { id: string; onDone: (message: string)
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState('')
   const [rejecting, setRejecting] = useState(false)
-  async function run(kind: 'approve' | 'reject') {
+  const { confirm, dialog } = useStepUp()
+  async function reject() {
     setBusy(true)
-    try { if (kind === 'approve') { await approveSettlement(id); onDone('Settlement approved and recorded.') } else { await rejectSettlement(id, reason.trim()); onDone('Settlement rejected.') } }
-    catch (error) { onDone(describeApiError(error, kind === 'approve' ? 'approve the settlement' : 'reject the settlement')) } finally { setBusy(false) }
+    try { await rejectSettlement(id, reason.trim()); onDone('Settlement rejected.') }
+    catch (error) { onDone(describeApiError(error, 'reject the settlement')) } finally { setBusy(false) }
   }
+  // Approving records a payment, so the approver confirms with their own password (ADR 0095).
+  const approve = () => confirm({ title: 'Approve supplier settlement', description: 'Approve and record this supplier payment. It is recorded as paid and cannot be edited afterwards.', run: async (password) => { await approveSettlement(id, password); onDone('Settlement approved and recorded.') } })
   return (
     <div style={{ display: 'grid', gap: 4 }}>
+      {dialog}
       {rejecting
-        ? <><input className="input-wrap" aria-label="Reason for rejecting" placeholder="Reason (3+ characters)" value={reason} onChange={(e) => setReason(e.target.value)} /><button type="button" className="admin-btn" disabled={busy || reason.trim().length < 3} onClick={() => run('reject')}>Confirm reject</button></>
-        : <><button type="button" className="admin-btn" disabled={busy} onClick={() => run('approve')}>Approve</button><button type="button" className="admin-btn" disabled={busy} onClick={() => setRejecting(true)}>Reject</button></>}
+        ? <><input className="input-wrap" aria-label="Reason for rejecting" placeholder="Reason (3+ characters)" value={reason} onChange={(e) => setReason(e.target.value)} /><button type="button" className="admin-btn" disabled={busy || reason.trim().length < 3} onClick={() => reject()}>Confirm reject</button></>
+        : <><button type="button" className="admin-btn" disabled={busy} onClick={approve}>Approve</button><button type="button" className="admin-btn" disabled={busy} onClick={() => setRejecting(true)}>Reject</button></>}
     </div>
   )
 }

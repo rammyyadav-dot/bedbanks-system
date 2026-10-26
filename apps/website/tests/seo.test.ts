@@ -6,7 +6,7 @@ import { pageMetadata } from '../lib/seo'
 import { privacyPolicyApproved } from '../lib/legal-status'
 import { contentLastUpdated } from '../lib/content-dates'
 import { publicRoutes } from '../lib/navigation'
-test('generates canonical and social metadata for a route', () => { const metadata = pageMetadata({ title: 'Example', description: 'Distinct description', path: '/platform' }); assert.match(String(metadata.alternates?.canonical), /\/platform$/); assert.equal(metadata.openGraph?.title, 'Example'); assert.match(JSON.stringify(metadata.twitter), /summary_large_image/) })
+test('generates canonical and social metadata for a route', () => { const metadata = pageMetadata({ title: 'Example', description: 'Distinct description', path: '/how-it-works' }); assert.match(String(metadata.alternates?.canonical), /\/how-it-works$/); assert.equal(metadata.openGraph?.title, 'Example'); assert.match(JSON.stringify(metadata.twitter), /summary_large_image/) })
 test('sitemap contains every indexable public route and no portal placeholders', () => { const urls = sitemap().map((entry) => new URL(entry.url).pathname); assert.deepEqual(urls.sort(), publicRoutes.filter((route) => route !== '/portals' && (route !== '/privacy' || privacyPolicyApproved)).sort()) })
 test('robots allows the site but excludes operational placeholders', () => { const output = robots(); const rule = Array.isArray(output.rules) ? output.rules[0] : output.rules; assert.deepEqual(rule.disallow, ['/agent', '/supplier', '/admin', '/portals']); assert.match(String(output.sitemap), /\/sitemap\.xml$/) })
 
@@ -25,4 +25,4 @@ test('recorded content dates are valid, not in the future, and belong to public 
     assert.match(date, /^\d{4}-\d{2}-\d{2}$/); assert.ok(!Number.isNaN(Date.parse(`${date}T00:00:00Z`)), date); assert.ok(Date.parse(`${date}T00:00:00Z`) <= Date.now(), `${route} is dated in the future`)
   }
 })
-test('the sitemap and canonical URLs use the production origin when configured', () => { assert.ok(sitemap().every((entry) => entry.url.startsWith(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.fbeds.com') || !process.env.NEXT_PUBLIC_SITE_URL)) })
+test('the sitemap and canonical URLs use the production origin when configured', () => { assert.ok(sitemap().every((entry) => entry.url.startsWith(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.fabbeds.io') || !process.env.NEXT_PUBLIC_SITE_URL)) })

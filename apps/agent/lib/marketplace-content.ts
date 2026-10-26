@@ -129,17 +129,9 @@ export const editorialPages = {
   access: {
     path: '/access',
     kicker: 'Request Agent Access',
-    title: 'Ask the fabBeds team to review agency access.',
-    summary: 'Online lead submission is not configured. This page does not create an account or grant a role.',
-    sections: [
-      {
-        title: 'What to include',
-        paragraphs: [
-          'Email your agency name, a work contact name, a work email address, and the market you sell.',
-          'Access is granted only after the fabBeds team reviews the request outside this form.',
-        ],
-      },
-    ],
+    title: 'Get your agency booking wholesale hotels',
+    summary: 'This page does not create an account or grant a role.',
+    sections: [],
   },
 } as const satisfies Record<string, EditorialPage>
 
@@ -193,4 +185,22 @@ export const marketplaceHome = {
   recentEmpty: 'Searches you complete in this browser stay on this device for this account until you sign out. A previous price is not stored or shown.',
   offerStrip: 'Dubai partner search. Run a fresh search for the dates and occupancy above.',
   residencyNote: 'A separate guest-residency field is not used. Nationality is the market value sent with search.',
+} as const
+
+/** Request Agent Access page. Short on purpose; process copy describes review, never turnaround time, volume or approval odds. */
+export const accessCopy = {
+  hook: 'Search, recheck, book.',
+  perks: ['Recheck before every hold', 'Stay totals in AED', 'Credit in one view'],
+  steps: ['Tell us about your agency', 'Send the email', 'The team reviews it'],
+  sendNote: 'Opens your email app. Nothing is sent from this page.',
+  prepare: 'Have ready: company number, trade licence, website.',
+  formTitle: 'Request access',
+  supplier: {
+    title: 'Hotel or supplier',
+    text: 'This form is for travel agencies.',
+    cta: 'Write to our supplier team',
+    subject: 'Supplier enquiry',
+  },
+  successTitle: 'Your email app should now be open',
+  successText: `Send the message to ${contactEmail} to finish. If nothing opened, copy the text below. Your request is not received until you send it.`,
 } as const

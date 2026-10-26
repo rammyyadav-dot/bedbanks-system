@@ -7,6 +7,7 @@ import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { approveReconDecision, getReconException, proposeReconDecision, rejectReconDecision } from '@/lib/data/finance-reconciliation'
 import { describeApiError } from '@/lib/api/describe-error'
+import { useStepUp } from '@/components/common/StepUpDialog'
 import { ACTION_LABEL, STATUS_LABEL, TYPE_LABEL, severityTone, statusTone } from '@/lib/reconciliation-ui'
 
 const lab = { display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-3f565c)' } as const
@@ -39,6 +40,7 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const reasonOk = reason.trim().length >= 3
+  const { confirm, dialog } = useStepUp()
   const chosen = action || e.allowedActions[0]
 
   async function run(work: () => Promise<unknown>, done: string) {
@@ -48,6 +50,7 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
 
   return (
     <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
+      {dialog}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <Tag tone={severityTone(e.severity)}>{e.severity.toLowerCase()}</Tag>
         <strong style={{ fontSize: 13 }}>{TYPE_LABEL[e.type]}</strong>
@@ -71,7 +74,7 @@ function Body({ d, canResolve, onDone }: { d: ReconExceptionDetail; canResolve: 
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
               <label style={lab}>Reason (required)<textarea className="input-wrap" style={{ height: 56, padding: 6 }} maxLength={500} value={reason} onChange={(ev) => setReason(ev.target.value)} data-testid="recon-approve-reason" /></label>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="admin-btn" disabled={busy || !reasonOk} data-testid="recon-approve" onClick={() => void run(() => approveReconDecision(e.id, { reason }), 'Decision approved. The exception is resolved.')}>Approve</button>
+                <button type="button" className="admin-btn" disabled={busy || !reasonOk} data-testid="recon-approve" onClick={() => confirm({ title: 'Approve reconciliation decision', description: `Approve "${e.proposedAction ? ACTION_LABEL[e.proposedAction] : 'the proposed decision'}" for this exception. The exception is resolved.`, run: async (password) => { await approveReconDecision(e.id, { reason }, password); setReason(''); setAction(''); onDone('Decision approved. The exception is resolved.') } })}>Approve</button>
                 <button type="button" className="admin-btn" disabled={busy || !reasonOk} data-testid="recon-send-back" onClick={() => void run(() => rejectReconDecision(e.id, { reason }), 'Sent back to the queue.')}>Send back</button>
               </div>
             </div>

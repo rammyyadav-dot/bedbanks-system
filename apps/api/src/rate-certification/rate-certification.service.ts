@@ -1,4 +1,5 @@
 import { assessPlanSelect } from '../supply/assess-plan-select'
+import { loadDealRulesInTx, withDealRules } from '../supply/deal-rules.loader'
 import { withDerivedRates } from '../supply/derived-rates'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
@@ -78,7 +79,8 @@ export class RateCertificationService {
       tx.supplierRoomMapping.findMany({ where: { tenantId, hotelId: { in: ids } }, select: { id: true, supplierHotelMappingId: true, roomTypeId: true, supplierRoomId: true, status: true, confidence: true, updatedAt: true }, orderBy: [{ id: 'asc' }] }),
       tx.contract.findMany({ where: { tenantId, supplierHotelMapping: { is: { hotelId: { in: ids } } } }, select: { id: true, code: true, status: true, validFrom: true, validTo: true, supplierId: true, supplierHotelMappingId: true, supplier: { select: { status: true, displayName: true } }, supplierHotelMapping: { select: { hotelId: true } } } }),
     ])
-    const plans = rawPlans.map(withDerivedRates)
+    // ADR 0089: ACTIVE hotel deals. A denied read is a failure here, never "no deals": a certification must not call a discounted plan full price because a read failed.
+    const plans = withDealRules(rawPlans.map(withDerivedRates), await loadDealRulesInTx(tx, tenantId, rawPlans.map((plan) => plan.id), () => { throw new CommercialControlUnavailableError('hotel_deals', 'denied') }))
     const enabledCurrencies = enabledSettlementCurrencies()
     return hotels.map((hotel) => ({
       hotel: { id: hotel.id, name: hotel.name, contentStatus: hotel.contentStatus, starRating: hotel.starRating }, city: hotel.city, enabledCurrencies,

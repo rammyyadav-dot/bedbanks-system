@@ -234,7 +234,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               !natural(rate.taxAmountMinor, 0) || !natural(rate.feeAmountMinor, 0) || !natural(rate.sellAmountMinor, 0) ||
               rate.total.amountMinor !== rate.sellAmountMinor ||
               !['prepaid', 'pay_at_hotel', 'credit', 'unspecified'].includes(rate.paymentType) ||
-              (rate.promotion !== undefined && (!record(rate.promotion) || !id(rate.promotion.name) || !['EARLY_BIRD', 'LAST_MINUTE', 'LONG_STAY', 'FREE_NIGHTS'].includes(rate.promotion.kind))) ||
+              (rate.promotion !== undefined && (!record(rate.promotion) || !id(rate.promotion.name) || !['EARLY_BIRD', 'LAST_MINUTE', 'LONG_STAY', 'FREE_NIGHTS', 'PERCENT_OFF', 'FLASH_SALE', 'SUBSEQUENT_NIGHTS', 'EVERY_NTH_FREE', 'FIXED_OFF'].includes(rate.promotion.kind))) ||
               (rate.supplements !== undefined && (!Array.isArray(rate.supplements) || rate.supplements.length > 30 || rate.supplements.some((x) => !record(x) || !id(x.name) || !['BOARD', 'COMPULSORY'].includes(x.kind) || !natural(x.amountMinor, 1)))) ||
               (rate.priceIncludes !== undefined && (!record(rate.priceIncludes) || typeof rate.priceIncludes.taxes !== 'boolean' || typeof rate.priceIncludes.fees !== 'boolean')) ||
               (rate.payAtHotel !== undefined && (!Array.isArray(rate.payAtHotel) || rate.payAtHotel.length > 10 || rate.payAtHotel.some((c) => !record(c) || !id(c.kind) || !id(c.label) ||

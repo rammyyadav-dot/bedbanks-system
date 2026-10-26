@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.in
 import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { RequireSupplyPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { CommercialMarkupService } from './commercial-markup.service'
+import { DualApprovalGuard, RequireDualApproval, RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 type Q = Record<string, unknown>
 
@@ -32,7 +33,7 @@ export class CommercialController {
   @Post(':ruleId/request-activation') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard)
   requestActivation(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('ruleId') ruleId: string, @Body() body: MarkupActivationRequest) { return this.markups.requestActivation(tenantId, identity.user.id, ruleId, body ?? ({} as MarkupActivationRequest)) }
 
-  @Post('approvals/:approvalId/approve') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard)
+  @Post('approvals/:approvalId/approve') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @RequireStepUp('markup.activate') @UseGuards(SupplyPermissionGuard, StepUpGuard)
   approve(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string, @Body() body: MarkupDecision) { return this.markups.decide(tenantId, identity.user.id, approvalId, 'APPROVED', body) }
 
   @Post('approvals/:approvalId/reject') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard)
@@ -41,6 +42,6 @@ export class CommercialController {
   @Post('approvals/:approvalId/cancel') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard)
   cancel(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.markups.cancel(tenantId, identity.user.id, approvalId) }
 
-  @Post('approvals/:approvalId/execute') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @UseGuards(SupplyPermissionGuard)
+  @Post('approvals/:approvalId/execute') @HttpCode(200) @RequireSupplyPermission('supply.rates.manage') @RequireDualApproval('markup.activate') @UseGuards(SupplyPermissionGuard, DualApprovalGuard)
   execute(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.markups.execute(tenantId, identity.user.id, approvalId) }
 }

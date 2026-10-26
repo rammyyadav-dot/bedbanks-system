@@ -27,6 +27,7 @@ import { DistributionPanel } from '@/components/hotels/panels/DistributionPanel'
 import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
 import { AuditPanel } from '@/components/hotels/panels/AuditPanel'
 import { HotelHeaderMetadata } from '@/components/hotels/HotelHeaderMetadata'
+import { DealsOverview } from '@/components/commercial/deals/DealsOverview'
 import { ReportsPanel } from '@/components/hotels/panels/ReportsPanel'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotel360 } from '@/lib/data/hotel-commercial'
@@ -73,7 +74,7 @@ function Hotel360({ id }: { id: string }) {
               {tab === 'policies' && <PoliciesPanel hotelId={id} onChanged={refresh} />}
               {tab === 'mappings' && <MappingsPanel hotelId={id} />}
               {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
-              {tab === 'rateplans' && <>{params.get('view') === 'promotions' && <p className="hotel-summary-note">Choose a rate plan below to manage its deals and promotions.</p>}<RatePlansPanel hotelId={id} rooms={data.rooms} /></>}
+              {tab === 'rateplans' && <>{params.get('view') === 'promotions' && <section aria-label="Hotel deals and promotions"><h2 style={{ fontSize: 16, margin: '0 0 2px' }}>Hotel Deals &amp; Promotions</h2><p className="hotel-summary-note">Manage discounts, special offers and promotional rates. A promotion sells only after a different person approves it. Per-plan promotions of the older editor are listed with the rate plans below.</p><DealsOverview hotelId={id} newHref={`/commercial/promotions/new?hotelId=${encodeURIComponent(id)}`} /></section>}<RatePlansPanel hotelId={id} rooms={data.rooms} /></>}
               {tab === 'rates' && (params.get('view') === 'grid' && can('supply.rates.manage') ? <RateGrid hotelId={id} onApplied={refresh} /> : <RatesInventoryPanel hotelId={id} rooms={data.rooms} />)}
               {tab === 'inventory' && <InventoryPanel hotelId={id} rooms={data.rooms} />}
               {tab === 'quick' && <QuickUpdatePanel hotelId={id} data={data} onChanged={refresh} />}

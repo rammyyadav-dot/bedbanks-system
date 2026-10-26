@@ -1,8 +1,16 @@
 // Routes the Agent portal calls (ADR 0075). Kept in their own module so `@bedbanks/contracts/agent` carries no other audience's paths;
 // `routes` in routes.ts composes them.
-export const authRoutes = { login: '/auth/login', logout: '/auth/logout', me: '/auth/me' } as const
+export const authRoutes = {
+  login: '/auth/login', logout: '/auth/logout', me: '/auth/me',
+  /** Public: which optional sign-in features this deployment really supports (ADR 0091). */
+  capabilities: '/auth/capabilities',
+  passwordResetRequest: '/auth/password-reset/request',
+  passwordResetConfirm: '/auth/password-reset/confirm',
+} as const
 
 export const agentRoutes = {
   context: '/agent/context', destinations: '/agent/destinations', searchFacets: '/agent/search-facets', hotelImage: '/agent/hotels/:hotelId/images/:imageId/content', searchStatus: '/agent/search/status', search: '/agent/search', smartSearchParse: '/agent/search/parse', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', releaseHold: '/agent/holds/:holdId', prebook: '/agent/prebook',
   bookings: '/agent/bookings', booking: '/agent/bookings/:id', reconcileStaleBookings: '/agent/bookings/reconcile-stale', cancelBooking: '/agent/bookings/:id', cancellationQuote: '/agent/bookings/:id/cancellation-quote', bookingDocument: '/agent/bookings/:id/documents/:type', bookingDocumentHtml: '/agent/bookings/:id/documents/:type/html', financeSummary: '/agent/finance/summary', fundingReceipts: '/agent/funding/receipts', audit: '/agent/audit',
+  // Quotation builder (ADR 0092): white-label proposals built from search/offer results, exported as PDF or Excel.
+  quotations: '/agent/quotations', quotation: '/agent/quotations/:id', quotationExport: '/agent/quotations/:id/export', quotationExportJob: '/agent/quotations/:id/export/:jobId',
 } as const

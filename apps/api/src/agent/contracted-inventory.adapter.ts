@@ -9,6 +9,7 @@ import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common
 import { PrismaService } from '../database/prisma.service'
 import { evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { loadDealRules, withDealRules } from '../supply/deal-rules.loader'
 import { markupResolverFor, rulesNeedBuyer, type MarkupRuleRow } from '../supply/markup-rules'
 import { loadActiveFxRates } from '../supply/fx-rates.loader'
 import type { FxQuote } from '../supply/fx'
@@ -100,6 +101,9 @@ function storedAddress(value: string | null | undefined): string | undefined {
   if (!trimmed || trimmed.length > 240 || trimmed !== value.trim()) return undefined
   return trimmed
 }
+
+/** The channel this adapter's prices are quoted on (ADR 0089). */
+const PRICING_CHANNEL = 'PORTAL'
 
 @Injectable()
 export class ContractedInventoryAdapter implements SupplierAdapter {
@@ -302,7 +306,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       },
       orderBy: { id: 'asc' },
     })
-    return plans.map(withDerivedRates)
+    // ADR 0089: ACTIVE hotel deals of these plans, read through the one loader every pricing surface uses. A failed read throws (ADR 0031); it never sells a plan at full price on a guess.
+    return withDealRules(plans.map(withDerivedRates), await loadDealRules(this.prisma, tenantId, plans.map((plan) => plan.id)))
   }
 
   /**
@@ -320,7 +325,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
    */
   private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ salesMarkets?: unknown; contract: { salesMarkets?: unknown } }>, rules: readonly MarkupRuleRow[] = []): Promise<BuyerContext> {
     // ADR 0067 F-11: client and market markup tiers need the buying agency as well; read once for both when any rule depends on the buyer.
-    if (rulesNeedBuyer(rules)) { const agency = await loadBuyerAgency(this.prisma, tenantId, userId); return { nationality: normalizeCountry(nationality), market: agency.market, agencyId: agency.agencyId } }
+    // ADR 0089: a deal limited to markets or agencies needs the buying agency too.
+    const dealsNeedBuyer = plans.some((plan) => (plan as { dealRules?: Array<{ deal?: { sourceMarkets: readonly string[]; agencyIds: readonly string[] } }> }).dealRules?.some((rule) => (rule.deal?.sourceMarkets.length ?? 0) > 0 || (rule.deal?.agencyIds.length ?? 0) > 0))
+    if (rulesNeedBuyer(rules) || dealsNeedBuyer) { const agency = await loadBuyerAgency(this.prisma, tenantId, userId); return { nationality: normalizeCountry(nationality), market: agency.market, agencyId: agency.agencyId } }
     const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0 || (parseMarketRules(plan).salesMarkets ?? ['?']).length > 0)
     return { nationality: normalizeCountry(nationality), market: needsMarket ? await loadBuyerMarket(this.prisma, tenantId, userId) : null }
   }
@@ -455,6 +462,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       currency: criteria.currency,
       now,
       buyer,
+      // ADR 0089: this adapter prices for the Agent portal. A future distribution-API search must pass its own channel; it is never inferred.
+      channel: PRICING_CHANNEL,
     })
     const onRequest = decision.availabilityStatus === 'on_request'
     if ((!decision.eligible && !onRequest) || decision.totalMinor === null) return null

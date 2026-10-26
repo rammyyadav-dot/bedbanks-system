@@ -23,10 +23,12 @@
     "check:runtime-db-role": "node --import tsx tools/runtime-db-role-check.ts",
     "check:aws-governance": "node tools/aws-governance-check.mjs",
     "golive:preflight": "node tools/aws-golive-preflight.mjs",
-    "check:architecture": "pnpm check:contracts && pnpm check:app-boundaries && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:tenant-filter && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance && pnpm check:workflow-permissions && pnpm check:framework-peers",
+    "check:architecture": "pnpm check:contracts && pnpm check:app-boundaries && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:tenant-filter && pnpm check:raw-sql && pnpm check:migration-safety && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance && pnpm check:workflow-permissions && pnpm check:framework-peers",
     "check:workflow-permissions": "node tools/workflow-permissions-check.mjs",
     "check:framework-peers": "node tools/framework-peer-check.mjs",
-    "check:dependencies": "node tools/dependency-audit-check.mjs"
+    "check:dependencies": "node tools/dependency-audit-check.mjs",
+    "check:raw-sql": "node --import tsx tools/raw-sql-check.ts",
+    "check:migration-safety": "node tools/migration-safety-check.mjs"
   },
   "dependencies": {
     "next": "16.4.2",
@@ -43,7 +45,8 @@
   },
   "pnpm": {
     "overrides": {
-      "multer": "^2.4.0",
+      "multer": "^2.5.0",
+      "body-parser": "^2.4.0",
       "lodash": "^4.18.1",
       "js-yaml@^4": "^4.3.2",
       "js-yaml@^5": "^5.4.1",

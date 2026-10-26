@@ -3,7 +3,19 @@ name: AWS deploy
 # Manual, environment-gated (required reviewers on the GitHub environment). Rolls the named services to an image that already exists in ECR
 # for the given commit. It does NOT run migrations: those are an owner-run one-off task (docs/runbooks/aws-ecs-deployment.md, step 7).
 # ECS's deployment circuit breaker rolls a deployment back by itself if its tasks never become healthy.
+# Also callable (staging-release.yml). The promotion gate and the environment approval apply identically to both entry points.
 on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      services:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       environment:
@@ -115,5 +127,14 @@ jobs:
                 carn=$(aws ecs register-task-definition --cli-input-json file://ctd-new.json --query taskDefinition.taskDefinitionArn --output text)
                 echo "$cfamily -> $carn" >> "$GITHUB_STEP_SUMMARY"
               done
+              # The scheduled hotel search reindex (ADR 0097) runs the same image. Absent when it is not enabled in this environment.
+              rfamily="$CLUSTER-search-reindex"
+              if aws ecs describe-task-definition --task-definition "$rfamily" --query taskDefinition > rtd.json 2>/dev/null; then
+                jq --arg img "$image" 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | (.containerDefinitions[] | select(.name=="search-reindex") | .image) = $img' rtd.json > rtd-new.json
+                rarn=$(aws ecs register-task-definition --cli-input-json file://rtd-new.json --query taskDefinition.taskDefinitionArn --output text)
+                echo "$rfamily -> $rarn" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "no $rfamily (search reindex not enabled)"
+              fi
             fi
           done

@@ -21,39 +21,37 @@ export class ApiHotelService implements HotelService {
     if (!this.baseUrl) return empty('provider_unavailable')
     try {
       const controller = new AbortController()
+      // The timer covers the response body too: a supplier that sends headers and then stalls must not hang the search.
       const timeout = setTimeout(() => controller.abort(), 10_000)
-      let response: Response
       try {
-        response = await fetch(`${this.baseUrl}/agent/search`, {
+        const response = await fetch(`${this.baseUrl}/agent/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
           credentials: 'include',
           body: JSON.stringify(criteria),
           signal: controller.signal,
         })
-      } finally {
-        clearTimeout(timeout)
-      }
-      if (response.status === 401) { announceSessionExpired(); return empty('auth_required') }
-      if (response.status === 403) return empty(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
-      if (response.status === 400) {
-        const body: unknown = await response.json().catch(() => null)
-        const message = typeof body === 'object' && body !== null && 'error' in body && typeof (body as { error?: { message?: unknown } }).error?.message === 'string'
-          ? (body as { error: { message: string } }).error.message
-          : 'Canonical destination is no longer available'
-        return { ...empty('destination_unavailable'), failureMessage: message }
-      }
-      if (!response.ok) return empty('provider_unavailable')
-      const envelope: unknown = await response.json()
-      const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
-      const validated = validateAgentSearchResponse(data, criteria)
-      if (!validated.ok) return empty('mapping_unavailable')
-      const { status, hotels, request, pagination } = validated.response
-      return { liveHotels: hotels, total: hotels.length,
-        status: status === 'no_availability' ? 'empty' : status, request,
-        ...(pagination ? { pagination } : {}),
-        searchId: validated.response.searchId, requestId: validated.response.requestId,
-        generatedAt: validated.response.generatedAt, providerSummary: validated.response.providerSummary }
+        if (response.status === 401) { announceSessionExpired(); return empty('auth_required') }
+        if (response.status === 403) return empty(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
+        if (response.status === 400) {
+          const body: unknown = await response.json().catch(() => null)
+          const message = typeof body === 'object' && body !== null && 'error' in body && typeof (body as { error?: { message?: unknown } }).error?.message === 'string'
+            ? (body as { error: { message: string } }).error.message
+            : 'Canonical destination is no longer available'
+          return { ...empty('destination_unavailable'), failureMessage: message }
+        }
+        if (!response.ok) return empty('provider_unavailable')
+        const envelope: unknown = await response.json()
+        const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
+        const validated = validateAgentSearchResponse(data, criteria)
+        if (!validated.ok) return empty('mapping_unavailable')
+        const { status, hotels, request, pagination } = validated.response
+        return { liveHotels: hotels, total: hotels.length,
+          status: status === 'no_availability' ? 'empty' : status, request,
+          ...(pagination ? { pagination } : {}),
+          searchId: validated.response.searchId, requestId: validated.response.requestId,
+          generatedAt: validated.response.generatedAt, providerSummary: validated.response.providerSummary }
+      } finally { clearTimeout(timeout) }
     } catch {
       return empty('provider_unavailable')
     }
@@ -65,20 +63,19 @@ export class ApiHotelService implements HotelService {
     try {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 7_000)
-      let response: Response
       try {
-        response = await fetch(`${this.baseUrl}/agent/rates/recheck`, {
+        const response = await fetch(`${this.baseUrl}/agent/rates/recheck`, {
           method: 'POST', credentials: 'include', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
           body: JSON.stringify({ offerId: rate.offerId, searchId, expectedCurrency: rate.total.currency,
             expectedSellAmountMinor: rate.sellAmountMinor }),
         })
+        if (response.status === 401) { announceSessionExpired(); return fallback('auth_required') }
+        if (response.status === 403) return fallback(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
+        const envelope: unknown = await response.json().catch(() => null)
+        const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
+        return validateRecheckResult(data, rate.offerId, searchId) ?? fallback('provider_unavailable')
       } finally { clearTimeout(timeout) }
-      if (response.status === 401) { announceSessionExpired(); return fallback('auth_required') }
-      if (response.status === 403) return fallback(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
-      const envelope: unknown = await response.json().catch(() => null)
-      const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
-      return validateRecheckResult(data, rate.offerId, searchId) ?? fallback('provider_unavailable')
     } catch { return fallback('provider_unavailable') }
   }
 }

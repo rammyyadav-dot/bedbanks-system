@@ -10,6 +10,7 @@ import { Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { cancelFxApproval, createFxRate, decideFxApproval, executeFxApproval, getFxRates, requestFxActivation, retireFxRate } from '@/lib/data/commercial'
 import { describeApiError } from '@/lib/api/describe-error'
+import { useStepUp } from '@/components/common/StepUpDialog'
 
 const PAGE_SIZE = 25
 /** Basis points shown as a percent using integer arithmetic only (150 is 1.50%). */
@@ -34,12 +35,14 @@ export default function FxRatesPage() {
     catch (error) { setNotice({ tone: 'bad', text: describeApiError(error, 'complete this step') }) }
     finally { inFlight.current = false; setBusy(null) }
   }
+  const { confirm, dialog } = useStepUp()
   const ask = (verb: string) => (typeof window === 'undefined' ? '' : window.prompt(`Reason to ${verb} (required)`) ?? '').trim()
 
   return (
     <div className="admin-page">
       <PageHeader eyebrow="COMMERCIAL" title="FX rates" description="Controlled exchange rates from a contract's currency into a selling currency. Without an active rate a contract is not offered in that currency. A rate is immutable, and activating one needs a second person's approval." />
       <CreateRate onCreated={(text) => { setNotice({ tone: 'ok', text }); reload() }} />
+      {dialog}
       {notice && <div className={notice.tone === 'bad' ? 'admin-error' : 'workspace-panel'} role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="fx-notice" style={{ margin: '8px 0' }}>{notice.text}</div>}
       <form aria-label="FX rate filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: 'var(--c-3f565c)', fontSize: 11 }}>
         <label style={{ display: 'grid', gap: 2, color: 'var(--c-3f565c)' }}>Status<select style={{ color: 'var(--c-17333e)' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{FX_RATE_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
@@ -62,7 +65,7 @@ export default function FxRatesPage() {
                     <td style={{ ...td, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {r.canRequestActivation && <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const reason = ask('request activation'); if (reason) void act(`q-${r.id}`, async () => { await requestFxActivation(r.id, { requestId: crypto.randomUUID(), reason }); return 'Activation requested.' }) }}>Request activation</button>}
                       {r.approval?.canDecide && <>
-                        <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const reason = ask('approve'); if (reason) void act(`a-${r.id}`, async () => { await decideFxApproval(r.approval!.id, 'approve', reason); return 'Approved.' }) }}>Approve</button>
+                        <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const reason = ask('approve'); if (reason) confirm({ title: 'Approve FX rate activation', description: `Approve activating 1 ${r.baseCurrency} = ${r.rate} ${r.quoteCurrency} (effective ${r.effectiveRate}). It still needs to be executed to take effect.`, run: async (password) => { await decideFxApproval(r.approval!.id, 'approve', reason, password); setNotice({ tone: 'ok', text: 'Approved.' }); reload() } }) }}>Approve</button>
                         <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const reason = ask('reject'); if (reason) void act(`r-${r.id}`, async () => { await decideFxApproval(r.approval!.id, 'reject', reason); return 'Rejected.' }) }}>Reject</button>
                       </>}
                       {r.approval?.canCancel && <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => void act(`c-${r.id}`, async () => { await cancelFxApproval(r.approval!.id); return 'Request cancelled.' })}>Cancel request</button>}

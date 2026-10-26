@@ -1,0 +1,30 @@
+{
+  "name": "@bedbanks/tracing",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "node --import tsx --test src/url-scrub.test.ts src/config.test.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.200.0",
+    "@opentelemetry/id-generator-aws-xray": "3.0.0",
+    "@opentelemetry/instrumentation": "0.200.0",
+    "@opentelemetry/instrumentation-http": "0.200.0",
+    "@opentelemetry/propagator-aws-xray": "3.0.0",
+    "@opentelemetry/resources": "2.0.0",
+    "@opentelemetry/sdk-trace-node": "2.0.0",
+    "@opentelemetry/sdk-trace-base": "2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3"
+  },
+  "type": "module"
+}

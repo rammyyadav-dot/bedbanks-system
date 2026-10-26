@@ -9,7 +9,8 @@ import { Pager } from './Pager'
 import { useOpsQuery } from './useOpsQuery'
 
 export interface FilterField { key: string; label: string; type: 'text' | 'select' | 'date' | 'checkbox'; options?: Array<{ value: string; label: string }>; placeholder?: string }
-export interface OpsColumn<T> { key: string; header: string; render: (row: T) => ReactNode; align?: 'left' | 'right' }
+/** `sortKey` opts a column into server-side sorting: the API receives sortBy/sortDir and must whitelist the key. */
+export interface OpsColumn<T> { key: string; header: string; render: (row: T) => ReactNode; align?: 'left' | 'right'; sortKey?: string }
 
 const PAGE_SIZE = 25
 
@@ -32,11 +33,13 @@ export function OpsListPage<T>({ eyebrow, title, description, filters = [], load
   const [draft, setDraft] = useState<Record<string, string | boolean>>(start)
   const [applied, setApplied] = useState<Record<string, string | boolean>>(start)
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   const params = useMemo(() => {
     const out: Record<string, string | number | boolean> = { page, pageSize: PAGE_SIZE }
     for (const [key, value] of Object.entries(applied)) if (value !== '' && value !== false) out[key] = value as string | boolean
+    if (sort) { out.sortBy = sort.key; out.sortDir = sort.dir }
     return out
-  }, [applied, page])
+  }, [applied, page, sort])
   const { state, reload } = useOpsQuery(() => load(params), [params])
 
   return (
@@ -70,7 +73,9 @@ export function OpsListPage<T>({ eyebrow, title, description, filters = [], load
           <div className="workspace-panel">
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead><tr>{columns.map(c => <th key={c.key} scope="col" style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap' }}>{c.header}</th>)}</tr></thead>
+                <thead><tr>{columns.map(c => <th key={c.key} scope="col" aria-sort={c.sortKey && sort?.key === c.sortKey ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap' }}>
+                  {c.sortKey ? <button type="button" className="admin-btn" onClick={() => { const key = c.sortKey as string; setSort(sort?.key === key && sort.dir === 'asc' ? { key, dir: 'desc' } : { key, dir: 'asc' }); setPage(1) }}>{c.header}{sort?.key === c.sortKey ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button> : c.header}
+                </th>)}</tr></thead>
                 <tbody>
                   {data.items.map(row => (
                     <tr key={getRowId(row)} style={{ borderBottom: '1px solid var(--c-edf2f3)' }}>

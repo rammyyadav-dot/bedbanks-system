@@ -56,6 +56,8 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `FxRate` | yes | yes | yes | - | forced tenant | INSERT: CommercialFxService.create; POST /admin/commercial/fx-rates; draft a controlled FX rate / UPDATE: CommercialFxService.retire/execute; POST /admin/commercial/fx-rates/:rateId/retire, POST /admin/commercial/fx-rates/approvals/:approvalId/execute; activate or retire a rate (rates are otherwise immutable) |
 | `Hotel` | yes | yes | cols (11) | - | forced tenant | INSERT: SupplyService.createHotel; POST /supply/hotels (Admin "Add hotel"); create a draft hotel, the first step of the setup journey (publication stays a separate maker-checker step) / UPDATE (name, property_type, country_code, city, address, latitude, longitude, time_zone, star_rating, content_status, updated_at): HotelSetupService.save/changeStatus; touchSetup (amenities); HotelPublicationService.execute; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; the profile workflows also stamp or change the hotel row (details, status, updated_at stale-token) |
 | `HotelAmenity` | yes | yes | cols (3) | yes | forced tenant | INSERT: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; add an amenity / UPDATE (fee_type, updated_by_id, updated_at): HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; change an amenity fee type (upsert); the hotel it belongs to cannot be reassigned / DELETE: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; remove an amenity |
+| `HotelDeal` | yes | yes | cols (44) | - | forced tenant | INSERT: HotelDealService.create; POST /admin/commercial/promotions; draft a deal; the database starts every deal as a DRAFT / UPDATE (code, code_key, name, kind, status, priority, percent_bp, amount_minor, currency, amount_scope, min_nights, free_nights, from_night, min_lead_days, book_from, book_to, stay_from, stay_to, weekdays, stay_window_mode, discount_base, combinable, stacking_group, incompatible_deal_ids, channels, source_markets, agency_ids, max_discount_bp, min_sell_floor_minor, min_margin_bp, funding_source, active_from, active_to, public_description, internal_notes, version, terms_fingerprint, approval_id, status_reason, status_changed_at, status_changed_by_id, activated_at, activated_by_id, updated_at): HotelDealService.update/transition/execute; PATCH /admin/commercial/promotions/:dealId, POST /admin/commercial/promotions/:dealId/{submit,withdraw,pause,resume,suspend,return-to-draft,archive,reconcile}, POST /admin/commercial/promotions/approvals/:approvalId/execute; edit a draft, move a deal along the lifecycle, activate it once after approval; a trigger refuses any change to the terms of a deal that is not a DRAFT, and any transition the state machine does not allow |
+| `HotelDealRatePlan` | yes | yes | - | yes | forced tenant | INSERT: HotelDealService.create/update; POST /admin/commercial/promotions, PATCH /admin/commercial/promotions/:dealId; set the rate plans a draft deal applies to; a trigger refuses a plan of another hotel / DELETE: HotelDealService.update; PATCH /admin/commercial/promotions/:dealId; replace the scope of a draft deal; a trigger refuses it once the deal has left DRAFT |
 | `HotelExternalIdentifier` | yes | yes | - | yes | forced tenant | INSERT: HotelSetupService.save; PATCH /admin/hotels/:hotelId/setup; add an external identifier / DELETE: HotelSetupService.save; PATCH /admin/hotels/:hotelId/setup; remove or replace an identifier (a changed value is delete plus insert, so no UPDATE) |
 | `HotelImage` | yes | yes | yes | yes | forced tenant | INSERT: HotelImagesService.upload; POST /admin/hotels/:hotelId/images; upload an image / UPDATE: HotelImagesService.update/reorder; PATCH /admin/hotels/:hotelId/images/:imageId, PUT /admin/hotels/:hotelId/images/order; edit, reorder, choose the primary image / DELETE: HotelImagesService.remove; DELETE /admin/hotels/:hotelId/images/:imageId; delete an image |
 | `HotelProfile` | yes | yes | yes | - | forced tenant | INSERT: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities; first save of a hotel profile / UPDATE: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; save the profile, bump its version, stamp the approver |
@@ -65,6 +67,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
 | `InventoryPoolDay` | yes | - | cols (2) | - | forced tenant | UPDATE (capacity, updated_at): PoolCapacityService.apply; POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply; set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged |
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
+| `password_reset_tokens` | yes | yes | cols (1) | - | none (auth) | INSERT: AuthService.requestPasswordReset; POST /auth/password-reset/request; issue a single-use reset token (hash only) / UPDATE (used_at): AuthService.requestPasswordReset, AuthService.confirmPasswordReset; POST /auth/password-reset/request, POST /auth/password-reset/confirm; consume a token, or supersede earlier unused tokens, by stamping used_at |
 | `Permission` | yes | - | - | - | none (auth) | read only |
 | `RatePlan` | yes | - | - | - | forced tenant | read only |
 | `RatePlanGuestPrice` | yes | - | - | - | forced tenant | per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path |
@@ -88,7 +91,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `SupplierRoomMapping` | yes | - | - | - | forced tenant | read only |
 | `tenants` | yes | - | - | - | none (auth) | read only |
 | `UserRole` | yes | - | - | - | forced tenant | read only |
-| `users` | yes | - | cols (2) | - | none (auth) | UPDATE (last_login_at, updated_at): AuthService.login; POST /auth/login; record the last successful sign-in |
+| `users` | yes | - | cols (3) | - | none (auth) | UPDATE (last_login_at, password_hash, updated_at): AuthService.login, AuthService.confirmPasswordReset; POST /auth/login, POST /auth/password-reset/confirm; record the last successful sign-in; store the new password hash after a verified single-use reset (ADR 0091) |
 
 Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC function is denied):
 
@@ -98,11 +101,16 @@ Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC func
 
 Privileged paths (written by the API process somewhere, never by the runtime role):
 
+- `AgencyCommissionPayout`: finance-gated: proposed and approved tier-based commission payouts to agencies; approval posts a CREDIT to LedgerEntry on the API connection, which the runtime role never writes (ADR 0098)
+- `BankMatchFinding`: finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)
+- `BankStatement`: finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)
+- `BankStatementEntry`: finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)
 - `BoardBasis`: supply authoring
 - `Booking`: booking is disabled; finance-gated
 - `BookingAmendment`: booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)
 - `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
 - `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
+- `BookingCreditNote`: finance-gated: proposed and approved partial credit notes to agencies; approval posts a REFUND to LedgerEntry on the API connection, which the runtime role never writes (ADR 0095 part B)
 - `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
 - `BookingEmail`: booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it
 - `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
@@ -133,6 +141,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryHoldNight`: holds are gated
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
 - `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
+- `LedgerChainLink`: finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)
 - `LedgerEntry`: finance-gated
 - `Membership`: dedicated tenant membership authoring role only
 - `PlatformRole`: platform administration

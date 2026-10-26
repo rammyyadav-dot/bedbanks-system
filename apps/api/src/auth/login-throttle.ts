@@ -13,13 +13,18 @@ import { Injectable } from '@nestjs/common'
  */
 export const LOGIN_THROTTLE_LIMITS = { windowMs: 15 * 60_000, perAccount: 5, perAddress: 20, maxKeys: 20_000 } as const
 
+export interface ThrottleLimits { windowMs: number; perAccount: number; perAddress: number; maxKeys: number }
+
+/** Password-reset requests: every request counts, so an address cannot use the mailer to flood one inbox or many (ADR 0091). */
+export const RESET_THROTTLE_LIMITS: ThrottleLimits = { windowMs: 15 * 60_000, perAccount: 3, perAddress: 20, maxKeys: 20_000 }
+
 export interface ThrottleDecision { allowed: boolean; retryAfterSeconds: number }
 
 @Injectable()
 export class LoginThrottle {
   private readonly failures = new Map<string, number[]>()
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(private readonly now: () => number = Date.now, private readonly limits: ThrottleLimits = LOGIN_THROTTLE_LIMITS) {}
 
   private static key(kind: 'a' | 'i', value: string): string {
     return `${kind}:${createHash('sha256').update(value).digest('hex').slice(0, 32)}`
@@ -30,7 +35,7 @@ export class LoginThrottle {
   }
 
   private recent(key: string): number[] {
-    const cutoff = this.now() - LOGIN_THROTTLE_LIMITS.windowMs
+    const cutoff = this.now() - this.limits.windowMs
     const live = (this.failures.get(key) ?? []).filter((at) => at > cutoff)
     if (live.length) this.failures.set(key, live)
     else this.failures.delete(key)
@@ -41,17 +46,17 @@ export class LoginThrottle {
   check(email: string, address: string): ThrottleDecision {
     const k = this.keys(email, address)
     const blocked = [
-      { hits: this.recent(k.account), limit: LOGIN_THROTTLE_LIMITS.perAccount },
-      { hits: this.recent(k.address), limit: LOGIN_THROTTLE_LIMITS.perAddress },
+      { hits: this.recent(k.account), limit: this.limits.perAccount },
+      { hits: this.recent(k.address), limit: this.limits.perAddress },
     ].filter((c) => c.hits.length >= c.limit)
     if (!blocked.length) return { allowed: true, retryAfterSeconds: 0 }
-    const until = Math.max(...blocked.map((c) => c.hits[c.hits.length - c.limit] + LOGIN_THROTTLE_LIMITS.windowMs))
+    const until = Math.max(...blocked.map((c) => c.hits[c.hits.length - c.limit] + this.limits.windowMs))
     return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((until - this.now()) / 1000)) }
   }
 
   recordFailure(email: string, address: string): void {
     const k = this.keys(email, address)
-    if (this.failures.size >= LOGIN_THROTTLE_LIMITS.maxKeys) this.evict()
+    if (this.failures.size >= this.limits.maxKeys) this.evict()
     for (const key of [k.account, k.address]) this.failures.set(key, [...this.recent(key), this.now()])
   }
 
@@ -62,8 +67,8 @@ export class LoginThrottle {
   private evict(): void {
     for (const key of [...this.failures.keys()]) this.recent(key)
     // Still full of live entries: drop the oldest quarter rather than refuse to count new failures.
-    if (this.failures.size >= LOGIN_THROTTLE_LIMITS.maxKeys) {
-      for (const key of [...this.failures.keys()].slice(0, Math.ceil(LOGIN_THROTTLE_LIMITS.maxKeys / 4))) this.failures.delete(key)
+    if (this.failures.size >= this.limits.maxKeys) {
+      for (const key of [...this.failures.keys()].slice(0, Math.ceil(this.limits.maxKeys / 4))) this.failures.delete(key)
     }
   }
 }

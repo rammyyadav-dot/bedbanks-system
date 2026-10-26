@@ -14,6 +14,7 @@ export const RLS_EXEMPT_TABLES: Readonly<Record<string, { reason: string; runtim
   Permission: { reason: 'global catalogue of permission keys, not tenant data; read-only for the runtime', runtimePrivileges: 'per-contract' },
   users: { reason: 'global identity; a person belongs to tenants through memberships. Looked up before a tenant is known (login); writes limited by column in the contract', runtimePrivileges: 'per-contract' },
   sessions: { reason: 'authentication sessions are found by token hash before any tenant context exists; writes limited by column in the contract', runtimePrivileges: 'per-contract' },
+  password_reset_tokens: { reason: 'password-reset tokens are found by token hash before any tenant context exists (a reset runs before sign-in); only the SHA-256 is stored; writes limited by column in the contract (ADR 0091)', runtimePrivileges: 'per-contract' },
   PlatformPermission: { reason: 'platform-operator catalogue, not tenant data; no runtime privilege', runtimePrivileges: 'none' },
   PlatformRole: { reason: 'platform-operator roles, not tenant data; no runtime privilege', runtimePrivileges: 'none' },
   PlatformRoleAssignment: { reason: 'platform-operator assignments, not tenant data; no runtime privilege', runtimePrivileges: 'none' },

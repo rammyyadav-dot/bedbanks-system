@@ -83,3 +83,13 @@ async function reindexTenant(prisma: PrismaClient, tenantId: string, apply: bool
     cursor = batch.rows[batch.rows.length - 1].id
   }
 }
+
+/**
+ * Process exit code for the operator CLI: 2 when an applied run does not reconcile, 3 when `failOnStale` is set and indexable hotels
+ * are still stale after the run (a dry run therefore works as a freshness gate for a release job or a monitored schedule), else 0.
+ */
+export function reindexExitCode(report: ReindexReport, options: { failOnStale?: boolean }): number {
+  if (!report.reconciliation.appliedEqualsIndexable) return 2
+  const remaining = report.totals.stale - report.totals.skippedInvalid - report.totals.applied
+  return options.failOnStale && remaining > 0 ? 3 : 0
+}

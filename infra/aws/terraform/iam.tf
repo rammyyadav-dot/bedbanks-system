@@ -32,11 +32,43 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = data.aws_iam_policy_document.execution_secrets.json
 }
 
-# Task roles carry no AWS permissions: the apps call no AWS API. Separate roles so a grant can be added per service later.
+# Task roles carry no AWS permissions except the API role's ses:SendEmail on one verified identity (below, only when ses_identity_arn is set). Separate roles so a grant can be added per service.
 resource "aws_iam_role" "task" {
   for_each           = local.services
   name               = "${local.name}-${each.key}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+}
+
+# ADR 0091: the API sends password-reset email through SES. One action, one identity, nothing else.
+data "aws_iam_policy_document" "api_ses" {
+  count = var.ses_identity_arn == "" ? 0 : 1
+  statement {
+    actions   = ["ses:SendEmail"]
+    resources = [var.ses_identity_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "api_ses" {
+  count  = var.ses_identity_arn == "" ? 0 : 1
+  name   = "ses-send-email"
+  role   = aws_iam_role.task["api"].id
+  policy = data.aws_iam_policy_document.api_ses[0].json
+}
+
+# ADR 0093: each ADOT sidecar runs under its service's task role and may only write traces and read X-Ray sampling rules. No read of trace data.
+data "aws_iam_policy_document" "xray" {
+  count = var.tracing_enabled ? 1 : 0
+  statement {
+    actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets", "xray:GetSamplingStatisticSummaries"]
+    resources = ["*"] # X-Ray write actions do not support resource-level permissions
+  }
+}
+
+resource "aws_iam_role_policy" "xray" {
+  for_each = local.traced_services
+  name     = "xray-write-traces"
+  role     = aws_iam_role.task[each.key].id
+  policy   = data.aws_iam_policy_document.xray[0].json
 }
 
 # One-off migration task: the only principal that may read the database OWNER secret.
@@ -128,11 +160,11 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = [for r in aws_ecr_repository.this : r.arn]
   }
   # No ecs:RunTask and no PassRole for the migrate role: migrations use the owner database credential and are an owner action,
-  # never reachable from the CI deploy role (ADR 0040, ADR 0055). The compliance task roles (compliance.tf, when enabled) are included so the deploy
-  # can register a compliance task revision with each API image; it still cannot run one (no ecs:RunTask), only the compliance scheduler can.
+  # never reachable from the CI deploy role (ADR 0040, ADR 0055). The compliance (compliance.tf) and search reindex (search-reindex.tf) task roles, when enabled, are included
+  # so the deploy can register a task revision with each API image; it still cannot run one (no ecs:RunTask), only each task's own scheduler can.
   statement {
     actions   = ["iam:PassRole"]
-    resources = concat([aws_iam_role.execution.arn], [for r in aws_iam_role.task : r.arn], [for r in aws_iam_role.compliance_execution : r.arn], [for r in aws_iam_role.compliance_task : r.arn])
+    resources = concat([aws_iam_role.execution.arn], [for r in aws_iam_role.task : r.arn], [for r in aws_iam_role.compliance_execution : r.arn], [for r in aws_iam_role.compliance_task : r.arn], [for r in aws_iam_role.search_reindex_execution : r.arn], [for r in aws_iam_role.search_reindex_task : r.arn])
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"

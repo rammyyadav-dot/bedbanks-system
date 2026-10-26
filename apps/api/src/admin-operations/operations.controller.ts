@@ -24,6 +24,7 @@ import { complianceReportCsv } from './compliance-report'
 import { OperationsSupplyService } from './operations-supply.service'
 import { RequireSupplyPermission, SupplyPermissionGuard } from './supply-permission.guard'
 import { OperationsTransactionsService } from './operations-transactions.service'
+import { DualApprovalGuard, RequireDualApproval, RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 type Q = Record<string, unknown>
 const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).requestId ?? randomUUID()
@@ -155,7 +156,7 @@ export class OperationsController {
   @Get('reconciliation/approvals') @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
   reconciliationApprovals(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) { return this.reconApprovals.list(tenantId, identity.user.id, query) }
 
-  @Post('reconciliation/approvals/:approvalId/approve') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  @Post('reconciliation/approvals/:approvalId/approve') @HttpCode(200) @RequirePermission('booking.reconcile') @RequireStepUp('reconciliation.resolve') @UseGuards(AgentRbacGuard, StepUpGuard)
   approveReconciliation(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string, @Body() body: ReconciliationApprovalDecision) { return this.reconApprovals.decide(tenantId, identity.user.id, approvalId, 'APPROVED', body) }
 
   @Post('reconciliation/approvals/:approvalId/reject') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
@@ -164,7 +165,7 @@ export class OperationsController {
   @Post('reconciliation/approvals/:approvalId/cancel') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
   cancelReconciliationApproval(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('approvalId') approvalId: string) { return this.reconApprovals.cancel(tenantId, identity.user.id, approvalId) }
 
-  @Post('reconciliation/approvals/:approvalId/execute') @HttpCode(200) @RequirePermission('booking.reconcile') @UseGuards(AgentRbacGuard)
+  @Post('reconciliation/approvals/:approvalId/execute') @HttpCode(200) @RequirePermission('booking.reconcile') @RequireDualApproval('reconciliation.resolve') @UseGuards(AgentRbacGuard, DualApprovalGuard)
   executeReconciliationApproval(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Param('approvalId') approvalId: string) { return this.reconApprovals.execute(tenantId, identity.user.id, approvalId, requestIdOf(req)) }
 
   @Get('cancellations') @RequirePermission('booking.cancel') @UseGuards(AgentRbacGuard)
@@ -185,6 +186,10 @@ export class OperationsController {
 
   @Get('receivables') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
   receivables(@ActiveTenant() tenantId: string) { return this.tx.receivables(tenantId) }
+
+  // ADR 0095. Read-only.
+  @Get('credit-risk') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)
+  creditRisk(@ActiveTenant() tenantId: string) { return this.tx.creditRisk(tenantId) }
 
   /** One agency's account position (ADR 0028 slice 1). Read-only; the statement is `ledger?walletId=`. */
   @Get('agencies/:agencyId/account') @RequirePermission('finance.read') @UseGuards(AgentRbacGuard)

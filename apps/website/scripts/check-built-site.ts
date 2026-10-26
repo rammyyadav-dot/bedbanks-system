@@ -12,7 +12,7 @@ import { privacyPolicyApproved } from '../lib/legal-status'
 import { classifyLink, extractCanonical, extractIds, extractLinks, hasNoindex, parseSitemapLocs } from './site-checks'
 
 const base = new URL(process.env.CHECK_BASE_URL ?? 'http://localhost:4710')
-const expectedSite = (process.env.EXPECTED_SITE_URL ?? 'https://www.fbeds.com').replace(/\/$/, '')
+const expectedSite = (process.env.EXPECTED_SITE_URL ?? 'https://www.fabbeds.io').replace(/\/$/, '')
 const checkExternal = process.argv.includes('--external')
 const failures: string[] = []
 const warnings: string[] = []

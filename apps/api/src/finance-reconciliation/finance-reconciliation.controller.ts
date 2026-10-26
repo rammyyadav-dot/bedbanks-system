@@ -10,6 +10,7 @@ import { AgentRbacGuard, RequirePermission } from '../agent/rbac.guard'
 import { PERMISSIONS } from '../agent/supplier.port'
 import { RequireDepartmentPermission, SupplyPermissionGuard } from '../admin-operations/supply-permission.guard'
 import { ReconciliationService } from './reconciliation.service'
+import { RequireStepUp, StepUpGuard } from '../approvals/dual-approval.guard'
 
 type Q = Record<string, unknown>
 
@@ -55,7 +56,7 @@ export class FinanceReconciliationController {
   @Post('exceptions/:exceptionId/propose') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.resolve') @UseGuards(SupplyPermissionGuard)
   propose(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('exceptionId') exceptionId: string, @Body() body: ReconProposeRequest) { return this.recon.proposeDecision(tenantId, identity.user.id, exceptionId, body) }
 
-  @Post('exceptions/:exceptionId/approve') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.resolve') @UseGuards(SupplyPermissionGuard)
+  @Post('exceptions/:exceptionId/approve') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.resolve') @RequireStepUp('finance.reconcile.resolve', 'exceptionId') @UseGuards(SupplyPermissionGuard, StepUpGuard)
   approve(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Param('exceptionId') exceptionId: string, @Body() body: ReconDecisionRequest) { return this.recon.approveDecision(tenantId, identity.user.id, exceptionId, body) }
 
   @Post('exceptions/:exceptionId/reject') @HttpCode(200) @RequireDepartmentPermission('finance.reconcile.resolve') @UseGuards(SupplyPermissionGuard)

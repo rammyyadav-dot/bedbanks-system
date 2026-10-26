@@ -202,7 +202,17 @@ test('department navigation (ADR 0015): grouped by department, live modules only
     assert.ok(item.icon, `${item.href} needs an icon`)
     assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', ...item.href.split('/').filter(Boolean), 'page.tsx'), 'utf8'), /FeatureUnavailable/, `${item.href} must not be a placeholder`)
   }
-  for (const planned of ['Promotions', 'Risk flags', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+  for (const planned of ['Risk flags', 'Users', 'Commercial profiles', 'Credit and wallet limits', 'Escalation policies']) assert.ok(!items.some((i) => i.label === planned), `${planned} is not built and must not be in the sidebar`)
+})
+
+test('promotions (ADR 0089) is a live module with real pages and nothing unavailable behind it', () => {
+  const items = navSections.flatMap((s) => s.items)
+  assert.ok(items.some((i) => i.label === 'Promotions' && i.href === '/commercial/promotions'), 'Promotions appears in the sidebar once it is built')
+  for (const page of ['', 'new', '[dealId]', '[dealId]/edit']) assert.ok(existsSync(join(root, 'app', '(dashboard)', 'commercial', 'promotions', ...(page ? page.split('/') : []), 'page.tsx')), `promotions/${page} needs a page`)
+  const form = readFileSync(join(root, 'components', 'commercial', 'deals', 'DealForm.tsx'), 'utf8')
+  assert.doesNotMatch(form, /Save & Activate|Save and activate/i, 'a maker can not activate from the form: activation is a separate, approved step')
+  assert.match(form, /NOT AVAILABLE/, 'unsupported promotion types are shown as unavailable, never as a capability')
+  for (const file of ['DealsOverview.tsx', 'DealDetail.tsx', 'DealPreview.tsx', 'DealApprovalQueue.tsx']) assert.doesNotMatch(readFileSync(join(root, 'components', 'commercial', 'deals', file), 'utf8'), /toFixed|parseFloat|Math\.round|\* 100\b|\/ 100\)\.toFixed/, `${file} computes no price or percentage with floating point`)
 })
 
 test('dashboard sellability card reads the API summary and computes nothing in the browser', () => {
