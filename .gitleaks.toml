@@ -3,6 +3,78 @@ title = "fBeds gitleaks config"
 [extend]
 useDefault = true
 
+# --- Custom rules (fBeds-specific; the default ruleset above already covers AWS access key IDs, private keys, JWT-shaped tokens, Slack/GitHub/Stripe tokens) ---
+# Placeholders are allowed per rule through stopwords (matched against the captured secret), never by path. Real values in code or committed
+# env files fail the scan; production secrets live in AWS Secrets Manager / SSM and are referenced by ARN or name.
+
+[[rules]]
+id = "fbeds-database-url-credentials"
+description = "Database or broker connection string with an embedded password (Neon, RDS, Redis, RabbitMQ)"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?):\/\/[^\s:@\/'"`${}<>]+:([^\s@\/'"`${}<>]{8,})@'''
+secretGroup = 1
+keywords = ["postgres", "mysql", "mongodb", "redis", "amqp"]
+tags = ["database", "credentials"]
+[rules.allowlist]
+description = "Documented placeholders and local-only development credentials"
+regexTarget = "line"
+regexes = ['''@(?:localhost|127\.0\.0\.1|\[?::1\]?|host\.docker\.internal|[a-z0-9.-]*\.example\.(?:com|org|net))\b''']
+stopwords = ["password", "passw0rd", "changeme", "change-me", "example", "placeholder", "redacted", "yourpassword", "your-password", "secret", "postgres", "localdev", "local-dev", "dummy", "fake", "xxxx", "****", "<"]
+
+[[rules]]
+id = "fbeds-neon-api-key"
+description = "Neon API key (can create branches and read connection strings for every project)"
+regex = '''\bnapi_[a-z0-9]{40,}\b'''
+keywords = ["napi_"]
+tags = ["neon", "api-key"]
+
+[[rules]]
+id = "fbeds-aws-secret-access-key"
+description = "AWS secret access key assigned in code, config or env files"
+regex = '''(?i)aws[_-]?secret[_-]?(?:access[_-]?)?key["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})\b'''
+secretGroup = 1
+entropy = 4.0
+keywords = ["secret"]
+tags = ["aws", "iam"]
+
+[[rules]]
+id = "fbeds-aws-session-token"
+description = "AWS STS session token (temporary IAM credentials) committed to the repository"
+regex = '''(?i)aws[_-]?session[_-]?token["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{100,})'''
+secretGroup = 1
+keywords = ["session"]
+tags = ["aws", "iam"]
+
+[[rules]]
+id = "fbeds-jwt-signing-secret"
+description = "JWT, session or cookie signing secret assigned as a literal"
+regex = '''(?i)\b(?:jwt|session|cookie|auth|nextauth|refresh|access)[_-]?(?:token[_-]?)?(?:secret|signing[_-]?key|private[_-]?key)["']?\s*[:=]\s*["']([^"'\s${}<>]{16,})["']'''
+secretGroup = 1
+entropy = 3.2
+keywords = ["secret", "signing", "private"]
+tags = ["jwt", "session"]
+[rules.allowlist]
+stopwords = ["example", "placeholder", "changeme", "change-me", "replace", "your-", "dummy", "fake", "test-", "not-a-real", "process.env"]
+
+[[rules]]
+id = "fbeds-supplier-credential"
+description = "Wholesale supplier or channel API key, shared secret, password or token assigned as a literal"
+regex = '''(?i)\b(?:hotelbeds|webbeds|dida|ratehawk|restel|juniper|tbo|expedia|sabre|travelport|agoda|bookingcom|supplier|connector)[a-z0-9_-]{0,24}(?:api[_-]?key|shared[_-]?secret|secret|password|token)["']?\s*[:=]\s*["']([A-Za-z0-9/+=_\-.]{12,})["']'''
+secretGroup = 1
+entropy = 3.2
+keywords = ["hotelbeds", "webbeds", "dida", "ratehawk", "restel", "juniper", "tbo", "expedia", "sabre", "travelport", "agoda", "bookingcom", "supplier", "connector"]
+tags = ["supplier", "credentials"]
+[rules.allowlist]
+stopwords = ["example", "placeholder", "changeme", "dummy", "fake", "sandbox-key", "test-", "secret-ref", "arn:aws", "ssm:", "process.env"]
+
+[[rules]]
+id = "fbeds-authorization-header-literal"
+description = "Bearer or Basic credential hard-coded in an Authorization header"
+regex = '''(?i)authorization["']?\s*[:=]\s*["'`](?:Bearer|Basic)\s+([A-Za-z0-9._~+/=\-]{20,})["'`]'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["authorization"]
+tags = ["http", "token"]
+
 # Reviewed 2026-10-18: default-rule hits on main are idempotencyKey literals and test-only SECRET constants in these files.
 # Single historical hits on unmerged branches are exempted by exact fingerprint in .gitleaksignore instead.
 # Path-scoped on purpose: production code and configuration are never exempt.

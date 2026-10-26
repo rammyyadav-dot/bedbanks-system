@@ -1,11 +1,25 @@
 name: Contract checks
 
+# Contract, raw-SQL and migration-safety gates. Runs whenever API, contracts, Prisma, lint or gate code changes. Read-only.
 on:
   pull_request:
-    paths: ['apps/**', 'packages/contracts/**', 'tools/contract-check.ts']
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'tools/**'
+      - 'security/**'
+      - 'eslint.config.mjs'
+      - '.github/workflows/contract-check.yml'
+  push:
+    branches: [main]
+    paths: ['apps/api/prisma/**', 'tools/**', 'security/**']
 
 permissions:
   contents: read
+
+concurrency:
+  group: contract-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   contracts:
@@ -13,10 +27,42 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Full history so the migration gate can diff against the PR base (migrations already on the base are immutable and not re-judged).
+          fetch-depth: 0
+          persist-credentials: false
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with: { node-version: 24, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check:contracts
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Gate unit tests
+        run: node --import tsx --test tools/raw-sql-check.test.ts && node --test tools/migration-safety-check.test.mjs
+      - name: API contracts
+        run: |
+          tools/ci-step-summary.sh "API contracts" \
+            "Routes and envelopes must be declared in @bedbanks/contracts before a frontend consumes them." \
+            pnpm check:contracts
+      - name: Raw SQL injection gate
+        run: |
+          tools/ci-step-summary.sh "Raw SQL injection gate" \
+            "Use \$queryRaw tagged templates or Prisma.sql so values are bound. \$queryRawUnsafe and Prisma.raw are for DDL on constant identifiers only: add '// raw-sql: <reason>' on the line above after review." \
+            pnpm check:raw-sql
+      - name: ESLint SQL-injection rules
+        run: |
+          tools/ci-step-summary.sh "ESLint SQL-injection rules" \
+            "Fix the flagged no-restricted-syntax findings: hand-built SQL text or unsafe raw calls." \
+            pnpm exec eslint apps/*/src packages/*/src --quiet
+      - name: Prisma migration safety
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # On a PR only the migrations it adds or changes are judged; on main the schema (foreign-key index) rules still run.
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            base="--base=origin/$BASE_REF"
+          else base=""; fi
+          tools/ci-step-summary.sh "Prisma migration safety" \
+            "Add the missing foreign-key index in a new forward-only migration, or put '-- migration-safety: allow <rule> <reason>' above a reviewed breaking statement. Large-table index builds and NOT NULL changes need a rollout plan and rollback notes (see apps/api/prisma/MIGRATIONS.md)." \
+            node tools/migration-safety-check.mjs $base
