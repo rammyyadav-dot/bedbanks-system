@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
 import { PrismaClient } from '@prisma/client'
-import { routes } from '@bedbanks/contracts'
+import { routes, STEP_UP_FIELD } from '@bedbanks/contracts'
 import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
@@ -147,12 +147,12 @@ describe('finance reconciliation HTTP authorization (ADR 0070)', () => {
     const proposed = await post('resolver1', r.propose.replace(':exceptionId', exception.id), { action: 'ACCEPT_STATEMENT', reason: 'Supplier rate card changed' })
     expect(proposed.status).toBe(200)
     expect(proposed.body.data.exception).toMatchObject({ status: 'PENDING_APPROVAL', proposedById: userIds[2], canDecide: false })
-    const self = await post('resolver1', r.approve.replace(':exceptionId', exception.id), { reason: 'approving my own proposal' })
+    const self = await post('resolver1', r.approve.replace(':exceptionId', exception.id), { reason: 'approving my own proposal', [STEP_UP_FIELD]: password })
     expect(self.status).toBe(403)
     expect(self.body.error.code ?? self.body.error.message).toBeDefined()
-    const noReason = await post('resolver2', r.approve.replace(':exceptionId', exception.id), {})
+    const noReason = await post('resolver2', r.approve.replace(':exceptionId', exception.id), { [STEP_UP_FIELD]: password })
     expect(noReason.status).toBe(400)
-    const approved = await post('resolver2', r.approve.replace(':exceptionId', exception.id), { reason: 'Verified the rate card' })
+    const approved = await post('resolver2', r.approve.replace(':exceptionId', exception.id), { reason: 'Verified the rate card', [STEP_UP_FIELD]: password })
     expect(approved.status).toBe(200)
     expect(approved.body.data.exception).toMatchObject({ status: 'RESOLVED', resolution: 'ACCEPT_STATEMENT', resolvedById: userIds[3] })
     const history = approved.body.data.history.map((h: { action: string; toStatus: string }) => `${h.action}:${h.toStatus}`)

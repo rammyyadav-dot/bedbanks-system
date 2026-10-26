@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { hashPassword } from '../src/auth/utils/password'
+import { STEP_UP_FIELD } from '@bedbanks/contracts'
 
 jest.setTimeout(180_000)
 
@@ -74,7 +75,7 @@ describe('controlled FX rates (PostgreSQL, HTTP, two tenants)', () => {
   const draft = async (patch: object = {}, who = 'maker') => (await call('post', '', who, { baseCurrency: 'AED', quoteCurrency: 'USD', rate: '0.27229000', bufferBp: 100, reason: 'Treasury rate for the week', ...patch }).expect(201)).body.data
   const activate = async (rate: { id: string }) => {
     const requested = (await call('post', `/${rate.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'Weekly treasury rate' }).expect(200)).body.data
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches treasury' }).expect(200)
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'Matches treasury', [STEP_UP_FIELD]: password }).expect(200)
     return (await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(200)).body.data
   }
 
@@ -138,14 +139,14 @@ describe('controlled FX rates (PostgreSQL, HTTP, two tenants)', () => {
     expect(rate).toMatchObject({ status: 'DRAFT', rate: '0.27229000', bufferBp: 100, effectiveRate: '0.27501290', canRequestActivation: true })
     await call('post', '', 'viewer', { baseCurrency: 'AED', quoteCurrency: 'USD', rate: '1', reason: 'viewer' }).expect(403)
     const requested = (await call('post', `/${rate.id}/request-activation`, 'maker', { requestId: `${suffix}-${++seq}`, reason: 'Weekly rate' }).expect(200)).body.data
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'self' }).expect(403)
-    await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(409)
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'bmaker', { reason: 'x' }).expect(404)
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'maker', { reason: 'self', [STEP_UP_FIELD]: password }).expect(403)
+    await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(403) // not approved: refused by the direct-call guard before the service (ADR 0095)
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'bmaker', { reason: 'x', [STEP_UP_FIELD]: password }).expect(404)
     expect((await call('get', '', 'bmaker').expect(200)).body.data.total).toBe(0)
-    await call('post', `/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    await call('post', `/approvals/${requested.approval.id}/approve`, 'checker', { reason: 'ok', [STEP_UP_FIELD]: password }).expect(200)
     const done = (await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(200)).body.data
     expect(done.rate.status).toBe('ACTIVE')
-    await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(409) // single use
+    await call('post', `/approvals/${requested.approval.id}/execute`, 'maker').expect(403) // single use: an executed approval is no longer APPROVED, so the direct-call guard refuses it (ADR 0095)
   })
 
   it('FX-03 an ACTIVE rate converts the AED price once, in integer USD cents, with the buffer on top', async () => {
