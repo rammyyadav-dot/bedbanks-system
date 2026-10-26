@@ -228,6 +228,7 @@ model Agency {
   creditLimit  AgencyCreditLimit?
   accounts     Wallet[]
   fundingReceipts FundingReceipt[]
+  commissionPayouts AgencyCommissionPayout[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, id])
@@ -848,6 +849,7 @@ model Tenant {
   bankMatchFindings BankMatchFinding[]
   ledgerChainLinks LedgerChainLink[]
   bookingCreditNotes BookingCreditNote[]
+  agencyCommissionPayouts AgencyCommissionPayout[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
   bookingRooms BookingRoom[]
@@ -1810,6 +1812,7 @@ model LedgerEntry {
   fundingReceipt FundingReceipt?
   chainLink LedgerChainLink?
   creditNote BookingCreditNote?
+  commissionPayout AgencyCommissionPayout?
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])
@@ -1859,6 +1862,57 @@ model BookingCreditNote {
   @@unique([bookingId, seq])
   @@index([tenantId, status, createdAt])
   @@index([tenantId, bookingId])
+}
+
+enum AgencyCommissionTier {
+  BRONZE
+  SILVER
+  GOLD
+  ENTERPRISE
+}
+
+enum CommissionPayoutStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// A dynamic, tier-based commission payout to an agency for one closed period (ADR 0098). The tier and basis points are resolved from gross booked volume in the period by
+/// `resolveCommissionTier` (pure, no floats); the amount is `floor(grossBookedMinor * commissionBp / 10000)`. PROPOSED by one person, APPROVED or REJECTED by another. Approval
+/// posts exactly one CREDIT to the agency account, in the same transaction, and links it here. Once decided a row never changes.
+model AgencyCommissionPayout {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId         String                 @map("agency_id")
+  agency           Agency                 @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  /// Per agency, from 1. The document number is `COM-<agency code>-P<seq>`.
+  seq              Int
+  number           String
+  periodStart      DateTime               @map("period_start") @db.Date
+  periodEnd        DateTime               @map("period_end") @db.Date
+  currency         String                 @db.Char(3)
+  grossBookedMinor BigInt                 @map("gross_booked_minor")
+  tier             AgencyCommissionTier
+  commissionBp     Int                    @map("commission_bp")
+  amountMinor      BigInt                 @map("amount_minor")
+  status           CommissionPayoutStatus @default(PROPOSED)
+  requestId        String                 @map("request_id")
+  proposedById     String                 @map("proposed_by_id")
+  decidedById      String?                @map("decided_by_id")
+  decidedAt        DateTime?              @map("decided_at")
+  decisionReason   String?                @map("decision_reason")
+  ledgerEntryId    String?                @unique @map("ledger_entry_id")
+  ledgerEntry      LedgerEntry?           @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, number])
+  @@unique([agencyId, periodStart, periodEnd])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agencyId])
 }
 
 /// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.

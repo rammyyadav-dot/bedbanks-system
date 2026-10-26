@@ -101,6 +101,7 @@ Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC func
 
 Privileged paths (written by the API process somewhere, never by the runtime role):
 
+- `AgencyCommissionPayout`: finance-gated: proposed and approved tier-based commission payouts to agencies; approval posts a CREDIT to LedgerEntry on the API connection, which the runtime role never writes (ADR 0098)
 - `BankMatchFinding`: finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)
 - `BankStatement`: finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)
 - `BankStatementEntry`: finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)

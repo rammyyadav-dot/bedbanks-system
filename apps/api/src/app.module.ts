@@ -20,6 +20,7 @@ import { DepartmentsModule } from './departments/departments.module';
 import { FundingModule } from './funding/funding.module';
 import { FinanceReconciliationModule } from './finance-reconciliation/finance-reconciliation.module';
 import { FinanceCreditNotesModule } from './finance-credit-notes/finance-credit-notes.module';
+import { FinanceCommissionModule } from './finance-commission/finance-commission.module';
 import { BookingFinancePostingModule } from './booking-finance-posting/booking-finance-posting.module';
 import { SupplierIngestModule } from './supplier-ingest/supplier-ingest.module';
 import { SupplierPromotionModule } from './supplier-promotion/supplier-promotion.module';
@@ -51,6 +52,7 @@ import { DistributionModule } from './distribution/distribution.module';
     FundingModule,
     FinanceReconciliationModule,
     FinanceCreditNotesModule,
+    FinanceCommissionModule,
     BookingFinancePostingModule,
     SupplierIngestModule,
     SupplierPromotionModule,
