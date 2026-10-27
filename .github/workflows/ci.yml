@@ -145,6 +145,13 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Restore Turborepo cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-verify-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-verify-
       - run: pnpm --filter @bedbanks/api prisma:generate
       - name: Replace disposable service bootstrap credential with a fresh owner credential
         run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs --rotate-owner
@@ -152,10 +159,10 @@ jobs:
       - name: Certify tenant control with distinct restricted API and authoring roles
         run: pnpm --filter @bedbanks/api ops:certify-tenant-control
       - run: pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/preview-di.smoke.ts
-      - run: pnpm -r --if-present type-check
-      - run: pnpm -r --if-present lint
+      - run: pnpm turbo run type-check lint --cache-dir=.turbo --env-mode=loose
+      # Tests need the live Postgres/Redis services, so they are never served from the Turborepo cache.
       - run: pnpm -r --if-present test
-      - run: pnpm -r --if-present build
+      - run: pnpm turbo run build --cache-dir=.turbo --env-mode=loose
 
   e2e-release-suite:
     name: End-to-end release suite (Admin, Agent, Supplier)
@@ -185,12 +192,18 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Restore Turborepo cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-e2e-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-e2e-
       - run: pnpm --filter @bedbanks/api prisma:generate
       - name: Build the three portals (production mode, as deployed)
-        run: |
-          pnpm --filter ./apps/agent build
-          pnpm --filter ./apps/admin build
-          pnpm --filter ./apps/supplier build
+        run: >-
+          pnpm turbo run build --cache-dir=.turbo --env-mode=loose
+          --filter=./apps/agent --filter=./apps/admin --filter=./apps/supplier
       - run: pnpm --filter @bedbanks/e2e type-check
       - run: pnpm --filter @bedbanks/e2e exec playwright install --with-deps chromium
       - name: Run the suite against a disposable database, the API and the three portals
