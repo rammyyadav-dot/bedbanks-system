@@ -30,6 +30,7 @@ test('single-AZ database and single NAT are refused', () => {
 })
 test('one task per service is refused', () => assert.deepEqual(failing(`${READY}api_desired_count = 1\n`), ['API and portals run at least two tasks']))
 test('booking enabled is refused', () => assert.deepEqual(failing(`${READY}api_env = {\n  BOOKING_ENABLED = "true"\n}\n`), ['booking stays disabled']))
+test('booking servicing enabled is refused', () => assert.deepEqual(failing(`${READY}api_env = {\n  BOOKING_SERVICING_ENABLED = "true"\n}\n`), ['booking stays disabled']))
 test('DNS records need the recorded GO', () => {
   assert.deepEqual(failing(`${READY}create_portal_records = true\n`), ['DNS records only with a recorded CTO GO'])
   assert.deepEqual(failing(`${READY}create_portal_records = true\ndns_cutover_authorization_ref = "CTO-GO-2026-11-01"\n`), [])

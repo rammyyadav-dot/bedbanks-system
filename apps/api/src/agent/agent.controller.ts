@@ -28,7 +28,7 @@ import { DestinationResolverService } from './destination-resolver.service'
 import { SmartSearchService } from './smart-search.service'
 import { DUPLICATE_BOOKING_SUSPECTED, SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
 import { BookingReconciliationService } from './booking-reconciliation.service'
-import { BookingTransactionService, bookingEnabled } from './booking-transaction.service'
+import { BookingTransactionService, bookingEnabled, bookingServicingEnabled } from './booking-transaction.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
@@ -286,7 +286,7 @@ export class AgentController {
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
-    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
+    if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
     return this.bookingQueries.list(tenantId, { limit: Number(limit), offset: Number(offset), status: status || undefined })
   }
 
@@ -296,7 +296,7 @@ export class AgentController {
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
-    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
+    if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
     return this.bookingQueries.detail(tenantId, bookingId)
   }
 
@@ -306,7 +306,7 @@ export class AgentController {
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async cancellationQuote(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
-    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Cancellation is unavailable until booking gates are certified.' } }
+    if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Cancellation is unavailable until booking gates are certified.' } }
     return this.cancellations.quote({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId })
   }
 
@@ -316,7 +316,7 @@ export class AgentController {
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDocument(@Param('id') bookingId: string, @Param('type') type: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
-    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Booking documents are unavailable until booking gates are certified.' } }
+    if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Booking documents are unavailable until booking gates are certified.' } }
     return this.documents.get({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, type: documentKindFromRoute(type) })
   }
 
@@ -326,7 +326,7 @@ export class AgentController {
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDocumentHtml(@Param('id') bookingId: string, @Param('type') type: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res() response: Response) {
-    if (!bookingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE).type('text/plain').send('Booking documents are unavailable.'); return }
+    if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE).type('text/plain').send('Booking documents are unavailable.'); return }
     const document = await this.documents.get({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, type: documentKindFromRoute(type) })
     response.status(HttpStatus.OK).set({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'", 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' })
       .send(renderBookingDocument({ type: document.type, number: document.number, issuedAt: document.issuedAt, bookingStatus: document.bookingStatus, payload: document.payload }))
@@ -338,7 +338,7 @@ export class AgentController {
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async cancel(@Param('id') bookingId: string, @Body() body: CancellationDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
-    if (!bookingEnabled()) {
+    if (!bookingServicingEnabled()) {
       await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.unavailable', entityType: 'booking', entityId: bookingId, payload: { reason: 'booking_disabled' } })
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', bookingId, message: 'Cancellation is unavailable until booking gates are certified.' }

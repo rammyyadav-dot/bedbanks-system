@@ -25,7 +25,7 @@ export function checkGoLive(tfvars) {
   gate('image is a pinned commit, not bootstrap', /^[0-9a-f]{40}$/.test(str(src, 'initial_image_tag') ?? ''), `initial_image_tag = ${str(src, 'initial_image_tag') ?? 'unset (defaults to bootstrap)'}`)
   gate('owner-approved budget ceiling and recipients', num(src, 'monthly_budget_usd', 0) > 0 && /budget_emails\s*=\s*\[\s*"[^"]+"/.test(src), 'monthly_budget_usd > 0 and budget_emails set')
   gate('alarm subscriber set', (str(src, 'alarm_email') ?? '').includes('@'), 'alarm_email, or alarms page nobody')
-  gate('booking stays disabled', !/BOOKING_ENABLED\s*=\s*"true"/.test(src), 'BOOKING_ENABLED = "true" needs its own owner decision (ADR 0055 #6)')
+  gate('booking stays disabled', !/BOOKING_(SERVICING_)?ENABLED\s*=\s*"true"/.test(src), 'BOOKING_ENABLED or BOOKING_SERVICING_ENABLED = "true" needs its own owner decision (ADR 0055 #6, ADR 0101)')
   const dns = bool(src, 'create_portal_records', false)
   gate('DNS records only with a recorded CTO GO', !dns || (str(src, 'dns_cutover_authorization_ref') ?? '').trim() !== '', dns ? 'create_portal_records = true requires dns_cutover_authorization_ref' : 'create_portal_records = false (no cutover yet)')
   return r

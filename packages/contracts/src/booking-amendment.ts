@@ -49,6 +49,7 @@ export const BOOKING_AMENDMENT_FAILURE = {
   stale: 'AMENDMENT_STALE',
   ledgerRequired: 'AMENDMENT_LEDGER_ADJUSTMENT_REQUIRED',
   ledgerUnverifiable: 'AMENDMENT_LEDGER_UNVERIFIABLE',
+  inventoryBacked: 'AMENDMENT_INVENTORY_BACKED',
 } as const
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
