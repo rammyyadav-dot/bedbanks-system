@@ -134,6 +134,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
 - `DailyAvailability`: supply authoring and Quick Update
 - `DailyRate`: supply authoring and Quick Update
+- `FinancePeriodClose`: finance-gated: one immutable record per closed calendar month of the ledger (control totals, integrity verdict, chain heads); written on the API connection, which the runtime role never writes; a trigger refuses ledger entries dated inside it (ADR 0101)
 - `FundingReceipt`: finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)
 - `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
 - `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index

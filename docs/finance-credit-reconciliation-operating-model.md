@@ -7,7 +7,7 @@ How money works in fBeds, written as an enterprise bedbank finance function woul
 - **PROPOSED**: not built. Needs an owner decision, and often a migration and an ADR, before anything is written.
 
 Constitution rules that apply throughout: integer minor units plus ISO-4217, never floating point (3); idempotent money mutations (6);
-immutable audit events (8); nothing shown as capability that is not built (10). Related ADRs: 0024, 0028, 0029, 0054, 0062, 0068, 0100.
+immutable audit events (8); nothing shown as capability that is not built (10). Related ADRs: 0024, 0028, 0029, 0054, 0062, 0068, 0100, 0101.
 
 ---
 
@@ -153,7 +153,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
 | R6 Receipts and supplier payments to bank statement | Every POSTED receipt and recorded settlement appears on the bank statement; every statement movement is one of them or in suspense | Daily | PARTIAL: file upload (MT940, camt.053, CSV), matching, storage and the exception queue are built behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0093); no UI, bank feed, ERA or ledger posting |
 | R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
-| R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
+| R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PARTIAL: per-currency control totals by entry type are recorded at period close (ADR 0101); no chart of accounts and no export |
 
 **Reading the R1 to R4 report** (`GET /admin/operations/finance/ledger-integrity`, `finance.read`):
 verdict CLEAN, WARNINGS (credit-control or timing only), ISSUES (a critical break) or INCOMPLETE (scan capped, nothing claimed). The
@@ -169,11 +169,11 @@ funding credits. Each finding carries its rule, account, agency, booking or rece
 4. Evidence: the audit event of the correcting action references the finding code and booking or receipt id.
 5. Re-run; the finding must disappear.
 
-## 9. Period close (PROPOSED)
+## 9. Period close (PARTIAL, ADR 0101)
 
-Daily cut-off at 00:00 UTC on `immutable_at`. Monthly close checklist: R1 to R4 CLEAN or every finding explained; R5 run with no stalled
-attempts older than the window; receivables aged at the cut-off; supplier accrual snapshot; control totals per currency exported; the
-period locked so a new entry dated inside it is refused (entries are never backdated today, so the lock is about late corrections).
+BUILT behind `FINANCE_PERIOD_CLOSE_ENABLED`: monthly cut-off at 00:00 UTC on `immutable_at`; closing refuses on critical R1 to R4 findings or an incomplete scan; per-currency control totals (opening + movement = closing) and the hash chain heads are recorded; the month is then locked by the database against any entry dated inside it; months close in order and are never reopened. Admin: Finance, Period close.
+
+NOT BUILT: R5 stalled attempts, the receivables ageing snapshot and the supplier accrual snapshot as part of the close record; a second approver or step-up on the close; a scheduled close; locking of revenue, margin and payable reports; and control totals by general-ledger account (needs the chart of accounts, R8).
 
 ## 10. Segregation of duties
 

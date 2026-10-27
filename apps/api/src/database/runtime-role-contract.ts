@@ -301,6 +301,7 @@ export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
   BankMatchFinding: 'finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)',
   BookingCreditNote: 'finance-gated: proposed and approved partial credit notes to agencies; approval posts a REFUND to LedgerEntry on the API connection, which the runtime role never writes (ADR 0095 part B)',
   AgencyCommissionPayout: 'finance-gated: proposed and approved tier-based commission payouts to agencies; approval posts a CREDIT to LedgerEntry on the API connection, which the runtime role never writes (ADR 0098)',
+  FinancePeriodClose: 'finance-gated: one immutable record per closed calendar month of the ledger (control totals, integrity verdict, chain heads); written on the API connection, which the runtime role never writes; a trigger refuses ledger entries dated inside it (ADR 0101)',
   LedgerAdjustment: 'finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)',
   LedgerChainLink: 'finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)',
   BookingFinancePosting: 'finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)',

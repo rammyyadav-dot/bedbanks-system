@@ -84,6 +84,8 @@ export const routes = {
   },
   // Partial credit notes to agencies (ADR 0095 part B). A proposal needs a `requestId` in the body.
   adminCreditNotes: { list: '/admin/finance/credit-notes', approve: '/admin/finance/credit-notes/:creditNoteId/approve', reject: '/admin/finance/credit-notes/:creditNoteId/reject' },
+  // Finance period close (ADR 0101). `close` takes `{ month, note? }`; `preview` takes `?month=YYYY-MM` and writes nothing.
+  adminFinancePeriods: { list: '/admin/finance/periods', preview: '/admin/finance/periods/preview', close: '/admin/finance/periods/close' },
   // Ledger adjustments and reversals on an agency account (ADR 0100). A proposal needs a `requestId` in the body.
   adminLedgerAdjustments: { list: '/admin/finance/ledger-adjustments', approve: '/admin/finance/ledger-adjustments/:adjustmentId/approve', reject: '/admin/finance/ledger-adjustments/:adjustmentId/reject' },
   // Dynamic, tier-based agency commission payouts (ADR 0098). A proposal needs a `requestId` in the body.

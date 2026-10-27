@@ -14,6 +14,7 @@ export * from './finance-reconciliation';
 export * from './bank-reconciliation';
 export * from './credit-notes';
 export * from './ledger-adjustments';
+export * from './finance-periods';
 export * from './commission-payouts';
 export * from './booking-finance-posting';
 export * from './hotel-setup';
