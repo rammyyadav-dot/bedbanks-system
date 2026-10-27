@@ -59,9 +59,13 @@ async function agentSearch(browser) {
   // ---- Hotels -> hotel -> Inventory & Allotment --------------------------------------------------------------------------------
   await page.goto(`${ADMIN}/hotels?search=${encodeURIComponent(seed.names.palm)}`); await page.waitForSelector('[data-testid=hotels-table]', { timeout: 20000 })
   await page.getByRole('link', { name: seed.names.palm }).first().click()
-  await page.waitForSelector('[data-testid=hotel-header]', { timeout: 20000 })
-  const tab = page.getByRole('tab', { name: 'Inventory & Allotment' })
-  check('the hotel has an "Inventory & Allotment" tab', (await tab.count()) === 1)
+  // A hotel opened without a tab lands on Property Setup; the 360 header and the tabs live under ?tab=overview.
+  await page.waitForURL(new RegExp(`/hotels/${H.palm}`), { timeout: 20000 })
+  await page.goto(`${ADMIN}/hotels/${H.palm}?tab=overview`)
+  await page.waitForSelector('[data-testid=hotel-header]', { state: 'attached', timeout: 20000 })
+  // The Inventory & Allotment workspace is the "Allocation Mgmt" link of the hotel management tab row (?tab=inventory).
+  const tab = page.getByRole('link', { name: /^Allocation Mgmt/ })
+  check('the hotel has an "Inventory & Allotment" workspace link (Allocation Mgmt)', (await tab.count()) === 1)
   await tab.click(); await page.waitForSelector('[data-testid=inventory-totals]', { timeout: 20000 })
   const totals = (await page.getByTestId('inventory-totals').innerText()).replace(/\s+/g, ' ')
   check('summary shows 3 plans, 3 pooled plans and 1 active pool', /Rate plans 3/.test(totals) && /Plans in a shared pool 3/.test(totals) && /Active pools 1/.test(totals), totals)
@@ -70,7 +74,7 @@ async function agentSearch(browser) {
   const firstRow = card.locator('tbody tr').first()
   const cells = (await firstRow.locator('td').allInnerTexts()).map((t) => t.trim())
   check('pool night shows capacity 5, sold 0, held 0, remaining 5 (one stock, not 15)', cells[1] === '5' && cells[2] === '0' && cells[3] === '0' && cells[4] === '5', cells.join('|'))
-  check('plan table shows hotel-local release rule and mode counts', /0 days before check-in at 00:00/.test(await page.getByRole('table', { name: 'Rate plan inventory' }).innerText()))
+  check('plan table shows hotel-local release rule (the 18:00 default of ADR 0067) and mode counts', /0 days before check-in at 18:00/.test(await page.getByRole('table', { name: 'Rate plan inventory' }).innerText()))
   const calendarText = (await page.getByTestId('calendar').innerText()).replace(/\s+/g, ' ')
   check('the calendar marks pool numbers as authoritative: "Shared pool: Palm shared" and "(pool)" capacity', /Shared pool: Palm shared/.test(calendarText) && /5 \(pool\)/.test(calendarText), calendarText.slice(0, 160))
   check('the calendar says the plan\'s own allotment is not used for a pooled plan', (await page.locator('[data-testid=calendar] td[title*="not used for a pooled plan"]').count()) > 0)

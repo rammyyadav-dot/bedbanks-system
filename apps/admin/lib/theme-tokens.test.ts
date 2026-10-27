@@ -82,6 +82,6 @@ test('dark chrome stays dark: the sidebar, user menu and hotel header use identi
   const css = (f: string) => readFileSync(join(root, f), 'utf8')
   assert.match(css('components/layout/shell-theme.css'), /--shell-menu-bg: var\(--k-/)
   const header = css('components/layout/hotel-admin.css').split('\n').find((l) => l.startsWith('.hotel-admin-header {')) ?? ''
-  assert.match(header, /background: var\(--k-2563eb\)/)
+  assert.match(header, /background: var\(--k-1d4ed8\)/)
   assert.match(css('app/globals.css'), /\.enterprise-sidebar \{[^}]*var\(--k-/)
 })
