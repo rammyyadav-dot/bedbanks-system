@@ -51,6 +51,7 @@ export function checkGovernance(root = process.cwd()) {
 
   // 4. Booking, payments and supplier integrations stay off by default; no secret or owner credential material in Terraform.
   if (!/BOOKING_ENABLED\s*=\s*"false"/.test(tf['variables.tf'] ?? '')) fail(`${TF}/variables.tf: BOOKING_ENABLED must default to "false"`)
+  if (/BOOKING_SERVICING_ENABLED\s*=\s*"(true|1)"/.test(all)) fail(`${TF}: BOOKING_SERVICING_ENABLED must not be enabled by default`)
   if (/\b(PAYMENT|STRIPE|HOLD_EXPIRY)[A-Z_]*\s*=\s*"(true|1)"/.test(all)) fail(`${TF}: payment or hold-expiry flag enabled by default`)
   if (/AKIA[0-9A-Z]{16}|aws_secret_access_key|postgres(ql)?:\/\/[^\s"$]+:[^\s"$@]+@/i.test(all)) fail(`${TF}: credential-like literal found`)
   if (/(MIGRATION|PROVISION|OWNER)_DATABASE_URL/.test(all)) fail(`${TF}: owner database URL referenced in Terraform`)
