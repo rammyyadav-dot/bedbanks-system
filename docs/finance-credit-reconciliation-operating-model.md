@@ -41,7 +41,7 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | DEBIT | - | The final charge for a confirmed booking |
 | REFUND | + | Part of a charge returned on cancellation |
 | ADJUSTMENT | +/- | Correction with a reason, maker-checker. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100) |
-| REVERSAL | - | A received payment reversed (bank recall, chargeback, duplicate), linked to its receipt. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100); Admin screen `/finance/ledger-adjustments` (AED only, receipt id typed) |
+| REVERSAL | - | A received payment reversed (bank recall, chargeback, duplicate), linked to its receipt. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100); Admin screen `/finance/ledger-adjustments` (AED only) |
 
 ## 3. Posting matrix
 
@@ -193,7 +193,7 @@ Decided 2026-10-18 "as per global bedbanks workflow and functioning" and built i
 effective penalty (F3), database ledger guards (F4), and a daily read-only reconciliation run. Still open:
 
 1. **Provision the monitor's read-only login** (`LEDGER_INTEGRITY_DATABASE_URL`) and the log alarm on its error lines.
-2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, a receipt picker and browser test for the screen, and house-account adjustments.
+2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, a browser test for the screen, and house-account adjustments.
 3. **Scheduling R5** (stalled attempts) unattended: it writes SYSTEM audit events, which needs a governed role.
 4. **Per-agency terms**, temporary increases, review dates, security.
 5. **Chart of accounts and GL export** format; gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
