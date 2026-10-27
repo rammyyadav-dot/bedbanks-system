@@ -854,6 +854,8 @@ model Tenant {
   bookingCreditNotes BookingCreditNote[]
   agencyCommissionPayouts AgencyCommissionPayout[]
   financePeriodCloses FinancePeriodClose[]
+  glAccounts GlAccount[]
+  glCategoryMappings GlCategoryMapping[]
   ledgerAdjustments LedgerAdjustment[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
@@ -2000,6 +2002,44 @@ model FinancePeriodClose {
 
   @@unique([tenantId, periodStart])
   @@index([tenantId, periodEnd])
+}
+
+/// A general-ledger account in a tenant's chart (ADR 0102). Code, name and type never change; an account is only ever deactivated, and not while a current mapping uses it.
+model GlAccount {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  code        String
+  name        String
+  type        String
+  active      Boolean  @default(true)
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  debitMappings  GlCategoryMapping[] @relation("GlMappingDebit")
+  creditMappings GlCategoryMapping[] @relation("GlMappingCredit")
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+}
+
+/// Which pair of accounts a ledger movement category posts to, for a positive stored amount (a negative one posts the other way round). Append-only: a change is a new version and the highest
+/// version of a category is current, so an earlier journal can always be explained by the version it used (ADR 0102).
+model GlCategoryMapping {
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  category        String
+  version         Int
+  debitAccountId  String    @map("debit_account_id")
+  debitAccount    GlAccount @relation("GlMappingDebit", fields: [tenantId, debitAccountId], references: [tenantId, id], onDelete: Restrict)
+  creditAccountId String    @map("credit_account_id")
+  creditAccount   GlAccount @relation("GlMappingCredit", fields: [tenantId, creditAccountId], references: [tenantId, id], onDelete: Restrict)
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, category, version])
+  @@index([tenantId, debitAccountId])
+  @@index([tenantId, creditAccountId])
 }
 
 /// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.

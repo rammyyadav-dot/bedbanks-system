@@ -23,6 +23,7 @@ import { FinanceCreditNotesModule } from './finance-credit-notes/finance-credit-
 import { FinanceCommissionModule } from './finance-commission/finance-commission.module';
 import { FinanceAdjustmentsModule } from './finance-adjustments/finance-adjustments.module';
 import { FinancePeriodsModule } from './finance-periods/finance-periods.module';
+import { FinanceChartModule } from './finance-chart/finance-chart.module';
 import { BookingFinancePostingModule } from './booking-finance-posting/booking-finance-posting.module';
 import { SupplierIngestModule } from './supplier-ingest/supplier-ingest.module';
 import { SupplierPromotionModule } from './supplier-promotion/supplier-promotion.module';
@@ -57,6 +58,7 @@ import { DistributionModule } from './distribution/distribution.module';
     FinanceCommissionModule,
     FinanceAdjustmentsModule,
     FinancePeriodsModule,
+    FinanceChartModule,
     BookingFinancePostingModule,
     SupplierIngestModule,
     SupplierPromotionModule,

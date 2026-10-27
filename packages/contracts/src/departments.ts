@@ -15,6 +15,8 @@ export const departmentPermissions = {
   financeSettlePropose: 'finance.settle.propose', financeSettleApprove: 'finance.settle.approve',
   /** Credit notes (ADR 0095 part B). Formal role assignments only. `propose` asks for a partial credit to an agency; `approve` approves or rejects one (never the proposer's own). */
   financeCreditNotePropose: 'finance.creditnote.propose', financeCreditNoteApprove: 'finance.creditnote.approve',
+  /** General-ledger chart of accounts (ADR 0102). Formal role assignments only. */
+  financeChartManage: 'finance.chart.manage',
   /** Finance period close (ADR 0101). Formal role assignments only. */
   financePeriodClose: 'finance.period.close',
   /** Ledger adjustments and reversals (ADR 0100). Formal role assignments only. `propose` asks for a correction or a payment reversal on an agency account; `approve` approves or rejects one (never the proposer's own). */

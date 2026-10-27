@@ -136,6 +136,8 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `DailyRate`: supply authoring and Quick Update
 - `FinancePeriodClose`: finance-gated: one immutable record per closed calendar month of the ledger (control totals, integrity verdict, chain heads); written on the API connection, which the runtime role never writes; a trigger refuses ledger entries dated inside it (ADR 0101)
 - `FundingReceipt`: finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)
+- `GlAccount`: finance-gated: the general-ledger chart of accounts of a tenant; code, name and type never change, only active; written on the API connection (ADR 0102)
+- `GlCategoryMapping`: finance-gated: append-only versions of which GL account pair each ledger movement category posts to; written on the API connection (ADR 0102)
 - `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
 - `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index
 - `InventoryHold`: holds are gated; written by the booking path
