@@ -29,7 +29,7 @@ The ledger could only move money through bookings, cancellations, credit notes, 
 - Adjustments are credit-creating. The control is a second person, the reason and note, the audit event and the daily integrity run. There is **no amount threshold for a second approver tier** yet.
 
 ## Not built
-- **Admin screen.** The API exists; there is no page, so nothing in the Admin UI claims this capability. The ledger page filter lists the new entry types because it only displays posted entries.
+- **Higher-risk polish on the Admin screen.** `/finance/ledger-adjustments` (Finance, "Adjustments and reversals") lists records with status and kind filters and lets a permitted user propose, approve and reject; every rule is enforced by the server and the page shows its refusals (including 503 while the flag is off). It is AED only, takes the funding receipt id by typing it (no receipt picker), uses a browser confirm and prompt rather than the step-up dialog, and has no browser test. The ledger page filter also lists the new entry types.
 - **House-account adjustments** and bank fees against the platform's own account; only agency accounts are adjustable.
 - **Posting from a bank reconciliation finding** (ADR 0093): a bank fee or an unidentified credit is still re-keyed as a proposal by a person; no automatic link.
 - **Revenue and margin reports** are not netted for adjustments (as with credit notes, ADR 0095 B).
