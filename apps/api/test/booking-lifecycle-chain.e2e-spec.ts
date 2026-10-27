@@ -274,53 +274,39 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     }
   })
 
-  it('LIFE-07 amendment: a price change on a ledger-charged booking is refused and leaves the request open; cancellation is blocked while it is open; a same-price change is accepted', async () => {
+  it('LIFE-07 amendment: a stay or occupancy change on an inventory-backed booking is refused at the request, changes nothing and leaves the booking cancellable', async () => {
     await resetInventory(5)
     const { bookingId } = await bookedThrough(`${suffix}-amend`)
     const before = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })
     expect(before).toMatchObject({ status: 'CONFIRMED', version: 1, nights: 2 })
-    expect(before.checkIn?.toISOString().slice(0, 10)).toBe(stay.checkIn)
-    expect(before.agencyId).not.toBeNull()
-
-    // the request is recorded; approving a different price is refused (ADR 0072) and nothing about the stay or the money changes
-    await expect(amend(bookingId, { checkOut: '2099-03-04' }, { sellMinor: String(price + 5000) })).rejects.toMatchObject({ response: { code: expect.stringMatching(/LEDGER/i) } })
-    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'AMEND_REQUESTED', totalMinor: BigInt(price), nights: 2 })
-    expect(await prisma.bookingAmendment.findMany({ where: { bookingId }, select: { status: true } })).toEqual([{ status: 'REQUESTED' }])
-
-    // while a request is open the agent cannot cancel or confirm; the ledger is untouched
-    await expect(cancel(bookingId)).rejects.toThrow('not cancellable')
-    expect((await ledgerTypes(bookingId)).map(e => e.type)).toEqual(['HOLD', 'RELEASE', 'DEBIT'])
-
-    // a same-price decision on the open request is accepted and bumps the version once
-    const now = new Date()
-    await prisma.withTenant(tenantId, async t => {
-      const decision = await prepareAmendmentDecision(t, { tenantId, bookingId, kind: 'APPROVE', rawApproval: { sellMinor: String(price) }, ledgerCharged: true, now })
-      await transitionBooking(t, { tenantId, bookingId, action: 'approveAmendment', expectedStatus: 'AMEND_REQUESTED', actor: { type: 'USER', id: userId }, level: 'OPERATOR', now, idempotencyKey: `same-price:${bookingId}`, eventPayload: decision?.eventPayload, fingerprintExtra: `approval:${JSON.stringify({ sellMinor: String(price) })}` })
-      await applyAmendmentDecision(t, { tenantId, bookingId, userId, decision: decision!, now })
-    })
-    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'CONFIRMED', version: 2, totalMinor: BigInt(price), nights: 3 })
-    expect((await ledgerTypes(bookingId)).map(e => e.type)).toEqual(['HOLD', 'RELEASE', 'DEBIT'])
+    const gridBefore = await grid()
+    const refused = (proposal: object) => expect(amend(bookingId, proposal, { sellMinor: String(price) })).rejects.toMatchObject({ response: { code: 'AMENDMENT_INVENTORY_BACKED' } })
+    await refused({ checkOut: '2099-03-04' })
+    await refused({ rooms: [{ position: 1, adults: 1, children: 0, childAges: [] }] })
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'CONFIRMED', version: 1, nights: 2, totalMinor: BigInt(price) })
+    expect(await prisma.bookingAmendment.count({ where: { bookingId } })).toBe(0)
+    expect(await grid()).toEqual(gridBefore)
+    // the guest is still served: voucher shows the real stay and the booking cancels cleanly
+    expect((await doc(bookingId, 'VOUCHER')).payload.stay).toMatchObject(stay)
+    expect(await cancel(bookingId)).toMatchObject({ status: 'CANCELLED' })
+    expect((await grid()).map(n => n.sold)).toEqual([0, 0, 0, 0])
   })
 
-  /**
-   * KNOWN GAP (reported, not fixed here): approving a stay change on a contracted-inventory booking rewrites Booking.checkIn/checkOut/nights but touches neither the
-   * inventory nights sold for it, nor Booking.searchSnapshot (which the voucher, the invoice and the cancellation penalty read). Each test below states the
-   * behaviour the lifecycle needs; `it.failing` keeps CI green while the gap stands and turns red the moment it is fixed, so the marker must then be removed.
-   */
-  describe('amended stay vs the rest of the lifecycle', () => {
-    const amendedBooking = async (key: string) => {
-      await resetInventory(5)
-      const booked = await bookedThrough(`${suffix}-${key}`)
-      await amend(booked.bookingId, { checkOut: '2099-03-04' }, { sellMinor: String(price) })
-      return booked
-    }
-    it.failing('LIFE-08a the added night is allocated: three nights sold for a three-night booking', async () => {
-      await amendedBooking('gap-inventory')
-      expect((await grid()).map(n => n.sold)).toEqual([1, 1, 1, 0])
+  it('LIFE-08 a request opened before the guard existed cannot be approved either, and rejecting it restores a cancellable booking', async () => {
+    await resetInventory(5)
+    const { bookingId } = await bookedThrough(`${suffix}-legacy`)
+    const now = new Date()
+    // simulate a pre-guard open request: the row and the status move are written directly
+    await prisma.bookingAmendment.create({ data: { tenantId, bookingId, fromVersion: 1, proposal: { checkOut: '2099-03-04' }, beforeState: {}, requestedByUserId: userId } })
+    await prisma.withTenant(tenantId, t => transitionBooking(t, { tenantId, bookingId, action: 'requestAmendment', expectedStatus: 'CONFIRMED', actor: { type: 'USER', id: userId }, level: 'OPERATOR', now, reason: 'legacy', idempotencyKey: `legacy:${bookingId}` }))
+    await expect(prisma.withTenant(tenantId, t => prepareAmendmentDecision(t, { tenantId, bookingId, kind: 'APPROVE', rawApproval: { sellMinor: String(price) }, ledgerCharged: true, now })))
+      .rejects.toMatchObject({ response: { code: 'AMENDMENT_INVENTORY_BACKED' } })
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'AMEND_REQUESTED', nights: 2 })
+    await prisma.withTenant(tenantId, async t => {
+      const decision = await prepareAmendmentDecision(t, { tenantId, bookingId, kind: 'REJECT', rawApproval: undefined, ledgerCharged: null, now })
+      await transitionBooking(t, { tenantId, bookingId, action: 'rejectAmendment', expectedStatus: 'AMEND_REQUESTED', actor: { type: 'USER', id: userId }, level: 'OPERATOR', now, reason: 'cannot re-allocate', idempotencyKey: `legacy-reject:${bookingId}`, eventPayload: decision?.eventPayload })
+      await applyAmendmentDecision(t, { tenantId, bookingId, userId, decision: decision!, now })
     })
-    it.failing('LIFE-08b the voucher issued after the amendment shows the amended stay', async () => {
-      const { bookingId } = await amendedBooking('gap-voucher')
-      expect((await doc(bookingId, 'VOUCHER')).payload.stay.checkOut).toBe('2099-03-04')
-    })
+    expect(await cancel(bookingId)).toMatchObject({ status: 'CANCELLED' })
   })
 })

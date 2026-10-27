@@ -23,7 +23,7 @@ Status: proposed (needs owner acceptance; ADR 0055 #6 reserves the decision to e
    3. The hold-expiry sweeper and `reconcile-stale` run on a schedule, so abandoned holds and prebooks cannot pin inventory or credit.
    4. `pnpm check:architecture`, `pnpm type-check`, `pnpm lint`, `pnpm test` and the lifecycle suite pass on the release commit against disposable PostgreSQL.
    5. The known gaps below are fixed or explicitly accepted by the owner for the environment.
-3. **Turning it off must not strand customers.** Today the flag also closes booking list, detail, documents, cancellation quote and cancel. If it is switched off after bookings exist, agents cannot read their vouchers or cancel; they must go through the Admin module. Before first enablement the owner must choose one of: (a) accept this and document the fallback, or (b) split the flag into "create new bookings" and "serve existing bookings". Recommended: (b), as a separate reviewed change. It is not made here.
+3. **Turning off sales must not strand customers.** `BOOKING_SERVICING_ENABLED=true` serves existing bookings (list, detail, documents, cancellation quote, cancel) while `BOOKING_ENABLED` is off. Servicing is also on whenever `BOOKING_ENABLED=true`. The servicing switch never opens hold, prebook or create. It is off by default and, like the main flag, is an owner decision per environment.
 4. **Scope is per environment, not per tenant.** A per-tenant gate is a larger design (RLS, settings, audit) and is not proposed.
 
 ## Lifecycle certification
@@ -38,14 +38,13 @@ Status: proposed (needs owner acceptance; ADR 0055 #6 reserves the decision to e
 | Confirm | Held becomes sold once; reservation becomes one debit; 25 concurrent confirms converge (LIFE-01, 05) |
 | Documents | Voucher and invoice issued once, immutable, same number on replay; none before confirmation; credit note only after cancellation (LIFE-01) |
 | Cancel | Inventory returned once, one refund; 25 concurrent cancels converge on one cancellation; confirm racing cancel never strands a sold room or an unrefunded charge (LIFE-01, 05, 06) |
-| Amendment | Open request blocks agent cancellation; a price change on a ledger-charged booking is refused and leaves the request open; a same-price change is applied once and bumps the version once (LIFE-07) |
+| Amendment | Stay or occupancy change on an inventory-backed booking is refused with nothing changed and the booking stays cancellable; a pre-existing open request cannot be approved but can be rejected (LIFE-07, 08) |
 
 ## Findings (not fixed here)
 
-1. **Stay amendments do not move inventory or the document snapshot.** Approving a date change on a contracted-inventory booking rewrites `Booking.checkIn/checkOut/nights` but leaves the inventory nights sold unchanged (an extended stay still holds the original nights, LIFE-08a) and leaves `searchSnapshot`, which the voucher, invoice and cancellation penalty read, on the old dates (LIFE-08b). The two `it.failing` tests state the required behaviour and will turn red when this is fixed, prompting removal of the marker. Interim safe option for the owner: refuse approval of stay or occupancy changes on bookings that have an inventory hold, until re-allocation is built.
+1. **Stay amendments cannot move inventory (now refused, fail closed).** Approving a date change on a contracted-inventory booking used to rewrite `Booking.checkIn/checkOut/nights` while leaving the inventory nights and `searchSnapshot` (read by the voucher, invoice and cancellation penalty) on the old stay. A stay or occupancy amendment on a booking that has an inventory hold is now refused with `AMENDMENT_INVENTORY_BACKED` at request and at approval (LIFE-07, LIFE-08); guests cancel and rebook. Re-allocating inventory on amendment remains unbuilt. Admin bookings without an inventory hold are unaffected.
 2. **Supplier confirmation for non-contracted suppliers is not in the Agent flow.** Agent confirmation is contracted-inventory only (ADR 0006). The Admin supplier queue (ADR 0039 Phase 3) is covered by `booking-supplier.e2e-spec.ts`, behind its own switches and a mock adapter. The chain Agent recheck, hold, prebook, supplier confirmation is not exercised end to end because no live connector exists.
-3. **The enable flag couples creation and servicing** (policy 3 above).
 
 ## Rollback
 
-Set `BOOKING_ENABLED` to `false` (or unset it) and restart the API. No data migration is involved. Existing bookings, holds and ledger entries stay as they are; see policy 3 for what agents can no longer reach.
+Set `BOOKING_ENABLED` to `false` (or unset it) and restart the API; set `BOOKING_SERVICING_ENABLED=true` to keep existing bookings reachable. No data migration is involved. Existing bookings, holds and ledger entries stay as they are; see policy 3 for what agents can no longer reach.

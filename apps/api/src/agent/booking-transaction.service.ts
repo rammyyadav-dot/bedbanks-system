@@ -11,6 +11,14 @@ export function bookingEnabled(env: Record<string, string | undefined> = process
   return env.BOOKING_ENABLED === 'true'
 }
 
+/**
+ * Serving bookings that already exist (list, detail, documents, cancellation quote and cancel). On whenever booking is enabled, and separately switchable with
+ * BOOKING_SERVICING_ENABLED=true so that closing new sales (BOOKING_ENABLED off) does not strand agents who hold vouchers or must cancel (ADR 0101).
+ */
+export function bookingServicingEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return bookingEnabled(env) || env.BOOKING_SERVICING_ENABLED === 'true'
+}
+
 export interface PrebookInput {
   tenantId: string; userId: string; requestId: string
   inventoryHoldId: string; idempotencyKey: string
