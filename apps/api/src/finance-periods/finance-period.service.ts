@@ -6,6 +6,7 @@ import {
 } from '@bedbanks/contracts'
 import { buildPeriodTotals, monthRange, periodBlockers, type PeriodCurrencyTotals, type PeriodRange } from '@bedbanks/money'
 import { PrismaService } from '../database/prisma.service'
+import { ledgerBalancesBefore, ledgerRangeGroups } from '../ledger/ledger-core'
 import { OperationsLedgerIntegrityService } from '../admin-operations/operations-ledger-integrity.service'
 import { sanitizeAuditPayload } from '../agent/audit-payload'
 import { pageParams, paged } from '../admin-operations/query-params'
@@ -72,16 +73,8 @@ export class FinancePeriodService {
 
   /** The control totals of a range, read from the ledger inside the caller's transaction. */
   private async totals(tx: Prisma.TransactionClient, tenantId: string, range: PeriodRange): Promise<PeriodCurrencyTotals[]> {
-    const [opening, closing, movements] = await Promise.all([
-      tx.ledgerEntry.groupBy({ by: ['currency'], where: { tenantId, immutableAt: { lt: range.start } }, _sum: { amountMinor: true } }),
-      tx.ledgerEntry.groupBy({ by: ['currency'], where: { tenantId, immutableAt: { lt: range.end } }, _sum: { amountMinor: true } }),
-      tx.ledgerEntry.groupBy({ by: ['currency', 'type'], where: { tenantId, immutableAt: { gte: range.start, lt: range.end } }, _sum: { amountMinor: true }, _count: { _all: true } }),
-    ])
-    return buildPeriodTotals({
-      opening: opening.map(g => ({ currency: g.currency, sumMinor: g._sum.amountMinor ?? 0n })),
-      closing: closing.map(g => ({ currency: g.currency, sumMinor: g._sum.amountMinor ?? 0n })),
-      movements: movements.map(g => ({ currency: g.currency, type: g.type, entries: g._count._all, sumMinor: g._sum.amountMinor ?? 0n })),
-    })
+    const [opening, closing, movements] = await Promise.all([ledgerBalancesBefore(tx, tenantId, range.start), ledgerBalancesBefore(tx, tenantId, range.end), ledgerRangeGroups(tx, tenantId, range)])
+    return buildPeriodTotals({ opening, closing, movements: movements.map(g => ({ currency: g.currency, type: g.type, entries: g.entries, sumMinor: g.sumMinor })) })
   }
 
   private async state(tx: Prisma.TransactionClient, tenantId: string, range: PeriodRange) {

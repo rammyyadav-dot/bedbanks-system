@@ -72,3 +72,17 @@ export async function ledgerWindowGroups(tx: Prisma.TransactionClient, tenantId:
   })
   return groups.map(g => ({ currency: g.currency, type: g.type, sumMinor: g._sum.amountMinor ?? 0n, entries: g._count._all }))
 }
+
+/** The balance per currency of every entry dated before `before` (exclusive). Currencies stay separate rows. Used by the period close (ADR 0101). */
+export async function ledgerBalancesBefore(tx: Prisma.TransactionClient, tenantId: string, before: Date): Promise<Array<{ currency: string; sumMinor: bigint }>> {
+  const groups = await tx.ledgerEntry.groupBy({ by: ['currency'], where: { tenantId, immutableAt: { lt: before } }, _sum: { amountMinor: true } })
+  return groups.map(g => ({ currency: g.currency, sumMinor: g._sum.amountMinor ?? 0n }))
+}
+
+/** Entry counts and sums by currency and type for the half-open range `[start, end)` of `immutableAt`. Used by the period close (ADR 0101). */
+export async function ledgerRangeGroups(tx: Prisma.TransactionClient, tenantId: string, range: { start: Date; end: Date }): Promise<LedgerWindowGroup[]> {
+  const groups = await tx.ledgerEntry.groupBy({
+    by: ['currency', 'type'], where: { tenantId, immutableAt: { gte: range.start, lt: range.end } }, _sum: { amountMinor: true }, _count: { _all: true },
+  })
+  return groups.map(g => ({ currency: g.currency, type: g.type, sumMinor: g._sum.amountMinor ?? 0n, entries: g._count._all }))
+}
