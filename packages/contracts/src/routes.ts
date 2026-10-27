@@ -86,8 +86,8 @@ export const routes = {
   adminCreditNotes: { list: '/admin/finance/credit-notes', approve: '/admin/finance/credit-notes/:creditNoteId/approve', reject: '/admin/finance/credit-notes/:creditNoteId/reject' },
   // Finance period close (ADR 0101). `close` takes `{ month, note? }`; `preview` takes `?month=YYYY-MM` and writes nothing.
   adminFinancePeriods: { list: '/admin/finance/periods', preview: '/admin/finance/periods/preview', close: '/admin/finance/periods/close' },
-  // General-ledger chart of accounts and the derived journal (ADR 0102). `journal` takes `?month=YYYY-MM` of a closed month.
-  adminFinanceChart: { chart: '/admin/finance/chart', initialize: '/admin/finance/chart/initialize', accounts: '/admin/finance/chart/accounts', deactivate: '/admin/finance/chart/accounts/:accountId/deactivate', mappings: '/admin/finance/chart/mappings', journal: '/admin/finance/journal' },
+  // General-ledger chart of accounts and the derived journal (ADR 0102). `journal` takes `?month=YYYY-MM` of a closed month; `journalExport` also takes `kind=lines|totals` and returns a CSV file.
+  adminFinanceChart: { chart: '/admin/finance/chart', initialize: '/admin/finance/chart/initialize', accounts: '/admin/finance/chart/accounts', deactivate: '/admin/finance/chart/accounts/:accountId/deactivate', mappings: '/admin/finance/chart/mappings', journal: '/admin/finance/journal', journalExport: '/admin/finance/journal/export' },
   // Ledger adjustments and reversals on an agency account (ADR 0100). A proposal needs a `requestId` in the body.
   adminLedgerAdjustments: { list: '/admin/finance/ledger-adjustments', approve: '/admin/finance/ledger-adjustments/:adjustmentId/approve', reject: '/admin/finance/ledger-adjustments/:adjustmentId/reject' },
   // Dynamic, tier-based agency commission payouts (ADR 0098). A proposal needs a `requestId` in the body.

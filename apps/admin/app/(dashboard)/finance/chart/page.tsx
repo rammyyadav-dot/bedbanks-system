@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { GL_ACCOUNT_TYPE_NAMES, type GlAccountTypeName, type GlChartView, type GlJournalView, type GlMappingView } from '@bedbanks/contracts'
+import { GL_ACCOUNT_TYPE_NAMES, GL_JOURNAL_EXPORT_HEADERS, type GlAccountTypeName, type GlChartView, type GlJournalView, type GlMappingView } from '@bedbanks/contracts'
 import { PageHeader } from '@/components/common/PageHeader'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Money, Tag } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
-import { createGlAccount, deactivateGlAccount, getGlChart, getGlJournal, initializeGlChart, setGlMapping } from '@/lib/data/finance-chart'
+import { createGlAccount, deactivateGlAccount, downloadGlJournal, getGlChart, getGlJournal, initializeGlChart, setGlMapping } from '@/lib/data/finance-chart'
 import { getFinancePeriods } from '@/lib/data/finance-periods'
 import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
@@ -123,9 +123,20 @@ function MappingRow({ m, active, canManage, busy, act }: { m: GlMappingView; act
 function Journal() {
   const periods = useOpsQuery(() => getFinancePeriods({ pageSize: 100 }), [])
   const [month, setMonth] = useState(''); const [journal, setJournal] = useState<GlJournalView | null>(null)
-  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [exported, setExported] = useState<string | null>(null)
+  const canExport = useCan()('finance.journal.export')
+  async function save(kind: 'lines' | 'totals') {
+    setBusy(true); setError(null); setExported(null)
+    try {
+      const { blob, headers } = await downloadGlJournal(month, kind)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a'); link.href = url; link.download = `gl-journal-${month}-${kind}.csv`
+      document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url)
+      setExported(`Downloaded ${kind === 'lines' ? 'the journal lines' : 'the account totals'} (${headers.get(GL_JOURNAL_EXPORT_HEADERS.rows) ?? '?'} rows). The download was recorded in the audit log; SHA-256 ${headers.get(GL_JOURNAL_EXPORT_HEADERS.sha256) ?? 'unavailable'}.`)
+    } catch (e) { setError(describeApiError(e)) } finally { setBusy(false) }
+  }
   async function load() {
-    setBusy(true); setError(null); setJournal(null)
+    setBusy(true); setError(null); setExported(null); setJournal(null)
     try { setJournal(await getGlJournal(month)) } catch (e) { setError(describeApiError(e)) } finally { setBusy(false) }
   }
   return (
@@ -147,6 +158,13 @@ function Journal() {
           <p style={{ fontSize: 12 }}>
             {journal.entries} entries · <Tag tone={journal.balanced ? 'ok' : 'bad'}>{journal.balanced ? 'balanced' : 'NOT balanced'}</Tag> <Tag tone={journal.tiesToClose ? 'ok' : 'bad'}>{journal.tiesToClose ? 'ties to the period close' : 'does not tie to the period close'}</Tag>
           </p>
+          {canExport && (
+            <div style={{ display: 'flex', gap: 8, margin: '4px 0' }}>
+              <button type="button" className="admin-btn" disabled={busy} data-testid="journal-export-lines" onClick={() => void save('lines')}>Download lines (CSV)</button>
+              <button type="button" className="admin-btn" disabled={busy} data-testid="journal-export-totals" onClick={() => void save('totals')}>Download account totals (CSV)</button>
+            </div>
+          )}
+          {exported && <p role="status" data-testid="journal-export-note" style={{ fontSize: 12 }}>{exported}</p>}
           {journal.unmappedEntries > 0 && <p role="alert" style={{ fontSize: 12 }}>{journal.unmappedEntries} entries could not be categorised and are not in this journal.</p>}
           {journal.otherCreditEntries > 0 && <p style={note}>{journal.otherCreditEntries} credits are neither funding nor commission; they sit in the suspense account until classified.</p>}
           <ScrollRegion label="Journal lines">

@@ -1,13 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import {
-  GL_CATEGORY_NAMES, GL_CHART_FAILURE, type GlAccountView, type GlCategoryName, type GlChartView, type GlJournalView, type GlMappingView, type GlAccountTypeName,
+  GL_CATEGORY_NAMES, GL_CHART_FAILURE, GL_JOURNAL_EXPORT_KINDS, type GlJournalExportKind, type GlAccountView, type GlCategoryName, type GlChartView, type GlJournalView, type GlMappingView, type GlAccountTypeName,
 } from '@bedbanks/contracts'
-import { DEFAULT_GL_ACCOUNTS, DEFAULT_GL_MAPPINGS, GL_CATEGORY_DESCRIPTIONS, GlFold, buildJournal, mappingProblem, monthRange, type GlAccountRef, type GlMapping } from '@bedbanks/money'
+import { DEFAULT_GL_ACCOUNTS, DEFAULT_GL_MAPPINGS, GL_CATEGORY_DESCRIPTIONS, GlFold, buildJournal, journalLinesCsv, journalTotalsCsv, mappingProblem, monthRange, type GlAccountRef, type GlMapping } from '@bedbanks/money'
 import { PrismaService } from '../database/prisma.service'
 import { foldLedgerRange } from '../ledger/ledger-core'
 import { sanitizeAuditPayload } from '../agent/audit-payload'
-import { idParam } from '../admin-operations/query-params'
+import { enumParam, idParam } from '../admin-operations/query-params'
 import { parseAccountCreate, parseMappingSet, parseMonth } from './chart-input'
 
 const refuse = (status: 400 | 404 | 409 | 503, message: string, code: string, details?: Record<string, unknown>) => {
@@ -154,5 +155,23 @@ export class ChartService {
         otherCreditEntries: groups.filter(g => g.category === 'OTHER_CREDIT').reduce((s, g) => s + g.positiveCount + g.negativeCount, 0), generatedAt: new Date().toISOString(),
       }
     })
+  }
+
+  /**
+   * The journal of a closed month as a CSV file (ADR 0103). Refused unless the journal is complete: every entry categorised, debits equal to credits in every currency and the totals equal to
+   * those recorded at period close. Each download writes a `finance.journal.exported` audit event with the SHA-256 of the exact file, before the file is handed out.
+   */
+  async exportJournal(tenantId: string, userId: string, requestId: string, query: Record<string, unknown>): Promise<{ name: string; csv: string; sha256: string; rows: number; suspenseEntries: number }> {
+    const kind: GlJournalExportKind = enumParam<GlJournalExportKind>('kind', query.kind, GL_JOURNAL_EXPORT_KINDS) ?? 'lines'
+    const journal = await this.journal(tenantId, query)
+    const problems = [journal.unmappedEntries > 0 && 'UNMAPPED_ENTRIES', !journal.balanced && 'NOT_BALANCED', !journal.tiesToClose && 'DOES_NOT_TIE_TO_CLOSE'].filter((p): p is string => typeof p === 'string')
+    if (problems.length > 0) throw refuse(409, `This journal is not complete enough to export: ${problems.join(', ')}.`, GL_CHART_FAILURE.notExportable, { problems })
+    const csv = kind === 'lines' ? journalLinesCsv(journal.month, journal.lines, journal.mappingVersions) : journalTotalsCsv(journal.month, journal.accountTotals)
+    const sha256 = createHash('sha256').update(csv).digest('hex')
+    const rows = (kind === 'lines' ? journal.lines : journal.accountTotals).length
+    await this.prisma.withTenant(tenantId, tx => tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'finance.journal.exported', entityType: 'gl_journal', entityId: journal.month, payload: sanitizeAuditPayload({
+      requestId, month: journal.month, kind, rows, sha256, mappingVersions: journal.mappingVersions, suspenseEntries: journal.otherCreditEntries,
+    }) } }))
+    return { name: `gl-journal-${journal.month}-${kind}.csv`, csv, sha256, rows, suspenseEntries: journal.otherCreditEntries }
   }
 }

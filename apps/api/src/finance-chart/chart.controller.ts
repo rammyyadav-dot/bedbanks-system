@@ -1,4 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import type { Request, Response } from 'express'
+import { GL_JOURNAL_EXPORT_HEADERS } from '@bedbanks/contracts'
 import { ApiTags } from '@nestjs/swagger'
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
@@ -21,6 +24,17 @@ export class ChartController {
 
   @Get('journal') @RequirePermission(PERMISSIONS.viewFinance) @UseGuards(AgentRbacGuard)
   journal(@ActiveTenant() tenantId: string, @Query() query: Record<string, unknown>) { return this.chart.journal(tenantId, query) }
+
+  /** A CSV download of a closed month's journal, audited with the hash of the file. Errors keep the normal JSON envelope. Declared before any `journal/:x` route. */
+  @Get('journal/export') @RequireDepartmentPermission('finance.journal.export') @UseGuards(SupplyPermissionGuard)
+  async exportJournal(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Record<string, unknown>, @Req() req: Request, @Res() res: Response) {
+    const requestId = (req as Request & { requestId?: string }).requestId ?? randomUUID()
+    const file = await this.chart.exportJournal(tenantId, identity.user.id, requestId, query)
+    res.status(200).set({
+      'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${file.name}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+      [GL_JOURNAL_EXPORT_HEADERS.sha256]: file.sha256, [GL_JOURNAL_EXPORT_HEADERS.rows]: String(file.rows), [GL_JOURNAL_EXPORT_HEADERS.suspenseEntries]: String(file.suspenseEntries),
+    }).send(file.csv)
+  }
 
   @Post('chart/initialize') @HttpCode(200) @RequireDepartmentPermission('finance.chart.manage') @UseGuards(SupplyPermissionGuard)
   initialize(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) { return this.chart.initialize(tenantId, identity.user.id) }

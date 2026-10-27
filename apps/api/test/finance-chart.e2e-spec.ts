@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { PrismaService } from '../src/database/prisma.service'
 import { ChartService } from '../src/finance-chart/chart.service'
 import { FinancePeriodService } from '../src/finance-periods/finance-period.service'
@@ -120,6 +120,38 @@ describe('general-ledger chart and journal (ADR 0102, PostgreSQL)', () => {
     await expect(chart.deactivate(tenantId, alice, await accountId('2100'))).rejects.toMatchObject({ response: { code: 'FINANCE_CHART_ACCOUNT_IN_USE' } })
     await expect(chart.deactivate(tenantId, alice, 'missing')).rejects.toMatchObject({ response: { code: 'FINANCE_CHART_NOT_FOUND' } })
     expect((await chart.get(tenantId)).accounts.find(a => a.code === '1020')!.active).toBe(false)
+  })
+
+  it('CHART-EXPORT: the lines and totals files carry exact amounts, are audited with the hash of the exact file, and each download is recorded', async () => {
+    const lines = await chart.exportJournal(tenantId, alice, 'req-1', { month: '2026-08' })
+    expect(lines.name).toBe('gl-journal-2026-08-lines.csv')
+    const rows = lines.csv.slice(1).split('\r\n')
+    expect(rows[0]).toBe('month,currency,line,category,direction,entries,debit_account,debit_account_name,credit_account,credit_account_name,amount,amount_minor,mapping_version')
+    expect(rows).toContain('2026-08,AED,1,FUNDING_RECEIVED,POSITIVE,1,1010,Bank operating account,2100,Agency account balances,100.00,10000,2')
+    expect(rows).toContain('2026-08,AED,2,OTHER_CREDIT,POSITIVE,1,1900,Unclassified ledger movements (suspense),2100,Agency account balances,3.00,300,1')
+    expect(lines.rows).toBe(3)
+    expect(lines.suspenseEntries).toBe(2)
+    expect(lines.sha256).toBe(createHash('sha256').update(lines.csv).digest('hex'))
+    const totals = await chart.exportJournal(tenantId, alice, 'req-2', { month: '2026-08', kind: 'totals' })
+    expect(totals.name).toBe('gl-journal-2026-08-totals.csv')
+    expect(totals.csv.slice(1).split('\r\n')).toContain('2026-08,AED,2100,Agency account balances,0.00,103.00,0,10300')
+    const audit = await prisma.auditEvent.findMany({ where: { tenantId, action: 'finance.journal.exported' }, orderBy: { createdAt: 'asc' } })
+    expect(audit.map(a => (a.payload as Record<string, unknown>).sha256)).toEqual([lines.sha256, totals.sha256])
+    expect(audit[0].payload).toMatchObject({ month: '2026-08', kind: 'lines', rows: 3, requestId: 'req-1' })
+    await expect(chart.exportJournal(tenantId, alice, 'r', { month: '2026-08', kind: 'xml' })).rejects.toMatchObject({ status: 400 })
+    await expect(chart.exportJournal(tenantId, alice, 'r', { month: '2026-07' })).rejects.toMatchObject({ response: { code: 'FINANCE_CHART_PERIOD_NOT_CLOSED' } })
+  })
+
+  it('CHART-EXPORT-REFUSED: a journal that no longer ties to the period close record is not exported and nothing is audited', async () => {
+    const before = await prisma.auditEvent.count({ where: { tenantId, action: 'finance.journal.exported' } })
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
+      await tx.$executeRawUnsafe(`INSERT INTO "LedgerEntry" ("id","tenant_id","wallet_id","type","amount_minor","currency","reference","idempotency_key","immutable_at") VALUES ('${suffix}-late',$1,$2,'CREDIT',9,'AED','manual:late','${suffix}-late','2026-08-25T00:00:00Z')`, tenantId, aedWallet)
+    })
+    const j = await chart.journal(tenantId, { month: '2026-08' })
+    expect(j.tiesToClose).toBe(false)
+    await expect(chart.exportJournal(tenantId, alice, 'r', { month: '2026-08' })).rejects.toMatchObject({ response: { code: 'FINANCE_CHART_JOURNAL_NOT_EXPORTABLE', details: { problems: ['DOES_NOT_TIE_TO_CLOSE'] } } })
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'finance.journal.exported' } })).toBe(before)
   })
 
   it('CHART-INCOMPLETE: a category with no mapping blocks the journal', async () => {

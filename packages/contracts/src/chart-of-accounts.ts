@@ -21,9 +21,17 @@ export const GL_CHART_FAILURE = {
   incomplete: 'FINANCE_CHART_INCOMPLETE',
   periodNotClosed: 'FINANCE_CHART_PERIOD_NOT_CLOSED',
   tooLarge: 'FINANCE_CHART_JOURNAL_TOO_LARGE',
+  notExportable: 'FINANCE_CHART_JOURNAL_NOT_EXPORTABLE',
 } as const
 
-export const glChartPermissions = { manage: 'finance.chart.manage' } as const
+export const glChartPermissions = { manage: 'finance.chart.manage', exportJournal: 'finance.journal.export' } as const
+
+/** `lines` is one row per journal line (a balanced debit and credit); `totals` is one row per currency and account. */
+export const GL_JOURNAL_EXPORT_KINDS = ['lines', 'totals'] as const
+export type GlJournalExportKind = (typeof GL_JOURNAL_EXPORT_KINDS)[number]
+
+/** Response headers of the export, besides the file itself. */
+export const GL_JOURNAL_EXPORT_HEADERS = { sha256: 'X-Journal-Sha256', rows: 'X-Journal-Rows', suspenseEntries: 'X-Journal-Suspense-Entries' } as const
 
 export interface GlAccountView { id: string; code: string; name: string; type: GlAccountTypeName; active: boolean }
 export interface GlAccountRefView { id: string; code: string; name: string }

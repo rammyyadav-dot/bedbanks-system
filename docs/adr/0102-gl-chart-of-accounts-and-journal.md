@@ -23,7 +23,7 @@ Two tables with CHECKs, composite foreign keys to the same tenant's accounts, im
 - **Revenue, supplier cost, margin, VAT and the supplier side** are not derived from the agency ledger and have no accounts or journal lines.
 
 ## Not built
-- A file export (CSV or a specific accounting package format) and posting to an accounting system; the journal is JSON and an Admin view.
+- A specific accounting package format and posting to an accounting system. A generic CSV export exists (ADR 0103).
 - Stored (frozen) journals per closed month; a second approver for chart changes; reactivating an account; account hierarchy or parent accounts; multiple charts per tenant; a journal for an open month.
 - A browser test of the Admin screen.
 

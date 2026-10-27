@@ -92,6 +92,7 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('finance.adjustment.approve', 'finance', 'S3', 'Approve or reject a proposed adjustment or reversal; approval posts to the agency account (never the person who proposed it)'),
   enforced('finance.period.close', 'finance', 'S3', 'Close a calendar month of the ledger: record its control totals and integrity verdict and lock it against new entries (never reopened)'),
   enforced('finance.chart.manage', 'finance', 'S3', 'Set up the general-ledger chart of accounts and the mapping of ledger movements to accounts (every change is kept as history)'),
+  enforced('finance.journal.export', 'finance', 'S2', 'Download the general-ledger journal of a closed month as a CSV file (each download is audited with the hash of the file)'),
   enforced('finance.terms.manage', 'finance', 'S3', 'Set the payment terms agreed with a supplier (each change is kept as history)'),
   enforced('audit.read', 'audit', 'S0', 'View tenant audit events'),
 

@@ -102,6 +102,7 @@ export * from './ledger';
 export * from './ledger-integrity';
 export * from './period';
 export * from './gl';
+export * from './gl-export';
 export * from './reconciliation';
 export * from './bank-statement';
 export * from './bank-matching';
