@@ -35,10 +35,11 @@ Markup rounding is exact: 33,335 × 15% = 5,000.25 → 5,000. Totals are `bigint
 ## Verification run
 - `jest src/supply src/inventory`: 42 suites, 720 tests, all pass.
 - `tsc --noEmit` (api): clean. `eslint` on the new spec: clean.
+- PostgreSQL 16 + pgvector, disposable cluster, all migrations applied with `prisma migrate deploy`. E2E over HTTP, two tenants: `inventory-http`, `inventory-hold`, `inventory-search-recheck`, `inventory-pool`, `inventory-admin` (5 suites, 61 tests) and `rate-certification`, `commercial-markup`, `rate-plan-promotions`, `rate-plan-guest-prices`, `hotel-deals`, `room-event-master`, `contract-market-enforcement`, `dubai-agent-search`, `strict-runtime-role-hotel-deals` (9 suites, 136 tests): all pass.
 - `pnpm check:no-float`, `pnpm check:no-silent-fallback`: pass.
 
 ## Not covered (so not certified here)
-- HTTP and database behaviour (tenant isolation, RLS, hold/confirm counter moves): existing `inventory-*.e2e-spec.ts` and `dubai-agent-search*.e2e-spec.ts` need PostgreSQL and were not run in this session.
+- Strict runtime-role suites and the scale/hundred-hotel Dubai suites were not run.
 - Admin screens and the browser verifiers in `tools/admin-ops-verify`.
 - FX conversion, child/extra-guest lines, deals engine, event supplements, buyer markets and tiered (agency/market) markup beyond what is cited above; other specs cover them individually.
 - Production data and supplier connector inventory.
