@@ -40,8 +40,19 @@ Markup rounding is exact: 33,335 × 15% = 5,000.25 → 5,000. Totals are `bigint
 - Scale: `dubai-agent-search-scale`, `dubai-agent-search-hundred`, `dubai-commercial-scale` (3 suites, 21 tests): all pass.
 - `pnpm check:no-float`, `pnpm check:no-silent-fallback`: pass.
 
+## Browser verifiers (`tools/admin-ops-verify`, Chromium, production Admin and Agent builds, API on the strict `fbeds_api_login` role)
+Run by hand on a disposable database; not in CI. Pre-installed Chromium was used through a Playwright launch shim kept outside the repo.
+
+| Verifier | Result | Reading |
+| --- | --- | --- |
+| `verify-inventory.cjs` | Stops at its first step | Waits for `[data-testid=hotel-header]` after clicking a hotel in the list; the current hotel page renders that element only in one view. Checks were not reached. The UI is fine (the Inventory tab loads with 12/12 checks passing), the verifier is stale |
+| `verify-rate-certification.cjs` | 66 PASS, then timeout | Counts, filters, detail, simulator, report and axe passed. The final viewer step waits for `[data-state]`, but a viewer without the permission now gets the fail-closed "You do not have permission to view this page" screen (ADR 0063), which has no `data-state`. Access is correctly denied; the tenant-B step after it did not run |
+| `verify-pool-capacity.cjs` | 67 PASS, 4 FAIL | Not diagnosed: pool detail API 403 and 500 did not render the expected `data-state`; the checker-sees-approve/reject check failed; axe reports color-contrast on a `small` element in the workspace with a preview open (a real accessibility finding unless proven otherwise) |
+
+None of this shows a pricing or inventory defect, but the three scripts have not been brought in line with the current Admin UI, so the UI claims in older records are not re-certified by this run.
+
 ## Not covered (so not certified here)
-- Admin screens and the browser verifiers in `tools/admin-ops-verify`.
+- Admin browser verification is only partly passing; see "Browser verifiers" below.
 - FX conversion, child/extra-guest lines, deals engine, event supplements, buyer markets and tiered (agency/market) markup beyond what is cited above; other specs cover them individually.
 - Production data and supplier connector inventory.
 
