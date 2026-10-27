@@ -37,10 +37,10 @@ Markup rounding is exact: 33,335 × 15% = 5,000.25 → 5,000. Totals are `bigint
 - `tsc --noEmit` (api): clean. `eslint` on the new spec: clean.
 - PostgreSQL 16 + pgvector, disposable cluster, all migrations applied with `prisma migrate deploy`. E2E over HTTP, two tenants: `inventory-http`, `inventory-hold`, `inventory-search-recheck`, `inventory-pool`, `inventory-admin` (5 suites, 61 tests) and `rate-certification`, `commercial-markup`, `rate-plan-promotions`, `rate-plan-guest-prices`, `hotel-deals`, `room-event-master`, `contract-market-enforcement`, `dubai-agent-search`, `strict-runtime-role-hotel-deals` (9 suites, 136 tests): all pass.
 - Strict runtime role (non-bypass `fbeds_api` login, forced RLS), same database: `strict-runtime-role-{workflows,hotel-setup,commercial,replay,hotel-deals}`, `strict-role-rollout`, `rate-plan-lifecycle-strict-role` (7 suites, 80 tests): all pass.
+- Scale: `dubai-agent-search-scale`, `dubai-agent-search-hundred`, `dubai-commercial-scale` (3 suites, 21 tests): all pass.
 - `pnpm check:no-float`, `pnpm check:no-silent-fallback`: pass.
 
 ## Not covered (so not certified here)
-- The scale/hundred-hotel Dubai suites were not run.
 - Admin screens and the browser verifiers in `tools/admin-ops-verify`.
 - FX conversion, child/extra-guest lines, deals engine, event supplements, buyer markets and tiered (agency/market) markup beyond what is cited above; other specs cover them individually.
 - Production data and supplier connector inventory.
