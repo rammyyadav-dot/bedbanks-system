@@ -853,6 +853,9 @@ model Tenant {
   ledgerChainLinks LedgerChainLink[]
   bookingCreditNotes BookingCreditNote[]
   agencyCommissionPayouts AgencyCommissionPayout[]
+  financePeriodCloses FinancePeriodClose[]
+  glAccounts GlAccount[]
+  glCategoryMappings GlCategoryMapping[]
   ledgerAdjustments LedgerAdjustment[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
@@ -1978,6 +1981,65 @@ model LedgerAdjustment {
   @@index([tenantId, agencyId])
   @@index([walletId])
   @@index([fundingReceiptId])
+}
+
+/// One closed calendar month of the ledger (ADR 0101): the per-currency control totals (opening + movement = closing), the integrity verdict and the hash chain heads at close. The database
+/// refuses a ledger entry dated inside a closed period. A row never changes, is never deleted and is never reopened.
+model FinancePeriodClose {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// First day of the month (UTC) and the first day of the next month; entries dated in [start, end) are locked.
+  periodStart      DateTime @map("period_start") @db.Date
+  periodEnd        DateTime @map("period_end") @db.Date
+  integrityVerdict String   @map("integrity_verdict")
+  warningCount     Int      @map("warning_count")
+  totals           Json
+  chainHeads       Json     @map("chain_heads")
+  note             String?
+  closedById       String   @map("closed_by_id")
+  closedAt         DateTime @default(now()) @map("closed_at")
+
+  @@unique([tenantId, periodStart])
+  @@index([tenantId, periodEnd])
+}
+
+/// A general-ledger account in a tenant's chart (ADR 0102). Code, name and type never change; an account is only ever deactivated, and not while a current mapping uses it.
+model GlAccount {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  code        String
+  name        String
+  type        String
+  active      Boolean  @default(true)
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  debitMappings  GlCategoryMapping[] @relation("GlMappingDebit")
+  creditMappings GlCategoryMapping[] @relation("GlMappingCredit")
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+}
+
+/// Which pair of accounts a ledger movement category posts to, for a positive stored amount (a negative one posts the other way round). Append-only: a change is a new version and the highest
+/// version of a category is current, so an earlier journal can always be explained by the version it used (ADR 0102).
+model GlCategoryMapping {
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  category        String
+  version         Int
+  debitAccountId  String    @map("debit_account_id")
+  debitAccount    GlAccount @relation("GlMappingDebit", fields: [tenantId, debitAccountId], references: [tenantId, id], onDelete: Restrict)
+  creditAccountId String    @map("credit_account_id")
+  creditAccount   GlAccount @relation("GlMappingCredit", fields: [tenantId, creditAccountId], references: [tenantId, id], onDelete: Restrict)
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, category, version])
+  @@index([tenantId, debitAccountId])
+  @@index([tenantId, creditAccountId])
 }
 
 /// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.

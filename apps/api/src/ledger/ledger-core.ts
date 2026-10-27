@@ -72,3 +72,46 @@ export async function ledgerWindowGroups(tx: Prisma.TransactionClient, tenantId:
   })
   return groups.map(g => ({ currency: g.currency, type: g.type, sumMinor: g._sum.amountMinor ?? 0n, entries: g._count._all }))
 }
+
+/** The balance per currency of every entry dated before `before` (exclusive). Currencies stay separate rows. Used by the period close (ADR 0101). */
+export async function ledgerBalancesBefore(tx: Prisma.TransactionClient, tenantId: string, before: Date): Promise<Array<{ currency: string; sumMinor: bigint }>> {
+  const groups = await tx.ledgerEntry.groupBy({ by: ['currency'], where: { tenantId, immutableAt: { lt: before } }, _sum: { amountMinor: true } })
+  return groups.map(g => ({ currency: g.currency, sumMinor: g._sum.amountMinor ?? 0n }))
+}
+
+/** Entry counts and sums by currency and type for the half-open range `[start, end)` of `immutableAt`. Used by the period close (ADR 0101). */
+export async function ledgerRangeGroups(tx: Prisma.TransactionClient, tenantId: string, range: { start: Date; end: Date }): Promise<LedgerWindowGroup[]> {
+  const groups = await tx.ledgerEntry.groupBy({
+    by: ['currency', 'type'], where: { tenantId, immutableAt: { gte: range.start, lt: range.end } }, _sum: { amountMinor: true }, _count: { _all: true },
+  })
+  return groups.map(g => ({ currency: g.currency, type: g.type, sumMinor: g._sum.amountMinor ?? 0n, entries: g._count._all }))
+}
+
+/** Hard stop for `foldLedgerRange`: a month with more entries than this is reported as capped rather than folded partially. */
+export const LEDGER_FOLD_ENTRY_LIMIT = 500_000
+
+/**
+ * Visits every entry dated in the half-open range `[start, end)` in id order, in pages, so a month never has to fit in memory at once. Returns `capped: true` and stops when the limit
+ * is reached; the caller must not present a capped fold as complete. Used by the general-ledger journal (ADR 0102).
+ */
+export async function foldLedgerRange(
+  tx: Prisma.TransactionClient, tenantId: string, range: { start: Date; end: Date },
+  visit: (entry: { type: string; amountMinor: bigint; currency: string; reference: string | null; idempotencyKey: string }) => void, limit = LEDGER_FOLD_ENTRY_LIMIT,
+): Promise<{ capped: boolean }> {
+  const PAGE = 2_000
+  let seen = 0
+  let cursor: string | undefined
+  for (;;) {
+    const rows = await tx.ledgerEntry.findMany({
+      where: { tenantId, immutableAt: { gte: range.start, lt: range.end } }, orderBy: { id: 'asc' }, take: PAGE, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: { id: true, type: true, amountMinor: true, currency: true, reference: true, idempotencyKey: true },
+    })
+    for (const r of rows) {
+      if (seen >= limit) return { capped: true }
+      visit(r)
+      seen += 1
+    }
+    if (rows.length < PAGE) return { capped: false }
+    cursor = rows[rows.length - 1].id
+  }
+}
