@@ -6,6 +6,23 @@ const debit = (amount: bigint, daysAgo: number, booking = 'b'): AgingEntry => ({
 const credit = (amount: bigint, daysAgo: number): AgingEntry => ({ type: 'CREDIT', amountMinor: amount, reference: 'funding:r', at: at(daysAgo) })
 const refund = (amount: bigint, daysAgo: number, booking: string): AgingEntry => ({ type: 'REFUND', amountMinor: amount, reference: `booking:${booking}`, at: at(daysAgo) })
 
+describe('ageAccount with adjustments and reversals (ADR 0100)', () => {
+  const reversal = (amount: bigint, daysAgo: number): AgingEntry => ({ type: 'REVERSAL', amountMinor: -amount, reference: 'funding:r', at: at(daysAgo) })
+  const adjustment = (signed: bigint, daysAgo: number): AgingEntry => ({ type: 'ADJUSTMENT', amountMinor: signed, reference: 'adjustment:a', at: at(daysAgo) })
+  it('a recalled payment makes the money owed again, dated when it was taken back', () => {
+    const paid = [debit(100n, 40), credit(100n, 20)]
+    expect(ageAccount(paid, now).state).toBe('CURRENT')
+    expect(ageAccount([...paid, reversal(100n, 8)], now)).toMatchObject({ state: 'NOTICE', unpaidMinor: 100n, daysOverdue: 8 })
+  })
+  it('a recall of prepaid money that was never spent leaves nothing owed', () => {
+    expect(ageAccount([credit(100n, 20), reversal(100n, 8)], now)).toMatchObject({ state: 'CURRENT', unpaidMinor: 0n })
+  })
+  it('a credit adjustment pays the oldest charge and a debit adjustment is a new charge', () => {
+    expect(ageAccount([debit(100n, 40), adjustment(100n, 1)], now)).toMatchObject({ state: 'CURRENT', unpaidMinor: 0n })
+    expect(ageAccount([adjustment(-100n, 9)], now)).toMatchObject({ state: 'NOTICE', unpaidMinor: 100n, daysOverdue: 9 })
+  })
+})
+
 describe('ageAccount (ADR 0028 slice 4, FIFO)', () => {
   it('an empty or fully prepaid account is CURRENT', () => {
     expect(ageAccount([], now)).toEqual({ state: 'CURRENT', unpaidMinor: 0n, overdueUnpaidMinor: 0n, oldestUnpaidAt: null, daysOverdue: 0 })

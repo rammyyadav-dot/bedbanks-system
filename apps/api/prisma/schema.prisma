@@ -229,6 +229,7 @@ model Agency {
   accounts     Wallet[]
   fundingReceipts FundingReceipt[]
   commissionPayouts AgencyCommissionPayout[]
+  ledgerAdjustments LedgerAdjustment[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, id])
@@ -553,6 +554,8 @@ enum LedgerEntryType {
   HOLD
   RELEASE
   REFUND
+  ADJUSTMENT
+  REVERSAL
 }
 
 enum SupplierType {
@@ -850,6 +853,7 @@ model Tenant {
   ledgerChainLinks LedgerChainLink[]
   bookingCreditNotes BookingCreditNote[]
   agencyCommissionPayouts AgencyCommissionPayout[]
+  ledgerAdjustments LedgerAdjustment[]
   reconciliationFindings ReconciliationFinding[]
   reconciliationDecisions ReconciliationDecision[]
   bookingRooms BookingRoom[]
@@ -1769,6 +1773,7 @@ model FundingReceipt {
   wallet                   Wallet?              @relation(fields: [walletId], references: [id], onDelete: Restrict)
   ledgerEntryId            String?              @unique @map("ledger_entry_id")
   ledgerEntry              LedgerEntry?         @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  reversals                LedgerAdjustment[]
   createdAt                DateTime             @default(now()) @map("created_at")
   updatedAt                DateTime             @updatedAt @map("updated_at")
 
@@ -1792,6 +1797,7 @@ model Wallet {
   entries     LedgerEntry[]
   fundingReceipts FundingReceipt[]
   chainLinks LedgerChainLink[]
+  ledgerAdjustments LedgerAdjustment[]
 
   @@unique([tenantId, agencyId, currency])
   @@index([tenantId])
@@ -1813,6 +1819,7 @@ model LedgerEntry {
   chainLink LedgerChainLink?
   creditNote BookingCreditNote?
   commissionPayout AgencyCommissionPayout?
+  adjustment LedgerAdjustment?
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])
@@ -1913,6 +1920,64 @@ model AgencyCommissionPayout {
   @@unique([agencyId, periodStart, periodEnd])
   @@index([tenantId, status, createdAt])
   @@index([tenantId, agencyId])
+}
+
+enum LedgerAdjustmentKind {
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum LedgerAdjustmentReason {
+  BANK_FEE
+  UNIDENTIFIED_CREDIT_ALLOCATED
+  CORRECTION
+  GOODWILL
+  PAYMENT_RECALL
+  CHARGEBACK
+  DUPLICATE_PAYMENT
+}
+
+enum LedgerAdjustmentStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// A reasoned correction (ADJUSTMENT) or a received payment taken back (REVERSAL) on an agency account (ADR 0100). PROPOSED by one person, APPROVED or REJECTED by another. Approval posts
+/// exactly one ledger entry of the same kind and amount, in the same transaction, and links it here. `amountMinor` is the signed stored amount: an ADJUSTMENT either way, a REVERSAL always
+/// negative and linked to the POSTED funding receipt it takes back. Once decided a row never changes and no row is ever deleted.
+model LedgerAdjustment {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId         String                 @map("agency_id")
+  agency           Agency                 @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  walletId         String                 @map("wallet_id")
+  wallet           Wallet                 @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  kind             LedgerAdjustmentKind
+  currency         String                 @db.Char(3)
+  amountMinor      BigInt                 @map("amount_minor")
+  reason           LedgerAdjustmentReason
+  note             String
+  fundingReceiptId String?                @map("funding_receipt_id")
+  fundingReceipt   FundingReceipt?        @relation(fields: [fundingReceiptId], references: [id], onDelete: Restrict)
+  status           LedgerAdjustmentStatus @default(PROPOSED)
+  requestId        String                 @map("request_id")
+  proposedById     String                 @map("proposed_by_id")
+  decidedById      String?                @map("decided_by_id")
+  decidedAt        DateTime?              @map("decided_at")
+  decisionReason   String?                @map("decision_reason")
+  ledgerEntryId    String?                @unique @map("ledger_entry_id")
+  ledgerEntry      LedgerEntry?           @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agencyId])
+  @@index([walletId])
+  @@index([fundingReceiptId])
 }
 
 /// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.

@@ -11,7 +11,7 @@ export default function LedgerPage() {
     <OpsListPage<LedgerEntryView>
       eyebrow="FINANCE" title="Ledger" description="Immutable wallet ledger entries, newest first. Entries cannot be edited or deleted here."
       filters={[
-        { key: 'type', label: 'Type', type: 'select', options: ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND'].map(v => ({ value: v, label: v })) },
+        { key: 'type', label: 'Type', type: 'select', options: ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND', 'ADJUSTMENT', 'REVERSAL'].map(v => ({ value: v, label: v })) },
         { key: 'bookingId', label: 'Booking id', type: 'text' }, { key: 'from', label: 'From', type: 'date' }, { key: 'to', label: 'To', type: 'date' },
       ]}
       load={getOpsLedger} getRowId={e => e.id}

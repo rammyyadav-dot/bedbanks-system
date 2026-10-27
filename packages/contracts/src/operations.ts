@@ -238,7 +238,7 @@ export interface ConnectorRow {
 export interface ConnectorExecutionView { operation: string; status: string; latencyMs: number | null; errorClassification: string | null; at: string }
 
 // ---- Finance and audit summaries ---------------------------------------------------------------------------------------
-export type LedgerEntryType = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND'
+export type LedgerEntryType = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND' | 'ADJUSTMENT' | 'REVERSAL'
 /** Trailing window of whole UTC days ending today. */
 export const SUMMARY_WINDOW_DEFAULT_DAYS = 30
 export const SUMMARY_WINDOW_MAX_DAYS = 90
@@ -288,6 +288,8 @@ export interface LedgerIntegrityFindingView {
 export interface LedgerIntegrityCurrencyTotals {
   currency: string; accounts: number; entries: number
   fundingCreditsMinor: MinorString; otherCreditsMinor: MinorString; chargesMinor: MinorString; refundsMinor: MinorString; openReservationsMinor: MinorString; balanceMinor: MinorString
+  /** Signed sum of ADJUSTMENT entries, and payments taken back by REVERSAL entries as a positive amount (ADR 0100). */
+  adjustmentsMinor: MinorString; reversalsMinor: MinorString
   /** POSTED funding receipts from the receipt register. Equal to fundingCreditsMinor when the sub-ledger ties out. */
   postedReceiptsMinor: MinorString
 }

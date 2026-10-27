@@ -2,15 +2,27 @@
  * Pure ledger arithmetic: the one definition of sign rules, balance and available credit (ADR 0062).
  * Integer minor units as bigint, no floating point, no I/O, no framework. Amounts of different currencies are never added.
  */
-export type LedgerEntryKind = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND'
+export type LedgerEntryKind = 'CREDIT' | 'DEBIT' | 'HOLD' | 'RELEASE' | 'REFUND' | 'ADJUSTMENT' | 'REVERSAL'
 
-/** Direction every entry kind is stored with: money in raises the balance, money out or reserved lowers it. */
-export const LEDGER_SIGN: Readonly<Record<LedgerEntryKind, 1n | -1n>> = {
+/**
+ * Direction every entry kind is stored with: money in raises the balance, money out or reserved lowers it. `null` means either direction:
+ * an ADJUSTMENT is a reasoned correction that can credit or debit an account (ADR 0100). A REVERSAL takes back a payment that was received, so it is always negative.
+ */
+export const LEDGER_SIGN: Readonly<Record<LedgerEntryKind, 1n | -1n | null>> = {
   CREDIT: 1n,
   DEBIT: -1n,
   HOLD: -1n,
   RELEASE: 1n,
   REFUND: 1n,
+  ADJUSTMENT: null,
+  REVERSAL: -1n,
+}
+
+/** True when the stored amount is non-zero and carries the sign its kind requires. An unknown kind is never valid. */
+export function isLedgerSignValid(kind: LedgerEntryKind, amountMinor: bigint): boolean {
+  const sign = LEDGER_SIGN[kind]
+  if (sign === undefined || amountMinor === 0n) return false
+  return sign === null || (amountMinor > 0n ? 1n : -1n) === sign
 }
 
 /** Throws unless the stored amount is non-zero and carries the sign its kind requires. */
@@ -18,7 +30,7 @@ export function assertLedgerSign(kind: LedgerEntryKind, amountMinor: bigint): vo
   const sign = LEDGER_SIGN[kind]
   if (sign === undefined) throw new Error('Unknown ledger entry kind')
   if (amountMinor === 0n) throw new Error('Ledger amount must be non-zero')
-  if ((amountMinor > 0n ? 1n : -1n) !== sign) throw new Error(`Ledger ${kind} must be ${sign === 1n ? 'positive' : 'negative'}`)
+  if (sign !== null && (amountMinor > 0n ? 1n : -1n) !== sign) throw new Error(`Ledger ${kind} must be ${sign === 1n ? 'positive' : 'negative'}`)
 }
 
 /** Balance is the sum of the signed entries. `cached_balance` is never authority. */
