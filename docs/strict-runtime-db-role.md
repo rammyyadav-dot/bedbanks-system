@@ -141,6 +141,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryHoldNight`: holds are gated
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
 - `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
+- `LedgerAdjustment`: finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)
 - `LedgerChainLink`: finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)
 - `LedgerEntry`: finance-gated
 - `Membership`: dedicated tenant membership authoring role only

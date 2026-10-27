@@ -88,6 +88,8 @@ export const permissionCatalogue: readonly PermissionDef[] = [
   enforced('finance.settle.approve', 'finance', 'S3', 'Approve or reject a proposed supplier payment (never the person who proposed it)'),
   enforced('finance.creditnote.propose', 'finance', 'S2', 'Propose a partial credit note to an agency for a charged booking (supplier service failure, price correction, goodwill); no money moves until it is approved'),
   enforced('finance.creditnote.approve', 'finance', 'S3', 'Approve or reject a proposed credit note; approval credits the agency account (never the person who proposed it)'),
+  enforced('finance.adjustment.propose', 'finance', 'S2', 'Propose a correction or a payment reversal on an agency account; no money moves until it is approved'),
+  enforced('finance.adjustment.approve', 'finance', 'S3', 'Approve or reject a proposed adjustment or reversal; approval posts to the agency account (never the person who proposed it)'),
   enforced('finance.terms.manage', 'finance', 'S3', 'Set the payment terms agreed with a supplier (each change is kept as history)'),
   enforced('audit.read', 'audit', 'S0', 'View tenant audit events'),
 

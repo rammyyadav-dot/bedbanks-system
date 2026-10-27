@@ -5,7 +5,7 @@
  *
  * It decides nothing and moves no money. Every finding names the rule, the records and the amounts, so a person can investigate.
  */
-import { LEDGER_SIGN, type LedgerEntryKind } from './ledger'
+import { isLedgerSignValid, type LedgerEntryKind } from './ledger'
 
 export type IntegritySeverity = 'critical' | 'warning'
 
@@ -22,6 +22,8 @@ export type IntegrityCode =
   | 'CANCELLED_REFUND_NOT_POSTED' | 'REFUND_MISMATCH'
   // ledger <-> funding receipts
   | 'RECEIPT_NOT_IN_LEDGER' | 'CREDIT_WITHOUT_RECEIPT'
+  // ledger <-> adjustments and reversals (ADR 0100): each such entry is an approved, reasoned record; a reversal never takes back more than the receipt paid
+  | 'ADJUSTMENT_WITHOUT_APPROVAL' | 'REVERSAL_EXCEEDS_RECEIPT'
   // tamper evidence (ADR 0094): the per-wallet hash chain over the ledger
   | 'LEDGER_CHAIN_BROKEN' | 'LEDGER_CHAIN_ENTRY_UNCHAINED'
 
@@ -34,6 +36,8 @@ export const INTEGRITY_SEVERITY: Readonly<Record<IntegrityCode, IntegritySeverit
   BOOKING_NOT_FOUND: 'critical', CHARGE_AMOUNT_MISMATCH: 'critical', CONFIRMED_NOT_CHARGED: 'critical', CHARGED_NOT_CONFIRMED: 'critical',
   RESERVATION_ON_CLOSED_BOOKING: 'critical', CANCELLED_REFUND_NOT_POSTED: 'critical', REFUND_MISMATCH: 'critical',
   RECEIPT_NOT_IN_LEDGER: 'critical', CREDIT_WITHOUT_RECEIPT: 'critical',
+  // An ADJUSTMENT or REVERSAL with no approved record was posted around the maker-checker flow; a reversal above its receipt means money was taken back that was never received.
+  ADJUSTMENT_WITHOUT_APPROVAL: 'critical', REVERSAL_EXCEEDS_RECEIPT: 'critical',
   // A broken link means an entry was changed, removed or inserted outside the application. There is no benign cause.
   LEDGER_CHAIN_BROKEN: 'critical', LEDGER_CHAIN_ENTRY_UNCHAINED: 'critical',
 }
@@ -43,6 +47,8 @@ export interface IntegrityEntry { id: string; accountId: string; type: LedgerEnt
 /** `cancellationRefundMinor` is the refund the cancellation record fixed; `undefined` when the booking has no cancellation record. */
 export interface IntegrityBooking { id: string; status: string; currency: string; totalMinor: bigint; cancellationRefundMinor?: bigint | null }
 export interface IntegrityReceipt { id: string; status: string; accountId: string | null; ledgerEntryId: string | null; amountMinor: bigint; currency: string }
+/** An ADJUSTMENT or REVERSAL record (ADR 0100). `amountMinor` is the signed amount the ledger entry carries; a REVERSAL names the receipt it takes back. */
+export interface IntegrityAdjustment { id: string; kind: 'ADJUSTMENT' | 'REVERSAL'; status: string; accountId: string; ledgerEntryId: string | null; amountMinor: bigint; currency: string; receiptId: string | null }
 
 /** One fault found by the database's chain verifier (`fbeds_ledger_chain_breaks`). `seq` is null for an entry that has no link at all. */
 export interface ChainBreak { accountId: string; entryId: string | null; seq: number | null; reason: 'SEQUENCE_GAP' | 'PREV_HASH_MISMATCH' | 'ENTRY_MISSING' | 'ENTRY_HASH_MISMATCH' | 'ENTRY_UNCHAINED' }
@@ -53,6 +59,8 @@ export interface IntegrityInput {
   /** Bookings referenced by the ledger (any not supplied is reported BOOKING_NOT_FOUND) and any other booking worth tying out. */
   bookings: readonly IntegrityBooking[]
   receipts: readonly IntegrityReceipt[]
+  /** Adjustment and reversal records. Omit when they were not loaded; the adjustment rules are then not applied. */
+  adjustments?: readonly IntegrityAdjustment[]
   /** Faults from the hash chain verifier. Omit when the chain was not checked. */
   chainBreaks?: readonly ChainBreak[]
   now: Date
@@ -67,10 +75,14 @@ export interface IntegrityFinding {
   amounts: Record<string, bigint>
 }
 
-/** Roll-forward per currency: balance = funding + refunds - charges - open reservations (+ any other credits). Each a separate row. */
+/** Roll-forward per currency: balance = funding + refunds - charges - open reservations + adjustments - reversals (+ any other credits). Each a separate row. */
 export interface IntegrityCurrencyTotals {
   currency: string; accounts: number; entries: number
   fundingCreditsMinor: bigint; otherCreditsMinor: bigint; chargesMinor: bigint; refundsMinor: bigint; openReservationsMinor: bigint; balanceMinor: bigint
+  /** Signed sum of ADJUSTMENT entries (a debit adjustment is negative). */
+  adjustmentsMinor: bigint
+  /** Payments taken back, as a positive amount (the entries are stored negative). */
+  reversalsMinor: bigint
   /** Funding receipts in POSTED status, from the receipt register; ties to fundingCreditsMinor when the sub-ledger agrees. */
   postedReceiptsMinor: bigint
 }
@@ -117,7 +129,7 @@ export function checkLedgerIntegrity(input: IntegrityInput): IntegrityReport {
   const accounts = new Map(input.accounts.map(a => [a.id, a]))
   const totals = new Map<string, IntegrityCurrencyTotals>()
   const totalsFor = (currency: string) => {
-    const row = totals.get(currency) ?? { currency, accounts: 0, entries: 0, fundingCreditsMinor: 0n, otherCreditsMinor: 0n, chargesMinor: 0n, refundsMinor: 0n, openReservationsMinor: 0n, balanceMinor: 0n, postedReceiptsMinor: 0n }
+    const row = totals.get(currency) ?? { currency, accounts: 0, entries: 0, fundingCreditsMinor: 0n, otherCreditsMinor: 0n, chargesMinor: 0n, refundsMinor: 0n, openReservationsMinor: 0n, balanceMinor: 0n, adjustmentsMinor: 0n, reversalsMinor: 0n, postedReceiptsMinor: 0n }
     totals.set(currency, row)
     return row
   }
@@ -128,8 +140,7 @@ export function checkLedgerIntegrity(input: IntegrityInput): IntegrityReport {
   for (const e of input.entries) {
     const account = accounts.get(e.accountId)
     const at = { currency: e.currency, accountId: e.accountId, entryId: e.id, bookingId: bookingIdOf(e.reference) }
-    const sign = LEDGER_SIGN[e.type]
-    if (sign === undefined || e.amountMinor === 0n || (e.amountMinor > 0n ? 1n : -1n) !== sign) add('ENTRY_SIGN_INVALID', at, { amountMinor: e.amountMinor })
+    if (!isLedgerSignValid(e.type, e.amountMinor)) add('ENTRY_SIGN_INVALID', at, { amountMinor: e.amountMinor })
     if (!account) add('ENTRY_ACCOUNT_UNKNOWN', at, { amountMinor: e.amountMinor })
     else if (account.currency !== e.currency) add('ENTRY_CURRENCY_MISMATCH', at, { amountMinor: e.amountMinor })
     balances.set(e.accountId, (balances.get(e.accountId) ?? 0n) + e.amountMinor)
@@ -139,6 +150,8 @@ export function checkLedgerIntegrity(input: IntegrityInput): IntegrityReport {
     if (e.type === 'CREDIT') { if (e.reference && FUNDING_REF.test(e.reference)) row.fundingCreditsMinor += e.amountMinor; else row.otherCreditsMinor += e.amountMinor }
     else if (e.type === 'DEBIT') row.chargesMinor += abs(e.amountMinor)
     else if (e.type === 'REFUND') row.refundsMinor += e.amountMinor
+    else if (e.type === 'ADJUSTMENT') row.adjustmentsMinor += e.amountMinor
+    else if (e.type === 'REVERSAL') row.reversalsMinor += abs(e.amountMinor)
     // HOLD reserves; every RELEASE (a plain release, or the settle-release that turns the reservation into the DEBIT) returns it.
     else row.openReservationsMinor -= e.amountMinor
   }
@@ -193,7 +206,27 @@ export function checkLedgerIntegrity(input: IntegrityInput): IntegrityReport {
     if (!r || r.status !== 'POSTED' || r.ledgerEntryId !== e.id) add('CREDIT_WITHOUT_RECEIPT', { currency: e.currency, accountId: e.accountId, entryId: e.id, receiptId }, { amountMinor: e.amountMinor })
   }
 
-  // 4. The hash chain (ADR 0094): the database recomputed every link; each fault is a critical finding on the wallet and entry it names.
+  // 4. Adjustments and reversals: each entry is the one posting of an APPROVED record, and reversals stay within what their receipt paid.
+  if (input.adjustments) {
+    const approved = new Map<string, IntegrityAdjustment>()
+    for (const a of input.adjustments) if (a.status === 'APPROVED' && a.ledgerEntryId) approved.set(a.ledgerEntryId, a)
+    const reversedByReceipt = new Map<string, bigint>()
+    for (const e of input.entries) {
+      if (e.type !== 'ADJUSTMENT' && e.type !== 'REVERSAL') continue
+      const a = approved.get(e.id)
+      if (!a || a.kind !== e.type || a.accountId !== e.accountId || a.amountMinor !== e.amountMinor || a.currency !== e.currency) {
+        add('ADJUSTMENT_WITHOUT_APPROVAL', { currency: e.currency, accountId: e.accountId, entryId: e.id }, { amountMinor: e.amountMinor, recordedMinor: a?.amountMinor ?? 0n })
+      } else if (e.type === 'REVERSAL' && a.receiptId) {
+        reversedByReceipt.set(a.receiptId, (reversedByReceipt.get(a.receiptId) ?? 0n) + abs(e.amountMinor))
+      }
+    }
+    for (const [receiptId, reversed] of reversedByReceipt) {
+      const r = receipts.get(receiptId)
+      if (!r || r.status !== 'POSTED' || reversed > r.amountMinor) add('REVERSAL_EXCEEDS_RECEIPT', { currency: r?.currency ?? null, receiptId, accountId: r?.accountId ?? null }, { receiptMinor: r?.amountMinor ?? 0n, reversedMinor: reversed })
+    }
+  }
+
+  // 5. The hash chain (ADR 0094): the database recomputed every link; each fault is a critical finding on the wallet and entry it names.
   for (const b of input.chainBreaks ?? []) {
     const account = accounts.get(b.accountId)
     add(b.reason === 'ENTRY_UNCHAINED' ? 'LEDGER_CHAIN_ENTRY_UNCHAINED' : 'LEDGER_CHAIN_BROKEN', { currency: account?.currency ?? null, accountId: b.accountId, entryId: b.entryId }, b.seq === null ? {} : { seq: BigInt(b.seq) })

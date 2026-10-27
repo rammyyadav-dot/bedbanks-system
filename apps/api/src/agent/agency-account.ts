@@ -84,7 +84,7 @@ export async function bookingAccountFor(tx: Prisma.TransactionClient, tenantId: 
 export async function accountAging(tx: Prisma.TransactionClient, tenantId: string, accountId: string | null, now = new Date()): Promise<Aging> {
   if (!accountId) return ageAccount([], now)
   const entries = await tx.ledgerEntry.findMany({
-    where: { tenantId, walletId: accountId, type: { in: ['DEBIT', 'CREDIT', 'REFUND'] } },
+    where: { tenantId, walletId: accountId, type: { in: ['DEBIT', 'CREDIT', 'REFUND', 'ADJUSTMENT', 'REVERSAL'] } },
     orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }], select: { type: true, amountMinor: true, reference: true, immutableAt: true },
   })
   return ageAccount(entries.map(e => ({ type: e.type, amountMinor: e.amountMinor, reference: e.reference, at: e.immutableAt })), now)

@@ -7,7 +7,7 @@ How money works in fBeds, written as an enterprise bedbank finance function woul
 - **PROPOSED**: not built. Needs an owner decision, and often a migration and an ADR, before anything is written.
 
 Constitution rules that apply throughout: integer minor units plus ISO-4217, never floating point (3); idempotent money mutations (6);
-immutable audit events (8); nothing shown as capability that is not built (10). Related ADRs: 0024, 0028, 0029, 0054, 0062, 0068.
+immutable audit events (8); nothing shown as capability that is not built (10). Related ADRs: 0024, 0028, 0029, 0054, 0062, 0068, 0100.
 
 ---
 
@@ -21,7 +21,7 @@ immutable audit events (8); nothing shown as capability that is not built (10). 
 | P3 | One currency per account. Currencies are never converted, added or netted; every report has one row per currency. Launch currency AED; net rates are tax-inclusive. | BUILT (ADR 0028, 0029) |
 | P4 | Every posting has an idempotency key and a business reference (`booking:<id>`, `funding:<receipt id>`). A replayed key with different intent is refused. | BUILT |
 | P5 | Money controls fail closed: if a position cannot be read, the spend is refused. | BUILT |
-| P6 | Whoever asks is not whoever approves for limits, large receipts and penalty waivers. | BUILT for those three; PROPOSED for adjustments |
+| P6 | Whoever asks is not whoever approves for limits, large receipts, penalty waivers, credit notes, commission payouts, adjustments and reversals. | BUILT |
 | P7 | Every money mutation writes an audit event with ids and amounts, never payer or guest personal data. | BUILT |
 | P8 | The ledger is reconciled to the records that caused it. A break is a finding to investigate, never something auto-corrected. | BUILT (ADR 0068) |
 
@@ -40,8 +40,8 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | RELEASE | + | A reservation returned, or converted into a charge |
 | DEBIT | - | The final charge for a confirmed booking |
 | REFUND | + | Part of a charge returned on cancellation |
-| ADJUSTMENT | +/- | Correction with a reason, maker-checker. PROPOSED |
-| REVERSAL | - | A received payment reversed (bank recall, chargeback). PROPOSED |
+| ADJUSTMENT | +/- | Correction with a reason, maker-checker. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100) |
+| REVERSAL | - | A received payment reversed (bank recall, chargeback, duplicate), linked to its receipt. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100); API only, no Admin screen |
 
 ## 3. Posting matrix
 
@@ -56,8 +56,8 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | Cancelled, operator or supplier path | REFUND +R (`booking:<id>:cancel-refund`), R = total - effective penalty; nothing while the penalty is undecided | +R | BUILT (ADR 0069) |
 | Penalty waived after settlement | REFUND +difference (`…:cancel-refund:<new total>`); a higher decision is never clawed back | +diff | BUILT (ADR 0069) |
 | Partial credit on a charged booking (supplier service failure, price correction, goodwill) | REFUND +X (`booking:<id>:credit-note:<note id>`), proposed by one person and approved by another | +X | BUILT behind `CREDIT_NOTES_ENABLED` (ADR 0095 part B); revenue reports not netted |
-| Correction that is not a refund of a charge (a debit, or no booking) | ADJUSTMENT with reason, two people | +/- | PROPOSED |
-| Payment reversed | REVERSAL linked to the receipt; may take the account negative and triggers review | -X | PROPOSED |
+| Correction that is not a refund of a charge (a debit, or no booking) | ADJUSTMENT with reason, two people (`adjustment:<id>`) | +/- | BUILT, agency accounts only (ADR 0100) |
+| Payment reversed | REVERSAL linked to the receipt, never above what it paid (`funding:<receipt>:reversal:<id>`); may take the account below its line, shown as a warning and in aging | -X | BUILT (ADR 0100); automatic suspension or review not built |
 
 Booking ledger invariants, per booking (checked by ADR 0068):
 `released + settle-release <= reserved`, `settle-release = charge`, `charge > 0 => reservation existed`, `refunds <= charge`,
@@ -128,9 +128,9 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | Overpayment | Posted in full as balance; refund only on request, with approval | PARTIAL (refund to bank not built) |
 | Wrong currency | Rejected; no conversion | BUILT |
 | Funds after a hold expired | Credited as balance; the hold is not revived | BUILT |
-| Bank recall or chargeback | REVERSAL linked to the receipt; review; may suspend | PROPOSED |
+| Bank recall or chargeback | REVERSAL linked to the receipt, two people; the money is owed again in aging; suspension stays a manual action | BUILT (ADR 0100) |
 | Payment link or card | Provider, verified webhooks, fees policy | PROPOSED (slice 5) |
-| Unmatched bank credit | Held in a suspense list until matched to an agency | PARTIAL: listed as `UNMATCHED_ENTRY` exceptions (ADR 0093); matching it to an agency and posting it are not built |
+| Unmatched bank credit | Held in a suspense list until matched to an agency | PARTIAL: listed as `UNMATCHED_ENTRY` exceptions (ADR 0093); once identified, a person can allocate it with an ADJUSTMENT (`UNIDENTIFIED_CREDIT_ALLOCATED`, ADR 0100) but there is no automatic link from the finding |
 
 ## 7. Supplier side (procure to pay)
 
@@ -183,7 +183,8 @@ period locked so a new entry dated inside it is refused (entries are never backd
 | Funding verify / post / compliance | `funding.manage` | different person; second person above threshold | BUILT |
 | Penalty waiver | requester | `booking.penalty.waive.approve`, different person | BUILT |
 | Reconciliation run | `booking.reconcile` | optional approval, different person (ADR 0017) | BUILT (optional) |
-| Ledger adjustment, refund to source, write-off | finance | second finance approver above a threshold | PROPOSED |
+| Ledger adjustment and payment reversal | `finance.adjustment.propose` | `finance.adjustment.approve`, different person | BUILT (ADR 0100); no higher tier above a threshold yet |
+| Refund to source, write-off | finance | second finance approver above a threshold | PROPOSED |
 | Read finance | `finance.read` | | BUILT |
 
 ## 11. Decisions needed from the owner
@@ -192,7 +193,7 @@ Decided 2026-10-18 "as per global bedbanks workflow and functioning" and built i
 effective penalty (F3), database ledger guards (F4), and a daily read-only reconciliation run. Still open:
 
 1. **Provision the monitor's read-only login** (`LEDGER_INTEGRITY_DATABASE_URL`) and the log alarm on its error lines.
-2. **ADJUSTMENT and REVERSAL** entry kinds (goodwill refunds, corrections, payment recalls), threshold for a second approver.
+2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, the Admin screen, and house-account adjustments.
 3. **Scheduling R5** (stalled attempts) unattended: it writes SYSTEM audit events, which needs a governed role.
 4. **Per-agency terms**, temporary increases, review dates, security.
 5. **Chart of accounts and GL export** format; gapless credit-note numbering if a jurisdiction requires it; VAT presentation.

@@ -16,7 +16,9 @@ const DAY_MS = 86_400_000
  * FIFO aging of one agency account (ADR 0028 slice 4). Only settled money is aged:
  *   DEBIT  (negative) is a charge, dated when it was posted;
  *   REFUND (positive) first pays charges with the same reference (its own booking), then the oldest;
- *   CREDIT (positive, a posted payment) pays the oldest charges; what is left is prepaid money that pays later charges.
+ *   CREDIT (positive, a posted payment) pays the oldest charges; what is left is prepaid money that pays later charges;
+ *   ADJUSTMENT pays like a CREDIT when positive and is a new charge, dated when posted, when negative (ADR 0100);
+ *   REVERSAL (negative) is a payment taken back, so the money is owed again: a new charge, dated when posted.
  * HOLD and RELEASE are pending authorizations, not charges, so they are ignored. Entries must be in posting order.
  */
 export function ageAccount(entries: readonly AgingEntry[], now: Date = new Date()): Aging {
@@ -29,12 +31,12 @@ export function ageAccount(entries: readonly AgingEntry[], now: Date = new Date(
     prepaid += left
   }
   for (const e of entries) {
-    if (e.type === 'DEBIT' && e.amountMinor < 0n) {
+    if ((e.type === 'DEBIT' || e.type === 'REVERSAL' || e.type === 'ADJUSTMENT') && e.amountMinor < 0n) {
       let charge = -e.amountMinor
       const fromPrepaid = prepaid < charge ? prepaid : charge
       prepaid -= fromPrepaid; charge -= fromPrepaid
       if (charge > 0n) charges.push({ amount: charge, at: e.at, reference: e.reference })
-    } else if ((e.type === 'CREDIT' || e.type === 'REFUND') && e.amountMinor > 0n) {
+    } else if ((e.type === 'CREDIT' || e.type === 'REFUND' || e.type === 'ADJUSTMENT') && e.amountMinor > 0n) {
       pay(e.amountMinor, e.type === 'REFUND' ? e.reference : null)
     }
   }

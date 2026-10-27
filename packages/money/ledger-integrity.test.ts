@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { checkLedgerIntegrity, type IntegrityBooking, type IntegrityEntry, type IntegrityInput, type IntegrityReceipt } from './src/index.ts'
+import { checkLedgerIntegrity, type IntegrityAdjustment, type IntegrityBooking, type IntegrityEntry, type IntegrityInput, type IntegrityReceipt } from './src/index.ts'
 
 const NOW = new Date('2026-10-17T12:00:00Z')
 const T0 = new Date('2026-10-17T11:55:00Z')
@@ -114,4 +114,48 @@ test('hash chain faults from the database verifier become critical findings and 
     ['LEDGER_CHAIN_BROKEN', 'critical', 'e3', 'AED', { seq: 4n }],
     ['LEDGER_CHAIN_ENTRY_UNCHAINED', 'critical', 'e9', 'AED', {}],
   ])
+})
+
+const adj = (id: string, kind: 'ADJUSTMENT' | 'REVERSAL', entry: IntegrityEntry, extra: Partial<IntegrityAdjustment> = {}): IntegrityAdjustment =>
+  ({ id, kind, status: 'APPROVED', accountId: 'acc', ledgerEntryId: entry.id, amountMinor: entry.amountMinor, currency: 'AED', receiptId: null, ...extra })
+
+test('adjustments and reversals roll forward and are clean when each entry is an approved record', () => {
+  const credit = e('CREDIT', 100_000n, 'funding:r1', 'funding:r1')
+  const receipts: IntegrityReceipt[] = [{ id: 'r1', status: 'POSTED', accountId: 'acc', ledgerEntryId: credit.id, amountMinor: 100_000n, currency: 'AED' }]
+  const fee = e('ADJUSTMENT', -2_500n, 'adjustment:a1', 'adjustment:a1')
+  const bonus = e('ADJUSTMENT', 1_000n, 'adjustment:a2', 'adjustment:a2')
+  const recall = e('REVERSAL', -30_000n, 'funding:r1:reversal:a3', 'funding:r1')
+  const report = run({ entries: [credit, fee, bonus, recall], receipts, adjustments: [adj('a1', 'ADJUSTMENT', fee), adj('a2', 'ADJUSTMENT', bonus), adj('a3', 'REVERSAL', recall, { receiptId: 'r1' })] })
+  assert.deepEqual(report.findings, [])
+  const [aed] = report.totals
+  assert.equal(aed.adjustmentsMinor, -1_500n)
+  assert.equal(aed.reversalsMinor, 30_000n)
+  assert.equal(aed.balanceMinor, 100_000n - 1_500n - 30_000n)
+  assert.equal(aed.balanceMinor, aed.fundingCreditsMinor + aed.otherCreditsMinor + aed.refundsMinor - aed.chargesMinor - aed.openReservationsMinor + aed.adjustmentsMinor - aed.reversalsMinor)
+})
+
+test('an adjustment or reversal entry with no approved record, or one that differs from its record, is critical', () => {
+  const fee = e('ADJUSTMENT', -2_500n, 'adjustment:a1', 'adjustment:a1')
+  const recall = e('REVERSAL', -300n, 'funding:r1:reversal:a2', 'funding:r1')
+  const credit = e('CREDIT', 1_000n, 'funding:r1', 'funding:r1')
+  const receipts: IntegrityReceipt[] = [{ id: 'r1', status: 'POSTED', accountId: 'acc', ledgerEntryId: credit.id, amountMinor: 1_000n, currency: 'AED' }]
+  assert.deepEqual(codes({ entries: [fee], adjustments: [] }), ['ADJUSTMENT_WITHOUT_APPROVAL'])
+  assert.deepEqual(codes({ entries: [fee], adjustments: [adj('a1', 'ADJUSTMENT', fee, { status: 'PROPOSED' })] }), ['ADJUSTMENT_WITHOUT_APPROVAL'])
+  assert.deepEqual(codes({ entries: [fee], adjustments: [adj('a1', 'ADJUSTMENT', fee, { amountMinor: -2_000n })] }), ['ADJUSTMENT_WITHOUT_APPROVAL'])
+  assert.deepEqual(codes({ entries: [credit, recall], receipts, adjustments: [adj('a2', 'ADJUSTMENT', recall, { kind: 'ADJUSTMENT' })] }), ['ADJUSTMENT_WITHOUT_APPROVAL'])
+  // The rule is off when the register was not loaded.
+  assert.deepEqual(codes({ entries: [fee] }), [])
+})
+
+test('reversals above what the receipt paid, or of a receipt that was never posted, are critical', () => {
+  const credit = e('CREDIT', 1_000n, 'funding:r1', 'funding:r1')
+  const r1 = e('REVERSAL', -700n, 'funding:r1:reversal:a1', 'funding:r1')
+  const r2 = e('REVERSAL', -400n, 'funding:r1:reversal:a2', 'funding:r1')
+  const receipts: IntegrityReceipt[] = [{ id: 'r1', status: 'POSTED', accountId: 'acc', ledgerEntryId: credit.id, amountMinor: 1_000n, currency: 'AED' }]
+  const adjustments = [adj('a1', 'REVERSAL', r1, { receiptId: 'r1' }), adj('a2', 'REVERSAL', r2, { receiptId: 'r1' })]
+  const report = run({ entries: [credit, r1, r2], receipts, adjustments })
+  assert.deepEqual(report.findings.map(f => f.code), ['REVERSAL_EXCEEDS_RECEIPT'])
+  assert.equal(report.findings[0].amounts.reversedMinor, 1_100n)
+  assert.equal(report.findings[0].receiptId, 'r1')
+  assert.deepEqual(codes({ entries: [credit, r1], receipts: [{ ...receipts[0], status: 'REJECTED' }], adjustments: [adjustments[0]] }).includes('REVERSAL_EXCEEDS_RECEIPT'), true)
 })

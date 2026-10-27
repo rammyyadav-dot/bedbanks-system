@@ -15,8 +15,8 @@ const minorRecord = (amounts: Record<string, bigint>) => Object.fromEntries(Obje
 
 const DEFINITIONS: Record<string, string> = {
   scope: 'Every ledger entry and account of the tenant, tied out to the bookings, cancellation records and funding receipts that caused them. Read-only: nothing is posted, corrected or locked.',
-  rollForward: 'Per currency: balance = funding credits + other credits + refunds - charges - open reservations. Currencies are never added together.',
-  ENTRY_SIGN_INVALID: 'An entry is zero or carries the wrong sign for its kind (CREDIT, RELEASE, REFUND positive; DEBIT, HOLD negative).',
+  rollForward: 'Per currency: balance = funding credits + other credits + refunds - charges - open reservations + adjustments - reversals. Currencies are never added together.',
+  ENTRY_SIGN_INVALID: 'An entry is zero or carries the wrong sign for its kind (CREDIT, RELEASE, REFUND positive; DEBIT, HOLD, REVERSAL negative; ADJUSTMENT either way).',
   ENTRY_CURRENCY_MISMATCH: 'An entry currency differs from its account currency. Amounts are never converted.',
   ENTRY_ACCOUNT_UNKNOWN: 'An entry references an account that is not readable in this tenant.',
   LEDGER_CHAIN_BROKEN: 'The tamper-evident hash chain over this account\'s ledger does not verify: a link or an entry was changed, removed or inserted outside the application (ADR 0094). Treat as a security incident.',
@@ -37,6 +37,8 @@ const DEFINITIONS: Record<string, string> = {
   REFUND_MISMATCH: 'The refund posted differs from the refund the cancellation record fixed.',
   RECEIPT_NOT_IN_LEDGER: 'A POSTED funding receipt has no matching CREDIT (amount, currency, account and reference).',
   CREDIT_WITHOUT_RECEIPT: 'A funding CREDIT has no POSTED receipt pointing at it.',
+  ADJUSTMENT_WITHOUT_APPROVAL: 'An ADJUSTMENT or REVERSAL entry has no approved adjustment record with the same kind, account and amount, so it was posted around the maker-checker flow (ADR 0100).',
+  REVERSAL_EXCEEDS_RECEIPT: 'Reversals of one funding receipt add up to more than the receipt paid, or the receipt was never posted: money was taken back that was never received (ADR 0100).',
 }
 
 /**
@@ -56,11 +58,12 @@ export class OperationsLedgerIntegrityService {
     const staleReservationMinutes = intParam('staleMinutes', query.staleMinutes, 5, 7 * 24 * 60) ?? LEDGER_INTEGRITY_STALE_MINUTES_DEFAULT
     const now = this.clock()
     return guardedRead(() => db.withTenant(tenantId, async tx => {
-      const [wallets, entries, receipts] = await Promise.all([
+      const [wallets, entries, receipts, adjustments] = await Promise.all([
         tx.wallet.findMany({ where: { tenantId }, select: { id: true, agencyId: true, currency: true, creditLimit: true } }),
         tx.ledgerEntry.findMany({ where: { tenantId }, orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }], take: LEDGER_INTEGRITY_ENTRY_LIMIT + 1,
           select: { id: true, walletId: true, type: true, amountMinor: true, currency: true, reference: true, idempotencyKey: true, immutableAt: true } }),
         tx.fundingReceipt.findMany({ where: { tenantId }, select: { id: true, status: true, walletId: true, ledgerEntryId: true, amountMinor: true, currency: true } }),
+        tx.ledgerAdjustment.findMany({ where: { tenantId }, select: { id: true, kind: true, status: true, walletId: true, ledgerEntryId: true, amountMinor: true, currency: true, fundingReceiptId: true } }),
       ])
       const capped = entries.length > LEDGER_INTEGRITY_ENTRY_LIMIT
       const scan = { accounts: wallets.length, entries: Math.min(entries.length, LEDGER_INTEGRITY_ENTRY_LIMIT), bookings: 0, receipts: receipts.length, entryLimit: LEDGER_INTEGRITY_ENTRY_LIMIT, capped }
@@ -86,6 +89,7 @@ export class OperationsLedgerIntegrityService {
         accounts: wallets.map(w => ({ id: w.id, currency: w.currency, agencyId: w.agencyId, creditLineMinor: line(w) })),
         entries: integrityEntries, bookings,
         receipts: receipts.map(r => ({ id: r.id, status: r.status, accountId: r.walletId, ledgerEntryId: r.ledgerEntryId, amountMinor: r.amountMinor, currency: r.currency })),
+        adjustments: adjustments.map(a => ({ id: a.id, kind: a.kind, status: a.status, accountId: a.walletId, ledgerEntryId: a.ledgerEntryId, amountMinor: a.amountMinor, currency: a.currency, receiptId: a.fundingReceiptId })),
         chainBreaks: chainBreaks.map(b => ({ accountId: b.wallet_id, entryId: b.entry_id, seq: b.seq, reason: b.reason })),
         now, staleReservationMinutes,
       })
@@ -102,7 +106,8 @@ export class OperationsLedgerIntegrityService {
     const totals: LedgerIntegrityCurrencyTotals[] = (report?.totals ?? []).map(t => ({
       currency: t.currency, accounts: t.accounts, entries: t.entries,
       fundingCreditsMinor: t.fundingCreditsMinor.toString(), otherCreditsMinor: t.otherCreditsMinor.toString(), chargesMinor: t.chargesMinor.toString(), refundsMinor: t.refundsMinor.toString(),
-      openReservationsMinor: t.openReservationsMinor.toString(), balanceMinor: t.balanceMinor.toString(), postedReceiptsMinor: t.postedReceiptsMinor.toString(),
+      openReservationsMinor: t.openReservationsMinor.toString(), balanceMinor: t.balanceMinor.toString(),
+      adjustmentsMinor: t.adjustmentsMinor.toString(), reversalsMinor: t.reversalsMinor.toString(), postedReceiptsMinor: t.postedReceiptsMinor.toString(),
     }))
     const findingView = (f: IntegrityFinding): LedgerIntegrityFindingView => ({
       code: f.code, severity: f.severity, currency: f.currency, accountId: f.accountId, agencyId: f.accountId ? agencyOf.get(f.accountId) ?? null : null,

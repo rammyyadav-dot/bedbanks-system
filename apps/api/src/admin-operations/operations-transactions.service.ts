@@ -20,7 +20,7 @@ import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, endOfDay, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
 
 const HOLD_STATUSES = ['PENDING_RECHECK', 'RECHECKED', 'HOLD_PENDING', 'HELD', 'PROCESSING', 'CONFIRMED', 'RELEASED', 'EXPIRED', 'FAILED'] as const
-const LEDGER_TYPES = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND'] as const
+const LEDGER_TYPES = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND', 'ADJUSTMENT', 'REVERSAL'] as const
 const ACCOUNT_OWNER_PARAMS = ['HOUSE', 'AGENCY'] as const
 const RECENT_ENTRIES = 25
 const SCAN_LIMIT = 500

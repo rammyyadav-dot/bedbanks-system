@@ -10,7 +10,7 @@ import { creditLineResolver } from '../agent/agency-account'
 import { day, iso, sectionRead } from './operations-read'
 import { endOfDay, intParam } from './query-params'
 
-const LEDGER_TYPES: readonly LedgerEntryType[] = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND']
+const LEDGER_TYPES: readonly LedgerEntryType[] = ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND', 'ADJUSTMENT', 'REVERSAL']
 const DAY_MS = 86_400_000
 
 /**
