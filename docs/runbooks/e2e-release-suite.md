@@ -36,4 +36,4 @@ It only ever drops and recreates the database named `fbeds_preview_xt`. Test pas
 Open the CI artifact `e2e-release-suite-report`: screenshots, traces and the API and portal logs. First check that the portals were rebuilt from the current code; a stale build looks like "no hotels matched" with a "mapping could not be verified" notice.
 
 ## Known gaps found while building it (not fixed here)
-- Sign-in audit events are not saved under the strict database role: the API logs `auth_audit_persist_failed` on every login. The audit insert is allowed, but Prisma's `create` also reads the row back, which the audit table's read policy denies. The login still succeeds, but the sign-in audit trail is empty.
+- None open. (Sign-in audit persistence was fixed by writing with `createMany`, which issues no `RETURNING`; password-reset audit actions are admitted by migration `202612140001`.)
