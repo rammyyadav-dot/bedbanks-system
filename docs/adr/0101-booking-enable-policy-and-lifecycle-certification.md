@@ -1,6 +1,6 @@
 # ADR 0101: Booking-enable policy and lifecycle certification
 
-Status: proposed (needs owner acceptance; ADR 0055 #6 reserves the decision to enable booking to the owner)
+Status: accepted (owner, 2026-10-27). Accepting the policy enables nothing: booking stays off in every environment until the owner records a decision for that environment.
 
 ## Context
 
