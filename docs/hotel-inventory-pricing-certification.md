@@ -40,19 +40,31 @@ Markup rounding is exact: 33,335 × 15% = 5,000.25 → 5,000. Totals are `bigint
 - Scale: `dubai-agent-search-scale`, `dubai-agent-search-hundred`, `dubai-commercial-scale` (3 suites, 21 tests): all pass.
 - `pnpm check:no-float`, `pnpm check:no-silent-fallback`: pass.
 
-## Browser verifiers (`tools/admin-ops-verify`, Chromium, production Admin and Agent builds, API on the strict `fbeds_api_login` role)
-Run by hand on a disposable database; not in CI. Pre-installed Chromium was used through a Playwright launch shim kept outside the repo.
+## Browser verifiers (`tools/admin-ops-verify`, Chromium, production Admin and Agent builds)
+Run by hand on a disposable database; not in CI. Pre-installed Chromium was used through a Playwright launch shim kept outside the repo. The first run (API on the strict `fbeds_api_login` role) found one real defect and several stale verifier assumptions; both are fixed and re-run below.
 
-| Verifier | Result | Reading |
+| Verifier | First run | After fixes |
 | --- | --- | --- |
-| `verify-inventory.cjs` | Stops at its first step | Waits for `[data-testid=hotel-header]` after clicking a hotel in the list; the current hotel page renders that element only in one view. Checks were not reached. The UI is fine (the Inventory tab loads with 12/12 checks passing), the verifier is stale |
-| `verify-rate-certification.cjs` | 66 PASS, then timeout | Counts, filters, detail, simulator, report and axe passed. The final viewer step waits for `[data-state]`, but a viewer without the permission now gets the fail-closed "You do not have permission to view this page" screen (ADR 0063), which has no `data-state`. Access is correctly denied; the tenant-B step after it did not run |
-| `verify-pool-capacity.cjs` | 67 PASS, 4 FAIL | Not diagnosed: pool detail API 403 and 500 did not render the expected `data-state`; the checker-sees-approve/reject check failed; axe reports color-contrast on a `small` element in the workspace with a preview open (a real accessibility finding unless proven otherwise) |
+| `verify-pool-capacity.cjs` | 67 PASS, 4 FAIL | **71/71** (strict-role API) |
+| `verify-rate-certification.cjs` | 66 PASS, then timeout | **69/69** (strict-role API) |
+| `verify-inventory.cjs` | stopped at its first step | 7 checks pass through the pool, plan table and calendar; **the Quick Update, Agent search and recheck half has not run** (see below) |
 
-None of this shows a pricing or inventory defect, but the three scripts have not been brought in line with the current Admin UI, so the UI claims in older records are not re-certified by this run.
+**Fixed product defects (Admin)**
+- Hotel Admin header and navigation: pale text on `#2563eb` was 4.23-4.27:1 (WCAG AA needs 4.5:1). The header now uses `#1d4ed8` (about 5.5:1 for the pale text, 6.7:1 for white), via a new `--k-1d4ed8` token.
+- Muted text and inactive tab links in the hotel pages (`#657d9f` 4.21:1, `#607898` 4.25:1 on `#f6f8fb`) now use `#5b7394` (4.86:1 on white, 4.56:1 on the pale panel) via a new `--c-5b7394` token; both old tokens were used only by `hotel-admin.css` and are removed. This makes the hotel header slightly darker in light mode.
+- The readiness summary reused `data-state` for gate results (`PASS`/`WARN`/`FAIL`), which collides with the repository convention that `data-state` is the async view state (loading, empty, forbidden, error). It is now `data-gate-state`.
+
+**Verifier updates (stale against the current UI)**
+- `verify-inventory.cjs`: a hotel opened without `?tab=` now lands on Property Setup, so it follows the link and then opens `?tab=overview`; `hotel-header` sits in a collapsed details element (waits for it to be attached); the Inventory workspace is the "Allocation Mgmt" link; the default release time of a new plan is 18:00 (ADR 0067, F-08), not 00:00.
+- `verify-rate-certification.cjs`: a viewer without the permission is stopped by the route guard (ADR 0063) with a "do not have permission" alert; the check accepts that or the page's forbidden state and requires that no data renders.
+- `verify-pool-capacity.cjs`: the 403/500 checks read the view state rather than the first `data-state` on the page; the checker check waits for the approve button instead of racing the load.
+
+**Not run: the rest of `verify-inventory.cjs`.** Its Quick Update step is refused by the strict runtime role by design (`RUNTIME_ROLE_OPERATION_PROHIBITED`, ADR 0032), so it needs an owner-connected API, which the API refuses to start as unless `DB_RUNTIME_ROLE_GUARD=off` with `NODE_ENV=test` is set. I did not disable that guard without the owner's say-so. Until it is run that way, the browser evidence for apply, Agent search and the stale-offer recheck is missing; the same behaviour is covered over HTTP by `inventory-http`, `inventory-hold` and `inventory-search-recheck`.
+
+Other scripts with the same `hotel-header` and `Inventory & Allotment` tab assumptions (`verify-hotels.cjs`, `verify-rate-plans.cjs`) were not run or updated.
 
 ## Not covered (so not certified here)
-- Admin browser verification is only partly passing; see "Browser verifiers" below.
+- Admin browser verification is complete for pool capacity and rate certification; the apply, Agent search and recheck half of the inventory verifier has not run (see "Browser verifiers").
 - FX conversion, child/extra-guest lines, deals engine, event supplements, buyer markets and tiered (agency/market) markup beyond what is cited above; other specs cover them individually.
 - Production data and supplier connector inventory.
 
