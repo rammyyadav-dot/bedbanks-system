@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { Building2, Check } from 'lucide-react';
 import { switchTenantAction } from '@/lib/auth/actions';
 import type { MembershipSummary } from '@/lib/api/auth-client';
+import { confirmDiscard } from '@/components/hotels/unsaved-guard';
 
 /**
  * Lists the caller's own memberships and asks the server to select one. The server re-validates the choice against the
@@ -16,6 +17,8 @@ export function TenantSwitcher({ memberships, activeTenantId }: { memberships: M
 
   function select(tenantId: string) {
     if (tenantId === activeTenantId) return;
+    // The switch is a server action followed by a redirect, which the browser guards cannot see; the page-level draft guard is asked first.
+    if (!confirmDiscard('You have unsaved hotel changes. Switching tenant leaves this page. Switch anyway?')) return;
     setError(null);
     startTransition(async () => {
       const result = await switchTenantAction(tenantId);

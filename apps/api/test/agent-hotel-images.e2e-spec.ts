@@ -7,6 +7,7 @@ import * as request from 'supertest'
 import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
+import { realPng } from './support/image-fixtures'
 import { hashPassword } from '../src/auth/utils/password'
 
 jest.setTimeout(180_000)
@@ -25,10 +26,7 @@ describe('agent hotel images (PostgreSQL, HTTP, two tenants)', () => {
   const cookies: Record<string, string> = {}
   let seq = 0
 
-  const png = (w: number, h: number, seed: string) => {
-    const head = Buffer.alloc(33); Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head); head.writeUInt32BE(13, 8); head.write('IHDR', 12, 'latin1'); head.writeUInt32BE(w, 16); head.writeUInt32BE(h, 20)
-    return Buffer.concat([head, Buffer.from(seed)])
-  }
+  const png = (w: number, h: number, seed: string) => realPng(w, h, seed)
   async function user(label: string, tenantId: string, keys: string[]) {
     const email = `${suffix}-${label}@example.test`
     const u = await prisma.user.create({ data: { email, name: label, passwordHash: await hashPassword(password), status: 'ACTIVE' } })

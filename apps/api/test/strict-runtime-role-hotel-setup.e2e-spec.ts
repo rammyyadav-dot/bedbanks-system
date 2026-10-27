@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing'
 import { PrismaClient } from '@prisma/client'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
+import { realPng } from './support/image-fixtures'
 import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
@@ -44,7 +45,7 @@ describe('hotel setup on the strict runtime role: negative authorization, tenant
     const r = request(app.getHttpServer())[method](`/api/v1${path}`).set('Origin', origin)
     const c = who === 'anon' ? r : r.set('Cookie', cookies[who]); return body ? c.send(body) : c
   }
-  const png = () => { const head = Buffer.alloc(33); Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head); head.writeUInt32BE(13, 8); head.write('IHDR', 12, 'latin1'); head.writeUInt32BE(1600, 16); head.writeUInt32BE(1200, 20); return Buffer.concat([head, Buffer.from(key())]) }
+  const png = () => realPng(1600, 1200, key())
   /** Runs `work` on the runtime role inside one transaction with the tenant setting (or none). */
   const as = <T>(tenant: string | null, work: (tx: Parameters<Parameters<typeof probe.$transaction>[0]>[0]) => Promise<T>) =>
     probe.$transaction(async (tx) => { if (tenant) await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant_id', '${tenant}', true)`); return work(tx) })

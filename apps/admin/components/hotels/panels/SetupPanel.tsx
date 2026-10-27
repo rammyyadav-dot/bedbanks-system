@@ -1,19 +1,22 @@
 'use client'
 
 import { useUnsavedChanges } from '../useUnsavedChanges'
+import { DraftStatus, SaveFailureNotice, type SaveFailure } from '../DraftNotices'
+import { useDraftRecovery } from '../useDraftRecovery'
+import { useDraftState } from '../useDraftState'
 
 import { HotelLocationFields } from '../HotelLocationFields'
 
 import { useMemo, useRef, useState } from 'react'
 import {
-  HOTEL_CONTACT_KINDS, HOTEL_PROFILE_STATUSES, HOTEL_PROPERTY_TYPES, KNOWN_EXTERNAL_SCHEMES,
+  HOTEL_CONTACT_KINDS, HOTEL_PROPERTY_TYPES, KNOWN_EXTERNAL_SCHEMES,
   type HotelContactKind, type HotelOwnerCandidate, type HotelProfileStatus, type HotelSetupSave, type HotelSetupView,
 } from '@bedbanks/contracts'
 import { OpsState } from '@/components/ops/OpsState'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { Completeness } from '../Completeness'
 import { ContentQuality } from '../ContentQuality'
-import { apiErrorParts } from '@/lib/hotel-setup-ui'
+import { allowedStatusTargets, apiErrorParts } from '@/lib/hotel-setup-ui'
 import { approveHotelPublication, cancelHotelPublication, changeHotelStatus, executeHotelPublication, getHotelSetup, getOwnerCandidates, rejectHotelPublication, requestHotelPublication, saveHotelSetup } from '@/lib/data/hotel-setup'
 import { useCan } from '@/lib/auth/capabilities'
 import { when } from '@/components/ops/ops-ui'
@@ -44,6 +47,7 @@ function toForm(s: HotelSetupView): Form {
 
 const nul = (v: string) => (v.trim() === '' ? null : v.trim())
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+function omitContacts(f: Form): Omit<Form, 'contacts'> { const { contacts: _private, ...rest } = f; void _private; return rest }
 
 /** Only the fields the operator changed are sent; an untouched field stays exactly as stored. */
 function diff(initial: Form, now: Form, canContacts: boolean): Omit<HotelSetupSave, 'idempotencyKey' | 'expectedToken'> {
@@ -101,56 +105,86 @@ function OwnerPicker({ hotelId, value, stored, readOnly, onChange }: { hotelId: 
 
 type Flash = { kind: 'save' | 'status'; text: string; requestId: string | null }
 
-/** The form is re-keyed by the stored concurrency token after every successful change, so the confirmation lives here and survives that remount. */
+const FIELD_LABELS: Partial<Record<keyof Form, string>> = {
+  name: 'hotel name', propertyType: 'property type', legalName: 'legal name', chainName: 'chain', brandName: 'brand', countryCode: 'country', city: 'city', area: 'area',
+  address: 'street address', postalCode: 'postal code', latitude: 'latitude', longitude: 'longitude', timeZone: 'time zone', starRating: 'star category', starSource: 'category source',
+  starVerified: 'category verified', shortDescription: 'short description', fullDescription: 'full description', languages: 'content languages', checkInTime: 'check-in time',
+  checkOutTime: 'check-out time', operationalNotes: 'operational notes', contacts: 'contacts', sourceSystem: 'content source', ownerUserId: 'owner', identifiers: 'external identifiers',
+}
+const isFormDraft = (v: unknown): v is Omit<Form, 'contacts'> => !!v && typeof v === 'object' && typeof (v as Form).name === 'string' && Array.isArray((v as Form).identifiers)
+
+/**
+ * The stored version lives here and is replaced in place by whatever the server returns, so the form (and anything unsaved in it) is never remounted
+ * by a save, a status change or a publication step. Only a different hotel starts a fresh form.
+ */
 export function SetupPanel({ hotelId, onChanged }: { hotelId: string; onChanged: () => void }) {
-  const [version, setVersion] = useState(0)
+  const { state, reload } = useOpsQuery(() => getHotelSetup(hotelId), [hotelId])
+  return <OpsState state={state} onRetry={reload}>{(loaded) => <SetupWorkspace key={loaded.hotelId} hotelId={hotelId} loaded={loaded} onChanged={onChanged} />}</OpsState>
+}
+
+function SetupWorkspace({ hotelId, loaded, onChanged }: { hotelId: string; loaded: HotelSetupView; onChanged: () => void }) {
+  const [setup, setSetup] = useState(loaded)
   const [flash, setFlash] = useState<Flash | null>(null)
-  const { state, reload } = useOpsQuery(() => getHotelSetup(hotelId), [hotelId, version])
   return (
-    <OpsState state={state} onRetry={reload}>
-      {(setup) => (
-        <>
-          {flash && (
-            <div role="status" data-testid={flash.kind === 'save' ? 'setup-notice' : 'status-notice'} className="workspace-panel" style={{ padding: 12, marginBottom: 12 }}>
-              <strong>{flash.text}</strong>
-              {flash.requestId && <div style={note}>Request id: <code data-testid="setup-request-id">{flash.requestId}</code></div>}
-            </div>
-          )}
-          <SetupForm key={`${setup.hotelId}:${setup.concurrencyToken}`} hotelId={hotelId} setup={setup} onSaved={(f) => { setFlash(f); setVersion((v) => v + 1); onChanged() }} onReload={() => { setFlash(null); setVersion((v) => v + 1) }} />
-        </>
+    <>
+      {flash && (
+        <div role="status" data-testid={flash.kind === 'save' ? 'setup-notice' : 'status-notice'} className="workspace-panel" style={{ padding: 12, marginBottom: 12 }}>
+          <strong>{flash.text}</strong>
+          {flash.requestId && <div style={note}>Request id: <code data-testid="setup-request-id">{flash.requestId}</code></div>}
+        </div>
       )}
-    </OpsState>
+      <SetupForm hotelId={hotelId} setup={setup} onSaved={(f, next) => { setFlash(f); if (next) setSetup(next); onChanged() }} onLoadLatest={(latest) => { setFlash(null); setSetup(latest) }} />
+    </>
   )
 }
 
-function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; setup: HotelSetupView; onSaved: (flash: Flash) => void; onReload: () => void }) {
+function SetupForm({ hotelId, setup, onSaved, onLoadLatest }: { hotelId: string; setup: HotelSetupView; onSaved: (flash: Flash, next?: HotelSetupView) => void; onLoadLatest: (latest: HotelSetupView) => void }) {
   const can = useCan()
   const canManage = can('supply.hotels.manage')
   const initial = useMemo(() => toForm(setup), [setup])
-  const [form, setForm] = useState<Form>(initial)
-  const [token, setToken] = useState(setup.concurrencyToken)
+  const draft = useDraftState<Form>(initial)
+  const form = draft.draft
   const [busy, setBusy] = useState(false); const inFlight = useRef(false)
-  const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string; details: string[]; requestId: string | null; stale?: boolean } | null>(null)
+  const [notice, setNotice] = useState<SaveFailure | null>(null)
   const pendingKey = useRef<string | null>(null)
-  const changes = useMemo(() => diff(initial, form, setup.contacts !== null), [initial, form, setup.contacts])
+  const canContacts = setup.contacts !== null
+  const changes = useMemo(() => diff(initial, form, canContacts), [initial, form, canContacts])
   const dirty = Object.keys(changes).length > 0
   useUnsavedChanges(dirty)
-  const set = <K extends keyof Form>(key: K, value: Form[K]) => { pendingKey.current = null; setForm((f) => ({ ...f, [key]: value })) }
+  // Private contacts are never copied into browser storage: a recovered draft restores everything else and leaves the contacts as stored.
+  const recovery = useDraftRecovery<Omit<Form, 'contacts'>>({
+    scope: 'setup', hotelId, base: omitContacts(initial), value: omitContacts(form), dirty, valid: isFormDraft,
+    onRestore: (r) => draft.restore({ ...r.base, contacts: initial.contacts }, { ...r.value, contacts: initial.contacts }),
+  })
+  const set = <K extends keyof Form>(key: K, value: Form[K]) => { pendingKey.current = null; draft.setDraft((f) => ({ ...f, [key]: value })) }
   const ro = !canManage
+  const discard = () => { draft.reset(); setNotice(null); recovery.dismiss(); pendingKey.current = null }
 
   async function save() {
     if (inFlight.current || !dirty || ro) return
+    // What is sent is fixed here. Anything typed while the request is in flight stays in the form and is reconciled afterwards.
+    const submitted = form
     inFlight.current = true; setBusy(true); setNotice(null)
     pendingKey.current ??= crypto.randomUUID()
     try {
-      const { data, requestId } = await saveHotelSetup(hotelId, { ...changes, idempotencyKey: pendingKey.current, expectedToken: token })
-      pendingKey.current = null
-      onSaved({ kind: 'save', text: data.replayed ? 'This change was already saved.' : 'Saved. The values below are what the server stored.', requestId: data.auditRequestId || requestId })
+      const { data, requestId } = await saveHotelSetup(hotelId, { ...changes, idempotencyKey: pendingKey.current, expectedToken: setup.concurrencyToken })
+      pendingKey.current = null; recovery.dismiss()
+      draft.markSaved(submitted, toForm(data.setup))
+      onSaved({ kind: 'save', text: data.replayed ? 'This change was already saved.' : 'Saved. The values below are what the server stored.', requestId: data.auditRequestId || requestId }, data.setup)
     } catch (error) {
+      // The draft and its idempotency key are kept, so retrying the same content is a safe replay.
       const p = apiErrorParts(error, 'save the hotel setup')
-      setToken(token)
-      setNotice({ tone: 'bad', text: p.message, details: p.details, requestId: p.requestId, stale: p.code === 'HOTEL_SETUP_STALE' })
+      setNotice({ message: p.message, details: p.details, requestId: p.requestId, stale: p.code === 'HOTEL_SETUP_STALE' })
     } finally { inFlight.current = false; setBusy(false) }
+  }
+  async function loadLatest(keepEdits: boolean) {
+    setBusy(true)
+    try {
+      const latest = await getHotelSetup(hotelId)
+      pendingKey.current = null; setNotice(null)
+      if (!keepEdits) draft.reset(toForm(latest))
+      onLoadLatest(latest)
+    } catch (error) { const p = apiErrorParts(error, 'load the latest hotel version'); setNotice({ message: p.message, details: p.details, requestId: p.requestId, stale: true }) } finally { setBusy(false) }
   }
 
   const input = (key: keyof Form, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
@@ -172,7 +206,8 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="workspace-panel" style={{ padding: 18 }}><Completeness completeness={setup.completeness} hotelId={hotelId} /></div>
       <div className="workspace-panel" style={{ padding: 18 }}><ContentQuality quality={setup.quality} duplicates={setup.possibleDuplicates} hotelId={hotelId} /></div>
-      <form aria-label="Hotel setup" onSubmit={(e) => { e.preventDefault(); void save() }} style={{ display: 'grid', gap: 16 }} data-testid="setup-form">
+      <form aria-label="Hotel setup" aria-busy={busy} onSubmit={(e) => { e.preventDefault(); void save() }} style={{ display: 'grid', gap: 16 }} data-testid="setup-form">
+        <DraftStatus recoveredAt={recovery.recovered?.savedAt ?? null} conflicts={draft.conflicts.map((k) => FIELD_LABELS[k] ?? String(k))} busy={busy} onDiscard={discard} onDismiss={() => { recovery.dismiss(); draft.clearConflicts() }} />
         {section('Identity', <>
           {input('name', 'Hotel name', { maxLength: 160, required: true })}
           <label style={field}>Property type<select className="input-wrap" value={form.propertyType} onChange={(e) => set('propertyType', e.target.value)} disabled={ro}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
@@ -240,17 +275,10 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
         </>)}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', position: 'sticky', bottom: 0, background: 'var(--c-ffffff)', padding: '8px 0' }}>
           {canManage ? <button type="submit" className="button primary" disabled={busy || !dirty} data-testid="setup-save">{busy ? 'Saving…' : 'Save changes'}</button> : <span style={note}>You can view this setup but not change it.</span>}
-          {dirty && <button type="button" className="admin-btn" disabled={busy} onClick={() => { setForm(initial); setNotice(null); pendingKey.current = null }}>Discard edits</button>}
+          {dirty && <button type="button" className="admin-btn" disabled={busy} onClick={discard}>Discard edits</button>}
           {dirty && <span style={note}>{Object.keys(changes).length} field{Object.keys(changes).length === 1 ? '' : 's'} changed</span>}
         </div>
-        {notice && (
-          <div role="alert" data-testid="setup-error" className="admin-error" style={{ padding: 12 }}>
-            <strong>{notice.text}</strong>
-            {notice.details.length > 0 && <ul>{notice.details.map((d) => <li key={d}>{d}</li>)}</ul>}
-            {notice.requestId && <div style={note}>Request id: <code data-testid="setup-request-id">{notice.requestId}</code></div>}
-            {notice.stale && <button type="button" className="admin-btn" onClick={onReload}>Load the latest version (discards your edits)</button>}
-          </div>
-        )}
+        {notice && <SaveFailureNotice failure={notice} testId="setup-error" busy={busy} onKeepMine={() => void loadLatest(true)} onDiscardMine={() => void loadLatest(false)} />}
       </form>
       {canManage && <PublicationControl hotelId={hotelId} setup={setup} onDone={onSaved} />}
       {canManage && <StatusControl hotelId={hotelId} setup={setup} token={setup.concurrencyToken} onDone={onSaved} />}
@@ -258,19 +286,22 @@ function SetupForm({ hotelId, setup, onSaved, onReload }: { hotelId: string; set
   )
 }
 
-function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; setup: HotelSetupView; token: string; onDone: (flash: Flash) => void }) {
-  const [to, setTo] = useState<HotelProfileStatus>(setup.governance.status === 'COMPLETE' ? 'SUSPENDED' : 'DRAFT')
+function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; setup: HotelSetupView; token: string; onDone: (flash: Flash, next?: HotelSetupView) => void }) {
+  // One list drives the options and the value that is submitted. Nothing is preselected: a lifecycle change (suspend, archive) is always a deliberate choice.
+  const targets = allowedStatusTargets(setup.governance.status)
+  const [choice, setChoice] = useState<HotelProfileStatus | ''>('')
+  const to = choice !== '' && targets.includes(choice) ? choice : ''
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false); const inFlight = useRef(false)
   const key = useRef<string | null>(null)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'bad'; text: string; requestId: string | null } | null>(null)
   async function submit() {
-    if (inFlight.current) return
+    if (inFlight.current || to === '') return
     inFlight.current = true; setBusy(true); setNotice(null); key.current ??= crypto.randomUUID()
     try {
       const { data, requestId } = await changeHotelStatus(hotelId, { idempotencyKey: key.current, expectedToken: token, to, reason: reason.trim() })
-      key.current = null; setReason('')
-      onDone({ kind: 'status', text: `Status is now ${data.setup.governance.status}.`, requestId: data.auditRequestId || requestId })
+      key.current = null; setReason(''); setChoice('')
+      onDone({ kind: 'status', text: `Status is now ${data.setup.governance.status}.`, requestId: data.auditRequestId || requestId }, data.setup)
     } catch (error) { const p = apiErrorParts(error, 'change the status'); setNotice({ tone: 'bad', text: [p.message, ...p.details].join(' '), requestId: p.requestId }) } finally { inFlight.current = false; setBusy(false) }
   }
   return (
@@ -278,9 +309,9 @@ function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; set
       <h2 style={{ fontSize: 14, margin: 0 }}>Profile approval</h2>
       <p style={note}>Current status: <strong data-testid="profile-status">{setup.governance.status}</strong>{setup.governance.approvedAt ? ` · approved ${when(setup.governance.approvedAt)}` : ''}. Publishing needs a second approver (see Publication). Publishing makes the hotel eligible for the Agent catalogue. It does not enable booking, payment or supplier access; commercial readiness is assessed separately. Withdrawing or suspending a hotel takes effect at once.</p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
-        <label style={field}>Change to<select className="input-wrap" value={to} onChange={(e) => { key.current = null; setTo(e.target.value as HotelProfileStatus) }}>{HOTEL_PROFILE_STATUSES.filter((s) => s !== setup.governance.status && s !== 'COMPLETE' && (setup.governance.status !== 'ARCHIVED' || s === 'DRAFT')).map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+        <label style={field}>Change to<select className="input-wrap" value={to} data-testid="status-target" onChange={(e) => { key.current = null; setChoice(e.target.value as HotelProfileStatus | '') }}><option value="">Select a status…</option>{targets.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
         <label style={{ ...field, minWidth: 260 }}>Reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { key.current = null; setReason(e.target.value) }} /></label>
-        <button type="submit" className="button primary" disabled={busy || reason.trim().length < 3}>{busy ? 'Applying…' : 'Apply status'}</button>
+        <button type="submit" className="button primary" data-testid="status-apply" disabled={busy || to === '' || reason.trim().length < 3}>{busy ? 'Applying…' : 'Apply status'}</button>
       </div>
       {notice && <p role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="status-notice" style={{ margin: 0, color: notice.tone === 'bad' ? 'var(--c-a11d1d)' : 'var(--c-0b6b55)' }}>{notice.text}{notice.requestId ? ` Request id: ${notice.requestId}` : ''}</p>}
     </form>
@@ -288,7 +319,7 @@ function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; set
 }
 
 /** Maker-checker publication (ADR 0022): request, a different manager approves, then apply. The API enforces every rule; this only offers what the caller may do. */
-function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup: HotelSetupView; onDone: (flash: Flash) => void }) {
+function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup: HotelSetupView; onDone: (flash: Flash, next?: HotelSetupView) => void }) {
   const open = setup.publication ?? null
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false); const inFlight = useRef(false)
@@ -302,10 +333,10 @@ function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup
     inFlight.current = true; setBusy(true); setNotice(null)
     if (reuseKey) requestKey.current ??= crypto.randomUUID()
     try {
-      const { requestId } = await call(requestKey.current ?? '')
+      const { data, requestId } = await call(requestKey.current ?? '')
       if (reuseKey) requestKey.current = null
       setReason('')
-      onDone({ kind: 'status', text: done, requestId: requestId || null })
+      onDone({ kind: 'status', text: done, requestId: requestId || null }, data.setup)
     } catch (error) { const p = apiErrorParts(error, label); setNotice([p.message, ...p.details].join(' ') + (p.requestId ? ` Request id: ${p.requestId}` : '')) } finally { inFlight.current = false; setBusy(false) }
   }
   const text = reason.trim()
