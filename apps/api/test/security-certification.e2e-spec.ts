@@ -514,6 +514,24 @@ describe('Tenant and database security certification', () => {
       expect(failures.length).toBeGreaterThan(0)
       expect(JSON.stringify(failures)).not.toContain('wrong-password-123')
     })
+
+    it('the runtime login can persist every authentication audit action, and nothing else tenantless', async () => {
+      const db = new PrismaClient({ datasourceUrl: loginUrl(API_RUNTIME_LOGIN_ROLE, passwords.api) })
+      const actions = ['auth.login.success', 'auth.login.failure', 'auth.logout', 'auth.session.expired_or_revoked',
+        'auth.password_reset.requested', 'auth.password_reset.failed', 'auth.password_reset.completed']
+      const write = (action: string, flag: boolean) => db.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.auth_audit', ${flag ? 'true' : 'false'}, true)`
+        // createMany issues INSERT without RETURNING, as AuthService.recordAudit does
+        await tx.auditEvent.createMany({ data: [{ actorType: 'USER', action, entityType: 'auth', entityId: userIds.adminA, payload: {}, userId: userIds.adminA }] })
+      })
+      try {
+        for (const action of actions) await expect(write(action, true)).resolves.toBeUndefined()
+        const stored = await owner.auditEvent.findMany({ where: { userId: userIds.adminA, action: { in: actions } }, select: { action: true } })
+        expect(new Set(stored.map((e) => e.action))).toEqual(new Set(actions))
+        await expect(write('auth.login.success', false)).rejects.toThrow(/row-level security/)
+        await expect(write('auth.something_else', true)).rejects.toThrow(/row-level security/)
+      } finally { await db.$disconnect() }
+    })
   })
 
   describe('6. audit logging and privileged write paths', () => {
