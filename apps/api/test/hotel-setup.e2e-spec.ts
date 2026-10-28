@@ -800,6 +800,24 @@ describe('hotel setup (PostgreSQL, HTTP, two tenants)', () => {
     expect(await prisma.auditEvent.count({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied' } })).toBe(before + 1)
     expect((await rateAt(planId, 11)).amountMinor).toBe(33_333n)
   })
+  it('QU-10 reusing an idempotency key for a different request is a conflict, not a replay, even for a different hotel (ADR 0067, F-01)', async () => {
+    const planId = await planOf(hotels.sold)
+    const first = { scope: scope(planId, 32, 32), changes: { price: { amount: '111.11', basis: 'SELL' } } }
+    const idem = key()
+    const before = (await apply(hotels.sold, (await qu(hotels.sold, 'preview', 'manager', first).expect(200)).body.data, first, 'manager', idem).expect(200)).body.data
+    expect(before.replayed).toBe(false)
+    // identical retry still replays
+    const sameRetry = (await apply(hotels.sold, { fingerprint: 'a'.repeat(64) }, first, 'manager', idem).expect(200)).body.data
+    expect(sameRetry).toMatchObject({ replayed: true, records: 1 })
+    // same key, changed amount on the same scope: a conflict, never the earlier result
+    const changedAmount = { ...first, changes: { price: { amount: '222.22', basis: 'SELL' } } }
+    const previewChanged = (await qu(hotels.sold, 'preview', 'manager', changedAmount).expect(200)).body.data
+    const reused = await apply(hotels.sold, previewChanged, changedAmount, 'manager', idem, 'A different reason').expect(409)
+    expect(reused.body.error.code).toBe('QUICK_UPDATE_IDEMPOTENCY_KEY_REUSED')
+    expect((await rateAt(planId, 32)).amountMinor).toBe(11_111n) // the conflicting request never wrote anything
+    const events = await prisma.auditEvent.findMany({ where: { tenantId: tenantA, entityId: hotels.sold, action: 'hotel.quick_update.applied', payload: { path: ['idempotencyKey'], equals: idem } } })
+    expect(events).toHaveLength(1) // still just the original event; the reuse attempt left no trace
+  })
   it('QU-12 a large price move needs an explicit confirmation; seasons and relative adjustments apply through the same preview (ADR 0067, F-13, F-14)', async () => {
     const planId = await planOf(hotels.sold)
     const set = { scope: scope(planId, 30, 31, ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']), changes: { price: { amount: '400.00', basis: 'SELL' } } }

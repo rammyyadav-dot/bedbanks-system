@@ -135,11 +135,22 @@ export class HotelQuickUpdateService {
     const hotelId = idParam('hotelId', hotelIdRaw)
     if (!hotelId) throw new BadRequestException('Invalid hotelId')
     return this.prisma.withTenant(tenantId, async (tx) => {
+      // The idempotency key guards a retry of the SAME work, not reuse for different work: a changed canonical request
+      // digest with the same key is a conflict, never a replay (ADR 0067 F-01).
+      const requestDigest = createHash('sha256').update(JSON.stringify({
+        hotelId, ratePlanIds: [...value.ratePlanIds].sort(), ranges: value.ranges, weekdays: value.weekdays, changes: value.changes,
+        reason, confirmLargeChanges: body.confirmLargeChanges === true,
+      })).digest('hex')
       // One apply per hotel at a time: the check and the write below must not interleave with another apply.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`quick-update:${tenantId}:${hotelId}`}))`
       const prior = await tx.auditEvent.findFirst({ where: { tenantId, entityType: 'hotel', entityId: hotelId, action: APPLIED, payload: { path: ['idempotencyKey'], equals: body.idempotencyKey } }, select: { payload: true } })
       if (prior) {
-        const p = prior.payload as { requestId?: string; records?: number; changed?: QuickUpdateApplied['changed']; fingerprintAfter?: string }
+        const p = prior.payload as { requestId?: string; records?: number; changed?: QuickUpdateApplied['changed']; fingerprintAfter?: string; requestDigest?: string }
+        // Legacy audit events (ADR 0067, stage 5) predate the digest: a missing digest on the stored event is treated as a
+        // match so pre-existing idempotency keys keep replaying rather than start failing after this change ships.
+        if (p.requestDigest !== undefined && p.requestDigest !== requestDigest) {
+          throw new ConflictException({ message: 'This idempotency key was already used for a different request. Use a new key for different changes.', code: 'QUICK_UPDATE_IDEMPOTENCY_KEY_REUSED' })
+        }
         return { replayed: true, auditRequestId: p.requestId ?? '', records: p.records ?? 0, changed: p.changed ?? { rates: 0, availabilityRows: 0, poolDays: 0 }, fingerprintAfter: p.fingerprintAfter ?? '' }
       }
       const loaded = await this.load(tx, tenantId, hotelId, value)
@@ -160,7 +171,7 @@ export class HotelQuickUpdateService {
       const fields = [...new Set(planned.rows.flatMap((r) => r.changes.map((c) => c.field)))].sort()
       const sample = planned.rows.filter((r) => r.outcome === 'CHANGE').slice(0, 20).map((r) => ({ ratePlanId: r.ratePlanId, date: r.date, changes: r.changes }))
       await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: APPLIED, entityType: 'hotel', entityId: hotelId, payload: {
-        outcome: 'allowed', requestId, idempotencyKey: body.idempotencyKey, reason, ratePlanIds: value.ratePlanIds, ranges: value.ranges, weekdays: value.weekdays, fields,
+        outcome: 'allowed', requestId, idempotencyKey: body.idempotencyKey, requestDigest, reason, ratePlanIds: value.ratePlanIds, ranges: value.ranges, weekdays: value.weekdays, fields,
         records: planned.counts.records, changedRecords: planned.counts.willChange, largePriceChanges: planned.counts.largePriceChanges ?? 0, confirmedLargeChanges: body.confirmLargeChanges === true, changed: writes, fingerprintBefore: loaded.fingerprint, fingerprintAfter: after.fingerprint, sample,
       } as unknown as Prisma.InputJsonValue } })
       // Inventory-specific audit actions (ADR 0030), in the same transaction as the write.
