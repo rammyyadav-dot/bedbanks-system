@@ -18,7 +18,7 @@ export function HotelLocationFields({ countryCode, city, timeZone, onChange, rea
     <datalist id={`${id}-cities`}>{cities.map(c => <option key={c} value={c} />)}</datalist>
     <label style={label}>IANA time zone<input className="input-wrap" list={`${id}-zones`} value={timeZone} onChange={e => onChange('timeZone', e.target.value)} maxLength={64} required readOnly={readOnly} placeholder="Choose the hotel's local time zone" /></label>
     <datalist id={`${id}-zones`}><option value="UTC" />{(Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf('timeZone').map(z => <option key={z} value={z} />)}</datalist>
-    <p id={`${id}-help`} style={{ fontSize: 12, color: 'var(--c-3f565c)', gridColumn: '1 / -1', margin: 0 }}>
+    <p id={`${id}-help`} style={{ fontSize: 12, color: 'var(--c-444444)', gridColumn: '1 / -1', margin: 0 }}>
       Suggestions come from this tenant's saved hotels. Enter a new city explicitly when needed.
       {options.state.status === 'loading' && ' Loading suggestions…'}
       {options.state.status === 'failed' && <> Suggestions could not be loaded. Existing values remain editable. <button type="button" className="admin-btn" onClick={options.reload}>Retry suggestions</button></>}

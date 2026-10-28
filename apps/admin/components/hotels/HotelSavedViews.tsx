@@ -25,14 +25,14 @@ export function HotelSavedViews({ filters, onApply }: { filters: Filters; onAppl
     if (result.ok) { setViews(result.views); setSelected(''); setNote('View deleted.') } else setNote(result.reason)
   }
   return (
-    <section aria-label="Saved views" data-testid="hotel-saved-views" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'end', margin: '0 0 12px', fontSize: 11, color: 'var(--c-17333e)' }}>
-      <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}><span style={{ color: 'var(--c-3f565c)' }}>Saved views (this browser)</span>
-        <select value={selected} onChange={(e) => { const v = views.find((x) => x.name === e.target.value); setSelected(e.target.value); setNote(null); if (v) onApply(v.filters) }} style={{ minWidth: 160, color: 'var(--c-17333e)' }}>
+    <section aria-label="Saved views" data-testid="hotel-saved-views" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'end', margin: '0 0 12px', fontSize: 11, color: 'var(--c-111111)' }}>
+      <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}><span style={{ color: 'var(--c-444444)' }}>Saved views (this browser)</span>
+        <select value={selected} onChange={(e) => { const v = views.find((x) => x.name === e.target.value); setSelected(e.target.value); setNote(null); if (v) onApply(v.filters) }} style={{ minWidth: 160, color: 'var(--c-111111)' }}>
           <option value="">{views.length ? 'Choose a view' : 'No saved views'}</option>{views.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
         </select></label>
       {selected && <button type="button" className="admin-btn" onClick={remove}>Delete view</button>}
-      <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}><span style={{ color: 'var(--c-3f565c)' }}>Save current filters as</span>
-        <input value={name} maxLength={HOTEL_VIEW_NAME_MAX} onChange={(e) => setName(e.target.value)} placeholder="View name" style={{ color: 'var(--c-17333e)' }} /></label>
+      <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}><span style={{ color: 'var(--c-444444)' }}>Save current filters as</span>
+        <input value={name} maxLength={HOTEL_VIEW_NAME_MAX} onChange={(e) => setName(e.target.value)} placeholder="View name" style={{ color: 'var(--c-111111)' }} /></label>
       <button type="button" className="admin-btn" onClick={save}>Save view</button>
       {note && <span role="status">{note}</span>}
     </section>

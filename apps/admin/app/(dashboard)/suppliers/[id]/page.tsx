@@ -29,7 +29,7 @@ export default function SupplierDetailPage() {
         <StatCard label="Supplier Type" value={supplier.type.split('_').join(' ')} />
         <StatCard label="Status" value={supplier.status} />
       </div>
-      <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: 'var(--c-4a6a73)' }}>
+      <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: 'var(--c-6b6b6b)' }}>
         <strong>Authoritative supplier record</strong>
         <div style={{ marginTop: 10 }}>Created {new Date(supplier.createdAt).toLocaleString()}</div>
         <div>Updated {new Date(supplier.updatedAt).toLocaleString()}</div>

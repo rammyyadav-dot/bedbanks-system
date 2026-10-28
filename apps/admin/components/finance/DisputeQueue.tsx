@@ -11,9 +11,9 @@ import { getReconExceptions, getReconSummary } from '@/lib/data/finance-reconcil
 import { STATUS_LABEL, TYPE_LABEL, severityTone, statusTone } from '@/lib/reconciliation-ui'
 import { ExceptionPanel } from './ExceptionPanel'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
 const EXCEPTION_TYPES = (Object.keys(TYPE_LABEL) as ReconFindingType[]).filter((t) => t !== 'MATCHED' && t !== 'CREDIT_MATCHED')
-const tile = { border: '1px solid var(--c-dbe6e9)', borderRadius: 6, background: 'var(--c-ffffff)', padding: '10px 14px', minWidth: 130 } as const
+const tile = { border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', background: 'var(--c-ffffff)', padding: '10px 14px', minWidth: 130 } as const
 
 /** The dispute queue: every exception the matching run found, newest first, with the decision workflow beside it. */
 export function DisputeQueue({ statementId, onClearStatement, canResolve, version, onMessage }: { statementId: string | null; onClearStatement: () => void; canResolve: boolean; version: number; onMessage: (m: string) => void }) {
@@ -27,11 +27,11 @@ export function DisputeQueue({ statementId, onClearStatement, canResolve, versio
       <OpsState state={summary.state} onRetry={summary.reload}>
         {(s) => (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }} data-testid="recon-summary">
-            {RECON_EXCEPTION_STATUSES.map((k) => <div key={k} style={tile}><div style={{ fontSize: 10, color: 'var(--c-6d858c)' }}>{STATUS_LABEL[k]}</div><strong style={{ fontSize: 20 }}>{s.byStatus[k]}</strong></div>)}
+            {RECON_EXCEPTION_STATUSES.map((k) => <div key={k} style={tile}><div style={{ fontSize: 10, color: 'var(--c-6b6b6b)' }}>{STATUS_LABEL[k]}</div><strong style={{ fontSize: 20 }}>{s.byStatus[k]}</strong></div>)}
             <div style={{ ...tile, flex: 1 }}>
-              <div style={{ fontSize: 10, color: 'var(--c-6d858c)' }}>Unresolved variance, by currency (never added)</div>
+              <div style={{ fontSize: 10, color: 'var(--c-6b6b6b)' }}>Unresolved variance, by currency (never added)</div>
               {s.openVarianceByCurrency.length === 0 ? <strong style={{ fontSize: 13 }}>None</strong> : s.openVarianceByCurrency.map((r) => (
-                <div key={r.currency} style={{ fontSize: 12 }}><Money minor={r.absoluteVarianceMinor} currency={r.currency} />{r.unknownAmountCount > 0 && <span style={{ color: 'var(--c-8a5a00)' }}> + {r.unknownAmountCount} with no computable variance</span>}</div>
+                <div key={r.currency} style={{ fontSize: 12 }}><Money minor={r.absoluteVarianceMinor} currency={r.currency} />{r.unknownAmountCount > 0 && <span style={{ color: 'var(--c-2a2a2a)' }}> + {r.unknownAmountCount} with no computable variance</span>}</div>
               ))}
             </div>
           </div>
@@ -64,7 +64,7 @@ export function DisputeQueue({ statementId, onClearStatement, canResolve, versio
               <table style={tableStyle} aria-label="Reconciliation exceptions">
                 <thead><tr>{['Severity', 'Exception', 'Supplier · statement', 'Reference', 'Statement', 'Ledger net', 'Variance', 'Status', ''].map((h, i) => <th key={`${h}-${i}`} scope="col" style={th}>{h}</th>)}</tr></thead>
                 <tbody>{d.items.map((e) => (
-                  <tr key={e.id} data-testid={`recon-row-${e.type.toLowerCase()}`} style={selected === e.id ? { background: 'var(--c-f3fafb)' } : undefined}>
+                  <tr key={e.id} data-testid={`recon-row-${e.type.toLowerCase()}`} style={selected === e.id ? { background: 'var(--c-f6f6f4)' } : undefined}>
                     <td style={td}><Tag tone={severityTone(e.severity)}>{e.severity.toLowerCase()}</Tag></td>
                     <td style={td}><strong>{TYPE_LABEL[e.type]}</strong><div style={{ fontSize: 10, maxWidth: 240 }}>{e.hint}</div></td>
                     <td style={td}>{e.supplier.displayName}<div style={{ fontSize: 10 }}><code>{e.statementRef}</code>{e.lineNo !== null && ` · line ${e.lineNo}`}</div></td>

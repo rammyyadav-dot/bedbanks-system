@@ -28,7 +28,7 @@ export default function RatePlanAuditPage() {
                 <Link href={hotelHref(d.hotelId)}>{d.hotelName}</Link>
                 <Link href={`/rate-certification?tab=simulator&ratePlanId=${encodeURIComponent(d.ratePlanId)}`}>Simulate a stay</Link>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{d.roomName} · {d.boardCode} · occupancy {d.occupancy} · {d.currency} · plan {d.planStatus} · contract {d.contractCode} ({d.contractStatus}, {d.contract.validFrom} → {d.contract.validTo}, settles in {d.contract.settlementCurrency}) · supplier {d.supplierName}</div>
+              <div style={{ fontSize: 12, color: 'var(--c-444444)' }}>{d.roomName} · {d.boardCode} · occupancy {d.occupancy} · {d.currency} · plan {d.planStatus} · contract {d.contractCode} ({d.contractStatus}, {d.contract.validFrom} → {d.contract.validTo}, settles in {d.contract.settlementCurrency}) · supplier {d.supplierName}</div>
               <div style={{ fontSize: 12 }}>Sellable nights {d.sellableNights} of {d.nights} · amount basis {d.amountBasis}</div>
               {d.suggestedCode && <div style={{ fontSize: 12 }} data-testid="suggested-code">Suggested code <code>{d.suggestedCode}</code> — a suggestion only; an administrator must decide, nothing is renamed automatically.</div>}
             </section>

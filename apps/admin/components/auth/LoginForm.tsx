@@ -15,12 +15,12 @@ export function LoginForm({ from }: { from?: string }) {
         <div
           role="alert"
           style={{
-            background: 'var(--c-fff0ef)',
-            border: '1px solid var(--c-f5c6c2)',
-            borderRadius: 4,
+            background: 'var(--c-fbe3e4)',
+            border: '1px solid var(--c-e4e4e0)',
+            borderRadius: 'var(--fb-radius-chip)',
             padding: '10px 12px',
             fontSize: 11,
-            color: 'var(--c-8c2e2a)',
+            color: 'var(--c-b3141b)',
             marginBottom: 14,
           }}
         >

@@ -41,7 +41,7 @@ export function SupplierForm({ supplier, onSaved }: { supplier?: SupplySupplier;
       <FormField label="Display name"><input value={form.displayName} onChange={(e) => set('displayName', e.target.value)} disabled={!canManage} required /></FormField>
       <FormField label="Country (ISO-3166 alpha-2)"><input value={form.countryCode} onChange={(e) => set('countryCode', e.target.value.toUpperCase())} disabled={!canManage} maxLength={2} required /></FormField>
       <FormField label="Default currency (ISO-4217)"><input value={form.defaultCurrency} onChange={(e) => set('defaultCurrency', e.target.value.toUpperCase())} disabled={!canManage} maxLength={3} required /></FormField>
-      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-bc5652)' : 'var(--c-1f7a5a)', fontSize: 12 }}>{message.text}</p> : null}
+      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-b3141b)' : 'var(--c-111111)', fontSize: 12 }}>{message.text}</p> : null}
       {canManage ? <button type="submit" className="admin-btn admin-btn-primary" disabled={saving}>{saving ? 'Saving…' : supplier ? 'Save supplier' : 'Create supplier'}</button> : <p role="status" style={{ fontSize: 12 }}>You have read-only access to suppliers.</p>}
     </form>
   )

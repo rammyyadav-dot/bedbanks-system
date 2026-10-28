@@ -53,9 +53,9 @@ export default function MarkupsPage() {
       <CreateRule onCreated={(text) => { setNotice({ tone: 'ok', text }); reload(); setVersion((v) => v + 1) }} />
       {dialog}
       {notice && <div className={notice.tone === 'bad' ? 'admin-error' : 'workspace-panel'} role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="markup-notice" style={{ margin: '8px 0' }}>{notice.text}</div>}
-      <form aria-label="Markup filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: 'var(--c-3f565c)', fontSize: 11 }}>
-        <label style={{ display: 'grid', gap: 2, color: 'var(--c-3f565c)' }}>Status<select style={{ color: 'var(--c-17333e)' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{MARKUP_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
-        <label style={{ display: 'grid', gap: 2, color: 'var(--c-3f565c)' }}>Scope<select style={{ color: 'var(--c-17333e)' }} value={scope} onChange={(e) => { setScope(e.target.value); setPage(1) }}><option value="">All</option>{MARKUP_SCOPES.map((s) => <option key={s}>{s}</option>)}</select></label>
+      <form aria-label="Markup filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: 'var(--c-444444)', fontSize: 11 }}>
+        <label style={{ display: 'grid', gap: 2, color: 'var(--c-444444)' }}>Status<select style={{ color: 'var(--c-111111)' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{MARKUP_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
+        <label style={{ display: 'grid', gap: 2, color: 'var(--c-444444)' }}>Scope<select style={{ color: 'var(--c-111111)' }} value={scope} onChange={(e) => { setScope(e.target.value); setPage(1) }}><option value="">All</option>{MARKUP_SCOPES.map((s) => <option key={s}>{s}</option>)}</select></label>
       </form>
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No markup rules', description: 'No rule matches. Until a rule is active, NET rates are not sellable.' }}>
         {(d) => (
@@ -122,8 +122,8 @@ function CreateRule({ onCreated }: { onCreated: (text: string) => void }) {
       setReason(''); onCreated('Draft rule created. It changes no price until it is activated.')
     } catch (e) { setError(describeApiError(e, 'create the rule')) } finally { setBusy(false) }
   }
-  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-  const field = { color: 'var(--c-17333e)' } as const
+  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+  const field = { color: 'var(--c-111111)' } as const
   return (
     <form onSubmit={submit} aria-label="New markup rule" className="workspace-panel" style={{ padding: '12px 18px', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }} data-testid="markup-form">
       <label style={lab}>Applies to<select style={field} value={scope} onChange={(e) => setScope(e.target.value as MarkupScopeName)}>{MARKUP_SCOPES.map((s) => <option key={s} value={s}>{s === 'TENANT_DEFAULT' ? 'All NET rates (default)' : s === 'SUPPLIER' ? 'One supplier' : 'One hotel'}</option>)}</select></label>

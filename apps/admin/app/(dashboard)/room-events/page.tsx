@@ -41,8 +41,8 @@ export default function RoomEventsPage() {
       <PageHeader eyebrow="CONTRACTING" title="Room Event Master" description="Exhibitions, trade fairs and peak-demand periods that may carry mandatory event supplements. An event is approved here before any hotel-specific supplement can reference it; the supplement itself, its dates and its amount are configured on the event's own page." />
       <CreateRoomEvent onCreated={(text) => { setNotice({ tone: 'ok', text }); reload() }} />
       {notice && <div className={notice.tone === 'bad' ? 'admin-error' : 'workspace-panel'} role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="room-event-notice" style={{ margin: '8px 0' }}>{notice.text}</div>}
-      <form aria-label="Room event filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: 'var(--c-3f565c)', fontSize: 11 }}>
-        <label style={{ display: 'grid', gap: 2, color: 'var(--c-3f565c)' }}>Status<select style={{ color: 'var(--c-17333e)' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{ROOM_EVENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
+      <form aria-label="Room event filters" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', gap: 12, margin: '8px 0', color: 'var(--c-444444)', fontSize: 11 }}>
+        <label style={{ display: 'grid', gap: 2, color: 'var(--c-444444)' }}>Status<select style={{ color: 'var(--c-111111)' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}><option value="">All</option>{ROOM_EVENT_STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
       </form>
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No room events', description: 'No event matches. Create one to start configuring event supplements.' }}>
         {(d) => (
@@ -52,7 +52,7 @@ export default function RoomEventsPage() {
                 <thead><tr>{['Event', 'Destination', 'Event dates', 'Status', 'Reference', 'Approval', 'Actions'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                 <tbody>{d.items.map((r) => (
                   <tr key={r.id} data-testid={`room-event-${r.status.toLowerCase()}`}>
-                    <td style={td}><Link href={`/room-events/${r.id}`}><strong>{r.name}</strong></Link><div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{r.eventType}</div></td>
+                    <td style={td}><Link href={`/room-events/${r.id}`}><strong>{r.name}</strong></Link><div style={{ fontSize: 10, color: 'var(--c-444444)' }}>{r.eventType}</div></td>
                     <td style={td}>{r.destinationCity}, {r.destinationCountry}</td>
                     <td style={td}>{r.eventStartDate} → {r.eventEndDate}</td>
                     <td style={td}><Tag tone={statusTone(r.status)}>{r.status}</Tag>{r.approvedAt ? <div style={{ fontSize: 10 }}>approved {when(r.approvedAt)}</div> : null}</td>
@@ -95,8 +95,8 @@ function CreateRoomEvent({ onCreated }: { onCreated: (text: string) => void }) {
       onCreated('Draft event created. It changes no price until it is approved and a supplement references it.')
     } catch (e) { setError(describeApiError(e, 'create the event')) } finally { setBusy(false) }
   }
-  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-  const field = { color: 'var(--c-17333e)' } as const
+  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+  const field = { color: 'var(--c-111111)' } as const
   return (
     <form onSubmit={submit} aria-label="New room event" className="workspace-panel" style={{ padding: '12px 18px', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }} data-testid="room-event-form">
       <label style={lab}>Name<input style={{ ...field, minWidth: 180 }} value={name} onChange={(e) => setName(e.target.value)} maxLength={160} required /></label>

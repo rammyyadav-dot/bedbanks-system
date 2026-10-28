@@ -149,7 +149,7 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
                 <button type="button" className="admin-btn" disabled={saving} onClick={applyToAll}>Fill all days</button>
                 <button type="button" className="admin-btn admin-btn-primary" onClick={save} disabled={saving || loadingGrid || Boolean(gridError)}>{saving ? 'Checking…' : 'Review changes'}</button>
               </div> : <p role="status" style={{ fontSize: 12 }}>You have read-only access to rates and inventory.</p>}
-              {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-bc5652)' : 'var(--c-1f7a5a)', fontSize: 12 }}>{message.text}</p> : null}
+              {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-b3141b)' : 'var(--c-111111)', fontSize: 12 }}>{message.text}</p> : null}
             </section>
           ) : null}
           {review ? <section className="workspace-panel" style={{ padding: 18 }} aria-label="Review calendar changes">
@@ -167,17 +167,17 @@ export function RatesWorkbench({ initialRatePlanId = '' }: { initialRatePlanId?:
           {plan && !loadingGrid && !gridError ? (
             <div className="workspace-panel" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} aria-label="Daily rates and inventory">
-                <thead><tr>{['Date', `Rate (${plan.currency})`, 'Stored rate', 'Basis', 'Allotment', 'Sold / held', 'Stop sell', 'Min stay', 'Release'].map((header) => <th key={header} style={{ textAlign: 'left', padding: '9px 12px', color: 'var(--c-92a5a9)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap' }}>{header}</th>)}</tr></thead>
+                <thead><tr>{['Date', `Rate (${plan.currency})`, 'Stored rate', 'Basis', 'Allotment', 'Sold / held', 'Stop sell', 'Min stay', 'Release'].map((header) => <th key={header} style={{ textAlign: 'left', padding: '9px 12px', color: 'var(--c-6b6b6b)', borderBottom: '1px solid var(--c-e4e4e0)', whiteSpace: 'nowrap' }}>{header}</th>)}</tr></thead>
                 <tbody>{dates.map((stayDate) => {
                   const draft = drafts[stayDate] ?? emptyDraft(plan.minStay); const stored = rateFor(stayDate); const row = rowFor(stayDate)
                   return (
-                    <tr key={stayDate} style={{ borderBottom: '1px solid var(--c-edf2f3)' }}>
+                    <tr key={stayDate} style={{ borderBottom: '1px solid var(--c-e4e4e0)' }}>
                       <td style={{ padding: '8px 12px' }}>{stayDate}</td>
                       <td style={{ padding: '8px 12px' }}><input aria-label={`Rate ${stayDate}`} className="admin-filter-select" style={{ width: 96 }} inputMode="decimal" value={draft.amount} disabled={saving || !canRates} onChange={(e) => patch(stayDate, { amount: e.target.value })} /></td>
-                      <td style={{ padding: '8px 12px' }}>{stored ? formatMinorUnits(stored.amountMinor, stored.currency) : <span style={{ color: 'var(--c-bc5652)' }}>No rate</span>}</td>
+                      <td style={{ padding: '8px 12px' }}>{stored ? formatMinorUnits(stored.amountMinor, stored.currency) : <span style={{ color: 'var(--c-b3141b)' }}>No rate</span>}</td>
                       <td style={{ padding: '8px 12px' }}><select aria-label={`Basis ${stayDate}`} className="admin-filter-select" value={draft.basis} disabled={saving || !canRates} onChange={(e) => patch(stayDate, { basis: e.target.value as 'SELL' | 'NET' })}><option value="SELL">SELL</option><option value="NET">NET</option></select></td>
                       <td style={{ padding: '8px 12px' }}><input aria-label={`Allotment ${stayDate}`} className="admin-filter-select" style={{ width: 70 }} inputMode="numeric" value={draft.allotment} disabled={saving || !canInventory || Boolean(plan.inventoryPoolId)} onChange={(e) => patch(stayDate, { allotment: e.target.value })} /></td>
-                      <td style={{ padding: '8px 12px' }}>{row ? `${row.sold} / ${row.held}` : <span style={{ color: 'var(--c-bc5652)' }}>No inventory</span>}</td>
+                      <td style={{ padding: '8px 12px' }}>{row ? `${row.sold} / ${row.held}` : <span style={{ color: 'var(--c-b3141b)' }}>No inventory</span>}</td>
                       <td style={{ padding: '8px 12px' }}><input aria-label={`Stop sell ${stayDate}`} type="checkbox" checked={draft.stopSell} disabled={saving || !canInventory} onChange={(e) => patch(stayDate, { stopSell: e.target.checked })} /></td>
                       <td style={{ padding: '8px 12px' }}><input aria-label={`Minimum stay ${stayDate}`} className="admin-filter-select" style={{ width: 56 }} inputMode="numeric" value={draft.minStay} disabled={saving || !canInventory} onChange={(e) => patch(stayDate, { minStay: e.target.value })} /></td>
                       <td style={{ padding: '8px 12px' }}>{plan.releaseDays}d <Link href={`/rates/plans/${plan.id}`} style={{ marginLeft: 6 }}>edit</Link></td>

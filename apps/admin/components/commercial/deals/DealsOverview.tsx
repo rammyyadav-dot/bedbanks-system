@@ -50,9 +50,9 @@ export function DealsOverview({ hotelId, newHref }: { hotelId?: string; newHref:
               const active = status === tile.status
               return (
                 <li key={tile.label}>
-                  <button type="button" className="admin-btn" aria-pressed={active} onClick={() => { setStatus(tile.status); setPage(1) }} style={{ width: '100%', flexDirection: 'column', alignItems: 'flex-start', background: active ? 'var(--c-eef3f4)' : undefined }} data-testid={`deal-tile-${tile.status || 'total'}`}>
-                    <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{tile.label}</span>
-                    <strong style={{ fontSize: 18, color: 'var(--c-17333e)' }}>{value}</strong>
+                  <button type="button" className="admin-btn" aria-pressed={active} onClick={() => { setStatus(tile.status); setPage(1) }} style={{ width: '100%', flexDirection: 'column', alignItems: 'flex-start', background: active ? 'var(--c-f6f6f4)' : undefined }} data-testid={`deal-tile-${tile.status || 'total'}`}>
+                    <span style={{ fontSize: 10, color: 'var(--c-444444)' }}>{tile.label}</span>
+                    <strong style={{ fontSize: 18, color: 'var(--c-111111)' }}>{value}</strong>
                   </button>
                 </li>
               )
@@ -60,15 +60,15 @@ export function DealsOverview({ hotelId, newHref }: { hotelId?: string; newHref:
           </ul>
         )}
       </OpsState>
-      {summary.state.status === 'ready' && summary.state.data.truncated ? <p role="status" style={{ fontSize: 11, color: 'var(--c-8a5a00)' }}>This tenant has more deals than the counts read; filter by hotel to see exact numbers.</p> : null}
+      {summary.state.status === 'ready' && summary.state.data.truncated ? <p role="status" style={{ fontSize: 11, color: 'var(--c-2a2a2a)' }}>This tenant has more deals than the counts read; filter by hotel to see exact numbers.</p> : null}
 
-      <form aria-label="Deal filters" onSubmit={(event) => event.preventDefault()} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', margin: '8px 0', fontSize: 11, color: 'var(--c-3f565c)' }}>
-        <label style={{ display: 'grid', gap: 2 }}>Search<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Code or name" maxLength={80} style={{ color: 'var(--c-17333e)' }} /></label>
+      <form aria-label="Deal filters" onSubmit={(event) => event.preventDefault()} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', margin: '8px 0', fontSize: 11, color: 'var(--c-444444)' }}>
+        <label style={{ display: 'grid', gap: 2 }}>Search<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Code or name" maxLength={80} style={{ color: 'var(--c-111111)' }} /></label>
         <label style={{ display: 'grid', gap: 2 }}>Status
-          <select value={status} onChange={(event) => { setStatus(event.target.value as HotelDealStatus | ''); setPage(1) }} style={{ color: 'var(--c-17333e)' }}><option value="">All</option>{HOTEL_DEAL_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</select>
+          <select value={status} onChange={(event) => { setStatus(event.target.value as HotelDealStatus | ''); setPage(1) }} style={{ color: 'var(--c-111111)' }}><option value="">All</option>{HOTEL_DEAL_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</select>
         </label>
         <label style={{ display: 'grid', gap: 2 }}>Type
-          <select value={kind} onChange={(event) => { setKind(event.target.value); setPage(1) }} style={{ color: 'var(--c-17333e)' }}><option value="">All</option>{HOTEL_DEAL_KINDS.map((k) => <option key={k} value={k}>{HOTEL_DEAL_KIND_INFO[k].label}</option>)}</select>
+          <select value={kind} onChange={(event) => { setKind(event.target.value); setPage(1) }} style={{ color: 'var(--c-111111)' }}><option value="">All</option>{HOTEL_DEAL_KINDS.map((k) => <option key={k} value={k}>{HOTEL_DEAL_KIND_INFO[k].label}</option>)}</select>
         </label>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canManage ? <button type="button" className="admin-btn" onClick={sync} disabled={busy} title="Saves the started and ended labels that the hotel calendar already applies">{busy ? 'Updating…' : 'Update statuses'}</button> : null}

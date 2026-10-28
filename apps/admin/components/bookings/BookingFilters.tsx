@@ -44,11 +44,11 @@ export function BookingFilters({ query, access, agencies, onApply, onClear }: {
       {operator && (
         <details style={{ ...label, position: 'relative' }}>
           <summary style={{ cursor: 'pointer' }}>Agency{agencySelected.size ? ` (${agencySelected.size})` : ''}</summary>
-          <fieldset style={{ position: 'absolute', zIndex: 3, background: 'var(--c-ffffff)', border: '1px solid var(--c-dbe6e9)', borderRadius: 6, padding: 8, minWidth: 200, maxHeight: 240, overflow: 'auto' }}>
+          <fieldset style={{ position: 'absolute', zIndex: 3, background: 'var(--c-ffffff)', border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 8, minWidth: 200, maxHeight: 240, overflow: 'auto' }}>
             <legend className="sr-only">Agency</legend>
             <label style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={agencySelected.has(BOOKING_UNASSIGNED_AGENCY)} onChange={() => toggleAgency(BOOKING_UNASSIGNED_AGENCY)} />Unassigned</label>
             {(agencies ?? []).map((a) => <label key={a.id} style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={agencySelected.has(a.id)} onChange={() => toggleAgency(a.id)} />{a.name}</label>)}
-            {agencies === null && <small style={{ color: 'var(--c-3f565c)' }}>The agency list needs the agency permission.</small>}
+            {agencies === null && <small style={{ color: 'var(--c-444444)' }}>The agency list needs the agency permission.</small>}
           </fieldset>
         </details>
       )}
@@ -56,7 +56,7 @@ export function BookingFilters({ query, access, agencies, onApply, onClear }: {
       <label style={label}><span>Hotel / city / country</span><input type="search" maxLength={60} value={draft.hotel ?? ''} onChange={(e) => set({ hotel: e.target.value || undefined })} style={{ width: 160 }} /></label>
       <details style={{ ...label, position: 'relative' }}>
         <summary style={{ cursor: 'pointer' }}>Status{statuses.size ? ` (${statuses.size})` : ''}</summary>
-        <fieldset style={{ position: 'absolute', zIndex: 3, background: 'var(--c-ffffff)', border: '1px solid var(--c-dbe6e9)', borderRadius: 6, padding: 8, minWidth: 190 }}>
+        <fieldset style={{ position: 'absolute', zIndex: 3, background: 'var(--c-ffffff)', border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 8, minWidth: 190 }}>
           <legend className="sr-only">Booking status</legend>
           {BOOKING_STATUSES.map((s) => <label key={s} style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={statuses.has(s)} onChange={() => toggleStatus(s)} />{statusLabel(s)}</label>)}
         </fieldset>
@@ -72,7 +72,7 @@ export function BookingFilters({ query, access, agencies, onApply, onClear }: {
       <label style={label}><span>Currency</span><input maxLength={3} value={draft.currency ?? ''} onChange={(e) => set({ currency: e.target.value.toUpperCase() || undefined })} style={{ width: 54 }} placeholder="AED" aria-describedby="amount-note" /></label>
       <label style={label}><span>Amount from</span><input inputMode="decimal" disabled={!draft.currency} value={amountText.min} onChange={(e) => setAmountText((a) => ({ ...a, min: e.target.value }))} style={{ width: 90 }} aria-invalid={amountError !== null} /></label>
       <label style={label}><span>Amount to</span><input inputMode="decimal" disabled={!draft.currency} value={amountText.max} onChange={(e) => setAmountText((a) => ({ ...a, max: e.target.value }))} style={{ width: 90 }} aria-invalid={amountError !== null} /></label>
-      <span id="amount-note" style={{ fontSize: 10, color: amountError ? 'var(--c-a11d1d)' : 'var(--c-3f565c)', alignSelf: 'center' }} role={amountError ? 'alert' : undefined}>{amountError ?? 'Amounts need a currency: sell amounts in different currencies are not comparable.'}</span>
+      <span id="amount-note" style={{ fontSize: 10, color: amountError ? 'var(--c-b3141b)' : 'var(--c-444444)', alignSelf: 'center' }} role={amountError ? 'alert' : undefined}>{amountError ?? 'Amounts need a currency: sell amounts in different currencies are not comparable.'}</span>
       <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11 }}>
         <legend className="sr-only">Toggles</legend>
         <label style={{ display: 'inline-flex', gap: 4 }}><input type="checkbox" checked={draft.missingSupplierRef === true} onChange={(e) => set({ missingSupplierRef: e.target.checked || undefined })} />Only missing supplier ref</label>

@@ -52,13 +52,13 @@ export default function RoomEventDetailPage({ params }: { params: Promise<{ id: 
             <div className="workspace-panel" style={{ padding: '14px 18px', display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'start' }}>
               <div>
                 <h2 style={{ margin: '0 0 4px' }}>{event.name}</h2>
-                <div style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{event.eventType} · {event.destinationCity}, {event.destinationCountry} · {event.eventStartDate} → {event.eventEndDate}</div>
-                {event.referenceRef && <div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Reference: {event.referenceRef}</div>}
+                <div style={{ fontSize: 12, color: 'var(--c-444444)' }}>{event.eventType} · {event.destinationCity}, {event.destinationCountry} · {event.eventStartDate} → {event.eventEndDate}</div>
+                {event.referenceRef && <div style={{ fontSize: 11, color: 'var(--c-444444)' }}>Reference: {event.referenceRef}</div>}
                 {event.internalNotes && <p style={{ fontSize: 12, maxWidth: 560 }}>{event.internalNotes}</p>}
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Tag tone={roomEventTone(event.status)}>{event.status}</Tag>
-                {event.approvedAt && <span style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>approved {when(event.approvedAt)}</span>}
+                {event.approvedAt && <span style={{ fontSize: 11, color: 'var(--c-444444)' }}>approved {when(event.approvedAt)}</span>}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {event.status === 'DRAFT' && <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => { const reason = ask('submit for approval'); if (reason) void act('submit', async () => { await submitRoomEvent(id, { reason }); return 'Submitted for approval.' }) }}>Submit for approval</button>}
@@ -70,10 +70,10 @@ export default function RoomEventDetailPage({ params }: { params: Promise<{ id: 
                 </>}
                 {event.approval?.canCancel && <button type="button" className="admin-btn" disabled={busy !== null} onClick={() => void act('cancelreq', async () => { await cancelRoomEventApproval(event.approval!.id); return 'Request cancelled.' })}>Cancel request</button>}
               </div>
-              {event.approval && <div style={{ fontSize: 11, color: 'var(--c-3f565c)', flexBasis: '100%' }}>Approval: {event.approval.status}{event.approval.decisionReason ? ` — ${event.approval.decisionReason}` : ''}</div>}
+              {event.approval && <div style={{ fontSize: 11, color: 'var(--c-444444)', flexBasis: '100%' }}>Approval: {event.approval.status}{event.approval.decisionReason ? ` — ${event.approval.decisionReason}` : ''}</div>}
             </div>
             {event.status === 'APPROVED' ? <EventSupplements roomEventId={id} /> : (
-              <div className="workspace-panel" style={{ padding: '14px 18px', color: 'var(--c-3f565c)' }}>Event supplements can be created once this event is APPROVED.</div>
+              <div className="workspace-panel" style={{ padding: '14px 18px', color: 'var(--c-444444)' }}>Event supplements can be created once this event is APPROVED.</div>
             )}
           </>
         )}
@@ -117,7 +117,7 @@ function EventSupplements({ roomEventId }: { roomEventId: string }) {
               <thead><tr>{['Amount', 'Scope', 'Valid', 'Status', 'Version', 'Evidence', 'Approval', 'Actions'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
               <tbody>{d.items.map((s: EventSupplementView) => (
                 <tr key={s.id} data-testid={`event-supplement-${s.status.toLowerCase()}`}>
-                  <td style={td}>{s.amountKind === 'FIXED' ? <><Money minor={s.amountMinor} currency={s.currency} /> <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{s.basis} / {s.frequency}</span></> : <>{basisPointsToPercent(s.percentBp!)}% of base</>}</td>
+                  <td style={td}>{s.amountKind === 'FIXED' ? <><Money minor={s.amountMinor} currency={s.currency} /> <span style={{ fontSize: 10, color: 'var(--c-444444)' }}>{s.basis} / {s.frequency}</span></> : <>{basisPointsToPercent(s.percentBp!)}% of base</>}</td>
                   <td style={td}>{s.ratePlanId ? <span title={s.ratePlanId}>one rate plan</span> : 'hotel-wide (contract)'}{s.stackable ? <div style={{ fontSize: 10 }}>stackable, priority {s.priority}</div> : <div style={{ fontSize: 10 }}>exclusive, priority {s.priority}</div>}</td>
                   <td style={td}>{s.validFrom} → {s.validTo}</td>
                   <td style={td}><Tag tone={supplementTone(s.status)}>{s.status}</Tag></td>
@@ -168,10 +168,10 @@ function CreateEventSupplement({ roomEventId, onCreated }: { roomEventId: string
       onCreated('Draft supplement created. It prices nothing until it is submitted, approved and activated.')
     } catch (e) { setError(describeApiError(e, 'create the supplement')) } finally { setBusy(false) }
   }
-  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-  const field = { color: 'var(--c-17333e)' } as const
+  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+  const field = { color: 'var(--c-111111)' } as const
   return (
-    <form onSubmit={submit} aria-label="New event supplement" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', padding: '8px 0', borderBottom: '1px solid var(--c-e6eef0)' }}>
+    <form onSubmit={submit} aria-label="New event supplement" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', padding: '8px 0', borderBottom: '1px solid var(--c-e4e4e0)' }}>
       <label style={lab}>Contract id<input style={{ ...field, minWidth: 180 }} value={contractId} onChange={(e) => setContractId(e.target.value)} required /></label>
       <label style={lab} title="Leave empty to apply to every plan of the contract">Rate plan id (optional)<input style={{ ...field, minWidth: 180 }} value={ratePlanId} onChange={(e) => setRatePlanId(e.target.value)} /></label>
       <label style={lab}>Amount kind<select style={field} value={amountKind} onChange={(e) => setAmountKind(e.target.value as EventSupplementAmountKind)}><option value="FIXED">Fixed</option><option value="PERCENTAGE">Percentage</option></select></label>
@@ -220,10 +220,10 @@ function RateImpactPreview({ roomEventSupplements }: { roomEventSupplements: Eve
     try { setResult(await previewEventSupplements({ ratePlanId, stayDates, rooms: Number(rooms), adults: Number(adults), children: Number(children) })) }
     catch (e) { setError(describeApiError(e, 'load the preview')) } finally { setBusy(false) }
   }
-  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-  const field = { color: 'var(--c-17333e)' } as const
+  const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+  const field = { color: 'var(--c-111111)' } as const
   return (
-    <div style={{ borderTop: '1px solid var(--c-e6eef0)', paddingTop: 12 }}>
+    <div style={{ borderTop: '1px solid var(--c-e4e4e0)', paddingTop: 12 }}>
       <h4 style={{ margin: '0 0 8px' }}>Rate Impact Preview</h4>
       <form onSubmit={run} aria-label="Rate impact preview" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
         <label style={lab}>Rate plan id<input style={{ ...field, minWidth: 180 }} value={ratePlanId} onChange={(e) => setRatePlanId(e.target.value)} required /></label>
@@ -243,7 +243,7 @@ function RateImpactPreview({ roomEventSupplements }: { roomEventSupplements: Eve
           ))}</tbody>
         </table>
       )}
-      {result && result.eventSupplements.length > 0 && <div style={{ fontSize: 11, color: 'var(--c-3f565c)', marginTop: 4 }}>{result.eventSupplements.map((e) => `${e.roomEventName}: ${e.amountMinor} ${result.currency} minor (for the party entered)`).join('; ')}</div>}
+      {result && result.eventSupplements.length > 0 && <div style={{ fontSize: 11, color: 'var(--c-444444)', marginTop: 4 }}>{result.eventSupplements.map((e) => `${e.roomEventName}: ${e.amountMinor} ${result.currency} minor (for the party entered)`).join('; ')}</div>}
     </div>
   )
 }

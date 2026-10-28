@@ -92,7 +92,7 @@ export default function MappingsPage() {
       <section className="workspace-panel" style={{ padding: 20 }}>
         <h2>Hotel mappings</h2>
         {!hotels.length && <p>No mappings in this tenant.</p>}
-        {hotels.map(item => <div key={item.id} style={{ borderTop: '1px solid var(--c-e5e7eb)', padding: '14px 0' }}>
+        {hotels.map(item => <div key={item.id} style={{ borderTop: '1px solid var(--c-e4e4e0)', padding: '14px 0' }}>
           <button type="button" onClick={() => { setSelected(item.id); setMetadata({ confidence: item.confidence == null ? '' : String(item.confidence), sourceMetadata: JSON.stringify(item.sourceMetadata) }) }} style={{ fontWeight: 700 }}>{item.supplier.displayName}: {item.supplierHotelId} → {item.hotel.name}</button>
           <span style={{ marginLeft: 12 }}>{item.status} · confidence {item.confidence ?? '—'}</span>
           {item.status === 'PENDING' ? <><button type="button" disabled={busy} onClick={() => mutate(`${base}/${item.id}/approve`, 'POST')}>Approve</button><button type="button" disabled={busy} onClick={() => mutate(`${base}/${item.id}/reject`, 'POST')}>Reject</button></> : <button type="button" disabled={busy} onClick={() => mutate(`${base}/${item.id}/reopen`, 'POST')}>Reopen</button>}
@@ -116,7 +116,7 @@ export default function MappingsPage() {
             <button className="button primary" disabled={busy || !roomOptions.length}>Create pending room mapping</button>
           </form>
           {!rooms.length && <p>No supplier room mappings for this hotel.</p>}
-          {rooms.map(item => <div key={item.id} style={{ borderTop: '1px solid var(--c-e5e7eb)', padding: '14px 0' }}>
+          {rooms.map(item => <div key={item.id} style={{ borderTop: '1px solid var(--c-e4e4e0)', padding: '14px 0' }}>
             <strong>{item.supplierRoomId} → {item.roomType.name}</strong><span style={{ marginLeft: 12 }}>{item.status} · confidence {item.confidence ?? '—'}</span>
             {item.status === 'PENDING' ? <><button type="button" disabled={busy} onClick={() => mutate(`${base}/${selected}/rooms/${item.id}/approve`, 'POST')}>Approve</button><button type="button" disabled={busy} onClick={() => mutate(`${base}/${selected}/rooms/${item.id}/reject`, 'POST')}>Reject</button></> : <button type="button" disabled={busy} onClick={() => mutate(`${base}/${selected}/rooms/${item.id}/reopen`, 'POST')}>Reopen</button>}
             <button type="button" disabled={busy} onClick={() => { const raw = window.prompt('Room confidence (0–100)', item.confidence == null ? '' : String(item.confidence)); if (raw !== null) mutate(`${base}/${selected}/rooms/${item.id}`, 'PATCH', { confidence: raw === '' ? null : Number(raw) }) }}>Edit confidence</button>

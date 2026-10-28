@@ -17,8 +17,8 @@ import { hotelHref } from '@/lib/hotel-ui'
 import { ScrollRegion, td, th, tableStyle } from '../ui'
 import { LocalChargesEditor } from './LocalChargesEditor'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
-const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-111111)' } as const
 
 /**
  * Hotel-level information policies, kept apart from rate-specific cancellation terms. The first are edited here (saved through the

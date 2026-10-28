@@ -9,7 +9,7 @@ import { simulateRateStay } from '@/lib/data/rate-certification'
 import { reasonText } from '@/lib/hotel-ui'
 import { percentText } from '@/lib/rate-certification-ui'
 
-const label = { display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-2c4a55)' } as const
+const label = { display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
 const iso = /^\d{4}-\d{2}-\d{2}$/
 
 /** Prices a stay through the API's single contracted-stay evaluator. It shows the evaluator's answer and an independent recomputation; it saves nothing. */
@@ -27,7 +27,7 @@ export function Simulator({ initialRatePlanId = '' }: { initialRatePlanId?: stri
   }
   return (
     <div data-testid="simulator">
-      <p style={{ fontSize: 12, color: 'var(--c-3f565c)', margin: '0 0 8px' }}>Read-only price check. It uses the same evaluator as Agent search and writes nothing: no hold, no rate change, no audit event.</p>
+      <p style={{ fontSize: 12, color: 'var(--c-444444)', margin: '0 0 8px' }}>Read-only price check. It uses the same evaluator as Agent search and writes nothing: no hold, no rate change, no audit event.</p>
       <form aria-label="Price simulator" onSubmit={(event) => { event.preventDefault(); if (valid && !busy) void run() }} className="workspace-panel" style={{ padding: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label style={label}><span>Rate plan ID</span><input value={ratePlanId} onChange={(e) => setRatePlanId(e.target.value)} maxLength={64} style={{ minWidth: 240 }} required /></label>
         <label style={label}><span>Check-in</span><input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} required /></label>
@@ -45,7 +45,7 @@ export function Simulator({ initialRatePlanId = '' }: { initialRatePlanId?: stri
             <Chip tone={result.eligible ? 'ok' : 'bad'}>{result.eligible ? 'SELLABLE' : 'REFUSED'}</Chip>
             <span>Plan <code>{result.ratePlanCode}</code> · {result.rooms} room{result.rooms === 1 ? '' : 's'}</span>
             {result.eligible && <strong data-testid="simulation-total"><Money minor={result.totalMinor} currency={result.currency} /></strong>}
-            {result.eligible && <span style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>net <Money minor={result.netMinor} currency={result.currency} /> + markup <Money minor={result.markupMinor} currency={result.currency} /></span>}
+            {result.eligible && <span style={{ fontSize: 12, color: 'var(--c-444444)' }}>net <Money minor={result.netMinor} currency={result.currency} /> + markup <Money minor={result.markupMinor} currency={result.currency} /></span>}
             <Chip tone={result.reconciles ? 'ok' : 'bad'} title="The evaluator total compared with an independent per-night recomputation">{result.reconciles ? 'RECONCILES' : 'MISMATCH'}</Chip>
           </div>
           {result.reasons.length > 0 && <ul style={{ margin: '0 14px 12px', fontSize: 12 }} data-testid="simulation-reasons">{result.reasons.map((r) => <li key={r}><code>{r}</code> · {reasonText(r)}</li>)}</ul>}

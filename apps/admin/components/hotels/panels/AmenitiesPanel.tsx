@@ -11,7 +11,7 @@ import { apiErrorParts } from '@/lib/hotel-setup-ui'
 import { getHotelAmenities, saveHotelAmenities } from '@/lib/data/hotel-rooms'
 import { AmenityPicker, sameAmenities } from '../AmenityPicker'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 
 /** Hotel-level amenities from the controlled catalogue. Room amenities are edited with each room. */
 export function AmenitiesPanel({ hotelId, onChanged }: { hotelId: string; onChanged: () => void }) {

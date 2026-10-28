@@ -6,7 +6,7 @@ import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { td, th, tableStyle } from '@/components/hotels/ui'
 import { getOpsAgencyAccount } from '@/lib/data/operations'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 
 /**
  * One agency's account (ADR 0028 slice 1). Read-only: the server reports each account's ledger balance, and each enabled currency

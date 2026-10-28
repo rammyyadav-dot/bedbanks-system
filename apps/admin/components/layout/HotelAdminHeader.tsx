@@ -50,7 +50,7 @@ export function HotelAdminHeader({ identity, activeTenantId }: { identity: Authe
     }
   }}>
     <div className="hotel-admin-top">
-      <Link href="/dashboard" className="hotel-admin-brand"><span><Building2 size={18} /></span><div><strong>UAE Hotels TMS</strong><small>TRAVEL MANAGEMENT SYSTEM</small></div></Link>
+      <Link href="/dashboard" className="hotel-admin-brand"><span><Building2 size={18} /></span><div><strong>FBEDS</strong><small>HOTEL MANAGEMENT</small></div></Link>
       <span className="hotel-property-label">PROPERTY</span>
       <details name="hotel-admin-menu" className="hotel-property-picker">
         <summary><Search size={13} /><span>{selected?.name ?? (state.status === 'loading' ? 'Loading properties…' : 'Select a property')}</span><ChevronDown size={12} /></summary>

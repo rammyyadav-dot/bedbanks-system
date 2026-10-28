@@ -39,7 +39,7 @@ export function ApprovalsPanel({ onExecuted }: { onExecuted: () => void }) {
     <section className="workspace-panel" style={{ padding: '12px 18px', marginBottom: 12 }} aria-labelledby="recon-approvals" data-testid="recon-approvals">
       {dialog}
       <h2 id="recon-approvals">Approvals</h2>
-      <p style={{ color: 'var(--c-3f565c)', fontSize: 12 }}>A second person approves a run before it executes. The approver cannot be the requester, and each approval runs once with the parameters it was approved with.</p>
+      <p style={{ color: 'var(--c-444444)', fontSize: 12 }}>A second person approves a run before it executes. The approver cannot be the requester, and each approval runs once with the parameters it was approved with.</p>
       <form onSubmit={(e) => { e.preventDefault(); void act('request', async () => { await requestReconciliationApproval({ requestId: crypto.randomUUID(), reason }); setReason(''); return 'Approval requested.' }) }} style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
         <label style={{ display: 'grid', gap: 4, fontSize: 11 }}>Reason for the run<input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} required style={{ minWidth: 280 }} /></label>
         <button type="submit" className="admin-btn" disabled={busy !== null || reason.trim() === ''}>{busy === 'request' ? 'Requesting…' : 'Request approval'}</button>
@@ -48,10 +48,10 @@ export function ApprovalsPanel({ onExecuted }: { onExecuted: () => void }) {
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No approvals yet', description: 'No reconciliation approval has been requested for this tenant.' }}>
         {(d) => (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 8 }}>
-            <thead><tr>{['Requested', 'Reason', 'Status', 'Stalled holds then', 'Decision', 'Actions'].map((h) => <th key={h} scope="col" style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid var(--c-e6eef0)' }}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Requested', 'Reason', 'Status', 'Stalled holds then', 'Decision', 'Actions'].map((h) => <th key={h} scope="col" style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid var(--c-e4e4e0)' }}>{h}</th>)}</tr></thead>
             <tbody>
               {d.items.map((a) => (
-                <tr key={a.id} data-testid={`approval-${a.status.toLowerCase()}`} style={{ borderBottom: '1px solid var(--c-edf2f3)' }}>
+                <tr key={a.id} data-testid={`approval-${a.status.toLowerCase()}`} style={{ borderBottom: '1px solid var(--c-e4e4e0)' }}>
                   <td style={{ padding: '8px 10px' }}>{when(a.createdAt)}</td>
                   <td style={{ padding: '8px 10px' }}>{a.reason}</td>
                   <td style={{ padding: '8px 10px' }}><Tag tone={tone(a.status)}>{a.status}</Tag></td>

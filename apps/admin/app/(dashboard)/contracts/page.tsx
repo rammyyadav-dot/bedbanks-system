@@ -21,7 +21,7 @@ export default function ContractsPage() {
       load={getContractPortfolio} getRowId={(c) => c.id}
       emptyTitle="No contracts" emptyDescription="No contract matches these filters. Clear them, or create the first contract to start building rate plans."
       columns={[
-        { key: 'code', header: 'Contract', sortKey: 'code', render: (c) => <Link href={`/contracts/${c.id}`} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{c.code}</Link> },
+        { key: 'code', header: 'Contract', sortKey: 'code', render: (c) => <Link href={`/contracts/${c.id}`} style={{ color: 'var(--c-111111)', fontWeight: 600, textDecoration: 'none' }}>{c.code}</Link> },
         { key: 'supplier', header: 'Supplier', render: (c) => c.supplier.displayName },
         { key: 'validity', header: 'Validity', sortKey: 'validFrom', render: (c) => `${c.validFrom.slice(0, 10)} → ${c.validTo.slice(0, 10)}` },
         { key: 'currency', header: 'Currency', sortKey: 'settlementCurrency', render: (c) => c.settlementCurrency },

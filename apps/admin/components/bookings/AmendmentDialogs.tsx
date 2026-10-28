@@ -9,16 +9,16 @@ import { statusLabel } from '@/lib/booking-ui'
 import { Modal } from './Modal'
 
 const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
-const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit' }
-const muted: React.CSSProperties = { margin: 0, color: 'var(--c-3f565c)', fontSize: 12 }
+const input: React.CSSProperties = { border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-chip)', padding: '6px 8px', fontSize: 12, font: 'inherit' }
+const muted: React.CSSProperties = { margin: 0, color: 'var(--c-444444)', fontSize: 12 }
 
 function Errors({ problems, error, onReload }: { problems: string[]; error: ReturnType<typeof describeActionError> | null; onReload: () => void }) {
   return (
     <>
-      {problems.length > 0 && <ul role="alert" data-testid="amendment-problems" style={{ margin: 0, paddingLeft: 18, color: 'var(--c-a11d1d)', fontSize: 12 }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
+      {problems.length > 0 && <ul role="alert" data-testid="amendment-problems" style={{ margin: 0, paddingLeft: 18, color: 'var(--c-b3141b)', fontSize: 12 }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
       {error && (
-        <div role="alert" data-testid="booking-action-error" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>
-          {error.message}{error.requestId ? <div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Reference: request {error.requestId}</div> : null}
+        <div role="alert" data-testid="booking-action-error" style={{ color: 'var(--c-b3141b)', fontSize: 12 }}>
+          {error.message}{error.requestId ? <div style={{ fontSize: 11, color: 'var(--c-444444)' }}>Reference: request {error.requestId}</div> : null}
           {error.reload && <div><button type="button" className="admin-btn" onClick={onReload}>Reload booking</button></div>}
         </div>
       )}
@@ -64,7 +64,7 @@ export function RequestAmendmentDialog({ d, action, onClose, onDone }: { d: Book
           <label style={field}><span>Check-out</span><input type="date" value={form.checkOut} onChange={(e) => setForm((f) => ({ ...f, checkOut: e.target.value }))} style={input} data-testid="amend-check-out" /></label>
         </div>
         {form.rooms.map((r, i) => (
-          <fieldset key={r.position} style={{ border: '1px solid var(--c-e1eaec)', borderRadius: 6, padding: 8, display: 'grid', gap: 6, gridTemplateColumns: '1fr 1fr 2fr' }}>
+          <fieldset key={r.position} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 8, display: 'grid', gap: 6, gridTemplateColumns: '1fr 1fr 2fr' }}>
             <legend style={{ fontSize: 11 }}>{r.label}</legend>
             <label style={field}><span>Adults</span><input type="text" inputMode="numeric" value={r.adults} onChange={(e) => setRoom(i, { adults: e.target.value })} style={input} data-testid={`amend-adults-${r.position}`} /></label>
             <label style={field}><span>Children</span><input type="text" inputMode="numeric" value={r.children} onChange={(e) => setRoom(i, { children: e.target.value })} style={input} data-testid={`amend-children-${r.position}`} /></label>
@@ -74,7 +74,7 @@ export function RequestAmendmentDialog({ d, action, onClose, onDone }: { d: Book
         <label style={field}>
           <span>Reason or other changes (required)</span>
           <textarea rows={3} maxLength={MAX_LENGTH.reason} value={reason} onChange={(e) => setReason(e.target.value)} style={input} aria-invalid={problems.some((p) => /reason/i.test(p))} />
-          <span style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>Name changes and special requests go in this note and are sent to the supplier directly. Do not enter guest personal details. Kept in the booking’s timeline for operators.</span>
+          <span style={{ color: 'var(--c-444444)', fontSize: 11 }}>Name changes and special requests go in this note and are sent to the supplier directly. Do not enter guest personal details. Kept in the booking’s timeline for operators.</span>
         </label>
         <Errors problems={problems} error={error} onReload={() => onDone('')} />
         <div className="admin-modal-actions">
@@ -121,13 +121,13 @@ export function ApproveAmendmentDialog({ d, action, onClose, onDone }: { d: Book
         <ul data-testid="amendment-summary" style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>{describeProposal(open).map((line) => <li key={line}>{line}</li>)}</ul>
         <label style={field}><span>New sell total, {currency} (required)</span><input type="text" inputMode="decimal" value={form.sell} onChange={(e) => setForm((f) => ({ ...f, sell: e.target.value }))} style={input} data-testid="amend-sell" autoComplete="off" /></label>
         {!netVisible && <p data-testid="amendment-net-unknown" style={{ ...muted, fontSize: 11 }}>You cannot see net rates, so the net and the margin will be recorded as unknown. They are never kept at the old figures.</p>}
-        {netVisible && <label style={field}><span>New net total, {currency} (optional)</span><input type="text" inputMode="decimal" value={form.net} onChange={(e) => setForm((f) => ({ ...f, net: e.target.value }))} style={input} data-testid="amend-net" autoComplete="off" /><span style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>Left empty, the net and the margin become unknown rather than keeping the old figures.</span></label>}
+        {netVisible && <label style={field}><span>New net total, {currency} (optional)</span><input type="text" inputMode="decimal" value={form.net} onChange={(e) => setForm((f) => ({ ...f, net: e.target.value }))} style={input} data-testid="amend-net" autoComplete="off" /><span style={{ color: 'var(--c-444444)', fontSize: 11 }}>Left empty, the net and the margin become unknown rather than keeping the old figures.</span></label>}
         <label style={field}>
           <span>Free-cancellation deadline (optional)</span>
           <input type="datetime-local" value={form.deadline} onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))} style={input} />
-          <span style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{stayChanges ? 'The dates are changing: left empty, the deadline becomes unknown until you edit it.' : 'Left empty, the current deadline is kept.'}</span>
+          <span style={{ color: 'var(--c-444444)', fontSize: 11 }}>{stayChanges ? 'The dates are changing: left empty, the deadline becomes unknown until you edit it.' : 'Left empty, the current deadline is kept.'}</span>
         </label>
-        {preview && <p role="status" data-testid="amendment-difference" data-tone={preview.tone} style={{ margin: 0, fontSize: 12, fontWeight: 600, color: preview.tone === 'up' ? 'var(--c-8a5a00)' : 'var(--c-1f5f54)' }}>{preview.text}</p>}
+        {preview && <p role="status" data-testid="amendment-difference" data-tone={preview.tone} style={{ margin: 0, fontSize: 12, fontWeight: 600, color: preview.tone === 'up' ? 'var(--c-2a2a2a)' : 'var(--c-b3141b)' }}>{preview.text}</p>}
         <p style={{ ...muted, fontSize: 11 }}>Documents already issued (voucher, invoice) are not reissued by an amendment.</p>
         <Errors problems={problems} error={error} onReload={() => onDone('')} />
         <div className="admin-modal-actions">

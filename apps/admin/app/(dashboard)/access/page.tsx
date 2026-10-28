@@ -12,7 +12,7 @@ const accessSections = [
 
 export default function AccessPage() {
   const columns: DataTableColumn<(typeof accessSections)[number]>[] = [
-    { key: '0', header: 'Area', render: (r) => <Link href={r[2]} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{r[0]}</Link> },
+    { key: '0', header: 'Area', render: (r) => <Link href={r[2]} style={{ color: 'var(--c-111111)', fontWeight: 600, textDecoration: 'none' }}>{r[0]}</Link> },
     { key: '1', header: 'Purpose', render: (r) => r[1] },
     { key: '2', header: 'Open', render: (r) => <Link href={r[2]} className="admin-btn">Open</Link> },
   ]

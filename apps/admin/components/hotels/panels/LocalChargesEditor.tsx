@@ -13,7 +13,7 @@ import { useUnsavedChanges } from '../useUnsavedChanges'
 
 interface Row { kind: LocalChargeKind; label: string; amount: string; currency: string; basis: LocalChargeBasis; maxNights: string }
 const toRow = (c: HotelLocalCharge): Row => ({ kind: c.kind, label: c.label, amount: minorToMajorInput(c.amountMinor, c.currency), currency: c.currency, basis: c.basis, maxNights: c.maxNights === null ? '' : String(c.maxNights) })
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 
 /**
  * Charges the guest pays the hotel directly (ADR 0067, F-04), such as the Dubai Tourism Dirham. Agents see them on every offer with an estimate,

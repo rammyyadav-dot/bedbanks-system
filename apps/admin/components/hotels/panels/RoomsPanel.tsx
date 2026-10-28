@@ -24,8 +24,8 @@ const toForm = (r?: HotelRoomView): RoomForm => {
   return { name: r?.name ?? '', code: r?.code ?? '', maxAdults: String(r?.maxAdults ?? 2), maxChildren: String(r?.maxChildren ?? 0), maxOccupancy: String(r?.maxOccupancy ?? 2), description: r?.bedding.description ?? '', beds, extraBed: r?.bedding.extraBed ?? 'UNKNOWN', amenities: r?.amenities ?? [] }
 }
 const bedList = (beds: Record<BedType, string>) => BED_TYPES.filter((t) => beds[t] !== '' && Number(beds[t]) > 0).map((t) => ({ type: t, count: Number(beds[t]) }))
-const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-111111)' } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 const BED_LABEL: Record<BedType, string> = { SINGLE: 'Single', DOUBLE: 'Double', QUEEN: 'Queen', KING: 'King', TWIN: 'Twin', SOFA_BED: 'Sofa bed', BUNK: 'Bunk' }
 
 /**
@@ -55,7 +55,7 @@ export function RoomsPanel({ data, onChanged, compact = false }: { data: HotelCo
                 <h2 style={{ fontSize: 14, margin: 0 }}>{compact ? 'Room Types' : `Rooms (${view.rooms.length})`}</h2>
                 {canManage && !compact && <button type="button" className="button primary" onClick={() => { setFlash(null); setEditing('new') }}>+ Add room</button>}
               </div>
-              {!view.amenitiesAvailable && <p role="status" data-testid="amenities-unavailable" style={{ ...note, color: 'var(--c-8a5a00)' }}>Room amenities are unavailable to the API database role, so they are not shown or saved here.</p>}
+              {!view.amenitiesAvailable && <p role="status" data-testid="amenities-unavailable" style={{ ...note, color: 'var(--c-2a2a2a)' }}>Room amenities are unavailable to the API database role, so they are not shown or saved here.</p>}
               {compact && view.rooms.length > 0 && <div className="hotel-room-scroll" role="region" aria-label="Room types" tabIndex={0}><table className="hotel-room-table" aria-label="Room types">
                 <thead><tr>{['Room Type Name', 'Max Occupancy', 'Max Adults', 'Max Children', 'Max Adults with Children', 'Min Occupancy', 'Extra Bed', 'Status', 'Actions'].map(h => <th scope="col" key={h}>{h.startsWith('Max ') || h.startsWith('Min ') ? <>{h === 'Max Adults with Children' ? 'Max Adults' : h.split(' ')[0]}<br />{h === 'Max Adults with Children' ? 'with Children' : h.split(' ').slice(1).join(' ')}</> : h}</th>)}</tr></thead>
                 <tbody>{view.rooms.map(room => <tr key={room.id} data-room-id={room.id} data-active={room.isActive}>
@@ -67,7 +67,7 @@ export function RoomsPanel({ data, onChanged, compact = false }: { data: HotelCo
                   <td>{canManage ? <div className="hotel-property-room-actions"><button type="button" className="hotel-ui-button" onClick={() => { setFlash(null); setArchiveRequested(false); setEditing(room.id) }}><Pencil size={13} />Edit</button>{room.isActive && <button type="button" className="hotel-room-archive" aria-label={`Archive ${room.name}`} title="Archive room" onClick={() => { setFlash(null); setArchiveRequested(true); setEditing(room.id) }}><Archive size={13} /></button>}</div> : '—'}</td>
                 </tr>)}</tbody>
               </table></div>}
-              {view.rooms.length === 0 ? <p data-testid="rooms-empty" style={{ color: 'var(--c-3f565c)' }}>This hotel has no room types. Without a room, nothing can be mapped, priced or sold.</p> : !compact && (
+              {view.rooms.length === 0 ? <p data-testid="rooms-empty" style={{ color: 'var(--c-444444)' }}>This hotel has no room types. Without a room, nothing can be mapped, priced or sold.</p> : !compact && (
                 <ScrollRegion label="Rooms">
                   <table style={tableStyle} aria-label="Rooms">
                     <thead><tr>{['Room', 'Code', 'Occupancy', 'Bedding', 'Amenities', 'Status', 'Supplier mapping', 'Rate plans', 'Inventory', 'Sellability', 'Blockers', 'Actions'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
@@ -76,13 +76,13 @@ export function RoomsPanel({ data, onChanged, compact = false }: { data: HotelCo
                         const c = commercial.get(room.id)
                         return (
                           <tr key={room.id} data-room-id={room.id} data-active={room.isActive}>
-                            <td style={td}><strong>{room.name}</strong><div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>Updated {when(room.updatedAt)}</div></td>
+                            <td style={td}><strong>{room.name}</strong><div style={{ fontSize: 10, color: 'var(--c-444444)' }}>Updated {when(room.updatedAt)}</div></td>
                             <td style={td}>{room.code}</td>
                             <td style={td}>{room.maxAdults} adults · {room.maxChildren} children · max {room.maxOccupancy}</td>
-                            <td style={td}>{room.bedding.beds.length ? room.bedding.beds.map((b) => `${b.count} ${BED_LABEL[b.type]}`).join(', ') : room.bedding.description ?? '—'}<div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>Extra bed: {room.bedding.extraBed === 'SUPPORTED' ? 'supported' : room.bedding.extraBed === 'NOT_SUPPORTED' ? 'not supported' : 'not recorded'}</div></td>
+                            <td style={td}>{room.bedding.beds.length ? room.bedding.beds.map((b) => `${b.count} ${BED_LABEL[b.type]}`).join(', ') : room.bedding.description ?? '—'}<div style={{ fontSize: 10, color: 'var(--c-444444)' }}>Extra bed: {room.bedding.extraBed === 'SUPPORTED' ? 'supported' : room.bedding.extraBed === 'NOT_SUPPORTED' ? 'not supported' : 'not recorded'}</div></td>
                             <td style={td}>{room.amenities === null ? 'Unavailable' : room.amenities.length ? room.amenities.map((a) => amenityLabel(a.code)).join(', ') : 'None recorded'}</td>
                             <td style={td}><Chip tone={room.isActive ? 'ok' : 'neutral'}>{room.isActive ? 'ACTIVE' : 'ARCHIVED'}</Chip></td>
-                            <td style={td}>{c ? <MappingChip value={c.mapping} /> : '—'}<div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{room.usage.mappings.mapped} mapped · {room.usage.mappings.pending} pending</div></td>
+                            <td style={td}>{c ? <MappingChip value={c.mapping} /> : '—'}<div style={{ fontSize: 10, color: 'var(--c-444444)' }}>{room.usage.mappings.mapped} mapped · {room.usage.mappings.pending} pending</div></td>
                             <td style={td}>{room.usage.activeRatePlans} active / {room.usage.ratePlans}</td>
                             <td style={td}>{c ? <InventoryChip value={c.inventory} /> : '—'}</td>
                             <td style={td}>{c ? <ReadinessChip value={c.readiness} blockers={c.blockers} /> : '—'}</td>
@@ -111,7 +111,7 @@ function ChildAgeRules({ view }: { view: HotelRoomsView }) {
     <section className="workspace-panel" style={{ padding: 18 }} aria-label="Child-age rules" data-testid="child-age-rules">
       <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>Child-age rules (from contracts)</h2>
       <p style={note}>Child ages and extra-bed terms are contract policies, not room data, and are shown here read-only. Edit them on the contract.</p>
-      {view.childPolicies === null ? <p role="status" style={{ ...note, color: 'var(--c-8a5a00)' }}>Contract child policies are unavailable to the API database role.</p>
+      {view.childPolicies === null ? <p role="status" style={{ ...note, color: 'var(--c-2a2a2a)' }}>Contract child policies are unavailable to the API database role.</p>
         : view.childPolicies.length === 0 ? <p style={{ fontSize: 12 }}>{wantsChildren ? 'No child-age rule is recorded on any contract for this hotel, although at least one active room accepts children.' : 'No child-age rule is recorded on any contract for this hotel.'}</p>
         : (
           <ScrollRegion label="Child-age rules"><table style={tableStyle} aria-label="Child-age rules">
@@ -182,7 +182,7 @@ function RoomEditor({ hotelId, view, room, onClose, onDone, startArchive = false
         <label style={field}>Max total occupancy<input className="input-wrap" type="number" min={1} value={form.maxOccupancy} onChange={(e) => set('maxOccupancy', e.target.value)} /></label>
       </div>
       <p style={note}>Maximum occupancy must be at least adults plus children. Child ages are set by contract policy, shown below the rooms.</p>
-      <fieldset style={{ border: '1px solid var(--c-e6eef0)', padding: 12, margin: 0 }}>
+      <fieldset style={{ border: '1px solid var(--c-e4e4e0)', padding: 12, margin: 0 }}>
         <legend style={{ fontSize: 12, fontWeight: 600 }}>Bedding</legend>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
           {BED_TYPES.map((t) => <label key={t} style={field}>{BED_LABEL[t]} beds<input className="input-wrap" type="number" min={0} max={9} value={form.beds[t]} onChange={(e) => set('beds', { ...form.beds, [t]: e.target.value })} /></label>)}
@@ -190,7 +190,7 @@ function RoomEditor({ hotelId, view, room, onClose, onDone, startArchive = false
         <label style={{ ...field, marginTop: 10 }}>Bedding description<input className="input-wrap" value={form.description} maxLength={200} onChange={(e) => set('description', e.target.value)} /></label>
         <label style={{ ...field, marginTop: 10 }}>Extra bed<select className="input-wrap" value={form.extraBed} onChange={(e) => set('extraBed', e.target.value as ExtraBedSupport)}>{EXTRA_BED_SUPPORT.map((v) => <option key={v} value={v}>{v === 'SUPPORTED' ? 'Supported' : v === 'NOT_SUPPORTED' ? 'Not supported' : 'Not recorded'}</option>)}</select></label>
       </fieldset>
-      <fieldset style={{ border: '1px solid var(--c-e6eef0)', padding: 12, margin: 0 }}>
+      <fieldset style={{ border: '1px solid var(--c-e4e4e0)', padding: 12, margin: 0 }}>
         <legend style={{ fontSize: 12, fontWeight: 600 }}>Room amenities</legend>
         {amenitiesOn ? <AmenityPicker scope="ROOM" idPrefix={`room-${room?.id ?? 'new'}`} value={form.amenities} onChange={(v) => set('amenities', v)} /> : <p style={note}>Unavailable to the API database role.</p>}
       </fieldset>

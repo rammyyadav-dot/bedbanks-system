@@ -176,7 +176,7 @@ export function ContractForm({ contractId }: { contractId?: string }) {
             <FormField label="Owner (user ID of a tenant member)"><input value={form.ownerUserId} onChange={(e) => set('ownerUserId', e.target.value)} disabled={!canManage || status === 'EXPIRED'} placeholder="Leave empty for none" /></FormField>
             <FormField label="Renewal reminder (days before the last stay night)"><input inputMode="numeric" value={form.renewalReminderDays} onChange={(e) => set('renewalReminderDays', e.target.value)} disabled={!canManage || status === 'EXPIRED'} /></FormField>
             {amending && canManage ? <FormField label="Amendment reason (shown to the approver)"><input value={amendReason} onChange={(e) => setAmendReason(e.target.value)} maxLength={500} placeholder="e.g. Hotel extended validity by addendum dated 12 Oct" /></FormField> : null}
-            {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-bc5652)' : 'var(--c-1f7a5a)', fontSize: 12 }}>{message.text}</p> : null}
+            {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-b3141b)' : 'var(--c-111111)', fontSize: 12 }}>{message.text}</p> : null}
             {canManage && status !== 'EXPIRED' ? <button type="submit" className="admin-btn admin-btn-primary" disabled={saving}>{saving ? 'Saving…' : amending ? 'Request amendment' : editing ? 'Save contract' : 'Create contract'}</button> : <p role="status" style={{ fontSize: 12 }}>You have read-only access to contracts.</p>}
           </form>
           {editing && lifecycle ? <ContractLifecyclePanel view={lifecycle} canManage={canManage} onChanged={() => void reload()} /> : null}

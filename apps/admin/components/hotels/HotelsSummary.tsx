@@ -25,13 +25,13 @@ export function HotelsSummary({ summary }: { summary: HotelCommercialSummary }) 
         {tiles.map((tile) => (
           <li key={tile.label} className="workspace-panel" style={{ padding: '10px 14px' }}>
             <Link href={tile.href} style={{ textDecoration: 'none', color: 'inherit' }} aria-label={`${tile.label}: ${tile.value}. Apply filter`}>
-              <div style={{ font: '700 22px system-ui', color: 'var(--c-17333e)' }}>{tile.value}</div>
-              <div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{tile.label}</div>
+              <div style={{ font: '700 22px system-ui', color: 'var(--c-111111)' }}>{tile.value}</div>
+              <div style={{ color: 'var(--c-444444)', fontSize: 11 }}>{tile.label}</div>
             </Link>
           </li>
         ))}
       </ul>
-      {summary.scanCapped && <p role="status" style={{ color: 'var(--c-8a5a00)', fontSize: 11 }}>Counts cover the first alphabetical hotels only; this tenant has more than the scan limit.</p>}
+      {summary.scanCapped && <p role="status" style={{ color: 'var(--c-2a2a2a)', fontSize: 11 }}>Counts cover the first alphabetical hotels only; this tenant has more than the scan limit.</p>}
     </section>
   )
 }

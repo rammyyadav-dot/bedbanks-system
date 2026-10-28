@@ -56,12 +56,12 @@ export default function ReconciliationPage() {
       <OpsState state={state} onRetry={reload} isEmpty={d => d.cases.length === 0} empty={{ title: 'Nothing to reconcile', description: 'The check succeeded: no stalled holds and no consistency flags were found.' }}>
         {data => (
           <div className="workspace-panel">
-            <p style={{ padding: '8px 18px', color: 'var(--c-3f565c)' }}>{data.total} case(s) · generated {when(data.generatedAt)} · stale threshold {data.staleMinutes} min</p>
+            <p style={{ padding: '8px 18px', color: 'var(--c-444444)' }}>{data.total} case(s) · generated {when(data.generatedAt)} · stale threshold {data.staleMinutes} min</p>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead><tr>{['Source', 'Finding', 'Booking', 'Hold', 'Detail', 'Observed'].map(h => <th key={h} scope="col" style={{ textAlign: 'left', padding: '10px 14px', borderBottom: '1px solid var(--c-e6eef0)' }}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Source', 'Finding', 'Booking', 'Hold', 'Detail', 'Observed'].map(h => <th key={h} scope="col" style={{ textAlign: 'left', padding: '10px 14px', borderBottom: '1px solid var(--c-e4e4e0)' }}>{h}</th>)}</tr></thead>
               <tbody>
                 {data.cases.map((c, i) => (
-                  <tr key={`${c.holdId ?? c.bookingId}-${c.kind}-${i}`} style={{ borderBottom: '1px solid var(--c-edf2f3)' }}>
+                  <tr key={`${c.holdId ?? c.bookingId}-${c.kind}-${i}`} style={{ borderBottom: '1px solid var(--c-e4e4e0)' }}>
                     <td style={{ padding: '10px 14px' }}>{c.source === 'reconciliation_dry_run' ? 'Stalled hold' : 'Consistency'}</td>
                     <td style={{ padding: '10px 14px' }}><Tag tone="bad">{c.kind}</Tag></td>
                     <td style={{ padding: '10px 14px' }}>{c.bookingId ? <Link href={`/bookings/${c.bookingId}`}>{c.bookingReference ?? c.bookingId}</Link> : '—'}{c.bookingStatus ? ` · ${c.bookingStatus}` : ''}</td>

@@ -25,7 +25,7 @@ export default function ReconciliationPage() {
       {message && <p role="status" data-testid="recon-message" style={{ fontSize: 12 }}>{message}</p>}
       <div role="tablist" aria-label="Reconciliation views" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {tabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" id={`recon-tab-${id}`} aria-selected={tab === id} aria-controls={`recon-panel-${id}`} className="admin-btn" style={tab === id ? { background: 'var(--c-e8f6f7)', borderColor: 'var(--c-9fd6dc)' } : undefined} onClick={() => setTab(id)}>{label}</button>
+          <button key={id} type="button" role="tab" id={`recon-tab-${id}`} aria-selected={tab === id} aria-controls={`recon-panel-${id}`} className="admin-btn" style={tab === id ? { background: 'var(--c-f6f6f4)', borderColor: 'var(--c-e4e4e0)' } : undefined} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
       <div role="tabpanel" id={`recon-panel-${tab}`} aria-labelledby={`recon-tab-${tab}`}>

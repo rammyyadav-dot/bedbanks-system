@@ -8,8 +8,8 @@ import { describeApiError } from '@/lib/api/describe-error'
 import { previewDeal } from '@/lib/data/hotel-deals'
 import { formatMinorUnits } from '@/lib/minor-units'
 
-const label: React.CSSProperties = { display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-3f565c)' }
-const input: React.CSSProperties = { color: 'var(--c-17333e)', font: 'inherit', padding: '6px 8px', minWidth: 0 }
+const label: React.CSSProperties = { display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-444444)' }
+const input: React.CSSProperties = { color: 'var(--c-111111)', font: 'inherit', padding: '6px 8px', minWidth: 0 }
 const money = (minor: string | null, currency: string) => (minor === null ? '—' : formatMinorUnits(minor, currency))
 const today = () => new Date().toISOString().slice(0, 10)
 /** Basis points of margin shown as a percentage using integers only. */
@@ -46,7 +46,7 @@ export function DealPreview({ dealId, version, plans }: { dealId: string; versio
   const currency = result?.currency ?? 'AED'
   return (
     <section className="workspace-panel" style={{ padding: '16px 18px', display: 'grid', gap: 12 }} aria-label="Pricing simulator" data-testid="deal-preview">
-      <div><h2 style={{ fontSize: 14, margin: 0 }}>Pricing simulator</h2><p style={{ fontSize: 10, color: 'var(--c-3f565c)', margin: '2px 0 0' }}>Read-only. It prices version {version} with the same evaluator search uses and does not write rates, inventory, holds or bookings.</p></div>
+      <div><h2 style={{ fontSize: 14, margin: 0 }}>Pricing simulator</h2><p style={{ fontSize: 10, color: 'var(--c-444444)', margin: '2px 0 0' }}>Read-only. It prices version {version} with the same evaluator search uses and does not write rates, inventory, holds or bookings.</p></div>
       <form onSubmit={run} aria-label="Simulator inputs" style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
         <label style={label}>Rate plan<select value={planId} onChange={(event) => setPlanId(event.target.value)} style={input} required>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.roomTypeName} · {plan.code}</option>)}</select></label>
         <label style={label}>Check-in *<input type="date" value={checkIn} onChange={(event) => setCheckIn(event.target.value)} style={input} required /></label>
@@ -67,7 +67,7 @@ export function DealPreview({ dealId, version, plans }: { dealId: string; versio
                 {result.dealApplied ? <Tag tone="ok">DEAL APPLIES</Tag> : <Tag tone="warn">DEAL DOES NOT APPLY</Tag>}{' '}
                 Sell price for {result.rooms} room(s): <strong>{money(result.withoutDeal?.sellMinor ?? null, currency)}</strong> without the deal, <strong>{money(result.withDeal?.sellMinor ?? null, currency)}</strong> with it; the buyer saves <strong>{money(result.savingSellMinor, currency)}</strong>.
               </p>
-              <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>Supplier net {money(result.withoutDeal?.netMinor ?? null, currency)} → {money(result.withDeal?.netMinor ?? null, currency)}. Margin on sell: {marginText(result.marginWithoutBp)} → {marginText(result.marginWithBp)}.</p>
+              <p style={{ margin: 0, fontSize: 11, color: 'var(--c-444444)' }}>Supplier net {money(result.withoutDeal?.netMinor ?? null, currency)} → {money(result.withDeal?.netMinor ?? null, currency)}. Margin on sell: {marginText(result.marginWithoutBp)} → {marginText(result.marginWithBp)}.</p>
               <ScrollRegion label="Nightly breakdown for one room">
                 <table style={tableStyle} aria-label="Nightly breakdown for one room">
                   <thead><tr>{['Night', 'Base net', 'Deal', 'Extras', 'Net after', 'Markup', 'Sell'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
@@ -83,7 +83,7 @@ export function DealPreview({ dealId, version, plans }: { dealId: string; versio
               {result.trace.map((entry) => <li key={entry.id}><strong>{entry.name}</strong>: <Tag tone={OUTCOME[entry.outcome]?.tone ?? 'neutral'}>{OUTCOME[entry.outcome]?.text ?? entry.outcome}</Tag>{entry.guard ? ` (${GUARD[entry.guard] ?? entry.guard})` : ''}{entry.savingMinor ? ` · would save ${money(entry.savingMinor, currency)} on the net` : ''}</li>)}
             </ul>
           ) : null}
-          <p style={{ margin: 0, fontSize: 10, color: 'var(--c-3f565c)' }}>As of {new Date(result.asOf).toLocaleString()}. Writes: {result.writes}.</p>
+          <p style={{ margin: 0, fontSize: 10, color: 'var(--c-444444)' }}>As of {new Date(result.asOf).toLocaleString()}. Writes: {result.writes}.</p>
         </div>
       ) : null}
     </section>

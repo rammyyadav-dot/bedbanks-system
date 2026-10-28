@@ -49,13 +49,13 @@ export function Topbar({ onMenuClick, identity, activeTenantId }: TopbarProps) {
             aria-label="User menu"
           >
             <span className="top-user" title={identity.user.email}>{initials}</span>
-            <ChevronDown size={13} style={{ color: 'var(--k-8ba8ae)' }} />
+            <ChevronDown size={13} style={{ color: 'var(--k-6b6b6b)' }} />
           </button>
           {userMenuOpen && (
             <div className="context-menu" style={{ top: 42, width: 200, right: 0, left: 'auto' }}>
-              <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--k-1d3d48)' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--k-c8dde1)' }}>{identity.user.name ?? identity.user.email}</div>
-                {primaryTenant && <div style={{ fontSize: 9, color: 'var(--k-6d9199)', marginTop: 2 }}>{primaryTenant.role} · {primaryTenant.tenantName}</div>}
+              <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--k-2a2a2a)' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--k-e4e4e0)' }}>{identity.user.name ?? identity.user.email}</div>
+                {primaryTenant && <div style={{ fontSize: 9, color: 'var(--k-6b6b6b)', marginTop: 2 }}>{primaryTenant.role} · {primaryTenant.tenantName}</div>}
               </div>
               <TenantSwitcher memberships={identity.memberships} activeTenantId={activeTenantId} />
               <ThemeToggle />

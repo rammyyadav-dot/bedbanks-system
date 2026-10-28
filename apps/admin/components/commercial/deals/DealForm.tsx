@@ -15,9 +15,9 @@ import { DEAL_CHANNEL_LABELS, KIND_FIELDS, issueMessages, WEEKDAY_LABELS, blankD
 
 const panel: React.CSSProperties = { padding: '16px 18px', marginBottom: 12, display: 'grid', gap: 12 }
 const grid: React.CSSProperties = { display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }
-const label: React.CSSProperties = { display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-3f565c)' }
-const input: React.CSSProperties = { color: 'var(--c-17333e)', font: 'inherit', padding: '6px 8px', minWidth: 0 }
-const hint: React.CSSProperties = { fontSize: 10, color: 'var(--c-3f565c)', margin: 0 }
+const label: React.CSSProperties = { display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-444444)' }
+const input: React.CSSProperties = { color: 'var(--c-111111)', font: 'inherit', padding: '6px 8px', minWidth: 0 }
+const hint: React.CSSProperties = { fontSize: 10, color: 'var(--c-444444)', margin: 0 }
 
 function Section({ title, hint: note, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -104,13 +104,13 @@ export function DealForm(props: Props) {
       <Section title="Promotion type" hint="Only types the platform can price today are offered.">
         <div role="radiogroup" aria-label="Promotion type" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
           {HOTEL_DEAL_KINDS.map((kind: HotelDealKind) => (
-            <label key={kind} style={{ border: `1px solid ${draft.kind === kind ? 'var(--c-0d2631)' : 'var(--c-d3e0e3)'}`, borderRadius: 6, padding: 10, display: 'grid', gap: 2, cursor: 'pointer', background: draft.kind === kind ? 'var(--c-eef3f4)' : undefined }}>
+            <label key={kind} style={{ border: `1px solid ${draft.kind === kind ? 'var(--c-111111)' : 'var(--c-e4e4e0)'}`, borderRadius: 'var(--fb-radius-control)', padding: 10, display: 'grid', gap: 2, cursor: 'pointer', background: draft.kind === kind ? 'var(--c-f6f6f4)' : undefined }}>
               <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" value={kind} checked={draft.kind === kind} onChange={() => patch({ kind })} /><strong style={{ fontSize: 12 }}>{HOTEL_DEAL_KIND_INFO[kind].label}</strong></span>
               <span style={hint}>{HOTEL_DEAL_KIND_INFO[kind].description}</span>
             </label>
           ))}
           {unavailableKinds.map((item) => (
-            <div key={item.kind} aria-disabled="true" style={{ border: '1px dashed var(--c-d3e0e3)', borderRadius: 6, padding: 10, display: 'grid', gap: 2, opacity: 0.75 }} data-testid="unsupported-kind">
+            <div key={item.kind} aria-disabled="true" style={{ border: '1px dashed var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 10, display: 'grid', gap: 2, opacity: 0.75 }} data-testid="unsupported-kind">
               <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><strong style={{ fontSize: 12 }}>{item.label}</strong><Tag tone="neutral">NOT AVAILABLE</Tag></span>
               <span style={hint}>{item.reason}</span>
             </div>
@@ -158,7 +158,7 @@ export function DealForm(props: Props) {
         <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 8 }}>
           <legend style={{ fontSize: 11, fontWeight: 600 }}>Applicable days of the week</legend>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {WEEKDAY_LABELS.map((day, index) => <button key={day} type="button" className="admin-btn" aria-pressed={draft.weekdays.includes(index)} onClick={() => patch({ weekdays: toggle(draft.weekdays, index) })} style={{ background: draft.weekdays.includes(index) ? 'var(--c-eef3f4)' : undefined }}>{day}</button>)}
+            {WEEKDAY_LABELS.map((day, index) => <button key={day} type="button" className="admin-btn" aria-pressed={draft.weekdays.includes(index)} onClick={() => patch({ weekdays: toggle(draft.weekdays, index) })} style={{ background: draft.weekdays.includes(index) ? 'var(--c-f6f6f4)' : undefined }}>{day}</button>)}
             <button type="button" className="admin-btn" onClick={() => patch({ weekdays: [] })} aria-pressed={draft.weekdays.length === 0}>All days</button>
           </div>
           <p style={hint}>Judged on the date of each night. A stay needs at least one night on a chosen day.</p>
@@ -181,7 +181,7 @@ export function DealForm(props: Props) {
                   const ids = room.plans.map((plan) => plan.id)
                   const selected = ids.filter((id) => draft.ratePlanIds.includes(id)).length
                   return (
-                    <fieldset key={room.id} style={{ border: '1px solid var(--c-edf2f3)', borderRadius: 6, padding: 10, display: 'grid', gap: 6 }}>
+                    <fieldset key={room.id} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 10, display: 'grid', gap: 6 }}>
                       <legend style={{ fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
                         <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                           <input type="checkbox" checked={selected === ids.length} ref={(element) => { if (element) element.indeterminate = selected > 0 && selected < ids.length }} onChange={() => patch({ ratePlanIds: selected === ids.length ? draft.ratePlanIds.filter((id) => !ids.includes(id)) : [...new Set([...draft.ratePlanIds, ...ids])] })} />
@@ -217,7 +217,7 @@ export function DealForm(props: Props) {
 
       <Section title="Market and buyer eligibility" hint="These only narrow who gets the deal; they never grant access. The buyer is always the authenticated agency.">
         <div style={grid}>
-          <label style={label}>Funding source<input value="Supplier funded" readOnly style={{ ...input, background: 'var(--c-f7fafb)' }} aria-describedby="funding-hint" /><span id="funding-hint" style={hint}>The discount reduces the supplier net and the markup follows it. Other funding needs a finance decision and is not offered.</span></label>
+          <label style={label}>Funding source<input value="Supplier funded" readOnly style={{ ...input, background: 'var(--c-f6f6f4)' }} aria-describedby="funding-hint" /><span id="funding-hint" style={hint}>The discount reduces the supplier net and the markup follows it. Other funding needs a finance decision and is not offered.</span></label>
           <label style={label}>Source markets<input value={draft.sourceMarkets} onChange={(event) => patch({ sourceMarkets: event.target.value })} placeholder="ALL, or e.g. IN, AE, GB" style={input} /><span style={hint}>ISO country codes of the buying agency. Empty means all.</span></label>
         </div>
         <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 6 }}>
@@ -264,7 +264,7 @@ export function DealForm(props: Props) {
         <label style={label}>Internal notes<textarea value={draft.internalNotes} onChange={(event) => patch({ internalNotes: event.target.value })} maxLength={2000} rows={2} placeholder="Notes for the revenue management team (never shown to agents)" style={input} /></label>
       </Section>
 
-      {problems.length ? <ul role="alert" aria-label="Problems" style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 12, color: 'var(--c-a11d1d)' }} data-testid="deal-problems">{problems.map((problem, index) => <li key={index}>{problem}</li>)}</ul> : null}
+      {problems.length ? <ul role="alert" aria-label="Problems" style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 12, color: 'var(--c-b3141b)' }} data-testid="deal-problems">{problems.map((problem, index) => <li key={index}>{problem}</li>)}</ul> : null}
       {error ? <div className="admin-error" role="alert" style={{ marginBottom: 12 }}>{error}</div> : null}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button type="button" className="admin-btn" onClick={() => router.back()} disabled={busy}>Cancel</button>

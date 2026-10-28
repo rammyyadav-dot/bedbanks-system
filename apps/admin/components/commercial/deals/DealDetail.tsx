@@ -25,7 +25,7 @@ const percent = (bp: number | null) => (bp === null ? '—' : `${Math.trunc(bp /
 const money = (minor: string | null, currency: string | null) => (minor === null || currency === null ? '—' : formatMinorUnits(minor, currency))
 
 function Row({ name, children }: { name: string; children: ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 200px) 1fr', gap: 8, fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--c-edf2f3)' }}><dt style={{ color: 'var(--c-3f565c)' }}>{name}</dt><dd style={{ margin: 0, color: 'var(--c-17333e)' }}>{children}</dd></div>
+  return <div style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 200px) 1fr', gap: 8, fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--c-e4e4e0)' }}><dt style={{ color: 'var(--c-444444)' }}>{name}</dt><dd style={{ margin: 0, color: 'var(--c-111111)' }}>{children}</dd></div>
 }
 
 function Issues({ issues }: { issues: HotelDealIssue[] }) {
@@ -67,7 +67,7 @@ export function DealDetail({ dealId }: { dealId: string }) {
             <header style={{ display: 'flex', gap: 12, justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'start', marginBottom: 12 }}>
               <div>
                 <h1 style={{ fontSize: 20, margin: 0 }}>{deal.name} <span style={{ fontSize: 12, fontWeight: 400 }}>v{deal.version}</span></h1>
-                <p style={{ margin: '4px 0', fontSize: 12, color: 'var(--c-3f565c)' }}><code>{deal.code}</code> · {HOTEL_DEAL_KIND_INFO[deal.kind].label} · {deal.hotelName} · {describeTerms(deal.terms)}</p>
+                <p style={{ margin: '4px 0', fontSize: 12, color: 'var(--c-444444)' }}><code>{deal.code}</code> · {HOTEL_DEAL_KIND_INFO[deal.kind].label} · {deal.hotelName} · {describeTerms(deal.terms)}</p>
                 <DealStatusTag status={deal.status} effective={deal.effectiveStatus} />
                 {deal.statusReason ? <p style={{ margin: '4px 0 0', fontSize: 11 }}>Reason: {deal.statusReason}</p> : null}
               </div>
@@ -221,7 +221,7 @@ function PerformanceTab({ dealId, version }: { dealId: string; version: number }
               <Row name="Window">{perf.activation.activeFrom ?? 'from activation'} → {perf.activation.activeTo ?? 'open ended'}</Row>
               <Row name="Last status change">{perf.activation.lastStatusChangeAt ? when(perf.activation.lastStatusChangeAt) : '—'}</Row>
             </dl>
-            <p style={{ margin: 0, fontSize: 10, color: 'var(--c-3f565c)' }}>Dates are enforced by the pricing evaluator in the hotel&apos;s calendar, so an expired or not-yet-started deal never sells even if its stored label is behind. Use “Update statuses” on the list to save the labels.</p>
+            <p style={{ margin: 0, fontSize: 10, color: 'var(--c-444444)' }}>Dates are enforced by the pricing evaluator in the hotel&apos;s calendar, so an expired or not-yet-started deal never sells even if its stored label is behind. Use “Update statuses” on the list to save the labels.</p>
           </section>
         </div>
       )}

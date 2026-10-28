@@ -30,7 +30,7 @@ export function ReportTab({ window }: { window: { days: number } }) {
       </div>
       <div className="workspace-panel" style={{ padding: 14, marginTop: 12 }} data-testid="not-applicable">
         <h2 style={{ margin: '0 0 6px', fontSize: 13 }}>Not applicable to fBeds</h2>
-        <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--c-3f565c)' }}>These concepts exist in other bedbank pricing specifications. They are not part of this system, so they are not audited and never reported as passed.</p>
+        <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--c-444444)' }}>These concepts exist in other bedbank pricing specifications. They are not part of this system, so they are not audited and never reported as passed.</p>
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, display: 'grid', gap: 4 }}>{RATE_CERTIFICATION_NOT_APPLICABLE.map((item) => <li key={item.concept}><strong>{item.concept}.</strong> {item.reason}</li>)}</ul>
       </div>
     </div>

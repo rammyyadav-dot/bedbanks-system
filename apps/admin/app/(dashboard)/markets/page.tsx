@@ -18,8 +18,8 @@ export default function MarketsPage() {
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.destinations.length === 0} empty={{ title: 'No hotels yet', description: 'This tenant has no hotels, so there are no destinations to show.' }}>
         {(d) => (
           <div className="workspace-panel" data-testid="markets-table">
-            <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-3f565c)' }}>{d.totalHotels} hotel(s) · window {d.window.from} → {d.window.to} · generated {when(d.generatedAt)}</p>
-            {d.scanCapped && <p role="status" style={{ padding: '0 14px', color: 'var(--c-8a5a00)', fontSize: 11 }}>Counts cover the first alphabetical hotels only; this tenant has more than the scan limit.</p>}
+            <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-444444)' }}>{d.totalHotels} hotel(s) · window {d.window.from} → {d.window.to} · generated {when(d.generatedAt)}</p>
+            {d.scanCapped && <p role="status" style={{ padding: '0 14px', color: 'var(--c-2a2a2a)', fontSize: 11 }}>Counts cover the first alphabetical hotels only; this tenant has more than the scan limit.</p>}
             <ScrollRegion label="Destinations">
               <table style={tableStyle} aria-label="Destinations">
                 <thead><tr>{['Destination', 'Hotels', 'Ready', 'Partial', 'Blocked', 'Mapping issues', 'Rate gaps', 'Availability gaps', 'Contracts expiring'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>

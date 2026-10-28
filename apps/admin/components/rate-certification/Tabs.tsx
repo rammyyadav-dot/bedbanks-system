@@ -14,7 +14,7 @@ import { certificationTone, hotelStatusText, hotelStatusTone, percentText, prior
 import { FindingList } from './FindingList'
 
 const PAGE_SIZE = 25
-const label = { display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-2c4a55)' } as const
+const label = { display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
 
 export function HotelsTab({ window }: { window: { days: number } }) {
   const [status, setStatus] = useState(''); const [q, setQ] = useState(''); const [page, setPage] = useState(1)
@@ -101,7 +101,7 @@ export function RemediationTab({ window }: { window: { days: number } }) {
   const { state, reload } = useOpsQuery(() => getRateCertificationRemediation({ priority: priority || undefined, days: window.days, page, pageSize: PAGE_SIZE }), [priority, page, window.days])
   return (
     <div>
-      <p style={{ fontSize: 12, color: 'var(--c-3f565c)', margin: '0 0 8px' }}>A to-do list for people. Nothing here can be executed: no rate is changed, merged, deleted or published from this page.</p>
+      <p style={{ fontSize: 12, color: 'var(--c-444444)', margin: '0 0 8px' }}>A to-do list for people. Nothing here can be executed: no rate is changed, merged, deleted or published from this page.</p>
       <form aria-label="Remediation filters" onSubmit={(event) => event.preventDefault()}>
         <TableToolbar>
           <label style={label}><span>Priority</span><select value={priority} onChange={(e) => { setPriority(e.target.value); setPage(1) }}><option value="">All</option>{REMEDIATION_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
@@ -110,7 +110,7 @@ export function RemediationTab({ window }: { window: { days: number } }) {
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'Nothing to remediate', description: 'The scan found no live plan with a finding.' }}>
         {(data) => (
           <div className="workspace-panel" data-testid="remediation-table">
-            <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-3f565c)' }} data-testid="remediation-counts">{data.counts.P0} P0 · {data.counts.P1} P1 · {data.counts.P2} P2{data.scanCapped ? ' · scan limit reached (first hotels only)' : ''}</p>
+            <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-444444)' }} data-testid="remediation-counts">{data.counts.P0} P0 · {data.counts.P1} P1 · {data.counts.P2} P2{data.scanCapped ? ' · scan limit reached (first hotels only)' : ''}</p>
             <ScrollRegion label="Remediation queue">
               <table style={tableStyle} aria-label="Remediation queue">
                 <thead><tr>{['Priority', 'Hotel', 'Plan', 'Finding', 'Count', 'Suggested next step'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
@@ -139,7 +139,7 @@ export function MarkupTab() {
     <OpsState state={state} onRetry={reload} isEmpty={(d) => d.rules.length === 0} empty={{ title: 'No markup rules', description: 'No markup rule exists, so NET rates cannot be sold. SELL rates are unaffected.' }}>
       {(data) => (
         <div className="workspace-panel" data-testid="markup-table">
-          <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-3f565c)' }}>{data.counts.total} rules: {data.counts.active} active · {data.counts.draft} draft · {data.counts.retired} retired. NET plans with an unpriced night: {data.netPlansWithoutMarkup}. Rules are authored under <Link href="/commercial/markups">Markups</Link>; this view only audits them.</p>
+          <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-444444)' }}>{data.counts.total} rules: {data.counts.active} active · {data.counts.draft} draft · {data.counts.retired} retired. NET plans with an unpriced night: {data.netPlansWithoutMarkup}. Rules are authored under <Link href="/commercial/markups">Markups</Link>; this view only audits them.</p>
           <ScrollRegion label="Markup rules audit">
             <table style={tableStyle} aria-label="Markup rules audit">
               <thead><tr>{['Scope', 'Target', 'Markup', 'Valid', 'Status', 'Findings'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
