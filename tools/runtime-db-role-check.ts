@@ -66,6 +66,14 @@ export const APPROVED_TOOL_CLIENTS: ReadonlyArray<{ file: string; purpose: strin
   { file: 'tools/admin-ops-verify/seed-rate-certification.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/verify-rate-plans.cjs', purpose: 'operator: rate plan verification script' },
   { file: 'tools/admin-ops-verify/verify-rate-plans-strict.cjs', purpose: 'operator: strict-role rate plan verification script' },
+  { file: 'tools/admin-ops-verify/seed-quick-update.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/verify-quick-update.cjs', purpose: 'operator: Quick Update verification script' },
+  { file: 'tools/admin-ops-verify/seed-promotions-supplements.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/verify-promotions-supplements.cjs', purpose: 'operator: promotions and meal supplement verification script' },
+  { file: 'tools/admin-ops-verify/seed-room-occupancy.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/verify-room-occupancy.cjs', purpose: 'operator: room occupancy and extra-bed pricing verification script' },
+  { file: 'tools/admin-ops-verify/seed-event-supplements.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/verify-event-supplements.cjs', purpose: 'operator: event supplement verification script' },
 ]
 
 const GUARD_FILE = 'tools/runtime-db-role-check.ts'

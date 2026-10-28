@@ -172,12 +172,14 @@ const supplementRow = (page, evidenceRef) => page.locator(`tr:has-text("${eviden
   check('after suspending the duplicate, pricing succeeds again with the remaining (higher-priority) rule', preview4.status() === 200)
 
   // ---- maker-checker amendment: changes the terms only after a second person approves exactly what will be applied -------------
-  // Filed directly against the API: by this point the supplement already carries a decided (EXECUTED) approval, and the "Request
-  // amendment" button in this build of the Admin UI is gated on having NO approval at all, ever — not on having no OPEN one — so it
-  // never reappears after the first activation. Worth a human's attention; out of scope for this certification script to fix.
-  const amendReq = await page.request.post(`${BASE}/api/v1/admin/event-supplements/${pctSupp.id}/amendment-request`, { data: { changes: { percentBp: 2000 }, reason: 'Certification: raise the percentage, needs review' }, headers: { 'content-type': 'application/json', origin: BASE } })
-  check('the amendment request is filed against the real API', amendReq.status() === 201 || amendReq.status() === 200, String(amendReq.status()))
+  // By this point the supplement already carries a decided (EXECUTED) activation approval. "Request amendment" is gated on there
+  // being no OPEN approval (no pending decide/cancel/execute), not on never having had one, so it is clickable through the real UI.
+  await page.goto(`${BASE}/room-events/${roomEvent.id}`)
+  // amendPrompt() asks for the new value first, then the reason — two dialogs in that order.
+  await withPrompts(page, ['2000', 'Certification: raise the percentage, needs review'], () => page.locator(`tr:has-text("${pctSupp.evidenceRef}")`).getByRole('button', { name: 'Request amendment' }).click())
+  await page.waitForTimeout(400)
   const amendApproval = await prisma.approvalRequest.findFirstOrThrow({ where: { tenantId: seed.tenantA, entityType: 'event_supplement', entityId: pctSupp.id, status: 'PENDING' } })
+  check('the amendment request is filed through the real "Request amendment" button', !!amendApproval)
   check('the amendment is filed but applies nothing until approved and executed', (await prisma.eventSupplement.findUniqueOrThrow({ where: { id: pctSupp.id } })).percentBp === 1000)
   await checker.page.goto(`${BASE}/room-events/${roomEvent.id}`)
   await withPrompts(checker.page, ['Reviewed and approved: raising to 20%'], () => checker.page.locator(`tr:has-text("${pctSupp.evidenceRef}")`).getByRole('button', { name: 'Approve' }).click())
