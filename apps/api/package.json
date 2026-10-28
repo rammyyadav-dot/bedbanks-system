@@ -55,6 +55,7 @@
     "ops:backfill-booking-supplier": "tsx src/database/backfill-booking-supplier.cli.ts",
     "ops:reindex-hotel-search": "tsx src/database/reindex-hotel-search.cli.ts",
     "ops:certify-tenant-control": "node --no-experimental-strip-types -r @swc-node/register src/database/certify-tenant-control.cli.ts",
+    "ops:certify-runtime-db-identity": "node --no-experimental-strip-types -r @swc-node/register scripts/certify-runtime-db-identity.cjs",
     "ops:compliance": "node --no-experimental-strip-types -r @swc-node/register src/compliance/compliance-ops.cli.ts",
     "ops:provision-tenant-control-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-tenant-control-role.cli.ts"
   },

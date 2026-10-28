@@ -158,6 +158,8 @@ jobs:
       - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
       - name: Certify tenant control with distinct restricted API and authoring roles
         run: pnpm --filter @bedbanks/api ops:certify-tenant-control
+      - name: Certify runtime DB identity against real role fixtures (membership, inheritance, SET ROLE/RESET)
+        run: pnpm --filter @bedbanks/api ops:certify-runtime-db-identity
       - run: pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/preview-di.smoke.ts
       - run: pnpm turbo run type-check lint --cache-dir=.turbo --env-mode=loose
       # Tests need the live Postgres/Redis services, so they are never served from the Turborepo cache.
