@@ -101,8 +101,8 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged, initialRatePlanI
       <section className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 12 }} aria-label="Quick Update scope">
         <h2 style={{ fontSize: 14, margin: 0 }}>1. Select what to change</h2>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <label style={field}>Supplier / contract<select className="input-wrap" value={contractId} onChange={(e) => edited(() => setContractId(e.target.value))}><option value="">All contracts</option>{contracts.contracts.map((c) => <option key={c.id} value={c.id}>{c.supplierName} · {c.code}</option>)}</select></label>
-          <label style={field}>Canonical room<select className="input-wrap" value={roomId} onChange={(e) => edited(() => setRoomId(e.target.value))}><option value="">All rooms</option>{data.rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+          <label style={field}>Supplier / contract<select className="input-wrap" value={contractId} onChange={(e) => edited(() => { setContractId(e.target.value); setSelected([]); setPreview(null) })}><option value="">All contracts</option>{contracts.contracts.map((c) => <option key={c.id} value={c.id}>{c.supplierName} · {c.code}</option>)}</select></label>
+          <label style={field}>Canonical room<select className="input-wrap" value={roomId} onChange={(e) => edited(() => { setRoomId(e.target.value); setSelected([]); setPreview(null) })}><option value="">All rooms</option>{data.rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
           <div style={field}><span>Shared pools</span><span style={note}>A pooled plan&apos;s allotment is the pool&apos;s capacity, written once per night. Manage pools in Inventory &amp; Allotment.</span></div>
         </div>
         {plans.length === 0 ? <p data-testid="qu-no-plans" style={{ fontSize: 12 }}>No rate plan matches. Create a rate plan first; Quick Update changes existing plans.</p> : (
@@ -114,7 +114,7 @@ function QuickUpdateForm({ hotelId, data, contracts, onChanged, initialRatePlanI
                 <td style={td}><code>{p.code}</code></td><td style={td}>{p.roomName}</td><td style={td}>{p.boardCode}</td><td style={td}>{sup?.supplierName ?? '—'} · {p.contractCode}</td><td style={td}><strong>{p.currency}</strong></td><td style={td}>{p.occupancy}</td><td style={td}><Chip tone={p.status === 'ACTIVE' ? 'ok' : 'warn'}>{p.status}</Chip></td>
               </tr>) })}</tbody></table></ScrollRegion>
         )}
-        <p style={note}>Up to {QUICK_UPDATE_LIMITS.plans} rate plans and {QUICK_UPDATE_LIMITS.records} plan-nights per update.{currencies.length > 1 ? ' The selected plans use different currencies, so a price cannot be changed in one update.' : ''}</p>
+        <p style={note}>Up to {QUICK_UPDATE_LIMITS.plans} rate plans and {QUICK_UPDATE_LIMITS.records} plan-nights per update. Changing either filter clears your selection; select plans again before previewing.{currencies.length > 1 ? ' The selected plans use different currencies, so a price cannot be changed in one update.' : ''}</p>
         <fieldset style={{ border: '1px solid var(--c-e6eef0)', padding: 12, margin: 0, display: 'grid', gap: 8 }}>
           <legend style={{ fontSize: 12, fontWeight: 600 }}>Dates (hotel local, up to {QUICK_UPDATE_LIMITS.ranges} ranges)</legend>
           {ranges.map((r, i) => (
