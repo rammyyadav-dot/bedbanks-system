@@ -7,7 +7,7 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --import tsx --test format.test.ts ledger.test.ts ledger-integrity.test.ts reconciliation.test.ts credit-risk.test.ts bank-statement.test.ts bank-matching.test.ts",
+    "test": "node --import tsx --test format.test.ts ledger.test.ts ledger-integrity.test.ts period.test.ts gl.test.ts gl-export.test.ts reconciliation.test.ts credit-risk.test.ts bank-statement.test.ts bank-matching.test.ts",
     "build": "tsc"
   },
   "devDependencies": { "typescript": "^5.9.3" }

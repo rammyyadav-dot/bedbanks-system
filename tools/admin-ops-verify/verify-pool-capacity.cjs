@@ -136,8 +136,9 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   await page.unroute('**/inventory/pools/*/consumption*')
   for (const [status, code, expect] of [[403, 'FORBIDDEN', 'forbidden'], [500, 'INTERNAL_SERVER_ERROR', 'error']]) {
     await page.route(/\/inventory\/pools\/[^/?]+(\?.*)?$/, (r) => r.request().method() === 'GET' ? r.fulfill({ status, contentType: 'application/json', headers: { 'x-request-id': 'req-det-1' }, body: JSON.stringify({ success: false, error: { code, message: 'x', details: [] }, meta: {} }) }) : r.continue())
-    await page.goto(poolUrl(P.hotelId, P.poolId)); await page.waitForSelector('[data-state]', { timeout: 20000 })
-    check(`pool detail API ${status} renders "${expect}", never an empty pool`, (await page.locator('[data-state]').first().getAttribute('data-state')) === expect && !/0 results|No pool/.test(await text(page)))
+    await page.goto(poolUrl(P.hotelId, P.poolId)); await page.waitForSelector(`[data-state=${expect}]`, { timeout: 20000 })
+    // The page carries other data-state markers (readiness gates are PASS/WARN/FAIL); the view state is the one that is not a gate.
+    check(`pool detail API ${status} renders "${expect}", never an empty pool`, (await page.locator(`[data-state=${expect}]:not([data-gate-state])`).count()) >= 1 && !/0 results|No pool/.test(await text(page)))
     await page.unroute(/\/inventory\/pools\/[^/?]+(\?.*)?$/)
   }
   await open(page, P.hotelId, P.poolId)
@@ -211,6 +212,7 @@ const capacitiesOf = async (ctx, from) => (await detailOf(ctx, P.hotelId, P.pool
   await page.screenshot({ path: `${SHOTS}/pool-night-request.png`, fullPage: true })
   const ck = await login(browser, seed.checkerEmail)
   await open(ck.page, P.hotelId, P.poolId)
+  await ck.page.waitForSelector(`[data-testid=approve-${reqId}]`, { timeout: 20000 }).catch(() => {})
   check('the checker sees the request with approve and reject, and no request form', (await ck.page.locator(`[data-testid=approve-${reqId}]`).count()) === 1 && (await ck.page.locator('form[aria-label="Request new nights"]').count()) === 0)
   check('approve needs a reason', await ck.page.locator(`[data-testid=approve-${reqId}]`).isDisabled())
   await ck.page.locator(`tr[data-request="${reqId}"] input[aria-label="Decision reason"]`).fill('Confirmed with the hotel')

@@ -7,6 +7,7 @@ import * as request from 'supertest'
 import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
+import { realPng } from './support/image-fixtures'
 import { hashPassword } from '../src/auth/utils/password'
 import { STEP_UP_FIELD } from '@bedbanks/contracts'
 import { API_RUNTIME_LOGIN_ROLE, provisionApiRuntimeRole, verifyApiRuntimeRole } from '../src/database/api-runtime-role'
@@ -47,10 +48,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   const call = (method: 'get' | 'post' | 'patch' | 'put' | 'delete', path: string, who: string, body?: object) => {
     const r = request(app.getHttpServer())[method](`/api/v1${path}`).set('Origin', origin).set('Cookie', cookies[who]); return body ? r.send(body) : r
   }
-  const png = (w: number, h: number, seed = key()) => {
-    const head = Buffer.alloc(33); Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head); head.writeUInt32BE(13, 8); head.write('IHDR', 12, 'latin1'); head.writeUInt32BE(w, 16); head.writeUInt32BE(h, 20)
-    return Buffer.concat([head, Buffer.from(seed)])
-  }
+  const png = (w: number, h: number, seed = key()) => realPng(w, h, seed)
   const search = (who: string) => call('post', '/agent/search', who, { destination: 'Dubai', checkIn: day(20), checkOut: day(22), rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED', limit: 100 })
   /** Row-change counters per table from the database's own statistics (the writes happen on other connections, so poll until they settle). */
   async function counters(): Promise<Record<string, { ins: number; upd: number; del: number }>> {

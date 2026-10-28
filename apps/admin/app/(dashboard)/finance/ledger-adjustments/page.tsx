@@ -14,7 +14,8 @@ import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { approveLedgerAdjustment, getLedgerAdjustments, proposeLedgerAdjustment, rejectLedgerAdjustment } from '@/lib/data/ledger-adjustments'
 import { getAgencies } from '@/lib/data/departments'
 import { describeApiError } from '@/lib/api/describe-error'
-import { parseMajorToMinor } from '@/lib/minor-units'
+import { getFundingReceipts } from '@/lib/data/funding'
+import { formatMinorUnits, parseMajorToMinor } from '@/lib/minor-units'
 import { useCan } from '@/lib/auth/capabilities'
 
 const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
@@ -99,6 +100,8 @@ function Propose({ busy, act }: { busy: boolean; act: (w: () => Promise<string>)
   const [agencyId, setAgencyId] = useState(''); const [amount, setAmount] = useState(''); const [direction, setDirection] = useState<'CREDIT' | 'DEBIT'>('DEBIT')
   const [reason, setReason] = useState<string>(LEDGER_ADJUSTMENT_REASONS[0]); const [text, setText] = useState(''); const [receiptId, setReceiptId] = useState('')
   const key = useRef<string | null>(null)
+  // Only posted receipts of the chosen agency can be reversed; the server still checks the receipt, the agency and the cap.
+  const receipts = useOpsQuery(() => (kind === 'REVERSAL' && agencyId ? getFundingReceipts({ status: 'POSTED', agencyId, pageSize: 100 }) : Promise.resolve({ items: [], page: 1, pageSize: 100, total: 0 })), [kind, agencyId])
   const reasons: readonly string[] = kind === 'REVERSAL' ? LEDGER_REVERSAL_REASONS : LEDGER_ADJUSTMENT_REASONS
   // Currency is fixed to AED, the launch currency (ADR 0029); the server refuses an agency with no account in it.
   const minor = parseMajorToMinor(amount.trim(), 'AED')
@@ -114,14 +117,19 @@ function Propose({ busy, act }: { busy: boolean; act: (w: () => Promise<string>)
           </select>
         </label>
         <label style={lab}>Agency
-          <select className="input-wrap" value={agencyId} onChange={(e) => setAgencyId(e.target.value)} data-testid="adjustment-agency">
+          <select className="input-wrap" value={agencyId} onChange={(e) => { setAgencyId(e.target.value); setReceiptId('') }} data-testid="adjustment-agency">
             <option value="">Choose</option>
             {agencies.state.status === 'ready' && agencies.state.data.items.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
           </select>
         </label>
         {kind === 'ADJUSTMENT'
           ? <label style={lab}>Effect<select className="input-wrap" value={direction} onChange={(e) => setDirection(e.target.value as 'CREDIT' | 'DEBIT')}><option value="DEBIT">Debit (agency owes more)</option><option value="CREDIT">Credit (agency owes less)</option></select></label>
-          : <label style={lab}>Funding receipt id<input className="input-wrap" maxLength={80} value={receiptId} onChange={(e) => setReceiptId(e.target.value)} data-testid="adjustment-receipt" /></label>}
+          : <label style={lab}>Posted receipt to reverse
+              <select className="input-wrap" value={receiptId} onChange={(e) => setReceiptId(e.target.value)} disabled={!agencyId} data-testid="adjustment-receipt">
+                <option value="">{!agencyId ? 'Choose an agency first' : receipts.state.status === 'ready' && receipts.state.data.items.length === 0 ? 'No posted receipts' : 'Choose'}</option>
+                {receipts.state.status === 'ready' && receipts.state.data.items.map(r => <option key={r.id} value={r.id}>{r.bankReference} · {formatMinorUnits(r.amountMinor, r.currency)} · value {r.valueDate}</option>)}
+              </select>
+            </label>}
         <label style={lab}>Amount (AED)<input className="input-wrap" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="adjustment-amount" /></label>
         <label style={lab}>Reason<select className="input-wrap" value={reason} onChange={(e) => setReason(e.target.value)}>{reasons.map(r => <option key={r} value={r}>{words(r)}</option>)}</select></label>
         <label style={lab}>Note<input className="input-wrap" maxLength={500} value={text} onChange={(e) => setText(e.target.value)} data-testid="adjustment-note" /></label>
@@ -136,7 +144,7 @@ function Propose({ busy, act }: { busy: boolean; act: (w: () => Promise<string>)
           return 'Proposed. Nothing has moved; a different person must approve it.'
         })}>Propose</button>
       </div>
-      <p style={note}>Do not put payer or guest personal data in the note. A reversal debits the account by the amount and is capped by what the receipt paid.</p>
+      <p style={note}>Do not put payer or guest personal data in the note. A reversal debits the account by the amount and is capped by what the receipt paid, less anything already reversed or proposed for reversal.</p>
     </section>
   )
 }
