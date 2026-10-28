@@ -498,7 +498,7 @@ importers:
   apps/website:
     dependencies:
       '@bedbanks/ui':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../../packages/ui
       '@fontsource/ibm-plex-mono':
         specifier: ^5.3.0
