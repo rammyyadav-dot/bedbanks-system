@@ -87,7 +87,7 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
     expect(typeof a.stalledHoldsAtRequest).toBe('number')
     const seen = (await call('get', '', 'checker').expect(200)).body.data.items.find((x: { id: string }) => x.id === a.id)
     expect(seen.canDecide).toBe(true)
-    const approved = (await call('post', `/${a.id}/approve`, 'checker', { reason: 'Verified with supplier extranet' }).expect(200)).body.data
+    const approved = (await call('post', `/${a.id}/approve`, 'checker', { reason: 'Verified with supplier extranet', stepUpPassword: password }).expect(200)).body.data
     expect(approved).toMatchObject({ status: 'APPROVED', decidedById: ids.checker, decisionReason: 'Verified with supplier extranet' })
     const run = (await call('post', `/${a.id}/execute`, 'maker', { staleMinutes: 5, prebookMaxMinutes: 15 }).expect(200)).body.data // a body here must be ignored
     expect(run.approval).toMatchObject({ status: 'EXECUTED', executedById: ids.maker })
@@ -100,10 +100,13 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
 
   it('RA-02 single use: an executed approval cannot run again, concurrent executes run exactly once', async () => {
     const reconcile = jest.spyOn(app.get(OperationsTransactionsService), 'reconcile')
-    const a = await ask(); await call('post', `/${a.id}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    const a = await ask(); await call('post', `/${a.id}/approve`, 'checker', { reason: 'ok', stepUpPassword: password }).expect(200)
     const results = await Promise.all([call('post', `/${a.id}/execute`, 'maker'), call('post', `/${a.id}/execute`, 'checker')])
-    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
-    await call('post', `/${a.id}/execute`, 'maker').expect(409)
+    // The winner gets 200; the loser is refused either by the dual-approval guard (403, once the status has flipped) or,
+    // on a true race, by the service's atomic claim (409). Exactly one request must have actually executed.
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1)
+    expect(results.every((r) => [200, 403, 409].includes(r.status))).toBe(true)
+    await call('post', `/${a.id}/execute`, 'maker').expect(403) // already executed: the dual-approval guard refuses before the service is reached
     expect(reconcile).toHaveBeenCalledTimes(1)
     reconcile.mockRestore()
   })
@@ -111,9 +114,9 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
   it('RA-03 separation of duties: the requester cannot approve or reject their own request, and nothing runs without approval', async () => {
     const reconcile = jest.spyOn(app.get(OperationsTransactionsService), 'reconcile')
     const a = await ask()
-    await call('post', `/${a.id}/approve`, 'maker', { reason: 'me' }).expect(403)
+    await call('post', `/${a.id}/approve`, 'maker', { reason: 'me', stepUpPassword: password }).expect(403)
     await call('post', `/${a.id}/reject`, 'maker', { reason: 'me' }).expect(403)
-    await call('post', `/${a.id}/execute`, 'maker').expect(409) // still pending
+    await call('post', `/${a.id}/execute`, 'maker').expect(403) // still pending: dual-approval guard refuses before the service is reached
     expect(reconcile).not.toHaveBeenCalled()
     expect((await prisma.auditEvent.findMany({ where: { entityId: a.id, action: 'approval.denied' } })).length).toBe(2)
     reconcile.mockRestore()
@@ -122,18 +125,18 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
   it('RA-04 rejected and cancelled requests can never run; only the requester can cancel', async () => {
     const reconcile = jest.spyOn(app.get(OperationsTransactionsService), 'reconcile')
     const r = await ask(); await call('post', `/${r.id}/reject`, 'checker', { reason: 'not needed' }).expect(200)
-    await call('post', `/${r.id}/execute`, 'maker').expect(409)
+    await call('post', `/${r.id}/execute`, 'maker').expect(403) // dual-approval guard: rejected, not approved
     const c = await ask(); await call('post', `/${c.id}/cancel`, 'checker').expect(403)
     expect((await call('post', `/${c.id}/cancel`, 'maker').expect(200)).body.data.status).toBe('CANCELLED')
-    await call('post', `/${c.id}/approve`, 'checker', { reason: 'late' }).expect(409)
-    await call('post', `/${c.id}/execute`, 'maker').expect(409)
+    await call('post', `/${c.id}/approve`, 'checker', { reason: 'late', stepUpPassword: password }).expect(409)
+    await call('post', `/${c.id}/execute`, 'maker').expect(403) // dual-approval guard: cancelled, not approved
     expect(reconcile).not.toHaveBeenCalled()
     reconcile.mockRestore()
   })
 
   it('RA-05 a failed run releases the approval for a retry and records the failure', async () => {
     const reconcile = jest.spyOn(app.get(OperationsTransactionsService), 'reconcile').mockRejectedValueOnce(new Error('supplier down'))
-    const a = await ask(); await call('post', `/${a.id}/approve`, 'checker', { reason: 'ok' }).expect(200)
+    const a = await ask(); await call('post', `/${a.id}/approve`, 'checker', { reason: 'ok', stepUpPassword: password }).expect(200)
     await call('post', `/${a.id}/execute`, 'maker').expect(500)
     expect((await prisma.approvalRequest.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('APPROVED')
     expect((await prisma.auditEvent.findMany({ where: { entityId: a.id, action: 'approval.execution_failed' } })).length).toBe(1)
@@ -161,17 +164,17 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
     const a = await ask()
     await call('get', '', 'reader').expect(403)
     await call('post', '', 'reader', { requestId: `${suffix}-x`, reason: 'x' }).expect(403)
-    await call('post', `/${a.id}/approve`, 'reader', { reason: 'x' }).expect(403)
+    await call('post', `/${a.id}/approve`, 'reader', { reason: 'x', stepUpPassword: password }).expect(403)
     await request(app.getHttpServer()).get(base).expect(401)
     expect((await call('get', '', 'bchecker').expect(200)).body.data.items.map((x: { id: string }) => x.id)).not.toContain(a.id)
-    await call('post', `/${a.id}/approve`, 'bchecker', { reason: 'cross tenant' }).expect(404)
+    await call('post', `/${a.id}/approve`, 'bchecker', { reason: 'cross tenant', stepUpPassword: password }).expect(404)
     await call('post', `/${a.id}/execute`, 'bchecker').expect(404)
   })
 
   it('RA-08 only reconciliation approvals are reachable through these routes', async () => {
     const other = await prisma.approvalRequest.create({ data: { tenantId: tenantA, action: 'refund.approve', entityType: 'refund', entityId: 'r-1', requestId: `${suffix}-other`, requestedById: ids.maker, reason: 'not a reconciliation' } })
-    await call('post', `/${other.id}/approve`, 'checker', { reason: 'x' }).expect(400)
-    await call('post', `/${other.id}/execute`, 'checker').expect(400)
+    await call('post', `/${other.id}/approve`, 'checker', { reason: 'x', stepUpPassword: password }).expect(400)
+    await call('post', `/${other.id}/execute`, 'checker').expect(403) // dual-approval guard: action mismatch
   })
 
   it('RA-09 the database refuses an executed approval that lacks its decider or executor', async () => {
