@@ -11,7 +11,7 @@ export function AmenityPicker({ scope, value, onChange, readOnly, idPrefix }: { 
   const by = new Map(value.map((v) => [v.code, v.feeType]))
   return (
     <div role="group" aria-label={`${scope === 'HOTEL' ? 'Hotel' : 'Room'} amenities`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 6 }}>
-      {Array.from(new Set(entries.map(a => amenityGroup(a.code)))).map(group => <fieldset key={group} style={{ border: '1px solid var(--c-d7e1e4)', minWidth: 0, margin: 0, padding: 10 }}><legend>{group}</legend>
+      {Array.from(new Set(entries.map(a => amenityGroup(a.code)))).map(group => <fieldset key={group} style={{ border: '1px solid var(--c-e4e4e0)', minWidth: 0, margin: 0, padding: 10 }}><legend>{group}</legend>
       {entries.filter(a => amenityGroup(a.code) === group).map((a) => {
         const fee = by.get(a.code)
         const id = `${idPrefix}-${a.code}`

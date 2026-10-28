@@ -96,7 +96,7 @@ function Hotel360({ id }: { id: string }) {
               <HotelHeaderMetadata hotelId={id} updatedAt={data.hotel.updatedAt} contentStatus={data.hotel.contentStatus} />
               <div><dt>Bookings / active holds</dt><dd>{data.counts.bookings ?? 'unavailable'} / {data.counts.activeHolds ?? 'unavailable'}</dd></div>
             </dl>
-            <p style={{ color: 'var(--c-3f565c)', fontSize: 11, margin: '0 0 8px' }}>Assessed {data.window.from} → {data.window.to} ({data.window.days} nights).</p>
+            <p style={{ color: 'var(--c-444444)', fontSize: 11, margin: '0 0 8px' }}>Assessed {data.window.from} → {data.window.to} ({data.window.days} nights).</p>
             </details>
           </>
         )}

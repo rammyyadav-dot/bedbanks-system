@@ -7,7 +7,7 @@ import { Money, Tag, when } from '@/components/ops/ops-ui'
 import { ScrollRegion, td, th, tableStyle } from '@/components/hotels/ui'
 import { getOpsReceivables } from '@/lib/data/operations'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 
 /**
  * Receivables (ADR 0028 slice 4). Agency accounts with unpaid charges, oldest first. Payments settle the oldest charge first; a refund

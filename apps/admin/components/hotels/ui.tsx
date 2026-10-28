@@ -17,8 +17,8 @@ export const GateChip = ({ state }: { state: GateState }) => <Chip tone={gateTon
 export function ScrollRegion({ label, children, maxHeight }: { label: string; children: ReactNode; maxHeight?: number }) {
   return <div role="region" aria-label={label} tabIndex={0} style={{ overflow: 'auto', maxHeight, position: 'relative' }}>{children}</div>
 }
-export const th: React.CSSProperties = { textAlign: 'left', padding: '10px 14px', color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap', background: 'var(--c-ffffff)', position: 'sticky', top: 0 }
-export const td: React.CSSProperties = { padding: '10px 14px', color: 'var(--c-2c4a55)', verticalAlign: 'middle', borderBottom: '1px solid var(--c-edf2f3)' }
+export const th: React.CSSProperties = { textAlign: 'left', padding: '10px 14px', color: 'var(--c-444444)', borderBottom: '1px solid var(--c-e4e4e0)', whiteSpace: 'nowrap', background: 'var(--c-ffffff)', position: 'sticky', top: 0 }
+export const td: React.CSSProperties = { padding: '10px 14px', color: 'var(--c-444444)', verticalAlign: 'middle', borderBottom: '1px solid var(--c-e4e4e0)' }
 export const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 11 }
 
 export function ReadinessGates({ gates, hotelId }: { gates: ReadinessGate[]; hotelId: string }) {
@@ -27,10 +27,10 @@ export function ReadinessGates({ gates, hotelId }: { gates: ReadinessGate[]; hot
       <h2 id="gates-title" style={{ fontSize: 14, margin: '0 0 8px' }}>Commercial readiness</h2>
       <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {gates.map((gate) => (
-          <li key={gate.key} style={{ display: 'grid', gridTemplateColumns: '150px 70px 1fr', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--c-edf2f3)', alignItems: 'center' }} data-gate={gate.key} data-state={gate.state}>
-            <Link href={hotelHref(hotelId, sectionTab(gate.section))} style={{ color: 'var(--c-17333e)', fontWeight: 600, textDecoration: 'none' }}>{gate.label}</Link>
+          <li key={gate.key} style={{ display: 'grid', gridTemplateColumns: '150px 70px 1fr', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--c-e4e4e0)', alignItems: 'center' }} data-gate={gate.key} data-state={gate.state}>
+            <Link href={hotelHref(hotelId, sectionTab(gate.section))} style={{ color: 'var(--c-111111)', fontWeight: 600, textDecoration: 'none' }}>{gate.label}</Link>
             <GateChip state={gate.state} />
-            <span style={{ color: 'var(--c-3f565c)' }}>{gate.detail}</span>
+            <span style={{ color: 'var(--c-444444)' }}>{gate.detail}</span>
           </li>
         ))}
       </ol>
@@ -39,16 +39,16 @@ export function ReadinessGates({ gates, hotelId }: { gates: ReadinessGate[]; hot
 }
 
 export function IssuePanel({ issues, hotelId, showHotel = false, emptyText = 'No commercial issues were found in the assessed window.' }: { issues: CommercialIssue[]; hotelId?: string; showHotel?: boolean; emptyText?: string }) {
-  if (issues.length === 0) return <p data-testid="issues-empty" style={{ color: 'var(--c-3f565c)' }}>{emptyText}</p>
+  if (issues.length === 0) return <p data-testid="issues-empty" style={{ color: 'var(--c-444444)' }}>{emptyText}</p>
   return (
     <ul style={{ listStyle: 'none', margin: 0, padding: 0 }} data-testid="issue-list">
       {issues.map((issue) => (
-        <li key={issue.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--c-edf2f3)' }} data-severity={issue.severity} data-category={issue.category}>
+        <li key={issue.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--c-e4e4e0)' }} data-severity={issue.severity} data-category={issue.category}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Chip tone={severityTone(issue.severity)}>{issue.severity}</Chip>
-            <Link href={hotelHref(hotelId ?? issue.hotelId, sectionTab(issue.section), issue.section === 'rates' ? { from: issue.from, roomTypeId: issue.roomTypeId } : {})} style={{ color: 'var(--c-17333e)', fontWeight: 600 }}>{showHotel ? `${issue.hotelName} · ` : ''}{issue.message}</Link>
+            <Link href={hotelHref(hotelId ?? issue.hotelId, sectionTab(issue.section), issue.section === 'rates' ? { from: issue.from, roomTypeId: issue.roomTypeId } : {})} style={{ color: 'var(--c-111111)', fontWeight: 600 }}>{showHotel ? `${issue.hotelName} · ` : ''}{issue.message}</Link>
           </div>
-          <div style={{ color: 'var(--c-3f565c)', fontSize: 11, marginTop: 2 }}>
+          <div style={{ color: 'var(--c-444444)', fontSize: 11, marginTop: 2 }}>
             {issue.reason ? <code>{issue.reason}</code> : null}
             {issue.from ? ` · ${issue.from === issue.to ? issue.from : `${issue.from} → ${issue.to}`} (${issue.nights} night${issue.nights === 1 ? '' : 's'})` : ''}
             {issue.supplierName ? ` · ${issue.supplierName}` : ''}

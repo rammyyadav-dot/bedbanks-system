@@ -44,7 +44,7 @@ function StepUpDialog({ request, onClose }: { request: StepUpRequest; onClose: (
     <Modal title={request.title} onClose={() => { if (!busy) onClose() }}>
       <form onSubmit={submit} style={{ display: 'grid', gap: 10 }} data-testid="step-up-form">
         <p style={{ margin: 0, fontSize: 13 }}>{request.description}</p>
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--c-3f565c)' }}>Confirm it is you: enter your own password. A different person made the request, and this decision is recorded under your name.</p>
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--c-444444)' }}>Confirm it is you: enter your own password. A different person made the request, and this decision is recorded under your name.</p>
         {!failure?.final && (
           <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>Your password
             <input className="input-wrap" type="password" autoComplete="current-password" value={password} maxLength={256} disabled={busy} required onChange={(e) => setPassword(e.target.value)} data-testid="step-up-password" />

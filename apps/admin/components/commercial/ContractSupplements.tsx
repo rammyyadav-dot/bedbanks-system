@@ -38,7 +38,7 @@ export function ContractSupplements({ contract, canManage, editable, onChanged }
   return (
     <section className="workspace-panel" style={{ maxWidth: 760, padding: 22, marginTop: 16, display: 'grid', gap: 8 }} aria-label="Supplements">
       <h2 style={{ fontSize: 14, margin: 0 }}>Supplements</h2>
-      <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: 0 }}>Included in the price agents see, after any promotion and before the markup. A board supplement applies to the plans sold on that board; a compulsory one (a gala dinner) to every plan for the stay nights it names.</p>
+      <p style={{ fontSize: 11, color: 'var(--c-444444)', margin: 0 }}>Included in the price agents see, after any promotion and before the markup. A board supplement applies to the plans sold on that board; a compulsory one (a gala dinner) to every plan for the stay nights it names.</p>
       {rows.length === 0 ? <p style={{ fontSize: 12, margin: 0 }}>No supplement defined.</p> : (
         <ul style={{ fontSize: 12, margin: 0 }}>{rows.map((s) => (
           <li key={s.id}><strong>{s.kind === 'BOARD' ? 'Board' : 'Compulsory'}</strong> · {describeSupplement(s, formatMinorUnits, boardName(s.boardBasisId))}{canEdit ? <> <button type="button" className="admin-btn" disabled={busy} aria-label={`Remove supplement ${s.name}`} onClick={() => void run(() => deleteSupplement(contract.id, s.id), 'Supplement removed.')}>Remove</button></> : null}</li>
@@ -56,7 +56,7 @@ export function ContractSupplements({ contract, canManage, editable, onChanged }
           <input className="admin-filter-select" type="date" aria-label="Last stay night (optional)" value={form.stayTo} onChange={(e) => setForm({ ...form, stayTo: e.target.value })} />
           <button type="submit" className="admin-btn" disabled={busy}>Add supplement</button>
         </form>
-      ) : canManage && !editable ? <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: 0 }}>This contract is ACTIVE: change supplements through a policy amendment below.</p> : null}
+      ) : canManage && !editable ? <p style={{ fontSize: 11, color: 'var(--c-444444)', margin: 0 }}>This contract is ACTIVE: change supplements through a policy amendment below.</p> : null}
       {message ? <p role="status" style={{ fontSize: 12, margin: 0 }}>{message}</p> : null}
     </section>
   )

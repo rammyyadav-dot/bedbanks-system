@@ -69,7 +69,7 @@ export function SellabilityPanel({ hotelId, rooms }: { hotelId: string; rooms: H
           {result.hotelReasons.length > 0 && <p>Hotel-level: {result.hotelReasons.map((r) => <Chip key={r} tone="bad" title={reasonText(r)}>{r}</Chip>)}</p>}
           {result.plans.length === 0 && <p data-testid="no-plans">This hotel has no rate plan to evaluate for the request.</p>}
           {result.plans.map((plan) => (
-            <section key={plan.ratePlanId} aria-label={`${plan.roomName} ${plan.ratePlanCode}`} style={{ border: '1px solid var(--c-e6eef0)', borderRadius: 6, padding: 12, marginBottom: 10 }} data-plan-id={plan.ratePlanId} data-sellable={plan.sellable}>
+            <section key={plan.ratePlanId} aria-label={`${plan.roomName} ${plan.ratePlanCode}`} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 12, marginBottom: 10 }} data-plan-id={plan.ratePlanId} data-sellable={plan.sellable}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Tag tone={plan.sellable ? 'ok' : 'bad'}>{plan.sellable ? 'SUPPLY ELIGIBLE' : 'NOT ELIGIBLE'}</Tag>
                 <strong>{plan.roomName}</strong><span>{plan.boardCode} · <code>{plan.ratePlanCode}</code> · {plan.contractCode} · {plan.supplierName}</span>
@@ -89,7 +89,7 @@ export function SellabilityPanel({ hotelId, rooms }: { hotelId: string; rooms: H
                   <li key={night.date} data-date={night.date} data-sellable={night.sellable} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '2px 0' }}>
                     <span style={{ width: 90 }}>{night.date}</span><Chip tone={night.sellable ? 'ok' : 'bad'}>{night.sellable ? 'PASS' : night.reasons[0] ?? 'FAIL'}</Chip>
                     {night.rateMinor && plan.currency ? <Money minor={night.rateMinor} currency={plan.currency} /> : <span>no rate</span>}
-                    <span style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>remaining {night.remaining ?? '—'}</span>
+                    <span style={{ color: 'var(--c-444444)', fontSize: 11 }}>remaining {night.remaining ?? '—'}</span>
                     {!night.sellable && night.reasons.length > 1 && <span style={{ fontSize: 11 }}>{night.reasons.slice(1).join(', ')}</span>}
                   </li>
                 ))}

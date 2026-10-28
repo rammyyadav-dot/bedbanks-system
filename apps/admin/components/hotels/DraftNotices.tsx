@@ -1,6 +1,6 @@
 'use client'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-6b6b6b)', fontSize: 11, margin: 0 } as const
 
 export interface SaveFailure { message: string; details: string[]; requestId: string | null; stale: boolean }
 

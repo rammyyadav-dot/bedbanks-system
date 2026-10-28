@@ -32,7 +32,7 @@ function NeedsActionCount({ onOpen }: { onOpen: () => void }) {
   const { state } = useOpsQuery(() => getOpsBookings({ chip: 'needsAction', pageSize: 25 }), [])
   if (state.status !== 'ready') return null
   const n = state.data.total
-  return <button type="button" className="admin-btn no-print" data-testid="needs-action-count" onClick={onOpen} title="Bookings that need action: pending supplier, on request, amendment or cancellation requested, failed, or confirmed without a supplier reference" style={{ background: n > 0 ? 'var(--c-fff4d9)' : undefined, borderColor: n > 0 ? 'var(--c-e6b34d)' : undefined }}>{n} need{n === 1 ? 's' : ''} action</button>
+  return <button type="button" className="admin-btn no-print" data-testid="needs-action-count" onClick={onOpen} title="Bookings that need action: pending supplier, on request, amendment or cancellation requested, failed, or confirmed without a supplier reference" style={{ background: n > 0 ? 'var(--c-faf0d2)' : undefined, borderColor: n > 0 ? 'var(--c-d4a017)' : undefined }}>{n} need{n === 1 ? 's' : ''} action</button>
 }
 
 function loadColumns(): BookingColumnId[] {
@@ -84,8 +84,8 @@ export function BookingsWorkspace() {
       <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 10px' }}>
         <NeedsActionCount onOpen={() => { chooseLayout('list'); go({ chip: 'needsAction' }) }} />
         <span role="group" aria-label="Layout" style={{ display: 'inline-flex', gap: 0 }}>
-          <button type="button" className="admin-btn" data-testid="layout-list" aria-pressed={!kanban} style={!kanban ? { background: 'var(--c-0d2631)', color: 'var(--c-ffffff)', borderColor: 'var(--c-0d2631)' } : undefined} onClick={() => chooseLayout('list')}>List</button>
-          <button type="button" className="admin-btn" data-testid="layout-kanban" aria-pressed={kanban} style={kanban ? { background: 'var(--c-0d2631)', color: 'var(--c-ffffff)', borderColor: 'var(--c-0d2631)' } : undefined} onClick={() => chooseLayout('kanban')}>Kanban</button>
+          <button type="button" className="admin-btn" data-testid="layout-list" aria-pressed={!kanban} style={!kanban ? { background: 'var(--c-111111)', color: 'var(--c-ffffff)', borderColor: 'var(--c-2a2a2a)' } : undefined} onClick={() => chooseLayout('list')}>List</button>
+          <button type="button" className="admin-btn" data-testid="layout-kanban" aria-pressed={kanban} style={kanban ? { background: 'var(--c-111111)', color: 'var(--c-ffffff)', borderColor: 'var(--c-2a2a2a)' } : undefined} onClick={() => chooseLayout('kanban')}>Kanban</button>
         </span>
         <button type="button" className="admin-btn" data-testid="refresh" aria-label="Refresh bookings" onClick={reload}>Refresh</button>
       </div>
@@ -97,10 +97,10 @@ export function BookingsWorkspace() {
       </div>
       {!kanban && <nav className="no-print" aria-label="Quick searches" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
         {BOOKING_QUICK_SEARCHES.map((c) => (
-          <button key={c} type="button" className="admin-btn" aria-pressed={chip === c} style={chip === c ? { background: 'var(--c-0d2631)', color: 'var(--c-ffffff)', borderColor: 'var(--c-0d2631)' } : undefined} onClick={() => go({ chip: c })}>{BOOKING_QUICK_SEARCH_LABEL[c]}</button>
+          <button key={c} type="button" className="admin-btn" aria-pressed={chip === c} style={chip === c ? { background: 'var(--c-111111)', color: 'var(--c-ffffff)', borderColor: 'var(--c-2a2a2a)' } : undefined} onClick={() => go({ chip: c })}>{BOOKING_QUICK_SEARCH_LABEL[c]}</button>
         ))}
       </nav>}
-      {!kanban && chip === 'needsAction' && <p style={{ color: 'var(--c-3f565c)', fontSize: 11, margin: '0 0 8px' }}>Needs action here means: pending supplier, on request, amendment or cancellation requested, failed, or confirmed with no supplier reference. For operational priority and SLA handling, open the Operations queue when enabled for your role.</p>}
+      {!kanban && chip === 'needsAction' && <p style={{ color: 'var(--c-444444)', fontSize: 11, margin: '0 0 8px' }}>Needs action here means: pending supplier, on request, amendment or cancellation requested, failed, or confirmed with no supplier reference. For operational priority and SLA handling, open the Operations queue when enabled for your role.</p>}
       <div className="no-print">
       <BookingFilters query={query} access={last?.access ?? null} agencies={agencies.state.status === 'ready' ? agencies.state.data : null}
         onApply={(next) => router.replace(withView(bookingHref(withFilters({ chip: query.chip, sort: query.sort, dir: query.dir }, { ...next, chip: undefined })), viewId), { scroll: false })} onClear={clearFilters} />
@@ -148,12 +148,12 @@ function BookingTable({ data, columns, now, selectable, selection, onSelect, onS
     <div className="workspace-panel">
       <div style={{ overflowX: 'auto' }} role="region" aria-label="Bookings table" tabIndex={0}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }} aria-label="Bookings" data-testid="bookings-table">
-          <thead><tr>{selectable && <th scope="col" style={{ padding: '10px 6px 10px 14px', width: 24 }}><PageCheckbox state={pageSelectionState(selection, data.items.map((r) => r.id))} onChange={() => onSelectPage(data.items.map((r) => r.id))} /></th>}{columns.map((c) => <th key={c} scope="col" style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap' }}>{BOOKING_COLUMN_LABEL[c]}</th>)}</tr></thead>
+          <thead><tr>{selectable && <th scope="col" style={{ padding: '10px 6px 10px 14px', width: 24 }}><PageCheckbox state={pageSelectionState(selection, data.items.map((r) => r.id))} onChange={() => onSelectPage(data.items.map((r) => r.id))} /></th>}{columns.map((c) => <th key={c} scope="col" style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: 'var(--c-444444)', borderBottom: '1px solid var(--c-e4e4e0)', whiteSpace: 'nowrap' }}>{BOOKING_COLUMN_LABEL[c]}</th>)}</tr></thead>
           <tbody>
             {data.items.map((row) => (
-              <tr key={row.id} data-status={row.status} aria-selected={selectable ? selection.has(row.id) : undefined} style={{ borderBottom: '1px solid var(--c-edf2f3)', background: selection.has(row.id) ? 'var(--c-f1f7f9)' : undefined }}>
+              <tr key={row.id} data-status={row.status} aria-selected={selectable ? selection.has(row.id) : undefined} style={{ borderBottom: '1px solid var(--c-e4e4e0)', background: selection.has(row.id) ? 'var(--c-f6f6f4)' : undefined }}>
                 {selectable && <td style={{ padding: '10px 6px 10px 14px' }}><input type="checkbox" data-testid="row-select" data-booking-id={row.id} aria-label={`Select booking ${row.reference}`} checked={selection.has(row.id)} onChange={() => onSelect(row.id)} /></td>}
-                {columns.map((c) => <td key={c} style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: 'var(--c-2c4a55)', verticalAlign: 'top' }}><BookingCell column={c} row={row} now={now} attentionAvailable={data.attentionAvailable} /></td>)}
+                {columns.map((c) => <td key={c} style={{ textAlign: c === 'amount' ? 'right' : 'left', padding: '10px 14px', color: 'var(--c-444444)', verticalAlign: 'top' }}><BookingCell column={c} row={row} now={now} attentionAvailable={data.attentionAvailable} /></td>)}
               </tr>
             ))}
           </tbody>
@@ -163,8 +163,8 @@ function BookingTable({ data, columns, now, selectable, selection, onSelect, onS
         <label style={{ fontSize: 11 }}>Rows per page <select value={data.pageSize} onChange={(e) => onSize(Number(e.target.value))}>{BOOKING_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
         <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={onPage} />
       </div>
-      {data.urgencyAvailable === false && <p data-testid="urgency-unavailable" style={{ fontSize: 11, color: 'var(--c-3f565c)', padding: '0 14px 12px', margin: 0 }}>Urgent badges are not shown: the operations queue could not be evaluated just now (for example an invalid SLA policy). That is not the same as "nothing is urgent".</p>}
-      {!data.attentionAvailable && <p style={{ fontSize: 11, color: 'var(--c-3f565c)', padding: '0 14px 12px', margin: 0 }}>Reconciliation flags are not shown: the API database role cannot read the transaction records they come from. That is not the same as "no flags".</p>}
+      {data.urgencyAvailable === false && <p data-testid="urgency-unavailable" style={{ fontSize: 11, color: 'var(--c-444444)', padding: '0 14px 12px', margin: 0 }}>Urgent badges are not shown: the operations queue could not be evaluated just now (for example an invalid SLA policy). That is not the same as "nothing is urgent".</p>}
+      {!data.attentionAvailable && <p style={{ fontSize: 11, color: 'var(--c-444444)', padding: '0 14px 12px', margin: 0 }}>Reconciliation flags are not shown: the API database role cannot read the transaction records they come from. That is not the same as "no flags".</p>}
     </div>
   )
 }

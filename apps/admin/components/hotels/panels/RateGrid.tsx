@@ -77,17 +77,17 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>From</span><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
         <label style={{ display: 'grid', gap: 2, fontSize: 11 }}><span>Nights</span><select value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 10, 14].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-        <span style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Up to {MAX_PLANS} plans. Type, or paste from a spreadsheet (fills right and down). Rates are in major units of the plan currency.</span>
+        <span style={{ fontSize: 11, color: 'var(--c-444444)' }}>Up to {MAX_PLANS} plans. Type, or paste from a spreadsheet (fills right and down). Rates are in major units of the plan currency.</span>
       </div>
-      {derivedHidden > 0 ? <p style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{derivedHidden} derived plan{derivedHidden === 1 ? '' : 's'} not shown: they sell at a parent plan’s rate and have no rates of their own to edit here.</p> : null}
-      {loading ? <p role="status" style={{ fontSize: 12 }}>Loading rates…</p> : error ? <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{error} No fallback data is shown.</p> : plans.length === 0 ? <p style={{ fontSize: 12 }}>This hotel has no editable rate plan.</p> : (
+      {derivedHidden > 0 ? <p style={{ fontSize: 12, color: 'var(--c-444444)' }}>{derivedHidden} derived plan{derivedHidden === 1 ? '' : 's'} not shown: they sell at a parent plan’s rate and have no rates of their own to edit here.</p> : null}
+      {loading ? <p role="status" style={{ fontSize: 12 }}>Loading rates…</p> : error ? <p role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 12 }}>{error} No fallback data is shown.</p> : plans.length === 0 ? <p style={{ fontSize: 12 }}>This hotel has no editable rate plan.</p> : (
         <ScrollRegion label="Price grid" maxHeight={420}>
           <table style={tableStyle} aria-label="Prices by plan and night">
             <thead><tr><th scope="col" style={th}>Plan</th><th scope="col" style={th}>Basis</th>{dates.map((d) => <th key={d} scope="col" style={th}>{d.slice(5)}</th>)}</tr></thead>
             <tbody>
               {plans.map((plan, pi) => (
                 <tr key={plan.id} data-plan-id={plan.id}>
-                  <td style={td}><code>{plan.code}</code><div style={{ fontSize: 10, color: 'var(--c-3f565c)' }}>{plan.currency} · {plan.status}</div></td>
+                  <td style={td}><code>{plan.code}</code><div style={{ fontSize: 10, color: 'var(--c-444444)' }}>{plan.currency} · {plan.status}</div></td>
                   <td style={td}>
                     <select aria-label={`Basis for ${plan.code}`} value={basis[plan.id] ?? ''} onChange={(e) => { setReview(null); setBasis((cur) => ({ ...cur, [plan.id]: e.target.value as 'NET' | 'SELL' | '' })) }}>
                       <option value="">Choose…</option><option value="SELL">SELL</option><option value="NET">NET</option>
@@ -97,7 +97,7 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
                     const base = baseline[plan.id]?.[date]; const typed = edited[plan.id]?.[date]
                     const changed = typed !== undefined && typed.trim() !== (base?.amount ?? '')
                     return (
-                      <td key={date} style={{ ...td, padding: 4, background: changed ? 'var(--c-fff7d6)' : undefined }}>
+                      <td key={date} style={{ ...td, padding: 4, background: changed ? 'var(--c-faf0d2)' : undefined }}>
                         <input inputMode="decimal" size={8} aria-label={`${plan.code} ${date}`} value={typed ?? base?.amount ?? ''} placeholder="—"
                           onChange={(e) => set(plan.id, date, e.target.value)}
                           onPaste={(e) => { const text = e.clipboardData.getData('text'); if (!/[\t\n]/.test(text.trim())) return; e.preventDefault(); setReview(null); setEdited(applyPaste({ plans: gridPlans, dates, edited }, pi, di, parsePaste(text))) }} />
@@ -110,7 +110,7 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
           </table>
         </ScrollRegion>
       )}
-      {built.problems.length ? <ul aria-label="Problems" style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--c-a11d1d)' }}>{built.problems.slice(0, 8).map((p, i) => <li key={i}>{p.planId ? <code>{planCode(p.planId)}</code> : null} {p.date ?? ''} {p.message}</li>)}{built.problems.length > 8 ? <li>…and {built.problems.length - 8} more</li> : null}</ul> : null}
+      {built.problems.length ? <ul aria-label="Problems" style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--c-b3141b)' }}>{built.problems.slice(0, 8).map((p, i) => <li key={i}>{p.planId ? <code>{planCode(p.planId)}</code> : null} {p.date ?? ''} {p.message}</li>)}{built.problems.length > 8 ? <li>…and {built.problems.length - 8} more</li> : null}</ul> : null}
       <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button type="button" className="admin-btn admin-btn-primary" disabled={busy || !built.edit} onClick={runReview}>{busy && !review ? 'Checking…' : `Review ${built.changed} changed cell${built.changed === 1 ? '' : 's'}`}</button>
         {review ? <LargeChangeConfirm warnings={largeWarnings} confirmed={confirmLarge} onChange={setConfirmLarge} /> : null}
@@ -118,7 +118,7 @@ export function RateGrid({ hotelId, onApplied }: { hotelId: string; onApplied: (
         {Object.keys(edited).length ? <button type="button" className="admin-btn" onClick={() => { setEdited({}); setReview(null) }}>Discard edits</button> : null}
       </span>
       {review ? <CalendarReview preview={review.preview} planCode={planCode} /> : null}
-      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-a11d1d)' : 'var(--c-1f7a5a)', fontSize: 12, margin: 0 }}>{message.text}</p> : null}
+      {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-b3141b)' : 'var(--c-111111)', fontSize: 12, margin: 0 }}>{message.text}</p> : null}
     </section>
   )
 }

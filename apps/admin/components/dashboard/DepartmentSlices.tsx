@@ -27,8 +27,8 @@ function Slice<T>({ id, section, tiles }: { id: DepartmentId; section: SectionSt
             {tiles(section.data).map((t) => (
               <li key={t.label}>
                 <Link href={t.href} style={{ textDecoration: 'none', color: 'inherit' }} aria-label={`${t.label}: ${t.value}`}>
-                  <strong style={{ font: '700 20px system-ui', color: 'var(--c-17333e)' }}>{t.value}</strong>
-                  <div style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{t.label}</div>
+                  <strong style={{ font: '700 20px system-ui', color: 'var(--c-111111)' }}>{t.value}</strong>
+                  <div style={{ fontSize: 12, color: 'var(--c-444444)' }}>{t.label}</div>
                 </Link>
               </li>
             ))}

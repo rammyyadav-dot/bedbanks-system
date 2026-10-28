@@ -31,7 +31,7 @@ function Exceptions() {
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: 'No exceptions', description: 'The scan succeeded and found nothing stopping or threatening sale for the assessed window.' }}>
         {(data) => (
           <div className="workspace-panel" data-testid="exceptions-table">
-            <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-3f565c)' }} data-testid="exception-counts">{data.counts.CRITICAL} critical · {data.counts.HIGH} high · {data.counts.WARNING} warning · window {data.window.from} → {data.window.to}{data.scanCapped ? ' · scan limit reached (first hotels only)' : ''}</p>
+            <p style={{ padding: '8px 14px', margin: 0, color: 'var(--c-444444)' }} data-testid="exception-counts">{data.counts.CRITICAL} critical · {data.counts.HIGH} high · {data.counts.WARNING} warning · window {data.window.from} → {data.window.to}{data.scanCapped ? ' · scan limit reached (first hotels only)' : ''}</p>
             <ScrollRegion label="Commercial exceptions">
               <table style={tableStyle} aria-label="Commercial exceptions">
                 <thead><tr>{['Severity', 'Hotel', 'Room / plan', 'Supplier', 'Issue', 'Canonical reason', 'Affected', 'Observed', 'Action'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>

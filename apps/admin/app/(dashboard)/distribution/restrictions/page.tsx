@@ -14,8 +14,8 @@ import { createRestriction, getAgencies, getDistributionSummary, getRestrictions
 import { describeApiError } from '@/lib/api/describe-error'
 
 const PAGE_SIZE = 25
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-const field = { color: 'var(--c-17333e)' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+const field = { color: 'var(--c-111111)' } as const
 
 /** Distribution restrictions (ADR 0019): hide a hotel, or a supplier's inventory, from one agency's members. They narrow what an agency sees; they never grant access or change a price. */
 export default function RestrictionsPage() {
@@ -36,7 +36,7 @@ export default function RestrictionsPage() {
         {(s) => (
           <ul data-testid="distribution-summary" style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
             {[['Active restrictions', s.active], ['Agencies restricted', s.agenciesRestricted], ['Hotel restrictions', s.byScope.hotel], ['Supplier restrictions', s.byScope.supplier], ['Members affected', s.membersAffected]].map(([l, v]) => (
-              <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: 'var(--c-17333e)' }}>{v}</div><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{l}</div></li>
+              <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: 'var(--c-111111)' }}>{v}</div><div style={{ color: 'var(--c-444444)', fontSize: 11 }}>{l}</div></li>
             ))}
           </ul>
         )}

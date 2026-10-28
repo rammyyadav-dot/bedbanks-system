@@ -5,8 +5,8 @@ import type { BookingListRow } from '@bedbanks/contracts'
 import { AttentionTags, Money, Tag, bookingTone } from '@/components/ops/ops-ui'
 import { BOOKING_COLUMN_LABEL, deadlineUrgency, formatInZone, statusLabel, urgencyBadgeView, type BookingColumnId } from '@/lib/booking-ui'
 
-const small: React.CSSProperties = { display: 'block', color: 'var(--c-3f565c)', fontSize: 10, marginTop: 2 }
-const dot = (tone: 'ok' | 'warn' | 'bad' | 'neutral') => ({ ok: 'var(--c-22a58a)', warn: 'var(--c-d9962b)', bad: 'var(--c-c0443f)', neutral: 'var(--c-8aa0a6)' }[tone])
+const small: React.CSSProperties = { display: 'block', color: 'var(--c-444444)', fontSize: 10, marginTop: 2 }
+const dot = (tone: 'ok' | 'warn' | 'bad' | 'neutral') => ({ ok: 'var(--c-111111)', warn: 'var(--c-d4a017)', bad: 'var(--c-b3141b)', neutral: 'var(--c-6b6b6b)' }[tone])
 
 /** One table cell per column. Display only: every value, flag and mask was decided by the API. */
 export function BookingCell({ column, row, now, attentionAvailable }: { column: BookingColumnId; row: BookingListRow; now: Date; attentionAvailable: boolean }) {
@@ -34,22 +34,22 @@ export function BookingCell({ column, row, now, attentionAvailable }: { column: 
       )
     }
     case 'agency':
-      return <>{row.agency ? row.agency.name : <span style={{ color: 'var(--c-3f565c)' }} title="The agency could not be derived for this booking">Unassigned</span>}<span style={small}>{row.agent ?? '—'}</span></>
+      return <>{row.agency ? row.agency.name : <span style={{ color: 'var(--c-444444)' }} title="The agency could not be derived for this booking">Unassigned</span>}<span style={small}>{row.agent ?? '—'}</span></>
     case 'supplier':
-      return <>{row.supplier}<span style={small}>{row.supplierRef ? <code>{row.supplierRef}</code> : row.missingSupplierRef ? <strong style={{ color: 'var(--c-a11d1d)' }}>Missing</strong> : '—'}</span></>
+      return <>{row.supplier}<span style={small}>{row.supplierRef ? <code>{row.supplierRef}</code> : row.missingSupplierRef ? <strong style={{ color: 'var(--c-b3141b)' }}>Missing</strong> : '—'}</span></>
     case 'guest':
-      return row.leadGuest ? <>{row.leadGuest.name}{row.leadGuest.masked && <span style={small} title="Names are masked without the guest-data permission">masked</span>}{row.guests && <span style={small}>{row.guests.adults} AD{row.guests.children ? ` · ${row.guests.children} C` : ''}</span>}</> : <span style={{ color: 'var(--c-3f565c)' }}>—</span>
+      return row.leadGuest ? <>{row.leadGuest.name}{row.leadGuest.masked && <span style={small} title="Names are masked without the guest-data permission">masked</span>}{row.guests && <span style={small}>{row.guests.adults} AD{row.guests.children ? ` · ${row.guests.children} C` : ''}</span>}</> : <span style={{ color: 'var(--c-444444)' }}>—</span>
     case 'hotel':
-      return <>{row.hotel.name ?? <span style={{ color: 'var(--c-3f565c)' }}>Hotel not readable</span>}<span style={small}>{[row.room?.name, row.room?.board].filter(Boolean).join(' · ') || '—'}{row.room && row.room.quantity > 1 ? ` × ${row.room.quantity}` : ''}</span></>
+      return <>{row.hotel.name ?? <span style={{ color: 'var(--c-444444)' }}>Hotel not readable</span>}<span style={small}>{[row.room?.name, row.room?.board].filter(Boolean).join(' · ') || '—'}{row.room && row.room.quantity > 1 ? ` × ${row.room.quantity}` : ''}</span></>
     case 'stay':
-      return row.checkIn && row.checkOut ? <>{row.checkIn} → {row.checkOut}<span style={small}>{row.nights ?? '—'} night{row.nights === 1 ? '' : 's'}</span></> : <span style={{ color: 'var(--c-3f565c)' }} title="No stay dates are recorded for this booking">—</span>
+      return row.checkIn && row.checkOut ? <>{row.checkIn} → {row.checkOut}<span style={small}>{row.nights ?? '—'} night{row.nights === 1 ? '' : 's'}</span></> : <span style={{ color: 'var(--c-444444)' }} title="No stay dates are recorded for this booking">—</span>
     case 'booked':
       return <>{formatInZone(row.createdAt, null)}</>
     case 'deadline': {
       const urgency = deadlineUrgency(row.cancelDeadline, now)
       return row.cancelDeadline
-        ? <span style={{ color: urgency === 'soon' ? 'var(--c-a11d1d)' : urgency === 'passed' ? 'var(--c-3f565c)' : undefined, fontWeight: urgency === 'soon' ? 700 : 400 }}>{formatInZone(row.cancelDeadline, row.hotel.timeZone)}{urgency === 'soon' ? ' · < 48h' : urgency === 'passed' ? ' · passed' : ''}</span>
-        : <span style={{ color: 'var(--c-3f565c)' }} title="No cancellation deadline is recorded">—</span>
+        ? <span style={{ color: urgency === 'soon' ? 'var(--c-b3141b)' : urgency === 'passed' ? 'var(--c-444444)' : undefined, fontWeight: urgency === 'soon' ? 700 : 400 }}>{formatInZone(row.cancelDeadline, row.hotel.timeZone)}{urgency === 'soon' ? ' · < 48h' : urgency === 'passed' ? ' · passed' : ''}</span>
+        : <span style={{ color: 'var(--c-444444)' }} title="No cancellation deadline is recorded">—</span>
     }
     case 'amount':
       return (

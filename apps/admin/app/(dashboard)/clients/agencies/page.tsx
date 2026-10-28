@@ -15,8 +15,8 @@ import { useCan } from '@/lib/auth/capabilities'
 import { describeApiError } from '@/lib/api/describe-error'
 
 const PAGE_SIZE = 25
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-const field = { color: 'var(--c-17333e)' } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+const field = { color: 'var(--c-111111)' } as const
 
 /** Agencies and their members (ADR 0019). INACTIVE is a directory state; SUSPENDED blocks the members from searching and booking and is reached only through a maker-checker request (ADR 0020). */
 export default function AgenciesPage() {
@@ -39,7 +39,7 @@ export default function AgenciesPage() {
         {(s) => (
           <ul data-testid="clients-summary" style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
             {[['Agencies', s.agencies.total], ['Active', s.agencies.active], ['Inactive', s.agencies.inactive], ['Suspended', s.agencies.suspended], ['Members in an agency', s.members.inAnAgency], ['Members in none', s.members.notInAnyAgency]].map(([l, v]) => (
-              <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: 'var(--c-17333e)' }}>{v}</div><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{l}</div></li>
+              <li key={l as string} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 20px system-ui', color: 'var(--c-111111)' }}>{v}</div><div style={{ color: 'var(--c-444444)', fontSize: 11 }}>{l}</div></li>
             ))}
           </ul>
         )}

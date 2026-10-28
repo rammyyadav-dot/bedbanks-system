@@ -73,13 +73,13 @@ export function OpsListPage<T>({ eyebrow, title, description, filters = [], load
           <div className="workspace-panel">
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead><tr>{columns.map(c => <th key={c.key} scope="col" aria-sort={c.sortKey && sort?.key === c.sortKey ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-e6eef0)', whiteSpace: 'nowrap' }}>
+                <thead><tr>{columns.map(c => <th key={c.key} scope="col" aria-sort={c.sortKey && sort?.key === c.sortKey ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-444444)', borderBottom: '1px solid var(--c-e4e4e0)', whiteSpace: 'nowrap' }}>
                   {c.sortKey ? <button type="button" className="admin-btn" onClick={() => { const key = c.sortKey as string; setSort(sort?.key === key && sort.dir === 'asc' ? { key, dir: 'desc' } : { key, dir: 'asc' }); setPage(1) }}>{c.header}{sort?.key === c.sortKey ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button> : c.header}
                 </th>)}</tr></thead>
                 <tbody>
                   {data.items.map(row => (
-                    <tr key={getRowId(row)} style={{ borderBottom: '1px solid var(--c-edf2f3)' }}>
-                      {columns.map(c => <td key={c.key} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-2c4a55)', verticalAlign: 'middle' }}>{c.render(row)}</td>)}
+                    <tr key={getRowId(row)} style={{ borderBottom: '1px solid var(--c-e4e4e0)' }}>
+                      {columns.map(c => <td key={c.key} style={{ textAlign: c.align ?? 'left', padding: '10px 14px', color: 'var(--c-444444)', verticalAlign: 'middle' }}>{c.render(row)}</td>)}
                     </tr>
                   ))}
                 </tbody>

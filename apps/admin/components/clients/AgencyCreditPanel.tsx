@@ -9,8 +9,8 @@ import { useStepUp } from '@/components/common/StepUpDialog'
 import { formatMinorUnits, parseMajorToMinor } from '@/lib/minor-units'
 import { useCan } from '@/lib/auth/capabilities'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 
 /**
  * Credit limit of one agency (ADR 0024). The server decides everything: a different approver, single use, and refusal of holds over
@@ -73,7 +73,7 @@ export function AgencyCreditPanel({ agencyId, version, busy, act }: { agencyId: 
                     onClick={() => void act(async () => { await requestAgencyCreditLimit(agencyId, { requestId: newKey(), limitMinor: null, reason: text }); requestKey.current = null; setReason(''); return 'Removal requested; a second person must approve it.' })}>Request removal</button>}
                 </form>
               )}
-              {!p && canManage && amount.trim() !== '' && minor === null && <p role="note" style={{ ...note, color: 'var(--c-8a1c1c)' }}>Enter an amount with at most the currency&apos;s decimal places, for example 50000.00.</p>}
+              {!p && canManage && amount.trim() !== '' && minor === null && <p role="note" style={{ ...note, color: 'var(--c-b3141b)' }}>Enter an amount with at most the currency&apos;s decimal places, for example 50000.00.</p>}
             </div>
           )
         }}

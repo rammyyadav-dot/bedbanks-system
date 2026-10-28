@@ -48,7 +48,7 @@ export function HotelBulkOwner({ hotels, onDone, onClear }: { hotels: Array<{ id
         <button type="button" className="admin-btn" disabled={busy} onClick={onClear}>Clear selection</button>
         {problem && reason && <span role="note">{problem}</span>}
       </div>
-      {error && <p role="alert" style={{ margin: 0, color: 'var(--c-9a1c1c)' }}>{error}</p>}
+      {error && <p role="alert" style={{ margin: 0, color: 'var(--c-b3141b)' }}>{error}</p>}
       {results && (
         <div role="status" data-testid="bulk-owner-results">
           <p style={{ margin: 0 }}>{results.filter((r) => r.status === 'assigned').length} assigned · {results.filter((r) => r.status === 'unchanged').length} already set · {failed.length} failed. Each change is audited per hotel.</p>

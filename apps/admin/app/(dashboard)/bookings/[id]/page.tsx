@@ -26,7 +26,7 @@ const EXTRA_ACTION_LABEL: Record<string, string> = {
   opsAssigned: 'Assigned', opsUnassigned: 'Unassigned', opsAcknowledged: 'Acknowledged', opsEscalated: 'Escalated', opsDeescalated: 'Escalation cleared', opsResolved: 'Operations case resolved', opsNote: 'Operations note', opsAnswer: 'Supplier answer recorded by an operator',
 }
 const actionLabel = (a: string) => EXTRA_ACTION_LABEL[a] ?? (a in BOOKING_ACTION_RULES ? BOOKING_ACTION_RULES[a as keyof typeof BOOKING_ACTION_RULES].label : a)
-const muted: React.CSSProperties = { color: 'var(--c-3f565c)' }
+const muted: React.CSSProperties = { color: 'var(--c-444444)' }
 
 function Detail({ id }: { id: string }) {
   const tab = parseTab(useSearchParams().get('tab'))
@@ -63,7 +63,7 @@ function DetailBody({ d, id, tab, onChanged, refresh }: { d: BookingDetailView; 
         </div>
         <div style={{ ...muted, fontSize: 11 }}>
           {b.agency ? b.agency.name : 'Unassigned agency'}{b.agent ? ` · ${b.agent}` : ''} · {b.hotel.name ?? 'hotel not readable'}
-          {b.cancelDeadline ? <> · free cancellation until <strong style={{ color: urgency === 'soon' ? 'var(--c-a11d1d)' : undefined }}>{formatInZone(b.cancelDeadline, b.hotel.timeZone)}</strong>{urgency === 'passed' ? ' (passed)' : ''}</> : null}
+          {b.cancelDeadline ? <> · free cancellation until <strong style={{ color: urgency === 'soon' ? 'var(--c-b3141b)' : undefined }}>{formatInZone(b.cancelDeadline, b.hotel.timeZone)}</strong>{urgency === 'passed' ? ' (passed)' : ''}</> : null}
         </div>
         <BookingActions d={d} onChanged={onChanged} />
       </header>
@@ -125,7 +125,7 @@ function Summary({ d }: { d: BookingDetailView }) {
           <dt>Agent reference</dt><dd>{b.agentRef ?? '—'}</dd>
           <dt>Channel</dt><dd>{b.channel}</dd>
           <dt>Supplier</dt><dd>{b.supplier}</dd>
-          <dt>Supplier reference</dt><dd>{b.supplierRef ? <code>{b.supplierRef}</code> : b.missingSupplierRef ? <strong style={{ color: 'var(--c-a11d1d)' }}>Missing</strong> : '—'}</dd>
+          <dt>Supplier reference</dt><dd>{b.supplierRef ? <code>{b.supplierRef}</code> : b.missingSupplierRef ? <strong style={{ color: 'var(--c-b3141b)' }}>Missing</strong> : '—'}</dd>
           <dt>Hotel confirmation no.</dt><dd>{b.hotelConfirmationNo ?? '—'}</dd>
           <dt>Assigned to</dt><dd>{b.assignedTo?.name ?? '—'}</dd>
           <dt>Booked on</dt><dd>{formatInZone(b.createdAt, null)}</dd>

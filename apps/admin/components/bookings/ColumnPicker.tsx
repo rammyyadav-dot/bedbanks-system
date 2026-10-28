@@ -8,7 +8,7 @@ export function ColumnPicker({ columns, onChange }: { columns: BookingColumnId[]
   return (
     <details className="workspace-panel" style={{ padding: '8px 12px', fontSize: 11 }}>
       <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Columns ({columns.length} of {BOOKING_COLUMN_IDS.length})</summary>
-      <p style={{ color: 'var(--c-3f565c)', margin: '6px 0' }}>Kept in this browser. Booking # and Actions always show.</p>
+      <p style={{ color: 'var(--c-444444)', margin: '6px 0' }}>Kept in this browser. Booking # and Actions always show.</p>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }} aria-label="Shown columns">
         {columns.map((id) => (
           <li key={id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -21,7 +21,7 @@ export function ColumnPicker({ columns, onChange }: { columns: BookingColumnId[]
           </li>
         ))}
         {hidden.map((id) => (
-          <li key={id}><label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', color: 'var(--c-3f565c)' }}><input type="checkbox" checked={false} onChange={() => onChange(toggleColumn(columns, id))} />{BOOKING_COLUMN_LABEL[id]} (hidden)</label></li>
+          <li key={id}><label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', color: 'var(--c-444444)' }}><input type="checkbox" checked={false} onChange={() => onChange(toggleColumn(columns, id))} />{BOOKING_COLUMN_LABEL[id]} (hidden)</label></li>
         ))}
       </ul>
       <button type="button" className="admin-btn" style={{ marginTop: 8 }} onClick={() => onChange([...DEFAULT_BOOKING_COLUMNS])}>Reset columns</button>

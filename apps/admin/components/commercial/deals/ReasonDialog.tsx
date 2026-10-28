@@ -21,13 +21,13 @@ export function ReasonDialog({ open, title, children, confirmLabel, tone = 'prim
   }, [open])
   const ok = reasonOptional || reason.trim().length >= minLength
   return (
-    <dialog ref={ref} aria-labelledby={`${id}-title`} onCancel={(event) => { event.preventDefault(); if (!busy) onCancel() }} style={{ border: '1px solid var(--c-d3e0e3)', borderRadius: 8, padding: 20, maxWidth: 'min(480px, calc(100vw - 32px))', width: '100%', color: 'var(--c-17333e)' }}>
+    <dialog ref={ref} aria-labelledby={`${id}-title`} onCancel={(event) => { event.preventDefault(); if (!busy) onCancel() }} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 20, maxWidth: 'min(480px, calc(100vw - 32px))', width: '100%', color: 'var(--c-111111)' }}>
       <form method="dialog" onSubmit={(event) => { event.preventDefault(); if (ok && !busy) onConfirm(reason.trim()) }} style={{ display: 'grid', gap: 12 }}>
         <h2 id={`${id}-title`} style={{ fontSize: 15, margin: 0 }}>{title}</h2>
-        {children ? <div style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{children}</div> : null}
-        <label htmlFor={`${id}-reason`} style={{ display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-3f565c)' }}>
+        {children ? <div style={{ fontSize: 12, color: 'var(--c-444444)' }}>{children}</div> : null}
+        <label htmlFor={`${id}-reason`} style={{ display: 'grid', gap: 4, fontSize: 11, color: 'var(--c-444444)' }}>
           Reason{reasonOptional ? ' (optional)' : ` (at least ${minLength} characters)`}
-          <textarea id={`${id}-reason`} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} required={!reasonOptional} style={{ color: 'var(--c-17333e)', font: 'inherit', padding: 8 }} />
+          <textarea id={`${id}-reason`} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={3} required={!reasonOptional} style={{ color: 'var(--c-111111)', font: 'inherit', padding: 8 }} />
         </label>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <button type="button" className="admin-btn" onClick={onCancel} disabled={busy}>Cancel</button>

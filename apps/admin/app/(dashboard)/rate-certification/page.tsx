@@ -32,19 +32,19 @@ function RateCertification() {
   return (
     <div className="admin-page">
       <PageHeader eyebrow="RATES & INVENTORY · CERTIFICATION" title="Rate certification" description="A read-only audit of rate plans and daily rates against the evaluator Agent search prices with. It reports; it never repairs, merges, deletes or publishes anything." />
-      <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, marginBottom: 12, color: 'var(--c-2c4a55)' }}><span>Audit window</span>
+      <label style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, fontSize: 11, marginBottom: 12, color: 'var(--c-444444)' }}><span>Audit window</span>
         <select value={days} onChange={(event) => go({ days: Number(event.target.value) })} aria-label="Audit window">{WINDOW_OPTIONS.map((d) => <option key={d} value={d}>Next {d} nights</option>)}</select></label>
       <OpsState state={summary.state} onRetry={summary.reload}>
         {(s) => (
           <section aria-label="Certification summary" data-testid="summary" style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Rate plans (live)</div><strong data-testid="plans-counts">{s.plans.PASS} PASS · {s.plans.WARN} WARN · {s.plans.FAIL} FAIL</strong><div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{s.totals.livePlans} live of {s.totals.plans}</div></div>
-              <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Hotels</div><strong data-testid="hotels-counts">{s.hotels.CERTIFIED} certified · {s.hotels.READY_WITH_WARNINGS} with warnings · {s.hotels.NOT_READY} not ready</strong><div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{s.totals.hotels} assessed</div></div>
+              <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Rate plans (live)</div><strong data-testid="plans-counts">{s.plans.PASS} PASS · {s.plans.WARN} WARN · {s.plans.FAIL} FAIL</strong><div style={{ fontSize: 11, color: 'var(--c-444444)' }}>{s.totals.livePlans} live of {s.totals.plans}</div></div>
+              <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Hotels</div><strong data-testid="hotels-counts">{s.hotels.CERTIFIED} certified · {s.hotels.READY_WITH_WARNINGS} with warnings · {s.hotels.NOT_READY} not ready</strong><div style={{ fontSize: 11, color: 'var(--c-444444)' }}>{s.totals.hotels} assessed</div></div>
               <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Remediation</div><strong data-testid="remediation-summary">{s.remediation.P0} P0 · {s.remediation.P1} P1 · {s.remediation.P2} P2</strong></div>
-              <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Markup rules</div><strong>{s.markup.activeRules} active</strong><div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>{s.markup.findings} finding{s.markup.findings === 1 ? '' : 's'}</div></div>
+              <div className="workspace-panel" style={card}><div style={{ fontSize: 11 }}>Markup rules</div><strong>{s.markup.activeRules} active</strong><div style={{ fontSize: 11, color: 'var(--c-444444)' }}>{s.markup.findings} finding{s.markup.findings === 1 ? '' : 's'}</div></div>
             </div>
-            <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: '8px 0 0' }} data-testid="row-classes">Daily rate rows: {Object.entries(s.rowClasses).map(([name, count]) => <span key={name} title={ROW_CLASS_HELP[name as keyof typeof ROW_CLASS_HELP]} style={{ marginRight: 10 }}>{name.split('_').join(' ')} <strong>{count}</strong></span>)}</p>
-            <p style={{ fontSize: 11, color: 'var(--c-3f565c)', margin: '4px 0 0' }}>Observed {new Date(s.generatedAt).toLocaleString()} for {s.window.from} → {s.window.to}. A certification is an observation, not a switch: it does not change what Agents can search or book.{s.scanCapped ? ' Scan limit reached: only the first hotels by name are assessed.' : ''} <Chip tone="neutral">READ ONLY</Chip></p>
+            <p style={{ fontSize: 11, color: 'var(--c-444444)', margin: '8px 0 0' }} data-testid="row-classes">Daily rate rows: {Object.entries(s.rowClasses).map(([name, count]) => <span key={name} title={ROW_CLASS_HELP[name as keyof typeof ROW_CLASS_HELP]} style={{ marginRight: 10 }}>{name.split('_').join(' ')} <strong>{count}</strong></span>)}</p>
+            <p style={{ fontSize: 11, color: 'var(--c-444444)', margin: '4px 0 0' }}>Observed {new Date(s.generatedAt).toLocaleString()} for {s.window.from} → {s.window.to}. A certification is an observation, not a switch: it does not change what Agents can search or book.{s.scanCapped ? ' Scan limit reached: only the first hotels by name are assessed.' : ''} <Chip tone="neutral">READ ONLY</Chip></p>
           </section>
         )}
       </OpsState>

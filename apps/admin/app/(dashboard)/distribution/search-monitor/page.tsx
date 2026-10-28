@@ -19,12 +19,12 @@ export default function SearchMonitorPage() {
   return (
     <div className="admin-page">
       <PageHeader eyebrow="DISTRIBUTION · SEARCH MONITOR" title="Agent Search Monitor" description="Outcomes of Agent searches that were executed. A source failure is shown as a failure, never as an empty market." />
-      <label style={{ display: 'inline-grid', gap: 2, fontSize: 11, marginBottom: 12, color: 'var(--c-17333e)' }}><span style={{ color: 'var(--c-3f565c)' }}>Period</span>
-        <select style={{ color: 'var(--c-17333e)' }} value={days} onChange={(e) => setDays(e.target.value)}>{[['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+      <label style={{ display: 'inline-grid', gap: 2, fontSize: 11, marginBottom: 12, color: 'var(--c-111111)' }}><span style={{ color: 'var(--c-444444)' }}>Period</span>
+        <select style={{ color: 'var(--c-111111)' }} value={days} onChange={(e) => setDays(e.target.value)}>{[['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       <OpsState state={q.state} onRetry={q.reload} isEmpty={(d) => d.total === 0} empty={{ title: 'No searches recorded in this period', description: 'The query succeeded and no executed search was recorded. Cached answers are not recorded.' }}>
         {(d) => (
           <div style={{ display: 'grid', gap: 12 }} data-testid="search-monitor">
-            {d.truncated && <p role="status" style={{ color: 'var(--c-8a5a00)', fontSize: 12 }}>More events exist than the read limit; the figures below cover only the most recent ones.</p>}
+            {d.truncated && <p role="status" style={{ color: 'var(--c-2a2a2a)', fontSize: 12 }}>More events exist than the read limit; the figures below cover only the most recent ones.</p>}
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
               <li className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 22px system-ui' }}>{d.total}</div><div style={{ fontSize: 11 }}>Searches</div></li>
               {SEARCH_MONITOR_STATUSES.map((s) => <li key={s} className="workspace-panel" style={{ padding: '10px 14px' }}><div style={{ font: '700 22px system-ui' }}>{d.byStatus[s]}</div><div style={{ fontSize: 11 }}><Tag tone={TONE[s]}>{LABEL[s]}</Tag></div></li>)}
@@ -38,7 +38,7 @@ export default function SearchMonitorPage() {
               <ScrollRegion label="Recent problem searches"><table style={tableStyle}><thead><tr>{['When', 'Destination', 'Outcome', 'Request'].map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
                 <tbody>{d.recent.map((r, i) => <tr key={`${r.requestId ?? 'x'}-${i}`}><td style={td}>{when(r.at)}</td><td style={td}>{r.destination}</td><td style={td}><Tag tone={TONE[r.status]}>{LABEL[r.status]}</Tag></td><td style={td}><code style={{ fontSize: 10 }}>{r.requestId ?? '—'}</code></td></tr>)}</tbody></table></ScrollRegion>
             </div>
-            <details style={{ fontSize: 11, color: 'var(--c-3f565c)' }}><summary>What these numbers mean</summary><ul>{Object.entries(d.definitions).map(([k, v]) => <li key={k}><strong>{k}</strong>: {v}</li>)}</ul></details>
+            <details style={{ fontSize: 11, color: 'var(--c-444444)' }}><summary>What these numbers mean</summary><ul>{Object.entries(d.definitions).map(([k, v]) => <li key={k}><strong>{k}</strong>: {v}</li>)}</ul></details>
           </div>
         )}
       </OpsState>

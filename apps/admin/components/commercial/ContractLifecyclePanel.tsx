@@ -32,7 +32,7 @@ export function ContractLifecyclePanel({ view, canManage, onChanged }: { view: C
         <h2 style={{ fontSize: 14, margin: 0 }}>Status and approval</h2>
         <Chip tone={view.status === 'ACTIVE' ? 'ok' : view.status === 'SUSPENDED' || view.status === 'EXPIRED' ? 'bad' : 'neutral'}>{view.status}</Chip>
         <span style={{ fontSize: 12 }}>Version {view.version}</span>
-        {!view.termsEditable ? <span style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{view.status === 'ACTIVE' ? 'Terms are locked. Changes go through an amendment a second person approves.' : 'An expired contract cannot be changed.'}</span> : null}
+        {!view.termsEditable ? <span style={{ fontSize: 12, color: 'var(--c-444444)' }}>{view.status === 'ACTIVE' ? 'Terms are locked. Changes go through an amendment a second person approves.' : 'An expired contract cannot be changed.'}</span> : null}
       </div>
 
       {['DRAFT', 'REVIEW', 'SUSPENDED'].includes(view.status) ? (
@@ -46,7 +46,7 @@ export function ContractLifecyclePanel({ view, canManage, onChanged }: { view: C
         {open ? <> · {open.kind === 'AMEND' ? 'Amendment' : 'Activation'} requested {open.createdAt.slice(0, 10)} · reason: {open.reason}</> : null}
       </p>
       {open?.kind === 'AMEND' ? <ul style={{ margin: 0, fontSize: 12 }}>{describeChanges(open.changes).map((line) => <li key={line}>{line}</li>)}</ul> : null}
-      {open?.changedSinceRequest ? <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--c-8a5a00)' }}>The terms changed after this request was filed, so it can no longer be approved or applied. Withdraw it and file a new one.</p> : null}
+      {open?.changedSinceRequest ? <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--c-2a2a2a)' }}>The terms changed after this request was filed, so it can no longer be approved or applied. Withdraw it and file a new one.</p> : null}
 
       {canManage ? (
         <>
@@ -70,10 +70,10 @@ export function ContractLifecyclePanel({ view, canManage, onChanged }: { view: C
             ) : null}
             {stage === 'execute' && open ? <button type="button" className="admin-btn admin-btn-primary" disabled={busy || open.changedSinceRequest} onClick={() => act(() => executeContractApproval(open.id), 'apply the approved request')}>{open.kind === 'AMEND' ? 'Apply amendment' : 'Activate now'}</button> : null}
           </div>
-          {stage === 'awaiting-other' ? <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>A different user with contract management permission must approve it. Editing any term before it is applied voids the approval.</p> : null}
+          {stage === 'awaiting-other' ? <p style={{ margin: 0, fontSize: 11, color: 'var(--c-444444)' }}>A different user with contract management permission must approve it. Editing any term before it is applied voids the approval.</p> : null}
         </>
       ) : <p role="status" style={{ fontSize: 12, margin: 0 }}>You have read-only access to contracts.</p>}
-      {error ? <p role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 12, margin: 0 }}>{error}</p> : null}
+      {error ? <p role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 12, margin: 0 }}>{error}</p> : null}
 
       <details>
         <summary style={{ fontSize: 12, cursor: 'pointer' }}>Version history ({view.versions.length})</summary>

@@ -62,24 +62,24 @@ export function SellabilityInspector({ initialRatePlanId = '', initialCheckIn = 
             <input aria-label="Adults" className="admin-filter-select" style={{ width: 90 }} inputMode="numeric" placeholder={plan ? `Adults (${plan.occupancy})` : 'Adults'} value={adults} onChange={(e) => setAdults(e.target.value)} />
             <button type="button" className="admin-btn admin-btn-primary" onClick={run} disabled={running}>{running ? 'Checking…' : 'Check sellability'}</button>
           </section>
-          <p style={{ fontSize: 11, color: 'var(--c-66818a)' }}>One room. The API evaluates adults against the rate plan occupancy; children and multi-room searches are not evaluated by this endpoint.</p>
+          <p style={{ fontSize: 11, color: 'var(--c-6b6b6b)' }}>One room. The API evaluates adults against the rate plan occupancy; children and multi-room searches are not evaluated by this endpoint.</p>
           {plans.length === 0 ? <div className="admin-empty"><strong>No rate plans yet</strong><span>Create a contract and a rate plan first.</span></div> : null}
-          {runError ? <p role="alert" style={{ color: 'var(--c-bc5652)', fontSize: 12 }}>{runError}</p> : null}
+          {runError ? <p role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 12 }}>{runError}</p> : null}
           {running ? <LoadingState rows={4} /> : null}
           {report && summary ? (
             <section className="workspace-panel" style={{ padding: 18 }} aria-label="Sellability result">
-              <p style={{ fontSize: 11, color: 'var(--c-66818a)' }}>{report.planLabel} · {report.nights} night{report.nights === 1 ? '' : 's'} from {report.checkIn} · {report.adults} adult{report.adults === 1 ? '' : 's'}</p>
+              <p style={{ fontSize: 11, color: 'var(--c-6b6b6b)' }}>{report.planLabel} · {report.nights} night{report.nights === 1 ? '' : 's'} from {report.checkIn} · {report.adults} adult{report.adults === 1 ? '' : 's'}</p>
               <table style={{ borderCollapse: 'collapse', fontSize: 12, margin: '10px 0' }}>
                 <tbody>{summary.checks.map((check) => (
                   <tr key={check.label} data-check={check.label} data-status={check.status}>
-                    <td style={{ padding: '4px 24px 4px 0', color: 'var(--c-45636c)' }}>{check.label}</td>
-                    <td style={{ padding: '4px 16px 4px 0', fontWeight: 700, color: check.status === 'PASS' ? 'var(--c-1f7a5a)' : 'var(--c-bc5652)' }}>{check.status}</td>
-                    <td style={{ padding: '4px 0', color: 'var(--c-66818a)' }}>{check.findings.map((finding) => `${finding.code} (${finding.stayDate})`).join(', ')}</td>
+                    <td style={{ padding: '4px 24px 4px 0', color: 'var(--c-444444)' }}>{check.label}</td>
+                    <td style={{ padding: '4px 16px 4px 0', fontWeight: 700, color: check.status === 'PASS' ? 'var(--c-111111)' : 'var(--c-b3141b)' }}>{check.status}</td>
+                    <td style={{ padding: '4px 0', color: 'var(--c-6b6b6b)' }}>{check.findings.map((finding) => `${finding.code} (${finding.stayDate})`).join(', ')}</td>
                   </tr>
                 ))}</tbody>
               </table>
-              <p role="status" style={{ fontSize: 14, fontWeight: 700, color: summary.sellable ? 'var(--c-1f7a5a)' : 'var(--c-bc5652)' }}>RESULT: {summary.sellable ? 'SELLABLE' : 'NOT SELLABLE'}</p>
-              {summary.warnings.map((code) => <p key={code} role="note" data-warning={code} style={{ background: 'var(--c-fff7e0)', border: '1px solid var(--c-f0d58a)', padding: '8px 12px', fontSize: 12 }}>{WARNING_TEXT[code] ?? code}</p>)}
+              <p role="status" style={{ fontSize: 14, fontWeight: 700, color: summary.sellable ? 'var(--c-111111)' : 'var(--c-b3141b)' }}>RESULT: {summary.sellable ? 'SELLABLE' : 'NOT SELLABLE'}</p>
+              {summary.warnings.map((code) => <p key={code} role="note" data-warning={code} style={{ background: 'var(--c-faf0d2)', border: '1px solid var(--c-e4e4e0)', padding: '8px 12px', fontSize: 12 }}>{WARNING_TEXT[code] ?? code}</p>)}
               {!summary.sellable ? <ul style={{ fontSize: 12 }}>{summary.failures.map((failure) => <li key={`${failure.stayDate}-${failure.code}`}>{failure.code}: {failure.stayDate}</li>)}</ul> : null}
             </section>
           ) : null}

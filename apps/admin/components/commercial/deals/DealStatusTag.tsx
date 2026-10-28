@@ -14,7 +14,7 @@ export function DealStatusTag({ status, effective }: { status: HotelDealStatus; 
   return (
     <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
       <Tag tone={TONE[shown]}>{STATUS_LABEL[shown].toUpperCase()}</Tag>
-      {effective && effective !== status ? <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }} title="The stored label has not caught up with the hotel calendar yet. What applies is the status shown.">stored: {STATUS_LABEL[status]}</span> : null}
+      {effective && effective !== status ? <span style={{ fontSize: 10, color: 'var(--c-444444)' }} title="The stored label has not caught up with the hotel calendar yet. What applies is the status shown.">stored: {STATUS_LABEL[status]}</span> : null}
     </span>
   )
 }

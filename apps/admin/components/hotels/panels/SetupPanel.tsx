@@ -67,9 +67,9 @@ function diff(initial: Form, now: Form, canContacts: boolean): Omit<HotelSetupSa
   return out as never
 }
 
-const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-111111)' } as const
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 } as const
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 
 const personLabel = (p: { name: string | null; email: string }) => (p.name ? `${p.name} (${p.email})` : p.email)
 
@@ -94,7 +94,7 @@ function OwnerPicker({ hotelId, value, stored, readOnly, onChange }: { hotelId: 
           {value && <button type="button" className="admin-btn" onClick={() => onChange('')} data-testid="owner-clear">Clear owner</button>}
         </div>
       )}
-      {state === 'error' && <span role="alert" style={{ ...note, color: 'var(--c-9a1c1c)' }}>Members could not be loaded. You may lack permission to list members.</span>}
+      {state === 'error' && <span role="alert" style={{ ...note, color: 'var(--c-b3141b)' }}>Members could not be loaded. You may lack permission to list members.</span>}
       {options && (options.length === 0
         ? <span style={note} data-testid="owner-empty">No members match.</span>
         : <select className="input-wrap" aria-label="Choose owner" size={Math.min(options.length, 6)} value={value} onChange={(e) => onChange(e.target.value)} data-testid="owner-options">{options.map((o) => <option key={o.userId} value={o.userId}>{personLabel(o)}</option>)}</select>)}
@@ -194,7 +194,7 @@ function SetupForm({ hotelId, setup, onSaved, onLoadLatest }: { hotelId: string;
     <label style={{ ...field, gridColumn: '1 / -1' }}>{label}<textarea className="input-wrap" rows={3} maxLength={max} value={form[key] as string} onChange={(e) => set(key, e.target.value as never)} readOnly={ro} /></label>
   )
   const section = (title: string, children: React.ReactNode, help?: string) => (
-    <fieldset className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10, border: '1px solid var(--c-e6eef0)', margin: 0 }}>
+    <fieldset className="workspace-panel" style={{ padding: 18, display: 'grid', gap: 10, border: '1px solid var(--c-e4e4e0)', margin: 0 }}>
       <legend style={{ fontSize: 14, fontWeight: 600, padding: '0 6px' }}>{title}</legend>
       {help && <p style={note}>{help}</p>}
       <div style={grid}>{children}</div>
@@ -313,7 +313,7 @@ function StatusControl({ hotelId, setup, token, onDone }: { hotelId: string; set
         <label style={{ ...field, minWidth: 260 }}>Reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { key.current = null; setReason(e.target.value) }} /></label>
         <button type="submit" className="button primary" data-testid="status-apply" disabled={busy || to === '' || reason.trim().length < 3}>{busy ? 'Applying…' : 'Apply status'}</button>
       </div>
-      {notice && <p role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="status-notice" style={{ margin: 0, color: notice.tone === 'bad' ? 'var(--c-a11d1d)' : 'var(--c-0b6b55)' }}>{notice.text}{notice.requestId ? ` Request id: ${notice.requestId}` : ''}</p>}
+      {notice && <p role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="status-notice" style={{ margin: 0, color: notice.tone === 'bad' ? 'var(--c-b3141b)' : 'var(--c-111111)' }}>{notice.text}{notice.requestId ? ` Request id: ${notice.requestId}` : ''}</p>}
     </form>
   )
 }
@@ -346,7 +346,7 @@ function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup
       {!open && (
         <>
           <p style={note}>Publishing needs two people: you request it, then a different hotel manager approves it, then it is applied. The request is tied to the version you reviewed; any edit afterwards means a new request.</p>
-          {unmet.length > 0 && <p role="note" style={{ ...note, color: 'var(--c-8a1c1c)' }} data-testid="publication-blocked">A request cannot be made until: {unmet.map((r) => r.label).join('; ')}.</p>}
+          {unmet.length > 0 && <p role="note" style={{ ...note, color: 'var(--c-b3141b)' }} data-testid="publication-blocked">A request cannot be made until: {unmet.map((r) => r.label).join('; ')}.</p>}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
             <label style={{ ...field, minWidth: 260 }}>Reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => { requestKey.current = null; setReason(e.target.value) }} /></label>
             <button type="button" className="button primary" data-testid="publication-request" disabled={busy || unmet.length > 0 || text.length < 3}
@@ -357,7 +357,7 @@ function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup
       {open && (
         <>
           <p style={note} data-testid="publication-state">Publication request: <strong>{open.status}</strong>. Requested by <code>{open.requestedById}</code>{open.decidedById ? <>, decided by <code>{open.decidedById}</code></> : null}. Reason: {open.reason}</p>
-          {open.changedSinceRequest && <p role="alert" style={{ ...note, color: 'var(--c-8a1c1c)' }}>The hotel was edited after this request was made, so it cannot be approved or applied. {open.canCancel ? 'Withdraw it and make a new request.' : 'Reject it so a new request can be made.'}</p>}
+          {open.changedSinceRequest && <p role="alert" style={{ ...note, color: 'var(--c-b3141b)' }}>The hotel was edited after this request was made, so it cannot be approved or applied. {open.canCancel ? 'Withdraw it and make a new request.' : 'Reject it so a new request can be made.'}</p>}
           {open.canDecide && (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
               <label style={{ ...field, minWidth: 260 }}>Decision reason (required)<input className="input-wrap" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></label>
@@ -370,7 +370,7 @@ function PublicationControl({ hotelId, setup, onDone }: { hotelId: string; setup
           {!open.canDecide && !open.canCancel && !open.canExecute && <p style={note}>Waiting for another manager.</p>}
         </>
       )}
-      {notice && <p role="alert" data-testid="publication-notice" style={{ margin: 0, color: 'var(--c-a11d1d)' }}>{notice}</p>}
+      {notice && <p role="alert" data-testid="publication-notice" style={{ margin: 0, color: 'var(--c-b3141b)' }}>{notice}</p>}
     </section>
   )
 }

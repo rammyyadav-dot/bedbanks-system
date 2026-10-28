@@ -53,7 +53,7 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
                 <dt>Commercial coverage</dt><dd>{data.readiness} · assessed {data.window.from} → {data.window.to}</dd>
                 <dt>Last saved</dt><dd>{when(s.governance.updatedAt)}</dd>
               </dl>
-              <p style={{ color: 'var(--c-3f565c)', fontSize: 11, margin: '10px 0 0' }}>Profile approval, mapping verification, commercial coverage and sellability are separate: a published profile does not make a hotel sellable and enables no booking or payment path. <Link href={hotelHref(data.hotel.id, 'setup')}>Open Hotel Setup</Link></p>
+              <p style={{ color: 'var(--c-444444)', fontSize: 11, margin: '10px 0 0' }}>Profile approval, mapping verification, commercial coverage and sellability are separate: a published profile does not make a hotel sellable and enables no booking or payment path. <Link href={hotelHref(data.hotel.id, 'setup')}>Open Hotel Setup</Link></p>
             </>
           )}
         </OpsState>
@@ -65,7 +65,7 @@ export function OverviewPanel({ data }: { data: HotelCommercial360; onChanged: (
       </div>
       <div className="workspace-panel" style={{ padding: 18 }} data-testid="recent-changes">
         <h2 style={{ fontSize: 14, margin: '0 0 8px' }}>Recent changes</h2>
-        {!showAudit ? <p style={{ color: 'var(--c-3f565c)', fontSize: 12, margin: 0 }}>Audit history needs the audit permission.</p> : (
+        {!showAudit ? <p style={{ color: 'var(--c-444444)', fontSize: 12, margin: 0 }}>Audit history needs the audit permission.</p> : (
           <OpsState state={recent.state} onRetry={recent.reload} isEmpty={(d) => !d || d.items.length === 0} empty={{ title: 'No changes recorded', description: 'Nothing has been audited for this hotel yet.' }}>
             {(d) => (
               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, display: 'grid', gap: 4 }}>

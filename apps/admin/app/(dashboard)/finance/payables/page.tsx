@@ -36,13 +36,13 @@ export default function SupplierPayablesPage() {
                   </tr>))}</tbody>
               </table>
             </ScrollRegion>
-            <details style={{ fontSize: 11, color: 'var(--c-3f565c)', padding: '6px 14px' }}><summary>What these numbers mean</summary><ul>{Object.entries(d.definitions).map(([k, v]) => <li key={k}><strong>{k}</strong>: {v}</li>)}</ul></details>
+            <details style={{ fontSize: 11, color: 'var(--c-444444)', padding: '6px 14px' }}><summary>What these numbers mean</summary><ul>{Object.entries(d.definitions).map(([k, v]) => <li key={k}><strong>{k}</strong>: {v}</li>)}</ul></details>
           </div>
         )}
       </OpsState>
 
       <h2 style={{ fontSize: 14, margin: '18px 0 4px' }}>Posted payables (Finance consumer)</h2>
-      <p style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--c-3f565c)' }}>
+      <p style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--c-444444)' }}>
         What the booking Finance consumer has posted to each supplier: accruals on confirmation, price adjustments, and reversals on penalty-free cancellations (ADR 0076).
         This is a different basis from the accrual above, which reads the bookings themselves and works whether or not the consumer runs; the two can differ until the consumer has posted every booking.
         Neither is an amount to pay: no supplier invoice exists, and payments are only what has been recorded and approved under Supplier settlements.
@@ -72,7 +72,7 @@ export default function SupplierPayablesPage() {
       </OpsState>
 
       <h2 style={{ fontSize: 14, margin: '18px 0 4px' }}>Age of posted payables</h2>
-      <p style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--c-3f565c)' }}>
+      <p style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--c-444444)' }}>
         What is still owed on each booking, by the age of its first accrual. There are no payment terms or due dates in the system, so this is how long a cost has been owed, not how late it is. Approved supplier payments are applied to the oldest bookings first.
         Bookings fully reversed or fully adjusted away are not listed.
       </p>
@@ -85,7 +85,7 @@ export default function SupplierPayablesPage() {
                 <tbody>{d.rows.map((r) => (
                   <tr key={`${r.supplierId}-${r.currency}`}>
                     <td style={td}>{r.name ?? 'Unnamed supplier'}</td><td style={td}>{r.currency}</td>
-                    {r.buckets.map((b) => <td key={b.bucket} style={{ ...td, textAlign: 'right' }}><Money minor={b.amountMinor} currency={r.currency} />{b.bookings > 0 && <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }}> · {b.bookings}</span>}</td>)}
+                    {r.buckets.map((b) => <td key={b.bucket} style={{ ...td, textAlign: 'right' }}><Money minor={b.amountMinor} currency={r.currency} />{b.bookings > 0 && <span style={{ fontSize: 10, color: 'var(--c-444444)' }}> · {b.bookings}</span>}</td>)}
                     <td style={{ ...td, textAlign: 'right' }}><Money minor={r.totalMinor} currency={r.currency} /></td>
                     <td style={td}>{r.bookings}</td>
                   </tr>))}</tbody>
@@ -97,7 +97,7 @@ export default function SupplierPayablesPage() {
       </OpsState>
 
       <h2 style={{ fontSize: 14, margin: '18px 0 4px' }}>Due and overdue (against supplier payment terms)</h2>
-      <p style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--c-3f565c)' }}>
+      <p style={{ fontSize: 12, margin: '0 0 8px', color: 'var(--c-444444)' }}>
         Each booking's open balance against the supplier's agreed payment terms, set under Supplier settlements. The due date is the check-out, check-in or confirmation date plus the agreed days.
         A supplier with no terms, or a booking with no date for the basis, has no due date and is never shown as overdue. Approved payments clear the earliest-due bookings first.
       </p>
@@ -110,13 +110,13 @@ export default function SupplierPayablesPage() {
                 <tbody>{d.rows.map((r) => (
                   <tr key={`${r.supplierId}-${r.currency}`}>
                     <td style={td}>{r.name ?? 'Unnamed supplier'}</td><td style={td}>{r.currency}</td><td style={td}>{termsText(r.basis, r.days)}</td>
-                    {r.buckets.map((b) => <td key={b.bucket} style={{ ...td, textAlign: 'right' }}><Money minor={b.amountMinor} currency={r.currency} />{b.bookings > 0 && <span style={{ fontSize: 10, color: 'var(--c-3f565c)' }}> · {b.bookings}</span>}</td>)}
+                    {r.buckets.map((b) => <td key={b.bucket} style={{ ...td, textAlign: 'right' }}><Money minor={b.amountMinor} currency={r.currency} />{b.bookings > 0 && <span style={{ fontSize: 10, color: 'var(--c-444444)' }}> · {b.bookings}</span>}</td>)}
                     <td style={{ ...td, textAlign: 'right' }}>{r.overdueMinor !== '0' ? <Tag tone="bad"><Money minor={r.overdueMinor} currency={r.currency} /></Tag> : <Money minor={r.overdueMinor} currency={r.currency} />}</td>
                     <td style={{ ...td, textAlign: 'right' }}><Money minor={r.totalMinor} currency={r.currency} /></td>
                   </tr>))}</tbody>
               </table>
             </ScrollRegion>
-            <p style={{ fontSize: 11, padding: '4px 14px', color: 'var(--c-3f565c)' }}>As of {d.asOf} (UTC).{d.truncated ? ` Showing the first ${d.listLimit} rows.` : ''}</p>
+            <p style={{ fontSize: 11, padding: '4px 14px', color: 'var(--c-444444)' }}>As of {d.asOf} (UTC).{d.truncated ? ` Showing the first ${d.listLimit} rows.` : ''}</p>
           </div>
         )}
       </OpsState>

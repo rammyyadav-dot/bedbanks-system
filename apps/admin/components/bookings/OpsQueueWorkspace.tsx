@@ -17,10 +17,10 @@ import { formatRemaining, opsQueryString, priorityTone, readOpsQuery, slaTone, w
 import { formatInZone, statusLabel } from '@/lib/booking-ui'
 import { assignOpsCase, getOpsQueue } from '@/lib/data/operations'
 
-const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '5px 8px', fontSize: 12, font: 'inherit', minWidth: 0 }
-const label: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 11, color: 'var(--c-3f565c)' }
-const th: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--c-3f565c)', borderBottom: '1px solid var(--c-dbe6e9)', whiteSpace: 'nowrap' }
-const td: React.CSSProperties = { padding: '6px 8px', fontSize: 12, verticalAlign: 'top', borderBottom: '1px solid var(--c-eef3f4)' }
+const input: React.CSSProperties = { border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-chip)', padding: '5px 8px', fontSize: 12, font: 'inherit', minWidth: 0 }
+const label: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 11, color: 'var(--c-444444)' }
+const th: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--c-444444)', borderBottom: '1px solid var(--c-e4e4e0)', whiteSpace: 'nowrap' }
+const td: React.CSSProperties = { padding: '6px 8px', fontSize: 12, verticalAlign: 'top', borderBottom: '1px solid var(--c-e4e4e0)' }
 
 /**
  * The booking operations queue (ADR 0039, Phase 4). The server decides membership, priority, SLA and order; this screen only shows them. The order is not a column sort:
@@ -44,7 +44,7 @@ export function OpsQueueWorkspace() {
       {notice && <div role="status" data-testid="queue-notice" className="workspace-panel" style={{ padding: '8px 14px', marginBottom: 10, fontSize: 12 }}>{notice}</div>}
       <nav aria-label="Queue views" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
         {BOOKING_OPS_TABS.map((t) => (
-          <button key={t} type="button" className="admin-btn" data-tab={t} aria-pressed={tab === t} style={tab === t ? { background: 'var(--c-0d2631)', color: 'var(--c-ffffff)', borderColor: 'var(--c-0d2631)' } : undefined} onClick={() => go({ tab: t })}>
+          <button key={t} type="button" className="admin-btn" data-tab={t} aria-pressed={tab === t} style={tab === t ? { background: 'var(--c-111111)', color: 'var(--c-ffffff)', borderColor: 'var(--c-2a2a2a)' } : undefined} onClick={() => go({ tab: t })}>
             {BOOKING_OPS_TAB_LABEL[t]}{last ? <span data-testid={`count-${t}`}> ({last.counts[t]})</span> : null}
           </button>
         ))}
@@ -53,7 +53,7 @@ export function OpsQueueWorkspace() {
       <OpsState state={state} onRetry={reload} isEmpty={(d) => d.items.length === 0} empty={{ title: tab === 'resolved' ? 'Nothing resolved recently' : 'No cases', description: 'The queue was read successfully and nothing matches. This is an empty result, not an error.' }}>
         {(data) => (
           <>
-            {data.scanCapped && <p role="status" style={{ fontSize: 12, color: 'var(--c-8a5a00)' }}>More bookings need attention than the {2000} the queue reads at once: counts and order cover the most recently active.</p>}
+            {data.scanCapped && <p role="status" style={{ fontSize: 12, color: 'var(--c-2a2a2a)' }}>More bookings need attention than the {2000} the queue reads at once: counts and order cover the most recently active.</p>}
             <div className="workspace-panel" style={{ overflowX: 'auto' }} role="region" aria-label="Operations queue table" tabIndex={0}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }} aria-label="Operations queue" data-testid="queue-table">
                 <thead><tr>
@@ -64,7 +64,7 @@ export function OpsQueueWorkspace() {
               </table>
             </div>
             <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={(page) => go({ page })} />
-            <p style={{ fontSize: 11, color: 'var(--c-3f565c)' }} data-testid="sla-policy">SLA targets (minutes): {BOOKING_OPS_REASONS.map((r) => `${BOOKING_OPS_REASON_LABEL[r]} ${data.slaPolicy.minutes[r]}`).join(' · ')}. Due soon is the last {Math.round(data.slaPolicy.dueSoonFraction * 100)}% of a target.</p>
+            <p style={{ fontSize: 11, color: 'var(--c-444444)' }} data-testid="sla-policy">SLA targets (minutes): {BOOKING_OPS_REASONS.map((r) => `${BOOKING_OPS_REASON_LABEL[r]} ${data.slaPolicy.minutes[r]}`).join(' · ')}. Due soon is the last {Math.round(data.slaPolicy.dueSoonFraction * 100)}% of a target.</p>
           </>
         )}
       </OpsState>
@@ -82,21 +82,21 @@ function Row({ item: i, page, onChanged }: { item: BookingOpsQueueItem; page: Bo
   return (
     <tr data-testid="queue-row" data-reference={i.reference} data-priority={i.priority} data-sla={i.slaState ?? ''}>
       <td style={td}><Tag tone={priorityTone(i.priority)}>{BOOKING_OPS_PRIORITY_LABEL[i.priority].toUpperCase()}</Tag></td>
-      <td style={td}><Link href={`/bookings/${i.bookingId}?tab=operations`} aria-label={`Open ${i.reference}`}>{i.reference}</Link><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>{i.agency?.name ?? 'Unassigned agency'} · {i.hotel.name ?? '—'}{i.checkIn ? ` · check-in ${i.checkIn}` : ''}</div></td>
+      <td style={td}><Link href={`/bookings/${i.bookingId}?tab=operations`} aria-label={`Open ${i.reference}`}>{i.reference}</Link><div style={{ color: 'var(--c-444444)', fontSize: 11 }}>{i.agency?.name ?? 'Unassigned agency'} · {i.hotel.name ?? '—'}{i.checkIn ? ` · check-in ${i.checkIn}` : ''}</div></td>
       <td style={td}>
         <strong>{i.primaryReason ? BOOKING_OPS_REASON_LABEL[i.primaryReason] : 'No longer a case'}</strong>
         {i.supplierCertainty === 'UNCERTAIN' && <div><Tag tone="bad">SUPPLIER STATE UNCERTAIN</Tag></div>}
-        {i.reasons.length > 1 && <div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>also: {i.reasons.slice(1).map((r) => BOOKING_OPS_REASON_LABEL[r]).join(', ')}</div>}
+        {i.reasons.length > 1 && <div style={{ color: 'var(--c-444444)', fontSize: 11 }}>also: {i.reasons.slice(1).map((r) => BOOKING_OPS_REASON_LABEL[r]).join(', ')}</div>}
       </td>
-      <td style={td}>{i.slaState ? <><Tag tone={slaTone(i.slaState)}>{BOOKING_OPS_SLA_LABEL[i.slaState].toUpperCase()}</Tag><div style={{ fontSize: 11 }}>{formatRemaining(i.slaRemainingSeconds)}</div><div style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>due {formatInZone(i.slaDueAt, null)}</div></> : <span style={{ color: 'var(--c-3f565c)' }}>{i.lastActivityAt ? `last activity ${formatInZone(i.lastActivityAt, null)}` : '—'}</span>}</td>
+      <td style={td}>{i.slaState ? <><Tag tone={slaTone(i.slaState)}>{BOOKING_OPS_SLA_LABEL[i.slaState].toUpperCase()}</Tag><div style={{ fontSize: 11 }}>{formatRemaining(i.slaRemainingSeconds)}</div><div style={{ color: 'var(--c-444444)', fontSize: 11 }}>due {formatInZone(i.slaDueAt, null)}</div></> : <span style={{ color: 'var(--c-444444)' }}>{i.lastActivityAt ? `last activity ${formatInZone(i.lastActivityAt, null)}` : '—'}</span>}</td>
       <td style={td}>{statusLabel(i.status)}</td>
       <td style={td}>{i.supplier.name}{!i.supplier.configured && <div><Tag tone="neutral">NOT CONFIGURED</Tag></div>}{i.supplierStatus && <div style={{ fontSize: 11 }}>answer: {i.supplierStatus.replace(/_/g, ' ')}</div>}</td>
-      <td style={td} data-testid="owner">{i.assignee ? <>{i.assignee.name}{mine ? ' (you)' : ''}{i.acknowledgedAt ? <div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>acknowledged</div> : null}</> : <span style={{ color: 'var(--c-3f565c)' }}>Unassigned</span>}</td>
+      <td style={td} data-testid="owner">{i.assignee ? <>{i.assignee.name}{mine ? ' (you)' : ''}{i.acknowledgedAt ? <div style={{ fontSize: 11, color: 'var(--c-444444)' }}>acknowledged</div> : null}</> : <span style={{ color: 'var(--c-444444)' }}>Unassigned</span>}</td>
       <td style={td}>{i.lastSupplierActivityAt ? formatInZone(i.lastSupplierActivityAt, null) : '—'}</td>
       <td style={td}>{i.safeAction ? BOOKING_OPS_SAFE_ACTION_LABEL[i.safeAction] : '—'}</td>
       <td style={td}>
         {i.inQueue && page.can.assign && !mine && <button type="button" className="admin-btn" disabled={busy} aria-label={`Claim ${i.reference}`} data-action="claim" onClick={() => void claim()}>{busy ? 'Claiming…' : i.assignee ? 'Take over' : 'Claim'}</button>}
-        {error && <div role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 11, maxWidth: 220 }}>{error}</div>}
+        {error && <div role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 11, maxWidth: 220 }}>{error}</div>}
       </td>
     </tr>
   )

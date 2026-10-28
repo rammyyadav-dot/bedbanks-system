@@ -13,7 +13,7 @@ function sources(dir: string, out: string[] = []): string[] {
     if (entry === 'node_modules' || entry === '.next') continue
     const path = join(dir, entry)
     if (statSync(path).isDirectory()) sources(path, out)
-    else if (/\.(tsx|css)$/.test(entry) && !path.endsWith('theme-tokens.css')) out.push(path)
+    else if (/\.(tsx|css)$/.test(entry) && !/(theme|brand)-tokens.css$/.test(path)) out.push(path)
   }
   return out
 }
@@ -50,10 +50,15 @@ test('dark variant keeps pairs readable: reflected lightness, kept hue, scrims a
   assert.equal(normalizeHex('#FFF'), '#ffffff')
 })
 
-test('light theme is unchanged: the light block holds the original colours; dark-chrome tokens are identical in both themes', () => {
+test('light theme is the fabBeds brand: every light token is a brand-kit primitive, dark-chrome tokens are identical in both themes', () => {
   const light = parseLightTokens(tokensCss)
+  const kit = readFileSync(join(root, '..', '..', 'packages', 'ui', 'src', 'brand-tokens.css'), 'utf8')
+  const primitives = new Set([...kit.matchAll(/--fb-(?:ink|red|mustard)-[a-z0-9]+:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1]!.toLowerCase()))
+  assert.ok(primitives.size >= 17, 'the brand kit primitives are present')
+  const strays = Object.entries(light).filter(([, value]) => !primitives.has(value.slice(0, 7))).map(([name, value]) => `${name}: ${value}`)
+  assert.deepEqual(strays, [], 'every colour in the Admin is a fabBeds ink, red or mustard primitive (ADR 0102)')
   assert.equal(light['--c-ffffff'], '#ffffff')
-  assert.equal(light['--k-0d2631'], '#0d2631', 'the sidebar keeps its colour')
+  assert.equal(light['--k-111111'], '#111111', 'the sidebar is brand ink')
   const darkBlock = tokensCss.slice(tokensCss.indexOf(":root[data-theme='dark']"))
   assert.doesNotMatch(darkBlock, /--k-/, 'identity tokens are never redefined for dark')
   assert.match(tokensCss, /prefers-color-scheme: dark\) \{\s*:root\[data-theme='system'\]/)
@@ -82,6 +87,6 @@ test('dark chrome stays dark: the sidebar, user menu and hotel header use identi
   const css = (f: string) => readFileSync(join(root, f), 'utf8')
   assert.match(css('components/layout/shell-theme.css'), /--shell-menu-bg: var\(--k-/)
   const header = css('components/layout/hotel-admin.css').split('\n').find((l) => l.startsWith('.hotel-admin-header {')) ?? ''
-  assert.match(header, /background: var\(--k-1d4ed8\)/)
+  assert.match(header, /background: var\(--k-111111\)/)
   assert.match(css('app/globals.css'), /\.enterprise-sidebar \{[^}]*var\(--k-/)
 })

@@ -6,9 +6,9 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
       <div className="panel-header"><h2>Recent Activity</h2></div>
       <div style={{ padding: '0 18px 14px' }}>
         {items.map((item) => (
-          <div key={item.id} style={{ padding: '11px 0', borderTop: '1px solid var(--c-edf2f3)', fontSize: 11, color: 'var(--c-3c5b64)' }}>
+          <div key={item.id} style={{ padding: '11px 0', borderTop: '1px solid var(--c-e4e4e0)', fontSize: 11, color: 'var(--c-444444)' }}>
             {item.text}
-            <div style={{ color: 'var(--c-94a7aa)', fontSize: 9, marginTop: 3 }}>{item.time}</div>
+            <div style={{ color: 'var(--c-6b6b6b)', fontSize: 9, marginTop: 3 }}>{item.time}</div>
           </div>
         ))}
       </div>

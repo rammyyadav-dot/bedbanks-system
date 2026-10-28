@@ -12,8 +12,8 @@ import { getFinancePeriods } from '@/lib/data/finance-periods'
 import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-6b6b6b)' } as const
+const note = { color: 'var(--c-6b6b6b)', fontSize: 11, margin: 0 } as const
 const words = (s: string) => s.toLowerCase().replace(/_/g, ' ')
 
 /**

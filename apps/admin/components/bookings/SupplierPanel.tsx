@@ -7,8 +7,8 @@ import { describeActionError, newIdempotencyKey } from '@/lib/booking-actions-ui
 import { formatInZone } from '@/lib/booking-ui'
 import { postBookingSupplier } from '@/lib/data/operations'
 
-const muted: React.CSSProperties = { color: 'var(--c-3f565c)' }
-const th: React.CSSProperties = { textAlign: 'left', padding: '4px 8px', fontSize: 11, color: 'var(--c-3f565c)' }
+const muted: React.CSSProperties = { color: 'var(--c-444444)' }
+const th: React.CSSProperties = { textAlign: 'left', padding: '4px 8px', fontSize: 11, color: 'var(--c-444444)' }
 const td: React.CSSProperties = { padding: '4px 8px', fontSize: 12, verticalAlign: 'top' }
 const JOB_TONE = { QUEUED: 'warn', RUNNING: 'warn', RETRY_WAIT: 'warn', SUCCEEDED: 'ok', FAILED: 'bad', UNKNOWN: 'bad' } as const
 const OP_HELP: Record<BookingSupplierOp, string> = {
@@ -50,7 +50,7 @@ export function SupplierPanel({ d, onChanged, refresh }: { d: BookingDetailView;
         <span style={muted}>Supplier:</span> <strong>{d.booking.supplier}</strong>
         <span style={muted}>Supplier answer:</span> {s.supplierStatus ? <Tag tone={s.supplierStatus === 'UNKNOWN' || s.supplierStatus === 'CANCEL_FAILED' ? 'bad' : 'neutral'}>{s.supplierStatus.replace(/_/g, ' ')}</Tag> : <span style={muted}>none yet</span>}
       </div>
-      {unknown && <div role="alert" data-testid="supplier-unknown" style={{ border: '1px solid var(--c-e0b4b4)', background: 'var(--c-fff7f7)', padding: 10, borderRadius: 6, fontSize: 12 }}><strong>The supplier’s answer is not known.</strong> The booking has not been marked failed, because the supplier may have booked it. Use “Sync with supplier” to ask by our reference, or record the answer by hand once you know it. Do not send it again until then.</div>}
+      {unknown && <div role="alert" data-testid="supplier-unknown" style={{ border: '1px solid var(--c-e4e4e0)', background: 'var(--c-f6f6f4)', padding: 10, borderRadius: 'var(--fb-radius-control)', fontSize: 12 }}><strong>The supplier’s answer is not known.</strong> The booking has not been marked failed, because the supplier may have booked it. Use “Sync with supplier” to ask by our reference, or record the answer by hand once you know it. Do not send it again until then.</div>}
       {s.dispatch.reason === 'SUPPLIER_NOT_CONFIGURED' && <p role="status" style={{ ...muted, margin: 0, fontSize: 12 }}>No supplier connection is set up for “{d.booking.supplier}”, so nothing can be sent from here. Record the supplier’s answer with the actions above.</p>}
       {s.dispatch.reason === 'DISABLED' && <p role="status" style={{ ...muted, margin: 0, fontSize: 12 }}>The supplier queue is switched off in this environment.</p>}
       {s.dispatch.reason === 'NOT_PERMITTED' && <p role="status" style={{ ...muted, margin: 0, fontSize: 12 }}>You can see the queue but not use it (needs the supplier retry permission).</p>}
@@ -59,7 +59,7 @@ export function SupplierPanel({ d, onChanged, refresh }: { d: BookingDetailView;
           {s.ops.map((op) => <button key={op} type="button" className="admin-btn" disabled={busy !== null} aria-busy={busy === op} data-op={op} title={OP_HELP[op]} onClick={() => void start(op)}>{busy === op ? 'Working…' : BOOKING_SUPPLIER_OP_LABEL[op]}</button>)}
         </div>
       )}
-      {error && <div role="alert" data-testid="supplier-error" style={{ color: 'var(--c-a11d1d)', fontSize: 12 }}>{error.message}{error.requestId ? <div style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>Reference: request {error.requestId}</div> : null}</div>}
+      {error && <div role="alert" data-testid="supplier-error" style={{ color: 'var(--c-b3141b)', fontSize: 12 }}>{error.message}{error.requestId ? <div style={{ fontSize: 11, color: 'var(--c-444444)' }}>Reference: request {error.requestId}</div> : null}</div>}
       <div style={{ overflowX: 'auto' }}>
         <h3 style={{ fontSize: 12, margin: '0 0 4px' }}>Jobs</h3>
         {s.jobs.length === 0 ? <p style={{ ...muted, fontSize: 12, margin: 0 }}>Nothing has been sent to the supplier.</p> : (

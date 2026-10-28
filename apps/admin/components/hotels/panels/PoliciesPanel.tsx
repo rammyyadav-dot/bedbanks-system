@@ -19,8 +19,8 @@ import { useDraftState } from '../useDraftState'
 import { useUnsavedChanges } from '../useUnsavedChanges'
 import { LocalChargesEditor } from './LocalChargesEditor'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
-const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-111111)' } as const
 
 type PolicyDraft = Record<HotelPolicyKey, string>
 const policiesOf = (setup: HotelSetupView): PolicyDraft => Object.fromEntries(HOTEL_POLICY_KEYS.map((k) => [k, setup.policies[k] ?? ''])) as PolicyDraft

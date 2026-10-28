@@ -15,8 +15,8 @@ import { createSupplierHotelMapping, createSupplierRoomMapping, decideSupplierHo
 import { hotelHref, mappingTone } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
-const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-17333e)' } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
+const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-111111)' } as const
 const LABEL: Record<string, string> = { PENDING: 'PENDING REVIEW', MAPPED: 'VERIFIED', REJECTED: 'REJECTED' }
 
 type Flash = { tone: 'ok' | 'bad'; text: string; details: string[]; requestId: string | null }
@@ -170,7 +170,7 @@ function RoomMappings({ data, canManage, busy, act }: { data: HotelMappingsView;
       {data.unmappedRooms.length > 0 && (
         <div role="status" data-testid="unmapped-rooms">
           <strong style={{ fontSize: 12 }}>Active rooms without a verified mapping</strong>
-          <ul style={{ margin: '4px 0 0', paddingLeft: 16, fontSize: 12 }}>{data.unmappedRooms.map((r) => <li key={`${r.hotelMappingId}-${r.roomTypeId}`}>{r.roomName} <span style={{ color: 'var(--c-3f565c)' }}>(under {r.supplierName})</span></li>)}</ul>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 16, fontSize: 12 }}>{data.unmappedRooms.map((r) => <li key={`${r.hotelMappingId}-${r.roomTypeId}`}>{r.roomName} <span style={{ color: 'var(--c-444444)' }}>(under {r.supplierName})</span></li>)}</ul>
         </div>
       )}
       {canManage && verified.length > 0 && roomChoices.length > 0 && (
@@ -191,7 +191,7 @@ function BoardNote() {
   return (
     <section className="workspace-panel" style={{ padding: 18 }} aria-label="Board mappings" data-testid="board-note">
       <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>Board basis mapping</h2>
-      <p style={{ margin: 0, fontSize: 12, color: 'var(--c-3f565c)' }}>Not modelled yet. Board bases are canonical per tenant and each rate plan names one directly; the schema stores no supplier board code mapping, so none can be recorded or verified here.</p>
+      <p style={{ margin: 0, fontSize: 12, color: 'var(--c-444444)' }}>Not modelled yet. Board bases are canonical per tenant and each rate plan names one directly; the schema stores no supplier board code mapping, so none can be recorded or verified here.</p>
     </section>
   )
 }

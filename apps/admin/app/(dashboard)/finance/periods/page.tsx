@@ -12,8 +12,8 @@ import { closeFinancePeriod, getFinancePeriods, previewFinancePeriod } from '@/l
 import { describeApiError } from '@/lib/api/describe-error'
 import { useCan } from '@/lib/auth/capabilities'
 
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-6b6b6b)' } as const
+const note = { color: 'var(--c-6b6b6b)', fontSize: 11, margin: 0 } as const
 
 const BLOCKER_TEXT: Record<PeriodBlockerName, string> = {
   PERIOD_NOT_ENDED: 'The month has not ended yet (a few minutes of grace are kept after midnight UTC).',
@@ -94,7 +94,7 @@ export default function FinancePeriodsPage() {
         {(d) => d.items.length === 0 ? <p style={note}>No month has been closed yet.</p> : (
           <div className="workspace-panel">
             {d.items.map(p => (
-              <div key={p.id} data-testid="period-closed" style={{ padding: '10px 18px', borderBottom: '1px solid var(--c-edf2f3)' }}>
+              <div key={p.id} data-testid="period-closed" style={{ padding: '10px 18px', borderBottom: '1px solid var(--c-f6f6f4)' }}>
                 <strong>{p.month}</strong> <Tag tone={p.integrityVerdict === 'CLEAN' ? 'ok' : 'warn'}>{p.integrityVerdict.toLowerCase()}{p.warningCount ? ` (${p.warningCount} warnings)` : ''}</Tag> closed {when(p.closedAt)}
                 {p.note && <div style={{ fontSize: 11 }}>{p.note}</div>}
                 <Totals totals={p.totals} />

@@ -10,8 +10,8 @@ import { AuthImage } from '@/components/hotels/AuthImage'
 import { deleteHotelImage, getHotelImages, reorderHotelImages, updateHotelImage, uploadHotelImage } from '@/lib/data/hotel-images'
 import { useCan } from '@/lib/auth/capabilities'
 
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
-const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-3f565c)' } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
+const lab = { display: 'grid', gap: 2, fontSize: 11, color: 'var(--c-444444)' } as const
 const MB = 1024 * 1024
 
 /**
@@ -53,7 +53,7 @@ export function ImagesPanel({ hotelId }: { hotelId: string }) {
                   <label style={{ ...lab, minWidth: 260 }}>Alt text (required)<input className="input-wrap" value={alt} maxLength={HOTEL_IMAGE_LIMITS.altTextMax} onChange={(e) => setAlt(e.target.value)} placeholder="Describe what the image shows" /></label>
                   <button type="submit" className="button primary" data-testid="image-upload-submit" disabled={busy || !file || !!fileProblem || alt.trim() === '' || items.length >= d.limits.maxPerHotel}
                     onClick={() => file && void act('upload the image', async () => { await uploadHotelImage(hotelId, file, alt.trim()); setFile(null); setAlt(''); if (fileInput.current) fileInput.current.value = '' }, 'Image uploaded.')}>{busy ? 'Working…' : 'Upload image'}</button>
-                  {fileProblem && <span role="alert" style={{ ...note, color: 'var(--c-8a1c1c)' }}>{fileProblem}</span>}
+                  {fileProblem && <span role="alert" style={{ ...note, color: 'var(--c-b3141b)' }}>{fileProblem}</span>}
                 </form>
               )}
               {!canManage && <p style={note}>You can view images but not change them.</p>}
@@ -71,7 +71,7 @@ export function ImagesPanel({ hotelId }: { hotelId: string }) {
           )
         }}
       </OpsState>
-      {notice && <p role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="image-notice" style={{ margin: 0, color: notice.tone === 'bad' ? 'var(--c-a11d1d)' : 'var(--c-0b6b55)' }}>{notice.text}</p>}
+      {notice && <p role={notice.tone === 'bad' ? 'alert' : 'status'} data-testid="image-notice" style={{ margin: 0, color: notice.tone === 'bad' ? 'var(--c-b3141b)' : 'var(--c-111111)' }}>{notice.text}</p>}
     </section>
   )
 }
@@ -79,8 +79,8 @@ export function ImagesPanel({ hotelId }: { hotelId: string }) {
 function ImageCard({ img, index, count, busy, canManage, onMove, onSaveAlt, onPrimary, onDelete }: { img: HotelImageView; index: number; count: number; busy: boolean; canManage: boolean; onMove: (i: number, dir: -1 | 1) => void; onSaveAlt: (t: string) => void; onPrimary: () => void; onDelete: () => void }) {
   const [text, setText] = useState(img.altText)
   return (
-    <li data-testid="image-card" data-primary={img.isPrimary} style={{ border: '1px solid var(--c-d7e1e4)', borderRadius: 8, padding: 8, display: 'grid', gap: 6, background: 'var(--c-ffffff)' }}>
-      <AuthImage contentPath={img.contentPath} alt={img.altText} width={img.width} height={img.height} fallback={<div style={{ width: '100%', aspectRatio: '4 / 3', borderRadius: 6, background: 'var(--c-eef3f5)' }} aria-hidden="true" />} style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 6, background: 'var(--c-eef3f5)' }} />
+    <li data-testid="image-card" data-primary={img.isPrimary} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 8, display: 'grid', gap: 6, background: 'var(--c-ffffff)' }}>
+      <AuthImage contentPath={img.contentPath} alt={img.altText} width={img.width} height={img.height} fallback={<div style={{ width: '100%', aspectRatio: '4 / 3', borderRadius: 'var(--fb-radius-control)', background: 'var(--c-f6f6f4)' }} aria-hidden="true" />} style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 'var(--fb-radius-control)', background: 'var(--c-f6f6f4)' }} />
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         {img.isPrimary && <Tag tone="ok">primary</Tag>}
         <span style={note}>{img.width}x{img.height} · {Math.round(img.bytes / 1024)} KB · {img.contentType.replace('image/', '').toUpperCase()}</span>

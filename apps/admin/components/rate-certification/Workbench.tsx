@@ -64,7 +64,7 @@ function WorkbenchPlan({ ratePlanId, hotelId, days, canQuickUpdate }: { ratePlan
               <Link href={`/rate-certification/${encodeURIComponent(d.ratePlanId)}`}>Full audit</Link>
               <Link href={`/rate-certification?tab=simulator&ratePlanId=${encodeURIComponent(d.ratePlanId)}`}>Simulate a stay</Link>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--c-3f565c)' }}>{d.roomName} · {d.boardCode} · occupancy {d.occupancy} · {d.currency} · contract {d.contractCode} ({d.contractStatus}) · sellable nights {d.sellableNights} of {d.nights}</div>
+            <div style={{ fontSize: 12, color: 'var(--c-444444)' }}>{d.roomName} · {d.boardCode} · occupancy {d.occupancy} · {d.currency} · contract {d.contractCode} ({d.contractStatus}) · sellable nights {d.sellableNights} of {d.nights}</div>
           </section>
           <section className="workspace-panel" style={{ padding: 14 }} aria-label="Findings"><h2 style={{ margin: '0 0 8px', fontSize: 13 }}>Findings</h2><FindingList findings={d.findings} emptyText="No findings: every check passed for this plan." /></section>
           <section className="workspace-panel" aria-label="Rate grid"><NightGrid detail={d} /></section>

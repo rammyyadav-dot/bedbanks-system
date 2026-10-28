@@ -5,7 +5,7 @@ import type { BookingOperations } from '@bedbanks/contracts'
 import { AttentionTags, ATTENTION_HELP, Money, Tag, when } from '@/components/ops/ops-ui'
 import { opsDocumentUrl } from '@/lib/data/operations'
 
-const section: React.CSSProperties = { padding: '12px 18px', borderBottom: '1px solid var(--c-edf2f3)' }
+const section: React.CSSProperties = { padding: '12px 18px', borderBottom: '1px solid var(--c-e4e4e0)' }
 const dl: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) 1fr', gap: '4px 12px', margin: 0 }
 
 /** The existing transaction record of a booking (inventory hold, supplier journal, ledger, cancellation, documents, audit). Unchanged content, read-only. */
@@ -13,7 +13,7 @@ export function OperationsRecord({ b }: { b: BookingOperations }) {
   return (
     <div className="workspace-panel" data-testid="booking-360">
       {b.attention.length > 0 && (
-        <section style={{ ...section, background: 'var(--c-fff7f7)' }} aria-labelledby="b-attn" role="region">
+        <section style={{ ...section, background: 'var(--c-f6f6f4)' }} aria-labelledby="b-attn" role="region">
           <h3 id="b-attn">Needs attention</h3>
           <AttentionTags flags={b.attention} />
           <ul>{b.attention.map((f) => <li key={f}><code>{f}</code> — {ATTENTION_HELP[f]}</li>)}</ul>

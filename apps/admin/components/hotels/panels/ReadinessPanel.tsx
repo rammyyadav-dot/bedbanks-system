@@ -12,12 +12,12 @@ import { getHotelReadiness } from '@/lib/data/hotel-commercial'
 import { outcomeLabel, outcomeTone, readinessActionHref, reasonText } from '@/lib/hotel-ui'
 
 const offset = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
-const note = { color: 'var(--c-3f565c)', fontSize: 11, margin: 0 } as const
+const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
 const field = { display: 'grid', gap: 2, fontSize: 11 } as const
 
 function Gate({ gate, hotelId, canAct }: { gate: ReadinessGateResult; hotelId: string; canAct: (permission: string | null) => boolean }) {
   return (
-    <li style={{ padding: '10px 0', borderBottom: '1px solid var(--c-edf2f3)', display: 'grid', gap: 4 }} data-gate={gate.gate} data-outcome={gate.outcome}>
+    <li style={{ padding: '10px 0', borderBottom: '1px solid var(--c-e4e4e0)', display: 'grid', gap: 4 }} data-gate={gate.gate} data-outcome={gate.outcome}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <strong>{gate.label}</strong>
         <Tag tone={outcomeTone(gate.outcome)}>{outcomeLabel(gate.outcome)}</Tag>
@@ -32,7 +32,7 @@ function Gate({ gate, hotelId, canAct }: { gate: ReadinessGateResult; hotelId: s
         </ul>
       )}
       {gate.notes.map((n) => <p key={n} style={note}>{n}</p>)}
-      <details style={{ fontSize: 11, color: 'var(--c-3f565c)' }}>
+      <details style={{ fontSize: 11, color: 'var(--c-444444)' }}>
         <summary>Criteria this gate applied</summary>
         <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>{gate.criteriaApplied.map((c) => <li key={c}>{c}</li>)}</ul>
       </details>

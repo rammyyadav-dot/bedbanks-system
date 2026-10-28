@@ -37,7 +37,7 @@ export default function RatePlansPage() {
     return () => { active = false; clearTimeout(timer) }
   }, [search, status, page])
   const columns: DataTableColumn<AdminRatePlan>[] = [
-    { key: 'code', header: 'Rate plan', render: (p) => <Link href={`/rates/plans/${p.id}`} style={{ color: 'var(--c-0d2631)', fontWeight: 600, textDecoration: 'none' }}>{p.code}</Link> },
+    { key: 'code', header: 'Rate plan', render: (p) => <Link href={`/rates/plans/${p.id}`} style={{ color: 'var(--c-111111)', fontWeight: 600, textDecoration: 'none' }}>{p.code}</Link> },
     { key: 'hotel', header: 'Hotel', render: (p) => p.roomType.hotel.name },
     { key: 'room', header: 'Room', render: (p) => p.roomType.name },
     { key: 'board', header: 'Board', render: (p) => p.boardBasis.code.trim() },

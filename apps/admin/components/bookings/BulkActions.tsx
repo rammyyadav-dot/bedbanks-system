@@ -8,8 +8,8 @@ import { failedIds, failureSummary, resultHeadline, selectionIds, selectionProbl
 import { getOpsAssignees, submitBulkAction } from '@/lib/data/operations'
 import { Modal } from './Modal'
 
-const input: React.CSSProperties = { border: '1px solid var(--c-c5d4d8)', borderRadius: 4, padding: '6px 8px', fontSize: 12, font: 'inherit', color: 'var(--c-1d333b)', background: 'var(--c-ffffff)' }
-const TONE = { ok: { bg: 'var(--c-e8f5ee)', fg: 'var(--c-14532d)' }, warn: { bg: 'var(--c-fff4d6)', fg: 'var(--c-6b4a00)' }, bad: { bg: 'var(--c-fde8e8)', fg: 'var(--c-7f1d1d)' } } as const
+const input: React.CSSProperties = { border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-chip)', padding: '6px 8px', fontSize: 12, font: 'inherit', color: 'var(--c-111111)', background: 'var(--c-ffffff)' }
+const TONE = { ok: { bg: 'var(--c-f6f6f4)', fg: 'var(--c-111111)' }, warn: { bg: 'var(--c-d4a017)', fg: 'var(--c-2a2a2a)' }, bad: { bg: 'var(--c-f6f6f4)', fg: 'var(--c-b3141b)' } } as const
 
 /** The bar that appears while bookings are selected. Starting an action only opens a confirmation; nothing runs until it is confirmed there. */
 export function BulkToolbar({ selection, capabilities, onClear, onStart }: { selection: Selection; capabilities: readonly BookingBulkAction[]; onClear: () => void; onStart: (action: BookingBulkAction) => void }) {
@@ -20,8 +20,8 @@ export function BulkToolbar({ selection, capabilities, onClear, onStart }: { sel
       <strong data-testid="bulk-selected-count" role="status" aria-live="polite" style={{ fontSize: 12 }}>{selection.size} selected</strong>
       {capabilities.map((a) => <button key={a} type="button" className="admin-btn" data-testid={`bulk-start-${a}`} disabled={problem !== null} onClick={() => onStart(a)}>{BOOKING_BULK_ACTION_LABEL[a]}</button>)}
       <button type="button" className="admin-btn" data-testid="bulk-clear" onClick={onClear}>Clear selection</button>
-      {problem && <span role="alert" style={{ color: 'var(--c-a11d1d)', fontSize: 11 }} data-testid="bulk-limit">{problem}</span>}
-      <span style={{ color: 'var(--c-3f565c)', fontSize: 11 }}>Up to {BOOKING_BULK_MAX_IDS} bookings. Each is checked and updated on its own.</span>
+      {problem && <span role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 11 }} data-testid="bulk-limit">{problem}</span>}
+      <span style={{ color: 'var(--c-444444)', fontSize: 11 }}>Up to {BOOKING_BULK_MAX_IDS} bookings. Each is checked and updated on its own.</span>
     </div>
   )
 }
@@ -55,15 +55,15 @@ export function BulkDialog({ action, selection, onClose, onDone }: { action: Boo
       <div style={{ display: 'grid', gap: 10 }} data-testid="bulk-confirm">
         <p style={{ margin: 0, fontSize: 12 }} data-testid="bulk-confirm-count">{action === 'ASSIGN_OWNER' ? 'Change the owner of' : 'Acknowledge'} <strong>{selection.size}</strong> selected booking{selection.size === 1 ? '' : 's'}?</p>
         {action === 'ASSIGN_OWNER' && (
-          <label style={{ display: 'grid', gap: 3, fontSize: 12 }}><span style={{ color: "var(--c-2c4a55)" }}>New owner</span>
+          <label style={{ display: 'grid', gap: 3, fontSize: 12 }}><span style={{ color: "var(--c-444444)" }}>New owner</span>
             <select value={pick} onChange={(e) => setPick(e.target.value)} style={input} data-testid="bulk-owner">
               <option value="">{peopleError ? 'Could not load people' : people ? 'Choose…' : 'Loading…'}</option>
               {people?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               <option value="__none">Unassigned</option>
             </select></label>
         )}
-        <p style={{ margin: 0, fontSize: 11, color: 'var(--c-3f565c)' }}>Each booking is checked again and updated on its own, with your own permissions. Some may be refused (for example if they changed since you selected them); you will see exactly which. This does not touch money, documents or booking status.</p>
-        {error && <p role="alert" style={{ margin: 0, color: 'var(--c-a11d1d)', fontSize: 12 }} data-testid="bulk-error">{error}</p>}
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--c-444444)' }}>Each booking is checked again and updated on its own, with your own permissions. Some may be refused (for example if they changed since you selected them); you will see exactly which. This does not touch money, documents or booking status.</p>
+        {error && <p role="alert" style={{ margin: 0, color: 'var(--c-b3141b)', fontSize: 12 }} data-testid="bulk-error">{error}</p>}
         <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose} disabled={busy}>Cancel</button><button type="button" className="admin-btn admin-btn-primary" data-testid="bulk-confirm-submit" disabled={busy || !ids} aria-busy={busy} onClick={() => void confirm()}>{busy ? 'Working…' : 'Confirm'}</button></div>
       </div>
     </Modal>
@@ -75,7 +75,7 @@ function ResultSummary({ op, onClose }: { op: BookingBulkOperationView; onClose:
   return (
     <Modal title="Bulk action result" onClose={onClose}>
       <div style={{ display: 'grid', gap: 10 }} data-testid="bulk-result" data-status={op.status}>
-        <p role="status" data-testid="bulk-result-headline" style={{ margin: 0, padding: '8px 10px', borderRadius: 4, background: tone.bg, color: tone.fg, fontSize: 13, fontWeight: 600 }}>{head.text}</p>
+        <p role="status" data-testid="bulk-result-headline" style={{ margin: 0, padding: '8px 10px', borderRadius: 'var(--fb-radius-chip)', background: tone.bg, color: tone.fg, fontSize: 13, fontWeight: 600 }}>{head.text}</p>
         {op.replayed && <p style={{ margin: 0, fontSize: 11 }} data-testid="bulk-replayed">This is the result of the earlier request; nothing was applied again.</p>}
         <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 12px', margin: 0, fontSize: 12 }}>
           <dt>Requested</dt><dd style={{ margin: 0 }} data-testid="bulk-requested">{op.requestedCount}</dd>
