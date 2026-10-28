@@ -22,7 +22,13 @@ cd bedbanks-system
 pnpm install
 ```
 
-`pnpm install` runs `prisma generate` automatically from the schema in `apps/api/prisma/schema.prisma`.
+`pnpm install` does **not** run `prisma generate` automatically: pnpm blocks postinstall scripts from `@prisma/client`, `prisma` and other dependencies by default (you'll see `Ignored build scripts: ...` in the install output). Generate the client explicitly before any type-check, build or test:
+
+```bash
+pnpm --filter @bedbanks/api prisma:generate
+```
+
+(CI always runs this step explicitly, so it isn't affected by the blocked-script warning. If you'd rather have `pnpm install` run it for you locally, review and run `pnpm approve-builds` — this grants the listed packages permission to run their install scripts going forward, so only approve packages you trust.)
 
 ## 2. Configure environment
 
@@ -101,6 +107,8 @@ pnpm prisma:migrate:drift
 | Problem | Fix |
 | --- | --- |
 | `prisma generate` fails | Run `pnpm install` with network access to Prisma binaries. |
+| `Cannot find package 'tsx'` or `has no exported member 'PrismaClient'` on a fresh clone | Prisma client was never generated — `pnpm install` doesn't run it automatically here (see step 1). Run `pnpm --filter @bedbanks/api prisma:generate`. |
+| `pnpm type-check` crashes with `JavaScript heap out of memory` | Turbo runs every package's `tsc` concurrently; on a memory-constrained machine/container this can exceed the default V8 heap. Re-run the failing package alone with a larger heap, e.g. `NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter @bedbanks/api type-check`, or type-check packages serially instead of via `pnpm type-check`. |
 | `DATABASE_URL` error | Confirm the local URL begins with `postgresql://`. |
 | Migration status/drift fails | Stop. Do not reset or push schema. Share output with the database owner and prepare a forward-only repair. |
 | Login returns 401 | Seed has not run or password differs from `FBEDS_SEED_ADMIN_PASSWORD`. |
