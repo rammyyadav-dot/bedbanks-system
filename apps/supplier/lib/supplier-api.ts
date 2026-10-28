@@ -2,7 +2,7 @@ import 'server-only'
 
 import { cache } from 'react'
 import { cookies } from 'next/headers'
-import { routes, type ExtranetBookingAnswerRequest, type ExtranetBookingAnswerResult, type ExtranetBookingDetail, type ExtranetBookingList, type ExtranetBookingQuery, type ExtranetContractList, type ExtranetHotelList } from '@bedbanks/contracts'
+import { routes, type ExtranetBookingDetail, type ExtranetBookingList, type ExtranetBookingQuery, type ExtranetContractList, type ExtranetHotelList } from '@bedbanks/contracts'
 import { apiInternalUrl, SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE, supplierOrigin } from './server-env'
 
 export class SupplierApiError extends Error {
@@ -267,15 +267,6 @@ export async function getBooking(bookingId: string): Promise<ExtranetBookingDeta
 export async function saveRoomDraft(hotelId: string, roomId: string, supplierNotes: string, requestId: string): Promise<void> {
   const path = routes.supplier.roomDraft.replace(':hotelId', encodeURIComponent(hotelId)).replace(':roomId', encodeURIComponent(roomId))
   await authorizedRequest(path, { method: 'PATCH', body: { supplierNotes }, requestId })
-}
-
-const ANSWER_STATUSES = new Set(['PENDING_SUPPLIER', 'ON_REQUEST', 'CONFIRMED', 'AMEND_REQUESTED', 'CANCEL_REQUESTED', 'CANCELLED', 'CHECKED_OUT', 'NO_SHOW', 'REJECTED', 'FAILED'])
-
-/** ADR 0061 Amendment 2. The same idempotency key with the same body is safe to resend; a different body under the same key is a 409. */
-export async function answerBooking(bookingId: string, body: ExtranetBookingAnswerRequest, idempotencyKey: string, requestId: string): Promise<ExtranetBookingAnswerResult> {
-  const data = await authorizedRequest(routes.supplier.bookingAnswer.replace(':bookingId', encodeURIComponent(bookingId)), { method: 'POST', body, idempotencyKey, requestId })
-  if (!isRecord(data) || typeof data.bookingId !== 'string' || typeof data.reference !== 'string' || typeof data.status !== 'string' || !ANSWER_STATUSES.has(data.status) || typeof data.replayed !== 'boolean') throw new SupplierApiError(502)
-  return { bookingId: data.bookingId, reference: data.reference, status: data.status as ExtranetBookingAnswerResult['status'], replayed: data.replayed }
 }
 
 export async function loginRequest(email: string, password: string, rememberMe = false): Promise<string[]> {

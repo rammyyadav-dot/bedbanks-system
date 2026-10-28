@@ -1,14 +1,13 @@
-import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { notFound } from 'next/navigation'
-import { BookingAnswerForm } from '../../../../components/bookings/BookingAnswerForm'
 import { PageHeader } from '../../../../components/ui/PageHeader'
 import { StatusBadge } from '../../../../components/ui/StatusBadge'
 import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
 import { getBooking, SupplierApiError } from '../../../../lib/supplier-api'
 import { loadPortal } from '../../../../lib/portal'
 import { formatNetMinor, NET_STATUS_LABEL, NOT_RECORDED } from '../../../../lib/format'
+import { isAwaitingConfirmation } from '../../../../lib/status'
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ bookingId: string }> }) {
   const portal = await loadPortal()
@@ -19,12 +18,11 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   const { bookingId } = await params
   try {
     const booking = await getBooking(bookingId)
-    const answers = booking.status === 'PENDING_SUPPLIER' ? (['CONFIRMED', 'ON_REQUEST', 'REJECTED'] as const) : booking.status === 'ON_REQUEST' ? (['CONFIRMED', 'REJECTED'] as const) : []
-    const canAnswer = portal.permissions.includes('supplier.extranet.bookings.answer') && answers.length > 0
+    const awaiting = isAwaitingConfirmation(booking.status)
     return (
       <div className="supplier-page">
         <Link className="back-link" href="/bookings"><ArrowLeft size={15} aria-hidden="true" />Back to bookings</Link>
-        <PageHeader eyebrow={canAnswer ? 'Awaiting your answer' : 'Booking'} title={booking.reference} description={canAnswer ? 'Review the booking, then confirm it, put it on request or reject it. No other change can be made here.' : 'This page shows the booking as recorded. It cannot be changed from here.'} />
+        <PageHeader eyebrow="Booking" title={booking.reference} description="This page shows the booking as recorded. It cannot be changed from here." />
         <section className="panel booking-summary">
           <div className="booking-summary-head">
             <div><small>Status</small></div>
@@ -39,11 +37,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
             <div><small>Hotel confirmation no.</small><strong>{booking.hotelConfirmationNo ?? NOT_RECORDED}</strong></div>
           </div>
         </section>
-        {canAnswer && (
-          <section className="panel answer-panel">
-            <BookingAnswerForm bookingId={booking.id} expectedStatus={booking.status} idempotencyKey={randomUUID()} answers={[...answers]} />
-          </section>
-        )}
+        {awaiting && <p className="inline-notice warning" role="status">This booking is awaiting confirmation. fBeds confirms it and settles the agency's payment; answering from the extranet is not available yet. Contact your fBeds account manager quoting {booking.reference}.</p>}
         <section className="panel">
           <div className="table-wrap">
             <table className="data-table">

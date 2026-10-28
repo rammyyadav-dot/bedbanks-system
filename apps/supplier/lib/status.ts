@@ -12,10 +12,10 @@ export function statusTone(status: string): StatusTone {
 }
 
 const LABELS: Record<string, string> = {
-  PENDING_SUPPLIER: 'Awaiting your answer',
+  PENDING_SUPPLIER: 'Awaiting confirmation',
 }
 
-/** Human label: "ON_REQUEST" becomes "On request". PENDING_SUPPLIER reads from the supplier's side. */
+/** Human label: "ON_REQUEST" becomes "On request". PENDING_SUPPLIER reads as awaiting confirmation: fBeds settles it, the supplier does not answer it here. */
 export function statusLabel(status: string): string {
   const key = status.trim().toUpperCase()
   if (LABELS[key]) return LABELS[key]
@@ -23,8 +23,8 @@ export function statusLabel(status: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-/** Statuses a supplier can still answer (confirm, put on request or reject). Mirrors the booking detail page. */
-export function needsSupplierAnswer(status: string): boolean {
+/** Statuses that are not yet final (awaiting confirmation or on request). The portal highlights these rows; it offers no answer for them. */
+export function isAwaitingConfirmation(status: string): boolean {
   return status === 'PENDING_SUPPLIER' || status === 'ON_REQUEST'
 }
 

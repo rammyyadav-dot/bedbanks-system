@@ -224,3 +224,27 @@ Decisions taken during implementation (not in the draft):
 
 Operating notes: run `ops:provision-api-runtime-role` after deploy to apply the new grants (until then the routes fail closed with a database "permission denied"), and assign the two permissions to supplier roles.
 Verification gaps: the end-to-end suites ran on local PostgreSQL 16 with the temporary jest configuration described under slice 3. No portal screen exists yet (step 4). The 26 API unit suites that cannot load on this host's Node 22 are the same set with and without this change.
+
+## Amendment 4: supplier answers are refused until a settlement path exists (audit F1, F2)
+
+Status: **Accepted 2026-10-28** as a safety stop. It narrows Amendment 2 and does not replace it; the answer route, permission, idempotency and audit design stay as built.
+
+### What the audit found (verified in source, `docs/audits/2026-10-28-supplier-workflow-audit.md`)
+- Every booking a supplier can see is contracted inventory (`Booking.supplierId` is set only in the hold transaction, Amendment 1 D2). Until it is settled it holds the agency's wallet reservation (`LedgerEntry` `HOLD`) and an inventory hold in `PROCESSING`.
+- Settlement happens in exactly two places: `BookingConfirmationService.confirm` (hold to `CONFIRMED`, held to sold, wallet `HOLD` to `DEBIT`, status) and `BookingReconciliationService` (wallet and hold released, status `FAILED`).
+- The supplier answer wrote only `Booking.status` and a `BookingFinanceEvent` through the booking-module role. That role is forbidden from `LedgerEntry`, `Wallet` and `InventoryHold` by design, and the API runtime role cannot write a booking, so no single role can do both halves.
+- Effects: **confirm** left the agency undebited and the stock held (the later agent confirm then returned "already confirmed" without settling, and the hold-expiry sweep could return the stock for sale); **reject** left the funds reserved and the stock held, and the reconciliation sweep skips a booking that is no longer pending.
+
+### Decision
+1. `POST /supplier/extranet/bookings/:bookingId/answer` refuses a **first** answer with `409 ANSWER_REQUIRES_SETTLEMENT` after validation, ownership (404 for another organization) and the availability check (400 `ANSWER_NOT_AVAILABLE`), and before any write. Nothing in the booking, event, finance or audit tables changes.
+2. A **replay** of an answer that was already recorded still returns its stored result (same key and body) or `IDEMPOTENCY_CONFLICT`, so history stays readable.
+3. The portal shows bookings read only. The answer form and its server action are removed; the dashboard and booking pages no longer say a supplier answers or that nothing is booked without their answer. Operators keep answering on a supplier's behalf through the booking-ops queue.
+4. The `supplier.extranet.bookings.answer` permission and the route stay in place, so enabling answers later needs no contract change.
+
+### Not decided here (needs its own amendment before answers are re-enabled)
+- **Where settlement runs.** Options: (a) a settlement service on a principal that may write the booking, the ledger and holds in one transaction, which needs a reviewed privilege design under SR-07; (b) the supplier answer records an intent that the existing agent confirm or reconciliation path consumes; (c) keep answers operator-only for contracted inventory and give suppliers a request-to-operator action.
+- Reject from `ON_REQUEST` and the reconciliation sweep: it ignores `REJECTED` and `ON_REQUEST`, so any path that enters those states for a booking that still holds funds must release them itself.
+- Required tests when re-enabled: wallet entries, hold status and inventory counters after each of confirm, on request and reject, including a retry after a partial failure.
+
+### Rollback
+Remove the refusal line in `SupplierBookingAnswerService.answer` and restore the form from git history. Do not do this before the settlement path exists.

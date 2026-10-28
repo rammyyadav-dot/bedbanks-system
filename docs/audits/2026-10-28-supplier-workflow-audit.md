@@ -15,6 +15,10 @@
 | `pnpm check:architecture`, full `pnpm test`, `next build` | not run |
 | Login page in a real browser (desktop and phone width) | looked at; sign-in itself not exercised (no API) |
 
+## 0. Status update (same day)
+
+**F1 and F2 are stopped, not fully fixed.** The booking-module role cannot touch the ledger, wallets or holds, and the API role cannot write a booking, so settlement cannot be done safely in one step without new privileges. The answer route now refuses first answers (`409 ANSWER_REQUIRES_SETTLEMENT`), the portal is read only, and ADR 0061 Amendment 4 records the decision and the open design choice. Re-enabling supplier answers needs the settlement path described there.
+
 ## 1. Verdict
 
 The extranet is **secure and honest, and its safety checks are well built**. Tenant and organization scoping, permission gating, idempotency, compare-and-set and audit are all done properly. The weaknesses are not in security. They are in **business logic that two flows disagree about**, and in **half-built workflows**:

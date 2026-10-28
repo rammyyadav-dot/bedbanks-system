@@ -1,10 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import type { ExtranetBookingAnswerResult, ExtranetBookingStatus } from '@bedbanks/contracts'
 import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { transitionBooking } from '../booking-ops/booking-transition'
 import { SupplierExtranetService } from './supplier-extranet.service'
-import { missingAnswerFields, supplierAnswerAction } from './supplier-booking-answer'
+import { ANSWER_REQUIRES_SETTLEMENT, ANSWER_REQUIRES_SETTLEMENT_MESSAGE, missingAnswerFields, supplierAnswerAction } from './supplier-booking-answer'
 import type { AnswerBookingDto } from './answer-booking.dto'
 
 const PERMISSION = 'supplier.extranet.bookings.answer'
@@ -38,6 +38,8 @@ export class SupplierBookingAnswerService {
       const plan = supplierAnswerAction(body.answer, body.expectedStatus)
       const earlier = await tx.bookingEvent.findUnique({ where: { tenantId_bookingId_idempotencyKey: { tenantId, bookingId, idempotencyKey: rawKey } }, select: { id: true } })
       if (!plan && !earlier) throw new BadRequestException({ message: 'That answer is not available for this booking', code: 'ANSWER_NOT_AVAILABLE', currentStatus: current.status })
+      // ADR 0061 Amendment 4: a first answer is refused until the platform can settle the booking's wallet reservation and inventory hold in the same step.
+      if (!earlier) throw new ConflictException({ message: ANSWER_REQUIRES_SETTLEMENT_MESSAGE, code: ANSWER_REQUIRES_SETTLEMENT, currentStatus: current.status })
       const action = plan ?? { action: 'systemConfirm' as const, supplierStatus: '' }
 
       const outcome = await transitionBooking(tx, {
