@@ -63,12 +63,26 @@ export interface RuntimeIdentity {
 
 /** What the database says this connection is. Catalog reads only. */
 export async function readRuntimeIdentity(db: Executor): Promise<RuntimeIdentity | null> {
+  // "owned" counts objects whose ownership privileges current_user can use WITHOUT an explicit SET ROLE (pg_has_role ... 'USAGE'): this is
+  // true both for objects it literally owns and for objects owned by a role it inherits from, since Postgres ownership checks
+  // (pg_class_ownercheck and friends) test has_privs_of_role, not literal relowner equality.
+  // "privileged" additionally enumerates every role reachable via ANY membership ('MEMBER', inherited or not, since a NOINHERIT
+  // membership still lets this login issue SET ROLE) that is itself privileged OR owns an object: an object-owner role is just as
+  // much an escalation path as a role with SUPERUSER/BYPASSRLS/CREATEROLE, because SET ROLE into it yields the same owner powers.
   const rows = await db.$queryRawUnsafe<Array<{ current_user: string; session_user: string; rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean; owned: bigint | number; privileged: string[] | null }>>(
-    `SELECT current_user::text AS current_user, session_user::text AS session_user, r.rolsuper, r.rolbypassrls, r.rolcreaterole, r.rolcreatedb, r.rolreplication,
-            (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND pg_get_userbyid(c.relowner) = current_user)
-          + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND pg_get_userbyid(p.proowner) = current_user)
-          + (SELECT count(*) FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' AND pg_get_userbyid(nspowner) = current_user) AS owned,
-            (SELECT array_agg(m.rolname::text ORDER BY m.rolname) FROM pg_roles m WHERE m.rolname <> current_user AND pg_has_role(current_user, m.oid, 'MEMBER') AND (m.rolsuper OR m.rolbypassrls OR m.rolcreaterole)) AS privileged
+    `WITH owner_roles AS (
+       SELECT DISTINCT pg_get_userbyid(c.relowner) AS rolname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+       UNION
+       SELECT DISTINCT pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+       UNION
+       SELECT DISTINCT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'
+     )
+     SELECT current_user::text AS current_user, session_user::text AS session_user, r.rolsuper, r.rolbypassrls, r.rolcreaterole, r.rolcreatedb, r.rolreplication,
+            (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND pg_has_role(current_user, c.relowner, 'USAGE'))
+          + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND pg_has_role(current_user, p.proowner, 'USAGE'))
+          + (SELECT count(*) FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' AND pg_has_role(current_user, nspowner, 'USAGE')) AS owned,
+            (SELECT array_agg(m.rolname::text ORDER BY m.rolname) FROM pg_roles m WHERE m.rolname <> current_user AND pg_has_role(current_user, m.oid, 'MEMBER')
+               AND (m.rolsuper OR m.rolbypassrls OR m.rolcreaterole OR m.rolname IN (SELECT rolname FROM owner_roles))) AS privileged
        FROM pg_roles r WHERE r.rolname = current_user`)
   const row = rows[0]
   if (!row) return null
