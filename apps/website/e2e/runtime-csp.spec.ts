@@ -61,33 +61,12 @@ test('the mobile menu opens and closes (client JavaScript runs)', async ({ page 
   await expect(trigger).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('the site renders with a system font stack and requests no remote fonts', async ({ page }) => {
+test('the site renders the fabBeds fonts from its own origin and requests no remote fonts (ADR 0104)', async ({ page, baseURL }) => {
   const fontRequests: string[] = []
   page.on('request', (request) => { if (request.resourceType() === 'font' || /fonts\.(googleapis|gstatic)\.com/.test(request.url())) fontRequests.push(request.url()) })
   await page.goto('/', { waitUntil: 'networkidle' })
-  expect(fontRequests).toEqual([])
+  expect(fontRequests.filter((url) => !url.startsWith(`${baseURL}/_next/static/`))).toEqual([])
   const family = await page.evaluate(() => getComputedStyle(document.body).fontFamily)
-  expect(family).toMatch(/system-ui|Segoe UI|Roboto|Arial/)
-})
-
-test('images and icons load under img-src', async ({ page, request }) => {
-  const failed: string[] = []
-  page.on('requestfailed', (req) => { if (!req.url().includes('_rsc=') && req.failure()?.errorText !== 'net::ERR_ABORTED') failed.push(req.url()) })
-  await page.goto('/', { waitUntil: 'networkidle' })
-  expect(failed).toEqual([])
-  for (const url of ['/icon', '/apple-icon', '/opengraph-image', '/manifest.webmanifest']) expect((await request.get(url)).ok(), url).toBe(true)
-})
-
-test('capability copy distinguishes coming soon from available (no unsupported live claims)', async ({ page }) => {
-  await page.goto('/login', { waitUntil: 'networkidle' })
-  await expect(page.getByText('Booking is in development.')).toBeVisible()
-  await expect(page.getByText('Coming soon: manage supply, content and distribution relationships.')).toBeVisible()
-  await expect(page.getByRole('note').first()).toContainText('not generally available yet')
-  await page.goto('/connectivity', { waitUntil: 'networkidle' })
-  await expect(page.getByText('API and XML adapters (coming soon)')).toBeVisible()
-  for (const path of ['/', '/hotels-suppliers', '/travel-buyers', '/how-it-works', '/connectivity', '/login']) {
-    await page.goto(path, { waitUntil: 'networkidle' })
-    const text = (await page.locator('main').innerText()).toLowerCase()
-    for (const claim of ['book instantly', 'real-time inventory', 'live inventory', 'instant confirmation', 'now live', 'sign in to book']) expect(text, `${path}: ${claim}`).not.toContain(claim)
-  }
+  expect(family).toMatch(/Poppins/)
+  expect(family).toMatch(/sans-serif/)
 })

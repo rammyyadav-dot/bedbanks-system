@@ -494,6 +494,15 @@ importers:
 
   apps/website:
     dependencies:
+      '@bedbanks/ui':
+        specifier: workspace:^
+        version: link:../../packages/ui
+      '@fontsource/ibm-plex-mono':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/poppins':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@vercel/analytics':
         specifier: 1.6.1
         version: 1.6.1(next@16.4.3(@opentelemetry/api@1.10.0)(@playwright/test@1.64.1)(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)

@@ -22,8 +22,11 @@ test('no source file loads fonts from a remote provider', () => {
   }
 })
 
-test('the body font is a system stack with a generic fallback', () => {
+test('the body font is the fabBeds display font, self-hosted, with a generic fallback (ADR 0104)', () => {
   const css = readFileSync(path.join(root, 'app/globals.css'), 'utf8')
-  assert.match(css, /--font-body:[^;]*system-ui[^;]*sans-serif;/)
+  assert.match(css, /--font-body:\s*var\(--fb-font-display\);/)
+  const kit = readFileSync(path.resolve(root, '../../packages/ui/src/brand-tokens.css'), 'utf8')
+  assert.match(kit, /--fb-font-display:[^;]*sans-serif;/, 'the kit stack ends in a generic family')
+  assert.ok(!/@import\s+url\(/.test(kit), 'the kit imports no remote stylesheet: Poppins and IBM Plex Mono are self-hosted via @fontsource')
   assert.ok(!css.includes('--font-inter'))
 })
