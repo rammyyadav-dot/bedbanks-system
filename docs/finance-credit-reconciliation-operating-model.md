@@ -7,7 +7,7 @@ How money works in fBeds, written as an enterprise bedbank finance function woul
 - **PROPOSED**: not built. Needs an owner decision, and often a migration and an ADR, before anything is written.
 
 Constitution rules that apply throughout: integer minor units plus ISO-4217, never floating point (3); idempotent money mutations (6);
-immutable audit events (8); nothing shown as capability that is not built (10). Related ADRs: 0024, 0028, 0029, 0054, 0062, 0068, 0100.
+immutable audit events (8); nothing shown as capability that is not built (10). Related ADRs: 0024, 0028, 0029, 0054, 0062, 0068, 0100, 0101, 0102, 0103.
 
 ---
 
@@ -41,7 +41,7 @@ book (`AGENCY_REQUIRED_FOR_BOOKING`). BUILT (ADR 0028 slices 1 and 3).
 | DEBIT | - | The final charge for a confirmed booking |
 | REFUND | + | Part of a charge returned on cancellation |
 | ADJUSTMENT | +/- | Correction with a reason, maker-checker. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100) |
-| REVERSAL | - | A received payment reversed (bank recall, chargeback, duplicate), linked to its receipt. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100); Admin screen `/finance/ledger-adjustments` (AED only, receipt id typed) |
+| REVERSAL | - | A received payment reversed (bank recall, chargeback, duplicate), linked to its receipt. BUILT behind `LEDGER_ADJUSTMENTS_ENABLED` (ADR 0100); Admin screen `/finance/ledger-adjustments` (AED only) |
 
 ## 3. Posting matrix
 
@@ -153,7 +153,7 @@ Workflow **DECLARED -> VERIFIED -> POSTED**, or REJECTED. BUILT (ADR 0028 slice 
 | R5 Stalled attempts | Reservations and inventory stuck in PROCESSING returned, or sent to manual review | On demand; an attempt is stale after 30 minutes | BUILT as an operator action (ADR 0017 maker-checker optional); not scheduled |
 | R6 Receipts and supplier payments to bank statement | Every POSTED receipt and recorded settlement appears on the bank statement; every statement movement is one of them or in suspense | Daily | PARTIAL: file upload (MT940, camt.053, CSV), matching, storage and the exception queue are built behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0093); no UI, bank feed, ERA or ledger posting |
 | R7 Supplier statement to accrual | Supplier's bookings and amounts match confirmed bookings and recorded net | Per statement | BUILT behind `FINANCE_RECONCILIATION_ENABLED` (ADR 0070) |
-| R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PROPOSED (needs a chart of accounts) |
+| R8 Ledger to general ledger | Control totals per currency exported to accounting | Monthly | PARTIAL: per-currency control totals by entry type are recorded at period close (ADR 0101); a chart of accounts, versioned category mapping and a balanced journal of a closed month are built behind `FINANCE_CHART_ENABLED` (ADR 0102) with a default chart that your accountants must review; a generic CSV export of the journal behind `finance.journal.export` (ADR 0103); no accounting-package layout and no posting to an accounting system |
 
 **Reading the R1 to R4 report** (`GET /admin/operations/finance/ledger-integrity`, `finance.read`):
 verdict CLEAN, WARNINGS (credit-control or timing only), ISSUES (a critical break) or INCOMPLETE (scan capped, nothing claimed). The
@@ -169,11 +169,11 @@ funding credits. Each finding carries its rule, account, agency, booking or rece
 4. Evidence: the audit event of the correcting action references the finding code and booking or receipt id.
 5. Re-run; the finding must disappear.
 
-## 9. Period close (PROPOSED)
+## 9. Period close (PARTIAL, ADR 0101)
 
-Daily cut-off at 00:00 UTC on `immutable_at`. Monthly close checklist: R1 to R4 CLEAN or every finding explained; R5 run with no stalled
-attempts older than the window; receivables aged at the cut-off; supplier accrual snapshot; control totals per currency exported; the
-period locked so a new entry dated inside it is refused (entries are never backdated today, so the lock is about late corrections).
+BUILT behind `FINANCE_PERIOD_CLOSE_ENABLED`: monthly cut-off at 00:00 UTC on `immutable_at`; closing refuses on critical R1 to R4 findings or an incomplete scan; per-currency control totals (opening + movement = closing) and the hash chain heads are recorded; the month is then locked by the database against any entry dated inside it; months close in order and are never reopened. Admin: Finance, Period close.
+
+NOT BUILT: R5 stalled attempts, the receivables ageing snapshot and the supplier accrual snapshot as part of the close record; a second approver or step-up on the close; a scheduled close; locking of revenue, margin and payable reports; and an accounting-package layout for the journal export and posting to an accounting system (the chart, journal and generic CSV export exist, ADR 0102 and 0103).
 
 ## 10. Segregation of duties
 
@@ -193,9 +193,9 @@ Decided 2026-10-18 "as per global bedbanks workflow and functioning" and built i
 effective penalty (F3), database ledger guards (F4), and a daily read-only reconciliation run. Still open:
 
 1. **Provision the monitor's read-only login** (`LEDGER_INTEGRITY_DATABASE_URL`) and the log alarm on its error lines.
-2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, a receipt picker and browser test for the screen, and house-account adjustments.
+2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, a browser test for the screen, and house-account adjustments.
 3. **Scheduling R5** (stalled attempts) unattended: it writes SYSTEM audit events, which needs a governed role.
 4. **Per-agency terms**, temporary increases, review dates, security.
-5. **Chart of accounts and GL export** format; gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
+5. **Accounting-package layout** for the GL export and the accountants' review of the default chart (ADR 0102); gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
 6. **Bank statement import** (format, bank) to build R6, and the suspense process for unmatched credits.
 7. **Supplier settlement:** payment terms source, posting of agreed statements, payment method (statement matching is built, ADR 0070).

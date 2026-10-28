@@ -1,10 +1,42 @@
-import { HOTEL_IMAGE_TYPES, type HotelImageType } from '@bedbanks/contracts'
+import type * as Sharp from 'sharp'
+import { HOTEL_IMAGE_LIMITS, HOTEL_IMAGE_TYPES, type HotelImageType } from '@bedbanks/contracts'
+// sharp's CommonJS entry is the factory itself, but its type declarations are ESM (default export); this build has no esModuleInterop.
+const sharp = require('sharp') as typeof Sharp.default
 
 export interface ImageProbe { contentType: HotelImageType; width: number; height: number }
 
+const FORMAT_TYPE: Record<string, HotelImageType> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }
+/** Decoder ceiling: the largest accepted frame. libvips refuses anything bigger before it allocates pixel memory. */
+const MAX_PIXELS = HOTEL_IMAGE_LIMITS.maxWidth * HOTEL_IMAGE_LIMITS.maxHeight
+
 /**
- * Identifies an image from its own bytes (never from the client's declared type or file name) and reads its pixel size.
- * Supports JPEG, PNG and WebP only. Returns null for anything else or for a file too damaged to read a size from.
+ * Identifies an image from its own bytes (never from the client's declared type or file name), reads its pixel size and then fully decodes it,
+ * so a header with no (or truncated, or corrupt) pixel data is rejected before anything is stored. Supports JPEG, PNG and WebP only.
+ * Returns null for anything else, for a file too damaged to read a size from, or for one that fails to decode.
+ * Resource use is bounded: the header size is checked against the upload limits before decoding, libvips is capped at MAX_PIXELS and reads are
+ * sequential, so decoded pixels stream through the statistics pass and are never buffered.
+ */
+export async function inspectImage(buf: Buffer): Promise<ImageProbe | null> {
+  const header = probeImage(buf)
+  if (!header) return null
+  const { minWidth, minHeight, maxWidth, maxHeight } = HOTEL_IMAGE_LIMITS
+  // Out-of-range sizes are reported by the caller as a dimension error; decoding an image we will refuse anyway would only cost memory.
+  if (header.width < minWidth || header.height < minHeight || header.width > maxWidth || header.height > maxHeight) return header
+  try {
+    const image = sharp(buf, { failOn: 'error', limitInputPixels: MAX_PIXELS, sequentialRead: true })
+    const meta = await image.metadata()
+    const contentType = meta.format ? FORMAT_TYPE[meta.format] : undefined
+    if (!contentType || contentType !== header.contentType || meta.width !== header.width || meta.height !== header.height) return null
+    await image.stats() // decodes every scanline; failOn:'error' turns truncation or corruption into a rejection
+    return { contentType, width: header.width, height: header.height }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Header-only inspection: type and claimed size, with no pixel validation. Exported for tests and for the pre-decode size check; uploads must use
+ * inspectImage.
  */
 export function probeImage(buf: Buffer): ImageProbe | null {
   return probePng(buf) ?? probeJpeg(buf) ?? probeWebp(buf)

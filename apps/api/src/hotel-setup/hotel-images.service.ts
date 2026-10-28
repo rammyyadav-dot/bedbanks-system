@@ -5,7 +5,7 @@ import { HOTEL_IMAGE_ERROR_CODES, HOTEL_IMAGE_LIMITS, type HotelImageList, type 
 import { PrismaService } from '../database/prisma.service'
 import { guardedRead } from '../admin-operations/operations-read'
 import { idParam } from '../admin-operations/query-params'
-import { isAllowedType, probeImage } from './hotel-image-probe'
+import { inspectImage, isAllowedType } from './hotel-image-probe'
 
 type Tx = Prisma.TransactionClient
 /** Everything except the bytes: list queries must never read the "data" column. */
@@ -52,7 +52,7 @@ export class HotelImagesService {
     if (!isAllowedType(declaredType) || bytes.length === 0) throw new UnsupportedMediaTypeException({ message: 'Send the image itself as image/jpeg, image/png or image/webp.', code: HOTEL_IMAGE_ERROR_CODES.unsupportedType })
     if (bytes.length > HOTEL_IMAGE_LIMITS.maxBytes) throw new PayloadTooLargeException({ message: `An image can be at most ${HOTEL_IMAGE_LIMITS.maxBytes / 1024 / 1024} MB.`, code: HOTEL_IMAGE_ERROR_CODES.tooLarge })
     const alt = this.altText(altRaw)
-    const probe = probeImage(bytes)
+    const probe = await inspectImage(bytes)
     if (!probe || probe.contentType !== declaredType) throw new UnsupportedMediaTypeException({ message: 'The file is not a valid JPEG, PNG or WebP image.', code: HOTEL_IMAGE_ERROR_CODES.unsupportedType })
     const { minWidth, minHeight, maxWidth, maxHeight } = HOTEL_IMAGE_LIMITS
     if (probe.width < minWidth || probe.height < minHeight || probe.width > maxWidth || probe.height > maxHeight) {

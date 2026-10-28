@@ -159,12 +159,12 @@ main:focus { outline: none; }
 
 /* ---- Sign-in ---- */
 .supplier-login { min-height: 100vh; display: grid; place-items: center; position: relative; overflow: hidden; padding: 24px; background: var(--fb-ink-900); isolation: isolate; }
-.login-scene { position: absolute; inset: -40px; z-index: -1; filter: blur(22px) saturate(1.1); background:
-  radial-gradient(ellipse 36% 26% at 18% 14%, color-mix(in srgb, var(--fb-ink-0) 80%, transparent), transparent 70%),
-  radial-gradient(ellipse 30% 20% at 42% 24%, color-mix(in srgb, var(--fb-ink-0) 60%, transparent), transparent 70%),
-  linear-gradient(180deg, var(--fb-ink-300) 0%, var(--fb-ink-300) 34%, var(--fb-ink-400) 46%, var(--fb-ink-900) 54%, var(--fb-ink-200) 64%, var(--fb-mustard-100) 100%); }
-.login-scene::before { content: ''; position: absolute; left: 6%; top: 36%; width: 34%; height: 40%; border-radius: 40% 60% 50% 50%; background: radial-gradient(circle at 40% 40%, var(--fb-ink-100), var(--fb-ink-300) 70%); opacity: .85; }
-.login-scene::after { content: ''; position: absolute; right: 0; top: 0; width: 26%; height: 100%; background: linear-gradient(90deg, var(--fb-red-100) 0 30%, var(--fb-red-600) 30% 100%); opacity: .9; }
+/* Sharp resort photo; the scrim only softens the centre behind the card so the sign-in form stays the focal point. Swap public/login-resort.jpg for licensed hero art. */
+.login-scene { position: absolute; inset: 0; z-index: -1; background:
+  radial-gradient(ellipse 38% 62% at 50% 50%, #0b1b2e33, transparent 75%),
+  linear-gradient(180deg, #0b1b2e1f 0%, transparent 28%, transparent 72%, #0b1b2e33 100%),
+  url('/login-resort.jpg') 62% 50% / cover no-repeat #1d4c6b; }
+@media (max-width: 760px) { .login-scene { background-position: 78% 50%; } }
 .supplier-login-card { width: min(420px, 100%); overflow: hidden; border-radius: var(--fb-radius-card); background: var(--fb-ink-0); box-shadow: 0 24px 60px color-mix(in srgb, var(--fb-ink-900) 25%, transparent), 0 2px 6px color-mix(in srgb, var(--fb-ink-900) 12%, transparent); }
 .login-card-head { position: relative; padding: 28px 32px 40px; background: var(--fb-ink-0); }
 .login-card-head .brand-logo { width: 150px; }

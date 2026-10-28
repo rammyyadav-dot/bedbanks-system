@@ -8,10 +8,11 @@ import { AppModule } from '../src/app.module'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { hashPassword } from '../src/auth/utils/password'
+import { realJpeg, realPng } from './support/image-fixtures'
 
 jest.setTimeout(180_000)
 
-/** Hotel images (ADR 0027) over HTTP against PostgreSQL, two tenants. Image bytes are synthetic: only the header is read by the API. */
+/** Hotel images (ADR 0027) over HTTP against PostgreSQL, two tenants. Image bytes are real, decodable files (the API decodes every upload). */
 describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
   const prisma = new PrismaClient()
   const suffix = `hi-${Date.now()}-${randomBytes(3).toString('hex')}`
@@ -23,14 +24,8 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
   const cookies: Record<string, string> = {}; const ids: Record<string, string> = {}
   let seq = 0
 
-  const png = (w: number, h: number, seed = `${++seq}-${randomBytes(4).toString('hex')}`) => {
-    const head = Buffer.alloc(33); Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head); head.writeUInt32BE(13, 8); head.write('IHDR', 12, 'latin1'); head.writeUInt32BE(w, 16); head.writeUInt32BE(h, 20)
-    return Buffer.concat([head, Buffer.from(seed)])
-  }
-  const jpeg = (w: number, h: number, seed = `${++seq}`) => {
-    const frame = Buffer.alloc(19); frame[0] = 0xff; frame[1] = 0xc0; frame.writeUInt16BE(17, 2); frame[4] = 8; frame.writeUInt16BE(h, 5); frame.writeUInt16BE(w, 7)
-    return Buffer.concat([Buffer.from([0xff, 0xd8]), frame, Buffer.from(seed)])
-  }
+  const png = (w: number, h: number, seed = `${++seq}-${randomBytes(4).toString('hex')}`) => realPng(w, h, seed)
+  const jpeg = (w: number, h: number, seed = `${++seq}`) => realJpeg(w, h, seed)
   async function user(label: string, tenantId: string, keys: string[]) {
     const email = `${suffix}-${label}@example.test`
     const u = await prisma.user.create({ data: { email, name: label, passwordHash: await hashPassword(password), status: 'ACTIVE' } })
@@ -95,7 +90,7 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
   })
 
   it('HI-01 an image is stored, listed in order, served back byte for byte, and the first one is primary', async () => {
-    const first = png(1600, 1200); const second = jpeg(1920, 1080)
+    const first = png(1600, 1200); const second = await jpeg(1920, 1080)
     const a = (await upload('main', 'manager', first).expect(201)).body.data
     expect(a).toMatchObject({ contentType: 'image/png', width: 1600, height: 1200, altText: 'Pool at sunset', isPrimary: true, sortOrder: 0, bytes: first.length })
     const b = (await upload('main', 'manager', second, 'image/jpeg', '  Lobby  ').expect(201)).body.data
@@ -119,6 +114,14 @@ describe('hotel images (PostgreSQL, HTTP, two tenants)', () => {
     await reject(upload('other', 'manager', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'image/png'), 415) // svg labelled png
     await reject(upload('other', 'manager', Buffer.from('GIF89a' + 'x'.repeat(2000)), 'image/gif'), 415)
     await reject(upload('other', 'manager', Buffer.alloc(0), 'image/png'), 415)
+    // Header-only and truncated files: the first bytes look like an image, the pixel data is missing. Nothing may be stored (audited defect).
+    const whole = png(1600, 1200)
+    await reject(upload('other', 'manager', whole.subarray(0, 24)), 415, 'HOTEL_IMAGE_UNSUPPORTED_TYPE') // 24-byte PNG: signature + IHDR, no IDAT
+    await reject(upload('other', 'manager', whole.subarray(0, 33)), 415, 'HOTEL_IMAGE_UNSUPPORTED_TYPE') // IHDR chunk only
+    await reject(upload('other', 'manager', Buffer.from(whole.subarray(0, Math.floor(whole.length / 2)))), 415, 'HOTEL_IMAGE_UNSUPPORTED_TYPE') // cut mid-stream
+    const photo = await realJpeg(1600, 1200, 'truncate-me')
+    await reject(upload('other', 'manager', photo.subarray(0, Math.floor(photo.length / 2)), 'image/jpeg'), 415, 'HOTEL_IMAGE_UNSUPPORTED_TYPE')
+    expect(await prisma.hotelImage.count({ where: { hotelId: hotels.other } })).toBe(0)
     await reject(upload('other', 'manager', png(1600, 1200), 'application/json'), 415)
     await reject(upload('other', 'manager', png(1600, 1200), 'image/png', null), 400); await reject(upload('other', 'manager', png(1600, 1200), 'image/png', ''), 400); await reject(upload('other', 'manager', png(1600, 1200), 'image/png', 'x'.repeat(201)), 400)
     await reject(upload('other', 'manager', png(700, 500)), 422, 'HOTEL_IMAGE_BAD_DIMENSIONS'); await reject(upload('other', 'manager', png(9000, 1200)), 422, 'HOTEL_IMAGE_BAD_DIMENSIONS')

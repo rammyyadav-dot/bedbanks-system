@@ -166,8 +166,11 @@ const tab = async (page, name) => { await page.getByRole('tab', { name }).click(
   const viewer = await login(browser, seed.viewerEmail)
   await viewer.page.goto(`${BASE}/dashboard`); await viewer.page.waitForTimeout(800)
   check('viewer (supply.hotels.read only): no Rate Certification navigation', !/Rate Certification/.test(await viewer.page.locator('nav').first().innerText()))
-  await viewer.page.goto(`${BASE}/rate-certification`); await viewer.page.waitForSelector('[data-state]', { timeout: 20000 })
-  check('viewer deep-linking gets FORBIDDEN, not an empty page', (await stateOf(viewer.page)) === 'forbidden')
+  await viewer.page.goto(`${BASE}/rate-certification`)
+  // Denied either by the route guard (ADR 0063: a role=alert screen before the page mounts) or by the page's own forbidden state.
+  await viewer.page.waitForFunction(() => !!document.querySelector('[data-state=forbidden]') || /do not have permission/i.test(document.body.innerText), null, { timeout: 20000 })
+  const denied = (await viewer.page.locator('[data-state=forbidden]').count()) > 0 || /do not have permission/i.test(await viewer.page.locator('body').innerText())
+  check('viewer deep-linking gets FORBIDDEN, not an empty page', denied && (await viewer.page.locator('[data-testid=summary]').count()) === 0)
   await viewer.ctx.close()
   const b = await login(browser, seed.bownerEmail)
   await b.page.goto(`${BASE}/rate-certification`); await b.page.waitForSelector('[data-testid=summary]', { timeout: 30000 })

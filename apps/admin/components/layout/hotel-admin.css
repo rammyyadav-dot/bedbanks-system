@@ -101,11 +101,11 @@
 .hotel-readiness-steps li { min-width: 0; border: 1px solid var(--c-e4e4e0); border-radius: var(--fb-radius-control); background: var(--c-f6f6f4); }
 .hotel-readiness-steps a { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 9px 8px; height: 100%; color: var(--c-111111); text-decoration: none; font-size: 11px; line-height: 15px; }
 .hotel-readiness-steps svg { color: var(--c-6b6b6b); flex-shrink: 0; }
-.hotel-readiness-steps [data-state="PASS"] { background: var(--c-ffffff); }
-.hotel-readiness-steps [data-state="PASS"] svg { color: var(--c-111111); }
-.hotel-readiness-steps [data-state="FAIL"] { background: var(--c-f6f6f4); }
-.hotel-readiness-steps [data-state="FAIL"] svg { color: var(--c-b3141b); }
-.hotel-readiness-steps [data-state="WARN"] svg { color: var(--c-2a2a2a); }
+.hotel-readiness-steps [data-gate-state="PASS"] { background: var(--c-ffffff); }
+.hotel-readiness-steps [data-gate-state="PASS"] svg { color: var(--c-111111); }
+.hotel-readiness-steps [data-gate-state="FAIL"] { background: var(--c-f6f6f4); }
+.hotel-readiness-steps [data-gate-state="FAIL"] svg { color: var(--c-b3141b); }
+.hotel-readiness-steps [data-gate-state="WARN"] svg { color: var(--c-2a2a2a); }
 .hotel-readiness-steps a:hover { background: var(--c-f6f6f4); border-radius: inherit; }
 .hotel-summary-note { color: var(--c-6b6b6b); font-size: 12px; margin-bottom: 0; }
 .hotel-integrity-heading { display: flex; align-items: center; gap: 8px; padding: 14px 16px; min-height: 60px; }

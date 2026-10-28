@@ -28,7 +28,7 @@ export function HotelManagementSummary({ data, onRefresh }: { data: HotelCommerc
       <div className="hotel-readiness-heading"><h2>{data.hotel.name}</h2><button type="button" className="hotel-ui-button" onClick={onRefresh}>Run Property Check</button></div>
       <div className="hotel-readiness-caption"><span>Property Readiness: <strong>{passed} / {data.gates.length}</strong> checks passed</span><span>{percent}%</span></div>
       <div className="hotel-readiness-progress" role="progressbar" aria-label="Property readiness checks passed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div>
-      {data.gates.length ? <ol className="hotel-readiness-steps">{data.gates.map((gate, index) => <li key={gate.key} data-state={gate.state}>
+      {data.gates.length ? <ol className="hotel-readiness-steps">{data.gates.map((gate, index) => <li key={gate.key} data-gate-state={gate.state}>
         <Link href={gateHref(gate.section)} title={`${gate.label}: ${gate.state}. ${gate.detail}`}>
           {gate.state === 'PASS' ? <CheckCircle2 size={15} /> : gate.state === 'FAIL' ? <TriangleAlert size={15} /> : <Circle size={15} />}
           <span>{String(index + 1).padStart(2, '0')} {gate.label}<span className="sr-only">: {gate.state}</span></span>
