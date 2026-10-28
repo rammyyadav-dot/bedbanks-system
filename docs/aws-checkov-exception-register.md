@@ -1,6 +1,6 @@
 # Checkov exception register (WP3)
 
-Source of truth for `infra/aws/terraform/.checkov.yaml`. `pnpm check:aws-governance` fails when a skipped check is not listed here or has no reason in the YAML. Checkov 3.2.0, 319 checks pass and 0 fail on commit `<see docs/aws-wp3-verification-evidence.md>`.
+Source of truth for `infra/aws/terraform/.checkov.yaml`. `pnpm check:aws-governance` fails when a skipped check is not listed here or has no reason in the YAML. Checkov 3.2.0, 319 checks pass and 0 fail on commit `<see docs/aws-wp3-verification-evidence.md>`. Re-triaged on checkov 3.3.30 (2026-10-28): 532 checks pass and 0 fail; see the 2026-10-28 rows below for what changed.
 
 **Status meaning.** `PROPOSED` = written by the engineer, **not yet approved** by the owner; nothing in this register is an approved risk acceptance until the Owner column is signed and the date filled in. `OPEN` is never an acceptance: it is a tracked gap. Review-by dates are proposals.
 
@@ -40,9 +40,21 @@ Owner (proposed for all rows): **fBeds platform lead; approval by the CTO**. App
 | CKV_AWS_305 | default root object | distributions | applies to S3 origins; the origin serves `/` | 2027-10-11 | PROPOSED |
 | CKV_AWS_310 | origin failover | distributions | single multi-AZ ALB origin | 2027-04-11 | PROPOSED |
 
+## ACCEPTED (PROPOSED) — checkov 3.3.x additions (2026-10-28 triage)
+| Check | Finding | Resource | Reason | Review by | Status |
+|---|---|---|---|---|---|
+| CKV2_AWS_76 | Log4j AMR not detected on ALB's WAFv2 ACL | `aws_lb.public` | same root cause as `CKV2_AWS_47`: checkov cannot follow the `for_each`-indexed web ACL; `AWSManagedRulesKnownBadInputsRuleSet` is present without overrides on both ACLs (`edge.tf`) | 2027-04-28 | PROPOSED |
+| CKV_AWS_378 | ALB target group uses HTTP, not HTTPS | `aws_lb_target_group.portal` | TLS terminates at the public ALB (HTTPS:443 listener, ACM cert, `ELBSecurityPolicy-TLS13-1-2-2021-06`); target traffic to the ECS tasks stays inside the VPC | 2027-10-28 | PROPOSED |
+
+## Remediated 2026-10-28 (no longer skipped; the check now runs and passes)
+| Check | Finding | Remediation |
+|---|---|---|
+| CKV_AWS_394 | `aws_availability_zones` data source not pinned | added required `var.availability_zone_names` and a `filter { name = "zone-name", values = var.availability_zone_names }` on `data.aws_availability_zones.this` (`locals.tf`, `variables.tf`); owner must set exact AZ names per environment (`envs/*.tfvars.example`) before apply so the AZ set is a closed allowlist, not opportunistic discovery |
+
 ## OPEN (not remediated)
 | Check | Gap | Why not done | Next action | Review by |
 |---|---|---|---|---|
 | CKV2_AWS_57 | No automatic rotation of the runtime DB and Redis URL secrets | rotating `fbeds_api_login` needs a purpose-built rotation function that coordinates the role password, the URL secret and a forced redeploy, and must not widen grants | follow `docs/aws-secret-rotation-runbook.md` (manual, drilled); decide on a custom rotation Lambda after the first staging rotation drill | 2027-01-11 |
 | CKV_AWS_338 | CloudWatch retention below one year (14-180 days by class) | no regulatory retention requirement has been supplied; a year of all log classes is a recurring cost | owner states the requirement per class (`docs/aws-log-retention-policy.md`); set `log_retention` | 2027-01-11 |
 | CKV_AWS_86 | CloudFront standard (v2) access logs | design choice (CloudWatch or S3 delivery in us-east-1) and cost; ALB access logs and edge WAF logs cover the same traffic | decide the destination, then add `aws_cloudwatch_log_delivery*` in us-east-1 | 2027-01-11 |
+| CKV_AWS_374 | CloudFront distributions have no geo restriction (`restriction_type = "none"`) | which countries/regions to allow or block is a business/compliance decision, not an engineering default | owner specifies an allow-list or deny-list per ADR 0055's market scope; implement via `restrictions.geo_restriction` on `aws_cloudfront_distribution.portal` in `edge.tf` | 2027-04-28 |

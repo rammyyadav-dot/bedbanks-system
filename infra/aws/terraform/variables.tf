@@ -15,6 +15,14 @@ variable "az_count" {
   type    = number
   default = 2
 }
+variable "availability_zone_names" {
+  type        = list(string)
+  description = "Exact AZ names to use (e.g. [\"ap-south-1a\", \"ap-south-1b\"]), confirmed against the region decision (ADR 0055). Pins zone identity so AWS adding a new AZ cannot silently change which AZs this deployment uses."
+  validation {
+    condition     = length(var.availability_zone_names) >= var.az_count
+    error_message = "availability_zone_names must list at least az_count AZ names."
+  }
+}
 variable "vpc_cidr" {
   type    = string
   default = "10.40.0.0/16"
