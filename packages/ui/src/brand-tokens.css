@@ -1,5 +1,5 @@
-/* fabBeds brand token kit v2.1: vendored unchanged from the CMO's fabbeds-tokens.css, except the Google Fonts @import,
- * which the Admin CSP (font-src 'self') forbids: Poppins and IBM Plex Mono are self-hosted via @fontsource in app/layout.tsx. (ADR 0102) */
+/* fabBeds brand token kit v2.1, shared by the Admin, Agent and Supplier apps: vendored unchanged from the CMO's fabbeds-tokens.css, except the Google Fonts @import,
+ * which the Admin CSP (font-src 'self') forbids: Poppins and IBM Plex Mono are self-hosted via @fontsource in each app's layout.tsx. (ADR 0102, ADR 0103) */
 /* fabBeds design tokens v2.1 — generated from fabbeds-tokens.json. Do not edit by hand. */
 
 :root {

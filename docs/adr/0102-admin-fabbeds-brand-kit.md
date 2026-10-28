@@ -1,6 +1,7 @@
 # ADR 0102: Admin console adopts the fabBeds brand token kit
 
 Status: **Built (Admin UI only; no API, schema or contract change).** Builds on ADR 0087 (theme tokens and dark mode).
+Note: the kit file now lives in `packages/ui/src/brand-tokens.css` and is shared with the Agent and Supplier apps (ADR 0103).
 
 ## Context
 The CMO supplied the fabBeds brand token kit v2.1 (`fabbeds-tokens.css`): ink neutrals, brand red, CTA mustard, Poppins and IBM Plex Mono, and radii of 6 / 10 / 14 px. The Admin console still carried its original teal, navy and blue palette (about 640 hex-named colour tokens), a square 0px radius and fonts (Barlow Semi Condensed, Montserrat, Courier New) that were never loaded, so browsers rendered system fallbacks. The hotel-management header was even branded "UAE Hotels TMS", another product's name (see `docs/admin-hotel-mission-conformance.md`).

@@ -26,7 +26,7 @@ export default async function LoginPage() {
         <div className="login-card-head">
           <BrandLogo width={150} priority />
           <p className="supplier-brand-tag"><i />Supplier extranet</p>
-          <svg viewBox="0 0 400 38" preserveAspectRatio="none" aria-hidden="true"><path d="M0 24 C 90 6, 230 2, 400 14 L400 38 L0 38 Z" fill="#ffffff" /><path d="M0 24 C 90 6, 230 2, 400 14" fill="none" stroke="#e3e6ea" strokeWidth="6" /></svg>
+          <svg viewBox="0 0 400 38" preserveAspectRatio="none" aria-hidden="true"><path d="M0 24 C 90 6, 230 2, 400 14 L400 38 L0 38 Z" fill="var(--fb-ink-0)" /><path d="M0 24 C 90 6, 230 2, 400 14" fill="none" stroke="var(--fb-ink-200)" strokeWidth="6" /></svg>
         </div>
         <div className="login-card-body">
           <h1 id="login-title">Sign in</h1>

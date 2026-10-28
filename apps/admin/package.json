@@ -17,6 +17,7 @@
   "dependencies": {
     "@base-ui/react": "^1.9.0",
     "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/ui": "workspace:*",
     "@bedbanks/tracing": "workspace:*",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/poppins": "^5.3.0",

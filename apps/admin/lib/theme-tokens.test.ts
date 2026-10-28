@@ -52,7 +52,7 @@ test('dark variant keeps pairs readable: reflected lightness, kept hue, scrims a
 
 test('light theme is the fabBeds brand: every light token is a brand-kit primitive, dark-chrome tokens are identical in both themes', () => {
   const light = parseLightTokens(tokensCss)
-  const kit = readFileSync(join(root, 'app', 'brand-tokens.css'), 'utf8')
+  const kit = readFileSync(join(root, '..', '..', 'packages', 'ui', 'src', 'brand-tokens.css'), 'utf8')
   const primitives = new Set([...kit.matchAll(/--fb-(?:ink|red|mustard)-[a-z0-9]+:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1]!.toLowerCase()))
   assert.ok(primitives.size >= 17, 'the brand kit primitives are present')
   const strays = Object.entries(light).filter(([, value]) => !primitives.has(value.slice(0, 7))).map(([name, value]) => `${name}: ${value}`)
