@@ -13,7 +13,13 @@ locals {
   services = merge({ api = { port = 3002 } }, { for k, _ in local.portals : k => { port = 3000 } })
 }
 
-data "aws_availability_zones" "this" { state = "available" }
+data "aws_availability_zones" "this" {
+  state = "available"
+  filter {
+    name   = "zone-name"
+    values = var.availability_zone_names
+  }
+}
 data "aws_caller_identity" "this" {
 }
 

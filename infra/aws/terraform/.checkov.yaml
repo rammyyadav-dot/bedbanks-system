@@ -28,7 +28,11 @@ skip-check:
   - CKV2_AWS_47   # checkov cannot follow the count-indexed web ACL; AWSManagedRulesKnownBadInputsRuleSet (includes Log4j) is present without overrides on both ACLs
   - CKV_AWS_305   # default root object is for S3 origins; the origin is an application load balancer that serves "/"
   - CKV_AWS_310   # one origin (a multi-AZ ALB); origin failover needs a second origin that does not exist
+  # ACCEPTED (checkov 3.3.x additions)
+  - CKV2_AWS_76   # same cause as CKV2_AWS_47: checkov cannot follow the for_each-indexed web ACL; AWSManagedRulesKnownBadInputsRuleSet (Log4j AMR) is present on aws_lb.public's ACL without overrides
+  - CKV_AWS_378   # ALB target groups are HTTP by design: TLS terminates at the ALB (HTTPS:443 listener, ACM cert); target traffic stays inside the VPC to the ECS tasks
   # OPEN (not remediated)
   - CKV2_AWS_57   # OPEN: automatic rotation of the runtime database/Redis URLs; rotation is a documented manual procedure (docs/aws-secret-rotation-runbook.md)
   - CKV_AWS_338   # OPEN: log retention is 14-180 days by class; the 1-year standard needs a compliance decision and a cost estimate
   - CKV_AWS_86    # OPEN: CloudFront standard (v2) access logging; ALB access logs and edge WAF logs cover the same traffic for now
+  - CKV_AWS_374   # OPEN (checkov 3.3.x addition): CloudFront distributions have no geo restriction; which countries to allow/block is an owner/compliance decision, not set here
