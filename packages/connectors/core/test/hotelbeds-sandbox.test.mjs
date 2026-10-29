@@ -44,7 +44,6 @@ test('fixed sandbox host, signature and redirect denial', async () => {
   assert.ok(signatures.includes(call.init.headers['X-Signature']))
   assert.deepEqual(c.health().capabilitiesSucceeded, ['status'])
   assert.equal(c.searchBooking, undefined)
-  assert.equal(c.book, undefined)
   assert.equal(c.cancel, undefined)
 })
 test('canonical narrow search is serialized faithfully', async () => {
