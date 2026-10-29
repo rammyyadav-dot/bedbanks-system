@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UnprocessableEntityException, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { PrismaService } from '../database/prisma.service'
@@ -22,6 +22,8 @@ import type { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { defaultSettlementCurrency, enabledSettlementCurrencies } from './currency'
 import { projectAgentHotels, validSearchCriteria } from './search-offers'
+import { isAuthoritative } from './aggregating-supplier.adapter'
+import { MIXED_ROOMS_MESSAGE, uniformRoomStays } from './room-stays'
 import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
@@ -196,6 +198,8 @@ export class AgentController {
     const resolved = await this.destinationResolver.apply(tenantId, criteria as SearchCriteria)
     if (!resolved) throw new BadRequestException('Canonical destination is no longer available')
     if (!validSearchCriteria(resolved)) throw new BadRequestException('Invalid search criteria')
+    // Contracted inventory prices one party per search. Answering a mixed-room search with "no availability" would be a false negative.
+    if (isAuthoritative(this.supplier) && !uniformRoomStays(resolved)) throw new UnprocessableEntityException({ code: 'MIXED_ROOM_OCCUPANCY_UNSUPPORTED', message: MIXED_ROOMS_MESSAGE })
     const response = await this.agentSearch.execute(resolved, tenantId, req.requestId ?? randomUUID(), identity)
     // The buyer sees the sell price only: cost, margin and supply identity never leave the API (ADR 0075).
     return { ...response, hotels: projectAgentHotels(response.hotels) }

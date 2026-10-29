@@ -20,6 +20,7 @@ import { loadBuyerAgency, loadBuyerMarket } from '../supply/buyer-market'
 import { normalizeCountry, parseMarketRules, type BuyerContext } from '../supply/market-rules'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
 import { offerPaymentType } from './offer-payment-type'
+import { uniformRoomStays } from './room-stays'
 import { CancellationPolicyService, buyerRules, describePenalty, type CancellationRule } from './cancellation-policy.service'
 import { formatMinor } from './booking-document.render'
 import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
@@ -29,6 +30,9 @@ export const CONTRACTED_REFERENCE_PREFIX = 'contracted:'
 const DEFAULT_OFFER_TTL_MS = 900_000
 const MIN_OFFER_TTL_MS = 1_000
 const MAX_OFFER_TTL_MS = 3_600_000
+/** An elapsed offer stays in process memory this long so a late recheck still answers `offer_expired`; after it, the entry is swept. */
+const ELAPSED_OFFER_RETENTION_MS = MAX_OFFER_TTL_MS
+const OFFER_SWEEP_INTERVAL_MS = 60_000
 /**
  * Candidate hotels per rate-plan read: bounded, with no global plan ceiling. Each read costs about a dozen relation queries, so the batch size sets
  * the round trips for a search. Measured on 100 hotels (strict runtime role): 25 gave 50 queries and about 215 ms, 100 gave 17 queries and about 80 ms.
@@ -81,14 +85,6 @@ function commercialKey(rate: SearchRateOffer): string {
   return [rate.hotelId, rate.roomTypeId, rate.boardBasisId, rate.ratePlanId, rate.supplierId, rate.contractId ?? ''].join('|')
 }
 
-function uniformRoomStays(criteria: SearchCriteria): boolean {
-  const stays = criteria.roomStays
-  if (!stays || stays.length === 0) return true
-  const first = stays[0]
-  return stays.every((stay) => stay.adults === first.adults && stay.children.length === first.children.length &&
-    stay.children.every((child, index) => child.age === first.children[index].age))
-}
-
 function decimalText(value: { toString(): string } | null | undefined): string | undefined {
   if (value == null) return undefined
   const text = value.toString()
@@ -110,6 +106,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   readonly name = 'contracted-inventory'
   private readonly logger = new Logger(ContractedInventoryAdapter.name)
   private readonly offers = new Map<string, StoredOffer>()
+  private lastSweepAt = 0
   private readonly cancellation = new CancellationPolicyService()
 
   constructor(
@@ -583,9 +580,20 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   }
 
   private remember(offer: StoredOffer): void {
+    this.sweepElapsedOffers()
     this.offers.set(this.offerKey(offer.tenantId, offer.offerId), offer)
     const ttlMs = Math.max(MIN_OFFER_TTL_MS, Date.parse(offer.expiresAt) - Date.now())
     void this.cache.set(tenantCacheKey(offer.tenantId, 'contracted-offer', offer.offerId), offer, { ttlMs }).catch(() => undefined)
+  }
+
+  /** Bounds process memory: the shared cache already expires offers by TTL, but this map would otherwise keep every offer ever quoted. At most once a minute. */
+  private sweepElapsedOffers(): void {
+    const now = Date.now()
+    if (now - this.lastSweepAt < OFFER_SWEEP_INTERVAL_MS) return
+    this.lastSweepAt = now
+    for (const [key, offer] of this.offers) {
+      if (now - Date.parse(offer.expiresAt) > ELAPSED_OFFER_RETENTION_MS) this.offers.delete(key)
+    }
   }
 
   private async readOffer(tenantId: string, offerId: string): Promise<StoredOffer | null> {
