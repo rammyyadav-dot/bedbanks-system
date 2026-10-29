@@ -5,8 +5,10 @@ export interface ConnectorAdapter {
   readonly capabilities: readonly ConnectorCapability[];
   health(context: ConnectorContext): Promise<'healthy' | 'degraded' | 'unhealthy'>;
 }
-export { HotelbedsSandboxTransport, SandboxError, hotelbedsAedMinor, normalizeHotelbedsResponse, validateSandboxSearch, retryAfter } from './hotelbeds-sandbox';
-export type { SandboxContext, SandboxScope, SandboxConfig, HotelbedsObservation } from './hotelbeds-sandbox';
+export { HotelbedsSandboxTransport, SandboxError, assertHotelbedsBookBody, hotelbedsAedMinor, normalizeHotelbedsResponse, validateSandboxSearch, retryAfter } from './hotelbeds-sandbox';
+export type { SandboxContext, SandboxScope, SandboxConfig, HotelbedsObservation, HotelbedsBookBody, HotelbedsBookPax } from './hotelbeds-sandbox';
+export { buildHotelbedsBookBody, hotelbedsClientReference, normalizeHotelbedsBooking, findHotelbedsBooking } from './hotelbeds-booking';
+export type { HotelbedsBookingInputs, HotelbedsBookingGuest, HotelbedsBookingFacts, HotelbedsBookingState } from './hotelbeds-booking';
 export { syncHotelbedsContent } from './hotelbeds-content-sync';
 export type { ContentStagingStore, ContentLease } from './hotelbeds-content-sync';
 export { parseXml, kid, kids, at, requiredText, requiredAttr, el, xmlDocument, xmlEscape, XmlRaw, XmlParseError, DEFAULT_XML_LIMITS } from './xml/xml-parser';

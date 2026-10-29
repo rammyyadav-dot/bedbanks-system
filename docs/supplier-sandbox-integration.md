@@ -72,8 +72,9 @@ operation/path/method even if invoked through an unsafe runtime cast.
 | checkrates | POST /hotel-api/1.0/checkrates | One RECHECK rate key |
 | content | GET /hotel-content-api/1.0/hotels | ENG/all fields; 1–100 rows per page; optional validated update date |
 
-Bookings, prebooking, booking queries, confirmation, cancellation, payments,
-production hosts, arbitrary URLs and other operations are not exposed.
+Booking mutations are a separate opt-in (`bookingEnabled`, default false) described in
+"Sandbox booking adapter" below. Prebooking, payments, production hosts, arbitrary
+URLs and other operations are not exposed.
 This slice has no XML parser.
 
 Authentication uses server-side API-key/signature headers. Secrets are resolved
@@ -188,9 +189,10 @@ For search-recheck also:
 
 Commands:
 ```sh
-node tools/hotelbeds-sandbox-evaluate.mjs status
-node tools/hotelbeds-sandbox-evaluate.mjs search-recheck
-node tools/hotelbeds-sandbox-evaluate.mjs content
+node --import tsx tools/hotelbeds-sandbox-evaluate.mjs status
+node --import tsx tools/hotelbeds-sandbox-evaluate.mjs search-recheck
+node --import tsx tools/hotelbeds-sandbox-evaluate.mjs content
+node --import tsx tools/hotelbeds-sandbox-evaluate.mjs book-cycle
 ```
 
 The search-recheck command retains tokens in memory, returns sanitized counts,
@@ -299,3 +301,32 @@ Validation environment: Node v24.19.0 / pnpm 10.4.1. Local PostgreSQL certificat
 F01 remains OPEN. Its candidate stays `aea042299bdc2b7fbc33945b0cb89ba0a7a04238`; this branch is not that release candidate. No production migration, persistent provisioning, deployment, DNS/alias change, live supplier, booking or payment enablement was performed.
 
 First disposable PostgreSQL CI run: migration replay/drift passed; 559 API e2e tests passed and three new staging tests failed because existing AuditEvent RLS intentionally rejects SYSTEM events. Forward migration `202610290002_supplier_sandbox_system_audit` adds a group-membership-gated SYSTEM insert policy limited to the five sandbox content action names, tenant context, null user and sandbox run entity. No role is created by either migration; the disposable fixture explicitly creates/joins the operator group. Existing USER/platform/hold-expiry policies are unchanged. The proposed grant ceiling includes general audit INSERT rights subject to those existing policies; it is not a guarantee that every operator SQL write can only produce one of these five events. Revalidation pending.
+
+## Sandbox booking adapter (draft, fixture-tested only)
+
+See ADR 0104. Adds Hotelbeds **test-host** book, cancel and lookup-by-client-reference to the transport (`bookingEnabled`, default false) and a `HotelbedsBookingSupplier` that implements the existing `BookingSupplierPort` used by the Admin booking runner.
+
+| Operation | Method and path | Notes |
+|---|---|---|
+| book | POST /hotel-api/1.0/bookings | one room; `tolerance: 0`; never auto-retried |
+| cancel | DELETE /hotel-api/1.0/bookings/{reference}?cancellationFlag=CANCELLATION | real flag only; never auto-retried |
+| lookup | GET /hotel-api/1.0/bookings?...&clientReference= | creation-date window of 30 days; one safe retry |
+
+Rules:
+- `clientReference` is the 20 hex digits of our `FB-` reference: lossless, deterministic, within the supplier's 20 character limit.
+- Only a supplier 4xx is REJECTED. Timeouts, transport, quota and malformed answers throw, so the runner asks `statusByReference` before concluding anything (no ghost bookings or duplicates).
+- A booked net that differs from the expected net, a different client reference or a non-CONFIRMED state throws (`PRICE_MISMATCH`, `REFERENCE_MISMATCH`, `UNEXPECTED_STATE`); it is never reported as a clean confirmation.
+- Amounts are AED decimal strings converted with integer arithmetic; non-AED requests are refused locally.
+- Guest names and rate keys come from an injected `HotelbedsBookingInputsResolver`; the port, logs and telemetry never carry them.
+
+**Not wired into `BookingSupplierRegistry`.** No resolver that reads guest data from the audited booking store exists yet, and Hotelbeds sandbox hotels cannot be mapped to canonical inventory (see above). The adapter is constructed only by code that supplies a configured transport and resolver.
+
+Evidence: 95 connector tests and 20 supplier-adapter tests pass against a stateful fake of the test host (search, checkrates, book, lookup, cancel, lost-answer recovery, price mismatch, refusal, local refusals). The request and response shapes for booking, lookup and cancel are written from the public APItude conventions; the interactive API reference was not machine-readable here, so they are **unverified against the real sandbox**. `book-cycle` in the operator CLI is the check to run first once credentials exist (about seven of the 50 daily attempts).
+
+```text
+HOTELBEDS_BOOK_CANCEL_TRANSPORT=IMPLEMENTED_FIXTURE_TESTED
+BOOKING_SUPPLIER_PORT_ADAPTER=IMPLEMENTED_FIXTURE_TESTED
+REAL_SANDBOX_BOOKING=NOT_PERFORMED
+REGISTRY_WIRING=NOT_DONE_NO_GUEST_INPUT_RESOLVER
+LIVE_SUPPLIER_ENABLED=NO
+```

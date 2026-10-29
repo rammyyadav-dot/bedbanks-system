@@ -15,7 +15,7 @@ export interface SandboxScope { tenantId: string; supplierId: string; connectorI
 export interface SandboxContext extends SandboxScope { correlationId: string; signal?: AbortSignal }
 export interface HotelbedsSecrets { apiKey: string; secret: string }
 export interface SandboxEvent {
-  operation: 'status' | 'search' | 'checkrates' | 'content'
+  operation: 'status' | 'search' | 'checkrates' | 'content' | 'book' | 'cancel' | 'bookings'
   outcome: 'success' | SandboxErrorCode
   attempt: number
   durationMs: number
@@ -24,6 +24,8 @@ export interface SandboxConfig extends SandboxScope {
   enabled: boolean
   /** Name/reference only; the resolver receives the fixed tenant/supplier scope. */
   secretRef: string
+  /** Separate opt-in for the sandbox booking mutations (book, cancel, booking lookup). Absent means false: read-only evaluation stays read-only. */
+  bookingEnabled?: boolean
 }
 export interface SandboxDependencies {
   resolveSecret: (reference: string, scope: SandboxScope) => Promise<HotelbedsSecrets>
@@ -42,6 +44,27 @@ export interface SandboxSearch {
   children: 0
 }
 const BASE = 'https://api.test.hotelbeds.com'
+const BOOKING_REFERENCE = /^[A-Za-z0-9-]{1,40}$/
+const CLIENT_REFERENCE = /^[A-Z0-9]{1,20}$/
+const NAME = /^[\p{L}][\p{L} .'-]{0,49}$/u
+export interface HotelbedsBookPax { roomId: 1; type: 'AD' | 'CH'; age?: number; name: string; surname: string }
+export interface HotelbedsBookBody {
+  holder: { name: string; surname: string }
+  rooms: [{ rateKey: string; paxes: HotelbedsBookPax[] }]
+  clientReference: string
+  /** Zero: the supplier must refuse a changed price rather than silently book at it. */
+  tolerance: 0
+}
+export function assertHotelbedsBookBody(body: HotelbedsBookBody): void {
+  const paxes = body?.rooms?.[0]?.paxes
+  const rateKey = body?.rooms?.[0]?.rateKey
+  if (!body || body.tolerance !== 0 || body.rooms.length !== 1 || !CLIENT_REFERENCE.test(body.clientReference) ||
+      typeof rateKey !== 'string' || rateKey.length < 1 || rateKey.length > 4096 || /[\r\n]/.test(rateKey) ||
+      !body.holder || !NAME.test(body.holder.name) || !NAME.test(body.holder.surname) ||
+      !Array.isArray(paxes) || paxes.length < 1 || paxes.length > 9 ||
+      paxes.some(p => p.roomId !== 1 || !NAME.test(p.name) || !NAME.test(p.surname) ||
+        (p.type === 'AD' ? p.age !== undefined : p.type !== 'CH' || !Number.isInteger(p.age) || (p.age as number) < 0 || (p.age as number) > 17))) fail('unsupported')
+}
 const MAX_BYTES = 2 * 1024 * 1024
 const id = (value: string): boolean => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value)
 function fail(code: SandboxErrorCode): never { throw new SandboxError(code) }
@@ -137,19 +160,39 @@ export class HotelbedsSandboxTransport {
     if (lastUpdateTime) query.set('lastUpdateTime', lastUpdateTime)
     return this.request('content', 'GET', '/hotel-content-api/1.0/hotels?' + query, context)
   }
+  /** Sandbox booking mutation. The body is built by `buildHotelbedsBookBody`; never retried automatically, so a retry is the caller's idempotent decision. */
+  book(body: HotelbedsBookBody, context: SandboxContext): Promise<unknown> {
+    assertHotelbedsBookBody(body)
+    return this.request('book', 'POST', '/hotel-api/1.0/bookings', context, body)
+  }
+  /** Cancels by supplier booking reference with the real cancellation flag (never the simulation flag). Not retried automatically. */
+  cancelBooking(bookingReference: string, context: SandboxContext): Promise<unknown> {
+    if (!BOOKING_REFERENCE.test(bookingReference)) fail('unsupported')
+    return this.request('cancel', 'DELETE', `/hotel-api/1.0/bookings/${bookingReference}?cancellationFlag=CANCELLATION`, context)
+  }
+  /** Lists bookings created in [start, end] (UTC dates) filtered by our client reference. The only way to tell "never booked" from "booked but unheard". */
+  findBookings(clientReference: string, start: string, end: string, context: SandboxContext): Promise<unknown> {
+    if (!CLIENT_REFERENCE.test(clientReference) || !date(start) || !date(end) || end < start) fail('unsupported')
+    const query = new URLSearchParams({ start, end, filterType: 'CREATION', clientReference, from: '1', to: '25' })
+    return this.request('bookings', 'GET', '/hotel-api/1.0/bookings?' + query, context)
+  }
   health(): { configured: boolean; capabilitiesSucceeded: string[]; failures: number; circuitOpen: boolean; attemptsToday: number } {
     return { configured: this.config.enabled, capabilitiesSucceeded: [...this.successes], failures: this.failures,
       circuitOpen: this.now() < this.openUntil, attemptsToday: this.attemptsToday }
   }
   private now(): number { return (this.dependencies.now ?? Date.now)() }
   private emit(event: SandboxEvent): void { try { this.dependencies.event?.(event) } catch { /* Telemetry failure cannot change request truth. */ } }
-  private async request(operation: SandboxEvent['operation'], method: 'GET' | 'POST', path: string, context: SandboxContext, body?: unknown): Promise<unknown> {
+  private async request(operation: SandboxEvent['operation'], method: 'GET' | 'POST' | 'DELETE', path: string, context: SandboxContext, body?: unknown): Promise<unknown> {
     if (this.config.enabled !== true) fail('disabled')
     const allowed = (operation === 'status' && method === 'GET' && path === '/hotel-api/1.0/status') ||
       (operation === 'search' && method === 'POST' && path === '/hotel-api/1.0/hotels') ||
       (operation === 'checkrates' && method === 'POST' && path === '/hotel-api/1.0/checkrates') ||
+      (operation === 'book' && method === 'POST' && path === '/hotel-api/1.0/bookings') ||
+      (operation === 'cancel' && method === 'DELETE' && /^\/hotel-api\/1\.0\/bookings\/[A-Za-z0-9-]{1,40}\?cancellationFlag=CANCELLATION$/.test(path)) ||
+      (operation === 'bookings' && method === 'GET' && /^\/hotel-api\/1\.0\/bookings\?start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}&filterType=CREATION&clientReference=[A-Z0-9]{1,20}&from=1&to=25$/.test(path)) ||
       (operation === 'content' && method === 'GET' && /^\/hotel-content-api\/1\.0\/hotels\?fields=all&language=ENG&from=\d+&to=\d+(?:&lastUpdateTime=\d{4}-\d{2}-\d{2})?$/.test(path))
     if (!allowed) fail('unsupported')
+    if ((operation === 'book' || operation === 'cancel' || operation === 'bookings') && this.config.bookingEnabled !== true) fail('disabled')
     if (context.tenantId !== this.config.tenantId || context.supplierId !== this.config.supplierId ||
         context.connectorId !== this.config.connectorId || !id(context.correlationId)) fail('scope')
     if (context.signal?.aborted) fail('cancelled')
@@ -164,7 +207,7 @@ export class HotelbedsSandboxTransport {
       ])
       if (!secrets || typeof secrets.apiKey !== 'string' || !secrets.apiKey || secrets.apiKey.length > 512 ||
           typeof secrets.secret !== 'string' || !secrets.secret || secrets.secret.length > 512 || /[\r\n]/.test(secrets.apiKey)) fail('configuration')
-      // POST operations intentionally have no automatic retry. Only safe GET reads retry once.
+      // POST and DELETE operations intentionally have no automatic retry. Only safe GET reads retry once.
       const maxAttempts = method === 'GET' ? 2 : 1
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         if (context.signal?.aborted) fail('cancelled')
