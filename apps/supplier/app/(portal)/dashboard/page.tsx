@@ -14,7 +14,7 @@ interface Capability {
 const capabilities: Capability[] = [
   { href: '/hotels', title: 'Properties', description: 'Review the hotels mapped to your organization, check content and mapping status, and keep a private note on each room.', permission: 'supplier.extranet.hotels.read', icon: Building2 },
   { href: '/contracts', title: 'Contracts', description: 'Read the contracts attached to your organization and see the terms your hotels are sold under.', permission: 'supplier.extranet.contracts.read', icon: BookOpenCheck, tone: 'teal' },
-  { href: '/bookings', title: 'Bookings', description: 'Open reservations, and confirm or decline the ones that are waiting for a supplier answer.', permission: 'supplier.extranet.bookings.read', icon: Boxes, tone: 'red' },
+  { href: '/bookings', title: 'Bookings', description: 'See the reservations placed on your contracted inventory and where each one stands. Read only.', permission: 'supplier.extranet.bookings.read', icon: Boxes, tone: 'red' },
 ]
 
 const unavailable: { label: string; icon: LucideIcon }[] = [
@@ -51,7 +51,7 @@ export default async function DashboardPage() {
         <div>
           <p className="hero-kicker">Welcome back{portal.user.name ? `, ${portal.user.name}` : ''}</p>
           <h1 id="welcome-title">{organization.displayName}</h1>
-          <p>Review your mapped hotels, contracts and bookings in one place, and answer the bookings that are waiting on you. Publication and settlement are not available yet.</p>
+          <p>Review your mapped hotels, contracts and bookings in one place. Publication, answering bookings and settlement are not available yet.</p>
         </div>
         {portal.permissions.includes('supplier.extranet.hotels.read') && (
           <Link className="btn" href="/hotels">View hotels <ArrowRight size={16} aria-hidden="true" /></Link>
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
 
       <div className="trust-strip">
         <span><ShieldCheck size={17} aria-hidden="true" />Your organization is verified by the server on every request</span>
-        <span><ShieldCheck size={17} aria-hidden="true" />Nothing is published or booked without your answer</span>
+        <span><ShieldCheck size={17} aria-hidden="true" />Nothing on this site changes a booking, a rate or your stock</span>
       </div>
     </div>
   )

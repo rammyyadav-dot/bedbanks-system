@@ -4,8 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { EXTRANET_BOOKING_ANSWERS, type ExtranetBookingAnswer, type ExtranetBookingStatus } from '@bedbanks/contracts'
-import { SupplierApiError, answerBooking, confirmPasswordReset, loadContext, loginRequest, logoutRequest, requestPasswordReset, saveRoomDraft } from './supplier-api'
+import { SupplierApiError, confirmPasswordReset, loadContext, loginRequest, logoutRequest, requestPasswordReset, saveRoomDraft } from './supplier-api'
 import { parseSessionCookie } from './session-cookie'
 import { SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE } from './server-env'
 
@@ -82,45 +81,6 @@ export async function saveRoomDraftAction(_previous: ActionState, formData: Form
   }
   revalidatePath(`/hotels/${hotelId}/rooms`)
   return { error: null, saved: true }
-}
-
-export interface AnswerState extends ActionState {
-  answered?: ExtranetBookingStatus
-}
-
-const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
-
-/** A supplier answers its own booking (ADR 0061 Amendment 2). The idempotency key is issued with the form, so a double click or a retry cannot apply twice. */
-export async function answerBookingAction(_previous: AnswerState, formData: FormData): Promise<AnswerState> {
-  const bookingId = String(formData.get('bookingId') ?? '').trim()
-  const answer = String(formData.get('answer') ?? '') as ExtranetBookingAnswer
-  const expectedStatus = String(formData.get('expectedStatus') ?? '') as ExtranetBookingStatus
-  const idempotencyKey = String(formData.get('idempotencyKey') ?? '')
-  const supplierRef = String(formData.get('supplierRef') ?? '').trim()
-  const hotelConfirmationNo = String(formData.get('hotelConfirmationNo') ?? '').trim()
-  const reason = String(formData.get('reason') ?? '').trim()
-  if (!bookingId || !IDEMPOTENCY_KEY.test(idempotencyKey) || !expectedStatus) return { error: 'The answer was not sent. Reload the booking and try again.' }
-  if (!(EXTRANET_BOOKING_ANSWERS as readonly string[]).includes(answer)) return { error: 'Choose an answer.' }
-  if (answer === 'CONFIRMED' && !supplierRef) return { error: 'Enter your booking reference to confirm.' }
-  if (answer === 'REJECTED' && reason.length < 10) return { error: 'Give a reason of at least 10 characters to reject.' }
-  try {
-    const result = await answerBooking(bookingId, {
-      answer, expectedStatus,
-      ...(answer === 'CONFIRMED' && supplierRef ? { supplierRef } : {}),
-      ...(answer === 'CONFIRMED' && hotelConfirmationNo ? { hotelConfirmationNo } : {}),
-      ...(answer === 'REJECTED' ? { reason } : {}),
-    }, idempotencyKey, randomUUID())
-    revalidatePath(`/bookings/${bookingId}`)
-    revalidatePath('/bookings')
-    return { error: null, saved: true, answered: result.status }
-  } catch (error) {
-    if (error instanceof SupplierApiError && error.status === 401) redirect('/login')
-    if (error instanceof SupplierApiError && error.status === 403) return { error: 'You cannot answer bookings. Nothing was sent.' }
-    if (error instanceof SupplierApiError && error.status === 404) return { error: 'This booking is not in your organization. Nothing was sent.' }
-    if (error instanceof SupplierApiError && error.status === 409) return { error: 'This booking changed or this request was already used for a different answer. Reload the booking to see its current status. Nothing was changed by this attempt.' }
-    if (error instanceof SupplierApiError && (error.status === 400 || error.status === 422)) return { error: 'That answer is not available for this booking, or a required field is missing. Nothing was sent.' }
-    return { error: 'The answer could not be confirmed. Reload the booking to see whether it was recorded before trying again.' }
-  }
 }
 
 export interface ResetState extends ActionState {

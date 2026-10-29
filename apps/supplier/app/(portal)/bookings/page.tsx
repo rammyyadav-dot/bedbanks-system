@@ -3,7 +3,7 @@ import { BellRing, Boxes, ChevronRight, CircleCheck, Search } from 'lucide-react
 import { EmptyState } from '../../../components/ui/EmptyState'
 import { Pager } from '../../../components/ui/Pager'
 import { SummaryStrip } from '../../../components/ui/SummaryStrip'
-import { needsSupplierAnswer, statusLabel } from '../../../lib/status'
+import { isAwaitingConfirmation, statusLabel } from '../../../lib/status'
 import { PageHeader } from '../../../components/ui/PageHeader'
 import { StatusBadge } from '../../../components/ui/StatusBadge'
 import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
@@ -25,15 +25,15 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
   try {
     const result = await listBookings({ ...filters.values, limit: 25 })
     const nextHref = result.nextCursor ? `/bookings?${filtersToQuery({ ...filters.values, cursor: result.nextCursor })}` : null
-    const awaiting = result.bookings.filter((booking) => needsSupplierAnswer(booking.status)).length
+    const awaiting = result.bookings.filter((booking) => isAwaitingConfirmation(booking.status)).length
     const confirmed = result.bookings.filter((booking) => booking.status === 'CONFIRMED').length
     const filtered = Boolean(filters.values.reference || filters.values.status || filters.values.checkInFrom || filters.values.checkInTo)
     return (
       <div className="supplier-page">
-        <PageHeader eyebrow="Operations" title="Bookings" description="Bookings placed on your organization's contracted inventory. Open a booking to answer it when it awaits your answer. Amounts are your net per room; a missing figure is shown as Not recorded." />
+        <PageHeader eyebrow="Operations" title="Bookings" description="Bookings placed on your organization's contracted inventory, read only. fBeds confirms them and settles the agency's payment; answering from here is not available yet. Amounts are your net per room; a missing figure is shown as Not recorded." />
         <SummaryStrip items={[
           { label: 'Bookings on this page', value: String(result.bookings.length), hint: nextHref ? 'More on the next page' : 'End of list', icon: Boxes, tone: 'blue' },
-          { label: 'Need your answer', value: String(awaiting), hint: 'On this page', icon: BellRing, tone: 'red' },
+          { label: 'Awaiting confirmation', value: String(awaiting), hint: 'On this page', icon: BellRing, tone: 'amber' },
           { label: 'Confirmed', value: String(confirmed), hint: 'On this page', icon: CircleCheck, tone: 'green' },
         ]} />
         <section className="panel">
@@ -61,7 +61,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
                 <thead><tr><th>Reference</th><th>Hotel</th><th>Stay</th><th>Lead guest</th><th>Status</th><th className="num">Net</th><th><span className="sr-only">Action</span></th></tr></thead>
                 <tbody>
                   {result.bookings.map((booking) => {
-                    const waiting = needsSupplierAnswer(booking.status)
+                    const waiting = isAwaitingConfirmation(booking.status)
                     return (
                       <tr key={booking.id} className={waiting ? 'row-attention' : undefined}>
                         <td><Link href={`/bookings/${booking.id}`}>{booking.reference}</Link>{booking.supplierRef && <small>Your ref {booking.supplierRef}</small>}</td>
@@ -70,7 +70,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
                         <td>{booking.leadGuestName ?? NOT_RECORDED}</td>
                         <td><StatusBadge raw={booking.status}>{booking.status}</StatusBadge></td>
                         <td className="num">{booking.netStatus === 'RECORDED' ? formatNetMinor(booking.netMinor, booking.currency) : NET_STATUS_LABEL[booking.netStatus]}</td>
-                        <td className="row-end"><Link className={waiting ? 'btn btn-primary btn-sm' : 'row-link'} href={`/bookings/${booking.id}`} aria-label={`${waiting ? 'Answer' : 'Open'} booking ${booking.reference}`}>{waiting ? 'Answer' : <ChevronRight size={18} aria-hidden="true" />}</Link></td>
+                        <td className="row-end"><Link className="row-link" href={`/bookings/${booking.id}`} aria-label={`Open booking ${booking.reference}`}><ChevronRight size={18} aria-hidden="true" /></Link></td>
                       </tr>
                     )
                   })}

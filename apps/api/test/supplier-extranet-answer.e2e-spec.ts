@@ -131,35 +131,26 @@ describe('Supplier extranet booking answers (strict runtime role, PostgreSQL, HT
   }
   const code = (res: request.Response) => res.body?.error?.code ?? res.body?.code ?? res.body?.message?.code
 
-  it('SA-01: a supplier confirms its own pending booking; status, supplier reference and the audit event are recorded', async () => {
-    const id = await booking({ supplierId: s1 })
-    const res = await answer('s1', tenantA, s1, id, { answer: 'CONFIRMED', expectedStatus: 'PENDING_SUPPLIER', supplierRef: 'HX-100', hotelConfirmationNo: 'HCN-9' }).expect(200)
-    expect(res.body.data).toMatchObject({ bookingId: id, status: 'CONFIRMED', replayed: false })
-    expect(await row(id)).toMatchObject({ status: 'CONFIRMED', supplierRef: 'HX-100', hotelConfirmationNo: 'HCN-9', supplierStatus: 'CONFIRMED' })
-    const evs = await events(id); const last = evs[evs.length - 1]
-    expect(last).toMatchObject({ action: 'systemConfirm', actorType: 'USER', fromStatus: 'PENDING_SUPPLIER', toStatus: 'CONFIRMED' })
-    expect(last.payload).toMatchObject({ via: 'supplier_extranet', supplierId: s1, answer: 'CONFIRMED' })
-    const audits = await owner.auditEvent.findMany({ where: { entityId: id, action: 'supplier.booking.answered' } })
-    expect(audits).toHaveLength(1)
-    expect(JSON.stringify(audits[0].payload)).not.toMatch(/GUEST-NAME-SECRET|HX-100|HCN-9/)
-    expect(audits[0].payload).toMatchObject({ answer: 'CONFIRMED', from: 'PENDING_SUPPLIER', to: 'CONFIRMED', supplierId: s1 })
-  })
-
-  it('SA-02: on request, then confirm; and reject from pending and from on request', async () => {
-    const a = await booking({ supplierId: s1 })
-    await answer('s1', tenantA, s1, a, { answer: 'ON_REQUEST', expectedStatus: 'PENDING_SUPPLIER' }).expect(200)
-    expect((await row(a)).status).toBe('ON_REQUEST')
-    await answer('s1', tenantA, s1, a, { answer: 'CONFIRMED', expectedStatus: 'ON_REQUEST', supplierRef: 'HX-200' }).expect(200)
-    const evsA = await events(a); expect(evsA[evsA.length - 1].action).toBe('systemConfirmOnRequest')
-    expect(await row(a)).toMatchObject({ status: 'CONFIRMED', supplierRef: 'HX-200' })
-
-    const b = await booking({ supplierId: s1 })
-    await answer('s1', tenantA, s1, b, { answer: 'REJECTED', expectedStatus: 'PENDING_SUPPLIER', reason: 'No rooms left for those dates' }).expect(200)
-    expect((await row(b)).status).toBe('FAILED')
-
-    const c = await booking({ supplierId: s1, status: 'ON_REQUEST' })
-    await answer('s1', tenantA, s1, c, { answer: 'REJECTED', expectedStatus: 'ON_REQUEST', reason: 'Hotel closed for renovation' }).expect(200)
-    expect((await row(c)).status).toBe('REJECTED')
+  it('SA-01: every first answer is refused until the booking can be settled; nothing changes (ADR 0061 Amendment 4)', async () => {
+    const pending = await booking({ supplierId: s1 }); const onRequest = await booking({ supplierId: s1, status: 'ON_REQUEST' })
+    const attempts: Array<[string, string, Record<string, unknown>]> = [
+      [pending, 'PENDING_SUPPLIER', { answer: 'CONFIRMED', expectedStatus: 'PENDING_SUPPLIER', supplierRef: 'HX-100', hotelConfirmationNo: 'HCN-9' }],
+      [pending, 'PENDING_SUPPLIER', { answer: 'ON_REQUEST', expectedStatus: 'PENDING_SUPPLIER' }],
+      [pending, 'PENDING_SUPPLIER', { answer: 'REJECTED', expectedStatus: 'PENDING_SUPPLIER', reason: 'No rooms left for those dates' }],
+      [onRequest, 'ON_REQUEST', { answer: 'CONFIRMED', expectedStatus: 'ON_REQUEST', supplierRef: 'HX-200' }],
+      [onRequest, 'ON_REQUEST', { answer: 'REJECTED', expectedStatus: 'ON_REQUEST', reason: 'Hotel closed for renovation' }],
+    ]
+    for (const [id, status, body] of attempts) {
+      const res = await answer('s1', tenantA, s1, id, body).expect(409)
+      expect(code(res)).toBe('ANSWER_REQUIRES_SETTLEMENT')
+      expect((await row(id)).status).toBe(status)
+    }
+    for (const id of [pending, onRequest]) {
+      expect(await events(id)).toHaveLength(0)
+      expect(await owner.bookingFinanceEvent.count({ where: { bookingId: id } })).toBe(0)
+      expect(await owner.auditEvent.count({ where: { entityId: id, action: 'supplier.booking.answered' } })).toBe(0)
+    }
+    expect(await row(pending)).toMatchObject({ supplierRef: null, hotelConfirmationNo: null })
   })
 
   it('SA-03: confirm needs a supplier reference and reject needs a reason; nothing changes when they are missing', async () => {
@@ -203,38 +194,25 @@ describe('Supplier extranet booking answers (strict runtime role, PostgreSQL, HT
     expect((await row(id)).status).toBe('PENDING_SUPPLIER')
   })
 
-  it('SA-08: the idempotency key is required; the same key and body replays; the same key with another body is a conflict', async () => {
+  it('SA-08: the idempotency key is required and must be well formed, before anything else is looked at', async () => {
     const id = await booking({ supplierId: s1 })
     await answer('s1', tenantA, s1, id, { answer: 'ON_REQUEST', expectedStatus: 'PENDING_SUPPLIER' }, null).expect(400)
     await answer('s1', tenantA, s1, id, { answer: 'ON_REQUEST', expectedStatus: 'PENDING_SUPPLIER' }, 'short').expect(400)
-    const k = key(); const body = { answer: 'CONFIRMED', expectedStatus: 'PENDING_SUPPLIER', supplierRef: 'HX-300' }
-    const first = await answer('s1', tenantA, s1, id, body, k).expect(200)
-    const eventsAfterFirst = (await events(id)).length
-    const again = await answer('s1', tenantA, s1, id, body, k).expect(200)
-    expect(first.body.data.replayed).toBe(false); expect(again.body.data).toMatchObject({ status: 'CONFIRMED', replayed: true })
-    expect((await events(id)).length).toBe(eventsAfterFirst)
-    expect(await owner.auditEvent.count({ where: { entityId: id, action: 'supplier.booking.answered' } })).toBe(1)
-    expect(code(await answer('s1', tenantA, s1, id, { ...body, supplierRef: 'HX-OTHER' }, k).expect(409))).toBe('IDEMPOTENCY_CONFLICT')
-    expect((await row(id)).supplierRef).toBe('HX-300')
+    expect((await row(id)).status).toBe('PENDING_SUPPLIER')
+    expect(await events(id)).toHaveLength(0)
   })
 
-  it('SA-09: a stale expected status is a conflict; two concurrent answers produce exactly one change', async () => {
+  it('SA-09: concurrent and stale answers are all refused and leave the booking untouched', async () => {
     const id = await booking({ supplierId: s1, status: 'ON_REQUEST' })
-    expect(code(await answer('s1', tenantA, s1, id, { answer: 'REJECTED', expectedStatus: 'PENDING_SUPPLIER', reason: 'stale view of the booking' }).expect(409))).toBe('STALE_STATUS')
+    await answer('s1', tenantA, s1, id, { answer: 'REJECTED', expectedStatus: 'PENDING_SUPPLIER', reason: 'stale view of the booking' }).expect(409)
     const fresh = await booking({ supplierId: s1 })
     const results = await Promise.all([
       answer('s1', tenantA, s1, fresh, { answer: 'CONFIRMED', expectedStatus: 'PENDING_SUPPLIER', supplierRef: 'A-1' }),
       answer('s1', tenantA, s1, fresh, { answer: 'REJECTED', expectedStatus: 'PENDING_SUPPLIER', reason: 'Racing rejection attempt' }),
     ])
-    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
-    expect(await owner.auditEvent.count({ where: { entityId: fresh, action: 'supplier.booking.answered' } })).toBe(1)
-  })
-
-  it('SA-10: a confirmation records its finance fact through the existing transition', async () => {
-    const id = await booking({ supplierId: s1 })
-    const before = await owner.bookingFinanceEvent.count({ where: { bookingId: id } })
-    await answer('s1', tenantA, s1, id, { answer: 'CONFIRMED', expectedStatus: 'PENDING_SUPPLIER', supplierRef: 'HX-400' }).expect(200)
-    expect(await owner.bookingFinanceEvent.count({ where: { bookingId: id } })).toBeGreaterThan(before)
+    expect(results.map((r) => r.status)).toEqual([409, 409])
+    expect((await row(fresh)).status).toBe('PENDING_SUPPLIER'); expect((await row(id)).status).toBe('ON_REQUEST')
+    expect(await events(fresh)).toHaveLength(0)
   })
 
   it('SA-11: the API runtime role itself still has no write on a booking', async () => {
@@ -244,10 +222,10 @@ describe('Supplier extranet booking answers (strict runtime role, PostgreSQL, HT
     expect((await row(id)).status).toBe('PENDING_SUPPLIER')
   })
 
-  it('SA-12: the response and a failure body carry no guest, price or snapshot data', async () => {
+  it('SA-12: a refusal and a validation failure carry no guest, price or snapshot data', async () => {
     const id = await booking({ supplierId: s1 })
-    const ok = await answer('s1', tenantA, s1, id, { answer: 'ON_REQUEST', expectedStatus: 'PENDING_SUPPLIER' }).expect(200)
-    const missing = await answer('s1', tenantA, s1, id, { answer: 'CONFIRMED', expectedStatus: 'ON_REQUEST' }).expect(422)
-    for (const text of [JSON.stringify(ok.body), JSON.stringify(missing.body)]) expect(text).not.toMatch(/GUEST-NAME-SECRET|SNAPSHOT-SECRET|150000|totalMinor|markup|agency/i)
+    const refused = await answer('s1', tenantA, s1, id, { answer: 'ON_REQUEST', expectedStatus: 'PENDING_SUPPLIER' }).expect(409)
+    const missing = await answer('s1', tenantA, s1, id, { answer: 'CONFIRMED', expectedStatus: 'PENDING_SUPPLIER' }).expect(422)
+    for (const text of [JSON.stringify(refused.body), JSON.stringify(missing.body)]) expect(text).not.toMatch(/GUEST-NAME-SECRET|SNAPSHOT-SECRET|150000|totalMinor|markup|agency/i)
   })
 })
