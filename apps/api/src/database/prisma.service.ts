@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { guardTenantClient, tenantScopeGuardEnabled } from './tenant-scope-guard';
 import { inspectPoolConfig } from './pool-config';
 import { assertRuntimeDbIdentity, runtimeGuardMode } from './runtime-db-identity';
 
@@ -102,7 +103,7 @@ export class PrismaService
 
     return this.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
-      return work(tx);
+      return work(tenantScopeGuardEnabled() ? guardTenantClient(tx, tenantId) : tx);
     }, options && { isolationLevel: options.isolationLevel, timeout: options.timeoutMs });
   }
 
@@ -122,7 +123,7 @@ export class PrismaService
     return this.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
       await tx.$executeRaw`SELECT set_config('app.current_supplier_id', ${supplierId}, true)`;
-      return work(tx);
+      return work(tenantScopeGuardEnabled() ? guardTenantClient(tx, tenantId) : tx);
     });
   }
 
