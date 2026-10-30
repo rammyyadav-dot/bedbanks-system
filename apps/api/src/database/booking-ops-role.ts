@@ -49,7 +49,7 @@ export const BOOKING_OPS_UPDATE_COLUMNS = {
 } as const
 /** Phase 3: the function the runner may call, to learn which tenants have due jobs (returns tenant ids only); ADR 0066 adds its twin for the email dispatcher; Phase 6E adds the one for the Checked-out job. */
 export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)', '"fbeds_booking_email_due_tenants"(timestamp)', '"fbeds_hotel_notice_due_tenants"(timestamp)', '"fbeds_booking_checkout_due_tenants"(date)', '"fbeds_booking_close_due_tenants"(timestamp)', '"fbeds_booking_has_ledger_entries"(text)'] as const
-export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingAmendment'] as const
+export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingAmendment', 'HotelNotice'] as const
 /**
  * The ONE table the role may DELETE from: a person's own saved booking views (Phase 6B). They are preferences, not records: no evidence is lost by removing one, and the
  * deletion is audited. Every other table is delete-proof for this role, and the verifier checks both sides of that.

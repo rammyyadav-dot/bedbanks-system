@@ -15,3 +15,23 @@ export function resolveHotelNoticeRecipient(contacts: unknown): HotelNoticeRecip
   const address = email.trim()
   return address.length <= 254 && SINGLE_ADDRESS.test(address) ? { ok: true, address } : { ok: false, code: 'NO_RESERVATIONS_EMAIL' }
 }
+
+export const MAX_NOTICE_COPIES = 3
+
+/**
+ * Who gets a blind copy of a hotel notice (ADR 0106): the booking agent and the admin mailbox. Each must be exactly one valid address; duplicates (case-insensitive) and the
+ * hotel's own address are dropped, and at most three are kept. The hotel's address is excluded so a copy is never also the primary recipient. Pure.
+ */
+export function normalizeCopyAddresses(candidates: ReadonlyArray<string | null | undefined>, hotelAddress: string | null): string[] {
+  const seen = new Set<string>(hotelAddress ? [hotelAddress.toLowerCase()] : [])
+  const out: string[] = []
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const address = candidate.trim()
+    if (address.length > 254 || !SINGLE_ADDRESS.test(address) || seen.has(address.toLowerCase())) continue
+    seen.add(address.toLowerCase())
+    out.push(address)
+    if (out.length === MAX_NOTICE_COPIES) break
+  }
+  return out
+}

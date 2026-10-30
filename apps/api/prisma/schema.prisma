@@ -1631,7 +1631,11 @@ model HotelNotice {
   bookingId         String            @map("booking_id")
   booking           Booking           @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
   kind              HotelNoticeKind
+  /// What the notice is about: 'initial' (NEW), the amendment id (AMEND), 'cancel' (CANCEL).
+  eventKey          String            @default("initial") @map("event_key")
   toAddress         String?           @map("to_address")
+  /// Blind-copy recipients (booking agent, admin mailbox), snapshotted with the NEW notice. Never the hotel.
+  copyAddresses     String[]          @default([]) @map("copy_addresses")
   status            HotelNoticeStatus @default(QUEUED)
   attempt           Int               @default(0)
   maxAttempts       Int               @default(5) @map("max_attempts")
@@ -1644,7 +1648,7 @@ model HotelNotice {
   updatedAt         DateTime          @updatedAt @map("updated_at")
   sentAt            DateTime?         @map("sent_at")
 
-  @@unique([tenantId, bookingId, kind])
+  @@unique([tenantId, bookingId, kind, eventKey])
   @@index([tenantId, status, runAfter])
 }
 

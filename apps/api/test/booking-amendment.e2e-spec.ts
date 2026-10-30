@@ -136,6 +136,7 @@ describe('Booking amendments (PostgreSQL, HTTP, strict roles)', () => {
     const ev = (await owner.bookingEvent.findMany({ where: { bookingId: id, action: 'approveAmendment' } }))[0]
     expect(ev.payload).toMatchObject({ amendment: 'approved', amendmentId: a.id, differenceMinor: '22000', newSellMinor: '95000' })
     expect(await owner.ledgerEntry.count({ where: { tenantId: tenantA, reference: `booking:${id}` } })).toBe(0) // nothing is posted to the ledger
+    expect(await owner.hotelNotice.count({ where: { bookingId: id } })).toBe(0) // ADR 0106: the hotel was never told about this booking by us, so nothing is sent about the change
   })
 
   it('AME-03: a recorded cancellation deadline is kept; a price decrease is a negative fact; a second amendment is a second event; occupancy-only keeps the deadline', async () => {
@@ -265,5 +266,32 @@ describe('Booking amendments (PostgreSQL, HTTP, strict roles)', () => {
       await expect(db.withTenantWrite(tenantA, (tx) => tx.booking.updateMany({ where: { id }, data: { supplier: 'x' } }))).rejects.toBeDefined()
       await expect(db.withTenantWrite(tenantA, (tx) => tx.bookingAmendment.deleteMany({ where: { bookingId: id } }))).rejects.toBeDefined()
     } finally { await db.onModuleDestroy() }
+  })
+
+  it('AME-16 (ADR 0106): an approved amendment queues an AMEND notice and a cancellation queues a CANCEL notice, as the booking role, to the address and copies of the original; a rejection and a free-text approval queue nothing', async () => {
+    const id = await booking()
+    const copies = ['agent@agency.test', 'admin@fbeds.test']
+    await owner.hotelNotice.create({ data: { tenantId: tenantA, bookingId: id, kind: 'NEW', toAddress: 'reservations@atlas-hotel.test', copyAddresses: copies, status: 'SENT', sentAt: new Date(), runAfter: new Date() } })
+    const rows = () => owner.hotelNotice.findMany({ where: { bookingId: id }, orderBy: [{ kind: 'asc' }, { createdAt: 'asc' }] })
+
+    await request_(id, LONGER).expect(200)
+    await reject(id).expect(200)
+    expect((await rows()).length).toBe(1) // a rejected amendment changes nothing, so the hotel is told nothing
+
+    await request_(id, LONGER).expect(200)
+    await approve(id, { sellMinor: '90000', netMinor: '80000' }).expect(200)
+    const [amendment] = (await amendments(id)).filter((a) => a.status === 'APPROVED')
+    await request_(id, MORE).expect(200)
+    await approve(id, { sellMinor: '92000', netMinor: '82000' }).expect(200)
+    const amends = (await rows()).filter((n) => n.kind === 'AMEND')
+    expect(amends.length).toBe(2) // two approved amendments, two notices
+    expect(amends[0]).toMatchObject({ eventKey: amendment.id, status: 'QUEUED', toAddress: 'reservations@atlas-hotel.test', copyAddresses: copies, requestedByUserId: expect.any(String) })
+    expect(new Set(amends.map((n) => n.eventKey)).size).toBe(2)
+
+    await post(id, 'lead', { action: 'requestCancellation', expectedStatus: 'CONFIRMED', reason: 'Guest changed plans', confirmNonRefundable: true }).expect(200)
+    await post(id, 'lead', { action: 'confirmCancellation', expectedStatus: 'CANCEL_REQUESTED', supplierCancellationRef: 'CXL-9', confirmNonRefundable: true }).expect(200)
+    const cancel = (await rows()).filter((n) => n.kind === 'CANCEL')
+    expect(cancel.map((n) => [n.eventKey, n.status, n.toAddress, n.copyAddresses])).toEqual([['cancel', 'QUEUED', 'reservations@atlas-hotel.test', copies]])
+    expect(await owner.auditEvent.count({ where: { tenantId: tenantA, entityId: id, action: 'booking.hotel_notice.queued' } })).toBe(3)
   })
 })

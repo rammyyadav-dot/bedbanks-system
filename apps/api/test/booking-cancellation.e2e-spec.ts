@@ -107,7 +107,11 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     expect(await prisma.cancellation.findUniqueOrThrow({ where: { bookingId } })).toMatchObject({ refundMinor: 125099n, reason: 'guest request' })
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancelled', entityId: bookingId, userId } })).toBe(1)
 
+    // ADR 0106: this hotel has no reservations email, so its NEW notice is FAILED and the cancel follow-up is visibly FAILED too (never silently skipped).
+    expect((await prisma.hotelNotice.findMany({ where: { tenantId, bookingId }, orderBy: { kind: 'asc' } })).map((n) => [n.kind, n.eventKey, n.status, n.lastErrorCode])).toEqual([['NEW', 'initial', 'FAILED', 'NO_RESERVATIONS_EMAIL'], ['CANCEL', 'cancel', 'FAILED', 'NO_RESERVATIONS_EMAIL']])
+
     expect(await cancel(bookingId)).toMatchObject({ status: 'CANCELLED', alreadyCancelled: true, refundMinor: '125099', cancellationId: result.cancellationId })
+    expect(await prisma.hotelNotice.count({ where: { tenantId, bookingId, kind: 'CANCEL' } })).toBe(1) // a repeat cancellation queues nothing more
     expect((await types(bookingId)).length).toBe(4)
     expect(await walletNet()).toBe(net + 125099n)
   })
@@ -216,5 +220,32 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
       await expect(cancellations.quote({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toThrow('Booking not found')
     } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
     await holds.release(tenantId, hold.holdId, 'cleanup', { type: 'USER', userId })
+  })
+
+  it('ADR 0106: cancelling queues a CANCEL notice to the same hotel address and the same agent and admin copies as the original, once', async () => {
+    process.env.HOTEL_NOTICE_ADMIN_COPY_EMAIL = 'admin@fbeds.test'
+    const profile = await prisma.hotelProfile.create({ data: { tenantId, hotelId, updatedById: userId, contacts: { reservations: { name: 'Desk', email: 'reservations@atlas-hotel.test' } } } })
+    try {
+      await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+      const key = `${suffix}-notice`
+      await prisma.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 40 } })
+      const hold = await newHold(key)
+      const pre = await tx.prebook({ tenantId, userId, requestId: `${key}-req`, inventoryHoldId: hold.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
+      await tx.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: pre.bookingId, recipient: 'agent@agency.test' })
+      const bookingId = pre.bookingId
+      // the hotel profile is edited after the booking: the follow-up still goes where the original went
+      await prisma.hotelProfile.update({ where: { id: profile.id }, data: { contacts: { reservations: { name: 'Desk', email: 'changed@atlas-hotel.test' } } } })
+      await cancel(bookingId)
+      await cancel(bookingId)
+      const rows = await prisma.hotelNotice.findMany({ where: { tenantId, bookingId }, orderBy: { kind: 'asc' } })
+      expect(rows.map((n) => [n.kind, n.eventKey, n.status, n.toAddress, n.copyAddresses])).toEqual([
+        ['NEW', 'initial', 'QUEUED', 'reservations@atlas-hotel.test', ['agent@agency.test', 'admin@fbeds.test']],
+        ['CANCEL', 'cancel', 'QUEUED', 'reservations@atlas-hotel.test', ['agent@agency.test', 'admin@fbeds.test']],
+      ])
+      expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.hotel_notice.queued', entityId: bookingId } })).toBe(2)
+    } finally {
+      delete process.env.HOTEL_NOTICE_ADMIN_COPY_EMAIL
+      await prisma.hotelProfile.delete({ where: { id: profile.id } })
+    }
   })
 })

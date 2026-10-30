@@ -85,7 +85,7 @@ export class BookingConfirmationService {
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.email.queued', entityType: 'booking', entityId: bookingId, payload: { requestId, kind: 'BOOKING_CONFIRMATION', ccCount: (command.cc ?? []).length } } })
       }
       // ADR 0106: tell the hotel too. Same transaction, once per booking; a hotel with no reservations email gets a visible FAILED notice, not silence.
-      await queueHotelNotice(tx, { tenantId, bookingId, hotelId: booking.hotelId, userId, requestId, now: new Date() })
+      await queueHotelNotice(tx, { tenantId, bookingId, hotelId: booking.hotelId, userId, requestId, now: new Date(), copyTo: [command.recipient, process.env.HOTEL_NOTICE_ADMIN_COPY_EMAIL] })
       return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: false, email: command.recipient ? { to: command.recipient, cc: command.cc ?? [] } : null }
     })
   }

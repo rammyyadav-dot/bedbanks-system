@@ -7,6 +7,7 @@ import {
   type StoredPenaltyQuote,
 } from '@bedbanks/contracts'
 import { emitTransitionFinance, isRequestingCancellation } from './booking-finance-events'
+import { queueHotelNoticeFollowUp } from './notice/hotel-notice-outbox'
 
 /**
  * `transitionBooking`: the ONE writer of `Booking.status` and `Booking.closedAt` (ADR 0039, Phase 2).
@@ -117,5 +118,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
     reason: reason ?? null, action: input.action, payload, idempotencyKey: input.idempotencyKey ?? null, requestFingerprint: input.idempotencyKey ? fingerprint : null,
   } })
   if (input.emitFinance) await emitTransitionFinance(tx, { id: booking.id, tenantId: input.tenantId, currency: booking.currency, totalMinor: booking.totalMinor, netMinor: booking.netMinor, paymentMode: booking.paymentMode }, input.action, input.actor.type === 'USER' ? input.actor.id ?? null : null)
+  // ADR 0106: whatever route cancelled the booking (agent, operator, supplier answer, runner), the hotel that was told about it is told about this, in the same transaction.
+  if (rule.to === 'CANCELLED') await queueHotelNoticeFollowUp(tx, { tenantId: input.tenantId, bookingId: booking.id, kind: 'CANCEL', eventKey: 'cancel', userId: input.actor.type === 'USER' ? input.actor.id ?? null : null, now: input.now })
   return { bookingId: booking.id, reference: booking.reference, status: rule.to, version: booking.version + (rule.bumpsVersion ? 1 : 0), closed: closing, replayed: false }
 }

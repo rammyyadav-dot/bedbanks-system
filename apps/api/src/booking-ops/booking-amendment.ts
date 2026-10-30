@@ -5,6 +5,7 @@ import {
   type AmendmentChange, type AmendmentState, type BookingAmendmentProposal,
 } from '@bedbanks/contracts'
 import { emitAmendmentFinance } from './booking-finance-events'
+import { queueHotelNoticeFollowUp } from './notice/hotel-notice-outbox'
 
 /**
  * Structured amendments (ADR 0072). Every function takes the caller's write transaction on the booking role and runs inside the same transaction as the status move that
@@ -160,6 +161,8 @@ export async function applyAmendmentDecision(tx: Tx, input: { tenantId: string; 
     where: { id: decision.amendmentId, tenantId, status: 'REQUESTED' },
     data: { status: 'APPROVED', approvedSellMinor: approval.sellMinor, approvedNetMinor: money.netMinor, differenceMinor, approvedCancelDeadline: deadline, documentsNotReissued: notReissued, decidedByUserId: userId, decidedAt: now },
   })
+  // ADR 0106: the hotel must hear that the dates or occupancy changed (an approved amendment is the only thing that changes them).
+  if (changes.length > 0) await queueHotelNoticeFollowUp(tx, { tenantId, bookingId, kind: 'AMEND', eventKey: decision.amendmentId, userId, now })
   if (differenceMinor !== 0n) await emitAmendmentFinance(tx, { id: bookingId, tenantId, currency: subject.currency, totalMinor: approval.sellMinor, netMinor: money.netMinor, paymentMode: subject.paymentMode }, differenceMinor, userId, { amendmentId: decision.amendmentId })
   return { documentsNotReissued: notReissued }
 }

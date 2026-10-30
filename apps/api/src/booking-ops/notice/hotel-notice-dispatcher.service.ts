@@ -14,7 +14,10 @@ const DEFAULT_INTERVAL_MS = 30_000
 export const HOTEL_NOTICE_RETRY_DELAYS_SECONDS = [60, 300, 900, 3600] as const
 const FROM = /^(?:[^<>\r\n]{1,64} <)?[^\s@<>]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,}>?$/
 
-interface Claimed { id: string; tenantId: string; bookingId: string; attempt: number; maxAttempts: number; to: string; requestedByUserId: string | null }
+type Kind = 'NEW' | 'AMEND' | 'CANCEL'
+interface Claimed { id: string; tenantId: string; bookingId: string; kind: Kind; attempt: number; maxAttempts: number; to: string; bcc: string[]; requestedByUserId: string | null }
+/** The status a booking must be in for a notice of this kind to still be true. */
+const REQUIRED_STATUS: Record<Kind, string> = { NEW: 'CONFIRMED', AMEND: 'CONFIRMED', CANCEL: 'CANCELLED' }
 
 /**
  * Sends the hotel reservation notice outbox (ADR 0106), to the address snapshotted from the hotel profile. Off unless `HOTEL_NOTICE_DISPATCH_ENABLED=true`; then it needs
@@ -70,7 +73,7 @@ export class HotelNoticeDispatcher implements OnModuleInit, OnModuleDestroy {
           continue
         }
         await tx.hotelNotice.update({ where: { id, tenantId }, data: { status: 'SENDING', attempt: { increment: 1 }, lockedUntil: new Date(now.getTime() + LOCK_SECONDS * 1000) } })
-        out.push({ id, tenantId, bookingId: row.bookingId, attempt: row.attempt + 1, maxAttempts: row.maxAttempts, to: row.toAddress, requestedByUserId: row.requestedByUserId })
+        out.push({ id, tenantId, bookingId: row.bookingId, kind: row.kind, attempt: row.attempt + 1, maxAttempts: row.maxAttempts, to: row.toAddress, bcc: row.copyAddresses, requestedByUserId: row.requestedByUserId })
       }
       return out
     })
@@ -83,14 +86,20 @@ export class HotelNoticeDispatcher implements OnModuleInit, OnModuleDestroy {
         const booking = await tx.booking.findFirst({ where: { id: notice.bookingId, tenantId: notice.tenantId }, select: { status: true, reference: true, hotelId: true, createdAt: true, checkIn: true, checkOut: true, hotelConfirmationNo: true, specialRequests: true,
           rooms: { select: { position: true, roomName: true, boardCode: true, adults: true, childAges: true } }, guests: { select: { firstName: true, lastName: true, isLead: true } } } })
         const voucher = await tx.bookingDocument.findFirst({ where: { bookingId: notice.bookingId, tenantId: notice.tenantId, type: 'VOUCHER' }, select: { payload: true } })
-        return { booking, voucher }
+        const first = notice.kind === 'NEW' ? null : await tx.hotelNotice.findFirst({ where: { tenantId: notice.tenantId, bookingId: notice.bookingId, kind: 'NEW', eventKey: 'initial' }, select: { status: true } })
+        return { booking, voucher, first }
       })
       if (!facts.booking) return this.finish(notice, 'FAILED', 'BOOKING_NOT_FOUND', now())
-      // A booking cancelled before its notice went out must not be announced to the hotel as new.
-      if (facts.booking.status !== 'CONFIRMED') return this.finish(notice, 'FAILED', 'BOOKING_NOT_CONFIRMED', now())
+      // A notice is only sent while it is still true: a booking cancelled before its NEW notice went out must not be announced as new, and a cancelled one is not amended.
+      if (facts.booking.status !== REQUIRED_STATUS[notice.kind]) return this.finish(notice, 'FAILED', notice.kind === 'CANCEL' ? 'BOOKING_NOT_CANCELLED' : 'BOOKING_NOT_CONFIRMED', now())
+      // An amendment or cancellation only makes sense to a hotel that was told about the booking. Wait for the original; if it never reached the hotel, say so and stop.
+      if (facts.first) {
+        if (facts.first.status === 'FAILED') return this.finish(notice, 'FAILED', 'HOTEL_NEVER_NOTIFIED', now())
+        if (facts.first.status !== 'SENT') return this.retryOrStop(notice, 'WAITING_FOR_NEW_NOTICE', now())
+      }
       const hotelName = (facts.voucher?.payload as { hotel?: { name?: unknown } } | null)?.hotel?.name
       if (typeof hotelName !== 'string' || !hotelName.trim()) return this.retryOrStop(notice, 'DOCUMENTS_PENDING', now())
-      message = renderHotelNoticeEmail(buildHotelNotice('NEW', facts.booking), hotelName.trim())
+      message = renderHotelNoticeEmail(buildHotelNotice(notice.kind, facts.booking), hotelName.trim())
     } catch (error) {
       // An invalid notice (for example a booking with no guests) will not become valid by waiting: stop and let Operations see the code.
       if (error instanceof HotelNoticeInvalid) { this.logger.error(`Hotel notice ${notice.id} is invalid (${error.field})`); return this.finish(notice, 'FAILED', 'NOTICE_INVALID', now()) }
@@ -100,8 +109,9 @@ export class HotelNoticeDispatcher implements OnModuleInit, OnModuleDestroy {
     const from = this.env.EMAIL_FROM!.trim()
     let messageId: string
     try {
+      // Copies (booking agent, admin) travel as BCC: one send, so a failure can never resend to the hotel, and nobody sees the hotel's private desk address or each other.
       const raw = buildMime({ from, to: [notice.to], cc: [], ...message, attachments: [] })
-      messageId = (await this.sender.send({ from, to: [notice.to], cc: [] }, raw)).messageId
+      messageId = (await this.sender.send({ from, to: [notice.to], cc: [], bcc: notice.bcc }, raw)).messageId
     } catch (error) {
       const failure = error instanceof EmailSendError ? error : new EmailSendError('SEND_ERROR', false)
       this.logger.warn(`Hotel notice ${notice.id} attempt ${notice.attempt} failed: ${failure.code}`)
@@ -125,7 +135,7 @@ export class HotelNoticeDispatcher implements OnModuleInit, OnModuleDestroy {
       await tx.hotelNotice.update({ where: { id: notice.id, tenantId: notice.tenantId }, data: { status, lockedUntil: null, lastErrorCode: code, ...(status === 'SENT' ? { sentAt: at, providerMessageId: messageId ?? null } : {}) } })
       // createMany: the audit log is write-only for this role (no RETURNING, so no SELECT is needed). Attributed to the agent whose confirmation queued the notice.
       await tx.auditEvent.createMany({ data: [{ tenantId: notice.tenantId, userId: notice.requestedByUserId, actorType: 'USER', action: status === 'SENT' ? 'booking.hotel_notice.sent' : 'booking.hotel_notice.failed', entityType: 'booking', entityId: notice.bookingId,
-        payload: { kind: 'NEW', attempt: notice.attempt, via: 'email_dispatch', ...(code ? { code } : {}) } }] })
+        payload: { kind: notice.kind, attempt: notice.attempt, via: 'email_dispatch', copies: notice.bcc.length, ...(code ? { code } : {}) } }] })
     })
   }
 }

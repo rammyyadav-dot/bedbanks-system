@@ -1,4 +1,4 @@
-import { resolveHotelNoticeRecipient } from './hotel-notice-recipient'
+import { MAX_NOTICE_COPIES, normalizeCopyAddresses, resolveHotelNoticeRecipient } from './hotel-notice-recipient'
 
 const ok = (address: string) => ({ ok: true, address })
 const none = { ok: false, code: 'NO_RESERVATIONS_EMAIL' }
@@ -20,5 +20,19 @@ describe('resolveHotelNoticeRecipient', () => {
 
   it.each(['a@b', 'a@@b.com', 'a b@c.com', 'a@b.com, c@d.com', 'a@b.com;c@d.com', 'Name <a@b.com>', 'a@b.com\r\nBcc: x@y.com', '<a@b.com>', 'a@-b.com', `${'a'.repeat(65)}@b.com`, `a@${'b'.repeat(250)}.com`])('rejects %j: not exactly one valid address', (email) => {
     expect(resolveHotelNoticeRecipient({ reservations: { email } })).toEqual(none)
+  })
+})
+
+describe('normalizeCopyAddresses', () => {
+  it('keeps valid, distinct addresses in order, trimmed', () => {
+    expect(normalizeCopyAddresses([' agent@agency.test ', 'admin@fbeds.test'], 'res@hotel.test')).toEqual(['agent@agency.test', 'admin@fbeds.test'])
+  })
+  it('drops duplicates (case-insensitive), the hotel address, blanks and anything that is not one valid address', () => {
+    expect(normalizeCopyAddresses(['Agent@Agency.test', 'agent@agency.test', 'RES@hotel.test', '', null, undefined, 'a@b', 'x@y.com, z@y.com', 'ok@ok.test'], 'res@hotel.test')).toEqual(['Agent@Agency.test', 'ok@ok.test'])
+  })
+  it('never keeps more than the cap, and works with no hotel address', () => {
+    const many = Array.from({ length: 6 }, (_, i) => `u${i}@x.test`)
+    expect(normalizeCopyAddresses(many, null)).toHaveLength(MAX_NOTICE_COPIES)
+    expect(normalizeCopyAddresses([], null)).toEqual([])
   })
 })

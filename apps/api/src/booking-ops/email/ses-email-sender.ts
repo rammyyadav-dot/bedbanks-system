@@ -27,7 +27,7 @@ export class SesEmailSender implements EmailSender {
     try {
       const out = await client.send(new SendEmailCommand({
         FromEmailAddress: envelope.from,
-        Destination: { ToAddresses: envelope.to, ...(envelope.cc.length ? { CcAddresses: envelope.cc } : {}) },
+        Destination: { ToAddresses: envelope.to, ...(envelope.cc.length ? { CcAddresses: envelope.cc } : {}), ...(envelope.bcc?.length ? { BccAddresses: envelope.bcc } : {}) },
         Content: { Raw: { Data: Buffer.from(rawMime, 'utf8') } },
       }))
       if (!out.MessageId) throw new EmailSendError('SES_NO_MESSAGE_ID', false)

@@ -24,22 +24,31 @@ The recipient is **only** `HotelProfile.contacts.reservations.email`, as filled 
 - No usable address: the row is born `FAILED` with `NO_RESERVATIONS_EMAIL` and an audit event `booking.hotel_notice.failed`. The booking is **not** blocked; Operations sees the gap and fixes the profile. Re-queueing after the profile is fixed is not built.
 - The "Reservations contact" completeness rule currently accepts a phone number instead of an email. A hotel with only a phone will therefore pass publication checks but get a FAILED notice. Whether publication should require the email is an open owner question.
 
+## Amend and cancel notices, and copies (owner decision, 2026-10-30)
+- **CANCEL** is queued by `transitionBooking` whenever a booking reaches `CANCELLED`, whichever route did it (agent, operator, supplier answer, runner), in the same transaction. **AMEND** is queued when an amendment is **approved** and changes the stay or occupancy (a rejection, or an approval that changes nothing, queues nothing).
+- A follow-up goes **only to a hotel that we told**: it copies the address and copies from the booking's NEW notice (so the booking role needs no access to the hotel profile). A booking with no NEW notice (not sold from contracted inventory, or confirmed before notices existed) queues nothing. If the NEW notice never had an address, the follow-up is born `FAILED` (`NO_RESERVATIONS_EMAIL`), visible like the original.
+- A follow-up is **sent** only after the NEW notice was `SENT` (it waits while that is pending, and stops with `HOTEL_NEVER_NOTIFIED` if it failed), and only while it is still true: AMEND needs the booking `CONFIRMED`, CANCEL needs it `CANCELLED`.
+- Each notice is identified by (booking, kind, `event_key`): `initial`, the amendment id, or `cancel`. A repeat of the same approval or cancellation queues nothing more.
+- **Travel agent and admin copies:** the booking agent's account email (from the session, as for the confirmation email) and the single admin mailbox `HOTEL_NOTICE_ADMIN_COPY_EMAIL` are snapshotted on the NEW notice (at most three, deduplicated, never the hotel's own address) and reused by follow-ups. They are **blind copies in the same send**, so a failure can never resend to the hotel, the hotel's private desk address is not shown to agents (contacts are private, ADR 0021), and no one sees the others. A copy is identical to what the hotel received; it is not a separate message.
+- Migration `202612190001_hotel_notice_followups_and_copies` adds `event_key`, `copy_addresses` and the new unique key. The booking role gains INSERT on `HotelNotice` (re-run `ops:provision-booking-ops-role`).
+
 ## Built (verified on PostgreSQL 16 with the full migration history)
-- Migration `202612180001_hotel_notice_outbox`: `HotelNotice` (forced RLS, tenant-first indexes, unique per booking and kind, recipient/attempt/sent CHECKs) and the `fbeds_hotel_notice_due_tenants` function. No grant in the migration; rollback notes inside.
-- `queueHotelNotice`: called inside the existing confirmation transaction, so 25 simultaneous confirmations still yield one notice (e2e).
-- `HotelNoticeDispatcher`: modelled on `BookingEmailDispatcher` (SKIP LOCKED claim, retries after 1, 5, 15 and 60 minutes, permanent rejection final, a lost last attempt is never resent, the booking must still be `CONFIRMED`). Off unless `HOTEL_NOTICE_DISPATCH_ENABLED=true`; same `EMAIL_FROM`/`EMAIL_SES_REGION` and `BOOKING_OPS_DATABASE_URL` as the confirmation email.
-- Booking-role grants: SELECT on `HotelNotice`, UPDATE on progress columns only (never the recipient or keys), EXECUTE on the due-tenants function. The API runtime role holds nothing on it.
+- NEW, AMEND and CANCEL notices queued in the transaction that changes the booking, and sent by `HotelNoticeDispatcher` (SKIP LOCKED claim, retries after 1, 5, 15 and 60 minutes, permanent rejection final, a lost last attempt never resent). Off unless `HOTEL_NOTICE_DISPATCH_ENABLED=true`; same `EMAIL_FROM`/`EMAIL_SES_REGION` and `BOOKING_OPS_DATABASE_URL` as the confirmation email.
+- Verified by the confirmation, cancellation (including 25 simultaneous cancellations) and amendment e2e suites, the last under the strict booking role, plus the role-provisioning e2e.
 
 ## Owner actions before enabling
-1. Deploy migration `202612180001_hotel_notice_outbox` through the approved release process.
-2. Re-run the booking-ops role provisioning (`ops:provision-booking-ops-role`) so the new grants exist; the dispatcher will refuse to start without them.
-3. Confirm SES sender verification (the same as ADR 0066), then set `HOTEL_NOTICE_DISPATCH_ENABLED=true`.
-4. Until hotels have a reservations email on their profile, expect `NO_RESERVATIONS_EMAIL` notices.
+1. Deploy migrations `202612180001_hotel_notice_outbox` and `202612190001_hotel_notice_followups_and_copies`.
+2. Re-run `ops:provision-booking-ops-role` (SELECT/UPDATE/INSERT on `HotelNotice`, EXECUTE on the due-tenants function); the dispatcher and the follow-ups need it.
+3. Set `HOTEL_NOTICE_ADMIN_COPY_EMAIL` to the mailbox that should receive admin copies (optional; unset means agent copies only).
+4. Confirm SES sender verification (as ADR 0066), then set `HOTEL_NOTICE_DISPATCH_ENABLED=true`.
+5. Until hotels have a reservations email on their profile, expect `NO_RESERVATIONS_EMAIL` notices.
 
 ## Not built (do not present as capability, invariant 10)
-- **AMEND and CANCEL notices.** The enum has them and the renderers handle them, but nothing queues them yet (they would be queued by the booking-role amendment and cancellation paths, which need INSERT on `HotelNotice`).
 - **Channel-manager XML delivery.** `buildOtaHotelResNotif` exists but there is no per-hotel endpoint configuration, secret reference, transport or dispatcher, and the hotel profile has no field for them. Email is the only live channel.
-- Receiving a hotel's response or confirmation number; a resend / re-queue action; an Operations view of notices.
+- **Notices for bookings confirmed by operators** (`recordConfirmed`, on-request) or sold by a live supplier: the hotel there is the supplier's concern, and no NEW notice is queued, so no follow-ups either.
+- **Re-sending to a corrected address.** A follow-up reuses the NEW notice's snapshotted address; fixing the hotel profile afterwards does not re-queue a `FAILED` notice. A resend/re-queue action and an Operations view of notices are not built.
+- A copy is not a distinct message (no "copy" banner), and the admin copy is one mailbox, not a per-tenant list.
+- Receiving a hotel's response or confirmation number.
 - PDF engine, outbound webhooks, ADR 0105 overrides, `penaltySchedule` route.
 - `BookingLifecycleJobs`, the email dispatchers and the supplier runner do not yet use `runExclusive`.
 
