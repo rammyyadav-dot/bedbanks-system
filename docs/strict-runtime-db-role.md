@@ -139,6 +139,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `GlAccount`: finance-gated: the general-ledger chart of accounts of a tenant; code, name and type never change, only active; written on the API connection (ADR 0102)
 - `GlCategoryMapping`: finance-gated: append-only versions of which GL account pair each ledger movement category posts to; written on the API connection (ADR 0102)
 - `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
+- `HotelNotice`: booking is disabled; the hotel reservation notice outbox row is queued in the transaction that confirms the booking (ADR 0106); the booking role sends it
 - `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index
 - `InventoryHold`: holds are gated; written by the booking path
 - `InventoryHoldNight`: holds are gated

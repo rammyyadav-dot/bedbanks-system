@@ -99,7 +99,12 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     expect(await walletNet()).toBe(-125099n) // charged exactly once
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.confirmed', entityId: pre.bookingId, userId } })).toBe(1)
 
+    // ADR 0106: this hotel has no profile, so no reservations email: the notice exists and is visibly FAILED, and the booking was not blocked.
+    expect(await prisma.hotelNotice.findMany({ where: { tenantId, bookingId: pre.bookingId } })).toEqual([expect.objectContaining({ kind: 'NEW', toAddress: null, status: 'FAILED', lastErrorCode: 'NO_RESERVATIONS_EMAIL' })])
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.hotel_notice.failed', entityId: pre.bookingId } })).toBe(1)
+
     expect(await confirm(pre.bookingId)).toMatchObject({ status: 'CONFIRMED', alreadyConfirmed: true })
+    expect(await prisma.hotelNotice.count({ where: { tenantId, bookingId: pre.bookingId } })).toBe(1) // a repeat confirmation queues nothing more
     expect((await entries(pre.bookingId)).length).toBe(3)
     expect(await availability()).toEqual([{ held: 0, sold: 1 }, { held: 0, sold: 1 }])
     // a confirmed attempt is invisible to reconciliation, and the sweeper cannot touch the CONFIRMED hold
@@ -117,6 +122,7 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
     expect(results.every((result) => result.status === 'fulfilled')).toBe(true)
     expect(results.filter((result) => result.status === 'fulfilled' && !result.value.alreadyConfirmed)).toHaveLength(1)
     expect((await entries(pre.bookingId)).map((entry) => entry.type)).toEqual(['HOLD', 'RELEASE', 'DEBIT'])
+    expect(await prisma.hotelNotice.count({ where: { tenantId, bookingId: pre.bookingId } })).toBe(1) // 25 confirmations, one hotel notice
     expect(await walletNet()).toBe(before)
     const nights = await availability()
     expect(nights.every((night) => night.held === 0)).toBe(true)
@@ -176,5 +182,29 @@ describe('booking prebook and atomic confirmation (PostgreSQL)', () => {
       expect(await walletNet()).toBe(net)
     } finally { await prisma.agencyMember.create({ data: { tenantId, agencyId: member.agencyId, userId } }) }
     await holds.release(tenantId, second.holdId, 'cleanup', { type: 'USER', userId })
+  })
+
+  it('ADR 0106: the hotel notice goes to the reservations email on the hotel profile, snapshotted at confirmation, and never to another contact', async () => {
+    const profile = await prisma.hotelProfile.create({ data: { tenantId, hotelId, updatedById: userId, contacts: {
+      reservations: { name: 'Front desk', email: 'reservations@atlas-hotel.test' }, commercial: { name: 'Sales', email: 'sales@atlas-hotel.test' }, finance: { name: 'Fin', email: 'finance@atlas-hotel.test' } } } })
+    try {
+      const hold = await newHold(`${suffix}-notice`)
+      const pre = await prebook(`${suffix}-notice`, hold.holdId)
+      await confirm(pre.bookingId)
+      const [notice] = await prisma.hotelNotice.findMany({ where: { tenantId, bookingId: pre.bookingId } })
+      expect(notice).toMatchObject({ kind: 'NEW', toAddress: 'reservations@atlas-hotel.test', status: 'QUEUED', attempt: 0, requestedByUserId: userId })
+      expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.hotel_notice.queued', entityId: pre.bookingId } })).toBe(1)
+      // a later profile edit cannot redirect a notice that is already queued
+      await prisma.hotelProfile.update({ where: { id: profile.id }, data: { contacts: { reservations: { name: 'New desk', email: 'new@atlas-hotel.test' } } } })
+      expect((await prisma.hotelNotice.findUniqueOrThrow({ where: { id: notice.id } })).toAddress).toBe('reservations@atlas-hotel.test')
+      // a reservations contact with only a phone number is not an address, and commercial/finance are never a fallback
+      await prisma.hotelProfile.update({ where: { id: profile.id }, data: { contacts: { reservations: { name: 'Desk', phone: '+97141234567' }, commercial: { email: 'sales@atlas-hotel.test' } } } })
+      const hold2 = await newHold(`${suffix}-notice2`)
+      const pre2 = await prebook(`${suffix}-notice2`, hold2.holdId)
+      await confirm(pre2.bookingId)
+      expect(await prisma.hotelNotice.findFirstOrThrow({ where: { tenantId, bookingId: pre2.bookingId } })).toMatchObject({ toAddress: null, status: 'FAILED', lastErrorCode: 'NO_RESERVATIONS_EMAIL' })
+    } finally {
+      await prisma.hotelProfile.delete({ where: { id: profile.id } })
+    }
   })
 })

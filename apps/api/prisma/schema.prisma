@@ -865,6 +865,7 @@ model Tenant {
   bookingSupplierJobs BookingSupplierJob[]
   bookingSupplierCalls BookingSupplierCall[]
   bookingEmails BookingEmail[]
+  hotelNotices  HotelNotice[]
   bookingOpsStates BookingOpsState[]
   bookingFinanceEvents BookingFinanceEvent[]
   bookingFinancePostings BookingFinancePosting[]
@@ -1218,6 +1219,7 @@ model Booking {
   events              BookingEvent[]
   supplierJobs        BookingSupplierJob[]
   emails              BookingEmail[]
+  hotelNotices        HotelNotice[]
   opsState            BookingOpsState?
   financeEvents       BookingFinanceEvent[]
   financePostings     BookingFinancePosting[]
@@ -1601,6 +1603,46 @@ model BookingEmail {
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
   sentAt            DateTime?          @map("sent_at")
+
+  @@unique([tenantId, bookingId, kind])
+  @@index([tenantId, status, runAfter])
+}
+
+enum HotelNoticeKind {
+  NEW
+  AMEND
+  CANCEL
+}
+
+enum HotelNoticeStatus {
+  QUEUED
+  SENDING
+  RETRY_WAIT
+  SENT
+  FAILED
+}
+
+/// ADR 0106: reservation notice outbox to the hotel's reservations desk. `toAddress` is a snapshot of HotelProfile.contacts.reservations.email taken when the
+/// booking was confirmed; null only on a row born FAILED (NO_RESERVATIONS_EMAIL). Never stores guest data or the message body.
+model HotelNotice {
+  id                String            @id @default(cuid())
+  tenantId          String            @map("tenant_id")
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String            @map("booking_id")
+  booking           Booking           @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  kind              HotelNoticeKind
+  toAddress         String?           @map("to_address")
+  status            HotelNoticeStatus @default(QUEUED)
+  attempt           Int               @default(0)
+  maxAttempts       Int               @default(5) @map("max_attempts")
+  runAfter          DateTime          @map("run_after")
+  lockedUntil       DateTime?         @map("locked_until")
+  lastErrorCode     String?           @map("last_error_code")
+  providerMessageId String?           @map("provider_message_id")
+  requestedByUserId String?           @map("requested_by_user_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  sentAt            DateTime?         @map("sent_at")
 
   @@unique([tenantId, bookingId, kind])
   @@index([tenantId, status, runAfter])

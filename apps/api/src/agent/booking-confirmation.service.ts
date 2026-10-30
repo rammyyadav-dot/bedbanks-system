@@ -6,6 +6,7 @@ import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { readSupplierPrebook } from './supplier-prebook-record'
 import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
+import { queueHotelNotice } from '../booking-ops/notice/hotel-notice-outbox'
 
 /** `recipient`/`cc`: the confirmation email (ADR 0066). The recipient is the booking agent's own account email from the session, never a request field. */
 export interface BookingConfirmationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; recipient?: string | null; cc?: string[] }
@@ -83,6 +84,8 @@ export class BookingConfirmationService {
         await tx.bookingEmail.create({ data: { tenantId, bookingId, kind: 'BOOKING_CONFIRMATION', toAddress: command.recipient, ccAddresses: command.cc ?? [], runAfter: new Date(), requestedByUserId: userId } })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.email.queued', entityType: 'booking', entityId: bookingId, payload: { requestId, kind: 'BOOKING_CONFIRMATION', ccCount: (command.cc ?? []).length } } })
       }
+      // ADR 0106: tell the hotel too. Same transaction, once per booking; a hotel with no reservations email gets a visible FAILED notice, not silence.
+      await queueHotelNotice(tx, { tenantId, bookingId, hotelId: booking.hotelId, userId, requestId, now: new Date() })
       return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: false, email: command.recipient ? { to: command.recipient, cc: command.cc ?? [] } : null }
     })
   }

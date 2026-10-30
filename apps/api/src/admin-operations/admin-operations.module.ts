@@ -37,6 +37,7 @@ import { BookingSupplierRunner } from '../booking-ops/booking-supplier-runner.se
 import { BookingLifecycleJobs } from '../booking-ops/booking-lifecycle-jobs.service'
 import { BookingEmailDispatcher } from '../booking-ops/email/booking-email-dispatcher.service'
 import { SesEmailSender } from '../booking-ops/email/ses-email-sender'
+import { HotelNoticeDispatcher } from '../booking-ops/notice/hotel-notice-dispatcher.service'
 import { EMAIL_SENDER } from '../booking-ops/email/email-sender.port'
 import { BOOKING_SUPPLIER_RESOLVER } from '../booking-ops/supplier/booking-supplier.port'
 import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplier.registry'
@@ -44,6 +45,6 @@ import { BookingSupplierRegistry } from '../booking-ops/supplier/booking-supplie
 @Module({
   imports: [AuthModule, AgentModule, ApprovalsModule],
   controllers: [HotelReportsController, OperationsController, BookingActionsController, BookingOpsController, BookingFinanceController, BookingSavedViewsController, BookingBulkController],
-  providers: [HotelOnboardingFunnelService, HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingLifecycleJobs, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingOpsReadReplica, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, OperationsReconciliationApprovalsService, OperationsGovernanceService, OperationsComplianceService, { provide: LedgerIntegrityMonitor, useFactory: () => new LedgerIntegrityMonitor() }],
+  providers: [HotelOnboardingFunnelService, HotelReportsService, BookingOpsQueueService, BookingOpsService, { provide: BOOKING_SUPPLIER_RESOLVER, useExisting: BookingSupplierRegistry }, BookingSupplierRegistry, BookingSupplierJobsService, BookingSupplierRunner, BookingLifecycleJobs, SesEmailSender, { provide: EMAIL_SENDER, useExisting: SesEmailSender }, BookingEmailDispatcher, HotelNoticeDispatcher, BookingActionsService, BookingFinanceService, BookingPenaltyQuoter, BookingQueryService, BookingSavedViewsService, BookingBulkService, BookingOpsDatabase, BookingOpsReadReplica, BookingAccessGuard, OperationsBookingsService, OperationsSupplyService, OperationsTransactionsService, OperationsHotelsService, OperationsFinanceAuditService, OperationsLedgerIntegrityService, OperationsReconciliationApprovalsService, OperationsGovernanceService, OperationsComplianceService, { provide: LedgerIntegrityMonitor, useFactory: () => new LedgerIntegrityMonitor() }],
 })
 export class AdminOperationsModule {}
