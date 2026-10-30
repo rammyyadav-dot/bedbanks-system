@@ -33,6 +33,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   const utc = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
   const windowStart = 14
   const sellableNights = Array.from({ length: 7 }, (_, index) => day(windowStart + index))
+  const dayBeforeWindow = day(windowStart - 1) // fixed with the other dates: a run that crosses midnight UTC must not move the contract end into the window
   const checkIn = sellableNights[0]
   const checkOut = day(windowStart + 3)
   const nights = sellableNights.slice(0, 3)
@@ -424,7 +425,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
       expect(d.issues.some((i: { category: string; roomName: string }) => i.category === 'UNMAPPED_ROOM' && i.roomName)).toBe(true)
     })
     // DUBAI-10: a contract that ended blocks sellability.
-    await scenario(10, async () => { const before = await prismaTx.contract.findUniqueOrThrow({ where: { id: hotels[10].contractId } }); await prismaTx.contract.update({ where: { id: hotels[10].contractId }, data: { validTo: utc(day(windowStart - 1)) } }); return async () => { await prismaTx.contract.update({ where: { id: hotels[10].contractId }, data: { validTo: before.validTo } }) } }, async () => {
+    await scenario(10, async () => { const before = await prismaTx.contract.findUniqueOrThrow({ where: { id: hotels[10].contractId } }); await prismaTx.contract.update({ where: { id: hotels[10].contractId }, data: { validTo: utc(dayBeforeWindow) } }); return async () => { await prismaTx.contract.update({ where: { id: hotels[10].contractId }, data: { validTo: before.validTo } }) } }, async () => {
       const d = await hotelDetail(10); expect(d.readiness).toBe('BLOCKED'); expect(d.blockers).toContain('OUTSIDE_CONTRACT_VALIDITY'); expect(d.issues.some((i: { category: string }) => i.category === 'CONTRACT_EXPIRED')).toBe(true)
     })
     // DUBAI-11 / DUBAI-12: missing rates, missing availability (rows removed and restored exactly).
