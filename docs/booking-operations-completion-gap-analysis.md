@@ -44,7 +44,11 @@ Pooled plans count on `InventoryPoolDay` (`capacity`, `sold`, `held`), not the p
 
 `penaltySchedule()` has no route or contract. Per invariant 4 the envelope must be added to `@bedbanks/contracts` before a frontend consumes it, and it needs a permission-checked controller; that is a small follow-up once Operations confirms where the schedule is shown (booking detail and the voucher are the candidates).
 
-## Decisions needed from the owner
+## Owner decisions received (2026-10-30)
+
+Redis approved (coordination only, BullMQ not adopted); hotels reached by email and channel-manager XML; recommendations accepted for webhooks, PDF and overrides. Recorded in ADR 0106. Built so far: the Redis single-runner guard on the hold sweeper, and the notice builders (OTA XML and four-language email). Still to build, in order: hotel notice outbox + dispatcher (migration), webhooks, PDF, ADR 0105 overrides, `penaltySchedule` route.
+
+## Decisions that were needed (answered above)
 
 1. Is Redis/BullMQ approved, or does the in-process sweeper plus the Operations queue stand? (Recommendation: stand; the sweeper already meets the one-minute cadence and Redis adds a second source of truth.)
 2. Outbound webhooks to agent portals: in scope for ADR 0075?

@@ -26,3 +26,5 @@ export { fanOutRead } from './fanout/supplier-fanout';
 export type { SupplierLeg, FanoutOptions, FanoutResult, LegResult, FanoutLegEvent } from './fanout/supplier-fanout';
 export type { ConnectorRuntimeState, ReadinessReport, ReadinessGate, ProviderOnboarding } from './xml/readiness';
 export * from './ingest'
+export { buildOtaHotelResNotif, assertHotelNotice, hotelNoticeEchoToken, HotelNoticeInvalid } from './hotel-notice/ota-res-notif'
+export type { HotelReservationNotice, HotelNoticeKind, HotelNoticeGuest, HotelNoticeRoom } from './hotel-notice/ota-res-notif'

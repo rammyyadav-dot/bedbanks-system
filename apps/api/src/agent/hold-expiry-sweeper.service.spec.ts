@@ -69,4 +69,21 @@ describe('HoldExpirySweeper', () => {
     await expect(sweeper.runOnce()).resolves.toBe(0)
     await sweeper.onModuleDestroy()
   })
+
+  it('skips the pass when another instance holds the Redis lease, and sweeps anyway when Redis is down', async () => {
+    const rt = runtime()
+    const held = { acquire: jest.fn().mockResolvedValue(null), release: jest.fn() }
+    const skipped = new HoldExpirySweeper(enabled, () => rt, held)
+    await skipped.onModuleInit()
+    expect(await skipped.runOnce()).toBe(0)
+    expect(rt.listActiveTenantIds).not.toHaveBeenCalled()
+    await skipped.onModuleDestroy()
+
+    const down = { acquire: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')), release: jest.fn() }
+    const open = new HoldExpirySweeper(enabled, () => rt, down)
+    await open.onModuleInit()
+    await open.runOnce()
+    expect(rt.listActiveTenantIds).toHaveBeenCalledTimes(1)
+    await open.onModuleDestroy()
+  })
 })

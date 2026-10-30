@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { InventoryHoldService } from './inventory-hold.service'
+import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
+import type { CoordinationPort } from '../common/cache/cache.port'
+import { runExclusive } from '../common/cache/single-runner'
 
 export const HOLD_EXPIRY_BATCH_SIZE = 100
 const MIN_INTERVAL_MS = 5_000
@@ -30,10 +33,13 @@ export class HoldExpirySweeper implements OnModuleInit, OnModuleDestroy {
   private runtime?: HoldExpiryRuntime
   private timer?: NodeJS.Timeout
   private running = false
+  private intervalMs = DEFAULT_INTERVAL_MS
 
   constructor(
     private readonly env: Env = process.env,
     private readonly createRuntime: (databaseUrl: string) => HoldExpiryRuntime = defaultRuntime,
+    /** ADR 0106: with REDIS_URL set, only one API instance sweeps per interval. Without it every instance sweeps, which is safe but redundant. */
+    private readonly coordination: CoordinationPort | null = redisFromEnvironment(),
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -43,6 +49,7 @@ export class HoldExpirySweeper implements OnModuleInit, OnModuleDestroy {
     if (url === this.env.DATABASE_URL) throw new Error('HOLD_EXPIRY_DATABASE_URL must be a different credential from the HTTP DATABASE_URL')
     const interval = Number(this.env.HOLD_EXPIRY_SWEEP_INTERVAL_MS ?? DEFAULT_INTERVAL_MS)
     if (!Number.isInteger(interval) || interval < MIN_INTERVAL_MS) throw new Error(`HOLD_EXPIRY_SWEEP_INTERVAL_MS must be an integer >= ${MIN_INTERVAL_MS}`)
+    this.intervalMs = interval
     this.runtime = this.createRuntime(url)
     try { await this.runtime.verify?.() } catch (error) { await this.runtime.close().catch(() => undefined); this.runtime = undefined; throw error } // P0-01: a privileged sweeper credential stops startup
     this.timer = setInterval(() => { void this.runOnce() }, interval)
@@ -59,6 +66,12 @@ export class HoldExpirySweeper implements OnModuleInit, OnModuleDestroy {
 
   /** One pass over active tenants. Returns holds expired; never overlaps itself. */
   async runOnce(): Promise<number> {
+    if (!this.runtime || this.running) return 0
+    const outcome = await runExclusive(this.coordination, 'fbeds:v1:lock:hold-expiry-sweeper', Math.max(this.intervalMs * 2, 30_000), () => this.sweep(), (error) => this.logger.warn(`Sweeper coordination unavailable, sweeping anyway: ${error instanceof Error ? error.name : 'unknown error'}`))
+    return outcome.ran ? outcome.result : 0
+  }
+
+  private async sweep(): Promise<number> {
     const runtime = this.runtime
     if (!runtime || this.running) return 0
     this.running = true
