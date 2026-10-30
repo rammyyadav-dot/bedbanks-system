@@ -46,7 +46,7 @@ Pooled plans count on `InventoryPoolDay` (`capacity`, `sold`, `held`), not the p
 
 ## Owner decisions received (2026-10-30)
 
-Redis approved (coordination only, BullMQ not adopted); hotels reached by email and channel-manager XML; recommendations accepted for webhooks, PDF and overrides. Recorded in ADR 0106. Built so far: the Redis single-runner guard on the hold sweeper, and the notice builders (OTA XML and four-language email). Still to build, in order: hotel notice outbox + dispatcher (migration), webhooks, PDF, ADR 0105 overrides, `penaltySchedule` route.
+Redis approved (coordination only, BullMQ not adopted); hotels reached by email and channel-manager XML; recommendations accepted for webhooks, PDF and overrides. Recorded in ADR 0106. Built so far: the Redis single-runner guard on the hold sweeper, and the notice builders (OTA XML and English email). Still to build, in order: hotel notice outbox + dispatcher (migration), webhooks, PDF, ADR 0105 overrides, `penaltySchedule` route.
 
 ## Decisions that were needed (answered above)
 
