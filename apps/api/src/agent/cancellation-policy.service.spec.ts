@@ -100,4 +100,43 @@ describe('CancellationPolicyService', () => {
       expect(describePenalty({ penaltyMinor: 1200n }, (m) => `AED ${m}`)).toBe('AED 1200')
     })
   })
+
+  describe('penaltySchedule', () => {
+    const rules = [{ daysBeforeCheckin: 7, penaltyPercent: 50 }, { daysBeforeCheckin: 2, penaltyPercent: 100 }]
+    const input = { cancellableAmountMinor: 10001n, currency: 'AED', checkIn: '2026-12-31', propertyTimeZone: 'Asia/Dubai', rules }
+
+    it('lists free, then 50% from 7 days, then 100% from 2 days before check-in, each at hotel-local midnight', () => {
+      const tiers = service.penaltySchedule(input)!
+      expect(tiers.map((t) => [t.startsAt, t.penaltyMinor, t.refundMinor])).toEqual([
+        [null, 0n, 10001n],
+        ['2026-12-23T20:00:00.000Z', 5000n, 5001n],
+        ['2026-12-28T20:00:00.000Z', 10001n, 0n],
+      ])
+    })
+
+    it('agrees with a quote taken at each tier start and one millisecond before it', () => {
+      const tiers = service.penaltySchedule(input)!
+      for (const tier of tiers.filter((t) => t.startsAt)) {
+        const at = service.quote({ ...input, requestedAt: tier.startsAt! })
+        expect(at).toMatchObject({ penaltyMinor: tier.penaltyMinor })
+        const before = service.quote({ ...input, requestedAt: new Date(Date.parse(tier.startsAt!) - 1).toISOString() })
+        expect(before).toMatchObject({ status: 'quotable' })
+        expect((before as { penaltyMinor: bigint }).penaltyMinor < tier.penaltyMinor).toBe(true)
+      }
+    })
+
+    it('has no free lead-in when the earliest tier is itself free, and every tier keeps penalty + refund = amount', () => {
+      const tiers = service.penaltySchedule({ ...input, rules: [{ daysBeforeCheckin: 14, penaltyPercent: 0 }, ...rules] })!
+      expect(tiers[0]).toMatchObject({ penaltyMinor: 0n })
+      expect(tiers).toHaveLength(3)
+      expect(tiers.every((t) => t.penaltyMinor + t.refundMinor === 10001n)).toBe(true)
+    })
+
+    it('fails closed instead of returning a partial schedule', () => {
+      expect(service.penaltySchedule({ ...input, rules: [] })).toBeUndefined()
+      expect(service.penaltySchedule({ ...input, rules: [{ daysBeforeCheckin: 3, penaltyPercent: 101 }] })).toBeUndefined()
+      expect(service.penaltySchedule({ ...input, rules: [{ daysBeforeCheckin: 3, penaltyNights: 1 }] })).toBeUndefined() // stay length unknown
+      expect(service.penaltySchedule({ ...input, propertyTimeZone: 'Not/AZone' })).toBeUndefined()
+    })
+  })
 })

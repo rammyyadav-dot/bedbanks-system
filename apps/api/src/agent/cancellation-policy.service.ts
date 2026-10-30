@@ -117,6 +117,28 @@ export class CancellationPolicyService {
     return instant === undefined ? undefined : new Date(instant).toISOString()
   }
 
+  /**
+   * The whole penalty timeline of a booking, earliest tier first: free until the first penalising tier starts, then each tier's start instant, penalty and refund.
+   * Every tier is priced by `quote` at its own start instant, so the schedule cannot disagree with a quote taken at that moment. Fails closed (undefined) on any rule or
+   * input `quote` would send to manual review, so a partial schedule is never shown as complete.
+   */
+  penaltySchedule(input: Omit<CancellationQuoteInput, 'requestedAt'>): Array<{ startsAt: string | null; penaltyMinor: bigint; refundMinor: bigint }> | undefined {
+    const timeZone = input.propertyTimeZone ?? 'UTC'
+    if (!input.rules.length) return undefined
+    const starts = [...new Set(input.rules.map((rule) => rule.daysBeforeCheckin))].sort((a, b) => b - a)
+    const tiers: Array<{ startsAt: string | null; penaltyMinor: bigint; refundMinor: bigint }> = []
+    for (const days of starts) {
+      const instant = penaltyStartsAt(input.checkIn, days, timeZone)
+      if (instant === undefined) return undefined
+      const quote = this.quote({ ...input, requestedAt: new Date(instant).toISOString() })
+      if (quote.status !== 'quotable') return undefined
+      tiers.push({ startsAt: new Date(instant).toISOString(), penaltyMinor: quote.penaltyMinor, refundMinor: quote.refundMinor })
+    }
+    // Before the earliest tier starts the booking is free to cancel, unless that tier is itself free (then it is the free tier and needs no lead-in).
+    if (tiers[0].penaltyMinor !== 0n) tiers.unshift({ startsAt: null, penaltyMinor: 0n, refundMinor: input.cancellableAmountMinor })
+    return tiers
+  }
+
   quote(input: CancellationQuoteInput): CancellationQuote {
     const evaluatedAt = input.requestedAt
     if (input.cancellableAmountMinor < 0n) return { status: 'manual_review_required', reason: 'negative_cancellable_amount', evaluatedAt }
