@@ -13,6 +13,7 @@ import { ActiveTenant, TenantContextGuard } from '../agent/tenant-context.guard'
 import { PrismaService } from '../database/prisma.service'
 import { BookingAccess, BookingAccessGuard, RequireBookingAction } from '../booking-ops/booking-access.guard'
 import { OperationsHotelsService } from './operations-hotels.service'
+import { HotelOnboardingFunnelService } from './hotel-onboarding-funnel.service'
 import { OperationsBookingsService } from './operations-bookings.service'
 import { OperationsFinanceAuditService } from './operations-finance-audit.service'
 import { OperationsLedgerIntegrityService } from './operations-ledger-integrity.service'
@@ -39,7 +40,7 @@ const requestIdOf = (req: Request) => (req as Request & { requestId?: string }).
 export class OperationsController {
   private readonly logger = new Logger(OperationsController.name)
 
-  constructor(private readonly prisma: PrismaService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService, private readonly compliance: OperationsComplianceService, private readonly settlement: CancellationSettlementService) {}
+  constructor(private readonly prisma: PrismaService, private readonly onboarding: HotelOnboardingFunnelService, private readonly supply: OperationsSupplyService, private readonly tx: OperationsTransactionsService, private readonly hotelOps: OperationsHotelsService, private readonly bookingsRead: OperationsBookingsService, private readonly finAudit: OperationsFinanceAuditService, private readonly reconApprovals: OperationsReconciliationApprovalsService, private readonly governance: OperationsGovernanceService, private readonly integrity: OperationsLedgerIntegrityService, private readonly compliance: OperationsComplianceService, private readonly settlement: CancellationSettlementService) {}
 
   /** The caller's own operations permissions, used only to hide controls; each endpoint still enforces its own. */
   @Get('capabilities')
@@ -53,6 +54,10 @@ export class OperationsController {
     const department = (Object.values(departmentPermissions) as DepartmentPermission[]).filter(p => keys.has(p))
     return { permissions: [...permissions, ...department] }
   }
+
+  /** Tenant-wide onboarding funnel. Stages beyond hotel content are evaluated only when the caller also holds that domain's read permission. */
+  @Get('onboarding-funnel') @RequireSupplyPermission('supply.hotels.read') @UseGuards(SupplyPermissionGuard)
+  onboardingFunnel(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser) { return this.onboarding.report(tenantId, identity.user.id) }
 
   @Get('readiness') @RequirePermission('booking.read') @UseGuards(AgentRbacGuard)
   readiness(@ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Query() query: Q) {
