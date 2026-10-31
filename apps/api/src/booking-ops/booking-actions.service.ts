@@ -14,6 +14,9 @@ import { BookingOpsDatabase } from './booking-ops-database'
 import { BookingPenaltyQuoter } from './booking-penalty-quote'
 import { amendmentFingerprint, applyAmendmentDecision, prepareAmendmentDecision, recordAmendmentRequest, type PreparedDecision, type PreparedRequest } from './booking-amendment'
 import { transitionBooking } from './booking-transition'
+import { freezeCancellationTerms, readFrozenTerms } from '../agent/booking-cancellation-terms'
+import { CancellationPolicyService } from '../agent/cancellation-policy.service'
+import { rulesForPlan } from '../supply/cancellation-rules'
 import { validateManualBooking } from './manual-booking'
 
 const KEY = /^[A-Za-z0-9._:-]{8,128}$/
@@ -43,7 +46,7 @@ export class BookingActionsService {
     const held = new Set(access.permissions)
 
     // The penalty is worked out once, when cancellation is requested, outside the write transaction, and stored on that request (fixed from then on).
-    const penaltyQuote = action === 'requestCancellation' ? await this.quoter.quote(tenantId, bookingId, now) : undefined
+    const penaltyQuote = action === 'requestCancellation' || action === 'markNoShow' ? await this.quoter.quote(tenantId, bookingId, now, action === 'markNoShow' ? 'NO_SHOW' : 'CANCELLATION') : undefined
     // ADR 0072: the structured parts of an amendment belong to exactly these two actions.
     if (body.amendment !== undefined && action !== 'requestAmendment') throw bad('An amendment can only be sent with requestAmendment', BOOKING_AMENDMENT_FAILURE.invalid)
     if (body.approval !== undefined && action !== 'approveAmendment') throw bad('An approval can only be sent with approveAmendment', BOOKING_AMENDMENT_FAILURE.approvalNotExpected)
@@ -79,7 +82,7 @@ export class BookingActionsService {
       return outcome
     })
     // ADR 0069: a cancelled booking's agency is credited per the effective penalty, on the API connection (this role has no ledger access).
-    if (written.status === 'CANCELLED') await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId: written.bookingId, source: `booking_action:${action}` })
+    if (written.status === 'CANCELLED' || written.status === 'NO_SHOW') await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId: written.bookingId, source: `booking_action:${action}` })
     return written
   }
 
@@ -150,11 +153,33 @@ export class BookingActionsService {
     }
     const fingerprint = createHash('sha256').update(JSON.stringify([valid, send], (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).digest('hex')
 
+    // A replay uses the originally frozen terms, even when the live contract has since changed.
+    const replay = await this.db.withTenant(tenantId, tx => tx.booking.findUnique({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } }, select: { id: true, reference: true, status: true, version: true, closedAt: true, searchSnapshot: true } }))
+    if (replay) {
+      if ((replay.searchSnapshot as { manual?: { requestFingerprint?: string } } | null)?.manual?.requestFingerprint !== fingerprint) throw new ConflictException({ message: 'This idempotency key was already used for a different request', code: 'IDEMPOTENCY_CONFLICT' })
+      return { bookingId: replay.id, reference: replay.reference, status: replay.status as BookingStatus, version: replay.version, closed: replay.closedAt !== null, replayed: true }
+    }
+
     // The API database role (not the booking role) confirms the hotel and the agency belong to this operator and that the agency is active.
-    const [hotel, agency] = await this.prisma.withTenant(tenantId, (t) => Promise.all([t.hotel.findFirst({ where: { id: valid.hotelId, tenantId }, select: { id: true } }), t.agency.findFirst({ where: { id: valid.agencyId, tenantId }, select: { id: true, status: true } })]))
+    const [hotel, agency] = await this.prisma.withTenant(tenantId, (t) => Promise.all([t.hotel.findFirst({ where: { id: valid.hotelId, tenantId }, select: { id: true, timeZone: true } }), t.agency.findFirst({ where: { id: valid.agencyId, tenantId }, select: { id: true, status: true } })]))
     if (!hotel) throw bad('Hotel not found for this operator', 'HOTEL_NOT_FOUND')
     if (!agency) throw bad('Agency not found for this operator', 'AGENCY_NOT_FOUND')
     if (agency.status !== 'ACTIVE') throw new ConflictException({ message: 'New bookings are blocked for an agency that is not active', code: 'AGENCY_NOT_ACTIVE' })
+
+    // Read contract terms through the supply principal; never grant the booking role contract access.
+    const linked = valid.ratePlanId ? await this.prisma.withTenant(tenantId, async (tx) => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: valid.ratePlanId!, tenantId }, include: { contract: { include: { cancellationPolicies: true, supplier: true } }, roomType: true } })
+      if (!plan || plan.roomType.hotelId !== valid.hotelId || plan.contract.status !== 'ACTIVE' || plan.status !== 'ACTIVE' || plan.contract.supplier.status !== 'ACTIVE') throw bad('Choose an active rate plan belonging to this hotel', 'CONTRACT_PLAN_INVALID')
+      if (plan.currency !== valid.currency || plan.contract.settlementCurrency !== valid.currency || plan.contract.supplier.displayName !== valid.supplier) throw bad('The plan currency and supplier must match the booking', 'CONTRACT_PLAN_MISMATCH')
+      const from = new Date(`${valid.checkIn}T00:00:00Z`); const to = new Date(Date.parse(`${valid.checkOut}T00:00:00Z`) - 86_400_000)
+      if (from < plan.contract.validFrom || to > plan.contract.validTo || (plan.validFrom && from < plan.validFrom) || (plan.validTo && to > plan.validTo)) throw bad('The stay is outside the contract or plan validity', 'CONTRACT_PLAN_INVALID')
+      const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies)
+      const terms = freezeCancellationTerms(resolved.rules, valid.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights: valid.nights, timeZone: hotel.timeZone, contractId: plan.contract.id, contractVersion: plan.contract.version, ratePlanId: plan.id })
+      const read = readFrozenTerms(terms)
+      if (resolved.missing || !terms || read.kind !== 'frozen' || (plan.refundable && read.rules.length === 0)) throw bad('The plan has no usable cancellation policy', 'CONTRACT_POLICY_UNAVAILABLE')
+      const cancelDeadline = new CancellationPolicyService().freeCancellationDeadline({ refundable: plan.refundable, checkIn: valid.checkIn, timeZone: hotel.timeZone, rules: read.rules })
+      return { terms, supplierId: plan.contract.supplierId, refundable: plan.refundable, cancelDeadline: cancelDeadline ? new Date(cancelDeadline) : null }
+    }) : null
 
     return this.db.withTenantWrite(tenantId, async (tx) => {
       const existing = await tx.booking.findUnique({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } }, select: { id: true, reference: true, status: true, version: true, closedAt: true, searchSnapshot: true } })
@@ -166,10 +191,10 @@ export class BookingActionsService {
       const reference = `FB-${randomBytes(10).toString('hex').toUpperCase()}`
       const snapshot = { source: 'manual', manual: { requestFingerprint: fingerprint, enteredBy: userId }, checkIn: valid.checkIn, checkOut: valid.checkOut, nights: valid.nights, currency: valid.currency, sellMinor: valid.sellMinor.toString() }
       const created = await tx.booking.create({ data: {
-        tenantId, reference, supplier: valid.supplier, hotelId: valid.hotelId, status: 'PENDING_SUPPLIER', currency: valid.currency, totalMinor: valid.sellMinor, idempotencyKey: key, searchSnapshot: snapshot,
+        tenantId, reference, supplier: valid.supplier, ...(linked ? { supplierId: linked.supplierId } : {}), hotelId: valid.hotelId, status: 'PENDING_SUPPLIER', currency: valid.currency, totalMinor: valid.sellMinor, idempotencyKey: key, searchSnapshot: snapshot,
         agencyId: valid.agencyId, channel: 'MANUAL', agentRef: valid.agentRef, checkIn: new Date(`${valid.checkIn}T00:00:00Z`), checkOut: new Date(`${valid.checkOut}T00:00:00Z`), nights: valid.nights,
-        netMinor: valid.netMinor, markupMinor: valid.markupMinor, paymentMode: valid.paymentMode, isRefundable: valid.isRefundable, cancelDeadline: valid.cancelDeadline,
-        cancellationPolicy: valid.cancellationRules ? ({ rules: valid.cancellationRules, frozenAt: new Date().toISOString(), source: 'MANUAL_ENTRY' } as unknown as Prisma.InputJsonObject) : undefined,
+        netMinor: valid.netMinor, markupMinor: valid.markupMinor, paymentMode: valid.paymentMode, isRefundable: linked ? linked.refundable : valid.isRefundable, cancelDeadline: linked ? linked.cancelDeadline : valid.cancelDeadline,
+        cancellationPolicy: linked ? linked.terms as Prisma.InputJsonObject : valid.cancellationRules ? ({ rules: valid.cancellationRules, frozenAt: new Date().toISOString(), source: 'MANUAL_ENTRY', timeZone: hotel.timeZone } as unknown as Prisma.InputJsonObject) : undefined,
       }, select: { id: true, version: true } })
       const rooms = []
       for (const room of valid.rooms) rooms.push(await tx.bookingRoom.create({ data: { tenantId, bookingId: created.id, position: room.position, roomName: room.roomName, boardCode: room.boardCode, adults: room.adults, children: room.children, childAges: room.childAges }, select: { id: true } }))

@@ -328,4 +328,31 @@ describe('Admin booking lifecycle (PostgreSQL, HTTP, strict API role + booking r
     await expect(owner.$executeRawUnsafe(`UPDATE "BookingEvent" SET reason = 'tamper' WHERE booking_id = '${b.id}'`)).rejects.toThrow(/append-only/)
     expect(await state(b.id)).toMatchObject({ status: 'ON_REQUEST' })
   })
+  it('manual contract-linked entry freezes the plan clauses and replays after a live contract change', async () => {
+    const supplier = await owner.supplier.create({ data: { tenantId: tenantA, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: suffix, displayName: `${suffix}-linked`, countryCode: 'AE', defaultCurrency: 'AED' } })
+    const room = await owner.roomType.create({ data: { hotelId: hotelA, name: 'Linked room', code: `${suffix}-linked`, maxAdults: 2, maxOccupancy: 2 } })
+    const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'RO', name: 'Room only' } })
+    const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, code: `${suffix}-linked`, status: 'ACTIVE', validFrom: new Date('2020-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED', clientBufferDays: 2 } })
+    const plan = await owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `${suffix}-linked`, status: 'ACTIVE', occupancy: 2, currency: 'AED', cancellationPolicySet: 'Flexible' } })
+    await owner.cancellationPolicy.createMany({ data: [{ contractId: contract.id, policySet: 'Flexible', daysBeforeCheckin: 3, penaltyNights: 1 }, { contractId: contract.id, policySet: 'Flexible', kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }, { contractId: contract.id, daysBeforeCheckin: 30, penaltyPercent: 100 }] })
+    const body = manual({ supplier: supplier.displayName, ratePlanId: plan.id, isRefundable: undefined })
+    const k = key()
+    try {
+      const created = (await post('', 'lead', body, k).expect(201)).body.data
+      expect(await owner.booking.findUniqueOrThrow({ where: { id: created.bookingId } })).toMatchObject({ supplierId: supplier.id, isRefundable: true, cancellationPolicy: { source: 'CONTRACT_AT_BOOKING', contractId: contract.id, contractVersion: 1, ratePlanId: plan.id, bufferDays: 2, stayNights: 3, rules: [{ daysBeforeCheckin: 5, penaltyNights: 1 }], noShow: { penaltyPercent: 100 } } })
+      expect(code(await post('', 'lead', { ...body, isRefundable: false }))).toBe('CONTRACT_TERMS_OVERRIDE')
+      expect(code(await post('', 'lead', { ...body, supplier: 'Wrong supplier' }))).toBe('CONTRACT_PLAN_MISMATCH')
+      await owner.contract.update({ where: { id: contract.id }, data: { status: 'SUSPENDED' } })
+      expect((await post('', 'lead', body, k).expect(201)).body.data).toMatchObject({ bookingId: created.bookingId, replayed: true })
+      expect(code(await post('', 'lead', body))).toBe('CONTRACT_PLAN_INVALID')
+    } finally {
+      await owner.booking.deleteMany({ where: { tenantId: tenantA, supplierId: supplier.id } })
+      await owner.ratePlan.delete({ where: { id: plan.id } })
+      await owner.contract.delete({ where: { id: contract.id } })
+      await owner.roomType.delete({ where: { id: room.id } })
+      await owner.boardBasis.delete({ where: { id: board.id } })
+      await owner.supplier.delete({ where: { id: supplier.id } })
+    }
+  })
+
 })

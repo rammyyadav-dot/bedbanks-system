@@ -20,10 +20,10 @@ describe('booking module database role (ADR 0039)', () => {
       `GRANT UPDATE ("status", "attempt", "run_after", "locked_until", "last_error_code", "provider_message_id", "sent_at", "updated_at") ON "BookingEmail" TO "${BOOKING_OPS_GROUP_ROLE}"`,
       `GRANT UPDATE ("assignee_user_id", "assigned_at", "assigned_by_user_id", "acknowledged_at", "acknowledged_by_user_id", "manual_priority", "escalated_at", "escalated_by_user_id", "escalation_reason", "follow_up", "follow_up_at", "resolved_at", "resolved_by_user_id", "version", "updated_at") ON "BookingOpsState" TO "${BOOKING_OPS_GROUP_ROLE}"`,
     ])
-    expect(statements.filter((q) => q.startsWith('GRANT EXECUTE'))).toEqual([`GRANT EXECUTE ON FUNCTION "fbeds_booking_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_email_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_checkout_due_tenants"(date) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_close_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_has_ledger_entries"(text) TO "${BOOKING_OPS_GROUP_ROLE}"`])
+    expect(statements.filter((q) => q.startsWith('GRANT EXECUTE'))).toEqual([`GRANT EXECUTE ON FUNCTION "fbeds_booking_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_email_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_checkout_due_tenants"(date) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_close_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_has_ledger_entries"(text) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_release_cancelled_inventory"(text) TO "${BOOKING_OPS_GROUP_ROLE}"`])
     expect(statements.filter((q) => /DELETE/i.test(q))).toEqual([`GRANT DELETE ON "BookingSavedView" TO "${BOOKING_OPS_GROUP_ROLE}"`]) // the only delete there is
     expect(statements.join(' ').replace(/GRANT DELETE ON "BookingSavedView"[^\n]*?(?=GRANT|$)/, '')).not.toMatch(/DELETE|TRUNCATE|ALL PRIVILEGES|WITH GRANT OPTION|BYPASSRLS|REFERENCES|TRIGGER/i)
-    expect(statements.length).toBe(1 + 15 + 14 + 9 + 5 + 1)
+    expect(statements.length).toBe(1 + 15 + 14 + 9 + 6 + 1)
   })
 
   it('BO-02: no grant reaches ledger, wallet, audit, identity or hotel tables, and the two lists never overlap', () => {

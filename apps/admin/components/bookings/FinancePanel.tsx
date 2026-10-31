@@ -49,7 +49,7 @@ function Body({ f, onChanged }: { f: BookingFinanceView; onChanged: (message: st
   const [busy, setBusy] = useState<BookingDocumentType | null>(null)
   const [error, setError] = useState<string | null>(null)
   const issued = new Map(f.documents.map((x) => [x.type, x]))
-  const open = !f.closed && (f.status === 'CANCEL_REQUESTED' || f.status === 'CANCELLED') && !issued.has('CREDIT_NOTE') && !issued.has('CANCELLATION_NOTE')
+  const open = !f.closed && (f.status === 'CANCEL_REQUESTED' || f.status === 'CANCELLED' || f.status === 'NO_SHOW') && !issued.has('CREDIT_NOTE') && !issued.has('CANCELLATION_NOTE')
   const decide = open && f.penalty.state === 'NEEDS_DECISION' && f.can.decidePenalty
   const waive = open && (f.penalty.state === 'QUOTED' || f.penalty.state === 'DECIDED' || f.penalty.state === 'WAIVED') && f.can.waivePenalty && f.penalty.penaltyMinor !== '0'
   const amounts = f.penalty.state === 'QUOTED' || f.penalty.state === 'DECIDED' || f.penalty.state === 'WAIVED' ? f.penalty : null

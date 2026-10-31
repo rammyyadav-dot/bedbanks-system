@@ -272,6 +272,8 @@ export interface BookingWriteResult {
 
 /** `POST /admin/operations/bookings`: a manual (offline or phone) booking, behind `ADMIN_MANUAL_BOOKING_ENABLED`. No supplier is called, no credit is used. */
 export interface ManualBookingRequest {
+  /** Selects authoritative cancellation terms. Omit only for an offline booking outside loaded contracts. */
+  ratePlanId?: string
   agencyId: string
   hotelId: string
   supplier: string
@@ -285,7 +287,7 @@ export interface ManualBookingRequest {
   isRefundable?: boolean
   cancelDeadline?: string
   /** The cancellation terms of this booking, frozen with it. Without them the penalty of a later cancellation is a person's decision, never a guess. `penaltyMinor` is a string of minor units. */
-  cancellationRules?: Array<{ daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string }>
+  cancellationRules?: Array<{ daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: string; penaltyNights?: number }>
   agentRef?: string
   rooms: Array<{ roomName: string; boardCode?: string; adults: number; children?: number; childAges?: number[] }>
   guests: Array<{ title?: string; firstName: string; lastName: string; isLead?: boolean; type?: 'ADULT' | 'CHILD'; age?: number }>

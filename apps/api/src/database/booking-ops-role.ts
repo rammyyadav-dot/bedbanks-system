@@ -46,7 +46,7 @@ export const BOOKING_OPS_UPDATE_COLUMNS = {
   BookingOpsState: ['assignee_user_id', 'assigned_at', 'assigned_by_user_id', 'acknowledged_at', 'acknowledged_by_user_id', 'manual_priority', 'escalated_at', 'escalated_by_user_id', 'escalation_reason', 'follow_up', 'follow_up_at', 'resolved_at', 'resolved_by_user_id', 'version', 'updated_at'],
 } as const
 /** Phase 3: the function the runner may call, to learn which tenants have due jobs (returns tenant ids only); ADR 0066 adds its twin for the email dispatcher; Phase 6E adds the one for the Checked-out job. */
-export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)', '"fbeds_booking_email_due_tenants"(timestamp)', '"fbeds_booking_checkout_due_tenants"(date)', '"fbeds_booking_close_due_tenants"(timestamp)', '"fbeds_booking_has_ledger_entries"(text)'] as const
+export const BOOKING_OPS_FUNCTIONS = ['"fbeds_booking_due_tenants"(timestamp)', '"fbeds_booking_email_due_tenants"(timestamp)', '"fbeds_booking_checkout_due_tenants"(date)', '"fbeds_booking_close_due_tenants"(timestamp)', '"fbeds_booking_has_ledger_entries"(text)', '"fbeds_booking_release_cancelled_inventory"(text)'] as const
 export const BOOKING_OPS_INSERT_TABLES = ['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingAmendment'] as const
 /**
  * The ONE table the role may DELETE from: a person's own saved booking views (Phase 6B). They are preferences, not records: no evidence is lost by removing one, and the

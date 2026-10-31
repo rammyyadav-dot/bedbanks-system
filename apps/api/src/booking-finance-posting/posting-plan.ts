@@ -55,6 +55,7 @@ export interface PostingFacts {
   payableMinor: bigint
   /** A CANCELLED event of this booking exists earlier than this event. */
   cancelledBefore: boolean
+  noShow?: boolean
 }
 
 export interface LedgerLeg { type: LedgerLegType; amountMinor: bigint; reference: string; idempotencyKey: string }
@@ -139,10 +140,11 @@ export function planPosting(event: PostingEvent, facts: PostingFacts): PostingPl
       return post([{ type: 'RELEASE', amountMinor: facts.heldMinor, reference: ref, idempotencyKey: releaseKey(facts.bookingId) }])
     }
 
+    case 'NO_SHOW':
     case 'CANCELLED':
     case 'PENALTY_DECIDED':
     case 'PENALTY_WAIVED': {
-      if (event.type !== 'CANCELLED' && !facts.cancelledBefore) return skip('AWAITS_CANCELLATION')
+      if (event.type !== 'CANCELLED' && event.type !== 'NO_SHOW' && !facts.cancelledBefore) return skip('AWAITS_CANCELLATION')
       // A cancellation recorded with no determined penalty carries null amounts: money is never guessed. A later decision or waiver carries them.
       if (event.penaltyMinor === null || event.refundMinor === null) return skip('PENALTY_UNDETERMINED')
       if (event.penaltyMinor + event.refundMinor !== event.sellMinor) return review('EVENT_INCONSISTENT')
@@ -158,7 +160,7 @@ export function planPosting(event: PostingEvent, facts: PostingFacts): PostingPl
       const legs: LedgerLeg[] = delta > 0n ? [{ type: 'REFUND', amountMinor: delta, reference: ref, idempotencyKey: refundKey(facts.bookingId, target, facts.refundedMinor) }] : []
       if (needsWallet(legs)) return review('NO_WALLET')
       // The integrity monitor ties a cancelled, charged booking to its Cancellation record: write it (also for a refund of zero) or bring it to the refund now decided.
-      const recordNeeded = facts.cancellationRefundMinor !== target
+      const recordNeeded = event.type !== 'NO_SHOW' && !facts.noShow && facts.cancellationRefundMinor !== target
       if (legs.length === 0 && payable === null && !recordNeeded) return skip('NOTHING_TO_ADD')
       return post(legs, payable, notes, recordNeeded ? target : null)
     }

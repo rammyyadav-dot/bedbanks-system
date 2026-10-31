@@ -34,7 +34,7 @@ describe('BookingReconciliationService', () => {
     expect(result.items).toEqual([{ holdId: 'hold-a', bookingId: 'booking-a', outcome: 'reconciled' }])
     expect(finance.release).toHaveBeenCalledWith(expect.objectContaining({ walletId: 'wallet-a', bookingId: 'booking-a', amountMinor: 6000n, idempotencyKey: 'booking:booking-a:authorize' }))
     expect(holds.release).toHaveBeenCalledWith('tenant-a', 'hold-a', 'req-a:reconcile', { type: 'USER', userId: 'user-a' })
-    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING_SUPPLIER', closedAt: null }, data: { status: 'FAILED' } }) // via transitionBooking
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING_SUPPLIER', version: 1, closedAt: null }, data: { status: 'FAILED' } }) // via transitionBooking
     expect(tx.bookingEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ fromStatus: 'PENDING_SUPPLIER', toStatus: 'FAILED', action: 'systemFail', actorType: 'SYSTEM', idempotencyKey: 'reconcile:booking-a:fail' }) })
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.reconciled', userId: 'user-a' }))
   })
@@ -56,7 +56,7 @@ describe('BookingReconciliationService', () => {
   it('expires a prebooked booking that was never confirmed within the window and returns wallet and inventory', async () => {
     const { service, finance, holds, tx, audit } = setup({ prebookedMinutesAgo: 61 })
     expect((await run(service)).items[0].outcome).toBe('prebook_expired')
-    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING_SUPPLIER', closedAt: null }, data: { status: 'FAILED' } }) // via transitionBooking
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a', status: 'PENDING_SUPPLIER', version: 1, closedAt: null }, data: { status: 'FAILED' } }) // via transitionBooking
     expect(tx.bookingEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ fromStatus: 'PENDING_SUPPLIER', toStatus: 'FAILED', action: 'systemFail', actorType: 'SYSTEM', idempotencyKey: 'reconcile:booking-a:fail' }) })
     expect(finance.release).toHaveBeenCalledTimes(1); expect(holds.release).toHaveBeenCalledTimes(1)
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.expired', payload: expect.objectContaining({ prebookMaxMinutes: 60 }) }))

@@ -1,3 +1,5 @@
+import { parseMajorToMinor } from './minor-units'
+
 /** Cancellation rule sets on a contract (ADR 0057). Blank set name = the contract default. The API owns validation. */
 export interface SetRule { policySet?: string | null }
 
@@ -30,8 +32,14 @@ export function describeRule(rule: RuleText, money: (minor: string, currency: st
 }
 
 /** The penalty part of a new rule from the form: a percent or a number of nights. Null when the value is not a whole number. */
-export function penaltyFromInput(form: 'PERCENT' | 'NIGHTS', value: string): { penaltyPercent: number } | { penaltyNights: number } | null {
+export function penaltyFromInput(form: 'PERCENT' | 'NIGHTS' | 'FIXED', value: string, currency?: string): { penaltyPercent: number } | { penaltyNights: number } | { penaltyMinor: string; currency: string } | null {
+  if (form === 'FIXED') {
+    if (!currency) return null
+    const minor = parseMajorToMinor(value, currency)
+    return minor === null ? null : { penaltyMinor: minor, currency }
+  }
   if (!/^\d{1,3}$/.test(value.trim())) return null
   const n = Number(value)
+  if (form === 'NIGHTS' ? n < 1 || n > 30 : n > 100) return null
   return form === 'NIGHTS' ? { penaltyNights: n } : { penaltyPercent: n }
 }
