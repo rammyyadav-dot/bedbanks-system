@@ -23,7 +23,7 @@ export function HotelManagementTabs({ data, tab, visibleTabs }: { data: HotelCom
     { label: `Rate Plans (${counts})`, tab: 'rateplans' },
     { label: liveDeals === null ? 'Deals & Promos' : `Deals & Promos (${liveDeals})`, tab: 'rateplans', view: 'promotions' },
     { label: 'Rate Grid', tab: 'rates', view: 'grid', unavailable: can('supply.rates.manage') ? undefined : 'Editing the rate grid requires rate management permission.' },
-    { label: 'Event Master', unavailable: 'Event Master is not available in this application.' },
+    { label: 'Event Master', href: can('supply.room_events.read') ? '/room-events' : undefined, unavailable: can('supply.room_events.read') ? undefined : 'Event Master requires room event read permission.' },
     { label: 'Meal Plans', href: can('supply.rates.read') ? '/board-basis' : undefined, unavailable: can('supply.rates.read') ? undefined : 'Meal plans require rate read permission.' },
     { label: 'Blackout Dates', tab: 'quick' },
     { label: 'Allocation Mgmt', tab: 'inventory', secondary: true },
