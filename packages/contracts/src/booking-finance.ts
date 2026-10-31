@@ -7,7 +7,7 @@
  */
 import type { BookingStatus } from './operations'
 
-export const BOOKING_FINANCE_EVENT_TYPES = ['CONFIRMED', 'ON_REQUEST_HOLD', 'HOLD_RELEASED', 'CANCELLED', 'PENALTY_DECIDED', 'PENALTY_WAIVED', 'AMENDED'] as const
+export const BOOKING_FINANCE_EVENT_TYPES = ['CONFIRMED', 'ON_REQUEST_HOLD', 'HOLD_RELEASED', 'CANCELLED', 'NO_SHOW', 'PENALTY_DECIDED', 'PENALTY_WAIVED', 'AMENDED'] as const
 export type BookingFinanceEventType = (typeof BOOKING_FINANCE_EVENT_TYPES)[number]
 
 export const BOOKING_DOCUMENT_TYPES = ['VOUCHER', 'INVOICE', 'CREDIT_NOTE', 'CANCELLATION_NOTE'] as const
@@ -63,8 +63,8 @@ export function parseFrozenRules(value: unknown): FrozenCancellationRule[] | nul
 
 /** The penalty worked out when cancellation was requested, stored on that request's BookingEvent. All amounts are decimal strings of minor units. */
 export type StoredPenaltyQuote =
-  | { status: 'quotable'; currency: string; sellMinor: string; penaltyMinor: string; refundMinor: string; ruleDaysBeforeCheckin: number | null; basis: 'RULE' | 'NON_REFUNDABLE'; evaluatedAt: string }
-  | { status: 'needs_decision'; reason: 'policy_unavailable' | 'manual_review_required' | 'refundability_unknown'; detail: string; evaluatedAt: string }
+  | { status: 'quotable'; currency: string; sellMinor: string; penaltyMinor: string; refundMinor: string; ruleDaysBeforeCheckin: number | null; basis: 'RULE' | 'NON_REFUNDABLE' | 'NO_SHOW'; evaluatedAt: string; bookingVersion?: number }
+  | { status: 'needs_decision'; reason: 'policy_unavailable' | 'manual_review_required' | 'refundability_unknown'; detail: string; evaluatedAt: string; bookingVersion?: number }
 
 /** A split of the sell amount. Invalid input (negative, more than the sell amount) is refused, never clamped. */
 export function splitSell(sellMinor: bigint, penaltyMinor: bigint): { penaltyMinor: bigint; refundMinor: bigint } | null {
@@ -138,11 +138,11 @@ export function documentBlock(type: BookingDocumentType, f: DocumentEligibilityF
   if (f.issued.includes(type)) return 'ALREADY_ISSUED'
   if (!f.hasConfirmedEvent) return 'NOT_CONFIRMED'
   if (type === 'VOUCHER') {
-    if (f.status === 'CANCELLED' || f.status === 'CANCEL_REQUESTED') return 'BOOKING_CANCELLED'
+    if (f.status === 'CANCELLED' || f.status === 'CANCEL_REQUESTED' || f.status === 'NO_SHOW') return 'BOOKING_CANCELLED'
     return f.hotelConfirmationNo ? null : 'HOTEL_CONFIRMATION_REQUIRED'
   }
   if (type === 'INVOICE') return null
-  if (f.status !== 'CANCELLED') return 'NOT_CANCELLED'
+  if (f.status !== 'CANCELLED' && !(f.status === 'NO_SHOW' && type === 'CREDIT_NOTE')) return 'NOT_CANCELLED'
   if (f.penalty.state === 'NOT_REQUESTED' || f.penalty.state === 'NEEDS_DECISION') return 'PENALTY_DECISION_REQUIRED'
   if (type === 'CREDIT_NOTE') {
     if (f.penalty.refundMinor === '0') return 'NOTHING_TO_CREDIT'

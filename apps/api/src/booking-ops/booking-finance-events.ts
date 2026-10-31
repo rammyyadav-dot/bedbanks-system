@@ -19,7 +19,7 @@ export const isRequestingCancellation = (action: BookingAction) => REQUESTING_CA
 /** Reads the penalty quote that was stored on the request that started this cancellation, and the decisions recorded since. */
 export async function currentPenalty(tx: Prisma.TransactionClient, booking: FinanceBooking, requested: boolean) {
   const [request, events] = await Promise.all([
-    tx.bookingEvent.findFirst({ where: { tenantId: booking.tenantId, bookingId: booking.id, toStatus: 'CANCEL_REQUESTED', action: { in: ['requestCancellation', 'systemRequestCancellation'] } }, orderBy: { createdAt: 'desc' }, select: { payload: true } }),
+    tx.bookingEvent.findFirst({ where: { tenantId: booking.tenantId, bookingId: booking.id, action: { in: ['requestCancellation', 'systemRequestCancellation', 'markNoShow'] } }, orderBy: { createdAt: 'desc' }, select: { payload: true } }),
     tx.bookingFinanceEvent.findMany({ where: { tenantId: booking.tenantId, bookingId: booking.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { type: true, penaltyMinor: true, createdAt: true } }),
   ])
   const quote = ((request?.payload as { penaltyQuote?: StoredPenaltyQuote } | null)?.penaltyQuote ?? null)
@@ -47,11 +47,11 @@ export async function emitTransitionFinance(tx: Prisma.TransactionClient, bookin
     if (held > released) await write('HOLD_RELEASED', { payload: { action } })
     return
   }
-  if (COMPLETING_CANCEL.has(action)) {
+  if (COMPLETING_CANCEL.has(action) || action === 'markNoShow') {
     const { penalty } = await currentPenalty(tx, booking, true)
     const determined = penalty.state === 'QUOTED' || penalty.state === 'DECIDED' || penalty.state === 'WAIVED'
     // An undetermined penalty is recorded as unknown (null), never as zero: a person must decide before any credit note exists.
-    await write('CANCELLED', determined
+    await write(action === 'markNoShow' ? 'NO_SHOW' : 'CANCELLED', determined
       ? { penaltyMinor: BigInt(penalty.penaltyMinor), refundMinor: BigInt(penalty.refundMinor), payload: { action, penaltyState: penalty.state } }
       : { payload: { action, penaltyState: 'NEEDS_DECISION' } })
   }

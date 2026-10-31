@@ -29,7 +29,7 @@ export const SKIP_TEXT: Record<PostingSkipReason, string> = {
 }
 
 export const EVENT_TEXT: Record<string, string> = {
-  CONFIRMED: 'Confirmed', ON_REQUEST_HOLD: 'On-request hold', HOLD_RELEASED: 'Hold released', CANCELLED: 'Cancelled',
+  CONFIRMED: 'Confirmed', ON_REQUEST_HOLD: 'On-request hold', HOLD_RELEASED: 'Hold released', CANCELLED: 'Cancelled', NO_SHOW: 'No-show',
   PENALTY_DECIDED: 'Penalty decided', PENALTY_WAIVED: 'Penalty waived', AMENDED: 'Amended',
 }
 

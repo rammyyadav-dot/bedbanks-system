@@ -3,7 +3,7 @@ import type { BookingDocumentType, BookingFinanceEventType, DocumentBlock, Effec
 import { parseMajorToMinor } from './minor-units'
 
 export const FINANCE_EVENT_LABEL: Record<BookingFinanceEventType, string> = {
-  CONFIRMED: 'Confirmed: amount due recorded', ON_REQUEST_HOLD: 'On request: amount held', HOLD_RELEASED: 'Hold released', CANCELLED: 'Cancelled: penalty and refund recorded', PENALTY_DECIDED: 'Penalty decided', PENALTY_WAIVED: 'Penalty waived (reduced)', AMENDED: 'Amended: price difference recorded',
+  NO_SHOW: 'No-show: penalty and refund recorded', CONFIRMED: 'Confirmed: amount due recorded', ON_REQUEST_HOLD: 'On request: amount held', HOLD_RELEASED: 'Hold released', CANCELLED: 'Cancelled: penalty and refund recorded', PENALTY_DECIDED: 'Penalty decided', PENALTY_WAIVED: 'Penalty waived (reduced)', AMENDED: 'Amended: price difference recorded',
 }
 export const DOCUMENT_LABEL: Record<BookingDocumentType, string> = { VOUCHER: 'Voucher', INVOICE: 'Invoice', CREDIT_NOTE: 'Credit note', CANCELLATION_NOTE: 'Cancellation note' }
 export const DOCUMENT_ROUTE: Record<BookingDocumentType, string> = { VOUCHER: 'voucher', INVOICE: 'invoice', CREDIT_NOTE: 'credit-note', CANCELLATION_NOTE: 'cancellation-note' }
@@ -26,6 +26,7 @@ export function penaltySummary(p: EffectivePenalty): string {
 export function quoteSummary(q: StoredPenaltyQuote | null): string {
   if (!q) return 'No cancellation terms apply yet.'
   if (q.status === 'needs_decision') return `${NEEDS_DECISION_COPY[q.reason] ?? q.detail} A person must decide the penalty.`
+  if (q.basis === 'NO_SHOW') return 'From the no-show clause frozen with this booking.'
   if (q.basis === 'NON_REFUNDABLE') return 'Non-refundable: the whole amount would be retained.'
   return q.ruleDaysBeforeCheckin === null ? 'Outside every penalty window: the whole amount would be refunded.' : `Inside the “within ${q.ruleDaysBeforeCheckin} day(s) of check-in” window.`
 }

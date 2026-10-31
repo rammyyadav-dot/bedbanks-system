@@ -81,7 +81,7 @@ export class BookingFinanceService {
         return { bookingId, kind: replay.type === 'PENALTY_WAIVED' ? 'WAIVE' : 'DECIDE', penaltyMinor: String(replay.penaltyMinor), refundMinor: String(replay.refundMinor), replayed: true } satisfies BookingPenaltyResult
       }
       if (b.closedAt) throw new ConflictException({ message: 'This booking is closed and locked for edits', code: 'BOOKING_CLOSED' })
-      if (b.status !== 'CANCEL_REQUESTED' && b.status !== 'CANCELLED') throw new ConflictException({ message: 'A penalty applies only to a booking whose cancellation was requested', code: 'PENALTY_NOT_OPEN' })
+      if (b.status !== 'CANCEL_REQUESTED' && b.status !== 'CANCELLED' && b.status !== 'NO_SHOW') throw new ConflictException({ message: 'A penalty applies only to a booking whose cancellation was requested', code: 'PENALTY_NOT_OPEN' })
       const issued = await tx.bookingDocument.count({ where: { tenantId, bookingId, type: { in: ['CREDIT_NOTE', 'CANCELLATION_NOTE'] } } })
       if (issued > 0) throw new ConflictException({ message: 'Cancellation documents were already issued, so the penalty can no longer change', code: BOOKING_FINANCE_FAILURE.documentsIssued })
 
@@ -92,7 +92,7 @@ export class BookingFinanceService {
         if (!access.permissions.includes('booking.cancel.nonrefundable')) throw refuse('You do not have permission to decide a cancellation penalty')
       } else {
         if (!access.permissions.includes('booking.penalty.waive.approve')) throw refuse('You do not have permission to approve a penalty waiver')
-        const requester = await tx.bookingEvent.findFirst({ where: { tenantId, bookingId, toStatus: 'CANCEL_REQUESTED', action: { in: ['requestCancellation', 'systemRequestCancellation'] } }, orderBy: { createdAt: 'desc' }, select: { actorId: true } })
+        const requester = await tx.bookingEvent.findFirst({ where: { tenantId, bookingId, action: { in: ['requestCancellation', 'systemRequestCancellation', 'markNoShow'] } }, orderBy: { createdAt: 'desc' }, select: { actorId: true } })
         if (requester?.actorId === userId) throw refuse('The person who requested the cancellation cannot approve its waiver', BOOKING_FINANCE_FAILURE.selfWaive)
       }
       const type: BookingFinanceEventType = change.kind === 'WAIVE' ? 'PENALTY_WAIVED' : 'PENALTY_DECIDED'
@@ -147,7 +147,7 @@ export class BookingFinanceService {
 
   // ---- internals --------------------------------------------------------------------------------------------------------
   private async state(tx: Prisma.TransactionClient, tenantId: string, b: { id: string; status: string; currency: string; totalMinor: bigint; netMinor?: bigint | null; paymentMode: string | null; hotelConfirmationNo: string | null }) {
-    const requested = b.status === 'CANCEL_REQUESTED' || b.status === 'CANCELLED'
+    const requested = b.status === 'CANCEL_REQUESTED' || b.status === 'CANCELLED' || b.status === 'NO_SHOW'
     const [rows, docs] = await Promise.all([
       tx.bookingFinanceEvent.findMany({ where: { tenantId, bookingId: b.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
       tx.bookingDocument.findMany({ where: { tenantId, bookingId: b.id }, orderBy: { issuedAt: 'asc' }, select: { id: true, type: true, number: true, issuedAt: true } }),

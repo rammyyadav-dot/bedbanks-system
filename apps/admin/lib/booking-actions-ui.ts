@@ -106,6 +106,7 @@ export interface ManualRoomForm { roomName: string; boardCode: string; adults: s
 export interface ManualGuestForm { title: string; firstName: string; lastName: string; isLead: boolean }
 export interface ManualForm {
   sendToSupplier: boolean
+  ratePlanId?: string
   agencyId: string; hotelId: string; supplier: string; checkIn: string; checkOut: string; currency: string; sell: string; net: string
   paymentMode: '' | 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL'; refundable: '' | 'yes' | 'no'; cancelDeadline: string; agentRef: string
   rooms: ManualRoomForm[]; guests: ManualGuestForm[]
@@ -113,7 +114,7 @@ export interface ManualForm {
   rules: RuleForm[]
 }
 export const emptyManualForm = (currency = 'AED'): ManualForm => ({
-  sendToSupplier: false, agencyId: '', hotelId: '', supplier: '', checkIn: '', checkOut: '', currency, sell: '', net: '', paymentMode: '', refundable: '', cancelDeadline: '', agentRef: '',
+  sendToSupplier: false, ratePlanId: '', agencyId: '', hotelId: '', supplier: '', checkIn: '', checkOut: '', currency, sell: '', net: '', paymentMode: '', refundable: '', cancelDeadline: '', agentRef: '',
   rooms: [{ roomName: '', boardCode: '', adults: '2', children: '0', childAges: '' }], guests: [{ title: '', firstName: '', lastName: '', isLead: true }], rules: [],
 })
 
@@ -153,8 +154,8 @@ export function buildManualRequest(form: ManualForm): { request: ManualBookingRe
   if (Object.keys(errors).length) return { errors }
   const request: ManualBookingRequest = {
     agencyId: form.agencyId, hotelId: form.hotelId, supplier: form.supplier.trim(), checkIn: form.checkIn, checkOut: form.checkOut, currency: form.currency, sellMinor: sellMinor as string, rooms, guests,
-    ...(form.sendToSupplier ? { sendToSupplier: true } : {}), ...(netMinor ? { netMinor } : {}), ...(form.paymentMode ? { paymentMode: form.paymentMode } : {}), ...(form.refundable ? { isRefundable: form.refundable === 'yes' } : {}),
-    ...(form.cancelDeadline ? { cancelDeadline: new Date(form.cancelDeadline).toISOString() } : {}), ...(form.agentRef.trim() ? { agentRef: form.agentRef.trim() } : {}), ...(cancellationRules ? { cancellationRules } : {}),
+    ...(form.sendToSupplier ? { sendToSupplier: true } : {}), ...(netMinor ? { netMinor } : {}), ...(form.paymentMode ? { paymentMode: form.paymentMode } : {}), ...(!form.ratePlanId && form.refundable ? { isRefundable: form.refundable === 'yes' } : {}),
+    ...(!form.ratePlanId && form.cancelDeadline ? { cancelDeadline: new Date(form.cancelDeadline).toISOString() } : {}), ...(form.agentRef.trim() ? { agentRef: form.agentRef.trim() } : {}), ...(!form.ratePlanId && cancellationRules ? { cancellationRules } : {}), ...(form.ratePlanId ? { ratePlanId: form.ratePlanId } : {}),
   }
   return { request }
 }

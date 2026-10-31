@@ -123,7 +123,8 @@ export class BookingFinancePostingService {
       heldMinor: hold ? -hold.amountMinor : null, holdReleased: Boolean(released || settleReleased),
       chargedMinor: debit ? -debit.amountMinor : null, refundedMinor: refunded, payableMinor: payable._sum.amountMinor ?? 0n,
       cancellationRefundMinor: cancellation ? cancellation.refundMinor ?? 0n : null,
-      cancelledBefore: before.some((h) => h.type === 'CANCELLED'),
+      noShow: found.type === 'NO_SHOW' || before.some((h) => h.type === 'NO_SHOW'),
+      cancelledBefore: before.some((h) => h.type === 'CANCELLED' || h.type === 'NO_SHOW'),
       laterAmendments: history.filter((h) => h.type === 'AMENDED' && earlier(found, h)).map((h) => ({ sellMinor: h.sellMinor, netMinor: h.netMinor ?? booking.netMinor })),
     }
     const plan = planPosting(event, facts)

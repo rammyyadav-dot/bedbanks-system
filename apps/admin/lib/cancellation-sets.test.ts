@@ -24,3 +24,12 @@ test('rules read with their penalty form and kind (ADR 0067, F-10)', () => {
   assert.deepEqual(penaltyFromInput('PERCENT', '50'), { penaltyPercent: 50 })
   assert.equal(penaltyFromInput('PERCENT', '5.5'), null)
 })
+
+test('fixed penalties use the contract currency precision and reject invalid amounts', () => {
+  assert.deepEqual(penaltyFromInput('FIXED', '125.05', 'AED'), { penaltyMinor: '12505', currency: 'AED' })
+  assert.equal(penaltyFromInput('FIXED', '-1', 'AED'), null)
+  assert.equal(penaltyFromInput('FIXED', '1.001', 'AED'), null)
+  assert.equal(penaltyFromInput('FIXED', '10'), null)
+  assert.equal(penaltyFromInput('PERCENT', '101'), null)
+  assert.equal(penaltyFromInput('NIGHTS', '0'), null)
+})

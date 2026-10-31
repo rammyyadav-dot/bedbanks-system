@@ -14,7 +14,7 @@ import { buyerRules, type CancellationRule, type NoShowPenalty } from './cancell
 export const FROZEN_SOURCE = 'CONTRACT_AT_BOOKING'
 
 interface LiveRule { kind?: string; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: bigint | null; penaltyNights?: number | null; currency: string | null }
-export interface FreezeContext { bufferDays: number; stayNights: number }
+export interface FreezeContext { bufferDays: number; stayNights: number; timeZone?: string; contractId?: string; contractVersion?: number; ratePlanId?: string }
 
 type Frozen = Record<string, unknown>
 /** One rule as stored, or null when it cannot be stored faithfully (two forms, or a fixed penalty in another currency). */
@@ -29,6 +29,9 @@ function freezeRule(rule: LiveRule, bookingCurrency: string): Frozen | null {
 
 /** The JSON to store, or null when the live rules cannot be frozen faithfully. Never stores an ambiguous rule, and never more than one no-show rule. */
 export function freezeCancellationTerms(rules: readonly LiveRule[], bookingCurrency: string, setName: string | null, now: Date, context: FreezeContext): Record<string, unknown> | null {
+  if (context.timeZone !== undefined) {
+    try { new Intl.DateTimeFormat('en', { timeZone: context.timeZone }).format() } catch { return null }
+  }
   const tiers = buyerRules(rules.filter((rule) => rule.kind !== 'NO_SHOW'), context.bufferDays)
   const noShows = rules.filter((rule) => rule.kind === 'NO_SHOW')
   if (noShows.length > 1) return null
@@ -41,7 +44,7 @@ export function freezeCancellationTerms(rules: readonly LiveRule[], bookingCurre
   if (frozen.length > 0 && parseFrozenRules(frozen) === null) return null
   const noShow = noShows[0] ? freezeRule(noShows[0], bookingCurrency) : undefined
   if (noShow === null) return null
-  return { rules: frozen, setName, frozenAt: now.toISOString(), source: FROZEN_SOURCE, stayNights: context.stayNights, bufferDays: context.bufferDays, ...(noShow ? { noShow } : {}) }
+  return { rules: frozen, setName, frozenAt: now.toISOString(), source: FROZEN_SOURCE, stayNights: context.stayNights, bufferDays: context.bufferDays, ...(context.timeZone !== undefined ? { timeZone: context.timeZone } : {}), ...(context.contractId ? { contractId: context.contractId, contractVersion: context.contractVersion, ratePlanId: context.ratePlanId } : {}), ...(noShow ? { noShow } : {}) }
 }
 
 export type FrozenTerms = { kind: 'none' } | { kind: 'invalid' } | { kind: 'frozen'; rules: CancellationRule[]; setName: string | null; stayNights: number | null; noShow: NoShowPenalty | null }

@@ -36,7 +36,7 @@ function setup(overrides: { existing?: any; hold?: any; createError?: Error; age
       create: overrides.createError ? jest.fn().mockRejectedValue(overrides.createError) : jest.fn().mockResolvedValue(booking),
     },
     inventoryHold: { findFirst: jest.fn().mockResolvedValue(overrides.hold === undefined ? hold : overrides.hold) },
-    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', settlementCurrency: 'AED', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
+    ratePlan: { findFirst: jest.fn().mockResolvedValue(overrides.plan === undefined ? { roomType: { hotel: { timeZone: 'Asia/Dubai' } }, cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', settlementCurrency: 'AED', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } } : overrides.plan) },
     fxRate: { findFirst: jest.fn().mockResolvedValue(overrides.fxRate ?? null) },
     agencyMember: { findUnique: jest.fn().mockResolvedValue(overrides.agencyId === null ? null : { agencyId: overrides.agencyId ?? 'agency-a' }) },
     roomType: { findFirst: jest.fn().mockResolvedValue({ name: 'Deluxe Sea View' }) },
@@ -62,7 +62,7 @@ describe('BookingPersistenceService', () => {
     const { service, tx } = setup()
     tx.ratePlan.findFirst
       .mockResolvedValueOnce({ contract: { tenantId: 'tenant-a', supplierId: 'supplier-a' } })
-      .mockResolvedValueOnce({ cancellationPolicySet: null, contract: { settlementCurrency: 'AED', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 25, penaltyMinor: null, currency: null }] } })
+      .mockResolvedValueOnce({ roomType: { hotel: { timeZone: 'Asia/Dubai' } }, cancellationPolicySet: null, contract: { settlementCurrency: 'AED', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 3, penaltyPercent: 25, penaltyMinor: null, currency: null }] } })
     await service.persistPending(command)
     expect(tx.ratePlan.findFirst).toHaveBeenCalledTimes(2)
     expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({
@@ -194,7 +194,7 @@ describe('BookingPersistenceService', () => {
   })
 
   describe('controlled FX (ADR 0067 F-12)', () => {
-    const usdPlan = { cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', settlementCurrency: 'USD', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } }
+    const usdPlan = { roomType: { hotel: { timeZone: 'Asia/Dubai' } }, cancellationPolicySet: null, contract: { tenantId: 'tenant-a', supplierId: 'supplier-a', settlementCurrency: 'USD', cancellationPolicies: [{ policySet: null, daysBeforeCheckin: 7, penaltyPercent: 50, penaltyMinor: null, currency: null }] } }
 
     it('freezes the ACTIVE rate with its buffer when the contract is in another currency', async () => {
       const { service, tx } = setup({ plan: usdPlan, fxRate: { rateScaled: 367_250_000n, bufferBp: 100, activatedAt: new Date('2098-11-01T00:00:00.000Z') } })

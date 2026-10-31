@@ -101,13 +101,13 @@ export class BookingPersistenceService {
         const checkIn = new Date(`${command.checkIn}T00:00:00.000Z`)
         const checkOut = new Date(`${command.checkOut}T00:00:00.000Z`)
         // Finding F13: the terms the buyer was shown are frozen onto the booking, so a later contract edit cannot change a cancellation or a voucher.
-        const plan = await tx.ratePlan.findFirst({ where: { id: command.ratePlanId, tenantId: command.tenantId }, include: { contract: { include: { cancellationPolicies: true } } } })
+        const plan = await tx.ratePlan.findFirst({ where: { id: command.ratePlanId, tenantId: command.tenantId }, include: { contract: { include: { cancellationPolicies: true } }, roomType: { include: { hotel: true } } } })
         if (!plan) throw new ConflictException('Rate plan is unavailable')
         const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies)
         if (resolved.missing) throw new ConflictException('The rate plan names a cancellation rule set that has no rules')
         // ADR 0067 F-10: the buyer's tiers (after the contract's client buffer) and the stay length a nights penalty counts against.
         const stayNights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
-        const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights })
+        const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights, timeZone: plan.roomType.hotel.timeZone, contractId: plan.contract.id, contractVersion: plan.contract.version, ratePlanId: plan.id })
         if (frozenTerms === null) throw new ConflictException('The cancellation terms of this rate plan cannot be recorded on the booking')
         // ADR 0067 F-12: a contract in another currency was priced at the ACTIVE controlled rate; that rate (with its buffer) is frozen on the
         // booking for reports. No rate, or a rate activated after the hold was priced, refuses the booking so the agent re-checks at today's rate.
@@ -120,6 +120,7 @@ export class BookingPersistenceService {
         const created = await tx.booking.create({
           data: {
             cancellationPolicy: frozenTerms as Prisma.InputJsonObject,
+            isRefundable: plan.refundable,
             tenantId: command.tenantId,
             reference: bookingReference(command),
             supplier: 'PENDING_SUPPLIER',

@@ -38,10 +38,11 @@ export class CancellationSettlementService {
       const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
       if (locked.length !== 1) return result('not_found')
       const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId }, select: { id: true, tenantId: true, status: true, currency: true, totalMinor: true, netMinor: true, paymentMode: true } })
-      if (booking.status !== 'CANCELLED') return result('not_cancelled')
+      if (booking.status !== 'CANCELLED' && booking.status !== 'NO_SHOW') return result('not_cancelled')
       const debit = await tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: `booking:${bookingId}:authorize:settle-debit`, type: 'DEBIT' } })
       if (!debit) return result('not_ledger_charged') // a booking the agency was never charged for on the ledger (for example a manual booking)
       const charged = -debit.amountMinor
+      if (debit.currency !== booking.currency || charged !== booking.totalMinor) return result('review_required')
       const walletRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Wallet" WHERE "id" = ${debit.walletId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
       if (walletRows.length !== 1) return result('review_required')
 
@@ -54,7 +55,7 @@ export class CancellationSettlementService {
       const target = BigInt(penalty.refundMinor)
       if (!refundWithin({ refundMinor: target, authorizedRefundableMinor: charged }) || target < posted) return result('review_required', target)
       const delta = target - posted
-      if (delta === 0n && cancellation && cancellation.refundMinor === target) return result('already_settled', target, 0n)
+      if (delta === 0n && ((cancellation && cancellation.refundMinor === target) || (booking.status === 'NO_SHOW' && await tx.auditEvent.findFirst({ where: { tenantId, entityType: 'booking', entityId: bookingId, action: 'booking.no_show.settled' }, select: { id: true } })))) return result('already_settled', target, 0n)
 
       if (delta > 0n) {
         await appendLedgerEntry(tx, {
@@ -62,9 +63,12 @@ export class CancellationSettlementService {
           idempotencyKey: posted === 0n ? `booking:${bookingId}:cancel-refund` : `booking:${bookingId}:cancel-refund:${target}`,
         })
       }
-      if (cancellation) await tx.cancellation.update({ where: { bookingId }, data: { refundMinor: target } })
-      else await tx.cancellation.create({ data: { bookingId, reason: `Settled by finance (${input.source})`, refundMinor: target } })
-      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.cancellation.settled', entityType: 'booking', entityId: bookingId, payload: {
+      // No-show refunds use the same ledger idempotency keys, without a false Cancellation record.
+      if (booking.status === 'CANCELLED') {
+        if (cancellation) await tx.cancellation.update({ where: { bookingId }, data: { refundMinor: target } })
+        else await tx.cancellation.create({ data: { bookingId, reason: `Settled by finance (${input.source})`, refundMinor: target } })
+      }
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: booking.status === 'NO_SHOW' ? 'booking.no_show.settled' : 'booking.cancellation.settled', entityType: 'booking', entityId: bookingId, payload: {
         requestId, source: input.source, penaltyState: penalty.state, penaltyMinor: penalty.penaltyMinor, refundMinor: target.toString(), postedMinor: delta.toString(), walletId: debit.walletId, currency: debit.currency,
       } } })
       return result(posted === 0n ? 'settled' : 'topped_up', target, delta)
@@ -101,8 +105,7 @@ export class CancellationSettlementService {
     return this.prisma.withTenant(tenantId, async tx => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT b."id" FROM "Booking" b
-         WHERE b."tenant_id" = ${tenantId} AND b."status" = 'CANCELLED'
-           AND NOT EXISTS (SELECT 1 FROM "Cancellation" c WHERE c."booking_id" = b."id")
+         WHERE b."tenant_id" = ${tenantId} AND ((b."status" = 'CANCELLED' AND NOT EXISTS (SELECT 1 FROM "Cancellation" c WHERE c."booking_id" = b."id")) OR (b."status" = 'NO_SHOW' AND NOT EXISTS (SELECT 1 FROM "AuditEvent" a WHERE a."tenant_id" = b."tenant_id" AND a."entity_type" = 'booking' AND a."entity_id" = b."id" AND a."action" = 'booking.no_show.settled' AND a."created_at" >= COALESCE((SELECT max(f."created_at") FROM "BookingFinanceEvent" f WHERE f."tenant_id" = b."tenant_id" AND f."booking_id" = b."id" AND f."type" IN ('PENALTY_DECIDED', 'PENALTY_WAIVED')), b."created_at"))))
            AND EXISTS (SELECT 1 FROM "LedgerEntry" e WHERE e."tenant_id" = b."tenant_id" AND e."idempotency_key" = 'booking:' || b."id" || ':authorize:settle-debit')
          ORDER BY b."updated_at" ASC, b."id" ASC
          LIMIT ${take}`)

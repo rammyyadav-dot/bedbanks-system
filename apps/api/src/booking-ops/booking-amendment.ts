@@ -24,17 +24,18 @@ export interface AmendmentSubjectRow { id: string; version: number; status: stri
 /** Locks the booking row for the length of the transaction and reads what an amendment needs. */
 export async function loadAmendmentSubject(tx: Tx, tenantId: string, bookingId: string): Promise<AmendmentSubjectRow | null> {
   await tx.$queryRaw`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`
-  const b = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, version: true, status: true, currency: true, paymentMode: true, totalMinor: true, netMinor: true, checkIn: true, checkOut: true, nights: true, cancelDeadline: true, searchSnapshot: true, rooms: { orderBy: { position: 'asc' }, select: { position: true, adults: true, children: true, childAges: true } } } })
-  return b && { ...b, inventoryBacked: typeof (b.searchSnapshot as { inventoryHoldId?: unknown } | null)?.inventoryHoldId === 'string' }
+  const b = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, version: true, status: true, currency: true, paymentMode: true, totalMinor: true, netMinor: true, checkIn: true, checkOut: true, nights: true, cancelDeadline: true, searchSnapshot: true, cancellationPolicy: true, rooms: { orderBy: { position: 'asc' }, select: { position: true, adults: true, children: true, childAges: true } } } })
+  return b && { ...b, inventoryBacked: typeof (b.searchSnapshot as { inventoryHoldId?: unknown } | null)?.inventoryHoldId === 'string' || (b.cancellationPolicy as { source?: unknown } | null)?.source === 'CONTRACT_AT_BOOKING' }
 }
 
 /**
  * A booking sold from contracted inventory has nights allocated against its hold. Changing its stay or occupancy would have to move that inventory and the frozen
  * snapshot the documents and cancellation read, which is not built (ADR 0101), so such a change is refused instead of leaving them on the old stay.
+ * Contract-linked manual stays likewise require revalidation before their frozen cancellation terms can cover a different stay (ADR 0106).
  */
 function refuseInventoryBacked(subject: AmendmentSubjectRow, changes: AmendmentChange[]) {
   if (subject.inventoryBacked && changes.length > 0) {
-    throw new ConflictException({ message: 'This booking was sold from contracted inventory. Changing its dates or occupancy needs the inventory re-allocated, which is not built yet. Cancel and rebook instead.', code: BOOKING_AMENDMENT_FAILURE.inventoryBacked })
+    throw new ConflictException({ message: 'This booking uses hotel contract terms. Changing dates or occupancy requires revalidating the contracted stay and cancellation terms. Cancel and rebook instead.', code: BOOKING_AMENDMENT_FAILURE.inventoryBacked })
   }
 }
 

@@ -91,6 +91,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   const needsSecond = Boolean(rule.secondConfirmationWhenNonRefundable) && (input.level === 'AGENCY' || booking.isRefundable !== true)
   if (needsSecond && input.confirmNonRefundable !== true) throw new UnprocessableEntityException({ message: 'This booking is not known to be refundable. Confirm a second time to continue.', code: 'CONFIRMATION_REQUIRED' })
 
+  if (input.penaltyQuote?.bookingVersion !== undefined && input.penaltyQuote.bookingVersion !== booking.version) throw new ConflictException({ message: 'The stay changed while the penalty was being quoted. Reload and try again.', code: 'STALE_STATUS' })
   const closing = rule.locks === true
   const data: Prisma.BookingUpdateManyMutationInput = { status: rule.to }
   const writesRefs = input.action === 'recordConfirmed' || input.action === 'confirmOnRequest' || input.action === 'systemConfirm' || input.action === 'systemConfirmOnRequest'
@@ -100,8 +101,10 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   if (rule.bumpsVersion) data.version = { increment: 1 }
   if (closing) data.closedAt = input.now
   // Compare-and-set: only the row in the status the caller saw, and not locked, is changed.
-  const changed = await tx.booking.updateMany({ where: { id: booking.id, tenantId: input.tenantId, status: rule.from, closedAt: null }, data })
+  const changed = await tx.booking.updateMany({ where: { id: booking.id, tenantId: input.tenantId, status: rule.from, version: booking.version, closedAt: null }, data })
   if (changed.count !== 1) throw new ConflictException({ message: 'The booking changed while you were working. Reload and try again.', code: 'STALE_STATUS' })
+
+  if (input.emitFinance && (input.action === 'confirmCancellation' || input.action === 'systemCompleteCancellation')) await tx.$queryRaw`SELECT fbeds_booking_release_cancelled_inventory(${booking.id})::text`
 
   const payload: Record<string, Prisma.InputJsonValue> = { ...(input.eventPayload ?? {}) }
   if (supplierCancellationRef) payload.supplierCancellationRef = supplierCancellationRef
@@ -111,7 +114,7 @@ export async function transitionBooking(tx: Prisma.TransactionClient, input: Tra
   if (input.action === 'approveAmendment') payload.amendment = 'approved'
   if (input.action === 'rejectAmendment') payload.amendment = 'rejected'
   if (closing) payload.closed = true
-  if (input.emitFinance && input.penaltyQuote && isRequestingCancellation(input.action)) payload.penaltyQuote = input.penaltyQuote as unknown as Prisma.InputJsonObject
+  if (input.emitFinance && input.penaltyQuote && (isRequestingCancellation(input.action) || input.action === 'markNoShow')) payload.penaltyQuote = input.penaltyQuote as unknown as Prisma.InputJsonObject
   await tx.bookingEvent.create({ data: {
     tenantId: input.tenantId, bookingId: booking.id, fromStatus: rule.from, toStatus: rule.to, actorType: input.actor.type, actorId: input.actor.id ?? null,
     reason: reason ?? null, action: input.action, payload, idempotencyKey: input.idempotencyKey ?? null, requestFingerprint: input.idempotencyKey ? fingerprint : null,

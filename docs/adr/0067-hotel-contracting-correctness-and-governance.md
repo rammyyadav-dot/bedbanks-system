@@ -133,7 +133,7 @@ Migration `202611200005_release_per_night` adds the nullable column with a range
 
 Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns with checks; every existing rule is a CANCELLATION tier and every contract has a buffer of 0.
 
-**Not built.** Marking a booking NO_SHOW does not yet post the no-show penalty: the booking-ops action records the status only, as before. Nights are charged pro rata of the total, not at each night's own price.
+**Completion.** ADR 0106 applies the frozen no-show clause through the finance outbox and settlement paths. Nights remain pro rata of the total, not each night's own price.
 
 ## F-05: Rates per occupancy (single, double, triple)
 

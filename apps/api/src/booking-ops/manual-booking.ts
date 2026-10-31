@@ -7,6 +7,7 @@ import { enabledCurrency } from '../agent/currency'
  * Money is integer minor units (strings in, bigint out): there is no floating point anywhere in this file.
  */
 export interface ValidManualBooking {
+  ratePlanId: string | null
   agencyId: string; hotelId: string; supplier: string
   checkIn: string; checkOut: string; nights: number
   currency: string; sellMinor: bigint; netMinor: bigint | null; markupMinor: bigint | null
@@ -44,6 +45,8 @@ function minor(value: unknown, field: string): bigint {
 }
 
 export function validateManualBooking(body: Partial<ManualBookingRequest>): ValidManualBooking {
+  const ratePlanId = str(body.ratePlanId, 'ratePlanId', 64, false)
+  if (ratePlanId && (body.cancellationRules != null || body.cancelDeadline != null || body.isRefundable !== undefined)) throw bad('A contract-linked booking takes its refundability, deadline and rules from the rate plan', 'CONTRACT_TERMS_OVERRIDE')
   const checkIn = day(body.checkIn, 'checkIn'); const checkOut = day(body.checkOut, 'checkOut')
   const nights = Math.round((checkOut.ms - checkIn.ms) / 86_400_000)
   if (nights < 1 || nights > 365) throw bad('checkOut must be 1 to 365 nights after checkIn')
@@ -84,7 +87,7 @@ export function validateManualBooking(body: Partial<ManualBookingRequest>): Vali
     isLead: leads === 1 ? g.isLead === true : i === 0, type: (g.type === 'CHILD' ? 'CHILD' : 'ADULT') as 'ADULT' | 'CHILD', age: g.age === undefined || g.age === null ? null : int(g.age, `guests[${i}].age`, 0, 120),
   }))
   return {
-    agencyId: str(body.agencyId, 'agencyId', 64) as string, hotelId: str(body.hotelId, 'hotelId', 64) as string, supplier: str(body.supplier, 'supplier', 80) as string,
+    ratePlanId, agencyId: str(body.agencyId, 'agencyId', 64) as string, hotelId: str(body.hotelId, 'hotelId', 64) as string, supplier: str(body.supplier, 'supplier', 80) as string,
     checkIn: checkIn.text, checkOut: checkOut.text, nights, currency, sellMinor, netMinor, markupMinor: netMinor === null ? null : sellMinor - netMinor, paymentMode: paymentMode as ValidManualBooking['paymentMode'],
     isRefundable: body.isRefundable ?? null, cancelDeadline, agentRef: str(body.agentRef, 'agentRef', 64, false), cancellationRules, rooms, guests,
   }
