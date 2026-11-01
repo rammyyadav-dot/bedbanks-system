@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common'
 import { SupplyController } from './supply.controller'
 import { SupplyService } from './supply.service'
 import { AgentAuditService } from '../agent/audit.service'
+import { CancellationPolicyService } from '../agent/cancellation-policy.service'
+import { LedgerService } from '../agent/ledger.service'
+import { CancellationNotificationService } from './cancellation-notification.service'
 import { AuthModule } from '../auth/auth.module'
 import { MappingController } from './mapping.controller'
 import { MappingService } from './mapping.service'
@@ -23,6 +26,6 @@ import { MarketValidityService } from '../agent/market-validity.service'
 @Module({
   imports: [AuthModule, ApprovalsModule],
   controllers: [SupplyController, MappingController, RatePlanApprovalController, ContractApprovalController, RoomEventsController, EventSupplementsController],
-  providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService, RoomEventsService, EventSupplementsService, MarketValidityService],
+  providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, CancellationPolicyService, LedgerService, CancellationNotificationService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService, RoomEventsService, EventSupplementsService, MarketValidityService],
 })
 export class SupplyModule {}
