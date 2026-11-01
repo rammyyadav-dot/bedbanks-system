@@ -1,6 +1,62 @@
 // Authoritative Admin API access. No mock or fallback data lives in this module.
 
-import { contractLifecycleRoutes, routes, supplyRoutes, type ContractActivationRequestInput, type ContractAmendmentRequestInput, type ContractApprovalExecuteResult, type ContractApprovalView, type ContractLifecycleView, type ContractTransitionInput, type TenantSettingsView, type UpdateTenantSettingsRequest, type SellabilityRequest, type SellabilityResult, type SupplyCapabilities } from '@bedbanks/contracts'
+import {
+  contractLifecycleRoutes,
+  routes,
+  supplyRoutes,
+  type ContractActivationRequestInput,
+  type ContractAmendmentRequestInput,
+  type ContractApprovalExecuteResult,
+  type ContractApprovalView,
+  type ContractLifecycleView,
+  type ContractTransitionInput,
+  type TenantSettingsView,
+  type UpdateTenantSettingsRequest,
+  type SellabilityRequest,
+  type SellabilityResult,
+  type SupplyCapabilities,
+  type ContractPoliciesRead,
+  type CancellationPolicyRead,
+  type CancellationPolicyWrite,
+  type CancellationPolicySimulationRequest,
+  type CancellationPolicySimulationResult,
+  type ConnectorDefinitionRead,
+  type ConnectorDefinitionWrite,
+  type ConnectorInventoryIngestRequest,
+  type ConnectorInventoryIngestResult,
+  type ExecuteSupplierCancellationRequest,
+  type ExecuteSupplierCancellationResult,
+  type WalletLedgerSummaryRead,
+  type PostLedgerAdjustmentRequest,
+  type PostLedgerAdjustmentResult,
+  type DispatchCancellationVoucherRequest,
+  type CancellationVoucherDeliveryRead,
+  type CalendarImportPreview,
+  type CalendarImportRequest,
+  type CalendarEdit,
+  type CalendarPreview,
+  type RatePlanReadiness,
+  type RatePlanCloneRequest,
+  type RatePlanCapabilities,
+  type RatePlanActivationApproval,
+  type RatePlanActivationRequestInput,
+  type RatePlanApprovalExecuteResult,
+  type RatePlanGuestPrices,
+  type RatePlanGuestPricesInput,
+  type RatePlanPromotions,
+  type RatePlanPromotionsInput,
+  type HotelPromotionBulkApplyInput,
+  type HotelPromotionBulkApplyResult,
+  type RatePlanDerivation,
+  type RatePlanDerivationInput,
+  type SourceMarketGroupRead,
+  type SourceMarketGroupWrite,
+  type SourceMarketGroupUpdate,
+  type ContractMarketValidityUpsertRequest,
+  type ContractMarketValidityProfileRead,
+  type RatePlanMarketValidationRequest,
+  type RatePlanMarketValidationResult,
+} from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
 
@@ -53,6 +109,23 @@ export interface SupplementRecord extends Omit<import('@bedbanks/contracts').Con
 export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
 export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
+export async function getContractPolicies(contractId: string) {
+  return apiRequest<ContractPoliciesRead>(`/supply/contracts/${encodeURIComponent(contractId)}/policies`)
+}
+export async function createContractCancellationPolicy(contractId: string, input: CancellationPolicyWrite) {
+  return apiRequest<CancellationPolicyRead>(`/supply/contracts/${encodeURIComponent(contractId)}/policies/cancellation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+export async function simulateContractCancellationPolicy(contractId: string, input: CancellationPolicySimulationRequest) {
+  return apiRequest<CancellationPolicySimulationResult>(`/supply/contracts/${encodeURIComponent(contractId)}/policies/cancellation/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
 /** Server-paginated, server-filtered and server-sorted contract list (the unpaged getContracts stays for pickers only). */
 export async function getContractPortfolio(params: Record<string, string | number | boolean>) {
   const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))
@@ -127,7 +200,49 @@ export async function createRatePlan(input: RatePlanInput) { return apiRequest<A
 export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
-import type { CalendarImportPreview, CalendarImportRequest, CalendarEdit, CalendarPreview, RatePlanReadiness, RatePlanCloneRequest, RatePlanCapabilities, RatePlanActivationApproval, RatePlanActivationRequestInput, RatePlanApprovalExecuteResult, RatePlanGuestPrices, RatePlanGuestPricesInput, RatePlanPromotions, RatePlanPromotionsInput, HotelPromotionBulkApplyInput, HotelPromotionBulkApplyResult, RatePlanDerivation, RatePlanDerivationInput } from '@bedbanks/contracts'
+export async function getConnectors() { return apiRequest<ConnectorDefinitionRead[]>('/supply/connectors'); }
+export async function createConnector(input: ConnectorDefinitionWrite) {
+  return apiRequest<ConnectorDefinitionRead>('/supply/connectors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function ingestConnectorInventory(connectorId: string, input: ConnectorInventoryIngestRequest) {
+  return apiRequest<ConnectorInventoryIngestResult>(`/supply/connectors/${encodeURIComponent(connectorId)}/ingest-inventory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function executeSupplierCancellation(input: ExecuteSupplierCancellationRequest) {
+  return apiRequest<ExecuteSupplierCancellationResult>('/supply/cancellations/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function getWalletLedgerSummaries() {
+  return apiRequest<WalletLedgerSummaryRead[]>('/supply/finance/ledger-adjustments');
+}
+export async function postLedgerAdjustment(input: PostLedgerAdjustmentRequest) {
+  return apiRequest<PostLedgerAdjustmentResult>('/supply/finance/ledger-adjustments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function getCancellationVouchers() {
+  return apiRequest<CancellationVoucherDeliveryRead[]>('/supply/notifications/cancellation-vouchers');
+}
+export async function dispatchCancellationVoucher(input: DispatchCancellationVoucherRequest) {
+  return apiRequest<CancellationVoucherDeliveryRead[]>('/supply/notifications/cancellation-vouchers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
 export type { CalendarImportPreview } from '@bedbanks/contracts'
 export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
@@ -169,3 +284,58 @@ export async function getHotelRatePlans(hotelId: string, input: { search?: strin
   for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== '') query.set(key, String(value))
   return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean; statusCounts?: Record<'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED', number> }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
 }
+
+// Source Market Profiling, Grouping & Contract/Rate Plan Market Validity (ADR 0104).
+export type {
+  SourceMarketGroupRead,
+  SourceMarketGroupWrite,
+  SourceMarketGroupUpdate,
+  MarketValidityRuleRead,
+  MarketValidityRuleWrite,
+  ContractMarketValidityUpsertRequest,
+  ContractMarketValidityProfileRead,
+  RatePlanMarketValidationRequest,
+  RatePlanMarketValidationResult,
+} from '@bedbanks/contracts'
+
+export const getSourceMarketGroups = () =>
+  apiRequest<SourceMarketGroupRead[]>(supplyRoutes.sourceMarketGroups)
+
+export const createSourceMarketGroup = (input: SourceMarketGroupWrite) =>
+  apiRequest<SourceMarketGroupRead>(supplyRoutes.sourceMarketGroups, {
+    method: 'POST',
+    headers: json,
+    body: JSON.stringify(input),
+  })
+
+export const updateSourceMarketGroup = (groupId: string, input: SourceMarketGroupUpdate) =>
+  apiRequest<SourceMarketGroupRead>(supplyRoutes.sourceMarketGroup.replace(':groupId', encodeURIComponent(groupId)), {
+    method: 'PATCH',
+    headers: json,
+    body: JSON.stringify(input),
+  })
+
+export const getContractMarketValidity = (contractId: string) =>
+  apiRequest<ContractMarketValidityProfileRead>(supplyRoutes.contractMarketValidity.replace(':contractId', encodeURIComponent(contractId)))
+
+export const upsertContractMarketValidity = (contractId: string, input: ContractMarketValidityUpsertRequest) =>
+  apiRequest<ContractMarketValidityProfileRead>(supplyRoutes.contractMarketValidity.replace(':contractId', encodeURIComponent(contractId)), {
+    method: 'POST',
+    headers: json,
+    body: JSON.stringify(input),
+  })
+
+export const deleteContractMarketValidityRule = (contractId: string, ruleId: string) =>
+  apiRequest<{ id: string; deleted: boolean }>(
+    supplyRoutes.contractMarketValidityRule
+      .replace(':contractId', encodeURIComponent(contractId))
+      .replace(':ruleId', encodeURIComponent(ruleId)),
+    { method: 'DELETE' },
+  )
+
+export const validateRatePlanMarket = (ratePlanId: string, input: RatePlanMarketValidationRequest) =>
+  apiRequest<RatePlanMarketValidationResult>(
+    supplyRoutes.ratePlanValidateMarket.replace(':ratePlanId', encodeURIComponent(ratePlanId)),
+    { method: 'POST', headers: json, body: JSON.stringify(input) },
+  )
+

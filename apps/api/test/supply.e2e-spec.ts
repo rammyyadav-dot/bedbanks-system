@@ -269,9 +269,30 @@ describe('Supply HTTP authorization boundaries', () => {
     expect(policies.body.data.childPolicies.some((row: { id: string }) => row.id === child.body.data.id)).toBe(true)
     expect(policies.body.data.leadTimeRules.some((row: { id: string }) => row.id === lead.body.data.id)).toBe(true)
 
+    await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation`).send({ daysBeforeCheckin: 7, penaltyPercent: 100 }).expect(400)
     await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation`).send({ daysBeforeCheckin: 3, penaltyPercent: 50, penaltyMinor: '1000' }).expect(400)
     await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/child`).send({ minAge: 4, maxAge: 8 }).expect(400)
     await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractBId}/policies/lead-time`).send({ minLeadHours: 1 }).expect(404)
+
+    const simulated = await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractAId}/policies/cancellation/simulate`).send({
+      checkIn: '2026-12-31',
+      requestedAt: '2026-12-28T12:00:00.000Z',
+      currency: 'AED',
+      cancellableAmountMinor: '40000',
+    }).expect(201)
+    expect(simulated.body.data).toMatchObject({
+      status: 'quotable',
+      policyResolution: 'RESOLVED',
+      penaltyMinor: '20000',
+      refundMinor: '20000',
+      customerRefundPayableMinor: '20000',
+    })
+    await supply(cookie, tenantAId).post(`/api/v1/supply/contracts/${contractBId}/policies/cancellation/simulate`).send({
+      checkIn: '2026-12-31',
+      requestedAt: '2026-12-28T12:00:00.000Z',
+      currency: 'AED',
+      cancellableAmountMinor: '40000',
+    }).expect(404)
     await expect(prisma.auditEvent.findFirst({ where: { tenantId: tenantAId, entityId: contractAId, action: 'supply.contract.updated' } })).resolves.toMatchObject({ payload: { outcome: 'allowed', requestId } })
 
     await prisma.cancellationPolicy.delete({ where: { id: cancellation.body.data.id } })

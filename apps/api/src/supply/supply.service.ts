@@ -8,6 +8,14 @@ import { enabledCurrency } from '../agent/currency'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
+import { CancellationPolicyService, type CancellationSimulationRule } from '../agent/cancellation-policy.service'
+import { LedgerService } from '../agent/ledger.service'
+import { CancellationNotificationService } from './cancellation-notification.service'
+import {
+  assertApprovedSecretReference,
+  evaluateBedbankCancellationExecution,
+  normalizeConnectorInventoryPayload,
+} from './bedbank-connector.adapter'
 import type { Prisma } from '@prisma/client'
 import { evaluateContractedStay } from './contracted-sellability'
 import { assessPlanSelect } from './assess-plan-select'
@@ -16,7 +24,20 @@ import { evaluatePlanNight, occupancySplit, starRatingValid, type AssessPlan } f
 import { buildStaySnapshot } from './stay-snapshot'
 import { markupResolverFor } from './markup-rules'
 import { loadActiveMarkupRulesInTx } from './markup-rules.loader'
-import { HOTEL_STAR_RATING_MISSING, PRICE_GUARDRAIL } from '@bedbanks/contracts'
+import {
+  HOTEL_STAR_RATING_MISSING,
+  MARKET_INCLUSIONS,
+  MARKET_MATCH_TYPES,
+  PRICE_GUARDRAIL,
+  type CancellationVoucherChannel,
+  type ConnectorFormatType,
+  type ContractMarketValidityProfileRead,
+  type MarketInclusion,
+  type MarketMatchType,
+  type MarketValidityRuleRead,
+  type MarketValidityRuleWrite,
+  type SourceMarketGroupRead,
+} from '@bedbanks/contracts'
 import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
 import { RatePlanCloneDatabase } from './rate-plan-clone-database'
@@ -34,6 +55,7 @@ import { MAX_SUPPLEMENTS, supplementTerm } from './supplements'
 import { isLargePriceChange, largeChangeWarning } from './price-guardrails'
 import { supplementReferenceProblem } from './supplement-references'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
+import { MarketValidityService } from '../agent/market-validity.service'
 
 const date = calendarDate
 /** A contract's sales-market or nationality list: ISO-3166 alpha-2 codes, normalized to upper case. Anything else is refused rather than stored (ADR 0035). */
@@ -87,10 +109,29 @@ const planMarketsOrThrow = (input: Record<string, unknown>, current: { salesMark
 }
 const dateOrNull = (value: string | null): Date | null => (value ? new Date(`${value}T00:00:00.000Z`) : null)
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
+const minorBigInt = (value: unknown, field: string): bigint => {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value)
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return BigInt(value.trim())
+  throw new BadRequestException(`Invalid ${field}`)
+}
 
 @Injectable()
 export class SupplyService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService, @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase, @Optional() private readonly ratePlanClone?: RatePlanCloneDatabase) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AgentAuditService,
+    @Optional() private readonly cancellationPolicy?: CancellationPolicyService,
+    @Optional() private readonly ledger?: LedgerService,
+    @Optional() private readonly notifications?: CancellationNotificationService,
+    @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase,
+    @Optional() private readonly ratePlanClone?: RatePlanCloneDatabase,
+    @Optional() private readonly marketValidity?: MarketValidityService,
+  ) { void this.audit }
+  private async permittedAny(tenantId: string, userId: string, permissions: readonly string[]) {
+    const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
+    const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
+    if (!permissions.some((permission) => keys.includes(permission))) throw new ForbiddenException('Insufficient permission')
+  }
   private async permitted(tenantId: string, userId: string, permission: string) {
     const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
     const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
@@ -462,8 +503,94 @@ export class SupplyService {
       return { id: value.id, value: { ...value, penaltyMinor: value.penaltyMinor?.toString() ?? null } }
     })
   }
+  async simulateCancellationPolicy(tenantId: string, userId: string, contractId: string, input: any) {
+    await this.check(tenantId, userId, 'supply.contracts.read')
+    const contract = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({
+      where: { id: contractId, tenantId },
+      include: {
+        cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } },
+        supplierHotelMapping: { include: { hotel: { select: { timeZone: true } } } },
+      },
+    }))
+    if (!contract) throw new NotFoundException('Contract not found')
+    const checkIn = clean(input.checkIn)
+    const requestedAt = clean(input.requestedAt)
+    const currency = clean(input.currency || contract.settlementCurrency).toUpperCase()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !requestedAt || !/^[A-Z]{3}$/.test(currency)) {
+      throw new BadRequestException('Invalid simulation parameters')
+    }
+    const policyType = input.policyType ?? 'REFUNDABLE'
+    if (!['REFUNDABLE', 'NON_REFUNDABLE', 'CONDITIONAL'].includes(policyType)) {
+      throw new BadRequestException('Invalid policyType')
+    }
+    const deadlineSemantics = input.deadlineSemantics ?? 'CALENDAR_DAYS_AT_LOCAL_TIME'
+    if (!['CALENDAR_DAYS_AT_LOCAL_TIME', 'ELAPSED_HOURS'].includes(deadlineSemantics)) {
+      throw new BadRequestException('Invalid deadlineSemantics')
+    }
+    const cancellableAmountMinor = minorBigInt(input.cancellableAmountMinor, 'cancellableAmountMinor')
+    const nightlyAmountsMinor = Array.isArray(input.nightlyAmountsMinor)
+      ? input.nightlyAmountsMinor.map((item: unknown) => minorBigInt(item, 'nightlyAmountsMinor'))
+      : undefined
+    const customerAmountPaidMinor = input.customerAmountPaidMinor == null ? undefined : minorBigInt(input.customerAmountPaidMinor, 'customerAmountPaidMinor')
+    const retainedFeesMinor = input.retainedFeesMinor == null ? undefined : minorBigInt(input.retainedFeesMinor, 'retainedFeesMinor')
+    const priorRefundsMinor = input.priorRefundsMinor == null ? undefined : minorBigInt(input.priorRefundsMinor, 'priorRefundsMinor')
+    const supplierCancellableAmountMinor = input.supplierCancellableAmountMinor == null ? undefined : minorBigInt(input.supplierCancellableAmountMinor, 'supplierCancellableAmountMinor')
+    const supplierPenaltyOverrideMinor = input.supplierPenaltyOverrideMinor == null ? undefined : minorBigInt(input.supplierPenaltyOverrideMinor, 'supplierPenaltyOverrideMinor')
+    const propertyTimeZone = clean(input.propertyTimeZone) || contract.supplierHotelMapping?.hotel?.timeZone || 'Asia/Dubai'
+    const checkInLocalTime = clean(input.checkInLocalTime) || '15:00'
+
+    const rules: CancellationSimulationRule[] = Array.isArray(input.rules)
+      ? input.rules.map((rule: any) => ({
+          ...(rule.daysBeforeCheckin !== undefined ? { daysBeforeCheckin: Number(rule.daysBeforeCheckin) } : {}),
+          ...(rule.elapsedHoursBeforeCheckin !== undefined ? { elapsedHoursBeforeCheckin: Number(rule.elapsedHoursBeforeCheckin) } : {}),
+          ...(rule.penaltyType ? { penaltyType: rule.penaltyType } : {}),
+          ...(rule.penaltyPercent != null ? { penaltyPercent: Number(rule.penaltyPercent) } : {}),
+          ...(rule.penaltyMinor != null ? { penaltyMinor: minorBigInt(rule.penaltyMinor, 'penaltyMinor') } : {}),
+          ...(rule.penaltyNights != null ? { penaltyNights: Number(rule.penaltyNights) } : {}),
+          ...(rule.currency ? { currency: clean(rule.currency).toUpperCase() } : {}),
+        }))
+      : contract.cancellationPolicies.map(rule => ({
+          daysBeforeCheckin: rule.daysBeforeCheckin,
+          ...(rule.penaltyPercent !== null ? { penaltyPercent: rule.penaltyPercent } : {}),
+          ...(rule.penaltyMinor !== null ? { penaltyMinor: rule.penaltyMinor } : {}),
+          ...(rule.penaltyNights !== null ? { penaltyNights: rule.penaltyNights } : {}),
+          ...(rule.currency !== null ? { currency: rule.currency } : {}),
+        }))
+
+    const evaluator = this.cancellationPolicy ?? new CancellationPolicyService()
+    const simulated = evaluator.simulate({
+      cancellableAmountMinor,
+      nightlyAmountsMinor,
+      currency,
+      checkIn,
+      requestedAt,
+      policyType,
+      deadlineSemantics,
+      propertyTimeZone,
+      checkInLocalTime,
+      customerAmountPaidMinor,
+      retainedFeesMinor,
+      priorRefundsMinor,
+      supplierCancellableAmountMinor,
+      supplierPenaltyOverrideMinor,
+      rules,
+    })
+
+    return {
+      ...simulated,
+      cancellableAmountMinor: simulated.cancellableAmountMinor.toString(),
+      penaltyMinor: simulated.penaltyMinor.toString(),
+      refundMinor: simulated.refundMinor.toString(),
+      customerCancellationLiabilityMinor: simulated.customerCancellationLiabilityMinor.toString(),
+      customerRefundEntitlementMinor: simulated.customerRefundEntitlementMinor.toString(),
+      customerRefundPayableMinor: simulated.customerRefundPayableMinor.toString(),
+      settlementBalanceMinor: simulated.settlementBalanceMinor.toString(),
+      supplierPenaltyMinor: simulated.supplierPenaltyMinor.toString(),
+      supplierExpectedCreditMinor: simulated.supplierExpectedCreditMinor.toString(),
+    }
+  }
   async createChildPolicy(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minAge) || !Number.isInteger(input.maxAge) || input.minAge < 0 || input.maxAge < input.minAge || input.maxAge > 17) throw new BadRequestException('Invalid child policy ages'); const supplementMinor = input.supplementMinor == null ? null : BigInt(input.supplementMinor); if (supplementMinor !== null && supplementMinor < 0n) throw new BadRequestException('Invalid child supplement'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.child_policy.created', 'child_policy', requestId, async tx => { await this.lockEditableContract(tx, tenantId, contractId); const overlap = await tx.childPolicy.findFirst({ where: { contractId, minAge: { lte: input.maxAge }, maxAge: { gte: input.minAge } } }); if (overlap) throw new BadRequestException('Child policy age ranges overlap'); const currency = input.currency == null ? null : enabledCurrency(input.currency); if (currency && currency.length !== 3) throw new BadRequestException('Invalid policy currency'); const value = await tx.childPolicy.create({ data: { contractId, minAge: input.minAge, maxAge: input.maxAge, extraBedAllowed: input.extraBedAllowed ?? false, supplementMinor, currency } }); return { id: value.id, value: { ...value, supplementMinor: value.supplementMinor?.toString() ?? null } } }) }
-  async createLeadTimeRule(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minLeadHours) || input.minLeadHours < 0 || (input.maxLeadDays != null && (!Number.isInteger(input.maxLeadDays) || input.maxLeadDays < 0))) throw new BadRequestException('Invalid lead-time rule'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.lead_time_rule.updated', 'booking_lead_time_rule', requestId, async tx => { await this.lockEditableContract(tx, tenantId, contractId); const value = await tx.bookingLeadTimeRule.upsert({ where: { contractId }, update: { minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null }, create: { contractId, minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null } }); return { id: value.id, value } }) }
+  async createLeadTimeRule(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) { if (!Number.isInteger(input.minLeadHours) || !Number.isInteger(input.minLeadHours) || input.minLeadHours < 0 || (input.maxLeadDays != null && (!Number.isInteger(input.maxLeadDays) || input.maxLeadDays < 0))) throw new BadRequestException('Invalid lead-time rule'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.lead_time_rule.updated', 'booking_lead_time_rule', requestId, async tx => { await this.lockEditableContract(tx, tenantId, contractId); const value = await tx.bookingLeadTimeRule.upsert({ where: { contractId }, update: { minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null }, create: { contractId, minLeadHours: input.minLeadHours, maxLeadDays: input.maxLeadDays ?? null } }); return { id: value.id, value } }) }
   /** Removes one cancellation rule from an editable contract. Refused when a refundable plan names its set and it is the set's last rule. */
   async deleteCancellationPolicy(tenantId: string, userId: string, contractId: string, policyId: string, requestId?: string) {
     return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.cancellation_policy.deleted', 'cancellation_policy', requestId, async tx => {
@@ -943,6 +1070,481 @@ export class SupplyService {
     return result.rates
   }
 
+  async connectors(tenantId: string, userId: string) {
+    await this.check(tenantId, userId, 'supply.suppliers.read')
+    return this.prisma.withTenant(tenantId, tx =>
+      tx.connectorDefinition.findMany({
+        where: { tenantId },
+        include: { supplier: { select: { id: true, displayName: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    )
+  }
+
+  async createConnector(tenantId: string, userId: string, input: any, requestId?: string) {
+    const name = clean(input.name)
+    const supplierId = clean(input.supplierId)
+    const type = clean(input.type) as ConnectorFormatType
+    const status = clean(input.status || 'ACTIVE')
+    const version = clean(input.version || 'v1')
+    const types = ['API_JSON', 'XML_IN', 'XML_OUT', 'CHANNEL_MANAGER', 'MANUAL_EXTRANET']
+    const statuses = ['DRAFT', 'ACTIVE', 'SUSPENDED', 'DISABLED']
+    if (!name || !supplierId || !types.includes(type) || !statuses.includes(status)) {
+      throw new BadRequestException('Invalid connector definition fields')
+    }
+    if (input.secretRef !== undefined && input.secretRef !== null) {
+      if (typeof input.secretRef !== 'string') throw new BadRequestException('Invalid secretRef')
+      assertApprovedSecretReference(input.secretRef)
+    }
+    const capabilities = Array.isArray(input.capabilities) ? input.capabilities.map(String) : ['availability', 'cancel']
+
+    return this.write(tenantId, userId, 'supply.suppliers.manage', 'supply.connector.created', 'connector_definition', requestId, async tx => {
+      const supplier = await tx.supplier.findFirst({ where: { id: supplierId, tenantId } })
+      if (!supplier) throw new BadRequestException('Supplier does not belong to tenant')
+      const connector = await tx.connectorDefinition.create({
+        data: {
+          tenantId,
+          supplierId,
+          type: type as any,
+          status: status as any,
+          name,
+          capabilities,
+          version,
+          healthState: status === 'ACTIVE' ? 'healthy' : 'unknown',
+        },
+      })
+      if (typeof input.secretRef === 'string' && input.secretRef.trim()) {
+        await tx.connectorCredentialReference.create({
+          data: {
+            connectorId: connector.id,
+            secretRef: input.secretRef.trim(),
+            purpose: 'primary_transport',
+          },
+        })
+      }
+      return { id: connector.id, value: connector }
+    })
+  }
+
+  async ingestConnectorInventory(tenantId: string, userId: string, connectorId: string, input: any, requestId?: string) {
+    await this.check(tenantId, userId, 'supply.availability.manage')
+    const idempotencyKey = clean(input.idempotencyKey)
+    const format = clean(input.format) as ConnectorFormatType
+    if (!idempotencyKey || !['API_JSON', 'XML_IN', 'XML_OUT', 'CHANNEL_MANAGER', 'MANUAL_EXTRANET'].includes(format)) {
+      throw new BadRequestException('Invalid connector inventory ingestion request')
+    }
+
+    return this.prisma.withTenant(tenantId, async tx => {
+      const connector = await tx.connectorDefinition.findFirst({ where: { id: connectorId, tenantId } })
+      if (!connector) throw new NotFoundException('Connector not found')
+      if (connector.status !== 'ACTIVE') throw new BadRequestException('Connector is not active')
+
+      const existingEvent = await tx.inventoryUpdateEvent.findUnique({
+        where: { supplierId_idempotencyKey: { supplierId: connector.supplierId, idempotencyKey }, tenantId },
+      })
+      if (existingEvent) {
+        const errors = Array.isArray(existingEvent.validationErrors) ? (existingEvent.validationErrors as string[]) : []
+        return {
+          eventId: existingEvent.id,
+          outcome: existingEvent.outcome === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED',
+          ingestedRows: 0,
+          validationErrors: errors,
+        }
+      }
+
+      const normalized = normalizeConnectorInventoryPayload(format, input.payload)
+      if (normalized.status === 'rejected') {
+        const failedEvent = await tx.inventoryUpdateEvent.create({
+          data: {
+            tenantId,
+            supplierId: connector.supplierId,
+            connectorId: connector.id,
+            idempotencyKey,
+            outcome: 'FAILED',
+            validationErrors: normalized.errors,
+            processedAt: new Date(),
+          },
+        })
+        return {
+          eventId: failedEvent.id,
+          outcome: 'FAILED' as const,
+          ingestedRows: 0,
+          validationErrors: normalized.errors,
+        }
+      }
+
+      const mappingErrors: string[] = []
+      let ingestedRows = 0
+
+      for (const item of normalized.items) {
+        const hotelMapping = await tx.supplierHotelMapping.findFirst({
+          where: {
+            tenantId,
+            supplierId: connector.supplierId,
+            supplierHotelId: item.supplierHotelId,
+            status: 'MAPPED',
+          },
+        })
+        if (!hotelMapping) {
+          mappingErrors.push(`UNMAPPED_SUPPLIER_HOTEL:${item.supplierHotelId}`)
+          continue
+        }
+        const roomMapping = await tx.supplierRoomMapping.findFirst({
+          where: {
+            tenantId,
+            supplierHotelMappingId: hotelMapping.id,
+            supplierRoomId: item.supplierRoomId,
+            status: 'MAPPED',
+          },
+        })
+        if (!roomMapping) {
+          mappingErrors.push(`UNMAPPED_SUPPLIER_ROOM:${item.supplierRoomId}`)
+          continue
+        }
+        const ratePlan = await tx.ratePlan.findFirst({
+          where: {
+            tenantId,
+            roomTypeId: roomMapping.roomTypeId,
+            code: item.ratePlanCode,
+            contract: { supplierId: connector.supplierId },
+          },
+        })
+        if (!ratePlan || ratePlan.currency !== item.currency) {
+          mappingErrors.push(`UNMAPPED_OR_CURRENCY_MISMATCH_RATE_PLAN:${item.ratePlanCode}`)
+          continue
+        }
+
+        const stayDate = date(item.stayDate)
+        const existingAvail = await tx.dailyAvailability.findUnique({
+          where: { ratePlanId_stayDate: { ratePlanId: ratePlan.id, stayDate }, tenantId },
+        })
+        if (existingAvail && item.allotment < existingAvail.sold + existingAvail.held) {
+          mappingErrors.push(`ALLOTMENT_BELOW_COMMITTED:${item.stayDate}`)
+          continue
+        }
+
+        await tx.dailyAvailability.upsert({
+          where: { ratePlanId_stayDate: { ratePlanId: ratePlan.id, stayDate }, tenantId },
+          update: { allotment: item.allotment, stopSell: item.stopSell, minStay: item.minStay, sourceUpdatedAt: new Date() },
+          create: { tenantId, ratePlanId: ratePlan.id, stayDate, allotment: item.allotment, sold: 0, stopSell: item.stopSell, minStay: item.minStay, sourceUpdatedAt: new Date() },
+        })
+
+        await tx.dailyRate.upsert({
+          where: { ratePlanId_stayDate_occupancy: { ratePlanId: ratePlan.id, stayDate, occupancy: item.occupancy }, tenantId },
+          update: { amountMinor: item.amountMinor, amountBasis: item.amountBasis, currency: item.currency, sourceUpdatedAt: new Date() },
+          create: { tenantId, ratePlanId: ratePlan.id, stayDate, occupancy: item.occupancy, amountMinor: item.amountMinor, amountBasis: item.amountBasis, currency: item.currency, sourceUpdatedAt: new Date() },
+        })
+
+        ingestedRows += 1
+      }
+
+      const outcome = mappingErrors.length === 0 && ingestedRows > 0 ? 'SUCCEEDED' : 'FAILED'
+      const event = await tx.inventoryUpdateEvent.create({
+        data: {
+          tenantId,
+          supplierId: connector.supplierId,
+          connectorId: connector.id,
+          idempotencyKey,
+          outcome,
+          validationErrors: mappingErrors,
+          processedAt: new Date(),
+        },
+      })
+
+      await tx.connectorExecution.upsert({
+        where: { connectorId_correlationId: { connectorId: connector.id, correlationId: idempotencyKey }, tenantId },
+        update: { status: outcome, errorClassification: mappingErrors[0] ?? null },
+        create: {
+          tenantId,
+          connectorId: connector.id,
+          correlationId: idempotencyKey,
+          operation: `inventory_ingest:${format}`,
+          status: outcome,
+          latencyMs: 12,
+          errorClassification: mappingErrors[0] ?? null,
+        },
+      })
+
+      await tx.auditEvent.create({
+        data: {
+          tenantId,
+          userId,
+          actorType: 'USER',
+          action: 'supply.connector.inventory_ingested',
+          entityType: 'inventory_update_event',
+          entityId: event.id,
+          payload: {
+            outcome: 'allowed',
+            requestId: requestId ?? null,
+            connectorId: connector.id,
+            format,
+            ingestedRows,
+            executionOutcome: outcome,
+          },
+        },
+      })
+
+      return {
+        eventId: event.id,
+        outcome,
+        ingestedRows,
+        validationErrors: mappingErrors,
+      }
+    })
+  }
+
+  async executeSupplierCancellation(tenantId: string, userId: string, input: any, requestId?: string) {
+    await this.check(tenantId, userId, 'supply.contracts.manage')
+    const bookingId = clean(input.bookingId)
+    const idempotencyKey = clean(input.idempotencyKey)
+    const reason = clean(input.reason || 'CUSTOMER_REQUEST')
+    const currency = clean(input.currency).toUpperCase()
+    const requestedAt = clean(input.requestedAt || new Date().toISOString())
+    if (!bookingId || !idempotencyKey || !/^[A-Z]{3}$/.test(currency)) {
+      throw new BadRequestException('Invalid cancellation execution request')
+    }
+    const expectedCustomerLiabilityMinor = minorBigInt(input.expectedCustomerLiabilityMinor ?? '0', 'expectedCustomerLiabilityMinor')
+    const refundMinor = minorBigInt(input.refundMinor ?? '0', 'refundMinor')
+    const simulatedSupplierPenaltyMinor = input.simulatedSupplierPenaltyMinor != null
+      ? minorBigInt(input.simulatedSupplierPenaltyMinor, 'simulatedSupplierPenaltyMinor')
+      : undefined
+    if (expectedCustomerLiabilityMinor < 0n || refundMinor < 0n || (simulatedSupplierPenaltyMinor !== undefined && simulatedSupplierPenaltyMinor < 0n)) {
+      throw new BadRequestException('Cancellation monetary values must be non-negative')
+    }
+
+    const booking = await this.prisma.withTenant(tenantId, tx =>
+      tx.booking.findFirst({ where: { id: bookingId, tenantId }, include: { cancellations: true } }),
+    )
+    if (!booking) throw new NotFoundException('Booking not found')
+    if (booking.currency !== currency) throw new BadRequestException('Booking currency mismatch')
+    if (refundMinor > booking.totalMinor) throw new BadRequestException('Refund exceeds booking totalMinor')
+
+    const evaluated = evaluateBedbankCancellationExecution({
+      bookingReference: booking.reference,
+      expectedCustomerLiabilityMinor,
+      simulatedOutcome: input.simulatedSupplierOutcome,
+      simulatedSupplierPenaltyMinor,
+    })
+
+    const cancellationRecord = await this.prisma.withTenant(tenantId, async tx => {
+      if (input.connectorId) {
+        const connector = await tx.connectorDefinition.findFirst({ where: { id: clean(input.connectorId), tenantId } })
+        if (!connector) throw new NotFoundException('Connector not found')
+        await tx.connectorExecution.upsert({
+          where: { connectorId_correlationId: { connectorId: connector.id, correlationId: idempotencyKey }, tenantId },
+          update: {
+            status: evaluated.executionStatus === 'CONFIRMED' ? 'SUCCEEDED' : evaluated.executionStatus === 'UNKNOWN' ? 'RETRYING' : 'FAILED',
+            errorClassification: evaluated.errorClassification,
+          },
+          create: {
+            tenantId,
+            connectorId: connector.id,
+            correlationId: idempotencyKey,
+            operation: 'booking_cancel',
+            status: evaluated.executionStatus === 'CONFIRMED' ? 'SUCCEEDED' : evaluated.executionStatus === 'UNKNOWN' ? 'RETRYING' : 'FAILED',
+            latencyMs: 18,
+            errorClassification: evaluated.errorClassification,
+          },
+        })
+      }
+
+      let cancellation: { id: string } | null = null
+      if (evaluated.executionStatus === 'CONFIRMED') {
+        const existingCancellation = booking.cancellations[0]
+        cancellation = existingCancellation
+          ? existingCancellation
+          : await tx.cancellation.create({
+              data: {
+                bookingId: booking.id,
+                reason,
+                refundMinor,
+              },
+            })
+        await tx.booking.update({
+          where: { id: booking.id, tenantId },
+          data: { status: 'CANCELLED' },
+        })
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          tenantId,
+          userId,
+          actorType: 'USER',
+          action: `booking.cancellation.${evaluated.executionStatus.toLowerCase()}`,
+          entityType: 'booking',
+          entityId: booking.id,
+          payload: {
+            outcome: 'allowed',
+            requestId: requestId ?? null,
+            idempotencyKey,
+            executionStatus: evaluated.executionStatus,
+            supplierCancellationRef: evaluated.supplierCancellationRef,
+            supplierPenaltyMinor: evaluated.supplierPenaltyMinor?.toString() ?? null,
+            customerLiabilityMinor: expectedCustomerLiabilityMinor.toString(),
+            refundMinor: refundMinor.toString(),
+            discrepancyReviewRequired: evaluated.discrepancyReviewRequired,
+          },
+        },
+      })
+
+      return cancellation
+    })
+
+    let ledgerEntryId: string | null = null
+    let refundStatus: 'NOT_DUE' | 'READY' | 'SUCCEEDED' | 'PENDING_RECONCILIATION' = 'NOT_DUE'
+    let voucherNotificationIds: string[] = []
+
+    if (evaluated.executionStatus === 'UNKNOWN' || evaluated.executionStatus === 'MANUAL_REVIEW') {
+      refundStatus = 'PENDING_RECONCILIATION'
+    } else if (evaluated.executionStatus === 'CONFIRMED') {
+      if (refundMinor > 0n) {
+        const ledgerService = this.ledger ?? new LedgerService(this.prisma)
+        const posted = await ledgerService.postB2BLedgerAdjustment({
+          tenantId,
+          userId,
+          requestId,
+          walletId: input.walletId ? clean(input.walletId) : undefined,
+          currency,
+          type: 'REFUND',
+          amountMinor: refundMinor,
+          authorizedRefundableMinor: booking.totalMinor,
+          reference: `booking:${booking.id}`,
+          idempotencyKey: `cancel-refund:${idempotencyKey}`,
+        })
+        ledgerEntryId = posted.entry.id
+        refundStatus = 'SUCCEEDED'
+      }
+
+      const notificationService = this.notifications ?? new CancellationNotificationService(this.prisma)
+      const vouchers = await notificationService.dispatch({
+        tenantId,
+        userId,
+        requestId,
+        bookingId: booking.id,
+        bookingReference: booking.reference,
+        supplierCancellationRef: evaluated.supplierCancellationRef,
+        channels: ['CLIENT_EMAIL', 'SUPPLIER_WEBHOOK'],
+        currency,
+        penaltyMinor: expectedCustomerLiabilityMinor,
+        refundMinor,
+        idempotencyKey: `cancel-voucher:${idempotencyKey}`,
+      })
+      voucherNotificationIds = vouchers.map(v => v.id)
+    }
+
+    return {
+      bookingId: booking.id,
+      cancellationId: cancellationRecord?.id ?? null,
+      executionStatus: evaluated.executionStatus,
+      refundStatus,
+      supplierCancellationRef: evaluated.supplierCancellationRef,
+      supplierPenaltyMinor: evaluated.supplierPenaltyMinor?.toString() ?? null,
+      customerLiabilityMinor: expectedCustomerLiabilityMinor.toString(),
+      refundMinor: refundMinor.toString(),
+      currency,
+      discrepancyReviewRequired: evaluated.discrepancyReviewRequired,
+      ledgerEntryId,
+      voucherNotificationIds,
+      requestedAt,
+    }
+  }
+
+  async listWalletLedgerSummaries(tenantId: string, userId: string) {
+    await this.check(tenantId, userId, 'supply.contracts.read')
+    const wallets = await this.prisma.withTenant(tenantId, tx =>
+      tx.wallet.findMany({
+        where: { tenantId },
+        include: { entries: { orderBy: { immutableAt: 'desc' }, take: 50 } },
+        orderBy: { currency: 'asc' },
+      }),
+    )
+    return wallets.map(wallet => {
+      const durableBalance = wallet.entries.reduce((sum, entry) => sum + entry.amountMinor, 0n)
+      return {
+        walletId: wallet.id,
+        tenantId: wallet.tenantId,
+        currency: wallet.currency,
+        creditLimitMinor: wallet.creditLimit.toString(),
+        durableBalanceMinor: durableBalance.toString(),
+        availableCreditMinor: (wallet.creditLimit + durableBalance).toString(),
+        entries: wallet.entries.map(entry => ({
+          id: entry.id,
+          type: entry.type,
+          amountMinor: entry.amountMinor.toString(),
+          currency: entry.currency,
+          reference: entry.reference,
+          idempotencyKey: entry.idempotencyKey,
+          immutableAt: entry.immutableAt.toISOString(),
+        })),
+      }
+    })
+  }
+
+  async postLedgerAdjustment(tenantId: string, userId: string, input: any, requestId?: string) {
+    await this.check(tenantId, userId, 'supply.contracts.manage')
+    const currency = clean(input.currency).toUpperCase()
+    const type = clean(input.type) as 'REFUND' | 'CREDIT' | 'DEBIT' | 'RELEASE'
+    if (!['REFUND', 'CREDIT', 'DEBIT', 'RELEASE'].includes(type)) {
+      throw new BadRequestException('Invalid ledger adjustment type')
+    }
+    const amountMinor = minorBigInt(input.amountMinor, 'amountMinor')
+    const authorizedRefundableMinor = input.authorizedRefundableMinor != null
+      ? minorBigInt(input.authorizedRefundableMinor, 'authorizedRefundableMinor')
+      : undefined
+
+    const ledgerService = this.ledger ?? new LedgerService(this.prisma)
+    const result = await ledgerService.postB2BLedgerAdjustment({
+      tenantId,
+      userId,
+      requestId,
+      walletId: input.walletId ? clean(input.walletId) : undefined,
+      currency,
+      type,
+      amountMinor,
+      authorizedRefundableMinor,
+      reference: clean(input.reference),
+      idempotencyKey: clean(input.idempotencyKey),
+    })
+
+    return {
+      entryId: result.entry.id,
+      walletId: result.walletId,
+      type: result.entry.type,
+      amountMinor: result.entry.amountMinor.toString(),
+      currency: result.entry.currency,
+      reference: result.entry.reference,
+      availableCreditMinor: result.availableCreditMinor.toString(),
+      durableBalanceMinor: result.durableBalanceMinor.toString(),
+      creditLimitMinor: result.creditLimitMinor.toString(),
+    }
+  }
+
+  async listCancellationVouchers(tenantId: string, userId: string, limit?: number) {
+    await this.check(tenantId, userId, 'supply.contracts.read')
+    const notificationService = this.notifications ?? new CancellationNotificationService(this.prisma)
+    return notificationService.listDeliveries(tenantId, limit)
+  }
+
+  async dispatchCancellationVoucher(tenantId: string, userId: string, input: any, requestId?: string) {
+    await this.check(tenantId, userId, 'supply.contracts.manage')
+    const channels = Array.isArray(input.channels) ? (input.channels.map(String) as CancellationVoucherChannel[]) : []
+    const notificationService = this.notifications ?? new CancellationNotificationService(this.prisma)
+    return notificationService.dispatch({
+      tenantId,
+      userId,
+      requestId,
+      bookingId: clean(input.bookingId),
+      bookingReference: clean(input.bookingReference),
+      supplierCancellationRef: input.supplierCancellationRef ? clean(input.supplierCancellationRef) : null,
+      channels,
+      currency: clean(input.currency).toUpperCase(),
+      penaltyMinor: minorBigInt(input.penaltyMinor ?? '0', 'penaltyMinor'),
+      refundMinor: minorBigInt(input.refundMinor ?? '0', 'refundMinor'),
+      idempotencyKey: clean(input.idempotencyKey),
+    })
+  }
+
   async upsertDailyRate(tenantId: string, userId: string, input: any, requestId?: string) {
     return (await this.editCalendar(tenantId, userId, { rates: [input], confirmLargeChanges: input?.confirmLargeChanges }, requestId)).rates[0]
   }
@@ -1118,5 +1720,281 @@ export class SupplyService {
       const unique = [...new Set(reasons)]
       return { eligible: unique.length === 0, status: unique.length === 0 ? 'ELIGIBLE_FOR_FUTURE_SEARCH' as const : 'NOT_ELIGIBLE' as const, reasons: unique, warnings: [] as string[] }
     })
+  }
+
+  // ---- Market Validity, Source Market Profiling & Grouping (ADR 0104) ----------------------------------------------------
+  private serializeMarketGroup(row: { id: string; tenantId: string; code: string; name: string; countryCodes: string[]; isActive: boolean; createdAt: Date; updatedAt: Date }): SourceMarketGroupRead {
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      code: row.code,
+      name: row.name,
+      countryCodes: row.countryCodes,
+      isActive: row.isActive,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    }
+  }
+
+  private serializeMarketValidityRule(row: {
+    id: string
+    tenantId: string
+    contractId: string
+    ratePlanId: string | null
+    inclusionType: MarketInclusion
+    matchType: MarketMatchType
+    countryCodes: string[]
+    marketGroupId: string | null
+    createdAt: Date
+    updatedAt: Date
+    marketGroup?: { id: string; tenantId: string; code: string; name: string; countryCodes: string[]; isActive: boolean; createdAt: Date; updatedAt: Date } | null
+    ratePlan?: { id: string; code: string } | null
+  }): MarketValidityRuleRead {
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      contractId: row.contractId,
+      ratePlanId: row.ratePlanId,
+      ratePlanCode: row.ratePlan?.code ?? null,
+      inclusionType: row.inclusionType,
+      matchType: row.matchType,
+      countryCodes: row.countryCodes,
+      marketGroupId: row.marketGroupId,
+      marketGroup: row.marketGroup ? this.serializeMarketGroup(row.marketGroup) : null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    }
+  }
+
+  private validateSourceMarketGroupInput(input: any, partial = false) {
+    const out: { code?: string; name?: string; countryCodes?: string[]; isActive?: boolean } = {}
+    if (!partial || input?.code !== undefined) {
+      const code = clean(input?.code).toUpperCase()
+      if (!/^[A-Z0-9][A-Z0-9_-]{0,79}$/.test(code)) {
+        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'code must be 1 to 80 uppercase alphanumeric characters, dashes or underscores.' })
+      }
+      out.code = code
+    }
+    if (!partial || input?.name !== undefined) {
+      const name = clean(input?.name)
+      if (name.length < 1 || name.length > 160) {
+        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'name must be 1 to 160 characters.' })
+      }
+      out.name = name
+    }
+    if (!partial || input?.countryCodes !== undefined) {
+      const parsed = parseMarketList(input?.countryCodes)
+      if (!parsed || parsed.length === 0) {
+        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'countryCodes must be a non-empty list of two-letter ISO-3166 alpha-2 country codes.' })
+      }
+      out.countryCodes = parsed
+    }
+    if (input?.isActive !== undefined) {
+      if (typeof input.isActive !== 'boolean') {
+        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'isActive must be a boolean.' })
+      }
+      out.isActive = input.isActive
+    } else if (!partial) {
+      out.isActive = true
+    }
+    return out
+  }
+
+  async sourceMarketGroups(tenantId: string, userId: string): Promise<SourceMarketGroupRead[]> {
+    await this.permittedAny(tenantId, userId, ['supply.contracts.read', 'supply.rates.read'])
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const rows = await tx.sourceMarketGroup.findMany({
+        where: { tenantId },
+        orderBy: [{ code: 'asc' }, { id: 'asc' }],
+      })
+      return rows.map((row) => this.serializeMarketGroup(row))
+    })
+  }
+
+  async createSourceMarketGroup(tenantId: string, userId: string, input: any, requestId?: string): Promise<SourceMarketGroupRead> {
+    const data = this.validateSourceMarketGroupInput(input, false)
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.created', 'source_market_group', requestId, async (tx) => {
+      const duplicate = await tx.sourceMarketGroup.findFirst({ where: { tenantId, code: data.code! } })
+      if (duplicate) throw new ConflictException({ code: 'SOURCE_MARKET_GROUP_CODE_EXISTS', message: `Source market group "${data.code}" already exists in this tenant.` })
+      const created = await tx.sourceMarketGroup.create({
+        data: {
+          tenantId,
+          code: data.code!,
+          name: data.name!,
+          countryCodes: data.countryCodes!,
+          isActive: data.isActive ?? true,
+        },
+      })
+      return { id: created.id, value: this.serializeMarketGroup(created) }
+    })
+  }
+
+  async updateSourceMarketGroup(tenantId: string, userId: string, groupId: string, input: any, requestId?: string): Promise<SourceMarketGroupRead> {
+    const data = this.validateSourceMarketGroupInput(input, true)
+    if (Object.keys(data).length === 0) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'Provide at least one field to update.' })
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.updated', 'source_market_group', requestId, async (tx) => {
+      const current = await tx.sourceMarketGroup.findFirst({ where: { id: groupId, tenantId } })
+      if (!current) throw new NotFoundException('Source market group not found')
+      if (data.code && data.code !== current.code) {
+        const duplicate = await tx.sourceMarketGroup.findFirst({ where: { tenantId, code: data.code } })
+        if (duplicate) throw new ConflictException({ code: 'SOURCE_MARKET_GROUP_CODE_EXISTS', message: `Source market group "${data.code}" already exists in this tenant.` })
+      }
+      const updated = await tx.sourceMarketGroup.update({
+        where: { id: groupId, tenantId },
+        data,
+      })
+      return { id: updated.id, value: this.serializeMarketGroup(updated) }
+    })
+  }
+
+  private async loadContractMarketValidityProfileInTx(tx: Prisma.TransactionClient, tenantId: string, contractId: string): Promise<ContractMarketValidityProfileRead> {
+    const contract = await tx.contract.findFirst({
+      where: { id: contractId, tenantId },
+      include: {
+        ratePlans: {
+          orderBy: [{ code: 'asc' }, { id: 'asc' }],
+          select: { id: true, code: true, status: true, validFrom: true, validTo: true, salesMarkets: true, nationalities: true },
+        },
+        marketValidityRules: {
+          include: {
+            marketGroup: true,
+            ratePlan: { select: { id: true, code: true } },
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        },
+      },
+    })
+    if (!contract) throw new NotFoundException('Contract not found')
+    const parsedContractMarkets = parseMarketRules(contract)
+    return {
+      contractId: contract.id,
+      contractCode: contract.code,
+      validFrom: dayOf(contract.validFrom)!,
+      validTo: dayOf(contract.validTo)!,
+      salesMarkets: parsedContractMarkets.salesMarkets ?? [],
+      nationalities: parsedContractMarkets.nationalities ?? [],
+      rules: contract.marketValidityRules.map((rule) => this.serializeMarketValidityRule(rule)),
+      ratePlans: contract.ratePlans.map((plan) => {
+        const pm = parseMarketRules(plan)
+        return {
+          id: plan.id,
+          code: plan.code,
+          status: plan.status,
+          validFrom: dayOf(plan.validFrom),
+          validTo: dayOf(plan.validTo),
+          salesMarkets: pm.salesMarkets ?? [],
+          nationalities: pm.nationalities ?? [],
+        }
+      }),
+    }
+  }
+
+  async contractMarketValidity(tenantId: string, userId: string, contractId: string): Promise<ContractMarketValidityProfileRead> {
+    await this.permittedAny(tenantId, userId, ['supply.contracts.read', 'supply.rates.read'])
+    return this.prisma.withTenant(tenantId, (tx) => this.loadContractMarketValidityProfileInTx(tx, tenantId, contractId))
+  }
+
+  private normalizeMarketValidityRuleWrite(raw: any, indexLabel: string): Required<MarketValidityRuleWrite> {
+    const inclusionType = raw?.inclusionType
+    const matchType = raw?.matchType
+    if (!(MARKET_INCLUSIONS as readonly string[]).includes(inclusionType)) {
+      throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: inclusionType must be INCLUDE or EXCLUDE.` })
+    }
+    if (!(MARKET_MATCH_TYPES as readonly string[]).includes(matchType)) {
+      throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: matchType must be COUNTRY_CODE, MARKET_GROUP or WORLDWIDE.` })
+    }
+    const ratePlanId = raw?.ratePlanId === undefined || raw?.ratePlanId === null || raw?.ratePlanId === '' ? null : clean(raw.ratePlanId)
+    let countryCodes: string[] = []
+    let marketGroupId: string | null = null
+    if (matchType === 'COUNTRY_CODE') {
+      const parsed = parseMarketList(raw?.countryCodes)
+      if (!parsed || parsed.length === 0) {
+        throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: countryCodes must be a non-empty list of two-letter ISO-3166 alpha-2 country codes when matchType is COUNTRY_CODE.` })
+      }
+      countryCodes = parsed
+    } else if (matchType === 'MARKET_GROUP') {
+      marketGroupId = clean(raw?.marketGroupId)
+      if (!marketGroupId) {
+        throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: marketGroupId is required when matchType is MARKET_GROUP.` })
+      }
+    }
+    return {
+      ratePlanId,
+      inclusionType: inclusionType as MarketInclusion,
+      matchType: matchType as MarketMatchType,
+      countryCodes,
+      marketGroupId,
+    }
+  }
+
+  async upsertContractMarketValidity(tenantId: string, userId: string, contractId: string, input: any, requestId?: string): Promise<ContractMarketValidityProfileRead> {
+    const isBatchReplace = Array.isArray(input?.rules)
+    const rulesToWrite: Array<Required<MarketValidityRuleWrite>> = isBatchReplace
+      ? input.rules.map((item: unknown, idx: number) => this.normalizeMarketValidityRuleWrite(item, `rules[${idx}]`))
+      : [this.normalizeMarketValidityRuleWrite(input, 'rule')]
+
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.updated', 'contract', requestId, async (tx) => {
+      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } })
+      if (!contract) throw new NotFoundException('Contract not found')
+      if (contract.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
+
+      const planIds = [...new Set(rulesToWrite.map((r) => r.ratePlanId).filter((id): id is string => Boolean(id)))]
+      if (planIds.length > 0) {
+        const plans = await tx.ratePlan.findMany({ where: { tenantId, contractId, id: { in: planIds } }, select: { id: true } })
+        if (plans.length !== planIds.length) {
+          throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'One or more ratePlanId values do not belong to this contract.' })
+        }
+      }
+
+      const groupIds = [...new Set(rulesToWrite.map((r) => r.marketGroupId).filter((id): id is string => Boolean(id)))]
+      if (groupIds.length > 0) {
+        const groups = await tx.sourceMarketGroup.findMany({ where: { tenantId, id: { in: groupIds } }, select: { id: true } })
+        if (groups.length !== groupIds.length) {
+          throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'One or more marketGroupId values do not belong to this tenant.' })
+        }
+      }
+
+      if (isBatchReplace) {
+        const scopedPlanId = input?.ratePlanId === undefined ? undefined : input.ratePlanId === null || input.ratePlanId === '' ? null : clean(input.ratePlanId)
+        if (scopedPlanId === undefined) {
+          await tx.marketValidityRule.deleteMany({ where: { tenantId, contractId } })
+        } else {
+          await tx.marketValidityRule.deleteMany({ where: { tenantId, contractId, ratePlanId: scopedPlanId } })
+        }
+      }
+
+      for (const rule of rulesToWrite) {
+        await tx.marketValidityRule.create({
+          data: {
+            tenantId,
+            contractId,
+            ratePlanId: rule.ratePlanId,
+            inclusionType: rule.inclusionType,
+            matchType: rule.matchType,
+            countryCodes: rule.countryCodes,
+            marketGroupId: rule.marketGroupId,
+          },
+        })
+      }
+
+      const value = await this.loadContractMarketValidityProfileInTx(tx, tenantId, contractId)
+      return { id: contractId, value }
+    })
+  }
+
+  async deleteContractMarketValidityRule(tenantId: string, userId: string, contractId: string, ruleId: string, requestId?: string) {
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.deleted', 'market_validity_rule', requestId, async (tx) => {
+      const rule = await tx.marketValidityRule.findFirst({ where: { id: ruleId, contractId, tenantId } })
+      if (!rule) throw new NotFoundException('Market validity rule not found')
+      await tx.marketValidityRule.delete({ where: { id: rule.id, tenantId } })
+      return { id: rule.id, value: { id: rule.id, deleted: true } }
+    })
+  }
+
+  async validateRatePlanMarket(tenantId: string, userId: string, ratePlanId: string, input: any) {
+    await this.permittedAny(tenantId, userId, ['supply.rates.read', 'supply.contracts.read'])
+    const countryCode = typeof input?.sourceMarketCountryCode === 'string' ? input.sourceMarketCountryCode : ''
+    const evaluator = this.marketValidity ?? new MarketValidityService()
+    return evaluator.evaluateRatePlanValidity(this.prisma, tenantId, ratePlanId, countryCode)
   }
 }

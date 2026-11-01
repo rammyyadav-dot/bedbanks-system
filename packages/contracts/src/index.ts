@@ -2,6 +2,7 @@ export * from './envelope';
 export * from './routes';
 export * from './supply';
 export * from './admin-settings';
+export * from './platform-tenants';
 export * from './operations';
 export * from './hotel-commercial';
 export * from './hotel-readiness';

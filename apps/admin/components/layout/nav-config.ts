@@ -39,6 +39,7 @@ export const navSections: NavSection[] = departmentNav;
 const hiddenRoutes: NavItem[] = [
   { href: '/rooms', label: 'Rooms', icon: Hotel, requires: 'supply.rooms.read' },
   { href: '/inventory', label: 'Rates & Inventory', icon: CalendarRange },
+  { href: '/market-groups', label: 'Source Market Groups', icon: Globe, requires: 'supply.contracts.read' },
 ];
 
 export const flatNav = [...navSections.flatMap((s) => s.items), ...hiddenRoutes];

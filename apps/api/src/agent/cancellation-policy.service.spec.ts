@@ -62,6 +62,182 @@ describe('CancellationPolicyService', () => {
       .toMatchObject({ status: 'manual_review_required' })
   })
 
+  describe('simulate() bedbank policy model', () => {
+    it('evaluates NIGHTS penalty using actual unequal booked nightly prices', () => {
+      const result = service.simulate({
+        cancellableAmountMinor: 95000n,
+        nightlyAmountsMinor: [25000n, 30000n, 40000n],
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-12-29T12:00:00.000Z',
+        propertyTimeZone: 'Asia/Dubai',
+        checkInLocalTime: '15:00',
+        rules: [{ daysBeforeCheckin: 3, penaltyType: 'NIGHTS', penaltyNights: 2 }],
+      })
+      expect(result).toMatchObject({
+        status: 'quotable',
+        policyResolution: 'RESOLVED',
+        selectedPenaltyType: 'NIGHTS',
+        penaltyMinor: 55000n,
+        refundMinor: 40000n,
+        customerCancellationLiabilityMinor: 55000n,
+        customerRefundPayableMinor: 40000n,
+      })
+    })
+
+    it('applies contractual non-refundable liability immediately for NON_REFUNDABLE policy', () => {
+      const result = service.simulate({
+        cancellableAmountMinor: 42000n,
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-10-01T00:00:00.000Z',
+        policyType: 'NON_REFUNDABLE',
+        propertyTimeZone: 'Asia/Dubai',
+        rules: [],
+      })
+      expect(result).toMatchObject({
+        status: 'quotable',
+        policyType: 'NON_REFUNDABLE',
+        policyResolution: 'RESOLVED',
+        selectedPenaltyType: 'FULL_AMOUNT',
+        freeCancellationDeadlineUtc: null,
+        penaltyMinor: 42000n,
+        refundMinor: 0n,
+        customerRefundPayableMinor: 0n,
+      })
+    })
+
+    it('never treats missing or conflicting refundable rules as free cancellation', () => {
+      const missing = service.simulate({
+        cancellableAmountMinor: 42000n,
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-10-01T00:00:00.000Z',
+        policyType: 'REFUNDABLE',
+        rules: [],
+      })
+      expect(missing).toMatchObject({
+        status: 'policy_unavailable',
+        policyResolution: 'UNRESOLVED',
+        reason: 'missing_cancellation_policy',
+      })
+
+      const conflicted = service.simulate({
+        cancellableAmountMinor: 42000n,
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-12-30T00:00:00.000Z',
+        policyType: 'REFUNDABLE',
+        rules: [
+          { daysBeforeCheckin: 3, penaltyPercent: 25 },
+          { daysBeforeCheckin: 3, penaltyPercent: 75 },
+        ],
+      })
+      expect(conflicted).toMatchObject({
+        status: 'manual_review_required',
+        policyResolution: 'CONFLICTED',
+        reason: 'conflicting_penalty_windows',
+      })
+    })
+
+    it('separates supplier liability from customer refund and flags supplier penalty discrepancy', () => {
+      const result = service.simulate({
+        cancellableAmountMinor: 50000n,
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-12-29T12:00:00.000Z',
+        supplierCancellableAmountMinor: 45000n,
+        supplierPenaltyOverrideMinor: 40000n,
+        rules: [{ daysBeforeCheckin: 3, penaltyPercent: 50 }],
+      })
+      expect(result).toMatchObject({
+        status: 'quotable',
+        penaltyMinor: 25000n,
+        customerCancellationLiabilityMinor: 25000n,
+        customerRefundPayableMinor: 25000n,
+        supplierPenaltyMinor: 40000n,
+        supplierExpectedCreditMinor: 5000n,
+        discrepancyReviewRequired: true,
+      })
+    })
+
+    it('calculates settlement balance accurately for partial payment and prior partial refunds', () => {
+      const partialPaid = service.simulate({
+        cancellableAmountMinor: 100000n,
+        customerAmountPaidMinor: 30000n,
+        retainedFeesMinor: 5000n,
+        priorRefundsMinor: 0n,
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-12-29T12:00:00.000Z',
+        rules: [{ daysBeforeCheckin: 3, penaltyPercent: 50 }],
+      })
+      expect(partialPaid).toMatchObject({
+        status: 'quotable',
+        customerCancellationLiabilityMinor: 55000n,
+        customerRefundEntitlementMinor: 0n,
+        customerRefundPayableMinor: 0n,
+        settlementBalanceMinor: -25000n,
+      })
+
+      const withPriorRefund = service.simulate({
+        cancellableAmountMinor: 100000n,
+        customerAmountPaidMinor: 100000n,
+        retainedFeesMinor: 0n,
+        priorRefundsMinor: 60000n,
+        currency: 'AED',
+        checkIn: '2026-12-31',
+        requestedAt: '2026-12-29T12:00:00.000Z',
+        rules: [{ daysBeforeCheckin: 3, penaltyPercent: 25 }],
+      })
+      expect(withPriorRefund).toMatchObject({
+        status: 'quotable',
+        customerCancellationLiabilityMinor: 25000n,
+        customerRefundEntitlementMinor: 15000n,
+        customerRefundPayableMinor: 15000n,
+        settlementBalanceMinor: 15000n,
+      })
+    })
+
+    it('distinguishes calendar days at local check-in time vs elapsed hours across a DST boundary', () => {
+      // Europe/London switches GMT (UTC+0) -> BST (UTC+1) on 2026-03-29 at 01:00 UTC.
+      // Check-in: 2026-03-31 at 18:00 Europe/London = 2026-03-31T17:00:00.000Z.
+      // 3 calendar days prior at 18:00 Europe/London (2026-03-28 18:00 GMT) = 2026-03-28T18:00:00.000Z.
+      // 72 elapsed hours prior to 2026-03-31T17:00:00.000Z = 2026-03-28T17:00:00.000Z.
+      const calendarDays = service.simulate({
+        cancellableAmountMinor: 20000n,
+        currency: 'GBP',
+        checkIn: '2026-03-31',
+        checkInLocalTime: '18:00',
+        propertyTimeZone: 'Europe/London',
+        deadlineSemantics: 'CALENDAR_DAYS_AT_LOCAL_TIME',
+        requestedAt: '2026-03-28T17:30:00.000Z',
+        rules: [{ daysBeforeCheckin: 3, penaltyPercent: 100 }],
+      })
+      expect(calendarDays).toMatchObject({
+        status: 'quotable',
+        freeCancellationDeadlineUtc: '2026-03-28T18:00:00.000Z',
+        penaltyMinor: 0n,
+      })
+
+      const elapsedHours = service.simulate({
+        cancellableAmountMinor: 20000n,
+        currency: 'GBP',
+        checkIn: '2026-03-31',
+        checkInLocalTime: '18:00',
+        propertyTimeZone: 'Europe/London',
+        deadlineSemantics: 'ELAPSED_HOURS',
+        requestedAt: '2026-03-28T17:30:00.000Z',
+        rules: [{ elapsedHoursBeforeCheckin: 72, penaltyPercent: 100 }],
+      })
+      expect(elapsedHours).toMatchObject({
+        status: 'quotable',
+        freeCancellationDeadlineUtc: '2026-03-28T17:00:00.000Z',
+        penaltyMinor: 20000n,
+      })
+    })
+  })
+
   it('states a free-cancellation deadline only when a penalty rule is unambiguous', () => {
     const deadline = service.freeCancellationDeadline({
       refundable: true, checkIn: '2026-10-12', timeZone: 'Asia/Dubai', rules: [{ daysBeforeCheckin: 3, penaltyPercent: 100 }],
